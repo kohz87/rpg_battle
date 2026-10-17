@@ -917,3 +917,167 @@ test('the story notices render and can be pressed with no handlers at all', () =
         assert.ok(root(pane));
     }
 });
+
+// ---------------------------------------------------------------------------
+// Display terms and Edit companion
+
+const SOUL = { ...rules, terms: { levelName: 'Soul Class', xpName: 'Soul Growth', tiers: { size: 10, numerals: 'roman' }, cap: 100 } };
+const POWER = { ...rules, terms: { levelName: 'Soul Power', xpName: 'Power Growth', tiers: null, cap: null } };
+
+test('idle: the level and XP in the reader\'s terms; party rows show the tier', () => {
+    const party = [{ id: 'astra', name: 'Astra', role: 'companion', control: 'auto', sheet: sheet({ name: 'Astra', level: 12 }), gear: [] }];
+    let pane = render({ mode: 'idle', sheet: sheet({ level: 24, xp: 3120 }), skills: [], party, rules: SOUL });
+    assert.equal($(pane, '.rpg-battle-level').textContent, 'Soul Class III (Lv 24)');
+    const xpBar = $$(pane, '.rpg-battle-section.is-sheet [role="progressbar"]')[2];
+    assert.equal(xpBar.getAttribute('aria-label'), 'Soul Growth');
+    assert.equal(xpBar.querySelector('.rpg-battle-bar-name').textContent, 'Soul Growth');
+    assert.equal(xpBar.querySelector('.rpg-battle-bar-value').textContent, '26.34/100');
+    assert.ok(xpBar.classList.contains('is-named'));
+    assert.equal($(pane, '.rpg-battle-member-level').textContent, 'Soul Class II');
+    pane = render({ mode: 'idle', sheet: sheet({ level: 100, xp: 0 }), skills: [], party: [], rules: SOUL });
+    assert.equal($$(pane, '.rpg-battle-section.is-sheet [role="progressbar"]')[2].querySelector('.rpg-battle-bar-value').textContent, 'MAX');
+    pane = render({ mode: 'idle', sheet: sheet(), skills: [], party, rules: POWER });
+    assert.equal($(pane, '.rpg-battle-level').textContent, 'Soul Power 4');
+    assert.equal($(pane, '.rpg-battle-member-level').textContent, 'Soul Power 12');
+    assert.equal($$(pane, '.rpg-battle-section.is-sheet [role="progressbar"]')[2].querySelector('.rpg-battle-bar-value').textContent, `310/${xpToNext(4, rules)}`);
+    pane = render({ mode: 'idle', sheet: sheet(), skills: [], party, rules });
+    assert.equal($(pane, '.rpg-battle-member-level').textContent, 'Lv 12', 'the plain terms as before');
+});
+
+test('idle: Edit opens a small form for a companion; Save sends name, role and control', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    const party = [
+        { id: 'astra', name: 'Astra', role: 'companion', control: 'auto', sheet: sheet({ name: 'Astra' }), gear: [] },
+        { id: 'merrit', name: 'Merrit', role: 'hireling', control: 'command', sheet: sheet({ name: 'Merrit' }), gear: [] },
+    ];
+    const view = { mode: 'idle', sheet: sheet(), skills: [], party, rules };
+    const pane = render(view, handlers);
+    assert.equal($(pane, '.rpg-battle-edit-form'), null);
+    $$(pane, '.rpg-battle-edit-companion')[0].click();
+    assert.ok($$(pane, '.rpg-battle-member')[0].querySelector('.rpg-battle-edit-form'), 'the form opens in Astra\'s row');
+    assert.equal($$(pane, '.rpg-battle-edit-form').length, 1);
+    assert.equal($(pane, '.rpg-battle-edit-name').value, 'Astra');
+    assert.equal($(pane, '.rpg-battle-edit-role').value, 'companion');
+    assert.equal($(pane, '.rpg-battle-edit-control').value, 'auto');
+    assert.equal($$(pane, '.rpg-battle-control').length, 1, 'the row being edited shows the form instead of its buttons');
+
+    const name = $(pane, '.rpg-battle-edit-name');
+    name.value = '';
+    name.dispatch('input');
+    assert.equal($(pane, '.rpg-battle-edit-save').disabled, true, 'a name is needed');
+    name.value = 'Astra the Bold';
+    name.dispatch('input');
+    const role = $(pane, '.rpg-battle-edit-role');
+    role.value = 'mage';
+    role.dispatch('input');
+    const control = $(pane, '.rpg-battle-edit-control');
+    control.value = 'command';
+    control.dispatch('change');
+    // The glue redraws mid-edit: the form and what was typed stay.
+    renderBattleTab(pane, view, handlers);
+    assert.equal($(pane, '.rpg-battle-edit-name').value, 'Astra the Bold');
+    assert.equal($(pane, '.rpg-battle-edit-control').value, 'command');
+    $(pane, '.rpg-battle-edit-save').click();
+    assert.deepEqual(calls.at(-1), { name: 'onEditCompanion', args: ['astra', { name: 'Astra the Bold', role: 'mage', control: 'command' }] });
+    assert.equal($(pane, '.rpg-battle-edit-form'), null, 'closed after Save');
+
+    // Cancel closes without a call; an empty role becomes "companion".
+    $$(pane, '.rpg-battle-edit-companion')[1].click();
+    $(pane, '.rpg-battle-edit-cancel').click();
+    assert.equal($(pane, '.rpg-battle-edit-form'), null);
+    assert.equal(calls.filter(call => call.name === 'onEditCompanion').length, 1);
+    $$(pane, '.rpg-battle-edit-companion')[1].click();
+    const merritRole = $(pane, '.rpg-battle-edit-role');
+    merritRole.value = '   ';
+    merritRole.dispatch('input');
+    $(pane, '.rpg-battle-edit-save').click();
+    assert.deepEqual(calls.at(-1).args, ['merrit', { name: 'Merrit', role: 'companion', control: 'command' }]);
+    // Leaving the idle screen drops a half-done edit.
+    $$(pane, '.rpg-battle-edit-companion')[0].click();
+    render({ mode: 'setup', bestiary: [], suggestedRank: 'E', rules });
+    const back = render(view, handlers);
+    assert.equal($(back, '.rpg-battle-edit-form'), null);
+});
+
+test('setup: with the reader\'s terms the power picker offers their tiers and Start sends a level', () => {
+    reset();
+    const { handlers, last } = recorder();
+    const pane = render({ mode: 'setup', bestiary: ['Goblin'], suggestedRank: 'A', rules: SOUL }, handlers);
+    const power = $(pane, '.rpg-battle-enemy-power');
+    const options = power.querySelectorAll('option');
+    assert.deepEqual(options.map(node => node.value), ['', '1', '11', '21', '31', '41', '51', '61', '71', '81', '91']);
+    assert.equal(options[0].textContent, 'auto (fair: Soul Class III)', 'rank A is level 22');
+    assert.equal(options[3].textContent, 'Soul Class III (fair)');
+    assert.equal(options[10].textContent, 'Soul Class X');
+    assert.equal(power.getAttribute('aria-label'), 'Enemy 1 Soul Class');
+    const name = $(pane, '.rpg-battle-enemy-name');
+    name.value = 'Bog Wight';
+    name.dispatch('input');
+    power.value = '11';
+    power.dispatch('change');
+    $(pane, '.rpg-battle-add-row').click();
+    const second = $$(pane, '.rpg-battle-enemy-row')[1];
+    second.querySelector('.rpg-battle-enemy-name').value = 'Goblin';
+    second.querySelector('.rpg-battle-enemy-name').dispatch('input');
+    $(pane, '.rpg-battle-begin').click();
+    assert.deepEqual(last('onStart').args[0].rows, [
+        { name: 'Bog Wight', count: 1, level: 11, role: null, boss: false },
+        { name: 'Goblin', count: 1, level: null, role: null, boss: false },
+    ]);
+    // Names of their own without tiers: every level up to the cap.
+    reset();
+    const levels = render({ mode: 'setup', bestiary: [], suggestedRank: 'E', rules: { ...POWER, terms: { ...POWER.terms, cap: 30 } } });
+    const picker = $(levels, '.rpg-battle-enemy-power').querySelectorAll('option');
+    assert.equal(picker.length, 31);
+    assert.equal(picker[3].textContent, 'Soul Power 3 (fair)', 'rank E is level 3');
+});
+
+test('setup: a story fight\'s level is kept with the terms and becomes a rank without them', () => {
+    reset();
+    const prefill = [{ name: 'Wolf', count: 3, rank: null, role: null, boss: false, level: 1 }, { name: 'Bandit Captain', count: 1, rank: null, role: null, boss: true, level: 24 }];
+    const { handlers, last } = recorder();
+    let pane = render({ mode: 'setup', bestiary: [], suggestedRank: 'A', prefill, rules: SOUL }, handlers);
+    const pickers = $$(pane, '.rpg-battle-enemy-power');
+    assert.deepEqual(pickers.map(node => node.value), ['1', '24']);
+    assert.equal(pickers[1].querySelectorAll('option').at(-1).textContent, 'Soul Class III (Lv 24)', 'an exact level not among the tiers is offered as itself');
+    $(pane, '.rpg-battle-begin').click();
+    assert.deepEqual(last('onStart').args[0].rows.map(row => row.level), [1, 24]);
+    reset();
+    pane = render({ mode: 'setup', bestiary: [], suggestedRank: 'A', prefill, rules }, handlers);
+    assert.deepEqual($$(pane, '.rpg-battle-enemy-rank').map(node => node.value), ['F', 'A'], 'level 24 → rank A (level 22)');
+    $(pane, '.rpg-battle-begin').click();
+    assert.deepEqual(last('onStart').args[0].rows.map(row => [row.rank, 'level' in row]), [['F', false], ['A', false]]);
+});
+
+test('fight: an enemy\'s power badge in the reader\'s terms', () => {
+    reset();
+    let pane = render({ ...fightView(), rules: SOUL });
+    assert.match(card(pane, 'e1').querySelector('.rpg-battle-badge').textContent, /^Soul Class I · brute$/);
+    pane = render(fightView());
+    assert.match(card(pane, 'e1').querySelector('.rpg-battle-badge').textContent, /^E · brute$/);
+});
+
+test('result: gains in the reader\'s terms, with the level reached', () => {
+    reset();
+    let pane = render({ mode: 'result', result: result(), handoff: '', levelsGained: 1, pointsGained: 4, levelsReached: 5, rules: POWER });
+    assert.deepEqual(texts(root(pane), '.rpg-battle-gains dt'), ['Power Growth', 'Soul Power', 'Points']);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-gains dd'), ['+38 each', '+1 level (Soul Power 5)', '4 to spend']);
+    let span = 0;
+    for (let level = 1; level <= 10; level++) span += xpToNext(level, rules);
+    const gain = Math.round(span * 0.12);
+    const party = result().party.map(member => ({ ...member, level: 4 }));
+    pane = render({ mode: 'result', result: result({ party, xp: { pc: gain, astra: gain } }), handoff: '', levelsGained: 0, pointsGained: 0, rules: SOUL });
+    assert.deepEqual(texts(root(pane), '.rpg-battle-gains dd'), ['+12% each']);
+    pane = render({ mode: 'result', result: result({ party: [{ ...party[0] }, { ...party[1], level: 14 }], xp: { pc: gain, astra: gain } }), handoff: '', rules: SOUL });
+    assert.deepEqual(texts(root(pane), '.rpg-battle-gains dt'), ['Ren Soul Growth', 'Astra Soul Growth'], 'different tiers, different shares');
+});
+
+test('companion: the level picker in the reader\'s terms, up to the cap', () => {
+    reset();
+    const pane = render({ mode: 'companion', presets: [{ id: 'healer', name: 'Healer', points: { INT: 4 }, skills: [] }], level: 24, maxLevel: 34, rules: { ...SOUL, terms: { ...SOUL.terms, cap: 30 } } });
+    const options = $(pane, '.rpg-battle-companion-level').querySelectorAll('option');
+    assert.equal(options.length, 30);
+    assert.equal(options[23].textContent, 'Soul Class III (Lv 24)');
+    assert.match(root(pane).textContent, /You are Soul Class III \(Lv 24\)\./);
+});

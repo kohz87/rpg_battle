@@ -133,6 +133,10 @@ export const DEFAULT_RULES = Object.freeze({
         single: 'coins',
         row: 'Coins',
     },
+    // Display terms (terms.js, DESIGN §5.7): what the reader's world calls levels and XP, optional
+    // tier titles ({ size, numerals: 'roman' | 'arabic' }: levels 1–10 are "<levelName> I"…)
+    // and a level cap (null: character.maxLevel). Words only; no number above depends on them.
+    terms: { levelName: 'Level', xpName: 'XP', tiers: null, cap: null },
     // Coins (in the smallest unit) a defeated enemy of each rank may drop.
     moneyByRank: { F: [2, 8], E: [5, 20], D: [15, 50], C: [40, 120], B: [100, 300], A: [250, 700], S: [600, 1600], SS: [1500, 4000], SSS: [4000, 10000] },
 });

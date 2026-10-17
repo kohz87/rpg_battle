@@ -1,7 +1,9 @@
-// RPG Battle's panel under Extensions: the on/off switch, the money, and the block tags.
+// RPG Battle's panel under Extensions: the on/off switch, the money, the terms, and the block tags.
 //
 // Small on purpose: everything about a character happens in the Battle tab. Money follows the
 // reader's world (DESIGN §8.3): copper/silver/gold, one coin, or their own names and rates.
+// So do the terms (DESIGN §5.7): what levels and XP are called, optional tier titles
+// ("Soul Class I" for levels 1–10…) and the level cap; nothing here knows any world's words.
 // The status area also says when Story Block's own Character Sheet block is on beside RPG
 // Battle's sheet, with a button to turn it off; it is never turned off for the reader.
 
@@ -50,6 +52,23 @@ export function textToTiers(text) {
     return tiers;
 }
 
+const NUMERAL_CHOICES = [
+    { value: 'roman', label: 'I, II, III' },
+    { value: 'arabic', label: '1, 2, 3' },
+];
+
+function numberInput(id, value, { min = 1, max = 999, placeholder = '' } = {}) {
+    const node = el('input', { className: 'text_pole rpg-battle-settings-input rpg-battle-settings-number', attrs: { id, type: 'number', min: String(min), max: String(max), step: '1' } });
+    node.value = value === null || value === undefined ? '' : String(value);
+    if (placeholder) node.placeholder = placeholder;
+    return node;
+}
+
+const wholeOrNull = (text, min, max) => {
+    const value = Math.round(Number(String(text ?? '').trim()));
+    return String(text ?? '').trim() && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : null;
+};
+
 const CONFLICT_TEXT = 'Story Block\'s Character Sheet is also on: two HP values will disagree.';
 
 export function renderSettings(container, { settings, version = '', status = '', sheetConflict = false, onDisableSheet, onChange } = {}) {
@@ -92,6 +111,51 @@ export function renderSettings(container, { settings, version = '', status = '',
     single.addEventListener('change', () => commit(next => { next.currency = { ...next.currency, single: single.value.trim() || 'coins' }; }));
     moneyRow.addEventListener('change', () => commit(next => { next.currency = { ...next.currency, row: moneyRow.value.trim() || 'Coins' }; }));
 
+    // Terms: kept as the reader typed them (empty means the default), tiers as an object or null.
+    const terms = { levelName: 'Level', xpName: 'XP', tiers: null, cap: null, ...(current.terms ?? {}) };
+    const levelName = input('rpg_battle_terms_level', terms.levelName === 'Level' ? '' : terms.levelName, 'Level');
+    const xpName = input('rpg_battle_terms_xp', terms.xpName === 'XP' ? '' : terms.xpName, 'XP');
+    const tiersOn = el('input', { attrs: { id: 'rpg_battle_terms_tiers', type: 'checkbox' } });
+    tiersOn.checked = Boolean(terms.tiers);
+    const tierSize = numberInput('rpg_battle_terms_tier_size', terms.tiers?.size ?? 10, { min: 1, max: 100 });
+    const numerals = el('select', { className: 'text_pole rpg-battle-settings-input', attrs: { id: 'rpg_battle_terms_numerals' } },
+        NUMERAL_CHOICES.map(choice => {
+            const node = el('option', { text: choice.label });
+            node.value = choice.value;
+            return node;
+        }));
+    numerals.value = terms.tiers?.numerals === 'arabic' ? 'arabic' : 'roman';
+    const cap = numberInput('rpg_battle_terms_cap', terms.cap, { min: 1, max: 999, placeholder: '99' });
+    const tierRows = el('div', { className: 'rpg-battle-settings-tiers' }, [
+        row('Levels per tier', 'Levels 1 to this are tier I, the next as many tier II…', tierSize, 'rpg_battle_terms_tier_size'),
+        row('Numerals', '', numerals, 'rpg_battle_terms_numerals'),
+    ]);
+    const tiersValue = () => (tiersOn.checked
+        ? { size: wholeOrNull(tierSize.value, 1, 100) ?? 10, numerals: numerals.value === 'arabic' ? 'arabic' : 'roman' }
+        : null);
+    const syncTerms = () => {
+        tierRows.hidden = !tiersOn.checked;
+        tierSize.disabled = !tiersOn.checked;
+        numerals.disabled = !tiersOn.checked;
+    };
+    const commitTerms = change => commit(next => { next.terms = { ...terms, ...(next.terms ?? {}), ...change }; });
+    levelName.addEventListener('change', () => commitTerms({ levelName: levelName.value.trim() || 'Level' }));
+    xpName.addEventListener('change', () => commitTerms({ xpName: xpName.value.trim() || 'XP' }));
+    tiersOn.addEventListener('change', () => {
+        syncTerms();
+        commitTerms({ tiers: tiersValue() });
+    });
+    tierSize.addEventListener('change', () => {
+        tierSize.value = String(wholeOrNull(tierSize.value, 1, 100) ?? 10);
+        commitTerms({ tiers: tiersValue() });
+    });
+    numerals.addEventListener('change', () => commitTerms({ tiers: tiersValue() }));
+    cap.addEventListener('change', () => {
+        const value = wholeOrNull(cap.value, 1, 999);
+        cap.value = value === null ? '' : String(value);
+        commitTerms({ cap: value });
+    });
+
     const recover = el('input', { attrs: { id: 'rpg_battle_recover', type: 'checkbox' } });
     recover.checked = current.recoverWithTime !== false;
     recover.addEventListener('change', () => commit(next => { next.recoverWithTime = recover.checked; }));
@@ -128,6 +192,13 @@ export function renderSettings(container, { settings, version = '', status = '',
                 tiersRow,
                 singleRow,
                 row('Inventory row', 'The Inventory row that holds your money.', moneyRow, 'rpg_battle_currency_row'),
+                el('div', { className: 'rpg-battle-settings-head', text: 'Terms' }),
+                el('small', { className: 'rpg-battle-settings-hint', text: 'What your world calls levels and XP. The sheets, the Battle tab and the fight summaries use these words; the numbers stay the same.' }),
+                row('Level name', 'For example Rank, Circle or Soul Class. Empty: Level.', levelName, 'rpg_battle_terms_level'),
+                row('XP name', 'For example Experience or Soul Growth. Empty: XP.', xpName, 'rpg_battle_terms_xp'),
+                el('label', { className: 'checkbox_label', attrs: { for: 'rpg_battle_terms_tiers' } }, [tiersOn, el('span', { text: 'Tier titles (Level I for levels 1–10, Level II for 11–20…)' })]),
+                tierRows,
+                row('Level cap', 'The highest level. Empty: 99.', cap, 'rpg_battle_terms_cap'),
                 el('div', { className: 'rpg-battle-settings-head', text: 'Blocks' }),
                 tag('rpg_battle_character_tag', 'characterTag', 'Character tag', 'The kept block with your sheet.'),
                 tag('rpg_battle_party_tag', 'partyTag', 'Party tag', 'The kept block with your companions.'),
@@ -137,6 +208,7 @@ export function renderSettings(container, { settings, version = '', status = '',
         ]),
     ]);
     sync();
+    syncTerms();
     container.replaceChildren(root);
     return {
         update(next) { current = structuredClone(next); },

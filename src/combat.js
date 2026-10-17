@@ -785,6 +785,8 @@ export function summarize(fight, rules = DEFAULT_RULES) {
         party: party.map(c => ({
             memberId: c.memberId ?? c.id,
             name: c.name,
+            // The level fought at, so an XP gain can be told as a share of the member's tier.
+            level: c.level,
             hp: { ...c.hp },
             mp: { ...c.mp },
             down: c.gone === 'down' || c.hp.cur <= 0,

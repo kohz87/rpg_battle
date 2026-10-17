@@ -3,11 +3,13 @@
 // instead of re-deciding it, and stays short (about 120 words for a typical fight) because
 // it rides along with a normal prompt. Each member's numbers end in the same state words as
 // the sheets' State line, so the narration of the fight and the next reply's sheet agree on
-// how hurt everyone is. Pure.
+// how hurt everyone is. XP is told in the reader's terms (terms.js): "XP +38", "Power Growth
+// +38", or with tier titles the share of the tier it is worth, "Soul Growth +12%". Pure.
 
 import { DEFAULT_RULES } from './rules.js';
 import { formatMoney } from './items.js';
 import { stateWords } from './narrative.js';
+import { maxLevel, xpGainText, xpLabel } from './terms.js';
 
 export const HANDOFF_HEADER = '[Battle resolved by RPG Battle: narrate this outcome, do not change it]';
 const WRAP = 100;
@@ -85,13 +87,17 @@ function lootText(loot, currency) {
     return parts.length ? parts.join(', ') : 'nothing';
 }
 
-function xpText(xp, party, names) {
-    const ids = party.map(member => member.memberId).filter(id => id in (xp ?? {}));
+// Someone already at the level cap gains nothing, so they are left out of the XP line.
+function xpText(xp, party, names, rules) {
+    const cap = maxLevel(rules);
+    const levelOf = id => party.find(member => member.memberId === id)?.level;
+    const ids = party.map(member => member.memberId).filter(id => id in (xp ?? {}) && !(Number(levelOf(id)) >= cap));
     if (!ids.length) return '';
-    const values = ids.map(id => Math.round(Number(xp[id]) || 0));
-    if (values.every(value => value === values[0])) return ids.length === 1 ? `XP +${values[0]}.` : `XP +${values[0]} each.`;
+    const name = xpLabel(rules);
+    const values = ids.map(id => xpGainText(xp[id], levelOf(id), rules));
+    if (values.every(value => value === values[0])) return ids.length === 1 ? `${name} ${values[0]}.` : `${name} ${values[0]} each.`;
     const label = id => names?.[id] ?? party.find(member => member.memberId === id)?.name ?? id;
-    return `XP: ${ids.map((id, i) => `${label(id)} +${values[i]}`).join(', ')}.`;
+    return `${name}: ${ids.map((id, i) => `${label(id)} ${values[i]}`).join(', ')}.`;
 }
 
 /**
@@ -116,7 +122,7 @@ export function buildHandoff(result, { names = {}, currency = DEFAULT_RULES.curr
     if (aside.length) lines.push(aside.join(' '));
 
     if (result?.outcome === 'victory') {
-        const xp = xpText(result.xp, party, names);
+        const xp = xpText(result.xp, party, names, rules);
         lines.push(`Loot: ${lootText(result.loot, currency)}.${xp ? ` ${xp}` : ''}`);
     }
     return lines.join('\n');

@@ -166,3 +166,43 @@ test('rollLoot falls back on the rank table, and a boss pays more', () => {
     const consumable = rollLoot({ loot: 'bandit-leader', rank: 'D' }, { rng: makeRng('c3') }).items.find(i => i.kind === 'consumable');
     if (consumable) assert.equal(consumable.effect, 'heal 30');
 });
+
+test('rankRowForLevel interpolates the rank table by level, extrapolates past the top', async () => {
+    const { rankRowForLevel } = await import('../src/enemies.js');
+    const R = DEFAULT_RULES;
+    for (const rank of RANKS) {
+        const row = rankRowForLevel(R.ranks[rank].level, R);
+        assert.equal(row.rank, rank);
+        for (const key of ['hp', 'attack', 'defence', 'xp']) assert.equal(row[key], R.ranks[rank][key], `${rank} ${key}`);
+    }
+    // Level 11 is a fifth of the way from C (10) to B (15).
+    const eleven = rankRowForLevel(11, R);
+    assert.equal(eleven.rank, 'C');
+    assert.ok(Math.abs(eleven.hp - (52 + (70 - 52) * 0.2)) < 1e-9);
+    assert.ok(Math.abs(eleven.attack - (29.5 + (38 - 29.5) * 0.2)) < 1e-9);
+    assert.equal(eleven.xp, 168);
+    assert.deepEqual(rankRowForLevel(0, R), { level: 1, hp: 20, attack: 14.5, defence: 4, xp: 15, rank: 'F' });
+    const past = rankRowForLevel(75, R);
+    assert.equal(past.rank, 'SSS');
+    assert.ok(past.hp > R.ranks.SSS.hp && past.attack > R.ranks.SSS.attack, 'a cap past SSS still grows');
+});
+
+test('projectEnemy with a level: interpolated numbers, the rank at or below for loot; ranks unchanged', () => {
+    const at11 = projectEnemy({ name: 'Bog Wight', level: 11, role: 'brute' }, { rules: DEFAULT_RULES });
+    assert.equal(at11.level, 11);
+    assert.equal(at11.rank, 'C');
+    assert.equal(at11.loot, 'rank-C');
+    assert.equal(at11.hp.max, Math.round((52 + 18 * 0.2) * 1.3));
+    assert.equal(at11.xp, 168);
+    const c = projectEnemy({ name: 'Bog Wight', rank: 'C', role: 'brute' }, { rules: DEFAULT_RULES });
+    const b = projectEnemy({ name: 'Bog Wight', rank: 'B', role: 'brute' }, { rules: DEFAULT_RULES });
+    assert.ok(at11.hp.max > c.hp.max && at11.hp.max < b.hp.max);
+    assert.ok(at11.patk >= c.patk && at11.patk <= b.patk);
+    // A row level wins over the bestiary's rank; the creature keeps its skills and role.
+    const goblin = projectEnemy({ name: 'Goblin', level: 41 }, { rules: DEFAULT_RULES });
+    assert.equal(goblin.rank, 'S');
+    assert.equal(goblin.role, 'skirmisher');
+    assert.ok(goblin.hp.max > projectEnemy({ name: 'Goblin' }, { rules: DEFAULT_RULES }).hp.max * 5);
+    // No level: exactly as before.
+    assert.deepEqual(projectEnemy({ name: 'Bog Wight', rank: 'C', role: 'brute', level: null }, { rules: DEFAULT_RULES }), c);
+});

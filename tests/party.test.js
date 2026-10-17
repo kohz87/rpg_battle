@@ -48,3 +48,57 @@ test('a new companion: built from a preset, raised to the level, gear capped int
     assert.equal(twin.id, 'astra-2');
     assert.throws(() => newCompanion({ name: ' ', preset: healer }, { rules }), /name/);
 });
+
+test('enemy rows may carry a level (a power in the reader\'s terms)', () => {
+    const enemies = enemiesFromRows([{ name: 'Bog Wight', count: 2, level: 11, role: 'brute' }, { name: 'Goblin', count: 1, rank: 'E' }], { bestiary: DEFAULT_BESTIARY, library: DEFAULT_SKILLS, rules, rng: makeRng('rows') });
+    assert.deepEqual(enemies.map(enemy => [enemy.id, enemy.name, enemy.level, enemy.rank]), [['e1', 'Bog Wight A', 11, 'C'], ['e2', 'Bog Wight B', 11, 'C'], ['e3', 'Goblin', 3, 'E']]);
+});
+
+test('a new companion joins no higher than the level cap', async () => {
+    const { newCompanion } = await import('../src/party.js');
+    const capped = makeRules({ terms: { cap: 5 } });
+    assert.equal(newCompanion({ name: 'Astra', level: 30, preset: PRESETS[2] }, { rules: capped }).sheet.level, 5);
+});
+
+test('editCompanion: name, role and control change; the sheet, gear and stats stay; ids follow the name', async () => {
+    const { editCompanion, newCompanion, remapIds } = await import('../src/party.js');
+    const astra = newCompanion({ name: 'Astra', role: 'companion', level: 4, preset: PRESETS[2], gearLines: 'Ashwood Staff (rare) · MATK +7' }, { rules });
+    const merrit = newCompanion({ name: 'Merrit', role: 'hireling', control: 'command', level: 3, preset: PRESETS[0] }, { rules, existing: [astra] });
+    const members = [astra, merrit];
+    const { members: edited, idMap } = editCompanion(members, 'astra', { name: 'Astra the Bold', role: 'mage | ally', control: 'command' }, { pcName: 'Ren' });
+    assert.equal(edited[0].id, 'astra-the-bold');
+    assert.equal(edited[0].name, 'Astra the Bold');
+    assert.equal(edited[0].sheet.name, 'Astra the Bold');
+    assert.equal(edited[0].role, 'mage ally', 'a bar would split the heading');
+    assert.equal(edited[0].control, 'command');
+    assert.deepEqual(edited[0].sheet.stats, astra.sheet.stats);
+    assert.deepEqual(edited[0].sheet.skills, astra.sheet.skills);
+    assert.deepEqual(edited[0].gear, astra.gear);
+    assert.equal(edited[0].sheet.level, 4);
+    assert.deepEqual(edited[1], merrit);
+    assert.deepEqual(idMap, { astra: 'astra-the-bold', merrit: 'merrit' });
+    // The chat's mastery progress moves with the id; the Character's stays.
+    assert.deepEqual(remapIds({ pc: { Slash: 2 }, astra: { Mend: 3 }, merrit: { Bash: 1 } }, idMap), { pc: { Slash: 2 }, 'astra-the-bold': { Mend: 3 }, merrit: { Bash: 1 } });
+    // Role or control alone keeps the id.
+    const quiet = editCompanion(members, 'merrit', { name: 'Merrit', role: 'guard', control: 'auto' });
+    assert.deepEqual(quiet.idMap, { astra: 'astra', merrit: 'merrit' });
+    assert.equal(quiet.members[1].role, 'guard');
+    assert.equal(quiet.members[1].control, 'auto');
+    // Refused: unknown member, empty name, a name already taken.
+    assert.throws(() => editCompanion(members, 'nobody', { name: 'X' }), /not in the party/);
+    assert.throws(() => editCompanion(members, 'astra', { name: '  ' }), /name/);
+    assert.throws(() => editCompanion(members, 'astra', { name: 'merrit' }), /already a merrit/);
+    assert.throws(() => editCompanion(members, 'astra', { name: 'Ren' }, { pcName: 'Ren' }), /your character/);
+});
+
+test('editCompanion: the written Party block reads back with the new ids', async () => {
+    const { editCompanion, newCompanion } = await import('../src/party.js');
+    const { formatParty, parseParty } = await import('../src/sheet.js');
+    const first = newCompanion({ name: 'Astra', level: 2, preset: PRESETS[2] }, { rules });
+    const second = { ...newCompanion({ name: 'Astra', level: 2, preset: PRESETS[1] }, { rules, existing: [first] }) };
+    assert.equal(second.id, 'astra-2');
+    // Renaming the first Astra makes the second one plain "astra".
+    const { members, idMap } = editCompanion([first, second], 'astra', { name: 'Vel' });
+    assert.deepEqual(idMap, { astra: 'vel', 'astra-2': 'astra' });
+    assert.deepEqual(parseParty(formatParty(members, rules), rules).members.map(member => member.id), ['vel', 'astra']);
+});

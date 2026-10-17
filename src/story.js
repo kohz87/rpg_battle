@@ -12,6 +12,7 @@
 
 import { DEFAULT_RULES, RANKS } from './rules.js';
 import { DEFAULT_BESTIARY, findCreature } from './enemies.js';
+import { parseLevelLabel } from './terms.js';
 
 /**
  * What the model is told every reply while a Character block exists (index.js injects it at
@@ -265,14 +266,23 @@ function rowName(name, bestiary) {
 }
 
 /** One comma-separated group of an encounter: a row, or null. */
-function parseGroup(raw, bestiary) {
+function parseGroup(raw, bestiary, rules) {
     let text = clean(stripBullet(raw)).replace(/[.!]+$/, '').trim();
     if (!text || isTagLine(text)) return null;
     let boss = false;
     let rank = null;
     let role = null;
-    // "(boss)", "(boss, rank D)", "[caster]": what is in brackets is about the row, not its name.
+    let level = null;
+    // "(boss)", "(boss, rank D)", "[caster]", "(Soul Class II)": what is in brackets is about the
+    // row, not its name. A power in the reader's terms (or "level 12", "Lv 12") needs its name
+    // written, so a stray numeral is not taken for one.
     text = text.replace(/[([]([^)\]]*)[)\]]/g, (_, inside) => {
+        for (const part of inside.split(/[,;/]/)) {
+            // "rank D" stays an F–SSS rank, even in a world whose levels are called "Rank".
+            if (/^\s*rank\s+(?:sss|ss|s|a|b|c|d|e|f)\s*$/i.test(part)) continue;
+            const found = parseLevelLabel(part, rules, { strict: true });
+            if (found !== null && level === null) level = found;
+        }
         const words = inside.toLowerCase().split(/[\s,;/]+/).filter(Boolean);
         words.forEach((word, index) => {
             if (word === 'boss') boss = true;
@@ -300,13 +310,15 @@ function parseGroup(raw, bestiary) {
         text = words.slice(0, -1).join(' ');
     }
     if (!text || NOTHING.test(text.toLowerCase())) return null;
-    return {
+    const row = {
         name: rowName(text, bestiary),
         count: Math.min(MAX_COUNT, Math.max(1, Math.round(count) || 1)),
         rank,
         role,
         boss,
     };
+    if (level !== null) row.level = level;
+    return row;
 }
 
 /**
@@ -315,13 +327,15 @@ function parseGroup(raw, bestiary) {
  * Groups are separated by commas, semicolons, new lines or "and"; each is
  * `[N ×|N x|N ]name[ (boss)][ rank X][ role]` (also "a"/"two"… and "name ×3"). A plural is
  * made singular when the singular is a bestiary creature; rank and role only when written.
+ * A power written in brackets in the reader's terms ("3 wolf (Soul Class I)", "bandit captain
+ * (boss, Soul Class II)", "(level 12)") adds `level` to the row (only then).
  */
-export function parseEncounter(text, bestiary = DEFAULT_BESTIARY) {
+export function parseEncounter(text, bestiary = DEFAULT_BESTIARY, rules = DEFAULT_RULES) {
     const rows = [];
     // "(boss, rank D)" is one group's note, so separators inside brackets are kept for it.
     const guarded = String(text ?? '').replace(/[([][^)\]]*[)\]]/g, inside => inside.replace(/[,;]/g, '\u0001'));
     for (const group of guarded.split(/\r?\n|[,;]|\s+(?:and|&|\+)\s+/i)) {
-        const row = parseGroup(group.replace(/\u0001/g, ','), bestiary ?? DEFAULT_BESTIARY);
+        const row = parseGroup(group.replace(/\u0001/g, ','), bestiary ?? DEFAULT_BESTIARY, rules ?? DEFAULT_RULES);
         if (row) rows.push(row);
     }
     return rows;

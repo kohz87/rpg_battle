@@ -59,6 +59,31 @@ Conditions: none
 - **Checks outside fights:** the **Checks** line is your bonus per stat. With Story Block's Dice
   block on, the dice use it as the modifier (a CHA check is d20 + your CHA bonus).
 
+## Your world's terms
+
+Your lorebook may not say "Level" and "XP". Under **Extensions → RPG Battle → Terms** you name
+them, and the sheets, the Battle tab and the fight summaries use your words (the numbers stay
+the same):
+
+- **Level name** (`Level` by default): *Rank*, *Circle*, *Soul Power*, *Soul Class*…
+- **XP name** (`XP` by default): *Experience*, *Power Growth*, *Soul Growth*…
+- **Tier titles** (off by default): levels 1–10 are *Soul Class I*, 11–20 *Soul Class II*… (the
+  tier size and Roman or Arabic numerals are yours). Progress is then shown as how far you are
+  through the tier, out of 100.
+- **Level cap** (99 by default): no level past it; XP stops there and shows **MAX**.
+
+With tier titles on, the Character block's level line reads
+
+```
+Soul Class: III (Lv 24) | Soul Growth: 28.10/100 | Points: 2
+```
+
+and with names of your own but no tiers `Soul Power: 24 | Power Growth: 5400/11760 | Points: 2`.
+The exact level always stays in the block, so changing or turning off the terms never loses a
+sheet. With your own terms, **Start fight** picks an enemy's power as one of your tiers (or
+levels) instead of F to SSS, a story's `<Encounter>` may name one (`3 wolf (Soul Class I)`), and
+a won fight says `Soul Growth +12%` (or `Power Growth +38`).
+
 **Story Block's own Character Sheet block** (a template with an HP meter the model writes) does
 the same job by guesswork. With both on, the story reads two HP values that disagree, so the
 Battle tab and RPG Battle's settings say so, with a **Turn it off** button. It is never turned
@@ -201,7 +226,9 @@ give three starter skills), who controls them, and optionally their equipment, o
 
 They live in the **Party** block, kept by RPG Battle like the Character block, fight beside you
 (acting on their own, or on your command: tap to switch), get the same XP, rest and recover with
-you, and can be **Removed** (it asks twice) when they leave the story.
+you, and can be **Removed** (it asks twice) when they leave the story. **Edit** changes a
+companion's name, role and who controls them; their sheet, skills and gear stay as they are
+(their skill mastery progress follows them through a rename).
 
 ## Development
 

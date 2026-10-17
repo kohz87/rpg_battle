@@ -120,8 +120,8 @@ Equipped: Ashwood Staff (rare) · MATK +7, INT +1 | Traveller's Robe (common) ·
   each turn). Switchable per companion in the Battle tab; the default is auto.
 - A companion's gear is listed on its section, because the Inventory block is yours.
 - Joining and leaving follows the story: the Battle tab offers **Add companion** (from a name in
-  the scene, with a starter template) and **Remove**. Companions level with the party (they get
-  the same XP).
+  the scene, with a starter template), **Edit** (name, role, control; the sheet stays) and
+  **Remove**. Companions level with the party (they get the same XP).
 
 ### 3.3 Inventory (existing, written by the model; RPG Battle reads equipment and adds loot)
 
@@ -260,6 +260,35 @@ robe's MDEF…).
 A small fixed set, each with a duration in rounds: poison and burn (damage each round), bleed,
 stun (lose a turn), slow (acts last), weaken (attack × 0.75), shield (absorbs damage), regen
 (heals each round). Poison and exhaustion can outlast a fight and go on the Character block.
+
+### 5.7 Display terms
+
+A lorebook names its own progression ("Soul Class", "Rank", "Circle"; "Soul Growth",
+"Experience"), so the words are settings, `terms` in RPG Battle's settings, merged into rules as
+`rules.terms` (`src/terms.js`); nothing in the code knows any one world's words:
+
+- `levelName` (default `Level`) and `xpName` (default `XP`).
+- `tiers: { size: 10, numerals: 'roman' | 'arabic' }` (off by default): levels 1–10 are
+  "<levelName> I", 11–20 "<levelName> II"… With tiers, progress is the share through the
+  current tier, 0.00–99.99 of 100 (the XP from the tier's first level to the next tier),
+  floored to hundredths and read back rounding up, which is stable and loses at most a
+  ten-thousandth of the tier's XP once.
+- `cap` (default `character.maxLevel`, 99): no level past it; XP stops there, shown MAX.
+
+Only words change: the numbers, formulas and the balance are the same. The blocks keep the exact
+level where a tier would hide it (`Soul Class: III (Lv 24) | Soul Growth: 28.10/100 | Points: 2`;
+with names but no tiers `Soul Power: 24 | Power Growth: 5400/11760 | Points: 2`), and the
+parsers read the canonical form, any terms form (with or without the colon) and older blocks,
+so changing the terms never loses a sheet. The tab, the result screen and the hand-off's XP line
+("Soul Growth +12%": the share of the member's tier; "Power Growth +38") use them.
+
+With terms of their own the reader picks an enemy's power as a tier (its first level) or a level,
+up to the cap, instead of F–SSS. A level is placed on the tuned rank table (§7.1) by interpolating
+linearly between the two ranks whose levels bracket it (past SSS the last step's slope goes on);
+the rank at or below it still picks the loot table, money and morale. For a brute without the
+±10 % variation: Soul Class II (level 11, a fifth of the way from C to B) has HP 72, attack 37,
+defence 11 and 168 XP; Soul Class V (level 41, between S and SS) HP 206, attack 100, defence 29
+and 1862 XP. *Auto* is still the fair rank for your level. With the plain terms nothing changes.
 
 ## 6. Skills
 

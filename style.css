@@ -472,6 +472,19 @@
     opacity: 0.6;
 }
 
+/* A world's own XP name ("Soul Growth") needs more room than "HP"; it is cut short, never wrapped. */
+.rpg-battle-tab .rpg-battle-bar.is-named {
+    grid-template-columns: minmax(1.8rem, max-content) minmax(3rem, 1fr) auto;
+}
+
+.rpg-battle-tab .rpg-battle-bar.is-named .rpg-battle-bar-name {
+    max-width: 8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    letter-spacing: 0;
+}
+
 .rpg-battle-tab .rpg-battle-bar-track {
     display: block;
     height: 0.5rem;
@@ -1424,5 +1437,21 @@
 
 .rpg-battle-settings .rpg-battle-settings-sheet-off {
     width: auto;
+    margin: 0;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Edit companion                                                              */
+
+.rpg-battle-tab .rpg-battle-edit-form {
+    display: grid;
+    gap: 0.4rem;
+    margin-top: 0.35rem;
+    padding-top: 0.4rem;
+    border-top: 1px dashed var(--SmartThemeBorderColor, rgba(127, 127, 127, 0.35));
+}
+
+.rpg-battle-tab .rpg-battle-edit-form .text_pole {
+    width: 100%;
     margin: 0;
 }

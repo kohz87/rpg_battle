@@ -12,6 +12,10 @@
 // it moved on, applies the reply's hidden <Wounds>, and writes the result into that reply
 // once, so a swipe or a continue recomputes it instead of adding to it. A reply's
 // <Encounter> (or a fight Story Director planned) is offered as a fight, never started.
+//
+// Levels and XP wear the reader's own words (settings `terms`, merged into rules as
+// `rules.terms`, see src/terms.js): the blocks, the tab, the hand-off and the enemy power
+// picker all speak them, and the Character block's fields are registered under them.
 
 import { DEFAULT_RULES, checkModifiers, makeRules, suggestRank } from './src/rules.js';
 import { hashSeed, makeRng } from './src/rng.js';
@@ -21,11 +25,12 @@ import { act, availableActions, replay, startFight, summarize } from './src/comb
 import { applyResult, formatCharacter, formatParty, learnSkill, newSheet, parseCharacter, parseParty, spendPoints } from './src/sheet.js';
 import { addLoot, consumables, formatMoney, parseInventory, useItems } from './src/items.js';
 import { buildHandoff } from './src/handoff.js';
-import { combatantFromSheet, enemiesFromRows, newCompanion } from './src/party.js';
+import { combatantFromSheet, editCompanion, enemiesFromRows, newCompanion, remapIds } from './src/party.js';
 import { recoverOverTime, rest, useItemOutside } from './src/recovery.js';
 import { STORY_INSTRUCTION, applyWounds, describeWound, parseEncounter, parseWounds } from './src/story.js';
 import { renderBattleTab } from './src/ui/tab.js';
 import { renderSettings } from './src/ui/settings.js';
+import { DEFAULT_TERMS, maxLevel, termsOf } from './src/terms.js';
 
 const VERSION = '0.3.0';
 const SETTINGS_KEY = 'rpgBattle';
@@ -55,23 +60,30 @@ const DEFAULT_SETTINGS = Object.freeze({
     currency: DEFAULT_RULES.currency,
     // HP and MP come back as story time passes (needs Story Director's clock).
     recoverWithTime: true,
+    // What the reader's world calls levels and XP, tier titles and the level cap (src/terms.js).
+    terms: DEFAULT_TERMS,
     // The reader's rules.json, merged over the defaults (null: the defaults).
     rules: null,
 });
 
-const CHARACTER_FIELDS = [
-    { label: 'Name', type: 'text' },
-    { label: 'Level', type: 'number' },
-    { label: 'XP', type: 'meter', max: 100 },
-    { label: 'Points', type: 'number' },
-    { label: 'HP', type: 'meter', max: 100 },
-    { label: 'MP', type: 'meter', max: 100 },
-    ...['STR', 'VIT', 'AGI', 'DEX', 'INT', 'LUK', 'CHA'].map(label => ({ label, type: 'number' })),
-    { label: 'Checks', type: 'text' },
-    { label: 'State', type: 'text' },
-    { label: 'Skills', type: 'text' },
-    { label: 'Conditions', type: 'text' },
-];
+// The Character block's fields for Story Block's Fields display, under the reader's terms:
+// "Soul Class" (text with tiers, since it reads "III (Lv 24)") and "Soul Growth" as a meter.
+function characterFields(r) {
+    const terms = termsOf(r);
+    return [
+        { label: 'Name', type: 'text' },
+        { label: terms.levelName, type: terms.tiers ? 'text' : 'number' },
+        { label: terms.xpName, type: 'meter', max: 100 },
+        { label: 'Points', type: 'number' },
+        { label: 'HP', type: 'meter', max: 100 },
+        { label: 'MP', type: 'meter', max: 100 },
+        ...['STR', 'VIT', 'AGI', 'DEX', 'INT', 'LUK', 'CHA'].map(label => ({ label, type: 'number' })),
+        { label: 'Checks', type: 'text' },
+        { label: 'State', type: 'text' },
+        { label: 'Skills', type: 'text' },
+        { label: 'Conditions', type: 'text' },
+    ];
+}
 
 // What the model is told about each kept block, under Story Block's 300-character limit.
 // The numbers alone do not say how to play someone at a fifth of their HP, so the notes
@@ -141,13 +153,14 @@ function settings(ctx = context()) {
         ...DEFAULT_SETTINGS,
         ...saved,
         currency: { ...DEFAULT_SETTINGS.currency, ...(saved.currency && typeof saved.currency === 'object' ? saved.currency : {}) },
+        terms: { ...DEFAULT_SETTINGS.terms, ...(saved.terms && typeof saved.terms === 'object' ? saved.terms : {}) },
     };
     return store[SETTINGS_KEY];
 }
 
 function rules() {
     const own = settings();
-    return makeRules({ ...(own.rules ?? {}), currency: own.currency });
+    return makeRules({ ...(own.rules ?? {}), currency: own.currency, terms: own.terms });
 }
 
 // Per-chat state: { fight: { setup, actions } | null, pending: { handoff, fightId, attachedTo } | null,
@@ -225,6 +238,21 @@ async function writeParty(members) {
     await writeBlock(settings().partyTag, formatParty(members, rules()) || 'No companions.');
 }
 
+// The Character and Party blocks written again in the current terms, so the model reads the
+// new words from the next reply on rather than after the next change to a sheet. Quiet: with
+// no chat or no reply yet there is nothing to rewrite.
+async function rewriteSheets() {
+    try {
+        if (chatState().fight) return;
+        const sheet = currentSheet();
+        if (sheet) await writeSheet(sheet);
+        const members = currentParty();
+        if (members.length) await writeParty(members);
+    } catch (error) {
+        console.warn('[RPG Battle] the sheets could not be rewritten in the new terms', error);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Fights
 
@@ -273,9 +301,14 @@ function startNewFight({ rows, stakes }) {
             rules: r,
         })),
     ];
-    // A blank rank: a bestiary creature keeps its own, anything else is a fair fight for the party.
+    // A blank power: a bestiary creature keeps its own rank, anything else is a fair fight for the
+    // party. A row picked in the reader's terms carries a level instead (interpolated on the
+    // rank table by projectEnemy).
     const fair = suggestRank(sheet.level, r);
-    const ranked = (rows ?? []).map(row => ({ ...row, rank: row.rank || (findCreature(DEFAULT_BESTIARY, row.name) ? null : fair) }));
+    const ranked = (rows ?? []).map(row => {
+        const level = Number(row.level) >= 1 ? Math.round(Number(row.level)) : null;
+        return { ...row, level, rank: level ? null : row.rank || (findCreature(DEFAULT_BESTIARY, row.name) ? null : fair) };
+    });
     const enemies = enemiesFromRows(ranked, { bestiary: DEFAULT_BESTIARY, library: library(), rules: r, rng: makeRng(`${seed}:enemies`) });
     if (!enemies.length) throw new Error('Name at least one enemy.');
     const setup = { id, seed, party, enemies, stakes: stakes === 'death' ? 'death' : 'normal' };
@@ -310,13 +343,14 @@ async function finishFight(fight) {
     // saved chat must not hold a fight that is still "active".
     saveChatState({ fight: null });
     const sheet = currentSheet();
-    const report = { levelsGained: 0, pointsGained: 0 };
+    const report = { levelsGained: 0, pointsGained: 0, levelsReached: 0 };
     const uses = { ...chatState().uses };
     try {
         if (sheet) {
             const applied = applyResult({ ...sheet, uses: uses.pc ?? {} }, 'pc', result, r);
             report.levelsGained = applied.levelsGained;
             report.pointsGained = applied.pointsGained;
+            report.levelsReached = applied.levelsGained ? applied.sheet.level : 0;
             uses.pc = applied.sheet.uses ?? {};
             await writeSheet(applied.sheet);
         }
@@ -540,7 +574,7 @@ function toastWounds(applied) {
 function toastEncounter(sb, index) {
     if (!currentSheet()) return;
     const text = blockAt(sb, index, ENCOUNTER_TAG) ?? '';
-    const rows = text ? parseEncounter(text, DEFAULT_BESTIARY) : [];
+    const rows = text ? parseEncounter(text, DEFAULT_BESTIARY, rules()) : [];
     if (!rows.length || chatState().dismissed.includes(`${index}:${text}`)) return;
     const html = `A fight is starting: ${escapeHtml(text)}<div class="rpg-battle-toast-actions"><button type="button" class="menu_button rpg-battle-toast-fight">Fight</button></div>`;
     const toast = notify('warning', html, { escapeHtml: false, timeOut: 15000, extendedTimeOut: 6000, closeButton: true });
@@ -587,7 +621,7 @@ function encounterOffer(ctx = context(), state = chatState(ctx)) {
     for (const candidate of candidates) {
         const key = `${index}:${candidate.text}`;
         if (dismissed.has(key)) continue;
-        const rows = parseEncounter(candidate.text, DEFAULT_BESTIARY);
+        const rows = parseEncounter(candidate.text, DEFAULT_BESTIARY, rules());
         if (rows.length) return { ...candidate, rows, key };
     }
     return null;
@@ -727,7 +761,7 @@ function viewFor() {
     const state = chatState(ctx);
     if (screen.mode === 'result' && state.last) {
         const money = state.last.result?.loot?.money ?? 0;
-        return { mode: 'result', result: state.last.result, handoff: state.last.handoff, levelsGained: state.last.levelsGained, pointsGained: state.last.pointsGained, moneyText: money ? formatMoney(money, r.currency) : '', rules: r };
+        return { mode: 'result', result: state.last.result, handoff: state.last.handoff, levelsGained: state.last.levelsGained, pointsGained: state.last.pointsGained, levelsReached: state.last.levelsReached ?? 0, moneyText: money ? formatMoney(money, r.currency) : '', rules: r };
     }
     const sheet = currentSheet();
     if (!sheet) return { mode: 'create', presets: PRESETS, library: DEFAULT_SKILLS.filter(skill => skill.tier === 1), rules: r };
@@ -735,7 +769,7 @@ function viewFor() {
     if (screen.mode === 'spend') return { mode: 'spend', sheet, rules: r };
     if (screen.mode === 'learn') return { mode: 'learn', sheet, library: library(ctx), rules: r };
     if (screen.mode === 'items') return { mode: 'items', sheet, party: currentParty(), items: consumables(currentItems()), rules: r };
-    if (screen.mode === 'companion') return { mode: 'companion', presets: PRESETS, level: sheet.level, maxLevel: Math.max(20, sheet.level + 10), rules: r };
+    if (screen.mode === 'companion') return { mode: 'companion', presets: PRESETS, level: sheet.level, maxLevel: Math.min(maxLevel(r), Math.max(20, sheet.level + 10)), rules: r };
     if (screen.mode === 'setup') {
         return { mode: 'setup', bestiary: DEFAULT_BESTIARY.map(entry => entry.name), suggestedRank: suggestRank(sheet.level, r), prefill: screen.prefill ?? null, rules: r };
     }
@@ -857,6 +891,18 @@ const handlers = {
         const members = currentParty();
         await writeParty(members.map(member => (member.id === memberId ? { ...member, control: control === 'command' ? 'command' : 'auto' } : member)));
     }),
+    onEditCompanion: (memberId, changes) => void guarded(async () => {
+        // A companion's id follows their name, so a rename moves what the chat keeps by id
+        // (mastery progress) to the new id; sheet, skills and gear go along in the block itself.
+        const members = currentParty();
+        const before = members.find(member => member.id === memberId);
+        const edited = editCompanion(members, memberId, changes ?? {}, { pcName: currentSheet()?.name ?? '' });
+        await writeParty(edited.members);
+        const uses = chatState().uses;
+        if (Object.entries(edited.idMap).some(([from, to]) => from !== to && from in uses)) saveChatState({ uses: remapIds(uses, edited.idMap) });
+        const after = edited.members.find(member => member.id === edited.idMap[memberId]);
+        if (before && after && before.name !== after.name) notify('success', `${before.name} is now ${after.name}.`);
+    }),
     onRemoveCompanion: memberId => void guarded(async () => {
         const members = currentParty();
         const leaving = members.find(member => member.id === memberId);
@@ -922,7 +968,7 @@ function registerKeptBlocks(sb) {
             owner: 'RPG Battle',
             format: 'fields',
             display: 'fields',
-            fields: CHARACTER_FIELDS,
+            fields: characterFields(rules()),
             promptNote: CHARACTER_NOTE,
             diceModifier: `Modifier: the matching stat's bonus from the <${own.characterTag}> block's Checks line (for example CHA +1); do not guess one.`,
         }),
@@ -984,8 +1030,16 @@ function addSettingsPanel(documentRef) {
         onDisableSheet: () => disableStorySheet(),
         onChange: next => {
             const ctx = context();
+            const termsBefore = JSON.stringify(termsOf(rules()));
             ctx.extensionSettings[SETTINGS_KEY] = { ...settings(ctx), ...next };
             ctx.saveSettingsDebounced?.();
+            // New terms rename the Character block's fields; Story Block replaces a block
+            // registered again under its id.
+            const sb = storyBlock();
+            if (registered && sb && JSON.stringify(termsOf(rules())) !== termsBefore) {
+                registerKeptBlocks(sb);
+                void rewriteSheets();
+            }
             settingsPanel?.setSheetConflict?.(sheetConflict(ctx));
             storyBlock()?.refresh?.();
         },

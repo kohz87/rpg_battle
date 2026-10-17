@@ -21,6 +21,7 @@ src/items.js      inventory: equipment, consumables, money  tests/items.test.js
 src/handoff.js    the narration hand-off text               tests/handoff.test.js
 src/narrative.js  the State line: HP, MP, conditions in words tests/narrative.test.js
 src/story.js      story wounds and fights from the story    tests/story.test.js
+src/terms.js      display terms: level/XP names, tiers, cap tests/terms.test.js
 src/ui/tab.js     the Battle tab                            tests/ui-tab.test.js
 style.css         all styles
 index.js          SillyTavern + Story Block glue
@@ -94,6 +95,39 @@ enemyLevel, rules)`, `suggestRank(level, rules)`, `fleeChance(partyAgi, enemyAgi
 holds the State line's bands (best first). `DEFAULT_RULES.wounds = { scratch: 0.1, wound: 0.3,
 severe: 0.5, grievous: 0.8 }` is the share of max HP each story-wound word takes or heals.
 
+`DEFAULT_RULES.terms = { levelName: 'Level', xpName: 'XP', tiers: null, cap: null }` (DESIGN §5.7).
+
+## `src/terms.js` (0.3)
+
+The reader's words for levels and XP (`rules.terms`). Pure; words only, no number depends on them.
+
+```js
+export const DEFAULT_TERMS = { levelName: 'Level', xpName: 'XP', tiers: null, cap: null }
+export function termsOf(rules) → { levelName, xpName, tiers: { size, numerals: 'roman' | 'arabic' } | null, cap, custom }
+    // names cleaned (no | : # < > or new lines, ≤ 30 chars; empty → default); cap = terms.cap or
+    // character.maxLevel; custom: anything differs from Level / XP / no tiers / the default cap
+export function maxLevel(rules) → number          // the cap; sheet.js and party.js clamp to it
+export function isCustom(rules) → boolean          // the tab's power picker switches from F–SSS on it
+export function numeral(n, 'roman' | 'arabic'), parseRoman(text) → number | null
+export function tierOf(level, rules), tierStart(tier, rules)       // tier III of size 10 starts at 21
+export function levelLabel(level, rules) → 'Level 4' | 'Soul Power 4' | 'Soul Class III'
+export function levelText(level, rules)  → levelLabel, plus '(Lv 24)' when a tier hides the level
+export function levelTag(level, rules)   → 'Lv 4' with the plain terms, else levelLabel (list rows)
+export function xpLabel(rules) → 'XP' | 'Soul Growth'
+export function powerOptions(rules) → [{ level, label }]   // each tier's first level up to the cap, or every level
+export function progress(sheet, rules) → { cur, max, text, capped }
+    // tiers: share through the tier, '45.20/100' (hundredths floored, never 100); else '310/800';
+    // at the cap 'MAX' (cur = max = 100)
+export function progressLabel(sheet, rules) → 'Soul Growth 45.20/100'
+export function xpFromProgress(value, level, rules) → xp within the level
+    // '310/800' → 310; a share (always written with decimals) → XP in the tier (rounded up:
+    // stable round trip), or that share of the level with tiers off; 'MAX' → 0
+export function xpGainText(gain, level, rules) → '+38' | '+12%' (share of the member's tier; one decimal under 10 %)
+export function parseLevelLabel(text, rules, { strict }) → level | null
+    // 'Lv 24' / '(Lv 24)' exact; '<levelName> III' tier → its first level; 'Level 25'; 'III' (tiers on);
+    // '25'; capped. strict: the level name, 'level' or 'Lv' must be written.
+```
+
 ## `src/rng.js` (written)
 
 `hashSeed(text)`, `makeRng(seed) → { next, int(lo, hi), chance(pct), between(lo, hi), pick(list),
@@ -122,7 +156,12 @@ export const DEFAULT_BESTIARY: [{ name, aliases?, rank, role, talks, morale, fle
                                               // bandit captain, skeleton, slime, giant rat, cultist, bear, wraith, ogre…)
 export const LOOT_TABLES: { [id]: [{ name, chance (%), qty: [lo, hi], rarity?, kind: 'material' | 'consumable' | 'equipment', stats? }] }
 export function findCreature(bestiary, name) → entry | null      // name or alias, case-insensitive; "Goblin 2" → Goblin
-export function projectEnemy({ name, rank, role, boss }, { bestiary, library, rules, rng, id }) → Combatant
+export function rankRowForLevel(level, rules) → { level, hp, attack, defence, xp, rank }
+    // the rank table linear between the two ranks bracketing `level` (past the top: the last step's
+    // slope); rank = the highest rank at or below the level
+export function projectEnemy({ name, rank, level, role, boss }, { bestiary, library, rules, rng, id }) → Combatant
+    // `level` (a power in the reader's terms) wins over rank and the bestiary's rank: numbers from
+    // rankRowForLevel, Combatant.level = level, rank (loot, money, morale) the one at or below;
     // bestiary entry if found (its rank/role unless the row gives one), else rank × role tables;
     // stats from the rank's numbers (attack → patk/matk by role, defence → pdef/mdef), ±variation from rng;
     // boss multipliers; level from rank; morale default 3 + rank index; talks default false for
@@ -170,7 +209,7 @@ Result = {
   outcome: 'victory' | 'defeat' | 'fled',
   rounds, seconds,                                           // seconds = rounds × rules.secondsPerRound
   stakes,
-  party: [{ memberId, name, hp: { cur, max }, mp: { cur, max }, down: boolean, conditions: [{ name, rounds }] }],
+  party: [{ memberId, name, level, hp: { cur, max }, mp: { cur, max }, down: boolean, conditions: [{ name, rounds }] }],
   enemies: [{ id, name, gone, xp, level, rank }],
   defeated: [names], fled: [names], parleyed: [names],
   xp: { [memberId]: number },                                // per member (not divided), xpFactor per enemy level
@@ -215,18 +254,26 @@ Conditions: none
 The State line is `narrative.stateWords(sheet, rules).text`; the parsers skip any line starting
 `State:` (it is derived, never read back) and do not need it.
 
+The level line follows `rules.terms` (terms.js): `<levelName>: <level> | <xpName>: <progress> |
+Points: n`, with tiers `Soul Class: III (Lv 24) | Soul Growth: 28.10/100 | Points: 2`; at the cap
+the progress is `MAX`. The parsers take the term labels as Level and XP (never over another
+field's label), read the level with `parseLevelLabel` (the exact `(Lv N)` first), the XP with
+`xpFromProgress`, accept `Soul Class III (Lv 24)` without the colon, and fall back to the line with
+`Points:` (its first two segments are the level and XP) for terms the rules no longer know.
+
 ```js
 export function newSheet({ name, stats, skills }, rules) → Sheet        // level 1, HP/MP full, validates startPoints spent
 export function parseCharacter(text, rules) → { sheet: Sheet | null, errors: [string] }   // lenient (bold labels, order)
 export function formatCharacter(sheet, rules) → string                  // the canonical text above (Checks and State computed)
 export function parseParty(text, rules) → { members: Member[], errors }
+export function memberIds(names) → [id]                                 // the ids parseParty gives: slug, -2, -3…, never 'pc'
 export function formatParty(members, rules) → string
     // ## Name — role | control: auto
     // Level / HP / MP / State / stats / Skills lines as the Character block; Equipped: Item (rarity) · stats | …
 export function spendPoints(sheet, allocation: { STR: n, … }, rules) → Sheet   // throws when over budget or negative
 export function learnSkill(sheet, name) → Sheet                          // adds at mastery 1, no duplicates
 export function applyResult(sheet, memberId, result, rules) → { sheet, levelsGained, pointsGained, masteryGained: [names] }
-    // HP/MP from result.party; XP added, levels while xp ≥ xpToNext (max HP/MP recomputed and
+    // HP/MP from result.party; XP added, levels while xp ≥ xpToNext and below terms' cap (XP 0 at the cap; max HP/MP recomputed and
     // HP/MP raised by the same amount); points added; skill uses → mastery (rules.masteryUses);
     // conditions lasting past the fight kept (poison, exhausted).
 export function recompute(sheet, gear, rules) → Sheet                    // max HP/MP from stats, level and gear HP/MP
@@ -290,7 +337,9 @@ export function applyWounds({ pc: Sheet | null, members: Member[] }, wounds, rul
     // applied: [{ name, memberId: 'pc' | member id, kind, severity | null, hp: signed change,
     //            condition | null, cause, down? }], only lines that changed something.
 export function describeWound(entry) → string // "Ren: wound (−29 HP), fell down the ravine."
-export function parseEncounter(text, bestiary) → [{ name, count (1–9), rank | null, role | null, boss }]
+export function parseEncounter(text, bestiary, rules) → [{ name, count (1–9), rank | null, role | null, boss, level? }]
+    // `level` only when brackets name a power in the terms ('(Soul Class II)', '(boss, Lv 24)',
+    // '(level 12)'; parseLevelLabel strict; 'rank D' stays a rank)
     // groups by ',', ';', new line, 'and', '&', '+' (not inside brackets); each
     // `[N ×|N x|N |a |two… ]name[ (boss)][ rank X][ role]`, or `name ×N`; brackets may hold
     // boss, rank X and a role. A creature's name is spelt as the bestiary spells it; a plural is
@@ -303,6 +352,9 @@ export function parseEncounter(text, bestiary) → [{ name, count (1–9), rank 
 export function buildHandoff(result, { names, currency, stakes, pcName, rules }) → string   // DESIGN §8.2, exact header line:
 // [Battle resolved by RPG Battle: narrate this outcome, do not change it]
 ```
+
+XP line in the terms: `XP +38 each.`, `Power Growth +38.`, with tiers `Soul Growth +12% each.` (each
+member's share of their tier, from `result.party[].level`); a member at the cap is left out.
 
 Status: one line per member, `Ren: HP 34/62, MP 12/30 — hurt (aching, favouring a wound) · tired of
 magic.`; a member who is down reads `Astra: down (unconscious or unable to fight).`
@@ -322,12 +374,16 @@ export function renderBattleTab(pane, view, handlers)
 | mode | data | handlers used |
 |---|---|---|
 | `create` | `{ presets, library (tier 1), rules }` | `onCreate({ name, stats, skills })` |
-| `idle` | `{ sheet, checks, skills: resolved, party: [Member], rules, pending: handoff text or null, recovered: text, story: { lines: [text], canUndo } \| null, encounter: { text, label, rows } \| null, sheetConflict: boolean }` (the State words under the HP/MP bars, `.rpg-battle-state`) | `onSpend()` (opens spend), `onLearn()`, `onSetup()`, `onReturn()`, `onRest(kind)`, `onItems()`, `onCompanion()`, `onUndoStory()`, `onFightEncounter(rows)`, `onDismissEncounter()`, `onDisableStorySheet()` |
+| `idle` | `{ sheet, checks, skills: resolved, party: [Member], rules, pending: handoff text or null, recovered: text, story: { lines: [text], canUndo } \| null, encounter: { text, label, rows } \| null, sheetConflict: boolean }` (the State words under the HP/MP bars, `.rpg-battle-state`) | `onSpend()` (opens spend), `onLearn()`, `onSetup()`, `onReturn()`, `onRest(kind)`, `onItems()`, `onCompanion()`, `onSetControl(id, control)`, `onEditCompanion(id, { name, role, control })` (the row's **Edit** form), `onRemoveCompanion(id)`, `onUndoStory()`, `onFightEncounter(rows)`, `onDismissEncounter()`, `onDisableStorySheet()` |
 | `spend` | `{ sheet, rules }` | `onConfirmSpend(allocation)`, `onBack()` |
 | `learn` | `{ sheet, library, rules }` | `onConfirmLearn({ name, fromLibrary? , template? })`, `onBack()` |
-| `setup` | `{ bestiary names, suggestedRank, prefill: rows \| null, rules }` (a new `prefill` seeds the draft's rows once; the reader's edits survive redraws) | `onStart({ rows: [{ name, count, rank, role, boss }], stakes })`, `onBack()` |
+| `setup` | `{ bestiary names, suggestedRank, prefill: rows \| null, rules }` (a new `prefill` seeds the draft's rows once; the reader's edits survive redraws) | `onStart({ rows: [{ name, count, rank, role, boss }], stakes })`; with custom terms the picker lists `powerOptions` and rows carry `level` (number \| null) instead of `rank`; a prefill `level` becomes the rank at or below it with the plain terms. `onBack()` |
 | `fight` | `{ fight, actions: availableActions(fight) }` | `onAction(action)`, `onAuto()` |
-| `result` | `{ result, handoff, levelsGained, pointsGained }` | `onReturn()`, `onDiscard()`, `onDone()` |
+| `result` | `{ result, handoff, levelsGained, pointsGained, levelsReached? }` (gains in the terms) | `onReturn()`, `onDiscard()`, `onDone()` |
+
+Levels and XP are shown in the terms everywhere: the idle header (`levelText`), the XP bar
+(`progress`, named by `xpName`), party rows (`levelTag`), the companion level picker, enemy card
+badges (`levelLabel` of the enemy's level with custom terms, else its rank) and the result's gains.
 
 Nothing the model wrote is ever put in the page through `innerHTML`; use `textContent`. Phone
 first: the action bar is thumb-sized at the bottom of the fight view; tapping an enemy card picks
@@ -353,14 +409,27 @@ export function recoverOverTime(sheet, hours, { gear, rules }) → { sheet, kind
 export function useItemOutside(sheet, item) → { sheet, used, message }
 ```
 
-`party.js` also has `newCompanion({ name, role, control, level, preset, gearLines }, { rules, existing }) → Member`.
+`party.js` also has `newCompanion({ name, role, control, level, preset, gearLines }, { rules, existing }) → Member`
+(level capped at `maxLevel(rules)`), and for **Edit companion**:
+
+```js
+export function editCompanion(members, memberId, { name, role, control }, { pcName }) → { members, idMap: { oldId: newId } }
+    // name/role cleaned for the heading (no | # — or trailing brackets); sheet.name follows; sheet,
+    // stats, skills, gear unchanged; ids recomputed with sheet.memberIds (a rename can move another
+    // member's id too). Throws: unknown member, empty name, a name another companion or the PC has.
+export function remapIds(records, idMap) → records    // { [memberId]: … } moved to the new ids
+```
+
+Rows for `enemiesFromRows` may carry `level` (passed to `projectEnemy`).
 
 ## `src/ui/settings.js`
 
 `renderSettings(container, { settings, version, status, sheetConflict, onDisableSheet, onChange })
 → { update(settings), setSheetConflict(on) }`: the on/off switch, the currency (mode, tiers as
-`name=rate, …`, single coin name, money row), the block tags, and the Story Block Character
-Sheet notice with **Turn it off** (shown while `sheetConflict`).
+`name=rate, …`, single coin name, money row), the terms (level name, XP name, tier titles on/off
+with levels per tier and numerals, cap; `settings.terms = { levelName, xpName, tiers: { size,
+numerals } | null, cap: number | null }`, an empty name saved as the default), the block tags,
+and the Story Block Character Sheet notice with **Turn it off** (shown while `sheetConflict`).
 
 ## As built (0.1)
 
@@ -399,6 +468,16 @@ As built (0.3):
   a hand-off pending; `dismissed: ['index:text']` (the last 30) holds Not now and fights started
   from an offer. `onFightEncounter(rows)` opens the setup with `prefill`. Toasts with buttons use
   `escapeHtml: false` with every model-written part escaped.
+- **Terms:** `settings.terms` (merged like `currency`) goes into `rules()` as `terms`. The
+  Character block's Story Block fields are `characterFields(rules)` (the level field under
+  `levelName`, text with tiers; the XP meter under `xpName`); when the terms change the kept
+  blocks are registered again (Story Block replaces a block re-registered under its id) and the
+  Character and Party blocks are rewritten in the new words (not during a fight). The setup's
+  rows may carry `level`; `startNewFight` passes it through (no fair rank then). `finishFight`
+  stores `levelsReached` (the PC's new level) for the result screen. `<Encounter>` is parsed with
+  the rules, so a power in the terms fills the row's level.
+- **Edit companion** (`onEditCompanion(id, changes)`): `editCompanion` with the PC's name, the
+  Party block rewritten, and the chat's `uses` moved with `remapIds` when an id changed.
 - **Story Block's Character Sheet:** the blocks with `template: 'character-sheet'` in
   `extensionSettings.storyBlock.blocks` (`listBlocks()` has `enabled` but no template; it is the
   fallback, by id, before Story Block has stored its list). `onDisableStorySheet` sets their

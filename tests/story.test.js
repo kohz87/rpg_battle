@@ -157,3 +157,19 @@ test('the story instruction is short (about 90 tokens) and names both tags and t
     assert.deepEqual(parseWounds('Ren — heal wound: x').map(entry => entry.kind), ['heal']);
     assert.equal(parseEncounter(STORY_INSTRUCTION.match(/<Encounter>(.*?)<\/Encounter>/)[1]).length, 2);
 });
+
+test('parseEncounter: a power in the reader\'s terms becomes the row\'s level', async () => {
+    const { makeRules } = await import('../src/rules.js');
+    const soul = makeRules({ terms: { levelName: 'Soul Class', tiers: { size: 10, numerals: 'roman' } } });
+    assert.deepEqual(parseEncounter('3 wolf (Soul Class I), bandit captain (boss, Soul Class II)', DEFAULT_BESTIARY, soul), [
+        { name: 'Wolf', count: 3, rank: null, role: null, boss: false, level: 1 },
+        { name: 'Bandit Captain', count: 1, rank: null, role: null, boss: true, level: 11 },
+    ]);
+    assert.deepEqual(parseEncounter('2 ogres (level 12)', DEFAULT_BESTIARY, soul), [{ name: 'Ogre', count: 2, rank: null, role: null, boss: false, level: 12 }]);
+    assert.deepEqual(parseEncounter('bog wight (Lv 24, caster)'), [{ name: 'Bog Wight', count: 1, rank: null, role: 'caster', boss: false, level: 24 }], 'plain terms read "level"/"Lv" too');
+    // A bare numeral is not a power, and "rank D" stays a rank even where levels are called Rank.
+    assert.deepEqual(parseEncounter('bandit (II)', DEFAULT_BESTIARY, soul), [{ name: 'Bandit', count: 1, rank: null, role: null, boss: false }]);
+    const ranked = makeRules({ terms: { levelName: 'Rank', tiers: { size: 10 } } });
+    assert.deepEqual(parseEncounter('bandit (boss, rank D)', DEFAULT_BESTIARY, ranked), [{ name: 'Bandit', count: 1, rank: 'D', role: null, boss: true }]);
+    assert.deepEqual(parseEncounter('bandit (Rank III)', DEFAULT_BESTIARY, ranked), [{ name: 'Bandit', count: 1, rank: null, role: null, boss: false, level: 21 }]);
+});

@@ -16,9 +16,14 @@
 //
 // Names, descriptions, log lines and the hand-off come from the model, the sheet or data
 // files the reader edits, so every node is filled through textContent, never innerHTML.
+//
+// Levels and XP are shown in the reader's terms (terms.js): "Soul Class III (Lv 24)" and
+// "Soul Growth 45.20/100" rather than "Level 24" and "XP 310/800", and with terms of their own
+// the enemy power picker offers their tiers (or levels) instead of F–SSS.
 
-import { STATS, RANKS, DEFAULT_RULES, maxHp, maxMp, derive, checkModifiers, xpToNext } from '../rules.js';
+import { STATS, RANKS, DEFAULT_RULES, maxHp, maxMp, derive, checkModifiers } from '../rules.js';
 import { stateWords } from '../narrative.js';
+import { levelLabel, levelTag, levelText, powerOptions, progress, termsOf, tierOf, xpGainText } from '../terms.js';
 
 const ROLES = ['brute', 'skirmisher', 'caster', 'tank', 'support'];
 const SKILL_TYPES = ['physical', 'magic', 'heal', 'buff', 'debuff'];
@@ -144,27 +149,29 @@ const sameName = (a, b) => str(a).toLowerCase().replace(/\s+/g, ' ') === str(b).
  * A labelled meter: "HP [████░░] 58/62". role="progressbar" so a screen reader reads the
  * numbers; the fill width is the only inline style.
  */
-function bar(kind, cur, max, label = kind.toUpperCase()) {
+function bar(kind, cur, max, label = kind.toUpperCase(), { name = kind.toUpperCase(), text = null } = {}) {
     const value = Math.max(0, Math.round(num(cur)));
     const top = Math.max(0, Math.round(num(max)));
     const pct = top > 0 ? Math.min(100, Math.round((value / top) * 100)) : 0;
     const fill = el('span', { className: 'rpg-battle-bar-fill' });
     fill.style.width = `${pct}%`;
     const low = kind === 'hp' && top > 0 && pct <= 25;
+    // A long name ("Soul Growth") gets a wider first column than HP and MP need.
+    const named = name.length > 3 ? ' is-named' : '';
     return el('div', {
-        className: `rpg-battle-bar is-${kind}${low ? ' is-low' : ''}`,
+        className: `rpg-battle-bar is-${kind}${low ? ' is-low' : ''}${named}`,
         attrs: {
             role: 'progressbar',
             'aria-label': label,
             'aria-valuemin': '0',
             'aria-valuemax': String(top),
             'aria-valuenow': String(Math.min(value, top)),
-            'aria-valuetext': `${value} of ${top}`,
+            'aria-valuetext': text ?? `${value} of ${top}`,
         },
     }, [
-        el('span', { className: 'rpg-battle-bar-name', text: kind.toUpperCase(), attrs: { 'aria-hidden': 'true' } }),
+        el('span', { className: 'rpg-battle-bar-name', text: name, attrs: { 'aria-hidden': 'true' } }),
         el('span', { className: 'rpg-battle-bar-track' }, [fill]),
-        el('span', { className: 'rpg-battle-bar-value', text: `${value}/${top}`, attrs: { 'aria-hidden': 'true' } }),
+        el('span', { className: 'rpg-battle-bar-value', text: text ?? `${value}/${top}`, attrs: { 'aria-hidden': 'true' } }),
     ]);
 }
 
@@ -394,7 +401,7 @@ function renderCreate(root, view, handlers) {
                 ? el('div', { className: 'rpg-battle-picks', attrs: { role: 'group', 'aria-label': 'Starter skills' } }, skillButtons)
                 : el('p', { className: 'rpg-battle-hint', text: 'The skill library has no tier-1 skills.' }),
         ]),
-        section('is-preview', [sub('At level 1', 'fa-heart-pulse'), preview]),
+        section('is-preview', [sub(termsOf(rules).custom ? `At ${levelText(1, rules)}` : 'At level 1', 'fa-heart-pulse'), preview]),
         el('div', { className: 'rpg-battle-actions is-end' }, [hint, create]),
     );
     refresh();
@@ -453,16 +460,18 @@ function renderIdle(root, view, handlers) {
         ]));
     }
 
+    const terms = termsOf(rules);
+    const growth = progress(sheet, rules);
     root.append(section('is-sheet', [
         el('div', { className: 'rpg-battle-head' }, [
             el('span', { className: 'rpg-battle-head-name', text: sheet.name ?? '' }),
-            el('span', { className: 'rpg-battle-tag rpg-battle-level', text: `Level ${level}` }),
+            el('span', { className: 'rpg-battle-tag rpg-battle-level', text: levelText(level, rules) }),
         ]),
         bar('hp', sheet.hp?.cur, sheet.hp?.max, 'HP'),
         bar('mp', sheet.mp?.cur, sheet.mp?.max, 'MP'),
         // The words the model is told to portray, so the reader sees what the story will say.
         el('p', { className: 'rpg-battle-hint rpg-battle-state', text: stateWords(sheet, rules).text }),
-        bar('xp', sheet.xp, xpToNext(level, rules), 'XP to next level'),
+        bar('xp', growth.cur, growth.max, terms.custom ? terms.xpName : 'XP to next level', { name: terms.xpName, text: growth.capped || terms.tiers ? growth.text : null }),
         chips(sheet.conditions),
     ]));
 
@@ -503,14 +512,15 @@ function renderIdle(root, view, handlers) {
         root.append(section('is-party', [
             sub('Party', 'fa-users', party.length),
             el('ul', { className: 'rpg-battle-records' }, party.map(member => {
-                const item = el('li', { className: 'rpg-battle-record rpg-battle-member' }, [
+                const editing = editDraft?.id === member.id && member.id;
+                const item = el('li', { className: `rpg-battle-record rpg-battle-member${editing ? ' is-editing' : ''}` }, [
                     el('div', { className: 'rpg-battle-record-head' }, [
                         el('span', { className: 'rpg-battle-record-name', text: member.name ?? member.sheet.name ?? '' }),
-                        el('span', { className: 'rpg-battle-tag', text: `Lv ${num(member.sheet.level, 1)}` }),
+                        el('span', { className: 'rpg-battle-tag rpg-battle-member-level', text: levelTag(num(member.sheet.level, 1), rules) }),
                         member.role ? el('span', { className: 'rpg-battle-tag is-quiet', text: member.role }) : null,
                     ]),
                     bar('hp', member.sheet.hp?.cur, member.sheet.hp?.max, `${member.name ?? ''} HP`),
-                    memberControls(member, handlers),
+                    editing ? editForm(member, handlers) : memberControls(member, handlers),
                 ]);
                 if (member.id) item.dataset.memberId = member.id;
                 return item;
@@ -546,8 +556,10 @@ function renderIdle(root, view, handlers) {
     ]));
 }
 
-// A companion's control mode (tap to switch) and Remove, which asks twice.
+// A companion's control mode (tap to switch), Edit, and Remove, which asks twice.
 let removeArmed = null;
+// The companion being edited and the form's values, kept across redraws like every draft.
+let editDraft = null;
 
 function memberControls(member, handlers) {
     const command = member.control === 'command';
@@ -570,7 +582,52 @@ function memberControls(member, handlers) {
             }
         },
     });
-    return el('div', { className: 'rpg-battle-member-actions' }, [toggle, remove]);
+    const edit = button('Edit', 'rpg-battle-edit-companion', {
+        iconName: 'fa-pen',
+        title: `Change ${member.name ?? 'this companion'}'s name, role or control`,
+        onClick: () => {
+            removeArmed = null;
+            editDraft = { id: member.id, name: str(member.name ?? member.sheet?.name), role: str(member.role) || 'companion', control: member.control === 'command' ? 'command' : 'auto' };
+            rerender();
+        },
+    });
+    return el('div', { className: 'rpg-battle-member-actions' }, [toggle, edit, remove]);
+}
+
+/**
+ * The small Edit form in a companion's row: name, role and control. Save sends
+ * onEditCompanion(memberId, { name, role, control }); the sheet, stats and gear are untouched.
+ */
+function editForm(member, handlers) {
+    const draft = editDraft;
+    const label = `${member.name ?? 'Companion'}`;
+    const name = el('input', { className: 'text_pole rpg-battle-edit-name', attrs: { type: 'text', maxlength: '40', placeholder: 'Name', 'aria-label': `${label}: name`, autocomplete: 'off' } });
+    name.value = draft.name;
+    const role = el('input', { className: 'text_pole rpg-battle-edit-role', attrs: { type: 'text', maxlength: '30', placeholder: 'companion, hireling, familiar…', 'aria-label': `${label}: role` } });
+    role.value = draft.role;
+    const control = select('rpg-battle-edit-control', `${label}: control`, [['auto', 'Acts on its own'], ['command', 'I command it']], draft.control);
+    const save = button('Save', 'rpg-battle-primary rpg-battle-edit-save', { iconName: 'fa-check' });
+    const sync = () => { save.disabled = !str(draft.name); };
+    name.addEventListener('input', () => { draft.name = name.value; sync(); });
+    role.addEventListener('input', () => { draft.role = role.value; });
+    control.addEventListener('change', () => { draft.control = control.value === 'command' ? 'command' : 'auto'; });
+    save.addEventListener('click', () => {
+        if (save.disabled) return;
+        const payload = { name: str(draft.name), role: str(draft.role) || 'companion', control: draft.control };
+        editDraft = null;
+        emit(handlers, 'onEditCompanion', member.id, payload);
+        rerender();
+    });
+    const cancel = button('Cancel', 'rpg-battle-edit-cancel', { iconName: 'fa-xmark', onClick: () => { editDraft = null; rerender(); } });
+    sync();
+    const field = (text, control) => el('label', { className: 'rpg-battle-field' }, [el('span', { className: 'rpg-battle-field-label', text }), control]);
+    return el('div', { className: 'rpg-battle-edit-form', attrs: { role: 'group', 'aria-label': `Edit ${label}` } }, [
+        field('Name', name),
+        field('Role', role),
+        field('Control', control),
+        el('p', { className: 'rpg-battle-hint', text: 'Their sheet, skills and gear stay as they are.' }),
+        el('div', { className: 'rpg-battle-actions' }, [save, cancel]),
+    ]);
 }
 
 // ---------------------------------------------------------------------------
@@ -630,7 +687,10 @@ function renderCompanion(root, view, handlers) {
     name.value = draft.name;
     const role = el('input', { className: 'text_pole rpg-battle-companion-role', attrs: { type: 'text', maxlength: '30', placeholder: 'companion, hireling, familiar…', 'aria-label': 'Role' } });
     role.value = draft.role;
-    const level = select('rpg-battle-companion-level', 'Level', Array.from({ length: Math.max(1, num(view.maxLevel, 20)) }, (_, i) => [String(i + 1), `Level ${i + 1}`]), String(draft.level));
+    const rules = view.rules ?? DEFAULT_RULES;
+    const terms = termsOf(rules);
+    const top = Math.min(terms.cap, Math.max(1, num(view.maxLevel, 20)));
+    const level = select('rpg-battle-companion-level', terms.levelName, Array.from({ length: top }, (_, i) => [String(i + 1), levelText(i + 1, rules)]), String(Math.min(draft.level, top)));
     const preset = select('rpg-battle-companion-preset', 'Build', presets.map(entry => [entry.id, `${entry.name} — ${list(entry.skills).join(', ')}`]), draft.preset);
     const control = select('rpg-battle-companion-control', 'Control', [['auto', 'Acts on its own'], ['command', 'I command it']], draft.control);
     const gear = el('textarea', { className: 'text_pole rpg-battle-companion-gear', attrs: { rows: '3', placeholder: 'Ashwood Staff (rare) · MATK +7\nTraveller\'s Robe (common) · DEF +2', 'aria-label': 'Equipment, one per line' } });
@@ -658,7 +718,7 @@ function renderCompanion(root, view, handlers) {
         el('p', { className: 'rpg-battle-hint', text: 'Someone the story brought along. They join at the level you pick, built like the preset, and level with you from then on.' }),
         field('Name', name),
         field('Role', role),
-        field('Level', level, `Your level is ${num(view.level, 1)}.`),
+        field(terms.levelName, level, `You are ${levelText(num(view.level, 1), rules)}.`),
         field('Build', preset, 'Spreads their points and gives three starter skills.'),
         field('Control', control),
         field('Equipment', gear, 'Optional, one item per line: name (rarity) · stats. Capped by rarity like yours.'),
@@ -864,26 +924,63 @@ function renderLearn(root, view, handlers) {
 
 let setupDraft = null;
 
-// A new row's rank is blank: a bestiary creature keeps its own rank, anything else gets the fair one.
-const blankRow = () => ({ name: '', count: 1, rank: '', role: '', boss: false });
+// A new row's power is blank: a bestiary creature keeps its own rank, anything else gets the
+// fair one. `rank` is an F–SSS rank; `level` the power picked in the reader's own terms.
+const blankRow = () => ({ name: '', count: 1, rank: '', level: '', role: '', boss: false });
+
+// The level a rank stands for, to place the plain ranks among the reader's tiers.
+const rankLevel = (rank, rules) => num(rules?.ranks?.[rank]?.level, 1);
 
 // A row offered by the story (view.prefill), made safe for the form: any name, a count of
-// 1 to 9, a known rank and role or blank.
-function prefillRow(row) {
+// 1 to 9, a known rank and role or blank. A power written as a level is kept as a level with
+// the reader's terms, and becomes the rank for that level with the plain ones (F–SSS).
+function prefillRow(row, rules, custom) {
+    const level = num(row?.level, 0) >= 1 ? Math.round(num(row.level)) : null;
+    const rank = RANKS.includes(row?.rank) ? row.rank : '';
+    let powerRank = rank;
+    let powerLevel = '';
+    if (custom) powerLevel = level ? String(level) : rank ? String(rankLevel(rank, rules)) : '';
+    else if (!rank && level) powerRank = RANKS.filter(entry => rules?.ranks?.[entry] && rankLevel(entry, rules) <= level).at(-1) ?? RANKS[0];
     return {
         name: str(row?.name),
         count: Math.min(9, Math.max(1, Math.round(num(row?.count, 1)))),
-        rank: RANKS.includes(row?.rank) ? row.rank : '',
+        rank: custom ? '' : powerRank,
+        level: powerLevel,
         role: ROLES.includes(row?.role) ? row.role : '',
         boss: Boolean(row?.boss),
     };
 }
 
+/**
+ * The power picker: F–SSS with the plain terms; with the reader's own, their tiers (or levels)
+ * up to the cap, plus a row's own level when it is not one of them (a story fight "Lv 24").
+ */
+function powerSelect(row, label, { rules, custom, suggested }) {
+    if (!custom) {
+        const node = select('rpg-battle-enemy-rank', `${label} rank`, [['', `auto (fair: ${suggested})`], ...RANKS.map(value => [value, value === suggested ? `${value} (fair)` : value])], row.rank);
+        node.addEventListener('change', () => { row.rank = node.value; });
+        return node;
+    }
+    const fairLevel = rankLevel(suggested, rules);
+    const terms = termsOf(rules);
+    const fairStep = terms.tiers ? tierOf(fairLevel, rules) : fairLevel;
+    const options = powerOptions(rules).map(option => {
+        const step = terms.tiers ? tierOf(option.level, rules) : option.level;
+        return [String(option.level), step === fairStep ? `${option.label} (fair)` : option.label];
+    });
+    if (row.level && !options.some(([value]) => value === String(row.level))) options.push([String(row.level), levelText(num(row.level, 1), rules)]);
+    const node = select('rpg-battle-enemy-rank rpg-battle-enemy-power', `${label} ${terms.levelName}`, [['', `auto (fair: ${levelLabel(fairLevel, rules)})`], ...options], String(row.level ?? ''));
+    node.addEventListener('change', () => { row.level = node.value; });
+    return node;
+}
+
 function renderSetup(root, view, handlers) {
+    const rules = view.rules ?? DEFAULT_RULES;
+    const custom = termsOf(rules).custom;
     const suggested = RANKS.includes(view.suggestedRank) ? view.suggestedRank : RANKS[0];
     // A fight from the story arrives with its rows filled in; they seed the draft once, and the
     // reader's edits are kept across redraws. A different offer starts the draft over.
-    const prefill = list(view.prefill).map(prefillRow).filter(row => row.name);
+    const prefill = list(view.prefill).map(row => prefillRow(row, rules, custom)).filter(row => row.name);
     const prefillKey = prefill.length ? JSON.stringify(prefill) : '';
     if (!setupDraft || (prefillKey && setupDraft.prefillKey !== prefillKey)) {
         setupDraft = { rows: prefill.length ? prefill : [blankRow()], stakes: 'normal', prefillKey };
@@ -897,10 +994,11 @@ function renderSetup(root, view, handlers) {
     const start = button('Start', 'rpg-battle-primary rpg-battle-begin', {
         iconName: 'fa-dragon',
         onClick: () => {
+            // With the reader's terms a row carries its power as a level; otherwise as a rank.
             const rows = named().map(row => ({
                 name: str(row.name),
                 count: Math.min(9, Math.max(1, Math.round(num(row.count, 1)))),
-                rank: row.rank || null,
+                ...(custom ? { level: num(row.level, 0) >= 1 ? Math.round(num(row.level)) : null } : { rank: row.rank || null }),
                 role: row.role || null,
                 boss: Boolean(row.boss),
             }));
@@ -922,8 +1020,7 @@ function renderSetup(root, view, handlers) {
         nameInput.addEventListener('input', () => { row.name = nameInput.value; refresh(); });
         const count = select('rpg-battle-enemy-count', `${label} count`, Array.from({ length: 9 }, (_, i) => [String(i + 1), `×${i + 1}`]), String(row.count));
         count.addEventListener('change', () => { row.count = Math.min(9, Math.max(1, num(count.value, 1))); refresh(); });
-        const rank = select('rpg-battle-enemy-rank', `${label} rank`, [['', `auto (fair: ${suggested})`], ...RANKS.map(value => [value, value === suggested ? `${value} (fair)` : value])], row.rank);
-        rank.addEventListener('change', () => { row.rank = rank.value; });
+        const rank = powerSelect(row, label, { rules, custom, suggested });
         const role = select('rpg-battle-enemy-role', `${label} role`, [['', 'auto role'], ...ROLES], row.role);
         role.addEventListener('change', () => { row.role = role.value; });
         const boss = el('input', { className: 'rpg-battle-enemy-boss', attrs: { type: 'checkbox', 'aria-label': `${label} is a boss` } });
@@ -1020,7 +1117,7 @@ function aimOf(target, { type = null, damages = false } = {}) {
     }
 }
 
-function combatantCard(unit, { turnId, pick, onPick }) {
+function combatantCard(unit, { turnId, pick, onPick, rules = DEFAULT_RULES }) {
     const isEnemy = unit.side === 'enemy';
     const pickable = Boolean(pick && pick.ids.includes(unit.id) && !unit.gone);
     const classes = ['rpg-battle-card', isEnemy ? 'is-enemy' : 'is-party'];
@@ -1030,7 +1127,9 @@ function combatantCard(unit, { turnId, pick, onPick }) {
     if (pickable) classes.push('is-pickable');
     const badges = [];
     if (isEnemy) {
-        const rankRole = [unit.rank, unit.role].filter(Boolean).join(' · ');
+        // With the reader's terms an enemy's power is told as theirs ("Soul Class II"), not F–SSS.
+        const power = termsOf(rules).custom && num(unit.level, 0) >= 1 ? levelLabel(unit.level, rules) : unit.rank;
+        const rankRole = [power, unit.role].filter(Boolean).join(' · ');
         if (rankRole) badges.push(el('span', { className: 'rpg-battle-badge', text: rankRole }));
         if (unit.boss) badges.push(el('span', { className: 'rpg-battle-badge is-boss' }, [icon('fa-crown'), el('span', { text: 'boss' })]));
     } else if (unit.controller === 'auto') {
@@ -1113,7 +1212,7 @@ function renderFight(root, view, handlers) {
     };
 
     const pick = ui.pick;
-    const cardOptions = { turnId, pick, onPick: pickTarget };
+    const cardOptions = { turnId, pick, onPick: pickTarget, rules: view.rules ?? DEFAULT_RULES };
     const enemies = units.filter(unit => unit.side === 'enemy');
     const party = units.filter(unit => unit.side !== 'enemy');
 
@@ -1338,25 +1437,34 @@ function renderResult(root, view, handlers) {
     }
 
     // XP, level-ups and points: per member when the glue gives a map, else one line for the PC.
+    // In the reader's terms: "Soul Growth +12%" with tiers (the share of each member's tier).
+    const rules = view.rules ?? DEFAULT_RULES;
+    const terms = termsOf(rules);
     const xp = result.xp && typeof result.xp === 'object' ? result.xp : {};
     const xpRows = [];
-    const xpValues = Object.values(xp).map(value => num(value));
-    if (xpValues.length && xpValues.every(value => value === xpValues[0])) {
-        if (xpValues[0] > 0) xpRows.push(['XP', `+${xpValues[0]}${xpValues.length > 1 ? ' each' : ''}`]);
+    const levelOf = memberId => party.find(member => member.memberId === memberId)?.level;
+    const gains = Object.entries(xp).map(([memberId, value]) => [memberId, num(value), xpGainText(value, levelOf(memberId), rules)]);
+    if (gains.length && gains.every(([, value, text]) => value === gains[0][1] && text === gains[0][2])) {
+        if (gains[0][1] > 0) xpRows.push([terms.xpName, `${gains[0][2]}${gains.length > 1 ? ' each' : ''}`]);
     } else {
-        for (const [memberId, value] of Object.entries(xp)) {
+        for (const [memberId, , text] of gains) {
             const name = party.find(member => member.memberId === memberId)?.name ?? memberId;
-            xpRows.push([`${name} XP`, `+${num(value)}`]);
+            xpRows.push([`${name} ${terms.xpName}`, text]);
         }
     }
+    // Where a member got to, when the glue says (view.levelsReached: number or { memberId: level }).
+    const reached = memberId => {
+        const value = view.levelsReached && typeof view.levelsReached === 'object' ? num(view.levelsReached[memberId], 0) : memberId === 'pc' ? num(view.levelsReached, 0) : 0;
+        return value >= 1 ? ` (${levelText(value, rules)})` : '';
+    };
     const levels = typeof view.levelsGained === 'object' && view.levelsGained ? null : num(view.levelsGained);
     const points = typeof view.pointsGained === 'object' && view.pointsGained ? null : num(view.pointsGained);
-    if (levels) xpRows.push(['Level', `+${levels}${levels === 1 ? ' level' : ' levels'}`]);
+    if (levels) xpRows.push([terms.levelName, `+${levels}${levels === 1 ? ' level' : ' levels'}${reached('pc')}`]);
     if (points) xpRows.push(['Points', `${points} to spend`]);
     for (const member of party) {
         const memberLevels = perMember(view.levelsGained, member.memberId);
         const memberPoints = perMember(view.pointsGained, member.memberId);
-        if (memberLevels) xpRows.push([`${member.name ?? ''}`, `+${memberLevels} ${memberLevels === 1 ? 'level' : 'levels'}${memberPoints ? `, ${memberPoints} points to spend` : ''}`]);
+        if (memberLevels) xpRows.push([`${member.name ?? ''}`, `+${memberLevels} ${memberLevels === 1 ? 'level' : 'levels'}${reached(member.memberId)}${memberPoints ? `, ${memberPoints} points to spend` : ''}`]);
     }
     const xpFacts = facts(xpRows, 'rpg-battle-gains');
     if (xpFacts) root.append(section('is-gains', [sub('Gains', 'fa-arrow-trend-up'), xpFacts]));
@@ -1443,6 +1551,7 @@ export function renderBattleTab(pane, view, handlers = {}) {
     if (mode !== 'companion') companionDraft = null;
     if (mode !== 'items') itemsTarget = null;
     if (mode !== 'idle') removeArmed = null;
+    if (mode !== 'idle') editDraft = null;
 
     const root = el('div', { className: `rpg-battle-tab is-${mode || 'none'}` });
     root.dataset.mode = mode;
