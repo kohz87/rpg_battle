@@ -352,8 +352,9 @@ function renderCreate(root, view, handlers) {
         nameHint.hidden = !(draft.nameFromPersona && str(draft.name));
     }
 
+    // append() would write a null as the text "null"; the import notice comes first only when there is one.
+    if (view.importing) root.append(importNotice(view.importing, handlers));
     root.append(
-        view.importing ? importNotice(view.importing, handlers) : null,
         section('is-create-intro', [
             sub('New character', 'fa-user-plus'),
             el('p', { className: 'rpg-battle-hint', text: `No classes: every stat starts at ${startStat}; spend ${startPoints} points the way you see your character. Skills come from the story: the opening message or a later scene teaches them, and you accept each one.` }),

@@ -227,7 +227,8 @@ export class FakeElement extends FakeNode {
         return node;
     }
     appendChild(node) { return this.insertBefore(node, null); }
-    append(...nodes) { nodes.forEach(node => this.appendChild(typeof node === 'string' ? new FakeText(this.ownerDocument, node) : node)); }
+    // Like the DOM, anything that is not a node (null included) is appended as its text.
+    append(...nodes) { nodes.forEach(node => this.appendChild(node && typeof node === 'object' ? node : new FakeText(this.ownerDocument, String(node)))); }
     prepend(node) { this.insertBefore(node, this.childNodes[0] ?? null); }
     replaceChildren(...nodes) {
         this.childNodes.forEach(node => { node.parentNode = null; });

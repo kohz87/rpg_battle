@@ -198,6 +198,12 @@ test('create: seven steppers at the start value, a points budget, and minus/plus
     assert.equal($(pane, '.rpg-battle-create').disabled, true);
 });
 
+test('create: no stray "null" text when no import is waiting', () => {
+    reset();
+    const pane = render({ mode: 'create', presets: [], library: [], persona: 'Ren', rules });
+    assert.ok(!/null/.test(root(pane).textContent), 'append() writes a null as text');
+});
+
 test('create: stats only, the points by hand; onCreate gets the name and the stats', () => {
     reset();
     const { handlers, last } = recorder();
