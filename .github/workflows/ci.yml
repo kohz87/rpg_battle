@@ -1,0 +1,31 @@
+name: RPG Battle CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # Check the whitespace of what this PR or push introduced; a bare `git diff --check`
+      # on a fresh checkout compares a clean tree and never finds anything.
+      - name: Diff check
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            BASE="$(git hash-object -t tree /dev/null)"
+          fi
+          git diff --check "$BASE" HEAD
+      - name: Syntax check
+        run: npm run check
+      - name: Behavioral tests
+        run: npm test
