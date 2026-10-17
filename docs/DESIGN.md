@@ -300,7 +300,7 @@ affordable skill, then attack).
 - **XP:** each defeated enemy's XP × a level factor (×1.5 when it outranks you, down to ×0.1 when
   far below); half for parleyed enemies; split evenly across the party, not divided.
 - **Level-ups:** HP and MP maxima rise; points are added to spend.
-- **Loot:** from the bestiary's tables or the rank's defaults; rarity rolled with LUK; money (8.4).
+- **Loot:** from the bestiary's tables or the rank's defaults; rarity rolled with LUK; money (8.3).
   Written into the Inventory block.
 - **Sheets:** HP, MP, conditions, skill mastery, consumables used.
 
@@ -325,7 +325,7 @@ Loot: 14 copper, a bone fetish. XP +38 each.
   it is not injected again after that. **Return to story** in the Battle tab can also send a short
   message for you ("*(the fight ends)*") so the narration comes straight away.
 
-### 8.4 Money
+### 8.3 Money
 
 Your lorebook already names the money, so the currency is a setting:
 
@@ -339,7 +339,7 @@ Loot is counted in the smallest unit and written out in the largest ones. The li
 the inventory row named in the setting (`Coins` by default); the model keeps spending from it in
 the story as it does now.
 
-### 8.3 With Story Director
+### 8.4 With Story Director
 
 - The model writes Story Director change lines for what the fight leaves behind (a goblin that
   fled becomes an agenda, the fetish becomes a hook), as it does for any reply.
