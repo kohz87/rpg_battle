@@ -380,6 +380,53 @@
     align-self: stretch;
 }
 
+/* A notice about the setup rather than the story: there, but not asking for attention. */
+.rpg-battle-tab .rpg-battle-notice.is-quiet {
+    border-color: var(--rb-border);
+    background: var(--rb-tint);
+}
+
+.rpg-battle-tab .rpg-battle-notice.is-quiet .rpg-battle-notice-text > i {
+    color: inherit;
+    opacity: 0.7;
+}
+
+.rpg-battle-tab .rpg-battle-notice .rpg-battle-actions {
+    margin: 0;
+}
+
+/* What the story's <Wounds> did in the latest reply, with its Undo. */
+.rpg-battle-tab .rpg-battle-story {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem 0.6rem;
+}
+
+.rpg-battle-tab .rpg-battle-story-lines {
+    flex: 1 1 14rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.rpg-battle-tab .rpg-battle-story-line {
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+/* The buttons inside a toast (Undo, Fight): toasts are outside the tab, so they get their own size. */
+.rpg-battle-toast-actions {
+    margin-top: 0.35rem;
+}
+
+.rpg-battle-toast-actions .menu_button {
+    display: inline-flex;
+    width: auto;
+    margin: 0;
+    padding: 0.2rem 0.7rem;
+}
+
 /* The hand-off: model-bound text, shown quietly and exactly as it will be sent. */
 .rpg-battle-tab .rpg-battle-handoff {
     margin: 0;
@@ -1362,4 +1409,20 @@
 .rpg-battle-settings .rpg-battle-version {
     font-weight: 400;
     opacity: 0.6;
+}
+
+.rpg-battle-settings .rpg-battle-settings-conflict {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 0.6rem;
+}
+
+.rpg-battle-settings .rpg-battle-settings-conflict[hidden] {
+    display: none;
+}
+
+.rpg-battle-settings .rpg-battle-settings-sheet-off {
+    width: auto;
+    margin: 0;
 }

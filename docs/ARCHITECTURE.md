@@ -20,6 +20,7 @@ src/sheet.js      Character and Party blocks                tests/sheet.test.js
 src/items.js      inventory: equipment, consumables, money  tests/items.test.js
 src/handoff.js    the narration hand-off text               tests/handoff.test.js
 src/narrative.js  the State line: HP, MP, conditions in words tests/narrative.test.js
+src/story.js      story wounds and fights from the story    tests/story.test.js
 src/ui/tab.js     the Battle tab                            tests/ui-tab.test.js
 style.css         all styles
 index.js          SillyTavern + Story Block glue
@@ -90,7 +91,8 @@ rules)`, `hitChance(dex, agi, rules)`, `mitigate(raw, defence)`, `xpFactor(membe
 enemyLevel, rules)`, `suggestRank(level, rules)`, `fleeChance(partyAgi, enemyAgi, { boss }, rules)`,
 `parleyChance(cha, morale, hpShare, rules)`, `rarityBudget(rarity, level, rules)`.
 `DEFAULT_RULES.narrative = { hpBands: [[share, word], …], mpBands: [[share, word], …], mpQuietBelow }`
-holds the State line's bands (best first).
+holds the State line's bands (best first). `DEFAULT_RULES.wounds = { scratch: 0.1, wound: 0.3,
+severe: 0.5, grievous: 0.8 }` is the share of max HP each story-wound word takes or heals.
 
 ## `src/rng.js` (written)
 
@@ -265,6 +267,36 @@ export function stateWords(sheet, rules) → { hp, mp, conditions: [words], text
     // joined with ' · '. Works on a Sheet or a Result party entry.
 ```
 
+## `src/story.js` (0.3)
+
+The model's two optional hidden blocks (DESIGN §4.2, §8.6), read leniently (bullets, bold, an
+en or em dash or a spaced hyphen, any case); never throws.
+
+```js
+export const STORY_INSTRUCTION: string       // the always-on instruction (≈ 90 tokens; tests hold it there)
+export const SEVERITIES = ['scratch', 'wound', 'severe', 'grievous']   // mildest first
+export function parseWounds(text) → [{ name, kind: 'harm' | 'heal' | 'condition' | 'cure', severity?, condition?, cause }]
+    // `Name — scratch|wound|severe|grievous: cause` harm (the worst severity word in a short
+    //   effect counts: "severe wound" → severe); `Name — heal <word>: cause` heal (also healed,
+    //   treated; no word → scratch); `Name — cure <condition>: cause` cure; any other effect of
+    //   1–3 words a condition as written ("poisoned"); "unhurt", "none"… nothing. The cause may
+    //   follow ':', a second dash, a comma or sit in brackets; it may be empty.
+export function applyWounds({ pc: Sheet | null, members: Member[] }, wounds, rules) → { pc, members, applied }
+    // Pure (copies). harm: cur − round(max × rules.wounds[severity]) (at least 1), floor 0;
+    // heal: the same share back, cap max. One harm-or-heal per person (the first; later ones
+    // skipped even when the first changed nothing); conditions added once (poisoned = poison),
+    // cures remove by stem (cure poison lifts poison and poisoned). Names: full name, then
+    // first name, case- and accent-insensitive; the Character before the Party; others ignored.
+    // applied: [{ name, memberId: 'pc' | member id, kind, severity | null, hp: signed change,
+    //            condition | null, cause, down? }], only lines that changed something.
+export function describeWound(entry) → string // "Ren: wound (−29 HP), fell down the ravine."
+export function parseEncounter(text, bestiary) → [{ name, count (1–9), rank | null, role | null, boss }]
+    // groups by ',', ';', new line, 'and', '&', '+' (not inside brackets); each
+    // `[N ×|N x|N |a |two… ]name[ (boss)][ rank X][ role]`, or `name ×N`; brackets may hold
+    // boss, rank X and a role. A creature's name is spelt as the bestiary spells it; a plural is
+    // made singular when the singular is a creature (or alias); other names are kept as written.
+```
+
 ## `src/handoff.js`
 
 ```js
@@ -290,10 +322,10 @@ export function renderBattleTab(pane, view, handlers)
 | mode | data | handlers used |
 |---|---|---|
 | `create` | `{ presets, library (tier 1), rules }` | `onCreate({ name, stats, skills })` |
-| `idle` | `{ sheet, checks, skills: resolved, party: [Member], rules, pending: handoff text or null }` (the State words under the HP/MP bars, `.rpg-battle-state`) | `onSpend()` (opens spend), `onLearn()`, `onSetup()`, `onReturn()` |
+| `idle` | `{ sheet, checks, skills: resolved, party: [Member], rules, pending: handoff text or null, recovered: text, story: { lines: [text], canUndo } \| null, encounter: { text, label, rows } \| null, sheetConflict: boolean }` (the State words under the HP/MP bars, `.rpg-battle-state`) | `onSpend()` (opens spend), `onLearn()`, `onSetup()`, `onReturn()`, `onRest(kind)`, `onItems()`, `onCompanion()`, `onUndoStory()`, `onFightEncounter(rows)`, `onDismissEncounter()`, `onDisableStorySheet()` |
 | `spend` | `{ sheet, rules }` | `onConfirmSpend(allocation)`, `onBack()` |
 | `learn` | `{ sheet, library, rules }` | `onConfirmLearn({ name, fromLibrary? , template? })`, `onBack()` |
-| `setup` | `{ bestiary names, suggestedRank, rules }` | `onStart({ rows: [{ name, count, rank, role, boss }], stakes })`, `onBack()` |
+| `setup` | `{ bestiary names, suggestedRank, prefill: rows \| null, rules }` (a new `prefill` seeds the draft's rows once; the reader's edits survive redraws) | `onStart({ rows: [{ name, count, rank, role, boss }], stakes })`, `onBack()` |
 | `fight` | `{ fight, actions: availableActions(fight) }` | `onAction(action)`, `onAuto()` |
 | `result` | `{ result, handoff, levelsGained, pointsGained }` | `onReturn()`, `onDiscard()`, `onDone()` |
 
@@ -325,8 +357,10 @@ export function useItemOutside(sheet, item) → { sheet, used, message }
 
 ## `src/ui/settings.js`
 
-`renderSettings(container, { settings, version, status, onChange })`: the on/off switch, the
-currency (mode, tiers as `name=rate, …`, single coin name, money row) and the block tags.
+`renderSettings(container, { settings, version, status, sheetConflict, onDisableSheet, onChange })
+→ { update(settings), setSheetConflict(on) }`: the on/off switch, the currency (mode, tiers as
+`name=rate, …`, single coin name, money row), the block tags, and the Story Block Character
+Sheet notice with **Turn it off** (shown while `sheetConflict`).
 
 ## As built (0.1)
 
@@ -341,3 +375,31 @@ currency (mode, tiers as `name=rate, …`, single coin name, money row) and the 
 Settings, the Character and Party blocks registered with Story Block as kept blocks, the tab,
 fights stored in chat metadata, the hand-off through the generate interceptor
 (`rpgBattleInterceptor`), sheets and loot written with `StoryBlock.setBlockText`.
+
+As built (0.3):
+
+- **Prompts:** `rpg_battle` is the hand-off (one reply and its swipes); `rpg_battle_rules` is
+  `STORY_INSTRUCTION`, in chat at depth 1 as system, set on every generation while RPG Battle is
+  on, a Character block exists, no fight is under way and no hand-off goes with this reply;
+  cleared on quiet and impersonate generations and on chat change.
+- **Blocks:** `Wounds` and `Encounter` registered transport-only (`registerBlock({ id, tag, name })`),
+  read with `blockInText(message.mes, tag)`.
+- **After each reply** (`onReply` → `afterReply`), skipped while a fight is stored: `planReply`
+  takes the Character and Party sheets before the reply (`getBlock(tag, { beforeIndex })`),
+  applies story-time recovery, then the reply's wounds (not for the reply the hand-off is
+  attached to, nor when undone); `writePlan` writes only what differs into that reply, and
+  writes nothing when the reply already holds a sheet the pipeline did not write (its hash is
+  not in `story.written`). Chat state `story: { index, signature (hash of the <Wounds> text),
+  applied, undone, written: { character, party } }`, `recovered: { index, text }`.
+- **Undo** (`onUndoStory`, the toast's button): allowed while that reply is the latest, its
+  `<Wounds>` text is the same, and its sheets hash to `story.written`; rewrites them with
+  `planReply(…, { withWounds: false })` and sets `undone`.
+- **Encounters:** the offer is the latest reply's `<Encounter>`, else the first due or soon entry
+  of `StoryDirector.encountersAt(index)` (typeof-guarded, try/catch); none during a fight or with
+  a hand-off pending; `dismissed: ['index:text']` (the last 30) holds Not now and fights started
+  from an offer. `onFightEncounter(rows)` opens the setup with `prefill`. Toasts with buttons use
+  `escapeHtml: false` with every model-written part escaped.
+- **Story Block's Character Sheet:** the blocks with `template: 'character-sheet'` in
+  `extensionSettings.storyBlock.blocks` (`listBlocks()` has `enabled` but no template; it is the
+  fallback, by id, before Story Block has stored its list). `onDisableStorySheet` sets their
+  `enabled` to false, saves settings and refreshes Story Block.

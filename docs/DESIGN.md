@@ -23,9 +23,11 @@ It is the third piece of a set:
    numbers from its rank and role; an item the model names gets its stats limited by its rarity.
 3. **Combat only.** No buying, renting, eating or quest bookkeeping. Those stay story (and
    Story Director tracks what matters). Mirage RPG tried to make every action mechanical through a
-   JSON block on every reply and spent its releases policing the model's wording; RPG Battle has
-   no per-reply protocol at all.
-4. **A fight starts with a button** and ends with one hand-off. Nothing is inferred from prose.
+   JSON block on every reply and spent its releases policing the model's wording; RPG Battle asks
+   for no block on every reply. The two it may get (§4.2, §8.6) are optional, a line or two of
+   fixed words, and code decides what they mean.
+4. **A fight starts with a button** and ends with one hand-off. Nothing is inferred from prose:
+   the story may offer a fight (§4.2), and the reader presses the button.
 5. **Narrated once.** The result is injected into the next reply only; its swipes narrate the
    same result. A lost fight cannot be rerolled by swiping.
 6. **Swipe- and delete-safe.** Sheet changes are written into a message, like every Story Block
@@ -172,6 +174,23 @@ option; it costs one reply per fight.)
 - **Suggest from scene** (optional): one cheap model call reads the last reply and fills the rows
   ("3 goblins, rank E, skirmisher; 1 goblin shaman, rank E, caster"). You confirm or change it.
   This is the only model call RPG Battle ever makes, and only when pressed.
+
+### 4.2 Fights from the story
+
+When a fight breaks out in the story, the model is told (in the always-on instruction of §8.6)
+to add a hidden `<Encounter>` block naming the foes, `3 bandit, bandit captain (boss)`, and to
+stop at the first blow, so the prose does not resolve what the buttons are about to.
+
+- **Grammar:** groups separated by commas, semicolons, new lines or `and`; each is
+  `[N ×|N x|N ]name[ (boss)][ rank X][ role]` (also *a*, *two*… and `name ×3`). A plural is made
+  singular when the singular is a bestiary creature (*3 bandits* → Bandit); rank and role are set
+  only when written. `story.parseEncounter` makes setup rows of it.
+- **Sources:** the latest reply's `<Encounter>`, else a fight Story Director planned that the story
+  has reached (`StoryDirector.encountersAt(index)`, due first, then due soon), when it is there.
+- **Offered, never started:** a toast with **Fight** on the reply, and a notice in the Battle tab,
+  *A fight is starting: …*, with **Fight?** (the setup opens with the rows filled in; the reader
+  can change anything, stakes default to normal) and **Not now** (that offer, by reply and text,
+  is put away). Nothing is offered during a fight or while a result waits to be narrated.
 
 ## 5. Numbers
 
@@ -377,12 +396,47 @@ HP and MP come back as the story says, never by the model's hand:
 
 A character at 0 HP cannot start a fight until they recover.
 
+### 8.6 Story wounds
+
+The story also hurts and heals between fights. Left to the numbers alone, the sheet says
+*unhurt* while the prose says bleeding, and the State line (§3.1) then makes the model portray
+the wrong thing. So while a Character block exists, one short instruction (about 90 tokens, its
+own prompt key at depth 1, not on quiet or impersonate generations, not while a fight is under
+way or narrated) asks for a hidden `<Wounds>` block, one line per person on the sheets:
+
+```
+<Wounds>
+Ren — wound: fell down the ravine
+Astra — poisoned: a dart in the dark
+</Wounds>
+```
+
+- **Words, not numbers:** `scratch`, `wound`, `severe`, `grievous` take 10, 30, 50 and 80 % of max
+  HP (`rules.json` → `wounds`); `heal <word>` (also *healed*, *treated*) gives that share back,
+  never above max; any other short word adds a condition; `cure <condition>` removes one. Harm
+  can take someone to 0 HP. The instruction says to pick the mildest word that fits.
+- **One blow per person per reply:** the first harm or heal line counts. Names are matched to
+  the Character sheet or a Party member, case-insensitively, also by first name; others are
+  ignored.
+- **One pipeline after each reply:** the sheets before the reply, then story-time recovery
+  (§8.5), then the wounds, written once into that reply. A swipe recomputes it, a continue does
+  not double it, and a reply whose sheets something else has written since (a rest, an item, a
+  fight) is left alone.
+- **Undo:** a toast and the Battle tab say what happened ("Ren: wound (−29 HP), fell down the
+  ravine.") with **Undo**, while that reply's sheets are still the ones the pipeline wrote. Undo
+  rewrites them without the wounds (recovery kept) and remembers the reply's `<Wounds>` text as
+  undone, so the pipeline does not bring it back.
+- **Story Block's Character Sheet** (its own block, an HP the model writes) disagrees with this
+  one; while both are on, the Battle tab and the settings say so and offer **Turn it off**.
+
 ## 9. The Battle tab
 
 A Story Block tab, always visible while RPG Battle is on.
 
 - **Idle:** your sheet at a glance (HP and MP bars with the State words under them, level, unspent points with **Spend**), the
-  party with their control mode, skills, **Start fight**.
+  party with their control mode, skills, **Start fight**; a fight the story offers (**Fight?** /
+  **Not now**, §4.2), the latest story wounds with **Undo** (§8.6), and a quiet note when Story
+  Block's Character Sheet is also on.
 - **Spend points:** + and − per stat, the effect on HP, MP and attacks shown live, **Confirm**.
 - **Setup:** section 4.1.
 - **Fight:** enemy cards with HP bars and conditions; your party's bars; the turn-order strip;
@@ -446,6 +500,8 @@ Block change, listed in the roadmap). RPG Battle adds no check command of its ow
 | Fight shapes | Single, waves and chains |
 | Money | A setting: copper/silver/gold, one coin, or your world's own names and rates |
 | Checks outside combat | Story Block's Dice block, with modifiers from the Character block |
+| Wounds outside combat | Words in a hidden `<Wounds>` block (scratch, wound, severe, grievous); code sets the HP, one blow per person per reply, with Undo |
+| Fights the story starts | Named in a hidden `<Encounter>` block (or planned by Story Director) and offered; the reader presses Fight |
 | Balance | An even fight fought to the end lasts 4 to 6 rounds |
 | Mirage RPG | Retired; its tables and hand-off idea borrowed |
 

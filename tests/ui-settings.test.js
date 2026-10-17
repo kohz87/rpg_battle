@@ -48,3 +48,21 @@ test('currency mode switches the rows; edits go through onChange', () => {
     enabled.dispatch('change');
     assert.equal(changes.at(-1).enabled, false);
 });
+
+test('Story Block\'s Character Sheet: a notice with Turn it off, shown and hidden by the glue', () => {
+    const container = doc.createElement('div');
+    doc.body.appendChild(container);
+    let turnedOff = 0;
+    const panel = renderSettings(container, { settings: SETTINGS, sheetConflict: true, onDisableSheet: () => { turnedOff += 1; } });
+    const notice = container.querySelector('.rpg-battle-settings-conflict');
+    assert.match(notice.textContent, /Story Block's Character Sheet is also on: two HP values will disagree\./);
+    assert.equal(notice.hidden, false);
+    assert.equal(turnedOff, 0, 'never turned off on its own');
+    container.querySelector('.rpg-battle-settings-sheet-off').click();
+    assert.equal(turnedOff, 1);
+    panel.setSheetConflict(false);
+    assert.equal(notice.hidden, true);
+    const quiet = doc.createElement('div');
+    renderSettings(quiet, { settings: SETTINGS });
+    assert.equal(quiet.querySelector('.rpg-battle-settings-conflict').hidden, true);
+});

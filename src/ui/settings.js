@@ -2,6 +2,8 @@
 //
 // Small on purpose: everything about a character happens in the Battle tab. Money follows the
 // reader's world (DESIGN §8.3): copper/silver/gold, one coin, or their own names and rates.
+// The status area also says when Story Block's own Character Sheet block is on beside RPG
+// Battle's sheet, with a button to turn it off; it is never turned off for the reader.
 
 const CURRENCY_MODES = [
     { value: 'tiers', label: 'Copper / silver / gold, or your own coins' },
@@ -48,7 +50,9 @@ export function textToTiers(text) {
     return tiers;
 }
 
-export function renderSettings(container, { settings, version = '', status = '', onChange } = {}) {
+const CONFLICT_TEXT = 'Story Block\'s Character Sheet is also on: two HP values will disagree.';
+
+export function renderSettings(container, { settings, version = '', status = '', sheetConflict = false, onDisableSheet, onChange } = {}) {
     let current = structuredClone(settings ?? {});
     const commit = change => {
         change(current);
@@ -100,6 +104,14 @@ export function renderSettings(container, { settings, version = '', status = '',
     const returnMessage = input('rpg_battle_return', current.returnMessage);
     returnMessage.addEventListener('change', () => commit(next => { next.returnMessage = returnMessage.value; }));
 
+    const turnOff = el('button', { className: 'menu_button rpg-battle-settings-sheet-off', text: 'Turn it off', attrs: { type: 'button' } });
+    turnOff.addEventListener('click', () => onDisableSheet?.());
+    const conflict = el('div', { className: 'rpg-battle-settings-status rpg-battle-settings-conflict' }, [
+        el('span', { text: CONFLICT_TEXT }),
+        turnOff,
+    ]);
+    conflict.hidden = !sheetConflict;
+
     const root = el('div', { className: 'rpg-battle-settings' }, [
         el('div', { className: 'inline-drawer' }, [
             el('div', { className: 'inline-drawer-toggle inline-drawer-header' }, [
@@ -108,6 +120,7 @@ export function renderSettings(container, { settings, version = '', status = '',
             ]),
             el('div', { className: 'inline-drawer-content' }, [
                 status ? el('div', { className: 'rpg-battle-settings-status', text: status }) : null,
+                conflict,
                 el('label', { className: 'checkbox_label', attrs: { for: 'rpg_battle_enabled' } }, [enabled, el('span', { text: 'Battles on (the Battle tab in Story Block)' })]),
                 el('label', { className: 'checkbox_label', attrs: { for: 'rpg_battle_recover' } }, [recover, el('span', { text: 'Recover HP and MP as story time passes (needs Story Director)' })]),
                 el('div', { className: 'rpg-battle-settings-head', text: 'Money' }),
@@ -125,5 +138,9 @@ export function renderSettings(container, { settings, version = '', status = '',
     ]);
     sync();
     container.replaceChildren(root);
-    return { update(next) { current = structuredClone(next); } };
+    return {
+        update(next) { current = structuredClone(next); },
+        /** Show or hide the Character Sheet notice (the glue checks it on every refresh). */
+        setSheetConflict(on) { conflict.hidden = !on; },
+    };
 }

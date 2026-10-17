@@ -1,4 +1,4 @@
-# RPG Battle v0.2.0
+# RPG Battle v0.3.0
 
 Turn-based fights for SillyTavern, resolved in code. Press **Start fight**, choose the enemies,
 fight with buttons (**Attack, Skill, Item, Defend, Parley, Flee, Auto**), and the story gets one
@@ -7,7 +7,8 @@ lost fight cannot be rerolled by swiping.
 
 Needs [Story Block](https://github.com/kohz87/Story_block) **0.7** or newer. With
 [Story Director](https://github.com/kohz87/Story_director) **0.7.2** or newer, HP and MP also come
-back as story time passes.
+back as story time passes; with **0.8**, the fights it plans are offered when the story reaches
+them.
 
 ## Install
 
@@ -58,6 +59,11 @@ Conditions: none
 - **Checks outside fights:** the **Checks** line is your bonus per stat. With Story Block's Dice
   block on, the dice use it as the modifier (a CHA check is d20 + your CHA bonus).
 
+**Story Block's own Character Sheet block** (a template with an HP meter the model writes) does
+the same job by guesswork. With both on, the story reads two HP values that disagree, so the
+Battle tab and RPG Battle's settings say so, with a **Turn it off** button. It is never turned
+off for you.
+
 ## Recovery
 
 HP and MP come back the way the story says:
@@ -74,6 +80,46 @@ HP and MP come back the way the story says:
   companion; it comes off the inventory. Damage items stay for fights.
 
 A character at 0 HP cannot start a fight until they recover.
+
+## Story wounds
+
+The story hurts people between fights too: a fall, a poisoned cup, a healer's poultice. While
+you have a Character block, the model is told (in about 90 tokens) to add a hidden **Wounds**
+block when that happens to someone on your Character or Party sheet, one line each, in words,
+never numbers:
+
+```
+<Wounds>
+Ren — wound: fell down the ravine
+Astra — poisoned: a dart in the dark
+Ren — heal scratch: a poultice
+Astra — cure poison: an antidote
+</Wounds>
+```
+
+| Word | Share of max HP |
+|---|---|
+| **scratch** | 10 % |
+| **wound** | 30 % |
+| **severe** | 50 % |
+| **grievous** | 80 % |
+
+- **Harm** can take someone to 0 HP (down); **heal** (or *healed*, *treated*) gives the same share
+  back, never above max. Any other word (*poisoned*, *exhausted*, *bleeding*) adds a condition;
+  **cure** removes one. The shares are `wounds` in `rules.json`.
+- **One blow per person per reply:** the first harm or heal line for someone counts, the rest are
+  ignored; conditions may come alongside.
+- **Names** are your Character's or a companion's, in any case, also by first name ("Ren" is
+  Ren Aldane). Anyone else (an NPC) is left to the story.
+- **Applied after the reply, into that reply**, after story-time recovery, from the sheets before
+  it: a swipe recomputes it and a continue does not add it twice. Not during a fight, and not in
+  the reply that narrates one (the fight already dealt its wounds).
+- **Undo:** a toast says what happened ("Ren: wound (−29 HP), fell down the ravine.") with an
+  **Undo** button, and the Battle tab shows the same line with **Undo** while that reply's sheets
+  are still the ones it wrote (after a rest, an item or a fight, they have moved on). Undo keeps
+  the recovery and the wounds stay undone for that reply.
+
+The Wounds block never shows in the story: Story Block hides it with its other blocks.
 
 ## Equipment and loot: your Inventory block
 
@@ -119,6 +165,25 @@ Loot: 1 silver, 3 copper, a goblin ear, a shaman's charm. XP +72.
 
 **Return to story** sends a short message for you so the narration comes straight away. The
 summary is given to that one reply only; its swipes narrate the same result.
+
+## Fights from the story
+
+When a fight breaks out in the story, the model adds a hidden **Encounter** block naming the
+foes and stops at the first blow, so the fight itself is yours to play:
+
+```
+<Encounter>3 bandit, bandit captain (boss)</Encounter>
+```
+
+A toast and the Battle tab offer it: *A fight is starting: 3 bandit, bandit captain (boss)*,
+**Fight?** or **Not now**. **Fight?** opens the setup with the rows filled in (three Bandits, one
+Bandit Captain as a boss, normal stakes); change anything before **Start**. **Not now** puts the
+offer away for that reply. Groups are separated by commas, `and` or new lines; each is a count
+(`3`, `3 x`, `two`, `a`), the name, and optionally `(boss)`, `rank D` and a role. A plural is made
+singular when the bestiary knows the creature ("3 bandits" → Bandit); any other name is kept.
+
+With Story Director 0.8, a fight it has planned (a beat with foes, now due or due soon) is
+offered the same way, with its name and place.
 
 ## Money
 

@@ -79,6 +79,10 @@ export const DEFAULT_RULES = Object.freeze({
     // Out of a fight: a short rest gives back this share of max HP/MP; story time heals
     // `perHour` of max HP/MP per hour, and a gap of `longRestHours` or more is a full rest.
     recovery: { shortRestShare: 0.25, perHour: 0.05, longRestHours: 6 },
+    // Story wounds (story.applyWounds): the share of max HP each word of a <Wounds> line takes
+    // (or gives back, for a heal). The model only picks the word, never a number; a grievous
+    // blow leaves someone at full HP with a fifth, so only an already hurt person goes down.
+    wounds: { scratch: 0.1, wound: 0.3, severe: 0.5, grievous: 0.8 },
     // The State line (narrative.stateWords): [share of max, word], best first. HP at or above
     // a share gets that word (0 HP is "down"); MP below the last band is "drained", and an MP
     // word is shown as "<word> of magic". A max MP under `mpQuietBelow` is no caster's pool,

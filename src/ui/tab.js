@@ -424,6 +424,35 @@ function renderIdle(root, view, handlers) {
         ]));
     }
 
+    // A fight the story has started (the reply's <Encounter>, or one Story Director planned):
+    // offered, never started on its own, so the reader decides whether it is a fight at all.
+    const encounter = view.encounter;
+    if (encounter && str(encounter.text)) {
+        root.append(el('div', { className: 'rpg-battle-notice is-encounter', attrs: { role: 'status' } }, [
+            el('div', { className: 'rpg-battle-notice-text' }, [
+                icon('fa-dragon'),
+                el('span', { className: 'rpg-battle-encounter-text', text: `A fight is starting: ${str(encounter.text)}` }),
+            ]),
+            str(encounter.label) ? el('p', { className: 'rpg-battle-hint rpg-battle-encounter-label', text: str(encounter.label) }) : null,
+            el('div', { className: 'rpg-battle-actions' }, [
+                button('Fight?', 'rpg-battle-primary rpg-battle-encounter-fight', { iconName: 'fa-dragon', onClick: () => emit(handlers, 'onFightEncounter', list(encounter.rows).map(row => ({ ...row }))) }),
+                button('Not now', 'rpg-battle-encounter-dismiss', { iconName: 'fa-xmark', onClick: () => emit(handlers, 'onDismissEncounter') }),
+            ]),
+        ]));
+    }
+
+    // Story Block's own Character Sheet block keeps an HP of its own, written by the model; with
+    // both on, the story reads two HP values that disagree. Only the reader may switch it off.
+    if (view.sheetConflict) {
+        root.append(el('div', { className: 'rpg-battle-notice is-quiet is-sheet-conflict', attrs: { role: 'status' } }, [
+            el('div', { className: 'rpg-battle-notice-text' }, [
+                icon('fa-triangle-exclamation'),
+                el('span', { text: 'Story Block\'s Character Sheet is also on: two HP values will disagree.' }),
+            ]),
+            button('Turn it off', 'rpg-battle-sheet-off', { iconName: 'fa-power-off', onClick: () => emit(handlers, 'onDisableStorySheet') }),
+        ]));
+    }
+
     root.append(section('is-sheet', [
         el('div', { className: 'rpg-battle-head' }, [
             el('span', { className: 'rpg-battle-head-name', text: sheet.name ?? '' }),
@@ -490,6 +519,15 @@ function renderIdle(root, view, handlers) {
     }
 
     if (view.recovered) root.append(el('p', { className: 'rpg-battle-hint rpg-battle-recovered', text: view.recovered }));
+    // What the story's <Wounds> did to the sheets in the latest reply, undoable while that
+    // reply's sheets are still the ones it wrote.
+    const storyLines = list(view.story?.lines).map(str).filter(Boolean);
+    if (storyLines.length) {
+        root.append(el('div', { className: 'rpg-battle-story' }, [
+            el('ul', { className: 'rpg-battle-story-lines' }, storyLines.map(line => el('li', { className: 'rpg-battle-hint rpg-battle-story-line', text: line }))),
+            view.story.canUndo ? button('Undo', 'rpg-battle-story-undo', { iconName: 'fa-rotate-left', title: 'Put the sheets back as they were before these wounds', onClick: () => emit(handlers, 'onUndoStory') }) : null,
+        ]));
+    }
 
     root.append(el('div', { className: 'rpg-battle-actions' }, [
         button('Start fight', 'rpg-battle-primary rpg-battle-start', { iconName: 'fa-dragon', onClick: () => emit(handlers, 'onSetup') }),
@@ -829,9 +867,27 @@ let setupDraft = null;
 // A new row's rank is blank: a bestiary creature keeps its own rank, anything else gets the fair one.
 const blankRow = () => ({ name: '', count: 1, rank: '', role: '', boss: false });
 
+// A row offered by the story (view.prefill), made safe for the form: any name, a count of
+// 1 to 9, a known rank and role or blank.
+function prefillRow(row) {
+    return {
+        name: str(row?.name),
+        count: Math.min(9, Math.max(1, Math.round(num(row?.count, 1)))),
+        rank: RANKS.includes(row?.rank) ? row.rank : '',
+        role: ROLES.includes(row?.role) ? row.role : '',
+        boss: Boolean(row?.boss),
+    };
+}
+
 function renderSetup(root, view, handlers) {
     const suggested = RANKS.includes(view.suggestedRank) ? view.suggestedRank : RANKS[0];
-    if (!setupDraft) setupDraft = { rows: [blankRow()], stakes: 'normal' };
+    // A fight from the story arrives with its rows filled in; they seed the draft once, and the
+    // reader's edits are kept across redraws. A different offer starts the draft over.
+    const prefill = list(view.prefill).map(prefillRow).filter(row => row.name);
+    const prefillKey = prefill.length ? JSON.stringify(prefill) : '';
+    if (!setupDraft || (prefillKey && setupDraft.prefillKey !== prefillKey)) {
+        setupDraft = { rows: prefill.length ? prefill : [blankRow()], stakes: 'normal', prefillKey };
+    }
     const draft = setupDraft;
     const names = list(view.bestiary).map(entry => str(entry?.name ?? entry)).filter(Boolean);
     const listId = 'rpg-battle-bestiary';
@@ -914,6 +970,7 @@ function renderSetup(root, view, handlers) {
     root.append(
         section('is-setup', [
             sub('Enemies', 'fa-skull'),
+            prefillKey ? el('p', { className: 'rpg-battle-hint rpg-battle-prefill-hint', text: 'Filled in from the story. Change anything before you start.' }) : null,
             datalist,
             el('ul', { className: 'rpg-battle-enemy-rows' }, rowNodes),
             el('div', { className: 'rpg-battle-actions' }, [

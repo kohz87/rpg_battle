@@ -808,3 +808,112 @@ test('the root is put in the pane with replaceChildren, replacing what was there
     assert.equal(pane.children.length, 1);
     assert.equal(pane.firstElementChild.dataset.mode, 'idle');
 });
+
+// ---------------------------------------------------------------------------
+// The story: wounds, fights it starts, and Story Block's own Character Sheet
+
+test('idle: the story wounds line with Undo; no Undo once the sheets moved on; model text stays text', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    const lines = ['Ren: wound (−29 HP), fell down the ravine.', 'Astra: <b>poisoned</b>, a dart.'];
+    let pane = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules, story: { lines, canUndo: true } }, handlers);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-story-line'), lines);
+    assert.equal(root(pane).querySelectorAll('b').length, 0, 'a cause is never parsed as markup');
+    $(pane, '.rpg-battle-story-undo').click();
+    assert.deepEqual(calls.map(call => call.name), ['onUndoStory']);
+    pane = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules, story: { lines, canUndo: false } }, handlers);
+    assert.equal(texts(root(pane), '.rpg-battle-story-line').length, 2);
+    assert.equal($(pane, '.rpg-battle-story-undo'), null);
+    pane = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules, story: null }, handlers);
+    assert.equal($(pane, '.rpg-battle-story'), null);
+});
+
+test('idle: a fight the story starts is offered: Fight? sends its rows, Not now dismisses it', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    const rows = [{ name: 'Bandit', count: 3, rank: null, role: null, boss: false }, { name: 'Bandit Captain', count: 1, rank: null, role: null, boss: true }];
+    const pane = render({
+        mode: 'idle', sheet: sheet(), skills: [], party: [], rules,
+        encounter: { text: '3 bandit, bandit captain (boss)', label: 'Planned by Story Director: Ambush at the weir.', rows },
+    }, handlers);
+    assert.equal($(pane, '.rpg-battle-encounter-text').textContent, 'A fight is starting: 3 bandit, bandit captain (boss)');
+    assert.match($(pane, '.rpg-battle-encounter-label').textContent, /Ambush at the weir/);
+    assert.equal(buttonByText(pane, 'Fight?'), $(pane, '.rpg-battle-encounter-fight'));
+    $(pane, '.rpg-battle-encounter-fight').click();
+    $(pane, '.rpg-battle-encounter-dismiss').click();
+    assert.deepEqual(calls.map(call => call.name), ['onFightEncounter', 'onDismissEncounter']);
+    assert.deepEqual(calls[0].args[0], rows);
+    assert.notEqual(calls[0].args[0][0], rows[0], 'the handler gets copies');
+    const quiet = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules, encounter: null });
+    assert.equal($(quiet, '.rpg-battle-encounter-text'), null);
+});
+
+test('setup: a story fight pre-fills the rows; the reader can still edit them, and edits survive a redraw', () => {
+    reset();
+    const { handlers, last } = recorder();
+    const prefill = [
+        { name: 'Bandit', count: 3, rank: null, role: null, boss: false },
+        { name: 'Bandit Captain', count: 1, rank: 'D', role: 'brute', boss: true },
+        { name: 'Bog Wight', count: 12, rank: 'nonsense', role: 'wizard', boss: false },
+    ];
+    const view = { mode: 'setup', bestiary: ['Bandit', 'Bandit Captain'], suggestedRank: 'E', prefill, rules };
+    const pane = render(view, handlers);
+    assert.ok($(pane, '.rpg-battle-prefill-hint'));
+    assert.deepEqual($$(pane, '.rpg-battle-enemy-name').map(node => node.value), ['Bandit', 'Bandit Captain', 'Bog Wight']);
+    assert.deepEqual($$(pane, '.rpg-battle-enemy-count').map(node => node.value), ['3', '1', '9']);
+    assert.deepEqual($$(pane, '.rpg-battle-enemy-rank').map(node => node.value), ['', 'D', '']);
+    assert.deepEqual($$(pane, '.rpg-battle-enemy-role').map(node => node.value), ['', 'brute', '']);
+    assert.deepEqual($$(pane, '.rpg-battle-enemy-boss').map(node => node.checked), [false, true, false]);
+    assert.equal($(pane, '.rpg-battle-setup-summary').textContent, '13 enemies.');
+    assert.deepEqual($$(pane, '.rpg-battle-stake-input').map(node => node.checked), [true, false], 'normal stakes');
+
+    // The reader changes their mind: two bandits, no wight.
+    const count = $$(pane, '.rpg-battle-enemy-count')[0];
+    count.value = '2';
+    count.dispatch('change');
+    $$(pane, '.rpg-battle-remove-row')[2].click();
+    renderBattleTab(pane, view, handlers);
+    assert.deepEqual($$(pane, '.rpg-battle-enemy-name').map(node => node.value), ['Bandit', 'Bandit Captain'], 'the same prefill does not undo the edits');
+    $(pane, '.rpg-battle-begin').click();
+    assert.deepEqual(last('onStart').args[0], {
+        rows: [
+            { name: 'Bandit', count: 2, rank: null, role: null, boss: false },
+            { name: 'Bandit Captain', count: 1, rank: 'D', role: 'brute', boss: true },
+        ],
+        stakes: 'normal',
+    });
+
+    // A different offer starts over; no prefill is the usual empty row.
+    renderBattleTab(pane, { ...view, prefill: [{ name: 'Wolf', count: 2 }] }, handlers);
+    assert.deepEqual($$(pane, '.rpg-battle-enemy-name').map(node => node.value), ['Wolf']);
+    reset();
+    const plain = render({ mode: 'setup', bestiary: [], suggestedRank: 'E', prefill: null, rules });
+    assert.deepEqual($$(plain, '.rpg-battle-enemy-name').map(node => node.value), ['']);
+    assert.equal($(plain, '.rpg-battle-prefill-hint'), null);
+});
+
+test('idle: Story Block\'s Character Sheet notice offers to turn it off, and only when asked', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    const pane = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules, sheetConflict: true }, handlers);
+    assert.match($(pane, '.rpg-battle-notice.is-sheet-conflict').textContent, /Story Block's Character Sheet is also on: two HP values will disagree\./);
+    assert.deepEqual(calls, [], 'nothing happens on its own');
+    $(pane, '.rpg-battle-sheet-off').click();
+    assert.deepEqual(calls.map(call => call.name), ['onDisableStorySheet']);
+    const off = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules, sheetConflict: false });
+    assert.equal($(off, '.rpg-battle-notice.is-sheet-conflict'), null);
+});
+
+test('the story notices render and can be pressed with no handlers at all', () => {
+    reset();
+    for (const view of [
+        { mode: 'idle', sheet: sheet(), rules, story: { lines: ['x'], canUndo: true }, encounter: { text: 'x', rows: [] }, sheetConflict: true },
+        { mode: 'idle', sheet: sheet(), rules, story: { lines: 'not a list' }, encounter: { text: '' } },
+        { mode: 'setup', bestiary: [], suggestedRank: 'E', prefill: 'not a list', rules },
+    ]) {
+        const pane = doc.createElement('div');
+        renderBattleTab(pane, view);
+        for (const node of $$(pane, 'button')) if (!node.disabled) node.click();
+        assert.ok(root(pane));
+    }
+});

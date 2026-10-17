@@ -5,6 +5,11 @@
 The story and the numbers agree.
 
 - **State line** on the Character block and each Party section: HP, MP and conditions in words the model must portray ("badly hurt (bleeding, slow to move) · drained of magic · poisoned"), worked out by code with bands in `rules.json` (`narrative`) and never read back. The blocks' prompt notes say to portray it exactly and never contradict it, and that the scene's Visible Condition must agree. The hand-off ends each member's line with the same words, and the Battle tab shows them under the HP and MP bars.
+- **Story wounds:** a short instruction (about 90 tokens, its own prompt key, while a Character block exists) asks the model for a hidden `<Wounds>` block when the story itself hurts or heals someone on the sheets: `Name — scratch|wound|severe|grievous: cause`, `Name — heal <word>: cause`, `Name — poisoned: cause`, `Name — cure poison: cause`. Code turns the word into a share of max HP (`rules.json` → `wounds`: 10 / 30 / 50 / 80 %); harm can down someone, healing stops at max, one harm-or-heal line per person per reply, names matched by full or first name. Applied after story-time recovery, into that reply, from the sheets before it (swipes recompute, continues do not double), never during or narrating a fight; a reply whose sheets were changed since (a rest, an item, a fight) is left alone.
+- **Undo** for story wounds, in a toast and in the Battle tab, while that reply's sheets are still the ones it wrote; undone wounds stay undone for that reply's text.
+- **Fights from the story:** the model names a fight that breaks out in a hidden `<Encounter>` block (`3 bandit, bandit captain (boss)`) and stops at the first blow; a toast and the Battle tab offer **Fight?** (the setup opens with the rows filled in, still editable) or **Not now**. With Story Director 0.8, its planned fights that are due or due soon (`StoryDirector.encountersAt`) are offered the same way.
+- **Story Block's Character Sheet** block on beside RPG Battle is pointed out in the Battle tab and the settings ("two HP values will disagree"), with a **Turn it off** button; it is never turned off on its own.
+- `<Wounds>` and `<Encounter>` are registered as transport-only Story Block blocks, so they never show in the narration.
 
 ## 0.2.0
 

@@ -6,9 +6,15 @@
 // writes them, with Story Block's setBlockText, into the latest reply (so deleting that reply
 // rolls them back). A fight is stored in the chat's metadata as its setup and actions and
 // replayed with its seed; its result reaches the story once, through the generate interceptor.
+//
+// Between fights the story itself moves the numbers. After each reply one pipeline
+// (afterReply) takes the sheets as they were before that reply, heals them by the story time
+// it moved on, applies the reply's hidden <Wounds>, and writes the result into that reply
+// once, so a swipe or a continue recomputes it instead of adding to it. A reply's
+// <Encounter> (or a fight Story Director planned) is offered as a fight, never started.
 
 import { DEFAULT_RULES, checkModifiers, makeRules, suggestRank } from './src/rules.js';
-import { makeRng } from './src/rng.js';
+import { hashSeed, makeRng } from './src/rng.js';
 import { DEFAULT_SKILLS, PRESETS, findSkill, resolveSkills, skillFromTemplate } from './src/skills.js';
 import { DEFAULT_BESTIARY, findCreature } from './src/enemies.js';
 import { act, availableActions, replay, startFight, summarize } from './src/combat.js';
@@ -17,13 +23,24 @@ import { addLoot, consumables, formatMoney, parseInventory, useItems } from './s
 import { buildHandoff } from './src/handoff.js';
 import { combatantFromSheet, enemiesFromRows, newCompanion } from './src/party.js';
 import { recoverOverTime, rest, useItemOutside } from './src/recovery.js';
+import { STORY_INSTRUCTION, applyWounds, describeWound, parseEncounter, parseWounds } from './src/story.js';
 import { renderBattleTab } from './src/ui/tab.js';
 import { renderSettings } from './src/ui/settings.js';
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 const SETTINGS_KEY = 'rpgBattle';
 const TAB_ID = 'rpg-battle';
 const PROMPT_KEY = 'rpg_battle';
+// The story instruction (<Wounds>, <Encounter>) has its own key: the hand-off comes and goes
+// with one reply, the instruction stays on.
+const RULES_PROMPT_KEY = 'rpg_battle_rules';
+// Transport-only tags: Story Block moves them into its hidden envelope, out of the narration.
+const WOUNDS_TAG = 'Wounds';
+const ENCOUNTER_TAG = 'Encounter';
+// Story Block's own Character Sheet block (a template of its own), which keeps a second HP.
+const STORY_SHEET_TEMPLATE = 'character-sheet';
+// How many dismissed encounter offers are remembered per chat.
+const DISMISSED_KEPT = 30;
 const EXTENSION_PROMPT_IN_CHAT = 1;
 const EXTENSION_PROMPT_ROLE_SYSTEM = 0;
 const MIN_STORY_BLOCK_VERSION = [0, 7, 0];
@@ -135,10 +152,14 @@ function rules() {
 
 // Per-chat state: { fight: { setup, actions } | null, pending: { handoff, fightId, attachedTo } | null,
 // last: the last result for the tab, skills: skills this story taught (by hand),
-// uses: { [memberId]: { [skill]: n } } fight uses toward the next mastery, which the sheet text does not carry }.
+// uses: { [memberId]: { [skill]: n } } fight uses toward the next mastery, which the sheet text does not carry,
+// recovered: { index, text } the last story-time recovery,
+// story: { index, signature, applied, undone, written } the last reply's story wounds (signature: a hash
+// of its <Wounds> text; written: hashes of the sheet texts the pipeline wrote into it),
+// dismissed: ['index:encounter text'] encounter offers the reader said Not now to }.
 function chatState(ctx = context()) {
     const meta = chatMeta(ctx);
-    if (!meta) return { fight: null, pending: null };
+    if (!meta) return { fight: null, pending: null, story: null, dismissed: [] };
     const state = meta[SETTINGS_KEY] && typeof meta[SETTINGS_KEY] === 'object' ? meta[SETTINGS_KEY] : {};
     return {
         fight: state.fight ?? null,
@@ -147,6 +168,8 @@ function chatState(ctx = context()) {
         skills: Array.isArray(state.skills) ? state.skills : [],
         uses: state.uses && typeof state.uses === 'object' ? state.uses : {},
         recovered: state.recovered ?? null,
+        story: state.story && typeof state.story === 'object' ? state.story : null,
+        dismissed: Array.isArray(state.dismissed) ? state.dismissed : [],
     };
 }
 
@@ -331,88 +354,340 @@ async function finishFight(fight) {
 }
 
 // ---------------------------------------------------------------------------
-// Recovery as story time passes (DESIGN §8.5)
+// After each reply: story time and story wounds (DESIGN §8.5, §8.6)
 
 function storyClock() {
     const api = globalThis.StoryDirector;
     return api && Number(api.apiVersion) >= 1 && typeof api.timeAt === 'function' ? api : null;
 }
 
-// After each reply: the story time it moved on from the reply before heals the sheets, written
-// into that reply. The sheets before it are the base, so a swipe or an edit recomputes the
-// same recovery instead of adding it twice.
-async function recoverAfterReply({ messageIndex }) {
+function escapeHtml(text) {
+    return String(text ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' })[char]);
+}
+
+const textHash = text => String(hashSeed(String(text ?? '').trim()));
+
+/** A block as RPG Battle's own copy (kept) or the model's (transport) in one message's text, or null. */
+function blockAt(sb, index, tag) {
+    const found = sb.blockInText?.(context()?.chat?.[index]?.mes ?? '', tag);
+    return found ? String(found.text ?? '').trim() : null;
+}
+
+/** The reply's <Wounds> text and its signature (empty when it has none). */
+function woundsAt(sb, index) {
+    const text = blockAt(sb, index, WOUNDS_TAG) ?? '';
+    return { text, signature: text ? textHash(text) : '' };
+}
+
+/**
+ * The sheets as they should stand in reply `index`: the ones before it (so a swipe or a
+ * continue starts from the same place), healed by the story time it moved on, then hurt or
+ * healed by its <Wounds> when `withWounds`. Recovery comes first: the hours a reply covers
+ * mostly come before its last event, and a wound taken at the end of a long march should
+ * still show. Nothing is written here.
+ */
+function planReply(sb, index, { withWounds = true } = {}) {
+    const own = settings();
+    const r = rules();
+    const characterText = sb.getBlock(own.characterTag, { beforeIndex: index })?.text ?? '';
+    const before = characterText.trim() ? parseCharacter(characterText, r).sheet : null;
+    const partyText = sb.getBlock(own.partyTag, { beforeIndex: index })?.text ?? '';
+    const members = partyText.trim() ? parseParty(partyText, r).members : [];
+    let pc = before;
+    let party = members;
+    let note = '';
+    const clock = storyClock();
+    if (before && clock && own.recoverWithTime) {
+        const now = clock.timeAt(index);
+        const then = clock.timeAt(index - 1);
+        if (now !== null && then !== null && now > then) {
+            const hours = (now - then) / 60;
+            const gear = parseInventory(sb.getBlock(own.inventoryTag, { beforeIndex: index })?.text ?? '').items.filter(item => item.equipped);
+            const mine = recoverOverTime(before, hours, { gear, rules: r });
+            const theirs = members.map(member => ({ member, recovery: recoverOverTime(member.sheet, hours, { gear: member.gear ?? [], rules: r }) }));
+            if (mine.kind || theirs.some(entry => entry.recovery.kind)) {
+                pc = mine.sheet;
+                party = theirs.map(({ member, recovery }) => ({ ...member, sheet: recovery.sheet }));
+                const span = hours >= 1 ? `${Math.round(hours * 10) / 10} hours` : `${Math.round(hours * 60)} minutes`;
+                note = mine.kind === 'long'
+                    ? `${span} passed: ${before.name} is fully rested.`
+                    : mine.kind ? `${span} passed: ${before.name} recovers ${mine.hp} HP and ${mine.mp} MP.` : `${span} passed: the party recovers.`;
+            }
+        }
+    }
+    let applied = [];
+    const wounds = woundsAt(sb, index);
+    if (withWounds && wounds.text) {
+        const result = applyWounds({ pc, members: party }, parseWounds(wounds.text), r);
+        ({ pc, applied } = result);
+        party = result.members;
+    }
+    return { before, members, pc, party, note, applied, signature: wounds.signature };
+}
+
+/**
+ * Writes a plan into reply `index`, once, and only what differs. A sheet already in that
+ * reply that the pipeline did not write (a fight, a rest or an item since) is left alone and
+ * nothing is written: recomputing from the sheets before the reply would throw that away.
+ * { ok, written: { character, party } } with the hashes of what the reply now holds from us.
+ */
+async function writePlan(sb, index, plan, story) {
+    const own = settings();
+    const r = rules();
+    const ours = story?.index === index ? story.written ?? {} : {};
+    const targets = [
+        { key: 'character', tag: own.characterTag, before: plan.before ? formatCharacter(plan.before, r) : null, next: plan.pc ? formatCharacter(plan.pc, r) : null },
+        { key: 'party', tag: own.partyTag, before: plan.members.length ? formatParty(plan.members, r) : null, next: plan.party.length ? formatParty(plan.party, r) : null },
+    ];
+    for (const target of targets) {
+        target.current = blockAt(sb, index, target.tag);
+        if (target.current !== null && textHash(target.current) !== ours[target.key]) return { ok: false, written: {} };
+    }
+    const written = { character: null, party: null };
+    for (const target of targets) {
+        if (target.next === null) continue;
+        const changed = target.current !== null ? target.current !== target.next.trim() : target.next !== target.before;
+        if (changed) await sb.setBlockText(index, target.tag, target.next);
+        if (changed || target.current !== null) written[target.key] = textHash(target.next);
+    }
+    return { ok: true, written };
+}
+
+// One after-reply pipeline (Story Block's onReply): recovery, then wounds, written once.
+async function afterReply({ messageIndex }) {
     const ctx = context();
     const sb = storyBlock();
-    const clock = storyClock();
     const own = settings(ctx);
-    if (!sb || !clock || !own.enabled || !own.recoverWithTime || chatState(ctx).fight) return;
+    if (!sb || !own.enabled) return;
+    const state = chatState(ctx);
+    // A fight in progress owns the sheets; the story waits for its result.
+    if (state.fight) return;
     const chat = ctx?.chat ?? [];
     const index = Number(messageIndex);
     if (!isAssistant(chat[index])) return;
-    const now = clock.timeAt(index);
-    const before = clock.timeAt(index - 1);
-    if (now === null || before === null || !(now > before)) return;
-    const hours = (now - before) / 60;
-    const r = rules();
-    const characterText = sb.getBlock(own.characterTag, { beforeIndex: index })?.text ?? '';
-    const sheet = characterText.trim() ? parseCharacter(characterText, r).sheet : null;
-    if (!sheet) return;
-    const gear = parseInventory(sb.getBlock(own.inventoryTag, { beforeIndex: index })?.text ?? '').items.filter(item => item.equipped);
-    const mine = recoverOverTime(sheet, hours, { gear, rules: r });
-    const partyText = sb.getBlock(own.partyTag, { beforeIndex: index })?.text ?? '';
-    const members = partyText.trim() ? parseParty(partyText, r).members : [];
-    const theirs = members.map(member => ({ member, recovery: recoverOverTime(member.sheet, hours, { gear: member.gear ?? [], rules: r }) }));
-    if (!mine.kind && !theirs.some(entry => entry.recovery.kind)) return;
+    // A reply narrating a fight's hand-off: the fight already put its wounds on the sheets.
+    const narrating = state.pending?.attachedTo === index;
+    const { signature } = woundsAt(sb, index);
+    // Undone stays undone for the same <Wounds> text (a continue, or the pipeline run again).
+    const undone = Boolean(signature && state.story?.index === index && state.story.undone && state.story.signature === signature);
+    const plan = planReply(sb, index, { withWounds: !narrating && !undone });
+    let result;
     try {
-        if (mine.kind) await sb.setBlockText(index, own.characterTag, formatCharacter(mine.sheet, r));
-        if (theirs.some(entry => entry.recovery.kind)) {
-            await sb.setBlockText(index, own.partyTag, formatParty(theirs.map(({ member, recovery }) => ({ ...member, sheet: recovery.sheet })), r));
-        }
+        result = await writePlan(sb, index, plan, state.story);
     } catch (error) {
-        console.error('[RPG Battle] recovery could not be written', error);
+        console.error('[RPG Battle] the reply\'s sheets could not be written', error);
         return;
     }
-    const span = hours >= 1 ? `${Math.round(hours * 10) / 10} hours` : `${Math.round(hours * 60)} minutes`;
-    const text = mine.kind === 'long'
-        ? `${span} passed: ${sheet.name} is fully rested.`
-        : mine.kind ? `${span} passed: ${sheet.name} recovers ${mine.hp} HP and ${mine.mp} MP.` : `${span} passed: the party recovers.`;
-    saveChatState({ recovered: { index, text } });
+    if (result.ok) {
+        saveChatState({
+            recovered: plan.note ? { index, text: plan.note } : state.recovered?.index === index ? null : state.recovered,
+            story: { index, signature, applied: undone ? state.story.applied : plan.applied, undone, written: result.written },
+        });
+        if (plan.applied.length) toastWounds(plan.applied);
+    }
+    if (!narrating) toastEncounter(sb, index);
     sb.refresh?.();
+}
+
+/** Whether the latest story wounds can still be undone: that reply's sheets are still ours. */
+function canUndoStory(ctx = context(), state = chatState(ctx)) {
+    const story = state.story;
+    const sb = storyBlock();
+    if (!sb || !story || story.undone || !story.applied?.length || state.fight) return false;
+    if (story.index !== latestAssistantIndex(ctx?.chat ?? [])) return false;
+    if (woundsAt(sb, story.index).signature !== story.signature) return false;
+    const own = settings(ctx);
+    const written = story.written ?? {};
+    return [[own.characterTag, written.character], [own.partyTag, written.party]].every(([tag, hash]) => {
+        const current = blockAt(sb, story.index, tag);
+        return current === null ? !hash : textHash(current) === hash;
+    });
+}
+
+// Undo: that reply's sheets as the pipeline would write them without its wounds (story-time
+// recovery kept), and the wounds marked undone so a continue does not bring them back.
+async function undoStory() {
+    const ctx = context();
+    const sb = storyBlock();
+    const state = chatState(ctx);
+    if (!sb || !canUndoStory(ctx, state)) throw new Error('These wounds can no longer be undone: the sheets have changed since.');
+    const story = state.story;
+    const result = await writePlan(sb, story.index, planReply(sb, story.index, { withWounds: false }), story);
+    if (!result.ok) throw new Error('These wounds can no longer be undone: the sheets have changed since.');
+    saveChatState({ story: { ...story, undone: true, written: result.written } });
+    notify('info', 'The story wounds are undone.');
+}
+
+/** A toast's button, wired by hand: toastr gives back the toast (a jQuery object) to find it in. */
+function bindToastButton(toast, selector, action) {
+    const node = toast?.[0] ?? toast;
+    const target = node?.querySelector?.(selector);
+    target?.addEventListener?.('click', () => {
+        globalThis.toastr?.clear?.(toast);
+        action();
+    });
+}
+
+// The toasts carry HTML for their button, so every word in them is escaped here: names and
+// causes come from the model.
+function toastWounds(applied) {
+    const lines = applied.map(entry => escapeHtml(describeWound(entry)));
+    const html = `${lines.join('<br>')}<div class="rpg-battle-toast-actions"><button type="button" class="menu_button rpg-battle-toast-undo">Undo</button></div>`;
+    const toast = notify('info', html, { escapeHtml: false, timeOut: 12000, extendedTimeOut: 6000, closeButton: true });
+    bindToastButton(toast, '.rpg-battle-toast-undo', () => void guarded(undoStory));
+}
+
+function toastEncounter(sb, index) {
+    if (!currentSheet()) return;
+    const text = blockAt(sb, index, ENCOUNTER_TAG) ?? '';
+    const rows = text ? parseEncounter(text, DEFAULT_BESTIARY) : [];
+    if (!rows.length || chatState().dismissed.includes(`${index}:${text}`)) return;
+    const html = `A fight is starting: ${escapeHtml(text)}<div class="rpg-battle-toast-actions"><button type="button" class="menu_button rpg-battle-toast-fight">Fight</button></div>`;
+    const toast = notify('warning', html, { escapeHtml: false, timeOut: 15000, extendedTimeOut: 6000, closeButton: true });
+    bindToastButton(toast, '.rpg-battle-toast-fight', () => fightEncounter(rows, `${index}:${text}`));
+}
+
+// ---------------------------------------------------------------------------
+// Fights from the story (DESIGN §4.2)
+
+/** Story Director's planned fights at `index` (due first, then soon); [] without it. */
+function plannedEncounters(index) {
+    const api = globalThis.StoryDirector;
+    if (!api || typeof api.encountersAt !== 'function') return [];
+    try {
+        const list = api.encountersAt(index);
+        return Array.isArray(list)
+            ? list.filter(entry => entry && typeof entry.encounter === 'string' && entry.encounter.trim() && (entry.status === 'due' || entry.status === 'soon'))
+            : [];
+    } catch (error) {
+        console.warn('[RPG Battle] Story Director\'s encounters could not be read', error);
+        return [];
+    }
+}
+
+/**
+ * The fight the story offers now, from the latest reply: its <Encounter>, else Story
+ * Director's due or soon fight. { text, label, rows, key } or null. Nothing is offered during
+ * a fight or while a result waits to be narrated, nor once dismissed (by reply and text).
+ */
+function encounterOffer(ctx = context(), state = chatState(ctx)) {
+    const sb = storyBlock();
+    if (!sb || state.fight || state.pending) return null;
+    const index = latestAssistantIndex(ctx?.chat ?? []);
+    if (index < 0) return null;
+    const candidates = [];
+    const written = blockAt(sb, index, ENCOUNTER_TAG);
+    if (written) candidates.push({ text: written, label: '' });
+    for (const entry of plannedEncounters(index)) {
+        const where = entry.place ? ` at ${entry.place}` : '';
+        const when = entry.status === 'soon' ? (entry.on ? `, due ${entry.on}` : ', due soon') : '';
+        candidates.push({ text: entry.encounter.trim(), label: `Planned by Story Director: ${entry.key ?? entry.id ?? 'a fight'}${where}${when}.` });
+    }
+    const dismissed = new Set(state.dismissed);
+    for (const candidate of candidates) {
+        const key = `${index}:${candidate.text}`;
+        if (dismissed.has(key)) continue;
+        const rows = parseEncounter(candidate.text, DEFAULT_BESTIARY);
+        if (rows.length) return { ...candidate, rows, key };
+    }
+    return null;
+}
+
+// Fight? opens the setup with the story's foes filled in; the reader still confirms them.
+function fightEncounter(rows, offerKey = encounterOffer()?.key ?? null) {
+    const sheet = currentSheet();
+    if (sheet && sheet.hp.cur <= 0) {
+        notify('warning', `${sheet.name} is down: rest (or heal) first.`);
+        return;
+    }
+    screen = { chatId: chatIdOf(context()), mode: 'setup', prefill: Array.isArray(rows) ? rows : [], offerKey };
+    storyBlock()?.refresh?.();
+}
+
+function dismissEncounter(key) {
+    if (!key) return;
+    const dismissed = chatState().dismissed.filter(entry => entry !== key);
+    saveChatState({ dismissed: [...dismissed, key].slice(-DISMISSED_KEPT) });
+}
+
+// ---------------------------------------------------------------------------
+// Story Block's own Character Sheet (DESIGN §8.6)
+
+/** Story Block's stored blocks made from its Character Sheet template. */
+function storySheetBlocks(ctx = context()) {
+    const list = ctx?.extensionSettings?.storyBlock?.blocks;
+    return Array.isArray(list) ? list.filter(block => block && block.template === STORY_SHEET_TEMPLATE) : [];
+}
+
+/** Whether Story Block's Character Sheet is on beside RPG Battle's sheet. */
+function sheetConflict(ctx = context()) {
+    if (!settings(ctx).enabled) return false;
+    if (Array.isArray(ctx?.extensionSettings?.storyBlock?.blocks)) return storySheetBlocks(ctx).some(block => block.enabled);
+    // Before Story Block has stored its list: its own summary (no template there, so by the template's id).
+    try {
+        return (storyBlock()?.listBlocks?.() ?? []).some(block => block.id === STORY_SHEET_TEMPLATE && block.enabled);
+    } catch {
+        return false;
+    }
+}
+
+// Only when the reader asks: it is their block, and some stories want both.
+function disableStorySheet() {
+    const ctx = context();
+    const blocks = storySheetBlocks(ctx).filter(block => block.enabled);
+    for (const block of blocks) block.enabled = false;
+    if (blocks.length) {
+        ctx.saveSettingsDebounced?.();
+        notify('success', 'Story Block\'s Character Sheet is off.');
+    }
+    settingsPanel?.setSheetConflict?.(sheetConflict(ctx));
+    storyBlock()?.refresh?.();
 }
 
 // ---------------------------------------------------------------------------
 // The hand-off: injected once, into the next reply and its swipes
 
-function setPrompt(text) {
+function setPrompt(text, key = PROMPT_KEY) {
     const ctx = context();
     if (typeof ctx?.setExtensionPrompt !== 'function') return;
-    ctx.setExtensionPrompt(PROMPT_KEY, text, EXTENSION_PROMPT_IN_CHAT, 1, false, EXTENSION_PROMPT_ROLE_SYSTEM);
+    ctx.setExtensionPrompt(key, text, EXTENSION_PROMPT_IN_CHAT, 1, false, EXTENSION_PROMPT_ROLE_SYSTEM);
+}
+
+/** The hand-off for the reply being generated ('' when there is none), attaching it once. */
+function handoffFor(chat, kind) {
+    const { pending } = chatState();
+    if (!pending) return '';
+    const replacing = (kind.includes('swipe') || kind.includes('regenerate')) && isAssistant(chat.at(-1));
+    const replyIndex = replacing ? chat.length - 1 : chat.length;
+    if (pending.attachedTo === null || pending.attachedTo === undefined) {
+        saveChatState({ pending: { ...pending, attachedTo: replyIndex } });
+        return pending.handoff;
+    }
+    // A swipe of the narrating reply narrates the same result.
+    if (pending.attachedTo === replyIndex) return pending.handoff;
+    // The story has moved past the narration: the hand-off is spent.
+    saveChatState({ pending: null });
+    return '';
 }
 
 async function onGenerationInterceptor(chat, _contextSize, _abort, type = 'normal') {
     try {
         const kind = String(type ?? 'normal').toLowerCase();
-        if (kind === 'quiet' || kind === 'impersonate') return;
-        const ctx = context();
-        const { pending } = chatState(ctx);
-        if (!pending || !settings(ctx).enabled) {
+        if (kind === 'quiet' || kind === 'impersonate') {
+            // A summary or an impersonation is no story reply: no <Wounds> or <Encounter> asked
+            // for, and no fight hand-off either (it waits for the next real reply).
+            setPrompt('', RULES_PROMPT_KEY);
             setPrompt('');
             return;
         }
-        const replacing = (kind.includes('swipe') || kind.includes('regenerate')) && isAssistant(chat.at(-1));
-        const replyIndex = replacing ? chat.length - 1 : chat.length;
-        if (pending.attachedTo === null || pending.attachedTo === undefined) {
-            saveChatState({ pending: { ...pending, attachedTo: replyIndex } });
-            setPrompt(pending.handoff);
-        } else if (pending.attachedTo === replyIndex) {
-            // A swipe of the narrating reply narrates the same result.
-            setPrompt(pending.handoff);
-        } else {
-            // The story has moved past the narration: the hand-off is spent.
-            saveChatState({ pending: null });
-            setPrompt('');
-        }
+        const ctx = context();
+        const own = settings(ctx);
+        const handoff = own.enabled ? handoffFor(chat, kind) : '';
+        setPrompt(handoff);
+        // The story instruction, while there is a sheet to keep in step and no fight under way.
+        // Not for the reply that narrates a fight: its wounds were dealt in the fight.
+        const asks = own.enabled && !handoff && !chatState(ctx).fight && Boolean(blockText(own.characterTag).trim());
+        setPrompt(asks ? STORY_INSTRUCTION : '', RULES_PROMPT_KEY);
     } catch (error) {
         console.error('[RPG Battle] interceptor failed', error);
     }
@@ -462,11 +737,23 @@ function viewFor() {
     if (screen.mode === 'items') return { mode: 'items', sheet, party: currentParty(), items: consumables(currentItems()), rules: r };
     if (screen.mode === 'companion') return { mode: 'companion', presets: PRESETS, level: sheet.level, maxLevel: Math.max(20, sheet.level + 10), rules: r };
     if (screen.mode === 'setup') {
-        return { mode: 'setup', bestiary: DEFAULT_BESTIARY.map(entry => entry.name), suggestedRank: suggestRank(sheet.level, r), rules: r };
+        return { mode: 'setup', bestiary: DEFAULT_BESTIARY.map(entry => entry.name), suggestedRank: suggestRank(sheet.level, r), prefill: screen.prefill ?? null, rules: r };
     }
     // The last automatic recovery, while it is the latest reply's.
     const recovered = state.recovered && state.recovered.index === (ctx?.chat?.length ?? 0) - 1 ? state.recovered.text : '';
-    return { mode: 'idle', sheet, checks: checkModifiers(sheet.stats, r), skills, party: currentParty(), rules: r, pending: state.pending?.handoff ?? null, recovered };
+    // The latest reply's story wounds, while they stand.
+    const story = state.story && !state.story.undone && state.story.applied?.length && state.story.index === latestAssistantIndex(ctx?.chat ?? [])
+        ? { lines: state.story.applied.map(describeWound), canUndo: canUndoStory(ctx, state) }
+        : null;
+    const offer = encounterOffer(ctx, state);
+    return {
+        mode: 'idle', sheet, checks: checkModifiers(sheet.stats, r), skills, party: currentParty(), rules: r,
+        pending: state.pending?.handoff ?? null,
+        recovered,
+        story,
+        encounter: offer ? { text: offer.text, label: offer.label, rows: offer.rows } : null,
+        sheetConflict: sheetConflict(ctx),
+    };
 }
 
 function go(mode) {
@@ -578,7 +865,10 @@ const handlers = {
     }),
     onBack: () => go(null),
     onStart: setup => void guarded(async () => {
+        const offerKey = screen.offerKey ?? null;
         startNewFight(setup);
+        // A fight the story offered is now being fought: the offer is spent.
+        dismissEncounter(offerKey);
     }),
     onAction: action => void guarded(() => playAction(action)),
     onAuto: () => void guarded(() => playAction({ type: 'auto' })),
@@ -589,6 +879,13 @@ const handlers = {
         go(null);
     },
     onDone: () => go(null),
+    onUndoStory: () => void guarded(undoStory),
+    onFightEncounter: rows => fightEncounter(rows),
+    onDismissEncounter: () => {
+        dismissEncounter(encounterOffer()?.key);
+        storyBlock()?.refresh?.();
+    },
+    onDisableStorySheet: () => disableStorySheet(),
 };
 
 function tabKey() {
@@ -596,12 +893,18 @@ function tabKey() {
     const chat = ctx?.chat ?? [];
     const state = chatState(ctx);
     const last = chat.at(-1);
-    return [chatIdOf(ctx), chat.length, String(last?.mes ?? '').length, screen.mode, fightKey(state.fight), state.pending?.fightId ?? '', state.recovered?.text ?? '', JSON.stringify(settings())].join('|');
+    const story = state.story ? `${state.story.index}:${state.story.signature}:${state.story.undone}:${state.story.applied?.length ?? 0}:${canUndoStory(ctx, state)}` : '';
+    return [
+        chatIdOf(ctx), chat.length, String(last?.mes ?? '').length, screen.mode, JSON.stringify(screen.prefill ?? null),
+        fightKey(state.fight), state.pending?.fightId ?? '', state.recovered?.text ?? '', story,
+        state.dismissed.length, encounterOffer(ctx, state)?.key ?? '', sheetConflict(ctx), JSON.stringify(settings()),
+    ].join('|');
 }
 
 function renderTab(pane) {
     const view = viewFor();
     renderBattleTab(pane, view, handlers);
+    settingsPanel?.setSheetConflict?.(sheetConflict());
 }
 
 // ---------------------------------------------------------------------------
@@ -635,6 +938,12 @@ function registerKeptBlocks(sb) {
             promptNote: PARTY_NOTE,
         }),
     ];
+    // The model's <Wounds> and <Encounter>: transport only, so Story Block hides them in its
+    // envelope (out of the narration and the prompt's history) and RPG Battle reads them.
+    results.push(
+        sb.registerBlock({ id: 'rpg-wounds', tag: WOUNDS_TAG, name: 'Wounds' }),
+        sb.registerBlock({ id: 'rpg-encounter', tag: ENCOUNTER_TAG, name: 'Encounter' }),
+    );
     for (const result of results) if (result && result.ok === false) console.warn('[RPG Battle] block not registered:', result.error);
 }
 
@@ -653,7 +962,9 @@ function registerWithStoryBlock() {
         badge: () => (currentFight() ? 1 : 0),
         render: pane => renderTab(pane),
     });
-    sb.onReply?.(payload => void recoverAfterReply(payload));
+    sb.onReply?.(payload => void afterReply(payload));
+    // Story Block's settings can change under us (its Character Sheet switched on or off).
+    sb.onUpdate?.(() => settingsPanel?.setSheetConflict?.(sheetConflict()));
     registered = true;
     return true;
 }
@@ -669,10 +980,13 @@ function addSettingsPanel(documentRef) {
         settings: settings(),
         version: `v${VERSION}`,
         status: storyBlock() ? '' : 'Needs Story Block 0.7 or newer.',
+        sheetConflict: sheetConflict(),
+        onDisableSheet: () => disableStorySheet(),
         onChange: next => {
             const ctx = context();
             ctx.extensionSettings[SETTINGS_KEY] = { ...settings(ctx), ...next };
             ctx.saveSettingsDebounced?.();
+            settingsPanel?.setSheetConflict?.(sheetConflict(ctx));
             storyBlock()?.refresh?.();
         },
     });
@@ -703,6 +1017,7 @@ function init() {
             screen = { chatId: chatIdOf(context()), mode: null };
             live = { chatId: null, key: '', fight: null };
             setPrompt('');
+            setPrompt('', RULES_PROMPT_KEY);
         });
     }
     console.info(`[RPG Battle] v${VERSION} loaded.`);
