@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0
+
+Recovery and companions.
+
+- **Recovery as story time passes** (with Story Director 0.7.2+): after each reply, 5 % of max HP and MP per story hour since the reply before, and a full rest after 6 hours or more; written into that reply (swipes and edits recompute it), with a note in the Battle tab. Switchable in the settings.
+- **Short rest** (a quarter back) and **Long rest** (full, fight conditions end) replace Rest.
+- **Use item** out of a fight: heals, MP and cures from the Inventory block, on you or a companion, taken off the inventory; damage items stay for fights.
+- **Add companion**: name, role, level, build (preset), control and optional equipment; companions join the Party block, fight beside you, and can be switched between auto and command or removed (two clicks).
+
 ## 0.1.0
 
 The first release.

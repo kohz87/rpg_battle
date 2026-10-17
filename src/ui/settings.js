@@ -88,6 +88,10 @@ export function renderSettings(container, { settings, version = '', status = '',
     single.addEventListener('change', () => commit(next => { next.currency = { ...next.currency, single: single.value.trim() || 'coins' }; }));
     moneyRow.addEventListener('change', () => commit(next => { next.currency = { ...next.currency, row: moneyRow.value.trim() || 'Coins' }; }));
 
+    const recover = el('input', { attrs: { id: 'rpg_battle_recover', type: 'checkbox' } });
+    recover.checked = current.recoverWithTime !== false;
+    recover.addEventListener('change', () => commit(next => { next.recoverWithTime = recover.checked; }));
+
     const tag = (id, key, label, hint) => {
         const node = input(id, current[key]);
         node.addEventListener('change', () => commit(next => { next[key] = node.value.trim() || next[key]; }));
@@ -105,6 +109,7 @@ export function renderSettings(container, { settings, version = '', status = '',
             el('div', { className: 'inline-drawer-content' }, [
                 status ? el('div', { className: 'rpg-battle-settings-status', text: status }) : null,
                 el('label', { className: 'checkbox_label', attrs: { for: 'rpg_battle_enabled' } }, [enabled, el('span', { text: 'Battles on (the Battle tab in Story Block)' })]),
+                el('label', { className: 'checkbox_label', attrs: { for: 'rpg_battle_recover' } }, [recover, el('span', { text: 'Recover HP and MP as story time passes (needs Story Director)' })]),
                 el('div', { className: 'rpg-battle-settings-head', text: 'Money' }),
                 row('Currency', 'Loot is written in it.', mode, 'rpg_battle_currency_mode'),
                 tiersRow,

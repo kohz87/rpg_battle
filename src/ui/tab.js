@@ -476,9 +476,9 @@ function renderIdle(root, view, handlers) {
                         el('span', { className: 'rpg-battle-record-name', text: member.name ?? member.sheet.name ?? '' }),
                         el('span', { className: 'rpg-battle-tag', text: `Lv ${num(member.sheet.level, 1)}` }),
                         member.role ? el('span', { className: 'rpg-battle-tag is-quiet', text: member.role }) : null,
-                        el('span', { className: `rpg-battle-tag rpg-battle-control is-${member.control === 'command' ? 'command' : 'auto'}`, text: member.control === 'command' ? 'command' : 'auto' }),
                     ]),
                     bar('hp', member.sheet.hp?.cur, member.sheet.hp?.max, `${member.name ?? ''} HP`),
+                    memberControls(member, handlers),
                 ]);
                 if (member.id) item.dataset.memberId = member.id;
                 return item;
@@ -486,11 +486,145 @@ function renderIdle(root, view, handlers) {
         ]));
     }
 
+    if (view.recovered) root.append(el('p', { className: 'rpg-battle-hint rpg-battle-recovered', text: view.recovered }));
+
     root.append(el('div', { className: 'rpg-battle-actions' }, [
         button('Start fight', 'rpg-battle-primary rpg-battle-start', { iconName: 'fa-dragon', onClick: () => emit(handlers, 'onSetup') }),
         button('Learn skill', 'rpg-battle-learn', { iconName: 'fa-book', onClick: () => emit(handlers, 'onLearn') }),
-        // HP and MP come back only when the story says so: a night's rest, a healer, a potion.
-        button('Rest', 'rpg-battle-rest', { iconName: 'fa-bed', title: 'Back to full HP and MP, when the story has you rest', onClick: () => emit(handlers, 'onRest') }),
+        button('Use item', 'rpg-battle-items', { iconName: 'fa-flask', onClick: () => emit(handlers, 'onItems') }),
+        button('Add companion', 'rpg-battle-add-companion', { iconName: 'fa-user-plus', onClick: () => emit(handlers, 'onCompanion') }),
+    ]));
+    // HP and MP come back when the story says so: story time heals on its own (with Story
+    // Director), and these are for what the clock cannot see.
+    root.append(section('is-rest', [
+        sub('Rest', 'fa-bed'),
+        el('div', { className: 'rpg-battle-actions' }, [
+            button('Short rest', 'rpg-battle-rest-short', { iconName: 'fa-mug-hot', title: 'An hour or so: a quarter of max HP and MP back', onClick: () => emit(handlers, 'onRest', 'short') }),
+            button('Long rest', 'rpg-battle-rest-long', { iconName: 'fa-moon', title: 'A night\'s sleep: full HP and MP, fight conditions end', onClick: () => emit(handlers, 'onRest', 'long') }),
+        ]),
+    ]));
+}
+
+// A companion's control mode (tap to switch) and Remove, which asks twice.
+let removeArmed = null;
+
+function memberControls(member, handlers) {
+    const command = member.control === 'command';
+    const toggle = button(command ? 'You command' : 'Acts on its own', `rpg-battle-control is-${command ? 'command' : 'auto'}`, {
+        iconName: command ? 'fa-hand-pointer' : 'fa-robot',
+        title: command ? 'You choose its actions; tap to let it act on its own' : 'Acts on its own; tap to command it',
+        onClick: () => emit(handlers, 'onSetControl', member.id, command ? 'auto' : 'command'),
+    });
+    toggle.setAttribute('aria-pressed', command ? 'true' : 'false');
+    const armed = removeArmed === member.id;
+    const remove = button(armed ? 'Click again to remove' : 'Remove', `rpg-battle-remove-companion${armed ? ' is-armed' : ''}`, {
+        iconName: 'fa-user-minus',
+        onClick: () => {
+            if (removeArmed === member.id) {
+                removeArmed = null;
+                emit(handlers, 'onRemoveCompanion', member.id);
+            } else {
+                removeArmed = member.id;
+                rerender();
+            }
+        },
+    });
+    return el('div', { className: 'rpg-battle-member-actions' }, [toggle, remove]);
+}
+
+// ---------------------------------------------------------------------------
+// items: a consumable used out of a fight
+
+function effectText(effect) {
+    if (!effect) return '';
+    const parts = [];
+    if (effect.heal) parts.push(`heals ${effect.heal}`);
+    if (effect.mp) parts.push(`${effect.mp} MP`);
+    if (effect.cure?.length) parts.push(`cures ${effect.cure.join(', ')}`);
+    if (effect.damage) parts.push(`${effect.damage.amount} ${effect.damage.element ?? ''} damage (fights only)`.replace(/\s+/g, ' '));
+    return parts.join(' · ');
+}
+
+function renderItems(root, view, handlers) {
+    const items = list(view.items);
+    const people = [
+        ...(view.sheet ? [{ id: 'pc', name: view.sheet.name, sheet: view.sheet }] : []),
+        ...list(view.party).filter(member => member?.sheet),
+    ];
+    let target = itemsTarget && people.some(person => person.id === itemsTarget) ? itemsTarget : people[0]?.id ?? 'pc';
+    const who = select('rpg-battle-item-target', 'Use on', people.map(person => [person.id, `${person.name} (HP ${num(person.sheet.hp?.cur)}/${num(person.sheet.hp?.max)})`]), target);
+    who.addEventListener('change', () => { target = who.value; itemsTarget = who.value; });
+    root.append(section('is-items', [
+        sub('Use an item', 'fa-flask', items.length),
+        people.length > 1 ? el('label', { className: 'rpg-battle-field' }, [el('span', { className: 'rpg-battle-field-label', text: 'On' }), who]) : null,
+        items.length ? el('ul', { className: 'rpg-battle-records' }, items.map(item => {
+            const usable = Boolean(item.effect && (item.effect.heal || item.effect.mp || item.effect.cure?.length));
+            return el('li', { className: `rpg-battle-record rpg-battle-use-item${usable ? '' : ' is-unusable'}` }, [
+                el('div', { className: 'rpg-battle-record-head' }, [
+                    el('span', { className: 'rpg-battle-record-name', text: item.name ?? '' }),
+                    el('span', { className: 'rpg-battle-tag', text: `×${num(item.qty, 1)}` }),
+                ]),
+                el('div', { className: 'rpg-battle-record-meta', text: effectText(item.effect) }),
+                button('Use', 'rpg-battle-use', { iconName: 'fa-hand-holding-medical', disabled: !usable, onClick: () => emit(handlers, 'onUseItem', { name: item.name, target }) }),
+            ]);
+        })) : el('p', { className: 'rpg-battle-hint', text: 'Nothing usable in the Inventory block. Consumables need an effect in their note, like "heal 30", "mp 20" or "cure poison".' }),
+    ]));
+    root.append(el('div', { className: 'rpg-battle-actions' }, [
+        button('Back', 'rpg-battle-back', { iconName: 'fa-arrow-left', onClick: () => emit(handlers, 'onBack') }),
+    ]));
+}
+
+let itemsTarget = null;
+
+// ---------------------------------------------------------------------------
+// companion: a new companion joins
+
+let companionDraft = null;
+
+function renderCompanion(root, view, handlers) {
+    const presets = list(view.presets);
+    if (!companionDraft) companionDraft = { name: '', role: '', control: 'auto', level: num(view.level, 1), preset: presets[0]?.id ?? '', gear: '' };
+    const draft = companionDraft;
+    const name = el('input', { className: 'text_pole rpg-battle-companion-name', attrs: { type: 'text', maxlength: '40', placeholder: 'Name', 'aria-label': 'Companion name' } });
+    name.value = draft.name;
+    const role = el('input', { className: 'text_pole rpg-battle-companion-role', attrs: { type: 'text', maxlength: '30', placeholder: 'companion, hireling, familiar…', 'aria-label': 'Role' } });
+    role.value = draft.role;
+    const level = select('rpg-battle-companion-level', 'Level', Array.from({ length: Math.max(1, num(view.maxLevel, 20)) }, (_, i) => [String(i + 1), `Level ${i + 1}`]), String(draft.level));
+    const preset = select('rpg-battle-companion-preset', 'Build', presets.map(entry => [entry.id, `${entry.name} — ${list(entry.skills).join(', ')}`]), draft.preset);
+    const control = select('rpg-battle-companion-control', 'Control', [['auto', 'Acts on its own'], ['command', 'I command it']], draft.control);
+    const gear = el('textarea', { className: 'text_pole rpg-battle-companion-gear', attrs: { rows: '3', placeholder: 'Ashwood Staff (rare) · MATK +7\nTraveller\'s Robe (common) · DEF +2', 'aria-label': 'Equipment, one per line' } });
+    gear.value = draft.gear;
+    const add = button('Add to the party', 'rpg-battle-primary rpg-battle-companion-add', { iconName: 'fa-user-plus' });
+    const sync = () => { add.disabled = !str(draft.name) || !draft.preset; };
+    name.addEventListener('input', () => { draft.name = name.value; sync(); });
+    role.addEventListener('input', () => { draft.role = role.value; });
+    level.addEventListener('change', () => { draft.level = num(level.value, 1); });
+    preset.addEventListener('change', () => { draft.preset = preset.value; sync(); });
+    control.addEventListener('change', () => { draft.control = control.value; });
+    gear.addEventListener('input', () => { draft.gear = gear.value; });
+    add.addEventListener('click', () => {
+        if (add.disabled) return;
+        emit(handlers, 'onAddCompanion', { name: str(draft.name), role: str(draft.role) || 'companion', control: draft.control, level: draft.level, presetId: draft.preset, gearLines: draft.gear });
+    });
+    sync();
+    const field = (label, control, hint) => el('label', { className: 'rpg-battle-field' }, [
+        el('span', { className: 'rpg-battle-field-label', text: label }),
+        control,
+        hint ? el('small', { className: 'rpg-battle-hint', text: hint }) : null,
+    ]);
+    root.append(section('is-companion', [
+        sub('New companion', 'fa-user-plus'),
+        el('p', { className: 'rpg-battle-hint', text: 'Someone the story brought along. They join at the level you pick, built like the preset, and level with you from then on.' }),
+        field('Name', name),
+        field('Role', role),
+        field('Level', level, `Your level is ${num(view.level, 1)}.`),
+        field('Build', preset, 'Spreads their points and gives three starter skills.'),
+        field('Control', control),
+        field('Equipment', gear, 'Optional, one item per line: name (rarity) · stats. Capped by rarity like yours.'),
+    ]));
+    root.append(el('div', { className: 'rpg-battle-actions' }, [
+        add,
+        button('Back', 'rpg-battle-back', { iconName: 'fa-arrow-left', onClick: () => emit(handlers, 'onBack') }),
     ]));
 }
 
@@ -1225,6 +1359,8 @@ const RENDERERS = {
     idle: renderIdle,
     spend: renderSpend,
     learn: renderLearn,
+    items: renderItems,
+    companion: renderCompanion,
     setup: renderSetup,
     fight: renderFight,
     result: renderResult,
@@ -1244,6 +1380,9 @@ export function renderBattleTab(pane, view, handlers = {}) {
     if (mode !== 'setup') setupDraft = null;
     if (mode !== 'fight') fightUi = null;
     if (mode !== 'result') discardArmed = null;
+    if (mode !== 'companion') companionDraft = null;
+    if (mode !== 'items') itemsTarget = null;
+    if (mode !== 'idle') removeArmed = null;
 
     const root = el('div', { className: `rpg-battle-tab is-${mode || 'none'}` });
     root.dataset.mode = mode;

@@ -291,6 +291,16 @@ export function enemiesFromRows(rows, { bestiary, library, rules, rng }) → Com
     // ids e1, e2…; several of a kind lettered "Goblin A", "Goblin B".
 ```
 
+## `src/recovery.js` (0.2)
+
+```js
+export function rest(sheet, 'short' | 'long', { gear, rules }) → Sheet
+export function recoverOverTime(sheet, hours, { gear, rules }) → { sheet, kind: 'long' | 'regen' | null, hp, mp }
+export function useItemOutside(sheet, item) → { sheet, used, message }
+```
+
+`party.js` also has `newCompanion({ name, role, control, level, preset, gearLines }, { rules, existing }) → Member`.
+
 ## `src/ui/settings.js`
 
 `renderSettings(container, { settings, version, status, onChange })`: the on/off switch, the

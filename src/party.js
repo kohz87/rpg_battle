@@ -1,10 +1,11 @@
 // From the sheets to the fighters: a Character sheet (or a Party member) with its gear and
 // consumables becomes a Combatant, and the setup's enemy rows become projected enemies. Pure.
 
-import { derive, maxHp, maxMp } from './rules.js';
+import { STATS, derive, maxHp, maxMp } from './rules.js';
 import { resolveSkills } from './skills.js';
 import { projectEnemy } from './enemies.js';
-import { consumables, gearBonuses } from './items.js';
+import { consumables, gearBonuses, parseGearEntry } from './items.js';
+import { newSheet, recompute, slug } from './sheet.js';
 
 const clampInt = (value, min, max) => Math.min(max, Math.max(min, Math.round(Number(value) || 0)));
 
@@ -61,4 +62,43 @@ export function enemiesFromRows(rows, { bestiary, library, rules, rng }) {
         }
     }
     return enemies;
+}
+
+/**
+ * A new companion: { name, role, control, level, preset, gearLines } → Member. Built like a
+ * character (start stats + the preset's points), then raised to `level` with its extra points
+ * spread in the preset's proportions, so a level-6 healer joins as a level-6 healer. `gearLines`
+ * are Equipped entries ("Ashwood Staff (rare) · MATK +7"), one per line.
+ */
+export function newCompanion({ name, role = 'companion', control = 'auto', level = 1, preset, gearLines = '' }, { rules, existing = [] }) {
+    const trimmed = String(name ?? '').trim();
+    if (!trimmed) throw new Error('Give the companion a name.');
+    if (!preset) throw new Error('Pick a preset for the companion.');
+    const target = Math.max(1, Math.min(rules.character.maxLevel, Math.round(Number(level) || 1)));
+    let sheet = newSheet({ name: trimmed, stats: preset.points, skills: preset.skills }, rules);
+    const extra = (target - 1) * rules.character.pointsPerLevel;
+    if (extra > 0) {
+        // A preset with no points spreads evenly.
+        const raw = STATS.map(stat => Math.max(0, Number(preset.points?.[stat]) || 0));
+        const weights = raw.some(Boolean) ? raw : raw.map(() => 1);
+        const total = weights.reduce((sum, value) => sum + value, 0);
+        // Largest remainder, so the shares add up exactly.
+        const shares = STATS.map((stat, index) => {
+            const exact = extra * weights[index] / total;
+            return { stat, whole: Math.floor(exact), rest: exact - Math.floor(exact) };
+        });
+        let left = extra - shares.reduce((sum, entry) => sum + entry.whole, 0);
+        for (const entry of [...shares].sort((a, b) => b.rest - a.rest)) {
+            if (left <= 0) break;
+            entry.whole += 1;
+            left -= 1;
+        }
+        sheet = { ...sheet, level: target, stats: Object.fromEntries(shares.map(entry => [entry.stat, sheet.stats[entry.stat] + entry.whole])) };
+    }
+    const gear = String(gearLines ?? '').split(/\n|\s+\|\s+/).map(line => line.trim()).filter(Boolean).map(parseGearEntry);
+    sheet = recompute({ ...sheet, hp: { cur: Infinity, max: 0 }, mp: { cur: Infinity, max: 0 } }, gear, rules);
+    const taken = new Set(['pc', ...existing.map(member => member.id)]);
+    let id = slug(trimmed) || 'companion';
+    for (let n = 2; taken.has(id); n++) id = `${slug(trimmed) || 'companion'}-${n}`;
+    return { id, name: trimmed, role: String(role ?? '').trim() || 'companion', control: control === 'command' ? 'command' : 'auto', sheet, gear };
 }
