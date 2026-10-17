@@ -14,7 +14,7 @@ const REN = [
     'STR: 9 | VIT: 7 | AGI: 8 | DEX: 8 | INT: 4 | LUK: 5 | CHA: 6',
     'Checks: STR +2 | VIT +1 | AGI +1 | DEX +1 | INT -1 | LUK +0 | CHA +0',
     'State: unhurt',
-    'Skills: Rending Strike (Lv 2) | Guard Break | Second Wind',
+    'Skills: Rending Strike (Lv 2, 3/12) | Guard Break (Lv 1, 0/5) | Second Wind (Lv 1, 4/5)',
     'Conditions: none',
 ].join('\n');
 
@@ -24,7 +24,7 @@ const PARTY = [
     'HP: 44/44 | MP: 38/38',
     'State: unhurt',
     'STR: 4 | VIT: 5 | AGI: 7 | DEX: 6 | INT: 10 | LUK: 4 | CHA: 7',
-    'Skills: Ember Lance | Mend | Ward',
+    'Skills: Ember Lance (Lv 1, 2/5) | Mend (Lv 1, 0/5) | Ward (Lv 1, 0/5)',
     'Equipped: Ashwood Staff (rare) · MATK +7, INT +1 | Traveller\'s Robe (common) · DEF +2, MDEF +3',
     '',
     '## Merrit — hireling | control: command',
@@ -32,7 +32,7 @@ const PARTY = [
     'HP: 20/94 | MP: 22/30',
     'State: badly hurt (bleeding, slow to move) · poisoned',
     'STR: 8 | VIT: 8 | AGI: 5 | DEX: 6 | INT: 3 | LUK: 4 | CHA: 4',
-    'Skills: Shield Bash (Lv 3)',
+    'Skills: Shield Bash (Lv 3, 7/22)',
     'Conditions: poisoned (2)',
 ].join('\n');
 
@@ -264,7 +264,8 @@ test('applyResult levels up with carry-over, points and raised HP/MP', () => {
 
 test('applyResult raises mastery from uses, accumulating across fights', () => {
     const rules = makeRules({ masteryUses: [0, 3, 4, 5, 6] });
-    const sheet = { ...parseCharacter(REN, rules).sheet };
+    // From no progress (REN's line writes some).
+    const sheet = { ...parseCharacter(REN, rules).sheet, uses: {} };
     const first = applyResult(sheet, 'pc', result({ uses: { pc: { 'Guard Break': 2, 'Rending Strike': 5, Attack: 9 } } }), rules);
     assert.deepEqual(first.masteryGained, ['Rending Strike']);
     assert.equal(first.sheet.skills.find(skill => skill.name === 'Guard Break').mastery, 1);
@@ -277,7 +278,7 @@ test('applyResult raises mastery from uses, accumulating across fights', () => {
     assert.equal(second.sheet.skills.find(skill => skill.name === 'Rending Strike').mastery, rules.masteryMax);
     assert.equal(second.sheet.uses['Rending Strike'], undefined);
     // The default thresholds: 5 uses take mastery 1 to 2.
-    const fresh = parseCharacter(REN, R).sheet;
+    const fresh = { ...parseCharacter(REN, R).sheet, uses: {} };
     assert.equal(applyResult(fresh, 'pc', result({ uses: { pc: { 'Second Wind': 5 } } }), R).sheet.skills.at(-1).mastery, 2);
     assert.equal(applyResult(fresh, 'pc', result({ uses: { pc: { 'Second Wind': 4 } } }), R).sheet.skills.at(-1).mastery, 1);
 });
@@ -445,10 +446,10 @@ test('readSheets: an older chat\'s Character block until the Party block has you
 test('skills past the cap are set aside: written on their own line, read back, older sheets keep their first N', async () => {
     const { activeWithin, activeSkills } = await import('../src/sheet.js');
     const three = makeRules({ character: { activeSkills: 3 } });
-    const text = REN.replace('Skills: Rending Strike (Lv 2) | Guard Break | Second Wind', 'Skills: A | B | C | D (Lv 2)');
+    const text = REN.replace('Skills: Rending Strike (Lv 2, 3/12) | Guard Break (Lv 1, 0/5) | Second Wind (Lv 1, 4/5)', 'Skills: A | B | C | D (Lv 2)');
     const sheet = parseCharacter(text, three).sheet;
     assert.deepEqual(sheet.skills, [{ name: 'A', mastery: 1 }, { name: 'B', mastery: 1 }, { name: 'C', mastery: 1 }, { name: 'D', mastery: 2, aside: true }]);
-    assert.match(formatCharacter(sheet, three), /^Skills: A \| B \| C\nSet aside: D \(Lv 2\)$/m);
+    assert.match(formatCharacter(sheet, three), /^Skills: A \(Lv 1, 0\/5\) \| B \(Lv 1, 0\/5\) \| C \(Lv 1, 0\/5\)\nSet aside: D \(Lv 2, 0\/12\)$/m);
     assert.deepEqual(parseCharacter(formatCharacter(sheet, three), three).sheet.skills, sheet.skills);
     assert.deepEqual(activeSkills(sheet).map(skill => skill.name), ['A', 'B', 'C']);
     // A wider cap brings nothing back on its own: a skill set aside stays aside.
@@ -471,4 +472,84 @@ test('learnSkill at the cap asks which to set aside; setSkillActive swaps within
     assert.deepEqual(sheet.skills.map(skill => [skill.name, Boolean(skill.aside)]), [['Mend', false], ['Sweep', false], ['Power Strike', true]]);
     assert.throws(() => setSkillActive(sheet, 'Nope', true, two), /do not know/);
     assert.equal(learnSkill(sheet, 'mend', { rules: two }).skills.length, 3, 'known: nothing changes');
+});
+
+// ---------------------------------------------------------------------------------------
+// Mastery progress in the block (0.4.1): written next to each skill, so it rolls back with
+// the reply that holds the block, like everything else on the sheet.
+
+test('mastery progress is written next to each skill and reads back; the top level says max', async () => {
+    const { formatPartyBlock, parsePartyBlock } = await import('../src/sheet.js');
+    const { sheet } = parseCharacter(REN, R);
+    assert.deepEqual(sheet.uses, { 'Rending Strike': 3, 'Guard Break': 0, 'Second Wind': 4 });
+    const top = { ...sheet, skills: [...sheet.skills, { name: 'Iron Will', mastery: R.masteryMax }], uses: { ...sheet.uses, 'Iron Will': 9 } };
+    assert.match(formatCharacter(top, R), /^Skills: Rending Strike \(Lv 2, 3\/12\) \| Guard Break \(Lv 1, 0\/5\) \| Second Wind \(Lv 1, 4\/5\) \| Iron Will \(Lv 5, max\)$/m);
+    const back = parseCharacter(formatCharacter(top, R), R).sheet;
+    assert.deepEqual(back.skills.at(-1), { name: 'Iron Will', mastery: 5 });
+    assert.equal('Iron Will' in back.uses, false, 'no progress past the top');
+    // Companions carry theirs in their own sections, set-aside skills on their line.
+    const block = formatPartyBlock(sheet, parseParty(PARTY, R).members, R);
+    const read = parsePartyBlock(block, R);
+    assert.deepEqual(read.pc.uses, sheet.uses);
+    assert.deepEqual(read.members.map(member => member.sheet.uses), [{ 'Ember Lance': 2, Mend: 0, Ward: 0 }, { 'Shield Bash': 7 }]);
+    assert.equal(formatPartyBlock(read.pc, read.members, R), block);
+    const three = makeRules({ character: { activeSkills: 3 } });
+    const aside = parseCharacter(REN.replace('| Second Wind (Lv 1, 4/5)', '| Second Wind (Lv 1, 4/5) | Sweep (Lv 2, 5/12)'), three).sheet;
+    assert.match(formatCharacter(aside, three), /^Set aside: Sweep \(Lv 2, 5\/12\)$/m);
+    assert.equal(parseCharacter(formatCharacter(aside, three), three).sheet.uses.Sweep, 5);
+});
+
+test('older Skills lines read as no progress; other ways of writing it are read too', () => {
+    const old = parseCharacter(REN.replace(/^Skills: .*$/m, 'Skills: Rending Strike (Lv 2) | Guard Break | Second Wind'), R).sheet;
+    assert.deepEqual(old.skills, [{ name: 'Rending Strike', mastery: 2 }, { name: 'Guard Break', mastery: 1 }, { name: 'Second Wind', mastery: 1 }]);
+    assert.deepEqual(old.uses, {}, 'nothing written, nothing read');
+    assert.match(formatCharacter(old, R), /^Skills: Rending Strike \(Lv 2, 0\/12\) \| Guard Break \(Lv 1, 0\/5\) \| Second Wind \(Lv 1, 0\/5\)$/m);
+    const loose = parseCharacter(REN.replace(/^Skills: .*$/m, 'Skills: Shadow Step Lv 2 (3/12), Power Strike (Lv 1, 1/5); Ice Spear (Frost) (2 of 5 uses), Mend (lv 3 · 4/22), Ward (Lv 5 max), Sweep (4/5)'), R).sheet;
+    assert.deepEqual(loose.skills.map(skill => [skill.name, skill.mastery]), [['Shadow Step', 2], ['Power Strike', 1], ['Ice Spear (Frost)', 1], ['Mend', 3], ['Ward', 5], ['Sweep', 1]]);
+    assert.deepEqual(loose.uses, { 'Shadow Step': 3, 'Power Strike': 1, 'Ice Spear (Frost)': 2, Mend: 4, Sweep: 4 });
+});
+
+test('a fight result advances the progress in the block; the reply before still holds the earlier value', async () => {
+    const { formatPartyBlock, readSheets } = await import('../src/sheet.js');
+    const before = readSheets({ party: formatPartyBlock(parseCharacter(REN, R).sheet, parseParty(PARTY, R).members, R) }, R);
+    const fight = result({
+        party: [],
+        uses: { pc: { 'Rending Strike': 4, 'Second Wind': 3 }, astra: { 'Ember Lance': 2 }, merrit: { 'Shield Bash': 20 } },
+    });
+    const pc = applyResult(before.pc, 'pc', fight, R).sheet;
+    const members = before.members.map(member => ({ ...member, sheet: applyResult(member.sheet, member.id, fight, R).sheet }));
+    const written = formatPartyBlock(pc, members, R);
+    assert.match(written, /^Skills: Rending Strike \(Lv 2, 7\/12\) \| Guard Break \(Lv 1, 0\/5\) \| Second Wind \(Lv 2, 2\/12\)$/m, '4 + 4 uses: mastery 2 with 2 over');
+    assert.match(written, /^Skills: Ember Lance \(Lv 1, 4\/5\) \| Mend \(Lv 1, 0\/5\) \| Ward \(Lv 1, 0\/5\)$/m);
+    assert.match(written, /^Skills: Shield Bash \(Lv 4, 5\/35\)$/m);
+    // The next fight starts from the block as written…
+    const next = readSheets({ party: written }, R);
+    assert.equal(applyResult(next.pc, 'pc', result({ party: [], uses: { pc: { 'Rending Strike': 5 } } }), R).sheet.skills[0].mastery, 3);
+    // …and with that reply deleted (or swiped), the previous reply's block is the one read again.
+    const rolledBack = readSheets({ party: formatPartyBlock(before.pc, before.members, R) }, R);
+    assert.deepEqual(rolledBack.pc.uses, { 'Rending Strike': 3, 'Guard Break': 0, 'Second Wind': 4 });
+    assert.deepEqual(rolledBack.pc.skills.map(skill => skill.mastery), [2, 1, 1]);
+    assert.equal(rolledBack.members[1].sheet.uses['Shield Bash'], 7);
+});
+
+test('foldUses: an older chat\'s metadata progress fills in skills whose line gives none, once', async () => {
+    const { foldUses, formatPartyBlock, readSheets } = await import('../src/sheet.js');
+    const oldBlock = formatPartyBlock(parseCharacter(REN, R).sheet, parseParty(PARTY, R).members, R)
+        .replace(/ \(Lv 1, \d+\/5\)/g, '').replace(/, \d+\/(?:12|22)\)/g, ')');
+    assert.doesNotMatch(oldBlock, /\(Lv[^)]*\//, 'a block as 0.4.0 wrote it');
+    const meta = { pc: { 'rending strike': 6, 'Guard Break': 2, Gone: 3 }, astra: { Mend: 1 }, nobody: { Ward: 4 } };
+    const read = readSheets({ party: oldBlock }, R);
+    const out = foldUses(read, meta, R);
+    assert.equal(out.folded, true);
+    assert.deepEqual(out.pc.uses, { 'Rending Strike': 6, 'Guard Break': 2 });
+    assert.deepEqual(out.members.map(member => member.sheet.uses), [{ Mend: 1 }, {}]);
+    assert.deepEqual(read.pc.uses, {}, 'the sheets passed in stay as they were');
+    // Written, the block carries it, and the metadata has nothing more to add.
+    const written = formatPartyBlock(out.pc, out.members, R);
+    assert.match(written, /^Skills: Rending Strike \(Lv 2, 6\/12\) \| Guard Break \(Lv 1, 2\/5\) \| Second Wind \(Lv 1, 0\/5\)$/m);
+    const again = foldUses(readSheets({ party: written }, R), { pc: { 'Rending Strike': 11, 'Second Wind': 4 } }, R);
+    assert.equal(again.folded, false);
+    assert.equal(again.pc.uses['Rending Strike'], 6, 'the line wins over the metadata');
+    assert.equal(foldUses(read, {}, R).folded, false);
+    assert.equal(foldUses({ pc: null, members: [] }, meta, R).pc, null);
 });

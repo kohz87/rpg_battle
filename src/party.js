@@ -1,7 +1,9 @@
 // From the sheets to the fighters: your sheet (or a companion's) with its gear and
 // consumables becomes a Combatant, and the setup's enemy rows become projected enemies. Also
 // the party's own changes: a companion joining (built open-ended, builds.js), and one renamed
-// (whose id follows the name, so what the chat keeps by id has to move with it). Pure.
+// (whose id follows the name, so what the chat keeps by id, the NPC link, has to move with it;
+// their sheet, mastery progress included, goes along in the block itself), by hand or because
+// the NPC State Delta NPC they were added from has another name now (npcRenames). Pure.
 
 import { STATS, derive, maxHp, maxMp } from './rules.js';
 import { findSkill, resolveSkills } from './skills.js';
@@ -150,7 +152,7 @@ const nameKey = name => String(name ?? '').normalize('NFKC').replace(/\s+/g, ' '
  * stats, gear, skills) stays as it was; the sheet takes the new name too. Ids follow names
  * (sheet.memberIds), so a rename can change the renamed member's id, and with two of a name
  * another member's; `idMap` is { oldId: newId } for every member, for whatever is kept by id
- * (index.js moves the chat's mastery `uses`). Throws on an unknown member, an empty name, or a
+ * (index.js moves the chat's NPC links; mastery progress is on the sheet since 0.4.1). Throws on an unknown member, an empty name, or a
  * name another companion or the Character (`pcName`) already has.
  */
 export function editCompanion(members, memberId, { name, role, control } = {}, { pcName = '' } = {}) {
@@ -173,7 +175,7 @@ export function editCompanion(members, memberId, { name, role, control } = {}, {
 }
 
 /**
- * Per-member records (the chat's `uses`: { [memberId]: … }) moved to new ids. The members in
+ * Per-member records (the chat's `npcLinks`: { [memberId]: … }) moved to new ids. The members in
  * `idMap` keep their records under their new id; anyone else's (the Character's 'pc') stay.
  */
 export function remapIds(records, idMap) {
@@ -182,4 +184,38 @@ export function remapIds(records, idMap) {
     for (const [id, value] of Object.entries(records ?? {})) if (!moving.has(id)) out[id] = value;
     for (const [from, to] of Object.entries(idMap ?? {})) if (records && from in records) out[to] = records[from];
     return out;
+}
+
+/**
+ * Companions linked to an NPC State Delta NPC (`member.npcId`, from npcProfiles()) whose NPC's
+ * name changed there: { renames: [{ memberId, from, to }], seen }. `seen` ({ [npcId]: name }) is
+ * the name each linked NPC had when last looked at; a rename is followed when that name changes,
+ * once (the new name is remembered whether or not the companion takes it), so a reply deleted or
+ * the companion renamed back by hand stays as it is. An NPC not seen before (a chat from before
+ * 0.4.1) is remembered as it is, and followed only when its name is not the companion's nor one
+ * of its aliases, and the reader did not put that rename away as an offer (`done`: keys
+ * `npc:<id>:<name>`). `to` is cleaned for the heading as editCompanion cleans it; a name another
+ * companion or your character (`pcName`) already has is not taken. Pure.
+ */
+export function npcRenames(members, profiles, { seen = {}, done = [], pcName = '' } = {}) {
+    const list = members ?? [];
+    const away = new Set(done ?? []);
+    const next = { ...(seen ?? {}) };
+    const renames = [];
+    for (const member of list) {
+        if (!member?.npcId) continue;
+        const profile = (profiles ?? []).find(entry => entry && String(entry.id) === String(member.npcId));
+        const name = String(profile?.name ?? '').trim();
+        if (!name) continue;
+        const id = String(profile.id);
+        const known = Object.hasOwn(next, id);
+        if (known && next[id] === name) continue;
+        next[id] = name;
+        if (!known && ([name, ...(profile.aliases ?? [])].some(other => nameKey(other) === nameKey(member.name)) || away.has(`npc:${profile.id}:${profile.name}`))) continue;
+        const to = headingText(name, 40);
+        if (!to || nameKey(to) === nameKey(member.name)) continue;
+        if (list.some(other => other !== member && nameKey(other.name) === nameKey(to)) || (pcName && nameKey(pcName) === nameKey(to))) continue;
+        renames.push({ memberId: member.id, from: member.name, to });
+    }
+    return { renames, seen: next };
 }

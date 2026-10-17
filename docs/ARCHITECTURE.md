@@ -65,7 +65,7 @@ Sheet = {                                                 // a Party block secti
   stats: Stats,
   skills: [{ name, mastery, aside? }],                    // mastery 1…5; aside: kept, not used in fights (0.4)
   conditions: [{ name, rounds }],                         // rounds null = until rest / removed
-  uses: { [skillName]: number },                          // fight uses toward the next mastery (not shown)
+  uses: { [skillName]: number },                          // fight uses toward the next mastery (0.4.1: on the Skills line)
 }
 
 Member = { id, name, role, control: 'auto' | 'command', sheet: Sheet, gear: [Item] }   // a Party section
@@ -687,6 +687,7 @@ and the Story Block Character Sheet notice with **Turn it off** (shown while `sh
   self skills the actor's id. `startFight` already runs the automatic turns up to the first player
   turn. XP for defeated enemies is given on every outcome; loot only on victory.
 - Mastery progress (`sheet.uses`) is not in the block text; index.js keeps it in chat metadata.
+  (0.4.1: it is, on the Skills lines; see "As built (0.4.1)".)
 - The rank table was retuned by the balance simulation (see DESIGN §7.1).
 
 ## `index.js` (glue, written last)
@@ -727,7 +728,8 @@ As built (0.3):
   stores `levelsReached` (the PC's new level) for the result screen. `<Encounter>` is parsed with
   the rules, so a power in the terms fills the row's level.
 - **Edit companion** (`onEditCompanion(id, changes)`): `editCompanion` with the PC's name, the
-  Party block rewritten, and the chat's `uses` moved with `remapIds` when an id changed.
+  Party block rewritten, and the chat's `uses` moved with `remapIds` when an id changed (0.4.1:
+  only `npcLinks` move; progress is on the sheet).
 - **Made-up creatures (0.3):** chat state `bestiary: [Creature]` (cleaned on store, at most 200);
   `fightBestiary()` = `combinedBestiary(chat, DEFAULT_BESTIARY)` for the setup, encounters
   (`encounterRows`: `parseEncounter` + `resolveThreats` with the Character's level) and fights.
@@ -793,7 +795,8 @@ As built (0.3):
   the learn form (`prefill.free` from the opening message skips stat requirements); leaves and
   fallen → removed (`forgetMember`: uses, npcLinks); xp and quest → `awardParty`; rest →
   `restAfter` with that reply's story-time `recovered.gains`; rename → your sheet or
-  `renameCompanion` (ids remapped in `uses` and `npcLinks`). After a reply, its new offers are
+  `renameCompanion` (ids remapped in `uses` and `npcLinks`; 0.4.1: the rename offer is your
+  persona's only, NPC renames are followed, see below). After a reply, its new offers are
   toasted; the opening message's once per chat opened, and yours after creation.
 - **Kit:** `generateKit(who)`: a Joins `skills` hint → `namedKit`; else with flavour on one call
   (`kitPrompt`, `sendToModel` with the flavour model and answer length, `withTimeout` of
@@ -813,3 +816,50 @@ As built (0.3):
 - **Story Suite:** `api.manage.tokens()` → `tokenEstimate` of the hand-off waiting, else the story
   instruction while you have a living character and no fight. The settings panel loads
   `src/suite.css` once (`<link id="story-suite-css">`).
+
+## As built (0.4.1)
+
+- **Mastery progress in the block.** `sheet.uses` is read from and written to the Skills and Set
+  aside lines: `formatCharacter` / `formatParty` write `Name (Lv m, n/needed)` (`needed` =
+  `rules.masteryUses[m]`; `(Lv m)` alone when that is not a positive number) and `(Lv max, max)`
+  at `rules.masteryMax`. The parser splits a line at `|`, `,` or `;` outside brackets and reads a
+  trailing bracket's mastery (`Lv 2`, `2`, `mastery 2`), progress (`3/12`, `3 of 12`, `3/12
+  uses`) and `max` in any order, also `Name Lv 2 (3/12)`; a bracket saying anything else stays
+  in the name. `uses` gets an entry for each skill whose line gives progress, none for one that
+  does not (an older line: 0, and `foldUses` may fill it). `applyResult` is unchanged (it reads
+  and carries `sheet.uses`), so a fight's progress is written with the rest of the result.
+
+```js
+export function foldUses({ pc, members }, uses, rules) → { pc, members, folded }
+    // an older chat's metadata { [memberId]: { [skill]: n } } into skills whose line gives no
+    // progress (skill names by NFKC/case; at max nothing); `folded`: any skill took a value
+```
+
+- **index.js:** chat state no longer has `uses`. `legacyUses()` reads an older chat's record
+  (kept as is by `saveChatState` until dropped); `sheetsAt` folds it in (`folded` beside
+  `legacy`); `migrateLegacy` also runs for `folded` (on Story Block's onUpdate and when the Party
+  tab draws); `writeSheets`, and `writePlan` when it writes, call `dropLegacyUses()` after the
+  write. Nothing writes `uses` to metadata (`finishFight`, `forgetMember`, `renameCompanion`,
+  create, start over and import no longer touch it).
+- **NPC renames followed** (`party.js`):
+
+```js
+export function npcRenames(members, profiles, { seen, done, pcName }) → { renames: [{ memberId, from, to }], seen }
+    // linked members (member.npcId) whose profile's name differs from seen[npcId] (the name when
+    // last looked at); an NPC not seen yet: only when its name and aliases are not the
+    // member's and `npc:<id>:<name>` (a 0.4.0 offer key) is not in `done`; `to` = headingText;
+    // a name another member or the PC has is skipped; seen updated either way
+```
+
+  `followNpcRenames()` (scheduled by `scheduleNpcFollow()`, one tick later, from `renderParty`,
+  after `afterReply`, Story Block's onUpdate and `refreshSuiteViews`): skipped while a fight is
+  stored or ending, during a reply's pipeline (`replying`), an older chat's migration write
+  (`migration.running`, which schedules a pass when done) or another pass, without links or a
+  reply to write into; saves `npcNames` (chat state `{ [npcId]: name }`) first, then
+  `renameCompanion(id, { name }, { from: 'NPC State Delta' })` for each, which writes the Party
+  block into the latest reply and toasts "Lyra is now Lyra Vance (from NPC State Delta).".
+  `renameCompanion` keeps a link under the old id beside the new (`{ ...npcLinks,
+  ...remapIds(npcLinks, idMap) }`), so a deleted reply leaves the old name linked; Add companion
+  sets or clears the link for the new id and records the NPC's name in `npcNames`. The NPC
+  rename offer is gone from `currentOffers`; `partyKey` carries the linked NPCs' names, so a
+  rename redraws the Party tab.

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1
+
+Mastery progress rolls back with the story; NPC renames are followed.
+
+- **Mastery progress in the Party block:** each skill on the Skills (and Set aside) line carries its uses toward the next mastery level, `Power Strike (Lv 2, 3/12)`, and `(Lv 5, max)` at the top, for your section and each companion's. A fight's result writes it with the rest of the sheet, so deleting, swiping or editing the reply takes it back like HP and XP (it used to be kept in chat metadata, out of the block, and survived a deleted reply). Read leniently: `Name Lv 2 (3/12)`, `(3 of 12 uses)`, commas inside the brackets; a line without progress (`Power Strike (Lv 2)`, as older blocks have) reads as none yet. An older chat's progress from metadata fills in the skills its block gives none, is written into the latest reply the first time the chat is open (or with the next change to the sheets), and the metadata record is then dropped and never written again. A rename no longer has progress to move.
+- **NPC renames followed:** a companion linked to an NPC State Delta NPC takes the NPC's new name on its own, with a notice (*Lyra is now Lyra Vance (from NPC State Delta).*), written into the latest reply like any sheet change (deleting it takes the rename back), once per change (the NPC's last-seen name is kept per chat, so a deleted reply or a name changed back by hand stays). Looked at when the Party tab draws, after each reply and when the suite changes; not during a fight. The *Rename?* offer for NPC renames is gone (a rename put away as an offer before is not followed); the persona rename offer stays. A renamed companion's NPC link is kept under the old id too, so a deleted reply leaves them linked.
+
 ## 0.4.0
 
 The story drives, the reader decides: fights, rests, skills, companions and XP come from the

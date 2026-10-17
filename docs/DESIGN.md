@@ -89,7 +89,8 @@ Conditions: none
   adds one number it can read.
 - **Points** are unspent stat points. You spend them in the Battle tab (section 9); the model
   never does.
-- **Skills** lists names (and mastery level); each skill's numbers live in the skill library
+- **Skills** lists names with their mastery level and, since 0.4.1, the uses toward the next
+  one (`Power Strike (Lv 2, 3/12)`, so the progress rolls back with the reply); each skill's numbers live in the skill library
   (section 6), so the block stays short and the model cannot inflate a skill by renaming it.
 - **Conditions** that outlast a fight (poisoned, exhausted) are listed until they wear off.
 - **State** is HP, MP and conditions in words the model must portray, worked out by code
@@ -330,7 +331,8 @@ A skill is a library entry; the Character and Party blocks list only names.
   edit. Nothing is learned automatically on level-up, and the model never sets a skill's numbers.
 - **Skills in use (0.4):** at most `character.activeSkills` (6) per member; more are kept, set
   aside, and swapped on the card.
-- **Mastery:** using a skill in fights raises it (Lv 1 to 5, +10 % power per level).
+- **Mastery:** using a skill in fights raises it (Lv 1 to 5, +10 % power per level); the uses
+  toward the next level are written on the Skills line (0.4.1).
 
 ## 7. Enemies
 

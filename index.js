@@ -41,10 +41,10 @@ import { DEFAULT_BESTIARY, findCreature } from './src/enemies.js';
 import { cleanCreature, combinedBestiary, creaturesToMake, generateCreature, storeCreatures } from './src/templates.js';
 import { applyFlavour, flavourPrompt, parseFlavour, sceneText } from './src/flavour.js';
 import { act, availableActions, replay, startFight, summarize } from './src/combat.js';
-import { applyResult, formatPartyBlock, learnSkill, newSheet, readSheets, setSkillActive, spendPoints } from './src/sheet.js';
+import { applyResult, foldUses, formatPartyBlock, learnSkill, newSheet, readSheets, setSkillActive, spendPoints } from './src/sheet.js';
 import { addLoot, consumables, formatGearEntry, formatMoney, gearSummary, parseGearEntry, parseInventory, useItems } from './src/items.js';
 import { buildHandoff } from './src/handoff.js';
-import { combatantFromSheet, editCompanion, enemiesFromRows, engagements, newCompanion, remapIds } from './src/party.js';
+import { combatantFromSheet, editCompanion, enemiesFromRows, engagements, newCompanion, npcRenames, remapIds } from './src/party.js';
 import { recoverOverTime, restAfter, useItemOutside } from './src/recovery.js';
 import { STORY_INSTRUCTION, applyWounds, describeWound, findTarget, parseEncounter, parseWounds, resolveThreats } from './src/story.js';
 import { liveOffers, questOffers, storyOffers } from './src/offers.js';
@@ -58,7 +58,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.4.0';
+const VERSION = '0.4.1';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -223,7 +223,7 @@ function rules() {
 
 // Per-chat state: { fight: { setup, actions } | null, pending: { handoff, fightId, attachedTo } | null,
 // last: the last result for the tab, skills: skills this story taught (by hand),
-// uses: { [memberId]: { [skill]: n } } fight uses toward the next mastery, which the sheet text does not carry,
+// (mastery progress is on the Skills lines since 0.4.1; an older chat's `uses` is read once, see legacyUses),
 // recovered: { index, text } the last story-time recovery,
 // story: { index, signature, applied, undone, written } the last reply's story wounds (signature: a hash
 // of its <Wounds> text; written: hashes of the sheet texts the pipeline wrote into it),
@@ -232,17 +232,17 @@ function rules() {
 // npcLinks: { [memberId]: npcId } the NPC State Delta NPC a companion was added from,
 // done: ['0:kind:line'] the opening message's offers taken or put away,
 // fallen: [{ memberId, name }] companions who fell in a fight to the death, to remove or keep,
-// foughtAt: { index, text } the latest reply (and a hash of its text) when the last fight started }.
+// foughtAt: { index, text } the latest reply (and a hash of its text) when the last fight started,
+// npcNames: { [npcId]: name } a linked NPC's name in NPC State Delta when last looked at (a change is followed once) }.
 function chatState(ctx = context()) {
     const meta = chatMeta(ctx);
-    if (!meta) return { fight: null, pending: null, story: null, dismissed: [], bestiary: [], skills: [], uses: {}, npcLinks: {}, done: [], fallen: [] };
+    if (!meta) return { fight: null, pending: null, story: null, dismissed: [], bestiary: [], skills: [], npcLinks: {}, done: [], fallen: [], npcNames: {} };
     const state = meta[SETTINGS_KEY] && typeof meta[SETTINGS_KEY] === 'object' ? meta[SETTINGS_KEY] : {};
     return {
         fight: state.fight ?? null,
         pending: state.pending ?? null,
         last: state.last ?? null,
         skills: Array.isArray(state.skills) ? state.skills : [],
-        uses: state.uses && typeof state.uses === 'object' ? state.uses : {},
         recovered: state.recovered ?? null,
         story: state.story && typeof state.story === 'object' ? state.story : null,
         dismissed: Array.isArray(state.dismissed) ? state.dismissed : [],
@@ -251,6 +251,7 @@ function chatState(ctx = context()) {
         done: Array.isArray(state.done) ? state.done : [],
         fallen: Array.isArray(state.fallen) ? state.fallen.filter(entry => entry && entry.memberId) : [],
         foughtAt: state.foughtAt && typeof state.foughtAt === 'object' ? state.foughtAt : null,
+        npcNames: state.npcNames && typeof state.npcNames === 'object' ? state.npcNames : {},
     };
 }
 
@@ -258,7 +259,29 @@ function saveChatState(change) {
     const ctx = context();
     const meta = chatMeta(ctx);
     if (!meta) return;
-    meta[SETTINGS_KEY] = { ...chatState(ctx), ...change };
+    // An older chat's mastery progress stays where it was until the block carries it (legacyUses).
+    const old = legacyUses(ctx);
+    meta[SETTINGS_KEY] = { ...chatState(ctx), ...(old ? { uses: old } : {}), ...change };
+    ctx.saveMetadataDebounced?.();
+}
+
+/**
+ * An older chat's mastery progress: RPG Battle 0.4.0 kept it in chat metadata (`uses`:
+ * { [memberId]: { [skill]: n } }), out of the block, so deleting a reply never took it back.
+ * Since 0.4.1 the Skills lines carry it. The old record is only read: sheetsAt folds it into
+ * skills whose line gives no progress (src/sheet.js foldUses), and the next write of the Party
+ * block carries it, after which it is dropped (dropLegacyUses) and never written again. null
+ * when there is none.
+ */
+function legacyUses(ctx = context()) {
+    const uses = chatMeta(ctx)?.[SETTINGS_KEY]?.uses;
+    return uses && typeof uses === 'object' && Object.keys(uses).length ? uses : null;
+}
+
+function dropLegacyUses(ctx = context()) {
+    const state = chatMeta(ctx)?.[SETTINGS_KEY];
+    if (!state || !('uses' in state)) return;
+    delete state.uses;
     ctx.saveMetadataDebounced?.();
 }
 
@@ -282,12 +305,14 @@ function blockText(tag) {
 /**
  * The sheets as the kept blocks hold them now, or before message `beforeIndex`: the Party
  * block, and an older chat's Character block while the Party block has no "(you)" section
- * (src/sheet.js readSheets). { pc, members, legacy }; companions carry the NPC State Delta id
- * they were added from (chat state `npcLinks`), when they have one.
+ * (src/sheet.js readSheets). { pc, members, legacy, folded }; companions carry the NPC State
+ * Delta id they were added from (chat state `npcLinks`), when they have one. Mastery progress is
+ * the block's; an older chat's, kept in metadata, fills in skills the block gives none
+ * (`folded`: some did, so the block should be written again; see legacyUses).
  */
 function sheetsAt(sb = storyBlock(), { beforeIndex = null } = {}) {
     const own = settings();
-    if (!sb) return { pc: null, members: [], legacy: false };
+    if (!sb) return { pc: null, members: [], legacy: false, folded: false };
     const party = sb.getBlock?.(own.partyTag, { beforeIndex }) ?? null;
     const character = own.characterTag && own.characterTag !== own.partyTag ? sb.getBlock?.(own.characterTag, { beforeIndex }) ?? null : null;
     const read = readSheets({
@@ -296,8 +321,10 @@ function sheetsAt(sb = storyBlock(), { beforeIndex = null } = {}) {
         partyIndex: party?.messageIndex ?? null,
         characterIndex: character?.messageIndex ?? null,
     }, rules());
+    const old = legacyUses();
+    const sheets = old ? { ...read, ...foldUses(read, old, rules()) } : { ...read, folded: false };
     const links = chatState().npcLinks;
-    return { ...read, members: read.members.map(member => (links[member.id] ? { ...member, npcId: links[member.id] } : member)) };
+    return { ...sheets, members: sheets.members.map(member => (links[member.id] ? { ...member, npcId: links[member.id] } : member)) };
 }
 
 function currentSheets() {
@@ -324,9 +351,14 @@ async function writeBlock(tag, text) {
     await sb.setBlockText(target, tag, text);
 }
 
-/** The one Party block: your section, then the companions (an older Character block is left as it was). */
+/**
+ * The one Party block: your section, then the companions (an older Character block is left as it
+ * was). The sheets come from sheetsAt, so an older chat's mastery progress is in them: once
+ * written, the block carries it and the old record goes.
+ */
 async function writeSheets(pc, members) {
     await writeBlock(settings().partyTag, formatPartyBlock(pc, members ?? [], rules()));
+    dropLegacyUses();
 }
 
 async function writeSheet(sheet) {
@@ -351,9 +383,10 @@ async function rewriteSheets() {
 }
 
 // An older chat keeps your sheet in the Character block, which is no longer kept (nor shown to
-// the model): once its chat is open, the two are written as the one Party block, into the
-// latest reply. Not during a fight (it owns the sheets), and once per chat and state.
-let migration = { key: '', timer: null };
+// the model), or its mastery progress in metadata (before 0.4.1): once its chat is open, the
+// sheets are written as the one Party block, progress on the Skills lines, into the latest
+// reply. Not during a fight (it owns the sheets), and once per chat and state.
+let migration = { key: '', timer: null, running: false };
 
 function scheduleMigration() {
     if (migration.timer) return;
@@ -368,15 +401,23 @@ async function migrateLegacy() {
         const ctx = context();
         const own = settings(ctx);
         if (!own.enabled || !storyBlock() || chatState(ctx).fight || latestAssistantIndex(ctx?.chat ?? []) < 0) return;
-        const { pc, members, legacy } = currentSheets();
-        if (!legacy || !pc) return;
+        const { pc, members, legacy, folded } = currentSheets();
+        if (!(legacy && pc) && !folded) return;
         const key = `${chatIdOf(ctx)}:${(ctx?.chat ?? []).length}`;
         if (migration.key === key) return;
         migration.key = key;
+        migration.running = true;
         await writeSheets(pc, members);
-        console.info('[RPG Battle] the Character and Party blocks are now one Party block.');
+        if (legacy && pc) console.info('[RPG Battle] the Character and Party blocks are now one Party block.');
+        if (folded) console.info('[RPG Battle] mastery progress is now on the Party block\'s Skills lines.');
     } catch (error) {
-        console.warn('[RPG Battle] the older Character block could not be merged into the Party block', error);
+        console.warn('[RPG Battle] the older sheets could not be written as one Party block', error);
+    } finally {
+        if (migration.running) {
+            migration.running = false;
+            // A rename looked at meanwhile waited for this write (followNpcRenames).
+            scheduleNpcFollow();
+        }
     }
 }
 
@@ -680,25 +721,21 @@ async function finishFight(fight) {
     saveChatState({ fight: null });
     const sheet = currentSheet();
     const report = { levelsGained: 0, pointsGained: 0, levelsReached: 0 };
-    const uses = { ...chatState().uses };
     try {
         let pc = sheet;
+        // Mastery progress is on the sheets (their Skills lines), so it is written with the rest
+        // and a deleted or swiped reply takes it back too.
         if (sheet) {
-            const applied = applyResult({ ...sheet, uses: uses.pc ?? {} }, 'pc', result, r);
+            const applied = applyResult(sheet, 'pc', result, r);
             report.levelsGained = applied.levelsGained;
             report.pointsGained = applied.pointsGained;
             report.levelsReached = applied.levelsGained ? applied.sheet.level : 0;
-            uses.pc = applied.sheet.uses ?? {};
             pc = applied.sheet;
             // Lost to the death: the story of this character ends. The sheet says so (the State
             // line reads "dead"), so a swipe or a deleted reply takes it back with the rest.
             if (fight.stakes === 'death' && result.outcome === 'defeat') pc = { ...pc, hp: { ...pc.hp, cur: 0 }, conditions: [{ name: DEAD, rounds: null }] };
         }
-        const raised = currentParty().map(member => {
-            const applied = applyResult({ ...member.sheet, uses: uses[member.id] ?? {} }, member.id, result, r);
-            uses[member.id] = applied.sheet.uses ?? {};
-            return { ...member, sheet: applied.sheet };
-        });
+        const raised = currentParty().map(member => ({ ...member, sheet: applyResult(member.sheet, member.id, result, r).sheet }));
         // Companions on auto spend what a level gave them, by build (the setting allowing).
         const members = settleCompanions(raised, { autoSpend: own.autoSpend !== false, rules: r });
         if (pc || members.length) await writeSheets(pc, members);
@@ -724,7 +761,7 @@ async function finishFight(fight) {
         pcName: sheet?.name ?? 'You',
         rules: r,
     });
-    saveChatState({ fight: null, pending: { handoff, fightId: fight.id, attachedTo: null }, last: { fightId: fight.id, result, handoff, ...report }, uses });
+    saveChatState({ fight: null, pending: { handoff, fightId: fight.id, attachedTo: null }, last: { fightId: fight.id, result, handoff, ...report } });
     await context()?.saveMetadata?.();
     finishing = null;
     ending = null;
@@ -826,14 +863,30 @@ async function writePlan(sb, index, plan, story) {
     const written = { party: null };
     if (next !== null) {
         const changed = current !== null ? current !== next.trim() : next !== before || Boolean(plan.legacy);
-        if (changed) await sb.setBlockText(index, own.partyTag, next);
+        if (changed) {
+            await sb.setBlockText(index, own.partyTag, next);
+            dropLegacyUses();
+        }
         if (changed || current !== null) written.party = textHash(next);
     }
     return { ok: true, written };
 }
 
-// One after-reply pipeline (Story Block's onReply): recovery, then wounds, written once.
-async function afterReply({ messageIndex }) {
+// One after-reply pipeline (Story Block's onReply): recovery, then wounds, written once. Then an
+// NPC renamed in NPC State Delta meanwhile is followed (followNpcRenames waits while it runs).
+let replying = 0;
+
+async function afterReply(payload) {
+    replying += 1;
+    try {
+        await planAndWriteReply(payload);
+    } finally {
+        replying -= 1;
+    }
+    scheduleNpcFollow();
+}
+
+async function planAndWriteReply({ messageIndex }) {
     const ctx = context();
     const sb = storyBlock();
     const own = settings(ctx);
@@ -1132,14 +1185,7 @@ function currentOffers(ctx = context(), state = chatState(ctx)) {
     if (personaRename && pc && pc.name === personaRename.from) {
         offers.push({ key: personaRename.key, kind: 'rename', text: `Rename ${pc.name} to ${personaRename.to}?`, accept: 'Rename', data: { memberId: 'pc', name: personaRename.to }, index: -1 });
     }
-    // A companion added from an NPC follows a rename there, when the reader agrees.
-    const profiles = Object.keys(state.npcLinks).length ? npcProfiles() : [];
-    for (const member of members) {
-        const profile = member.npcId ? profiles.find(entry => entry.id === member.npcId) : null;
-        if (profile && profile.name.trim() && profile.name.trim() !== member.name && !(profile.aliases ?? []).includes(member.name)) {
-            offers.push({ key: `npc:${profile.id}:${profile.name}`, kind: 'rename', text: `${member.name} is ${profile.name.trim()} in NPC State Delta now. Rename?`, accept: 'Rename', data: { memberId: member.id, name: profile.name.trim() }, index: -1 });
-        }
-    }
+    // (A companion added from an NPC follows a rename there on its own: followNpcRenames.)
     const away = new Set([...state.dismissed, ...state.done]);
     const seen = new Set();
     // A reply's offers last while it is the latest reply and no fight has started since.
@@ -1217,12 +1263,9 @@ async function acceptOffer(key) {
             return;
         }
         case 'rename': {
-            if (offer.data.memberId === 'pc') {
-                if (members.some(member => member.name.toLowerCase() === offer.data.name.toLowerCase())) throw new Error(`A companion is already called ${offer.data.name}.`);
-                await writeSheets({ ...pc, name: offer.data.name }, members);
-            } else {
-                await renameCompanion(offer.data.memberId, { name: offer.data.name });
-            }
+            // Your persona's new name (an NPC renamed is followed without asking).
+            if (members.some(member => member.name.toLowerCase() === offer.data.name.toLowerCase())) throw new Error(`A companion is already called ${offer.data.name}.`);
+            await writeSheets({ ...pc, name: offer.data.name }, members);
             putAway(offer);
             return;
         }
@@ -1236,22 +1279,70 @@ function forgetMember(memberId) {
     const state = chatState();
     const npcLinks = { ...state.npcLinks };
     delete npcLinks[memberId];
-    const uses = { ...state.uses };
-    delete uses[memberId];
-    saveChatState({ npcLinks, uses, fallen: state.fallen.filter(entry => entry.memberId !== memberId) });
+    saveChatState({ npcLinks, fallen: state.fallen.filter(entry => entry.memberId !== memberId) });
 }
 
-// A companion's id follows their name, so a rename moves what the chat keeps by id (mastery
-// progress, the NPC link) to the new id; sheet, skills and gear go along in the block itself.
-async function renameCompanion(memberId, changes) {
+// A companion's id follows their name, so a rename moves what the chat keeps by id (the NPC
+// link) to the new id; sheet, skills, mastery progress and gear go along in the block itself.
+// The link stays under the old id too: deleting the reply with the rename brings the old name
+// (and id) back, still linked. `from` says who asked, for the notice ("(from NPC State Delta)").
+async function renameCompanion(memberId, changes, { from = '' } = {}) {
     const { pc, members } = currentSheets();
     const before = members.find(member => member.id === memberId);
     const edited = editCompanion(members, memberId, changes ?? {}, { pcName: pc?.name ?? '' });
     await writeSheets(pc, edited.members);
     const state = chatState();
-    if (Object.entries(edited.idMap).some(([from, to]) => from !== to)) saveChatState({ uses: remapIds(state.uses, edited.idMap), npcLinks: remapIds(state.npcLinks, edited.idMap) });
+    if (Object.entries(edited.idMap).some(([old, id]) => old !== id)) saveChatState({ npcLinks: { ...state.npcLinks, ...remapIds(state.npcLinks, edited.idMap) } });
     const after = edited.members.find(member => member.id === edited.idMap[memberId]);
-    if (before && after && before.name !== after.name) notify('success', `${before.name} is now ${after.name}.`);
+    if (before && after && before.name !== after.name) notify('success', `${before.name} is now ${after.name}${from ? ` (from ${from})` : ''}.`);
+}
+
+/**
+ * A companion added from an NPC follows a rename there (NPC State Delta's npcProfiles), without
+ * asking: renamed through renameCompanion, written into the latest reply like any sheet change
+ * (so deleting that reply takes it back), with a notice. Each change once (chat state
+ * `npcNames`, src/party.js npcRenames): a reply deleted or a name changed back by hand stays as
+ * it is. Looked at where the party is drawn, after each reply and when the suite changes; never
+ * during a fight, a reply's own pipeline or an older chat's migration, and one pass at a time.
+ */
+let following = false;
+let followTimer = null;
+
+function scheduleNpcFollow() {
+    if (followTimer) return;
+    followTimer = setTimeout(() => {
+        followTimer = null;
+        void followNpcRenames();
+    }, 0);
+}
+
+async function followNpcRenames() {
+    if (following || replying || finishing || migration.running) return;
+    const ctx = context();
+    const state = chatState(ctx);
+    if (!settings(ctx).enabled || !storyBlock() || state.fight || ending || !Object.keys(state.npcLinks).length) return;
+    if (latestAssistantIndex(ctx?.chat ?? []) < 0) return;
+    following = true;
+    try {
+        const { pc, members } = currentSheets();
+        const { renames, seen } = npcRenames(members, npcProfiles(), { seen: state.npcNames, done: state.dismissed, pcName: pc?.name ?? '' });
+        // Remembered first: a rename that fails is not tried again on every redraw.
+        if (JSON.stringify(seen) !== JSON.stringify(state.npcNames)) saveChatState({ npcNames: seen });
+        for (const rename of renames) {
+            const now = currentParty().find(member => member.name === rename.from);
+            if (!now) continue;
+            try {
+                await renameCompanion(now.id, { name: rename.to }, { from: 'NPC State Delta' });
+            } catch (error) {
+                console.warn(`[RPG Battle] ${rename.from} could not follow the rename to ${rename.to} in NPC State Delta`, error);
+            }
+        }
+        if (renames.length) storyBlock()?.refresh?.();
+    } catch (error) {
+        console.warn('[RPG Battle] NPC State Delta\'s renames could not be followed', error);
+    } finally {
+        following = false;
+    }
 }
 
 /** Toasts for new offers, with their Accept button; the Party tab lists them too. */
@@ -1464,6 +1555,8 @@ function refreshSuiteViews() {
     settingsPanel?.setSources?.(currentSources());
     settingsPanel?.setSuiteLink?.(Boolean(suiteOpener()));
     storyBlock()?.refresh?.();
+    // NPC State Delta joining (or announcing again) may bring a linked NPC's new name.
+    scheduleNpcFollow();
 }
 
 // One listener for the life of the page. Story Block announces again when its blocks change,
@@ -1781,7 +1874,7 @@ async function confirmImport() {
     }
     const state = chatState();
     const names = new Set(party.skills.map(skill => skill.name.toLowerCase()));
-    saveChatState({ skills: [...state.skills.filter(skill => !names.has(skill.name.toLowerCase())), ...party.skills], uses: {}, npcLinks: {}, fallen: [] });
+    saveChatState({ skills: [...state.skills.filter(skill => !names.has(skill.name.toLowerCase())), ...party.skills], npcLinks: {}, fallen: [] });
     partyScreen = { chatId: chatIdOf(context()), mode: null };
     notify('success', 'The party is loaded.');
 }
@@ -1837,7 +1930,6 @@ const handlers = {
         const sheet = newSheet({ name: input.name, stats: allocation, skills: [] }, r);
         await writeSheet(sheet);
         partyScreen = { chatId: chatIdOf(context()), mode: null };
-        saveChatState({ uses: { ...chatState().uses, pc: {} } });
         notify('success', `${sheet.name} is ready.`);
         // What the story's opening holds for the new character comes now.
         toastOffers(currentOffers().filter(offer => offer.opening && offer.data?.memberId === 'pc'));
@@ -1921,7 +2013,16 @@ const handlers = {
         await writeParty([...members, member]);
         // The NPC they were added from stays linked, by the id their name gives in the block.
         const added = currentParty().find(entry => entry.name === member.name);
-        if (input.npcId && added) saveChatState({ npcLinks: { ...chatState().npcLinks, [added.id]: String(input.npcId) } });
+        if (added) {
+            // Their NPC's name now, so only a later change there renames them (followNpcRenames).
+            // Not from an NPC: no link, not even one left under that id by an earlier companion.
+            const state = chatState();
+            const npcLinks = { ...state.npcLinks };
+            delete npcLinks[added.id];
+            const npcName = input.npcId ? String(npcProfiles().find(profile => String(profile.id) === String(input.npcId))?.name ?? '').trim() : '';
+            if (input.npcId) npcLinks[added.id] = String(input.npcId);
+            saveChatState({ npcLinks, ...(npcName ? { npcNames: { ...state.npcNames, [String(input.npcId)]: npcName } } : {}) });
+        }
         spendScreenOffer();
         partyScreen = { chatId: chatIdOf(context()), mode: null };
         notify('success', `${member.name} joins the party.`);
@@ -1950,9 +2051,7 @@ const handlers = {
         // Nothing carried over: your sheet goes, and the companions unless kept.
         const { members } = currentSheets();
         await writeSheets(null, keepCompanions ? members : []);
-        const state = chatState();
-        const { pc: _, ...uses } = state.uses;
-        saveChatState(keepCompanions ? { uses } : { uses: {}, npcLinks: {}, fallen: [] });
+        if (!keepCompanions) saveChatState({ npcLinks: {}, fallen: [] });
         partyScreen = { chatId: chatIdOf(context()), mode: null };
         notify('info', 'Make a new character.');
     }),
@@ -2027,11 +2126,21 @@ function partyKey() {
     const story = state.story ? `${state.story.index}:${state.story.signature}:${state.story.undone}:${state.story.applied?.length ?? 0}:${canUndoStory(ctx, state)}` : '';
     return [...baseKey(ctx, state), JSON.stringify(partyScreen), state.recovered?.text ?? '', story, state.dismissed.length, state.done.length, state.fallen.length,
         currentOffers(ctx, state).map(offer => offer.key).join(','), sheetConflict(ctx), personaName(ctx), JSON.stringify(state.npcLinks), JSON.stringify(pendingImport?.summary ?? null),
-        state.bestiary.map(entry => `${entry.name}:${entry.level}:${entry.flavoured}:${String(entry.look ?? '').length}`).join(','), npcProfiles().length].join('|');
+        state.bestiary.map(entry => `${entry.name}:${entry.level}:${entry.flavoured}:${String(entry.look ?? '').length}`).join(','), npcKey(state)].join('|');
+}
+
+// The NPC profiles as far as the Party tab shows them: how many (the companion form lists them)
+// and the names of the linked ones, so a rename in NPC State Delta redraws it (and is followed).
+function npcKey(state) {
+    const profiles = npcProfiles();
+    const linked = new Set(Object.values(state.npcLinks).map(String));
+    return `${profiles.length}:${profiles.filter(profile => linked.has(String(profile.id))).map(profile => `${profile.id}=${profile.name}`).join(',')}`;
 }
 
 function renderParty(pane) {
-    if (currentSheets().legacy) scheduleMigration();
+    const { legacy, folded } = currentSheets();
+    if (legacy || folded) scheduleMigration();
+    scheduleNpcFollow();
     renderBattleTab(pane, partyView(), partyHandlers);
     settingsPanel?.setSheetConflict?.(sheetConflict());
 }
@@ -2103,8 +2212,10 @@ function registerWithStoryBlock() {
     // Story Block's settings can change under us (its Character Sheet switched on or off).
     sb.onUpdate?.(() => {
         settingsPanel?.setSheetConflict?.(sheetConflict());
-        // A chat opened (or changed) may still keep your sheet in the older Character block.
+        // A chat opened (or changed) may still keep your sheet in the older Character block, or
+        // its mastery progress in metadata; a linked NPC may have been renamed meanwhile.
         scheduleMigration();
+        scheduleNpcFollow();
         // The opening message's offers, once per chat opened.
         setTimeout(() => { try { toastOpening(); } catch (error) { console.warn('[RPG Battle] the opening message could not be read', error); } }, 0);
     });

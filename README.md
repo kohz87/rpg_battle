@@ -1,4 +1,4 @@
-# RPG Battle v0.4.0
+# RPG Battle v0.4.1
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** opens the setup, you fight with
@@ -51,7 +51,7 @@ HP: 61/98 | MP: 15/32
 STR: 9 | VIT: 8 | AGI: 6 | DEX: 7 | INT: 5 | LUK: 5 | CHA: 5
 Checks: STR +2 | VIT +1 | AGI +0 | DEX +1 | INT +0 | LUK +0 | CHA +0
 State: hurt (aching, favouring a wound) · tired of magic
-Skills: Power Strike | Sweep | Shadow Step
+Skills: Power Strike (Lv 2, 3/12) | Sweep (Lv 1, 4/5) | Shadow Step (Lv 1, 0/5)
 Conditions: none
 
 ## Lyra — healer | control: auto
@@ -59,7 +59,7 @@ Level: 3 | XP: 0/520 | Points: 0
 HP: 138/138 | MP: 80/80
 State: unhurt
 STR: 5 | VIT: 12 | AGI: 5 | DEX: 5 | INT: 16 | LUK: 5 | CHA: 5
-Skills: Frost Lance | Mend
+Skills: Frost Lance (Lv 1, 2/5) | Mend (Lv 3, 9/22)
 ```
 
 - **The Party tab** shows the party as cards: yours first and open, each companion folded to its
@@ -70,7 +70,14 @@ Skills: Frost Lance | Mend
   you spend yourself (**Spend** on your card).
 - **Skills:** learned from the story (a `<Learned>` offer opens the learn form, prefilled; a
   library skill keeps its stat requirements, like INT 9 for Fireball). Using a skill in fights
-  raises its mastery (Lv 1 to 5).
+  raises its mastery (Lv 1 to 5): 5 uses take it to Lv 2, 12 more to Lv 3, then 22 and 35
+  (`masteryUses` in `rules.json`).
+- **The Skills line** writes each skill's mastery and its uses toward the next level:
+  `Power Strike (Lv 2, 3/12)` is mastery 2, 3 of the 12 uses to Lv 3; `(Lv 5, max)` at the top.
+  The progress is in the block like everything else, so deleting, swiping or editing the reply
+  that wrote a fight's result takes it back with the HP and XP. Lines from older chats
+  (`Power Strike (Lv 2)`) read as no progress yet; a chat from before 0.4.1, which kept the
+  progress out of the block, has it written into the block the first time it is open.
 - **Skills in use:** a member fights with at most **6** skills (*Settings → Party*, 3 to 12).
   More are kept, **set aside** (a `Set aside:` line in the block), and swapped on the card with
   **Set aside** and **Use**. Learning one past the cap asks which sits out. An older sheet over
@@ -229,8 +236,8 @@ the story makes it true (Story Block hides them with its other blocks):
 - **Not from the reply that narrates a fight** (XP and rests: the fight gave its own), and no rest
   while a result waits to be narrated. Nothing at all during a fight.
 - **Also offered:** a companion who fell in a fight to the death (*Lyra fell. Remove from the
-  party?*, it asks twice), your persona's new name, and a companion's NPC renamed in NPC State
-  Delta.
+  party?*, it asks twice) and your persona's new name. A companion's NPC renamed in NPC State
+  Delta is followed on its own (below).
 
 ## For card authors: starting skills and companions
 
@@ -457,16 +464,19 @@ joined. Add as companion?*; **Add as companion** opens the form, filled in:
   your Inventory (slot limits and rarity caps as for yours).
 - **From the story's NPCs** (with NPC State Delta 1.2.2): pick one of the chat's NPCs to fill in
   name, role and focus (from its role and summary; the skills are generated again for them). The
-  companion stays linked: **Dossier** on their card opens the NPC's dossier, and a rename there
-  is offered here. A `<Joins>` naming a known NPC is linked and refined the same way.
+  companion stays linked: **Dossier** on their card opens the NPC's dossier, and when the NPC's
+  name changes there, the companion takes it (*Lyra is now Lyra Vance (from NPC State Delta).*),
+  once per change, written into the latest reply like any sheet change (delete that reply and
+  they are Lyra again, and stay so). A `<Joins>` naming a known NPC is linked and refined the
+  same way.
 
 They live in the **Party** block after your section, fight beside you (on their own, or on your
 command: tap to switch), level from fights and XP awards like you (each at their own level),
 rest and recover with you. A companion on *auto* spends the points a level gives in proportion to
 their build so far (*Settings → Party → Spend companions' points automatically*, on by default);
 one you command, or everyone with the setting off, keeps them for **Spend** on their card.
-**Edit** changes a companion's name, role and control (sheet, skills and gear stay; their mastery
-progress follows a rename); **Remove** asks twice; a `<Leaves>` offers it. A companion at 0 HP when
+**Edit** changes a companion's name, role and control (sheet, skills, mastery progress and gear
+stay); **Remove** asks twice; a `<Leaves>` offers it. A companion at 0 HP when
 a fight *to the death* ends **fell**: the Party tab offers to remove them (it asks twice). At
 normal stakes they are only down, as before.
 
