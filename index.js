@@ -24,9 +24,11 @@
 // number there either: it describes, and code maps the words onto the template.
 //
 // With the other Story Suite extensions installed (src/suite.js, docs/STORY_SUITE.md), RPG
-// Battle announces itself while it is on, as the owner of stats and rolls and the fallback for
-// items, and shares its party (api.members()). The reader's source-of-truth choices decide
-// whether Story Block's Character Sheet is pointed out as a second HP; alone, nothing changes.
+// Battle announces itself as the owner of stats and rolls and the fallback for items (switched
+// off, with enabled: false), and shares its party (api.members()) and, for Story Suite's
+// overlay, its settings panel and api.manage (the Source of truth choices and the switch). The
+// reader's source-of-truth choices decide whether Story Block's Character Sheet is pointed out
+// as a second HP; alone, nothing changes.
 
 import { DEFAULT_RULES, checkModifiers, makeRules, suggestRank } from './src/rules.js';
 import { hashSeed, makeRng } from './src/rng.js';
@@ -45,9 +47,9 @@ import { renderBattleTab } from './src/ui/tab.js';
 import { renderSettings } from './src/ui/settings.js';
 import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
-import { SUITE_ID, announcement, partyMembers, sheetNotice, sources, suiteSignature, truthChoices } from './src/handshake.js';
+import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.3.2';
+const VERSION = '0.3.3';
 const SETTINGS_KEY = 'rpgBattle';
 const TAB_ID = 'rpg-battle';
 const PROMPT_KEY = 'rpg_battle';
@@ -968,16 +970,48 @@ function suiteMembers() {
     }
 }
 
-const SUITE_API = Object.freeze({ version: VERSION, members: () => suiteMembers() });
+// api.manage: Story Suite's overlay changes the Source of truth choices and the switch exactly
+// as the panel's own controls do (applySettings), and the panel shows what it changed.
+const SUITE_MANAGE = manageApi({
+    choices: () => settings().sourceOfTruth,
+    choose: (area, choice) => {
+        applySettings({ ...settings(), sourceOfTruth: { ...settings().sourceOfTruth, [area]: choice } });
+        settingsPanel?.update?.(settings());
+        settingsPanel?.setTruth?.(area, choice);
+    },
+    enabled: () => settings().enabled,
+    enable: on => {
+        applySettings({ ...settings(), enabled: on });
+        settingsPanel?.update?.(settings());
+        settingsPanel?.setEnabled?.(on);
+    },
+});
 
-/** Announced while RPG Battle is on, withdrawn while it is off; again whenever that changes. */
+const SUITE_API = Object.freeze({ version: VERSION, members: () => suiteMembers(), manage: SUITE_MANAGE });
+
+/** Announced on load and again whenever the switch changes: switched off, with enabled: false. */
 function announceToSuite() {
     try {
-        const suite = storySuite();
-        if (settings().enabled) suite.announce(announcement({ version: VERSION, api: SUITE_API }));
-        else suite.withdraw(SUITE_ID);
+        storySuite().announce(announcement({ version: VERSION, api: SUITE_API, enabled: settings().enabled }));
     } catch (error) {
         console.warn('[RPG Battle] could not announce to the Story Suite', error);
+    }
+}
+
+/** Opens Story Suite's overlay on RPG Battle's tab, or null while it cannot be offered. */
+function suiteOpener() {
+    try {
+        return suiteOverlay(storySuite());
+    } catch {
+        return null;
+    }
+}
+
+function openStorySuite() {
+    try {
+        suiteOpener()?.();
+    } catch (error) {
+        console.warn('[RPG Battle] could not open Story Suite', error);
     }
 }
 
@@ -992,24 +1026,28 @@ function currentSources() {
 function refreshSuiteViews() {
     settingsPanel?.setSheetConflict?.(sheetConflict());
     settingsPanel?.setSources?.(currentSources());
+    settingsPanel?.setSuiteLink?.(Boolean(suiteOpener()));
     storyBlock()?.refresh?.();
 }
 
 // One listener for the life of the page. Story Block announces again when its blocks change,
 // possibly from inside its own refresh: an announcement that changes nothing is ignored, and
 // the redraw waits for the next tick rather than refreshing Story Block from within itself.
+// Whether Story Suite's overlay can be opened counts too (Story Block shares openSuite).
 let suiteWatched = false;
 let suiteSeen = '';
 let suiteRedraw = null;
+
+const suiteKey = suite => `${suiteSignature(suite)}|${suiteOverlay(suite) ? 'overlay' : ''}`;
 
 function watchSuite() {
     if (suiteWatched) return;
     suiteWatched = true;
     try {
         const suite = storySuite();
-        suiteSeen = suiteSignature(suite);
+        suiteSeen = suiteKey(suite);
         suite.onChange(() => {
-            const seen = suiteSignature(storySuite());
+            const seen = suiteKey(storySuite());
             if (seen === suiteSeen) return;
             suiteSeen = seen;
             if (suiteRedraw) return;
@@ -1089,6 +1127,11 @@ function returnToStory() {
 // ---------------------------------------------------------------------------
 // The Battle tab
 
+/** The SillyTavern persona's name (the reader's PC), trimmed; '' without one. A new character starts with it. */
+function personaName(ctx = context()) {
+    return String(ctx?.name1 ?? '').trim();
+}
+
 function viewFor() {
     const ctx = context();
     const chatId = chatIdOf(ctx);
@@ -1109,7 +1152,7 @@ function viewFor() {
         return { mode: 'result', result: state.last.result, handoff: state.last.handoff, levelsGained: state.last.levelsGained, pointsGained: state.last.pointsGained, levelsReached: state.last.levelsReached ?? 0, moneyText: money ? formatMoney(money, r.currency) : '', rules: r };
     }
     const sheet = currentSheet();
-    if (!sheet) return { mode: 'create', presets: PRESETS, library: DEFAULT_SKILLS.filter(skill => skill.tier === 1), rules: r };
+    if (!sheet) return { mode: 'create', presets: PRESETS, library: DEFAULT_SKILLS.filter(skill => skill.tier === 1), persona: personaName(ctx), rules: r };
     const skills = resolveSkills(sheet.skills, library(ctx), sheet.level, r);
     if (screen.mode === 'spend') return { mode: 'spend', sheet, rules: r };
     if (screen.mode === 'learn') return { mode: 'learn', sheet, library: library(ctx), rules: r };
@@ -1319,7 +1362,7 @@ function tabKey() {
         chatIdOf(ctx), chat.length, String(last?.mes ?? '').length, screen.mode, JSON.stringify(screen.prefill ?? null),
         fightKey(state.fight), state.pending?.fightId ?? '', state.recovered?.text ?? '', story,
         state.dismissed.length, encounterOffer(ctx, state)?.key ?? '', sheetConflict(ctx), JSON.stringify(settings()),
-        JSON.stringify(screen.preparing ?? null), state.bestiary.map(entry => `${entry.name}:${entry.level}:${entry.flavoured}:${String(entry.look ?? '').length}`).join(','),
+        JSON.stringify(screen.preparing ?? null), personaName(ctx), state.bestiary.map(entry => `${entry.name}:${entry.level}:${entry.flavoured}:${String(entry.look ?? '').length}`).join(','),
     ].join('|');
 }
 
@@ -1391,6 +1434,31 @@ function registerWithStoryBlock() {
     return true;
 }
 
+/**
+ * Saves the panel's settings (or the same change from Story Suite's overlay) and applies it:
+ * the announcement when the switch changes, the kept blocks when the terms do, the notice, who
+ * the story follows, and the tab.
+ */
+function applySettings(next) {
+    const ctx = context();
+    if (!ctx?.extensionSettings) return;
+    const termsBefore = JSON.stringify(termsOf(rules()));
+    const enabledBefore = settings(ctx).enabled;
+    ctx.extensionSettings[SETTINGS_KEY] = { ...settings(ctx), ...next };
+    ctx.saveSettingsDebounced?.();
+    if (settings(ctx).enabled !== enabledBefore) announceToSuite();
+    // New terms rename the Character block's fields; Story Block replaces a block
+    // registered again under its id.
+    const sb = storyBlock();
+    if (registered && sb && JSON.stringify(termsOf(rules())) !== termsBefore) {
+        registerKeptBlocks(sb);
+        void rewriteSheets();
+    }
+    settingsPanel?.setSheetConflict?.(sheetConflict(ctx));
+    settingsPanel?.setSources?.(currentSources());
+    storyBlock()?.refresh?.();
+}
+
 function addSettingsPanel(documentRef) {
     if (documentRef.querySelector('#rpg_battle_settings')) return true;
     const host = documentRef.querySelector('#extensions_settings2') ?? documentRef.querySelector('#extensions_settings');
@@ -1405,25 +1473,10 @@ function addSettingsPanel(documentRef) {
         sheetConflict: sheetConflict(),
         sources: currentSources(),
         profiles: connectionProfiles(),
+        suiteLink: Boolean(suiteOpener()),
+        onOpenSuite: () => openStorySuite(),
         onDisableSheet: () => disableStorySheet(),
-        onChange: next => {
-            const ctx = context();
-            const termsBefore = JSON.stringify(termsOf(rules()));
-            const enabledBefore = settings(ctx).enabled;
-            ctx.extensionSettings[SETTINGS_KEY] = { ...settings(ctx), ...next };
-            ctx.saveSettingsDebounced?.();
-            if (settings(ctx).enabled !== enabledBefore) announceToSuite();
-            // New terms rename the Character block's fields; Story Block replaces a block
-            // registered again under its id.
-            const sb = storyBlock();
-            if (registered && sb && JSON.stringify(termsOf(rules())) !== termsBefore) {
-                registerKeptBlocks(sb);
-                void rewriteSheets();
-            }
-            settingsPanel?.setSheetConflict?.(sheetConflict(ctx));
-            settingsPanel?.setSources?.(currentSources());
-            storyBlock()?.refresh?.();
-        },
+        onChange: next => applySettings(next),
     });
     return Boolean(settingsPanel);
 }

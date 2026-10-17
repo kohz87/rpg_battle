@@ -232,6 +232,48 @@ test('create: a preset fills points and skills; exactly three skills; onCreate g
     });
 });
 
+test('create: the name starts as the persona\'s, with a hint, and follows a persona switch until typed over', () => {
+    reset();
+    const view = persona => ({ mode: 'create', presets: PRESETS, library: LIBRARY, persona, rules });
+    let pane = render(view('  Ren  '));
+    const name = () => $(pane, '.rpg-battle-name-input');
+    const hint = () => $(pane, '.rpg-battle-name-hint');
+    assert.equal(name().value, 'Ren', 'trimmed');
+    assert.equal(hint().hidden, false);
+    assert.equal(hint().textContent, 'From your persona; change it if your character goes by another name.');
+    assert.doesNotMatch($(pane, '.rpg-battle-create-hint').textContent, /a name/, 'the name is already there');
+    // The reader switched persona before typing anything: the name follows.
+    pane = render(view('Astra'));
+    assert.equal(name().value, 'Astra');
+    assert.equal(hint().hidden, false);
+    pane = render(view('User'));
+    assert.equal(name().value, 'User', 'the default persona is still the persona\'s name');
+    // Typed over: theirs from then on, through redraws and persona switches.
+    name().value = 'Kael';
+    name().dispatch('input');
+    assert.equal(hint().hidden, true);
+    pane = render(view('Mira'));
+    assert.equal(name().value, 'Kael');
+    assert.equal(hint().hidden, true);
+    name().value = '';
+    name().dispatch('input');
+    pane = render(view('Mira'));
+    assert.equal(name().value, '', 'cleared by hand stays cleared');
+});
+
+test('create: no persona leaves the name empty and the hint hidden', () => {
+    for (const persona of [undefined, '', '   ']) {
+        reset();
+        const pane = render({ mode: 'create', presets: PRESETS, library: LIBRARY, persona, rules });
+        assert.equal($(pane, '.rpg-battle-name-input').value, '', String(persona));
+        assert.equal($(pane, '.rpg-battle-name-hint').hidden, true);
+        assert.match($(pane, '.rpg-battle-create-hint').textContent, /a name/);
+    }
+    // A persona arriving later still fills an untouched name.
+    const pane = render({ mode: 'create', presets: PRESETS, library: LIBRARY, persona: 'Ren', rules });
+    assert.equal($(pane, '.rpg-battle-name-input').value, 'Ren');
+});
+
 test('create: a preset naming a missing skill fills what exists; toggling a skill frees a slot; draft survives a redraw', () => {
     reset();
     const view = { mode: 'create', presets: PRESETS, library: LIBRARY, rules };

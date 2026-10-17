@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.3
+
+- **Story Suite overlay support** ([docs/STORY_SUITE.md](docs/STORY_SUITE.md#one-place-to-manage-them-all)): the announcement names the settings panel (`settings: '#rpg_battle_settings'`), which Story Block's overlay shows in RPG Battle's tab, and `api.manage` lets the overlay set the Source of truth (`areas`, `sources()`, `setSource(area, choice)`, unknown areas and choices ignored) and the on/off switch (`enabled()`, `setEnabled(on)`), saved and applied exactly as the panel's own controls, which show the change.
+- **Switched off, RPG Battle is announced with `enabled: false`** instead of withdrawn, so the overlay can switch it back on; the suite skips it for ownership, `has` and `api` as before.
+- **Manage all in Story Suite** at the top of the settings, while two or more extensions are announced and Story Block offers the overlay; it opens on RPG Battle's tab (marked `data-story-suite-link`, so the overlay hides it while the panel is inside it). Alone, nothing changes.
+- **A new character takes your persona's name:** the Name box starts with the SillyTavern persona's name (`name1`, trimmed), with a hint saying so, and follows a persona switch until you type in it; a name you type stays yours. Companions and Edit companion are unchanged.
+
 ## 0.3.2
 
 - **Settings in sections:** Money, Equipment, Terms, Monsters, Source of truth and Blocks fold, each one line with a summary until opened ("copper / silver / gold", "1 worn · 2 accessories", "Soul Class · Soul Growth · tiers", "Flavour on", "Automatic", "Character · Party · Inventory"); the on/off switches and the Character Sheet notice stay on top. All start closed; which are open is remembered in this browser.

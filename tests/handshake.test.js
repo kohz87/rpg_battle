@@ -8,7 +8,7 @@ import { PRESETS } from '../src/skills.js';
 import { formatCharacter, formatParty, newSheet, parseCharacter, parseParty } from '../src/sheet.js';
 import { newCompanion } from '../src/party.js';
 import { storySuite } from '../src/suite.js';
-import { SHARED_AREAS, SUITE_ID, announcement, partyMembers, sheetNotice, sources, suiteSignature, truthChoices } from '../src/handshake.js';
+import { SETTINGS_ROOT, SHARED_AREAS, SUITE_ID, announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, truthChoices } from '../src/handshake.js';
 
 beforeEach(() => {
     delete globalThis.StorySuite;
@@ -33,7 +33,11 @@ test('choices: one per shared area, anything unknown is auto', () => {
 test('the announcement: rpg-battle owns stats and rolls, and items after Story Block', () => {
     const api = { members: () => [] };
     const entry = announcement({ version: '0.3.0', api });
-    assert.deepEqual({ ...entry, api: null }, { id: 'rpg-battle', name: 'RPG Battle', version: '0.3.0', owns: ['stats', 'rolls', 'items'], api: null });
+    assert.deepEqual({ ...entry, api: null }, {
+        id: 'rpg-battle', name: 'RPG Battle', version: '0.3.0', owns: ['stats', 'rolls', 'items'],
+        enabled: true, settings: '#rpg_battle_settings', api: null,
+    });
+    assert.equal(SETTINGS_ROOT, '#rpg_battle_settings', 'the panel\'s root under Extensions (index.js mounts it there)');
     assert.equal(entry.api, api);
     const { suite } = announced();
     suite.announce(BLOCK);
@@ -42,6 +46,83 @@ test('the announcement: rpg-battle owns stats and rolls, and items after Story B
     assert.equal(suite.owner('items'), 'story-block');
     suite.withdraw(SUITE_ID);
     assert.equal(suite.owner('stats'), 'story-block');
+});
+
+test('switched off: announced with enabled: false, keeping its panel and api.manage, and skipped for ownership', () => {
+    const suite = storySuite();
+    const manage = manageApi({ choices: () => null, choose: () => {}, enabled: () => false, enable: () => {} });
+    const api = { members: () => [], manage };
+    suite.announce(BLOCK);
+    suite.announce(announcement({ version: '0.3.3', api, enabled: false }));
+    const entry = suite.providers().find(provider => provider.id === SUITE_ID);
+    assert.equal(entry.enabled, false);
+    assert.equal(entry.settings, '#rpg_battle_settings');
+    assert.equal(entry.api.manage, manage, 'the overlay reads it from providers() to switch it back on');
+    assert.equal(suite.has(SUITE_ID), false);
+    assert.equal(suite.api(SUITE_ID), null);
+    assert.equal(suite.owner('stats'), 'story-block');
+    assert.equal(suite.owner('rolls'), null);
+    const before = suiteSignature(suite);
+    suite.announce(announcement({ version: '0.3.3', api, enabled: true }));
+    assert.notEqual(suiteSignature(suite), before, 'switching back on is a change');
+    assert.equal(suite.owner('stats'), SUITE_ID);
+    assert.equal(suite.api(SUITE_ID), api);
+});
+
+test('api.manage: the areas, the choices as saved, setSource validated, the switch', () => {
+    const saved = { enabled: true, sourceOfTruth: { stats: 'auto', rolls: 'auto', items: 'auto' } };
+    const applied = [];
+    const manage = manageApi({
+        choices: () => saved.sourceOfTruth,
+        choose: (area, choice) => { applied.push([area, choice]); saved.sourceOfTruth = { ...saved.sourceOfTruth, [area]: choice }; },
+        enabled: () => saved.enabled,
+        enable: on => { applied.push(['enabled', on]); saved.enabled = on; },
+    });
+    assert.ok(Object.isFrozen(manage));
+    assert.deepEqual(manage.areas, ['stats', 'rolls', 'items']);
+    assert.deepEqual(manage.sources(), { stats: 'auto', rolls: 'auto', items: 'auto' });
+    const copy = manage.sources();
+    copy.stats = 'mine';
+    assert.equal(saved.sourceOfTruth.stats, 'auto', 'sources() is a copy');
+    assert.equal(manage.setSource('stats', 'theirs'), true);
+    assert.equal(manage.setSource('items', 'mine'), true);
+    assert.deepEqual(saved.sourceOfTruth, { stats: 'theirs', rolls: 'auto', items: 'mine' });
+    assert.deepEqual(manage.sources(), { stats: 'theirs', rolls: 'auto', items: 'mine' });
+    for (const [area, choice] of [['scene', 'mine'], ['stats', 'everything'], ['stats', undefined], [undefined, 'auto'], ['toString', 'auto']]) {
+        assert.equal(manage.setSource(area, choice), false, `${area}/${choice}`);
+    }
+    assert.deepEqual(applied, [['stats', 'theirs'], ['items', 'mine']], 'nothing unknown reaches the settings');
+    assert.equal(manage.enabled(), true);
+    manage.setEnabled(false);
+    assert.equal(manage.enabled(), false);
+    manage.setEnabled(1);
+    assert.deepEqual(applied.slice(-2), [['enabled', false], ['enabled', true]], 'always a boolean');
+    assert.equal(manage.enabled(), true);
+    // Saved choices from an older version read as Automatic.
+    const old = manageApi({ choices: () => ({ stats: 'nonsense' }), choose: () => {}, enabled: () => undefined, enable: () => {} });
+    assert.deepEqual(old.sources(), { stats: 'auto', rolls: 'auto', items: 'auto' });
+    assert.equal(old.enabled(), true, 'on unless switched off');
+});
+
+test('the overlay link: two or more announced and Story Block sharing openSuite, opened on RPG Battle\'s tab', () => {
+    const suite = storySuite();
+    assert.equal(suiteOverlay(null), null);
+    suite.announce(announcement({ version: '0.3.3', api: {}, enabled: false }));
+    assert.equal(suiteOverlay(suite), null, 'alone');
+    const opened = [];
+    const blockApi = { openSuite(tab) { opened.push([this === blockApi, tab]); } };
+    suite.announce({ ...BLOCK, api: {} });
+    assert.equal(suiteOverlay(suite), null, 'an older Story Block without the overlay');
+    suite.announce({ ...BLOCK, api: blockApi });
+    const open = suiteOverlay(suite);
+    assert.equal(typeof open, 'function', 'shown with RPG Battle switched off too');
+    open();
+    assert.deepEqual(opened, [[true, 'rpg-battle']]);
+    suite.announce({ ...BLOCK, api: blockApi, enabled: false });
+    assert.equal(suiteOverlay(suite), null, 'Story Block switched off shares nothing');
+    suite.announce({ ...BLOCK, api: blockApi });
+    suite.withdraw(SUITE_ID);
+    assert.equal(suiteOverlay(suite), null, 'Story Block alone');
 });
 
 test('members: the Character then each companion, frozen plain copies in the reader\'s terms', () => {

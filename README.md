@@ -1,4 +1,4 @@
-# RPG Battle v0.3.2
+# RPG Battle v0.3.3
 
 Turn-based fights for SillyTavern, resolved in code. Press **Start fight**, choose the enemies,
 fight with buttons (**Attack, Skill, Item, Defend, Parley, Flee, Auto**), and the story gets one
@@ -21,6 +21,8 @@ them.
 The first time you open the Battle tab, you make your character: a name, **10 points** to spread
 over seven stats that all start at 5, and **three starter skills**. There are no classes; the
 presets (fighter, skirmisher, caster, healer, archer) only fill in the points and suggest skills.
+The name starts as your SillyTavern persona's (and follows it if you switch persona before
+typing); type another if your character goes by a different name.
 
 | Stat | Does |
 |---|---|
@@ -331,6 +333,10 @@ source of truth for each area, so the model is not told the same thing twice; se
   now. For *Stats*, it decides whether Story Block's Character Sheet is pointed out as a second
   HP: with **The other one** the notice stays away, and RPG Battle still keeps its own sheets for
   its fights. With RPG Battle alone, every choice works like Automatic.
+- **Story Suite overlay:** with two or more installed, Story Block's *Story Suite* overlay sets
+  the source of truth for all of them in one table and switches RPG Battle on or off; *Manage all
+  in Story Suite* at the top of RPG Battle's settings opens it
+  ([docs/STORY_SUITE.md](docs/STORY_SUITE.md#one-place-to-manage-them-all)).
 
 ## Development
 
