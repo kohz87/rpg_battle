@@ -538,7 +538,10 @@ Rows for `enemiesFromRows` may carry `level` (passed to `projectEnemy`).
 ## `src/ui/settings.js`
 
 `renderSettings(container, { settings, version, status, sheetConflict, sources, profiles, onDisableSheet, onChange })
-→ { update(settings), setSheetConflict(on), setSources(sources) }`: (0.3) **Source of truth**: a
+→ { update(settings), setSheetConflict(on), setSources(sources) }`: (0.3.2) the sections fold
+(`details.rpg-battle-settings-fold[data-fold=money|equipment|terms|monsters|truth|blocks]`, all closed,
+open ones remembered in `localStorage['rpg_battle_settings_folds']`), each summary from `foldHints(settings)`.
+(0.3) **Source of truth**: a
 select per shared area (`#rpg_battle_truth_stats|rolls|items`: Automatic / This extension / The
 other one, `settings.sourceOfTruth = { stats, rolls, items }` of `'auto' | 'mine' | 'theirs'`) with
 "Now: <name>" from `sources` (`.rpg-battle-settings-source`). (0.3.1) **Equipment**:
