@@ -77,8 +77,8 @@ test('editCompanion: name, role and control change; the sheet, gear and stats st
     assert.equal(edited[0].sheet.level, 4);
     assert.deepEqual(edited[1], merrit);
     assert.deepEqual(idMap, { astra: 'astra-the-bold', merrit: 'merrit' });
-    // The chat's mastery progress moves with the id; the Character's stays.
-    assert.deepEqual(remapIds({ pc: { Slash: 2 }, astra: { Mend: 3 }, merrit: { Bash: 1 } }, idMap), { pc: { Slash: 2 }, 'astra-the-bold': { Mend: 3 }, merrit: { Bash: 1 } });
+    // What the chat keeps by id (the NPC links) moves with it; anyone else's stays.
+    assert.deepEqual(remapIds({ pc: 'x', astra: 'npc-7', merrit: 'npc-9' }, idMap), { pc: 'x', 'astra-the-bold': 'npc-7', merrit: 'npc-9' });
     // Role or control alone keeps the id.
     const quiet = editCompanion(members, 'merrit', { name: 'Merrit', role: 'guard', control: 'auto' });
     assert.deepEqual(quiet.idMap, { astra: 'astra', merrit: 'merrit' });
@@ -101,4 +101,52 @@ test('editCompanion: the written Party block reads back with the new ids', async
     const { members, idMap } = editCompanion([first, second], 'astra', { name: 'Vel' });
     assert.deepEqual(idMap, { astra: 'vel', 'astra-2': 'astra' });
     assert.deepEqual(parseParty(formatParty(members, rules), rules).members.map(member => member.id), ['vel', 'astra']);
+});
+
+test('a renamed companion keeps their mastery progress: it is on the sheet, in the block', async () => {
+    const { editCompanion, newCompanion } = await import('../src/party.js');
+    const { formatParty, parseParty } = await import('../src/sheet.js');
+    const lyra = newCompanion({ name: 'Lyra', level: 3, preset: PRESETS[2] }, { rules });
+    const skill = lyra.sheet.skills[0].name;
+    const read = parseParty(formatParty([{ ...lyra, sheet: { ...lyra.sheet, uses: { [skill]: 3 } } }], rules), rules).members;
+    const { members } = editCompanion(read, 'lyra', { name: 'Lyra Vance' });
+    const back = parseParty(formatParty(members, rules), rules).members;
+    assert.deepEqual([back[0].id, back[0].sheet.uses[skill]], ['lyra-vance', 3]);
+});
+
+test('npcRenames: a linked companion follows their NPC\'s name when it changes, once per change', async () => {
+    const { npcRenames } = await import('../src/party.js');
+    const members = [
+        { id: 'lyra', name: 'Lyra', npcId: 'n1' },
+        { id: 'bram', name: 'Bram', npcId: 'n2' },
+        { id: 'oskar', name: 'Oskar' },
+        { id: 'vel', name: 'Vel', npcId: 'n5' },
+        { id: 'quill', name: 'Quill', npcId: 'n6' },
+    ];
+    const seen = { n1: 'Lyra', n2: 'Bram', n5: 'Vel', n6: 'Quill' };
+    const profiles = [
+        { id: 'n1', name: 'Lyra Vance', aliases: ['Lyra'] },
+        { id: 'n2', name: 'Bram', aliases: [] },
+        { id: 'n4', name: 'Oskar the Grey' },
+        { id: 'n5', name: 'Bram' },
+        { id: 'n6', name: 'Quill | the #Scribe' },
+    ];
+    const out = npcRenames(members, profiles, { seen, pcName: 'Ren' });
+    assert.deepEqual(out.renames, [
+        { memberId: 'lyra', from: 'Lyra', to: 'Lyra Vance' },
+        { memberId: 'quill', from: 'Quill', to: 'Quill the Scribe' },
+    ], 'the old name kept as an alias is still a rename; unchanged, unlinked or a name another companion has: none; the heading kept clean');
+    assert.deepEqual(out.seen, { n1: 'Lyra Vance', n2: 'Bram', n5: 'Bram', n6: 'Quill | the #Scribe' }, 'remembered, taken or not');
+    // Once per change: with the new names remembered, nothing more, even with the old names back
+    // in the block (a reply deleted) or a name changed back by hand.
+    assert.deepEqual(npcRenames(members, profiles, { seen: out.seen }).renames, []);
+    assert.deepEqual(npcRenames(members, [{ id: 'n1', name: 'Lyra Moon' }], { seen: out.seen }).renames, [{ memberId: 'lyra', from: 'Lyra', to: 'Lyra Moon' }], 'a later change is followed');
+    // Not seen before (an older chat): a name that is not theirs nor an alias, not put away.
+    const fresh = npcRenames([{ id: 'tess', name: 'Tess', npcId: 'n3' }], [{ id: 'n3', name: 'Tessaly', aliases: ['Tess'] }]);
+    assert.deepEqual([fresh.renames, fresh.seen], [[], { n3: 'Tessaly' }], 'the companion carries a short name of theirs');
+    assert.deepEqual(npcRenames([{ id: 'tess', name: 'Tess', npcId: 'n3' }], [{ id: 'n3', name: 'Tessaly' }]).renames, [{ memberId: 'tess', from: 'Tess', to: 'Tessaly' }]);
+    assert.deepEqual(npcRenames([{ id: 'tess', name: 'Tess', npcId: 'n3' }], [{ id: 'n3', name: 'Tessaly' }], { done: ['npc:n3:Tessaly'] }).renames, [], 'put away as an offer before');
+    assert.deepEqual(npcRenames(members, [{ id: 'n1', name: 'Ren' }], { seen, pcName: 'ren' }).renames, [], 'not to your name');
+    assert.deepEqual(npcRenames(members, [{ id: 'n1', name: 'Lyra (healer)' }], { seen }).renames, [], 'what the heading would keep is the same name');
+    assert.deepEqual(npcRenames(members, null), { renames: [], seen: {} });
 });

@@ -10,6 +10,9 @@
 //
 // A member keeps every skill they learn, but only `rules.character.activeSkills` of them are
 // in use; the rest are written on a `Set aside:` line and sit out fights until swapped back.
+// Each skill carries its mastery and, since 0.4.1, the fight uses toward the next mastery level
+// (`Rending Strike (Lv 2, 3/12)`, `Lv 5, max` at the top), so that progress lives in the block
+// and rolls back with the reply that wrote it, like everything else on the sheet.
 //
 // The blocks are kept by RPG Battle, so the canonical text is what normally comes back;
 // the parser is still lenient (bold labels, any order, `|` or `,` between fields) because
@@ -168,15 +171,70 @@ function isNone(value) {
     return /^(?:none|-+|—|nothing|n\/a)?\.?$/i.test(String(value ?? '').trim());
 }
 
+// Splits a Skills line at its separators, but not inside brackets: `(Lv 2, 3/12)` is one skill.
+function skillParts(value) {
+    const parts = [];
+    let depth = 0;
+    let part = '';
+    for (const char of String(value ?? '')) {
+        if (char === '(') depth += 1;
+        else if (char === ')') depth = Math.max(0, depth - 1);
+        if (!depth && /[|,;]/.test(char)) {
+            parts.push(part);
+            part = '';
+        } else {
+            part += char;
+        }
+    }
+    return [...parts, part].map(text => text.trim()).filter(Boolean);
+}
+
+// What one bracket after a skill's name says: its mastery (`Lv 2`, `2`, `mastery 2`), its
+// progress (`3/12`, `3 of 12`, `3/12 uses`) and `max`, in any order. null when the bracket says
+// anything else: it is part of the name then ("Strike (Ice)").
+function skillMarks(inner) {
+    const marks = {};
+    let rest = String(inner ?? '').replace(/(\d+)\s*(?:\/|of)\s*\d+(?:\s*uses?)?/i, (_, done) => {
+        marks.progress = Number(done);
+        return ' ';
+    });
+    rest = rest.replace(/\bmax(?:ed|imum)?\b/i, () => {
+        marks.max = true;
+        return ' ';
+    });
+    rest = rest.replace(/(?:\b(?:lv|lvl|level|mastery)\.?\s*)?(\d+)/i, (_, level) => {
+        marks.mastery = Number(level);
+        return ' ';
+    });
+    return Object.keys(marks).length && /^[\s,;·]*$/.test(rest) ? marks : null;
+}
+
+/**
+ * The skills of a Skills (or Set aside) line: [{ name, mastery, progress }], `progress` being
+ * the uses toward the next mastery as written, or null when the line does not say (an older
+ * line, a skill at the top). Lenient: `Name`, `Name (Lv 2)`, `Name Lv 2`, `Name (Lv 2, 3/12)`,
+ * `Name Lv 2 (3/12)`, `Name (Lv 5, max)`.
+ */
 function parseSkills(value, rules) {
     if (isNone(value)) return [];
     const skills = [];
-    for (const part of String(value).split(/\s*[|,;]\s*/)) {
-        const match = part.match(/^(.*?)\s*(?:\(\s*(?:lv\.?|lvl\.?|level|mastery)?\s*(\d+)\s*\)|\b(?:lv\.?|lvl\.?)\s*(\d+))\s*$/i);
-        const name = (match ? match[1] : part).trim();
+    for (const part of skillParts(value)) {
+        let name = part;
+        let mastery = null;
+        let progress = null;
+        for (let bracket = name.match(/\(([^()]*)\)\s*$/); bracket; bracket = name.match(/\(([^()]*)\)\s*$/)) {
+            const marks = skillMarks(bracket[1]);
+            if (!marks) break;
+            mastery = marks.mastery ?? mastery;
+            progress = marks.progress ?? progress;
+            name = name.slice(0, bracket.index).trim();
+        }
+        const bare = name.match(/^(.*?)\s*\b(?:lv\.?|lvl\.?)\s*(\d+)\s*$/i);
+        if (bare && mastery === null) [name, mastery] = [bare[1].trim(), Number(bare[2])];
         if (!name) continue;
-        const mastery = clamp(Number(match?.[2] ?? match?.[3] ?? 1) || 1, 1, rules.masteryMax);
-        if (!skills.some(skill => skillKey(skill.name) === skillKey(name))) skills.push({ name, mastery });
+        mastery = clamp(Number(mastery ?? 1) || 1, 1, rules.masteryMax);
+        if (skills.some(skill => skillKey(skill.name) === skillKey(name))) continue;
+        skills.push({ name, mastery, progress: mastery < rules.masteryMax && progress !== null ? Math.max(0, Math.round(progress)) : null });
     }
     return skills;
 }
@@ -252,6 +310,10 @@ function sheetFromLines(lines, rules, { name: givenName = null, label = 'Charact
         const top = pair?.max !== null && pair?.max !== undefined && pair.max >= 0 ? pair.max : max;
         return { cur: clamp(pair?.cur ?? top, 0, top), max: top };
     };
+    const written = [
+        ...parseSkills(found.skills, rules),
+        ...parseSkills(found.aside, rules).map(skill => ({ ...skill, aside: true })),
+    ];
     const sheet = {
         name,
         level,
@@ -260,14 +322,12 @@ function sheetFromLines(lines, rules, { name: givenName = null, label = 'Charact
         hp: pool('hp', maxHp(stats, level, rules)),
         mp: pool('mp', maxMp(stats, level, rules)),
         stats,
-        skills: activeWithin([
-            ...parseSkills(found.skills, rules),
-            ...parseSkills(found.aside, rules).map(skill => ({ ...skill, aside: true })),
-        ], rules),
+        skills: activeWithin(written.map(({ progress: _, ...skill }) => skill), rules),
         conditions: parseConditions(found.conditions),
-        // Mastery progress is not in the text (it would be noise to the model), so a sheet
-        // read back starts each skill's progress afresh.
-        uses: {},
+        // Each skill's uses toward its next mastery, as the line wrote them. A skill the line
+        // gives no progress (an older block, written before 0.4.1) has no entry: it counts from 0,
+        // and foldUses may still fill it in from an older chat's metadata.
+        uses: Object.fromEntries(written.filter(skill => skill.progress !== null).map(skill => [skill.name, skill.progress])),
     };
     return { sheet, errors, found };
 }
@@ -427,16 +487,56 @@ export function readSheets({ party = '', character = '', partyIndex = null, char
     return { pc: block.pc, members: block.members, legacy: false };
 }
 
+/**
+ * An older chat's mastery progress folded into the sheets read from its block. RPG Battle 0.4.0
+ * and older kept it in chat metadata (`{ [memberId]: { [skill]: n } }`, 'pc' for yours), out of
+ * the block; since 0.4.1 the Skills line carries it. A skill whose line gives no progress takes
+ * the old value; one whose line gives any keeps the line's, so once the sheets are written again
+ * the metadata has nothing left to add. { pc, members, folded }: `folded` says whether any
+ * skill took a value from it. The sheets passed in are not changed.
+ */
+export function foldUses({ pc = null, members = [] } = {}, uses = {}, rules = DEFAULT_RULES) {
+    const r = rulesOf(rules);
+    let folded = false;
+    const fold = (sheet, id) => {
+        const old = uses?.[id];
+        if (!sheet || !old || typeof old !== 'object') return sheet;
+        const next = copySheet(sheet);
+        for (const skill of next.skills) {
+            if (skill.mastery >= r.masteryMax || skill.name in next.uses) continue;
+            const entry = Object.entries(old).find(([name]) => skillKey(name) === skillKey(skill.name));
+            const n = Math.round(Number(entry?.[1]) || 0);
+            if (n <= 0) continue;
+            next.uses[skill.name] = n;
+            folded = true;
+        }
+        return next;
+    };
+    const nextPc = fold(pc, 'pc');
+    const nextMembers = (members ?? []).map(member => ({ ...member, sheet: fold(member.sheet, member.id) }));
+    return { pc: nextPc, members: nextMembers, folded };
+}
+
 // ---------------------------------------------------------------------------------------
 // Writing
 
-const skillText = skill => (skill.mastery > 1 ? `${skill.name} (Lv ${skill.mastery})` : skill.name);
+// `Rending Strike (Lv 2, 3/12)`: the mastery and the uses toward the next level (the sheet's
+// `uses`, 0 when it has none); `(Lv 5, max)` at the top. Rules without a number of uses for that
+// level (none to reach) write the mastery alone.
+function skillText(skill, sheet, rules) {
+    if (skill.mastery >= rules.masteryMax) return `${skill.name} (Lv ${skill.mastery}, max)`;
+    const needed = Number(rules.masteryUses?.[skill.mastery]);
+    if (!(needed > 0)) return `${skill.name} (Lv ${skill.mastery})`;
+    const done = Math.max(0, Math.round(Number(sheet.uses?.[skill.name]) || 0));
+    return `${skill.name} (Lv ${skill.mastery}, ${done}/${needed})`;
+}
 
 // The Skills line holds the skills in use; the ones set aside get a line of their own, only
 // when there are any, so the model knows they exist but not that they are at hand.
-function skillsLines(sheet) {
-    const active = activeSkills(sheet).map(skillText);
-    const aside = (sheet.skills ?? []).filter(skill => skill?.aside).map(skillText);
+function skillsLines(sheet, rules) {
+    const text = skill => skillText(skill, sheet, rules);
+    const active = activeSkills(sheet).map(text);
+    const aside = (sheet.skills ?? []).filter(skill => skill?.aside).map(text);
     return [`Skills: ${active.length ? active.join(' | ') : 'none'}`, ...(aside.length ? [`Set aside: ${aside.join(' | ')}`] : [])];
 }
 
@@ -483,7 +583,7 @@ export function formatCharacter(sheet, rules = DEFAULT_RULES) {
         statsLine(sheet),
         `Checks: ${STATS.map(stat => `${stat} ${signed(checks[stat])}`).join(' | ')}`,
         stateLine(sheet, r),
-        ...skillsLines(sheet),
+        ...skillsLines(sheet, r),
         `Conditions: ${conditionsText(sheet)}`,
     ].join('\n');
 }
@@ -504,7 +604,7 @@ export function formatParty(members, rules = DEFAULT_RULES) {
             poolsLine(sheet),
             stateLine(sheet, r),
             statsLine(sheet),
-            ...skillsLines(sheet),
+            ...skillsLines(sheet, r),
         ];
         if (sheet.conditions?.length) lines.push(`Conditions: ${conditionsText(sheet)}`);
         if (member.gear?.length) lines.push(`Equipped: ${member.gear.map(formatGearEntry).join(' | ')}`);
@@ -637,7 +737,8 @@ function isCombatCondition(name) {
 
 /**
  * A fight's Result applied to one sheet: HP/MP and lasting conditions as the fight left
- * them, XP with level-ups (xp carries over), mastery from skill uses.
+ * them, XP with level-ups (xp carries over), mastery from skill uses (the sheet's `uses`, the
+ * progress its Skills line writes, carried over like XP).
  */
 export function applyResult(sheet, memberId, result, rules = DEFAULT_RULES) {
     const r = rulesOf(rules);
