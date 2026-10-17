@@ -69,11 +69,16 @@ Name: Ren
 Level: 4 | XP: 310/400 | Points: 2
 HP: 58/62 | MP: 21/30
 STR: 9 | VIT: 7 | AGI: 8 | DEX: 8 | INT: 4 | LUK: 5 | CHA: 6
+Checks: STR +2 | VIT +1 | AGI +1 | DEX +1 | INT -1 | LUK +0 | CHA +0
 Skills: Rending Strike (Lv 2) | Guard Break | Second Wind
 Conditions: none
 </Character>
 ```
 
+- **Checks** are the stat bonuses for rolls outside combat, worked out by code
+  (`(stat − 5) ÷ 2`, rounded down, between −3 and +10; in `rules.json`). Story Block's Dice block
+  uses them as its modifier (section 12), so a CHA check is `d20 + 0` here, and the model only
+  adds one number it can read.
 - **Points** are unspent stat points. You spend them in the Battle tab (section 9); the model
   never does.
 - **Skills** lists names (and mastery level); each skill's numbers live in the skill library
@@ -174,8 +179,11 @@ All constants below live in `rules.json` and can be edited.
 | **LUK** | Critical chance; loot rarity |
 | **CHA** | Parley in combat; outside combat it is the social stat the story can use (Story Director's note can mention it) |
 
-A new character starts with every stat at 5 and **10 points** to spend; each level gives
-**4 points**. XP to next level = 100 × level^1.5 (rounded to 10).
+**No classes.** A character is its stats and its skills. A new character starts with every stat
+at 5, **10 points** to spend and **three starter skills** picked from the library's first tier
+(section 6); each level gives **4 points**. XP to next level = 100 × level^1.5 (rounded to 10).
+Optional presets (a "fighter" spread, a "caster" spread…) only fill in the points and suggest
+skills, as a shortcut; they are not a class and change nothing afterwards.
 
 ### 5.2 One attack
 
@@ -232,11 +240,13 @@ A skill is a library entry; the Character and Party blocks list only names.
 ```
 
 - `type`: physical, magic, heal, buff, debuff. `target`: one, all, self, ally, allies.
-- **Starter sets:** a new character picks an archetype (Warrior, Rogue, Mage, Cleric, Ranger, or
-  Custom); each gives suggested starting points and three skills.
-- **New skills:** one choice from the library every 3 levels, or added by hand in the Battle tab.
-  The model never creates a skill's numbers; a skill the story invents is added by name to the
-  library with a template matching its type, and you can edit it.
+- **Open, not by class:** a skill may ask for a stat instead (`"requires": { "INT": 8 }`), so
+  anyone who builds INT can learn Fireball. Tier 1 skills ask for nothing.
+- **Starter skills:** three from tier 1, picked when the character is made.
+- **New skills come from the story, added by hand.** A mentor teaches a technique, a scroll holds
+  a spell: in the Battle tab, **Learn skill** takes a name and either a library skill or a new
+  one built from a template (type, stat, target) scaled to your level, which you can edit.
+  Nothing is learned automatically on level-up, and the model never sets a skill's numbers.
 - **Mastery:** using a skill in fights raises it (Lv 1 to 5, +10 % power per level).
 
 ## 7. Enemies
@@ -261,7 +271,8 @@ DEX high, HP × 0.8), **caster** (magic attack, MP, HP × 0.7), **tank** (defenc
 
 These numbers are a starting point. Version 0.1 tunes them with a simulation (thousands of
 seeded fights in the test suite) towards a target: an even fight (same level, party of one,
-three enemies of the matching rank) lasts 4 to 6 rounds and costs about half your HP.
+three enemies of the matching rank), fought to the end, lasts 4 to 6 rounds and costs about half
+your HP. A parley or an escape can of course end it sooner.
 
 ### 7.2 The bestiary
 
@@ -289,7 +300,7 @@ affordable skill, then attack).
 - **XP:** each defeated enemy's XP × a level factor (×1.5 when it outranks you, down to ×0.1 when
   far below); half for parleyed enemies; split evenly across the party, not divided.
 - **Level-ups:** HP and MP maxima rise; points are added to spend.
-- **Loot:** from the bestiary's tables or the rank's defaults; rarity rolled with LUK; currency.
+- **Loot:** from the bestiary's tables or the rank's defaults; rarity rolled with LUK; money (8.4).
   Written into the Inventory block.
 - **Sheets:** HP, MP, conditions, skill mastery, consumables used.
 
@@ -313,6 +324,20 @@ Loot: 14 copper, a bone fetish. XP +38 each.
 - The hand-off is attached to the next reply that is generated; that reply's swipes reuse it, and
   it is not injected again after that. **Return to story** in the Battle tab can also send a short
   message for you ("*(the fight ends)*") so the narration comes straight away.
+
+### 8.4 Money
+
+Your lorebook already names the money, so the currency is a setting:
+
+| Setting | Loot reads | Inventory line |
+|---|---|---|
+| **Copper / silver / gold** (default) | 1 gold = 10 silver = 100 copper (rates editable) | `Coins \| 1 gold, 3 silver, 4 copper` |
+| **One coin** | a single unit, named as you like ("coins", "credits") | `Coins \| 134` |
+| **Your own** | names and rates from your world, e.g. bits, marks (= 12 bits), crowns (= 20 marks) | `Purse \| 2 crowns, 5 marks` |
+
+Loot is counted in the smallest unit and written out in the largest ones. The line it adds to is
+the inventory row named in the setting (`Coins` by default); the model keeps spending from it in
+the story as it does now.
 
 ### 8.3 With Story Director
 
@@ -351,7 +376,7 @@ All editable JSON, exported and imported from the settings:
 |---|---|
 | `rules.json` | Every constant in section 5: formulas, budgets, XP curve, flee and parley numbers |
 | `bestiary.json` | Named creatures, rank and role tables, loot tables |
-| `skills.json` | The skill library and the archetype starter sets |
+| `skills.json` | The skill library (tiers, requirements) and the optional presets |
 | `items.json` | Rarity budgets, slot names, stat costs, default stats per item kind |
 
 Defaults ship with the extension; your edits are kept across updates.
@@ -360,20 +385,39 @@ Defaults ship with the extension; your edits are kept across updates.
 
 | Version | Adds |
 |---|---|
-| Story Block 0.7 | Blocks kept by an extension |
-| 0.1 | Character block, archetypes and starter skills, spending points, Start fight (single), the fight with Attack / Skill / Defend / Flee, results and XP, the hand-off |
-| 0.2 | Equipment from the Inventory block with rarity budgets, consumables, loot into the inventory, Parley, conditions |
+| Story Block 0.7 | Blocks kept by an extension; the Dice block reads its modifier from the Character block's Checks line |
+| 0.1 | Character block, starter skills and presets, spending points, Learn skill, Start fight (single), the fight with Attack / Skill / Defend / Flee, results and XP, the hand-off |
+| 0.2 | Equipment from the Inventory block with rarity budgets, consumables, loot and money into the inventory, Parley, conditions |
 | 0.3 | Party block, companions on auto or command, waves and chains, Suggest from scene |
 | 0.4 | Bestiary, rules, skills and items as editable files; mastery; bosses |
 
-## 13. Open questions
+## 13. Rolls outside combat: the Dice block
 
-1. **Archetype list:** Warrior, Rogue, Mage, Cleric, Ranger enough, or others (Paladin, Monk)?
-2. **Currency:** loot money as one line in the inventory ("Coins | 14 copper"), or follow the
-   story's own currency names from a setting?
-3. **Skill learning:** one pick every 3 levels, or also learnable from the story (a mentor, a
-   scroll) by adding it by hand?
-4. **Out-of-combat checks:** a later `/check CHA` (or any stat) that rolls against a difficulty
-   and hands the result to the next reply, using the same hand-off?
-5. **Balance target:** is "an even fight lasts 4 to 6 rounds and costs half your HP" the feel you
-   want, or faster and deadlier?
+Checks outside a fight (persuading a guard, climbing a wall) stay with Story Block's **Dice**
+block, which already rolls the die in code before the reply and hands the model the numbers.
+With RPG Battle on, its modifier comes from the Character block's **Checks** line instead of the
+model's judgement of "competence on the page": a CHA check is `d20 + CHA bonus` against the
+difficulty. The Dice block's instruction says so when a Character block exists (a small Story
+Block change, listed in the roadmap). RPG Battle adds no check command of its own.
+
+## 14. Decisions so far
+
+| Question | Decision |
+|---|---|
+| Classes | None: open stats and skills; presets are only shortcuts |
+| Levelling | XP gives levels; you spend the points yourself |
+| Losing | The story decides (captured, robbed, left for dead); at *to the death* stakes, death is game over |
+| Skills | Three starter skills; new ones from the story, added by hand; skills may require a stat |
+| Equipment | From the Inventory block, capped by rarity and level |
+| Companions | Included; a separate Party block; auto or command per companion |
+| Starting a fight | A button; narrated once at the end |
+| Fight shapes | Single, waves and chains |
+| Money | A setting: copper/silver/gold, one coin, or your world's own names and rates |
+| Checks outside combat | Story Block's Dice block, with modifiers from the Character block |
+| Balance | An even fight fought to the end lasts 4 to 6 rounds |
+| Mirage RPG | Retired; its tables and hand-off idea borrowed |
+
+## 15. Still open
+
+1. **Licence:** GPL-3.0 like the other two, or MIT like Mirage? Either works with what we borrow.
+2. **Presets to ship:** fighter, skirmisher, caster, healer, archer spreads, or none at all?
