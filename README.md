@@ -87,7 +87,8 @@ a won fight says `Soul Growth +12%` (or `Power Growth +38`).
 **Story Block's own Character Sheet block** (a template with an HP meter the model writes) does
 the same job by guesswork. With both on, the story reads two HP values that disagree, so the
 Battle tab and RPG Battle's settings say so, with a **Turn it off** button. It is never turned
-off for you.
+off for you. If you keep both on purpose, choose **The other one** for *Stats* under **Source of
+truth** (below) and the notice goes away.
 
 ## Recovery
 
@@ -305,6 +306,24 @@ They live in the **Party** block, kept by RPG Battle like the Character block, f
 you, and can be **Removed** (it asks twice) when they leave the story. **Edit** changes a
 companion's name, role and who controls them; their sheet, skills and gear stay as they are
 (their skill mastery progress follows them through a rename).
+
+## With the other extensions
+
+RPG Battle works alone (with Story Block). Beside Story Block, Story Director and NPC State Delta,
+the extensions find each other through the **Story Suite** handshake and agree on who is the
+source of truth for each area, so the model is not told the same thing twice; see
+[docs/STORY_SUITE.md](docs/STORY_SUITE.md).
+
+- RPG Battle offers **stats** (HP, MP, stats, skills, fights) and **rolls** (the Checks line as
+  the Dice modifier), and **items** after Story Block's Inventory (it reads gear from it and
+  writes loot into it either way).
+- It shares its party with the others: the Character and each companion with their level (in
+  your terms), HP, MP and State words, as the sheets say.
+- **Settings → Source of truth:** for *Stats*, *Roll modifiers* and *Items*, **Automatic** (the
+  specialist for the area), **This extension** or **The other one**, with who the story follows
+  now. For *Stats*, it decides whether Story Block's Character Sheet is pointed out as a second
+  HP: with **The other one** the notice stays away, and RPG Battle still keeps its own sheets for
+  its fights. With RPG Battle alone, every choice works like Automatic.
 
 ## Development
 

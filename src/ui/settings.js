@@ -9,6 +9,8 @@
 // Monsters (DESIGN §7.4): whether a made-up creature gets the story's words from a model
 // call, on the chat's model or a connection profile (picked like Story Director's), and how
 // long that answer may be.
+// Source of truth (Story Suite, docs/STORY_SUITE.md): for each area RPG Battle shares with the
+// other extensions, Automatic, This extension or The other one, with who the story follows now.
 
 const CURRENCY_MODES = [
     { value: 'tiers', label: 'Copper / silver / gold, or your own coins' },
@@ -77,7 +79,22 @@ const CONFLICT_TEXT = 'Story Block\'s Character Sheet is also on: two HP values 
 // The flavour call's answer length: enough for six short lines, never a story.
 const FLAVOUR_TOKENS = { min: 100, max: 2000 };
 
-export function renderSettings(container, { settings, version = '', status = '', sheetConflict = false, profiles = null, onDisableSheet, onChange } = {}) {
+const TRUTH_OPTIONS = [
+    { value: 'auto', label: 'Automatic' },
+    { value: 'mine', label: 'This extension' },
+    { value: 'theirs', label: 'The other one' },
+];
+
+// What each choice changes here; the rest is up to the other extension's own setting.
+const TRUTH_AREAS = [
+    { area: 'stats', label: 'Stats', hint: 'HP, MP, stats, skills. With RPG Battle the source, Story Block\'s Character Sheet is pointed out as a second HP; The other one keeps both without the notice (fights still use RPG Battle\'s sheets).' },
+    { area: 'rolls', label: 'Roll modifiers', hint: 'Checks outside fights: the Character block\'s Checks line is the modifier Story Block\'s Dice block can use.' },
+    { area: 'items', label: 'Items', hint: 'What you carry: RPG Battle reads gear from Story Block\'s Inventory block and writes loot into it.' },
+];
+
+const sourceText = source => (source?.name ? `Now: ${source.name}` : '');
+
+export function renderSettings(container, { settings, version = '', status = '', sheetConflict = false, sources = null, profiles = null, onDisableSheet, onChange } = {}) {
     let current = structuredClone(settings ?? {});
     const commit = change => {
         change(current);
@@ -198,6 +215,28 @@ export function renderSettings(container, { settings, version = '', status = '',
         commitFlavour({ maxTokens: value });
     });
 
+    // Source of truth: one select per shared area, and who the story follows now (from the glue).
+    const truth = { stats: 'auto', rolls: 'auto', items: 'auto', ...(current.sourceOfTruth ?? {}) };
+    const nowLabels = {};
+    const truthRows = TRUTH_AREAS.map(({ area, label, hint }) => {
+        const id = `rpg_battle_truth_${area}`;
+        const select = el('select', { className: 'text_pole rpg-battle-settings-input', attrs: { id } },
+            TRUTH_OPTIONS.map(option => {
+                const node = el('option', { text: option.label });
+                node.value = option.value;
+                return node;
+            }));
+        select.value = TRUTH_OPTIONS.some(option => option.value === truth[area]) ? truth[area] : 'auto';
+        select.addEventListener('change', () => commit(next => { next.sourceOfTruth = { ...truth, ...(next.sourceOfTruth ?? {}), [area]: select.value }; }));
+        nowLabels[area] = el('small', { className: 'rpg-battle-settings-hint rpg-battle-settings-source', text: sourceText(sources?.[area]) });
+        const line = row(label, hint, select, id);
+        line.append(nowLabels[area]);
+        return line;
+    });
+    const setSources = next => {
+        for (const { area } of TRUTH_AREAS) nowLabels[area].textContent = sourceText(next?.[area]);
+    };
+
     const tag = (id, key, label, hint) => {
         const node = input(id, current[key]);
         node.addEventListener('change', () => commit(next => { next[key] = node.value.trim() || next[key]; }));
@@ -242,6 +281,9 @@ export function renderSettings(container, { settings, version = '', status = '',
                 el('label', { className: 'checkbox_label', attrs: { for: 'rpg_battle_flavour' } }, [flavourOn, el('span', { text: 'Flavour new creatures with a model call (a few seconds before the fight)' })]),
                 row('Model', profiles === null ? 'Connection Manager is off, so the chat\'s own connection is used.' : 'A connection profile has its own API and model; a small, fast one is enough.', flavourModel, 'rpg_battle_flavour_model'),
                 row('Answer length', 'Most tokens one answer may use.', flavourTokens, 'rpg_battle_flavour_tokens'),
+                el('div', { className: 'rpg-battle-settings-head', text: 'Source of truth' }),
+                el('small', { className: 'rpg-battle-settings-hint', text: 'With Story Block, Story Director or NPC State Delta beside RPG Battle, who the story follows for each area they share. Automatic: the specialist for it. Alone, every choice works like Automatic.' }),
+                ...truthRows,
                 el('div', { className: 'rpg-battle-settings-head', text: 'Blocks' }),
                 tag('rpg_battle_character_tag', 'characterTag', 'Character tag', 'The kept block with your sheet.'),
                 tag('rpg_battle_party_tag', 'partyTag', 'Party tag', 'The kept block with your companions.'),
@@ -258,5 +300,7 @@ export function renderSettings(container, { settings, version = '', status = '',
         update(next) { current = structuredClone(next); },
         /** Show or hide the Character Sheet notice (the glue checks it on every refresh). */
         setSheetConflict(on) { conflict.hidden = !on; },
+        /** Who the story follows now per area ({ [area]: { mine, name } }, or null for nothing shown). */
+        setSources,
     };
 }

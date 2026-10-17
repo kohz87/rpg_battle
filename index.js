@@ -22,6 +22,11 @@
 // creature (src/flavour.js) before the first turn. It is kept in the chat's own bestiary, so
 // the same name is the same creature for the rest of the story. The model never writes a
 // number there either: it describes, and code maps the words onto the template.
+//
+// With the other Story Suite extensions installed (src/suite.js, docs/STORY_SUITE.md), RPG
+// Battle announces itself while it is on, as the owner of stats and rolls and the fallback for
+// items, and shares its party (api.members()). The reader's source-of-truth choices decide
+// whether Story Block's Character Sheet is pointed out as a second HP; alone, nothing changes.
 
 import { DEFAULT_RULES, checkModifiers, makeRules, suggestRank } from './src/rules.js';
 import { hashSeed, makeRng } from './src/rng.js';
@@ -39,6 +44,8 @@ import { STORY_INSTRUCTION, applyWounds, describeWound, parseEncounter, parseWou
 import { renderBattleTab } from './src/ui/tab.js';
 import { renderSettings } from './src/ui/settings.js';
 import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
+import { storySuite } from './src/suite.js';
+import { SUITE_ID, announcement, partyMembers, sheetNotice, sources, suiteSignature, truthChoices } from './src/handshake.js';
 
 const VERSION = '0.3.0';
 const SETTINGS_KEY = 'rpgBattle';
@@ -81,6 +88,8 @@ const DEFAULT_SETTINGS = Object.freeze({
     flavour: { enabled: true, model: { source: 'chat' }, maxTokens: 400, timeoutSeconds: 30 },
     // The reader's rules.json, merged over the defaults (null: the defaults).
     rules: null,
+    // Story Suite: who the story follows per shared area, 'auto' | 'mine' | 'theirs' (src/handshake.js).
+    sourceOfTruth: truthChoices(null),
 });
 
 // The Character block's fields for Story Block's Fields display, under the reader's terms:
@@ -172,6 +181,7 @@ function settings(ctx = context()) {
         currency: { ...DEFAULT_SETTINGS.currency, ...(saved.currency && typeof saved.currency === 'object' ? saved.currency : {}) },
         terms: { ...DEFAULT_SETTINGS.terms, ...(saved.terms && typeof saved.terms === 'object' ? saved.terms : {}) },
         flavour: { ...DEFAULT_SETTINGS.flavour, ...(saved.flavour && typeof saved.flavour === 'object' ? saved.flavour : {}) },
+        sourceOfTruth: truthChoices(saved.sourceOfTruth),
     };
     return store[SETTINGS_KEY];
 }
@@ -888,15 +898,30 @@ function storySheetBlocks(ctx = context()) {
     return Array.isArray(list) ? list.filter(block => block && block.template === STORY_SHEET_TEMPLATE) : [];
 }
 
-/** Whether Story Block's Character Sheet is on beside RPG Battle's sheet. */
-function sheetConflict(ctx = context()) {
-    if (!settings(ctx).enabled) return false;
+/** Whether Story Block's Character Sheet is on, read from its stored settings (a Story Block outside the suite). */
+function storySheetOn(ctx = context()) {
     if (Array.isArray(ctx?.extensionSettings?.storyBlock?.blocks)) return storySheetBlocks(ctx).some(block => block.enabled);
     // Before Story Block has stored its list: its own summary (no template there, so by the template's id).
     try {
         return (storyBlock()?.listBlocks?.() ?? []).some(block => block.id === STORY_SHEET_TEMPLATE && block.enabled);
     } catch {
         return false;
+    }
+}
+
+/**
+ * Whether to point out Story Block's Character Sheet: on beside RPG Battle's sheet while RPG
+ * Battle is the source of truth for stats. Story Block in the suite says so by offering
+ * 'stats'; an older one is read from its settings, as before.
+ */
+function sheetConflict(ctx = context()) {
+    const own = settings(ctx);
+    if (!own.enabled) return false;
+    try {
+        return sheetNotice({ suite: storySuite(), choice: own.sourceOfTruth.stats, storySheetOn: () => storySheetOn(ctx) });
+    } catch (error) {
+        console.warn('[RPG Battle] the Story Suite could not be read', error);
+        return storySheetOn(ctx);
     }
 }
 
@@ -911,6 +936,88 @@ function disableStorySheet() {
     }
     settingsPanel?.setSheetConflict?.(sheetConflict(ctx));
     storyBlock()?.refresh?.();
+}
+
+// ---------------------------------------------------------------------------
+// Story Suite (docs/STORY_SUITE.md)
+
+// api.members(): the kept sheets parsed again only when their text or the terms change, so
+// another extension may ask on every refresh.
+let membersMemo = { key: null, list: Object.freeze([]) };
+
+function suiteMembers() {
+    try {
+        const own = settings();
+        if (!own.enabled) return [];
+        const characterText = blockText(own.characterTag);
+        const partyText = blockText(own.partyTag);
+        const key = JSON.stringify([characterText, partyText, own.terms, own.rules]);
+        if (membersMemo.key !== key) {
+            const r = rules();
+            const pc = characterText.trim() ? parseCharacter(characterText, r).sheet : null;
+            const members = partyText.trim() ? parseParty(partyText, r).members : [];
+            membersMemo = { key, list: partyMembers(pc, members, r) };
+        }
+        return membersMemo.list;
+    } catch (error) {
+        console.warn('[RPG Battle] the party could not be shared', error);
+        return [];
+    }
+}
+
+const SUITE_API = Object.freeze({ version: VERSION, members: () => suiteMembers() });
+
+/** Announced while RPG Battle is on, withdrawn while it is off; again whenever that changes. */
+function announceToSuite() {
+    try {
+        const suite = storySuite();
+        if (settings().enabled) suite.announce(announcement({ version: VERSION, api: SUITE_API }));
+        else suite.withdraw(SUITE_ID);
+    } catch (error) {
+        console.warn('[RPG Battle] could not announce to the Story Suite', error);
+    }
+}
+
+function currentSources() {
+    try {
+        return sources(storySuite(), settings().sourceOfTruth);
+    } catch {
+        return null;
+    }
+}
+
+function refreshSuiteViews() {
+    settingsPanel?.setSheetConflict?.(sheetConflict());
+    settingsPanel?.setSources?.(currentSources());
+    storyBlock()?.refresh?.();
+}
+
+// One listener for the life of the page. Story Block announces again when its blocks change,
+// possibly from inside its own refresh: an announcement that changes nothing is ignored, and
+// the redraw waits for the next tick rather than refreshing Story Block from within itself.
+let suiteWatched = false;
+let suiteSeen = '';
+let suiteRedraw = null;
+
+function watchSuite() {
+    if (suiteWatched) return;
+    suiteWatched = true;
+    try {
+        const suite = storySuite();
+        suiteSeen = suiteSignature(suite);
+        suite.onChange(() => {
+            const seen = suiteSignature(storySuite());
+            if (seen === suiteSeen) return;
+            suiteSeen = seen;
+            if (suiteRedraw) return;
+            suiteRedraw = setTimeout(() => {
+                suiteRedraw = null;
+                refreshSuiteViews();
+            }, 0);
+        });
+    } catch (error) {
+        console.warn('[RPG Battle] could not watch the Story Suite', error);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1292,13 +1399,16 @@ function addSettingsPanel(documentRef) {
         version: `v${VERSION}`,
         status: storyBlock() ? '' : 'Needs Story Block 0.7 or newer.',
         sheetConflict: sheetConflict(),
+        sources: currentSources(),
         profiles: connectionProfiles(),
         onDisableSheet: () => disableStorySheet(),
         onChange: next => {
             const ctx = context();
             const termsBefore = JSON.stringify(termsOf(rules()));
+            const enabledBefore = settings(ctx).enabled;
             ctx.extensionSettings[SETTINGS_KEY] = { ...settings(ctx), ...next };
             ctx.saveSettingsDebounced?.();
+            if (settings(ctx).enabled !== enabledBefore) announceToSuite();
             // New terms rename the Character block's fields; Story Block replaces a block
             // registered again under its id.
             const sb = storyBlock();
@@ -1307,6 +1417,7 @@ function addSettingsPanel(documentRef) {
                 void rewriteSheets();
             }
             settingsPanel?.setSheetConflict?.(sheetConflict(ctx));
+            settingsPanel?.setSources?.(currentSources());
             storyBlock()?.refresh?.();
         },
     });
@@ -1329,6 +1440,9 @@ function init() {
         setTimeout(init, 100);
         return;
     }
+    // Before the UI, so an extension that loads later finds RPG Battle already announced.
+    announceToSuite();
+    watchSuite();
     ensureUi();
     const ctx = context();
     const events = ctx?.event_types ?? ctx?.eventTypes ?? {};

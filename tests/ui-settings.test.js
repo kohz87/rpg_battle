@@ -153,3 +153,39 @@ test('Monsters: flavour on by default, the chat\'s model or a connection profile
     assert.ok(select.querySelectorAll('option').map(node => node.textContent).includes('(missing profile)'));
     assert.match(other.textContent, /Connection Manager is off/);
 });
+
+test('Source of truth: Automatic, This extension or The other one per shared area, and who the story follows now', () => {
+    const container = doc.createElement('div');
+    doc.body.appendChild(container);
+    const changes = [];
+    const panel = renderSettings(container, {
+        settings: SETTINGS,
+        sources: { stats: { mine: true, name: 'RPG Battle' }, rolls: { mine: true, name: 'RPG Battle' }, items: { mine: false, name: 'Story Block' } },
+        onChange: next => changes.push(next),
+    });
+    const $ = selector => container.querySelector(selector);
+    assert.match(container.textContent, /Source of truth/);
+    for (const area of ['stats', 'rolls', 'items']) {
+        const select = $(`#rpg_battle_truth_${area}`);
+        assert.equal(select.value, 'auto', `${area}: Automatic by default`);
+        assert.deepEqual(select.querySelectorAll('option').map(node => [node.value, node.textContent]), [['auto', 'Automatic'], ['mine', 'This extension'], ['theirs', 'The other one']]);
+    }
+    assert.deepEqual(container.querySelectorAll('.rpg-battle-settings-source').map(node => node.textContent), ['Now: RPG Battle', 'Now: RPG Battle', 'Now: Story Block']);
+    const stats = $('#rpg_battle_truth_stats');
+    stats.value = 'theirs';
+    stats.dispatch('change');
+    assert.deepEqual(changes.at(-1).sourceOfTruth, { stats: 'theirs', rolls: 'auto', items: 'auto' });
+    const items = $('#rpg_battle_truth_items');
+    items.value = 'mine';
+    items.dispatch('change');
+    assert.deepEqual(changes.at(-1).sourceOfTruth, { stats: 'theirs', rolls: 'auto', items: 'mine' }, 'earlier choices are kept');
+    // The glue says who the story follows whenever the suite changes.
+    panel.setSources({ stats: { mine: false, name: 'Story Block' }, rolls: { mine: true, name: 'RPG Battle' }, items: { mine: true, name: 'RPG Battle' } });
+    assert.deepEqual(container.querySelectorAll('.rpg-battle-settings-source').map(node => node.textContent), ['Now: Story Block', 'Now: RPG Battle', 'Now: RPG Battle']);
+    panel.setSources(null);
+    assert.deepEqual(container.querySelectorAll('.rpg-battle-settings-source').map(node => node.textContent), ['', '', '']);
+    // Saved choices are shown as saved; an unknown one as Automatic.
+    const saved = doc.createElement('div');
+    renderSettings(saved, { settings: { ...SETTINGS, sourceOfTruth: { stats: 'mine', rolls: 'theirs', items: 'nonsense' } } });
+    assert.deepEqual(['stats', 'rolls', 'items'].map(area => saved.querySelector(`#rpg_battle_truth_${area}`).value), ['mine', 'theirs', 'auto']);
+});

@@ -1,9 +1,10 @@
 # RPG Battle: module contract
 
 How the code is split, and the exact shapes passed between modules. Read with
-[DESIGN.md](DESIGN.md). Every module under `src/` except `src/ui/` is **pure**: no DOM, no
-globals, no SillyTavern, no `Math.random` (randomness only through `rng.js`). `index.js` is the
-only SillyTavern glue.
+[DESIGN.md](DESIGN.md). Every module under `src/` except `src/ui/` and `src/suite.js` is
+**pure**: no DOM, no globals, no SillyTavern, no `Math.random` (randomness only through
+`rng.js`). `index.js` is the only SillyTavern glue. `src/suite.js` is the Story Suite registry on
+`globalThis.StorySuite`, shared byte for byte with the other extensions (never edited here alone).
 
 Plain ES modules, no dependencies, Node.js 24. `npm run check` (syntax) and `npm test`
 (`node:test`, files `tests/*.test.js`) must pass. UI tests use `tests/ui-fake-dom.js`.
@@ -24,6 +25,8 @@ src/story.js      story wounds and fights from the story    tests/story.test.js
 src/terms.js      display terms: level/XP names, tiers, cap tests/terms.test.js
 src/templates.js  creatures made up from their names        tests/templates.test.js, tests/balance.test.js
 src/flavour.js    the flavour call's prompt, parse, mapping tests/flavour.test.js
+src/suite.js      the Story Suite registry (shared, as is) tests/suite.test.js
+src/handshake.js  RPG Battle's side of the Story Suite     tests/handshake.test.js
 src/ui/tab.js     the Battle tab                            tests/ui-tab.test.js
 style.css         all styles
 index.js          SillyTavern + Story Block glue
@@ -434,6 +437,26 @@ export function applyFlavour(creature, flavour, { rules }) → Creature
     // flavoured: true. Nothing usable → the same object back.
 ```
 
+## `src/suite.js` and `src/handshake.js` (0.3)
+
+`suite.js` is the shared contract ([STORY_SUITE.md](STORY_SUITE.md)): `storySuite()` → the
+registry (`announce`, `withdraw`, `providers`, `has`, `api`, `owner(area)`, `offering(area)`,
+`onChange`), `AREAS` (owners in order), `isSourceOfTruth(myId, area, choice, suite)`.
+`handshake.js` is pure, the suite always passed in:
+
+```js
+export const SUITE_ID = 'rpg-battle', SUITE_NAME = 'RPG Battle', SHARED_AREAS = ['stats', 'rolls', 'items']
+export function truthChoices(saved) → { stats, rolls, items }        // 'auto' | 'mine' | 'theirs'; unknown → 'auto'
+export function announcement({ version, api }) → { id, name, version, owns: SHARED_AREAS, api }
+export function partyMembers(pc: Sheet | null, members: Member[], rules) → frozen
+    [{ id: 'pc' | member id, name, role: null (the Character) | string, level, levelLabel (levelText), hp: { cur, max }, mp: { cur, max }, state (stateWords text) }]
+export function sheetNotice({ suite, choice, storySheetOn }) → boolean
+    // Story Block announced (any state): it offers 'stats' and isSourceOfTruth('rpg-battle', 'stats', choice);
+    // else storySheetOn (boolean, or a function called only then): the settings check for an older Story Block
+export function sources(suite, choices) → { [area]: { mine, name } }   // who the story follows now (settings)
+export function suiteSignature(suite) → string                         // ids, enabled, owns (sorted); apis left out
+```
+
 ## `src/handoff.js`
 
 ```js
@@ -512,8 +535,11 @@ Rows for `enemiesFromRows` may carry `level` (passed to `projectEnemy`).
 
 ## `src/ui/settings.js`
 
-`renderSettings(container, { settings, version, status, sheetConflict, profiles, onDisableSheet, onChange })
-→ { update(settings), setSheetConflict(on) }`: (0.3) **Monsters**: `settings.flavour = { enabled,
+`renderSettings(container, { settings, version, status, sheetConflict, sources, profiles, onDisableSheet, onChange })
+→ { update(settings), setSheetConflict(on), setSources(sources) }`: (0.3) **Source of truth**: a
+select per shared area (`#rpg_battle_truth_stats|rolls|items`: Automatic / This extension / The
+other one, `settings.sourceOfTruth = { stats, rolls, items }` of `'auto' | 'mine' | 'theirs'`) with
+"Now: <name>" from `sources` (`.rpg-battle-settings-source`). **Monsters**: `settings.flavour = { enabled,
 model: { source: 'chat' } | { source: 'profile', profileId }, maxTokens (100–2000) }` (`profiles`:
 [{ id, name }] or null when Connection Manager is off; a saved profile that is gone shows as
 "(missing profile)"); the on/off switch, the currency (mode, tiers as
@@ -587,3 +613,13 @@ As built (0.3):
   `extensionSettings.storyBlock.blocks` (`listBlocks()` has `enabled` but no template; it is the
   fallback, by id, before Story Block has stored its list). `onDisableStorySheet` sets their
   `enabled` to false, saves settings and refreshes Story Block.
+- **Story Suite:** `init` announces (`announcement`, `api: { version, members }`) before the UI and
+  subscribes once to `onChange`; the settings' on/off switch announces again or withdraws.
+  `members()` is `partyMembers` of the kept Character and Party blocks (`getBlock(tag)`), memoised
+  on their text and the terms and rules, `[]` when off or on any error. `sheetConflict()` is
+  `sheetNotice` with `settings.sourceOfTruth.stats`; the settings-based check above is its
+  fallback for a Story Block outside the suite. A suite change whose `suiteSignature` differs
+  redraws on the next tick (the notice in the settings, the "Now:" lines, Story Block's refresh),
+  so Story Block announcing from inside its own refresh is neither re-entered nor looped. Not the
+  source of truth for stats changes only the notice: the kept blocks, their prompt notes, the
+  story instruction and the Dice modifier stay as they are, since fights need RPG Battle's sheets.
