@@ -28,6 +28,7 @@
 
 import { STATS, RANKS, DEFAULT_RULES, maxHp, maxMp, derive, checkModifiers } from '../rules.js';
 import { stateWords } from '../narrative.js';
+import { SLOT_NAMES, formatStats } from '../items.js';
 import { levelLabel, levelTag, levelText, powerOptions, progress, termsOf, tierOf, xpGainText } from '../terms.js';
 
 const ROLES = ['brute', 'skirmisher', 'caster', 'tank', 'support'];
@@ -498,6 +499,28 @@ function renderIdle(root, view, handlers) {
             button('Spend', 'rpg-battle-spend', { iconName: 'fa-plus', onClick: () => emit(handlers, 'onSpend') }),
         ]) : null,
     ]));
+
+    // What the fight will use from the Inventory: each counted piece with its stats as capped
+    // by rarity, and anything else marked equipped that does not count, with why.
+    if (view.gear) {
+        const counted = list(view.gear.counted);
+        const unused = list(view.gear.unused);
+        root.append(section('is-gear', [
+            sub('Gear', 'fa-shield-halved', counted.length),
+            counted.length ? el('ul', { className: 'rpg-battle-records' }, counted.map(piece => {
+                const item = el('li', { className: 'rpg-battle-record rpg-battle-gear' }, [
+                    el('div', { className: 'rpg-battle-record-head' }, [
+                        el('span', { className: 'rpg-battle-record-name', text: str(piece.name) }),
+                        el('span', { className: 'rpg-battle-tag is-quiet', text: SLOT_NAMES[piece.slot] ?? str(piece.slot) }),
+                    ]),
+                    el('div', { className: 'rpg-battle-record-meta', text: [formatStats(piece.stats) || 'no stats', piece.capped && piece.from ? `capped from ${formatStats(piece.from)}` : ''].filter(Boolean).join(' · ') }),
+                ]);
+                if (piece.capped) item.classList.add('is-capped');
+                return item;
+            })) : el('p', { className: 'rpg-battle-hint', text: 'Nothing equipped. Gear counts when its Inventory note says "equipped".' }),
+            unused.length ? el('p', { className: 'rpg-battle-hint rpg-battle-gear-unused', text: `Not counted: ${unused.map(piece => `${str(piece.name)} (${str(piece.why)})`).join(' · ')}` }) : null,
+        ]));
+    }
 
     const skills = list(view.skills);
     root.append(section('is-skills', [

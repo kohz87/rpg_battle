@@ -138,8 +138,10 @@ Healing Draught | 3 | heal 30
 Ember Flask | 1 | fire 25, all enemies
 ```
 
-- **Slots:** weapon, off-hand, armour, accessory ×2. The first equipped item of each slot counts;
-  the slot comes from the category path, or `slot: …` in the note.
+- **Slots:** weapon, off-hand, armour, worn ×1 (head, hands, feet, waist), accessory ×2; the worn
+  and accessory counts are settings (`rules.gear`, 0–9). The first equipped items of each slot
+  count, the rest are listed as not counted; the slot comes from the item's kind, the category
+  path, or `slot: …` in the note.
 - **Stats an item may carry:** `ATK`, `MATK`, `DEF`, `MDEF`, `HP`, `MP`, any of the seven stats,
   `crit`, and tags (`range`, `fire`, `ice`, `holy`, `poison`, `two-handed`).
 - **Limits by rarity** (section 5.4): an item's stats are capped by a budget for its rarity and

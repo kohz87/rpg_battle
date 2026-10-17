@@ -189,3 +189,21 @@ test('Source of truth: Automatic, This extension or The other one per shared are
     renderSettings(saved, { settings: { ...SETTINGS, sourceOfTruth: { stats: 'mine', rolls: 'theirs', items: 'nonsense' } } });
     assert.deepEqual(['stats', 'rolls', 'items'].map(area => saved.querySelector(`#rpg_battle_truth_${area}`).value), ['mine', 'theirs', 'auto']);
 });
+
+test('Equipment: how many worn pieces and accessories count, whole numbers 0 to 9', () => {
+    const { $, changes } = mount();
+    assert.equal($('#rpg_battle_gear_worn').value, '1');
+    assert.equal($('#rpg_battle_gear_accessories').value, '2');
+    const accessories = $('#rpg_battle_gear_accessories');
+    accessories.value = '4.2';
+    accessories.dispatch('change');
+    assert.equal(accessories.value, '4');
+    assert.deepEqual(changes.at(-1).gear, { worn: 1, accessories: 4 });
+    const worn = $('#rpg_battle_gear_worn');
+    worn.value = '40';
+    worn.dispatch('change');
+    assert.deepEqual(changes.at(-1).gear, { worn: 9, accessories: 4 });
+    worn.value = '';
+    worn.dispatch('change');
+    assert.equal(worn.value, '1', 'empty goes back to the default');
+});

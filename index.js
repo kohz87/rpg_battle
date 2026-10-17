@@ -36,7 +36,7 @@ import { cleanCreature, combinedBestiary, creaturesToMake, generateCreature, sto
 import { applyFlavour, flavourPrompt, parseFlavour, sceneText } from './src/flavour.js';
 import { act, availableActions, replay, startFight, summarize } from './src/combat.js';
 import { applyResult, formatCharacter, formatParty, learnSkill, newSheet, parseCharacter, parseParty, spendPoints } from './src/sheet.js';
-import { addLoot, consumables, formatMoney, parseInventory, useItems } from './src/items.js';
+import { addLoot, consumables, formatMoney, gearSummary, parseInventory, useItems } from './src/items.js';
 import { buildHandoff } from './src/handoff.js';
 import { combatantFromSheet, editCompanion, enemiesFromRows, newCompanion, remapIds } from './src/party.js';
 import { recoverOverTime, rest, useItemOutside } from './src/recovery.js';
@@ -47,7 +47,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { SUITE_ID, announcement, partyMembers, sheetNotice, sources, suiteSignature, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.3.0';
+const VERSION = '0.3.1';
 const SETTINGS_KEY = 'rpgBattle';
 const TAB_ID = 'rpg-battle';
 const PROMPT_KEY = 'rpg_battle';
@@ -86,6 +86,8 @@ const DEFAULT_SETTINGS = Object.freeze({
     // Made-up creatures get the story's words from one call each, on the chat's model or a
     // connection profile; `timeoutSeconds` is the longest a fight start waits for all of them.
     flavour: { enabled: true, model: { source: 'chat' }, maxTokens: 400, timeoutSeconds: 30 },
+    // How many worn pieces and accessories count in a fight (rules.gear).
+    gear: { worn: DEFAULT_RULES.gear.worn, accessories: DEFAULT_RULES.gear.accessories },
     // The reader's rules.json, merged over the defaults (null: the defaults).
     rules: null,
     // Story Suite: who the story follows per shared area, 'auto' | 'mine' | 'theirs' (src/handshake.js).
@@ -181,6 +183,7 @@ function settings(ctx = context()) {
         currency: { ...DEFAULT_SETTINGS.currency, ...(saved.currency && typeof saved.currency === 'object' ? saved.currency : {}) },
         terms: { ...DEFAULT_SETTINGS.terms, ...(saved.terms && typeof saved.terms === 'object' ? saved.terms : {}) },
         flavour: { ...DEFAULT_SETTINGS.flavour, ...(saved.flavour && typeof saved.flavour === 'object' ? saved.flavour : {}) },
+        gear: { ...DEFAULT_SETTINGS.gear, ...(saved.gear && typeof saved.gear === 'object' ? saved.gear : {}) },
         sourceOfTruth: truthChoices(saved.sourceOfTruth),
     };
     return store[SETTINGS_KEY];
@@ -188,7 +191,7 @@ function settings(ctx = context()) {
 
 function rules() {
     const own = settings();
-    return makeRules({ ...(own.rules ?? {}), currency: own.currency, terms: own.terms });
+    return makeRules({ ...(own.rules ?? {}), currency: own.currency, terms: own.terms, gear: own.gear });
 }
 
 // Per-chat state: { fight: { setup, actions } | null, pending: { handoff, fightId, attachedTo } | null,
@@ -1135,6 +1138,7 @@ function viewFor() {
     const offer = encounterOffer(ctx, state);
     return {
         mode: 'idle', sheet, checks: checkModifiers(sheet.stats, r), skills, party: currentParty(), rules: r,
+        gear: gearSummary(currentItems(), sheet.level, r),
         pending: state.pending?.handoff ?? null,
         recovered,
         story,
