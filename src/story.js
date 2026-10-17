@@ -7,8 +7,9 @@
 // wrong thing. So the model may add a hidden <Wounds> block naming who was hurt and how badly
 // in a few fixed words, and code turns the words into HP with a share of max HP per word
 // (rules.wounds). The model never writes a number. Likewise a fight the story starts is named
-// in an <Encounter> block ("3 bandit, bandit captain (boss)"), parsed here into setup rows the
-// reader confirms. Both parsers are lenient, because they read what a model wrote.
+// in an <Encounter> block ("3 bandit, bandit captain (boss)"), parsed here into the rows of a
+// fight the reader takes or leaves but never changes: the engagement and its stakes ("| to the
+// death") are the story's (0.4.2). Both parsers are lenient, because they read what a model wrote.
 //
 // An encounter may also say how dangerous a foe is in one word, relative to the party
 // ("3 marsh wolf (weak)", "wolf matriarch (boss, strong)"): a threat, which threatLevel turns
@@ -24,12 +25,12 @@ import { creatureSingular } from './templates.js';
  * What the model is told every reply while you have a character (index.js injects it at
  * depth 1, apart from the fight hand-off). It is paid for on every reply, so it stays near 170
  * tokens (tests/story.test.js holds it there): the hidden blocks by example, each only when
- * the story makes it true, and the judgement calls (which wound word, which threat word, how
- * big an achievement). "Stop at the first blow" leaves the fight itself to RPG Battle, so the
+ * the story makes it true, and the judgement calls (which wound word, which threat word, a fight
+ * to the death or not, how big an achievement). "Stop at the first blow" leaves the fight itself to RPG Battle, so the
  * prose does not resolve what the buttons are about to. Every block is only an offer: the
  * reader accepts it or not.
  */
-export const STORY_INSTRUCTION = 'Hidden blocks, only when the story makes them true (not for an RPG Battle fight). Someone on the Party sheet hurt or healed: <Wounds>, a line each, Name — scratch|wound|severe|grievous: cause (or heal wound, or poisoned; mildest fitting word). A fight starts: <Encounter>3 wolf (weak); then: wolf matriarch (boss, strong)</Encounter> (threat vs party: trivial|weak|even|strong|deadly), then stop at the first blow. Also: <Joins>Lyra — healer, level 6</Joins>, <Leaves>Lyra: went home</Leaves>, <Learned>Lyra — Frost Lance: ice magic, hits all</Learned>, <XP>minor|major|milestone: why</XP>, <Rest>short|long: why</Rest> when the party rests.';
+export const STORY_INSTRUCTION = 'Hidden blocks, only when the story makes them true (not for an RPG Battle fight). Someone on the Party sheet hurt or healed: <Wounds>, a line each, Name — scratch|wound|severe|grievous: cause (or heal wound, or poisoned; mildest fitting word). A fight starts: <Encounter>3 wolf (weak); then: wolf matriarch (boss, strong)</Encounter> (threat vs party: trivial|weak|even|strong|deadly; | to the death if defeat is death), then stop at the first blow. Also: <Joins>Lyra — healer, level 6</Joins>, <Leaves>Lyra: went home</Leaves>, <Learned>Lyra — Frost Lance: ice magic, hits all</Learned>, <XP>minor|major|milestone: why</XP>, <Rest>short|long: why</Rest> when the party rests.';
 
 // Mildest first, so "the worst word mentioned" is the one with the highest index.
 export const SEVERITIES = Object.freeze(['scratch', 'wound', 'severe', 'grievous']);
@@ -258,6 +259,10 @@ const NUMBER_WORDS = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, 
 const MAX_COUNT = 9;
 // Engagements after the first (`then:`), each fought when the one before is done.
 const MAX_WAVES = 3;
+// What follows a bar on a line is about the fight, not a foe: "| to the death" (also "| death",
+// "| stakes: death") makes defeat death; anything else there is ignored.
+const DEATH_MARK = /^\s*(?:stakes\s*:?\s*)?(?:to\s+the\s+)?death\s*[.!]*\s*$/i;
+const foesOnly = text => String(text ?? '').split(/\r?\n/).map(line => line.split('|')[0]).join('\n');
 const nameMatch = (a, b) => nameKey(a).replace(/[^a-z0-9]+/g, ' ').trim() === nameKey(b).replace(/[^a-z0-9]+/g, ' ').trim();
 
 // A plural's last word in its likely singular forms, most likely first.
@@ -370,12 +375,13 @@ function parseGroup(raw, bestiary, rules) {
  * brackets or before the name ("(weak)", "(boss, strong)", "3 deadly wyverns") adds `threat`
  * ('trivial' | 'weak' | 'even' | 'strong' | 'deadly'), only when no rank or level is written.
  * `then:` before a group starts the next engagement ("3 bandit; then: bandit captain (boss)"):
- * its rows and the ones after carry `wave` (1, 2, at most 3), fought back to back.
+ * its rows and the ones after carry `wave` (1, 2, at most 3), fought back to back. What follows
+ * a bar on a line is the fight's, not a foe (parseStakes).
  */
 export function parseEncounter(text, bestiary = DEFAULT_BESTIARY, rules = DEFAULT_RULES) {
     const rows = [];
     // "(boss, rank D)" is one group's note, so separators inside brackets are kept for it.
-    const guarded = String(text ?? '').replace(/[([][^)\]]*[)\]]/g, inside => inside.replace(/[,;]/g, '\u0001'));
+    const guarded = foesOnly(text).replace(/[([][^)\]]*[)\]]/g, inside => inside.replace(/[,;]/g, '\u0001'));
     let wave = 0;
     for (const raw of guarded.split(/\r?\n|[,;]|\s+(?:and|&|\+)\s+/i)) {
         // "then:" starts the next engagement, fought straight after this one.
@@ -390,6 +396,31 @@ export function parseEncounter(text, bestiary = DEFAULT_BESTIARY, rules = DEFAUL
         if (row) rows.push(row);
     }
     return rows;
+}
+
+/**
+ * An encounter's stakes, from the story: 'death' when a line ends with `| to the death` (also
+ * `| death`, `| stakes: death`, any case), else 'normal' (defeat means the story decides).
+ */
+/** What the story's fight says, for the offer line: each line without its `| …` notes (the stakes are shown on their own). */
+export function encounterSummary(text) {
+    return String(text ?? '').split(/\r?\n/).map(line => line.split('|')[0].trim()).filter(Boolean).join('; ');
+}
+
+export function parseStakes(text) {
+    const notes = String(text ?? '').split(/\r?\n/).flatMap(line => line.split('|').slice(1));
+    return notes.some(note => DEATH_MARK.test(note)) ? 'death' : 'normal';
+}
+
+/**
+ * The fight to build, from the offer Fight? opened ({ rows, stakes }, parsed from the story),
+ * never from what the Battle tab sends: { rows, stakes } as copies, stakes 'death' or
+ * 'normal'. Without a story's rows it refuses, since fights come from the story.
+ */
+export function storyFight(offer) {
+    const rows = (Array.isArray(offer?.rows) ? offer.rows : []).filter(row => row && String(row.name ?? '').trim());
+    if (!rows.length) throw new Error('Fights come from the story: fight one it offers.');
+    return { rows: rows.map(row => ({ ...row })), stakes: offer.stakes === 'death' ? 'death' : 'normal' };
 }
 
 /**

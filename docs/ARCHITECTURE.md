@@ -208,6 +208,12 @@ export function projectEnemy({ name, rank, level, role, boss }, { bestiary, libr
 export function rollLoot(enemy, { rng, luck, rules }) → { items: [Item-like { name, qty, rarity, kind, stats }], money: number }
     // enemy.loot may be the rows themselves (a made-up creature) instead of a table id.
     // money in the smallest currency unit from rules.moneyByRank; LUK nudges rarity and chance.
+    // (0.4.2) money only when enemy.coins !== false; a coinless foe's first material row is at
+    // least rules.loot.coinlessMaterial (85) % likely. The money roll is made either way.
+export function carriesCoin(creature, { boss }) → boolean   // (0.4.2) a bestiary entry or a Combatant
+    // its own `coins` (true | false | 'boss': only as a boss); else a made-up creature's template:
+    // humanoid, leader, caster carry coin, a drake only as a boss; else (beast, insect, ooze, plant,
+    // construct, spirit, undead, generic, or no entry) none. projectEnemy sets Combatant.coins.
 ```
 
 ## `src/combat.js`
@@ -379,7 +385,7 @@ The model's two optional hidden blocks (DESIGN §4.2, §8.6), read leniently (bu
 en or em dash or a spaced hyphen, any case); never throws.
 
 ```js
-export const STORY_INSTRUCTION: string       // the always-on instruction, every hidden block (0.4: ≈ 160 tokens; tests hold it ≤ 170)
+export const STORY_INSTRUCTION: string       // the always-on instruction, every hidden block (0.4.2: ≈ 169 tokens with `| to the death`; tests hold it ≤ 170)
 export const SEVERITIES = ['scratch', 'wound', 'severe', 'grievous']   // mildest first
 export function parseWounds(text) → [{ name, kind: 'harm' | 'heal' | 'condition' | 'cure', severity?, condition?, cause }]
     // `Name — scratch|wound|severe|grievous: cause` harm (the worst severity word in a short
@@ -397,6 +403,9 @@ export function applyWounds({ pc: Sheet | null, members: Member[] }, wounds, rul
     //            condition | null, cause, down? }], only lines that changed something.
 export function describeWound(entry) → string // "Ren: wound (−29 HP), fell down the ravine."
 export function parseEncounter(text, bestiary, rules) → [{ name, count (1–9), rank | null, role | null, boss, level? }]
+    // (0.4.2) what follows a '|' on a line is the fight's, not a foe
+export function parseStakes(text) → 'death' | 'normal'   // (0.4.2) a line's `| to the death` (also `| death`, `| stakes: death`)
+export function storyFight(offer) → { rows, stakes }      // (0.4.2) copies of offer.rows and its stakes; throws without rows
     // `level` only when brackets name a power in the terms ('(Soul Class II)', '(boss, Lv 24)',
     // '(level 12)'; parseLevelLabel strict; 'rank D' stays a rank)
     // groups by ',', ';', new line, 'and', '&', '+' (not inside brackets); each
@@ -516,6 +525,16 @@ export function buildHandoff(result, { names, currency, stakes, pcName, rules })
 // [Battle resolved by RPG Battle: narrate this outcome, do not change it]
 ```
 
+(0.4.2) Where a stored hand-off (`pending: { handoff, fightId, attachedTo }`) stands:
+
+```js
+export function handoffState(pending, chat, { generating }) → 'none' | 'waiting' | 'narrating' | 'narrated'
+    // waiting: attachedTo unset, or no reply at or after it and nothing generating; narrating: given
+    // to the reply being generated; narrated: a reply at (or after) attachedTo
+export function settleHandoff(pending, chat, { generating }) → pending | null
+    // null once a reply after attachedTo exists; attachedTo reset to null when its reply is gone
+```
+
 XP line in the terms: `XP +38 each.`, `Power Growth +38.`, with tiers `Soul Growth +12% each.` (each
 member's share of their tier, from `result.party[].level`); a member at the cap is left out.
 
@@ -583,10 +602,13 @@ other modes, and a pane's events redraw that pane (the other tab may have drawn 
 | `spend` | `{ sheet, memberId, rules }` | `onConfirmSpend(allocation, memberId)`, `onBack()` |
 | `learn` | `{ sheet, memberId, library, prefill: { name, words, type, stat, target, element, free } \| null, rules }`: at the cap a select asks who sits out | `onConfirmLearn({ name, fromLibrary?, template?, setAside?, memberId? })`, `onBack()` |
 | `companion` | `{ level, maxLevel, prefill: { name, role, level, focus, npcId, summary }, kit: { key, status: 'working' \| 'ready', skills, note }, npcs, rules }` | `onAddCompanion({ name, role, control, level, focus, skills: [spec], gearLines, npcId })`, `onGenerateKit(who)`, `onBack()` |
-| `offer` | `{ encounter: { text, label, rows } \| null, pending }` | `onFightEncounter(rows)`, `onDismissEncounter()` |
+| `offer` | `{ encounter: { text, label, rows, stakes } \| null, pending }` (0.4.2: *To the death* said as `.rpg-battle-encounter-stakes`) | `onFightEncounter()` (0.4.2: no arguments; the glue opens the offer it parsed), `onDismissEncounter()` |
+| `setup` (0.4.2) | `{ rows: [{ name, count, level \| null, rank \| null, role \| null, boss, threat?, wave? }], stakes: 'normal' \| 'death', known: [names and aliases], preparing: [names] \| null, rules }`: read-only, no inputs; per engagement (`.rpg-battle-engagement`, a `.rpg-battle-wave` heading when more than one) a line per row: `.rpg-battle-enemy-count` (`3 ×`), `-name`, `.rpg-battle-new` (not in `known`), `.rpg-battle-boss`, `-power` (a level as `levelText`; a rank as `Rank D`, or its level's `levelText` with custom terms), `.rpg-battle-threat`, `-role`; the stakes as text (`.rpg-battle-stakes.is-normal\|is-death`); while `preparing`, Start is disabled and the summary reads *Preparing foes: …*; no rows: a notice and Not now only | `onStart()` (no arguments), `onDismissEncounter()` (Not now) |
+| `result` (0.4.2) | as in 0.3 | `onReturn()`, `onDone()` (no Discard: the result always reaches the story) |
+| `idle` (0.4.2) | also `narrating` (boolean): `pending` is set only while the hand-off is waiting; while it is being narrated a quiet `.rpg-battle-narrating` line | as above |
 
-The 0.3 table below still describes `setup`, `fight`, `result` and `items` (setup rows may carry
-`wave`, shown as *then N*).
+The 0.3 table below still describes `fight` and `items`; its `setup` and `result` rows are
+superseded by the ones above.
 
 `view.mode` and its data:
 
@@ -717,7 +739,7 @@ As built (0.3):
 - **Encounters:** the offer is the latest reply's `<Encounter>`, else the first due or soon entry
   of `StoryDirector.encountersAt(index)` (typeof-guarded, try/catch); none during a fight or with
   a hand-off pending; `dismissed: ['index:text']` (the last 30) holds Not now and fights started
-  from an offer. `onFightEncounter(rows)` opens the setup with `prefill`. Toasts with buttons use
+  from an offer. `onFightEncounter(rows)` opens the setup with `prefill` (0.4.2: read-only, see below). Toasts with buttons use
   `escapeHtml: false` with every model-written part escaped.
 - **Terms:** `settings.terms` (merged like `currency`) goes into `rules()` as `terms`. The
   Character block's Story Block fields are `characterFields(rules)` (the level field under
@@ -863,3 +885,35 @@ export function npcRenames(members, profiles, { seen, done, pcName }) → { rena
   sets or clears the link for the new id and records the NPC's name in `npcNames`. The NPC
   rename offer is gone from `currentOffers`; `partyKey` carries the linked NPCs' names, so a
   rename redraws the Party tab.
+
+## As built (0.4.2)
+
+- **The engagement and stakes are the story's.** `encounterOffer()` adds `stakes:
+  parseStakes(text)` (the reply's `<Encounter>` or Story Director's planned text alike); the
+  toast's Fight builds the same `{ rows, stakes, key }`. `fightEncounter(offer)` stores it on the
+  screen (`screen = { mode: 'setup', prefill: rows, stakes, offerKey }`) and refuses without rows
+  ("Fights come from the story."); `onFightEncounter()` ignores its arguments and passes
+  `encounterOffer()`. `battleView()`'s setup gives `rows: setupRows(prefill, …)` (`rankedRows`
+  plus the known creature's own level or rank and its role, or the template role `classify`
+  gives a name to be made up) and `stakes`. `onStart()` ignores what the tab sends:
+  `storyFight({ rows: screen.prefill, stakes: screen.stakes })` (only while the setup of this
+  chat is on screen) → `prepareAndStart`, so a changed page cannot change the fight.
+  `onDismissEncounter()` on the setup puts away `screen.offerKey` and closes it. The setup's
+  draft, row editors, power picker, autocomplete and stakes radios are gone.
+- **No Discard.** `onDiscard` and the result's two-click button are gone; Done closes the tab
+  and the hand-off waits for the next reply (the Party tab shows it with Return to story).
+- **The hand-off clears once narrated.** `generating` (module state) is set when the interceptor
+  gives the hand-off to a reply and cleared when a reply arrives (`afterReply`,
+  `MESSAGE_RECEIVED`), on `GENERATION_STOPPED` and on chat change (not `GENERATION_ENDED`: a quiet
+  call elsewhere ends one too). `handoffNow()` = `handoffState(pending, chat, { generating })`
+  drives the views (`pending` only when 'waiting', `narrating`), the token estimate,
+  `currentOffers`' `pending` flag and the encounter gate (no offer while 'waiting' or 'narrating';
+  a narrated result does not hold back the next fight). `settlePending()` stores `settleHandoff`
+  (in `afterReply`, on `MESSAGE_RECEIVED` and `MESSAGE_DELETED`): spent once a newer reply exists,
+  waiting again when the narrating reply was deleted; `handoffFor` settles first, so a deleted
+  narration is given to the next reply.
+- **Coin only from foes that carry it** (`enemies.carriesCoin`): the shipped bestiary has
+  `coins` (people `true`, beasts and the dead `false`, Wyvern `'boss'`); a made-up creature by its
+  template. A coinless foe drops no money and its first material is at least
+  `rules.loot.coinlessMaterial` (85) % likely. `rollLoot` with no `luck` now uses the start stat
+  (`Number(null)` was read as luck 0).

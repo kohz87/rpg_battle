@@ -1,14 +1,15 @@
-# RPG Battle v0.4.1
+# RPG Battle v0.4.2
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
-When the story starts a fight, RPG Battle offers it: **Fight?** opens the setup, you fight with
-buttons (**Attack, Skill, Item, Defend, Parley, Flee, Auto**), and the story gets one short
-summary to narrate. No model calls during the fight, no arithmetic for the model, and a lost
+When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
+the story gave them, **Start** begins it, you fight with buttons (**Attack, Skill, Item, Defend,
+Parley, Flee, Auto**), and the story gets one short summary to narrate. No model calls during the fight, no arithmetic for the model, and a lost
 fight cannot be rerolled by swiping.
 
 The story drives, you decide: fights, rests, new skills, companions joining or leaving and XP
 for what the party achieves all come from the story as **offers** you accept or put away. There
-is no free fight, rest or skill on demand; code sets every number.
+is no free fight, rest or skill on demand; code sets every number. A fight is the story's too:
+you choose whether to fight it, not who you fight or what is at stake.
 
 Needs [Story Block](https://github.com/kohz87/Story_block) **0.7** or newer. With
 [Story Director](https://github.com/kohz87/Story_director) **0.7.2** or newer, HP and MP also come
@@ -128,7 +129,7 @@ Soul Class: III (Lv 24) | Soul Growth: 28.10/100 | Points: 2
 
 and with names of your own but no tiers `Soul Power: 24 | Power Growth: 5400/11760 | Points: 2`.
 The exact level always stays in the block, so changing or turning off the terms never loses a
-sheet. With your own terms, the fight setup picks an enemy's power as one of your tiers (or
+sheet. With your own terms, the fight setup shows an enemy's power as one of your tiers (or
 levels) instead of F to SSS, a story's `<Encounter>` may name one (`3 wolf (Soul Class I)`), and
 a won fight says `Soul Growth +12%` (or `Power Growth +38`).
 
@@ -291,7 +292,13 @@ Healing Draught | 2 | heal 30
   rarity and kind.
 - **Consumables** with an effect (`heal 30`, `mp 20`, `cure poison`, `fire 25, all enemies`) can
   be used in a fight; what you use comes off the inventory afterwards.
-- **Loot** from a won fight is written into the inventory, money into your money row.
+- **Loot** from a won fight is written into the inventory, money into your money row. Only foes
+  that would carry coin drop money: people (bandits, cultists, goblins, orcs…), their leaders and
+  casters, and a drake or wyvern that is a boss, on its hoard. Beasts, insects, oozes, plants,
+  constructs, spirits and the dead leave something of themselves instead (a *Wolf Pelt*, a
+  *Fang*, *Spider Silk*, *Slime Jelly*, *Old Bone*), and more often than a coin carrier leaves
+  its materials. The shipped bestiary marks each creature (`coins: true`, `false` or `'boss'`); a
+  made-up one goes by its kind.
 - **Give item** (on a companion's card) moves one equipment row from your Inventory onto their
   gear (the Equipped line of their section; the same slot limits and rarity caps, at their
   level); **Take back** puts a piece back into your Inventory, not equipped.
@@ -304,12 +311,13 @@ battle: the offer, the setup, the fight, and its result until it goes back to th
 
 1. **The offer:** *A fight is starting: 3 bandit, bandit captain (boss)*, **Fight?** or **Not now**
    (also as a toast). **Fight?** opens the setup.
-2. **Setup**: the rows the story named (the bestiary autocompletes; any name works, and one it
-   does not know is made up, see *Monsters on the fly*), how many, and optionally a rank (F to
-   SSS), a role (brute, skirmisher, caster, tank, support) and **Boss**; change anything. Leave
-   the rank on *auto* for the bestiary's rank or a fair one for your level. Choose the stakes:
-   *Normal* (defeat means the story decides: captured, robbed, left for dead) or *To the death*
-   (defeat is death: game over).
+2. **Setup**: the engagement as the story gave it, to fight or not, never to change. Each line
+   shows how many, the name (tagged **new** when nobody knows it: it is made up when the fight
+   starts, see *Monsters on the fly*), its power in your terms (the bestiary's own, the story's
+   threat word turned into a level, or a fair one for your level), its role and **Boss**; later
+   engagements are listed in order. The stakes are said, not chosen: *Stakes: Normal* (defeat
+   means the story decides: captured, robbed, left for dead) or *Stakes: To the death* (defeat
+   is death: game over), as the story marked it. **Start** or **Not now**.
 3. **Fight**: on your turn pick an action and tap a target. Enemies (and companions on *auto*)
    act on their own, by simple predictable rules. **Auto** plays the rest of the fight for you.
 4. **The result**: outcome, HP and MP left, XP, loot and the key moments are applied to the
@@ -326,7 +334,10 @@ Loot: 1 silver, 3 copper, a goblin ear, a shaman's charm. XP +72.
 
 **Return to story** sends a short message for you so the narration comes straight away. The
 summary is given to that one reply only; its swipes narrate the same result. **Done** closes the
-Battle tab; while the summary waits, the Party tab shows it with **Return to story**.
+Battle tab; while the summary waits, the Party tab shows it with **Return to story**. Once the
+reply that narrates it is in, the notice goes (and the story's next fight can be offered); delete
+that reply and the result waits again. There is no Discard: a fight's result always reaches the
+story, so the sheets and the narration agree.
 
 ## Fights from the story
 
@@ -338,8 +349,9 @@ foes and stops at the first blow, so the fight itself is yours to play:
 ```
 
 A toast and the Battle tab (which appears for it) offer it: *A fight is starting: 3 bandit,
-bandit captain (boss)*, **Fight?** or **Not now**. **Fight?** opens the setup with the rows filled in (three Bandits, one
-Bandit Captain as a boss, normal stakes); change anything before **Start**. **Not now** puts the
+bandit captain (boss)*, **Fight?** or **Not now**. **Fight?** shows it as it will be fought (three
+Bandits, one Bandit Captain as a boss, normal stakes), read-only; **Start** fights it. Nothing on
+the page can change the fight: RPG Battle builds it from the block it read. **Not now** puts the
 offer away for that reply. Groups are separated by commas, `and` or new lines; each is a count
 (`3`, `3 x`, `two`, `a`), the name, and optionally `(boss)`, `rank D` and a role. A plural is made
 singular when the bestiary knows the creature ("3 bandits" → Bandit) or its last word is a
@@ -372,10 +384,20 @@ done, with no rest between:
 ```
 
 It is one battle: HP, MP and conditions carry over, and there is one result and one hand-off at
-the end. The setup tags the later rows (*then 2*); up to three engagements after the first.
+the end. The setup lists each engagement in order; up to three after the first.
+
+**The stakes:** a fight to the death is marked after a bar, at the end of the block:
+
+```
+<Encounter>3 bandit; then: bandit captain (boss) | to the death</Encounter>
+```
+
+Defeat is then death (game over, and the hand-off says so). `| death` and `| stakes: death` work
+too, in any case; without a mark the stakes are normal (defeat means the story decides). What
+follows a bar is never read as a foe.
 
 With Story Director 0.8, a fight it has planned (a beat with foes, now due or due soon) is
-offered the same way, with its name and place; its text may use `then:` too.
+offered the same way, with its name and place; its text may use `then:` and `| to the death` too.
 
 ## Monsters on the fly
 
@@ -422,7 +444,7 @@ The creature is then **kept in the chat** (its metadata), so the same name is th
 for the rest of the story, with its own level when a later fight names no power. Names are
 looked up in this story's creatures first, then the shipped bestiary, and only then made up.
 
-- **Setup:** a name nobody knows is tagged **new**; in the fight, its card is too (its look is
+- **Setup:** a name nobody knows is tagged **new** (made up when you press **Start**); in the fight, its card is too (its look is
   the card's tooltip).
 - **Bestiary** (a fold at the bottom of the Party tab): this story's creatures with their power in your
   terms, role, traits and look; **Regenerate** makes one again (and flavours it again),

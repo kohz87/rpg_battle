@@ -127,3 +127,38 @@ export function buildHandoff(result, { names = {}, currency = DEFAULT_RULES.curr
     }
     return lines.join('\n');
 }
+
+// ---------------------------------------------------------------------------
+// Where a waiting hand-off stands (0.4.2)
+
+const isReply = message => Boolean(message) && !message.is_user && !message.is_system;
+
+/**
+ * Where a fight's hand-off (`pending`: { handoff, fightId, attachedTo }) stands against the
+ * chat: 'none' (no result to narrate); 'waiting' (not given to a reply yet, or its reply was
+ * deleted: the next reply narrates it); 'narrating' (given to the reply being generated, which
+ * is not in the chat yet: `generating`); 'narrated' (its reply is there, or the story has
+ * moved past it). Only 'waiting' asks the reader to return to the story.
+ */
+export function handoffState(pending, chat = [], { generating = false } = {}) {
+    if (!pending || !pending.handoff) return 'none';
+    const at = pending.attachedTo;
+    if (at === null || at === undefined || !Number.isInteger(Number(at))) return 'waiting';
+    const list = Array.isArray(chat) ? chat : [];
+    if (list.slice(Number(at)).some(isReply)) return 'narrated';
+    return generating ? 'narrating' : 'waiting';
+}
+
+/**
+ * The hand-off as it should be stored now: null once a reply after the narrating one exists
+ * (the story has moved past it; until then its swipes narrate the same result), unattached
+ * again when its reply is gone (deleted, or never came), else unchanged.
+ */
+export function settleHandoff(pending, chat = [], { generating = false } = {}) {
+    const state = handoffState(pending, chat, { generating });
+    if (state === 'none') return null;
+    const at = Number(pending.attachedTo);
+    if (state === 'narrated' && (Array.isArray(chat) ? chat : []).slice(at + 1).some(isReply)) return null;
+    if (state === 'waiting' && pending.attachedTo !== null && pending.attachedTo !== undefined) return { ...pending, attachedTo: null };
+    return pending;
+}

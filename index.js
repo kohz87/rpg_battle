@@ -11,7 +11,8 @@
 // (afterReply) takes the sheets as they were before that reply, heals them by the story time
 // it moved on, applies the reply's hidden <Wounds>, and writes the result into that reply
 // once, so a swipe or a continue recomputes it instead of adding to it. A reply's
-// <Encounter> (or a fight Story Director planned) is offered as a fight, never started; its
+// <Encounter> (or a fight Story Director planned) is offered as a fight, never started, and
+// fought as the story wrote it (foes and stakes; the reader takes it or leaves it); its
 // <Joins>, <Leaves>, <Learned>, <XP> and <Rest> (and the opening message's), Story Director's
 // finished quests, a fallen companion and a rename are offers too (src/offers.js), applied
 // only on Accept. The reader gets no free fight, rest, skill or companion: the story brings
@@ -38,15 +39,15 @@ import { DEFAULT_RULES, checkModifiers, makeRules, suggestRank } from './src/rul
 import { hashSeed, makeRng } from './src/rng.js';
 import { DEFAULT_SKILLS, findSkill, resolveSkills, skillFromTemplate } from './src/skills.js';
 import { DEFAULT_BESTIARY, findCreature } from './src/enemies.js';
-import { cleanCreature, combinedBestiary, creaturesToMake, generateCreature, storeCreatures } from './src/templates.js';
+import { TEMPLATES, classify, cleanCreature, combinedBestiary, creaturesToMake, generateCreature, storeCreatures } from './src/templates.js';
 import { applyFlavour, flavourPrompt, parseFlavour, sceneText } from './src/flavour.js';
 import { act, availableActions, replay, startFight, summarize } from './src/combat.js';
 import { applyResult, foldUses, formatPartyBlock, learnSkill, newSheet, readSheets, setSkillActive, spendPoints } from './src/sheet.js';
 import { addLoot, consumables, formatGearEntry, formatMoney, gearSummary, parseGearEntry, parseInventory, useItems } from './src/items.js';
-import { buildHandoff } from './src/handoff.js';
+import { buildHandoff, handoffState, settleHandoff } from './src/handoff.js';
 import { combatantFromSheet, editCompanion, enemiesFromRows, engagements, newCompanion, npcRenames, remapIds } from './src/party.js';
 import { recoverOverTime, restAfter, useItemOutside } from './src/recovery.js';
-import { STORY_INSTRUCTION, applyWounds, describeWound, findTarget, parseEncounter, parseWounds, resolveThreats } from './src/story.js';
+import { STORY_INSTRUCTION, applyWounds, describeWound, encounterSummary, findTarget, parseEncounter, parseStakes, parseWounds, resolveThreats, storyFight } from './src/story.js';
 import { liveOffers, questOffers, storyOffers } from './src/offers.js';
 import { awardParty, settleCompanions } from './src/growth.js';
 import { guessFocus } from './src/builds.js';
@@ -58,7 +59,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.4.1';
+const VERSION = '0.4.2';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -253,6 +254,28 @@ function chatState(ctx = context()) {
         foughtAt: state.foughtAt && typeof state.foughtAt === 'object' ? state.foughtAt : null,
         npcNames: state.npcNames && typeof state.npcNames === 'object' ? state.npcNames : {},
     };
+}
+
+// Whether a reply that was given the hand-off is being generated (set by the interceptor,
+// cleared when a reply arrives or generation ends), so a result is "being narrated" rather
+// than "waiting" until its reply is in the chat.
+let generating = false;
+
+/** Where the hand-off stands (src/handoff.js): 'none', 'waiting', 'narrating' or 'narrated'. */
+function handoffNow(ctx = context(), state = chatState(ctx)) {
+    return handoffState(state.pending, ctx?.chat ?? [], { generating });
+}
+
+/**
+ * The stored hand-off brought up to date with the chat: spent once a reply after the narrating
+ * one exists, waiting again when the narrating reply is gone (deleted). True when it changed.
+ */
+function settlePending(ctx = context()) {
+    const { pending } = chatState(ctx);
+    const next = settleHandoff(pending, ctx?.chat ?? [], { generating });
+    if (JSON.stringify(next ?? null) === JSON.stringify(pending ?? null)) return false;
+    saveChatState({ pending: next });
+    return true;
 }
 
 function saveChatState(change) {
@@ -462,6 +485,30 @@ function rankedRows(rows, sheet, r, bestiary) {
         const level = Number(row.level) >= 1 ? Math.round(Number(row.level)) : null;
         const rank = level ? null : row.rank || (findCreature(bestiary, row.name) ? null : fair);
         return { ...row, level, rank, makeAt: level ?? r.ranks[rank ?? fair]?.level ?? sheet.level };
+    });
+}
+
+/**
+ * The setup's rows as they will be fought, for the read-only summary: each with its power
+ * settled as rankedRows does (a level, or a rank; a creature either bestiary knows without
+ * one shows its own), and its role (written, the creature's, or the one its template gives a
+ * name made up for the fight).
+ */
+function setupRows(rows, sheet, r, bestiary) {
+    return rankedRows(rows, sheet, r, bestiary).map(row => {
+        const creature = findCreature(bestiary, row.name);
+        const kind = creature ? null : classify(row.name);
+        const level = row.level ?? (row.rank ? null : Number(creature?.level) >= 1 ? Math.round(Number(creature.level)) : null);
+        return {
+            name: row.name,
+            count: row.count,
+            level,
+            rank: level ? null : row.rank ?? creature?.rank ?? null,
+            role: row.role || creature?.role || kind?.role || TEMPLATES[kind?.template]?.role || null,
+            boss: Boolean(row.boss),
+            ...(row.threat ? { threat: row.threat } : {}),
+            ...(row.wave ? { wave: row.wave } : {}),
+        };
     });
 }
 
@@ -879,6 +926,9 @@ let replying = 0;
 async function afterReply(payload) {
     replying += 1;
     try {
+        // The reply is here: a hand-off given to an earlier one is spent.
+        generating = false;
+        settlePending();
         await planAndWriteReply(payload);
     } finally {
         replying -= 1;
@@ -982,9 +1032,10 @@ function toastEncounter(sb, index) {
     const text = blockAt(sb, index, ENCOUNTER_TAG) ?? '';
     const rows = text ? encounterRows(text) : [];
     if (!rows.length || chatState().dismissed.includes(`${index}:${text}`)) return;
-    const html = `A fight is starting: ${escapeHtml(text)}<div class="rpg-battle-toast-actions"><button type="button" class="menu_button rpg-battle-toast-fight">Fight</button></div>`;
+    const stakes = parseStakes(text) === 'death' ? ' — to the death' : '';
+    const html = `A fight is starting: ${escapeHtml(encounterSummary(text))}${stakes}<div class="rpg-battle-toast-actions"><button type="button" class="menu_button rpg-battle-toast-fight">Fight</button></div>`;
     const toast = notify('warning', html, { escapeHtml: false, timeOut: 15000, extendedTimeOut: 6000, closeButton: true });
-    bindToastButton(toast, '.rpg-battle-toast-fight', () => fightEncounter(rows, `${index}:${text}`));
+    bindToastButton(toast, '.rpg-battle-toast-fight', () => fightEncounter({ rows, stakes: parseStakes(text), key: `${index}:${text}` }));
 }
 
 // ---------------------------------------------------------------------------
@@ -1007,12 +1058,14 @@ function plannedEncounters(index) {
 
 /**
  * The fight the story offers now, from the latest reply: its <Encounter>, else Story
- * Director's due or soon fight. { text, label, rows, key } or null. Nothing is offered during
+ * Director's due or soon fight, its stakes from the same text (`| to the death`).
+ * { text, label, rows, stakes, key } or null. Nothing is offered during
  * a fight or while a result waits to be narrated, nor once dismissed (by reply and text).
  */
 function encounterOffer(ctx = context(), state = chatState(ctx)) {
     const sb = storyBlock();
-    if (!sb || state.fight || state.pending) return null;
+    // Not while a result is still to be narrated; once it is, the story moves on.
+    if (!sb || state.fight || ['waiting', 'narrating'].includes(handoffNow(ctx, state))) return null;
     // No fight without a living character to fight it.
     const pc = currentSheet();
     if (!pc || isDead(pc)) return null;
@@ -1031,19 +1084,25 @@ function encounterOffer(ctx = context(), state = chatState(ctx)) {
         const key = `${index}:${candidate.text}`;
         if (dismissed.has(key)) continue;
         const rows = encounterRows(candidate.text);
-        if (rows.length) return { ...candidate, rows, key };
+        if (rows.length) return { ...candidate, rows, stakes: parseStakes(candidate.text), key };
     }
     return null;
 }
 
-// Fight? opens the setup with the story's foes filled in; the reader still confirms them.
-function fightEncounter(rows, offerKey = encounterOffer()?.key ?? null) {
+// Fight? opens the setup: the story's engagement and stakes, to start or put away, never to
+// change. `offer` is what code parsed from the story ({ rows, stakes, key }), kept on the
+// screen; Start builds the fight from it and nothing else (storyFight).
+function fightEncounter(offer) {
     const sheet = currentSheet();
     if (sheet && sheet.hp.cur <= 0) {
         notify('warning', `${sheet.name} is down: heal them first (an item, or a rest in the story).`);
         return;
     }
-    screen = { chatId: chatIdOf(context()), mode: 'setup', prefill: Array.isArray(rows) ? rows : [], offerKey };
+    if (!offer?.rows?.length) {
+        notify('info', 'Fights come from the story.');
+        return;
+    }
+    screen = { chatId: chatIdOf(context()), mode: 'setup', prefill: offer.rows, stakes: offer.stakes === 'death' ? 'death' : 'normal', offerKey: offer.key ?? null };
     storyBlock()?.refresh?.();
     showBattleTab();
 }
@@ -1166,7 +1225,7 @@ function currentOffers(ctx = context(), state = chatState(ctx)) {
     const lib = library(ctx);
     const persona = personaName(ctx);
     const latest = latestAssistantIndex(chat);
-    const waiting = Boolean(state.pending) && (state.pending.attachedTo === null || state.pending.attachedTo === undefined);
+    const waiting = handoffNow(ctx, state) === 'waiting';
     const offers = [];
     const from = (index, opening) => storyOffers({
         index, texts: partyBlocksAt(sb, index), pc, members, persona, rules: r, library: lib, opening,
@@ -1504,7 +1563,7 @@ const SUITE_MANAGE = manageApi({
         const state = chatState();
         const pc = currentSheet();
         const asks = Boolean(pc) && !isDead(pc) && !state.fight;
-        return tokenEstimate({ handoff: state.pending?.handoff ?? '', instruction: asks ? STORY_INSTRUCTION : '' });
+        return tokenEstimate({ handoff: handoffNow(context(), state) === 'waiting' ? state.pending.handoff : '', instruction: asks ? STORY_INSTRUCTION : '' });
     },
     enabled: () => settings().enabled,
     enable: on => {
@@ -1601,16 +1660,25 @@ function setPrompt(text, key = PROMPT_KEY) {
 
 /** The hand-off for the reply being generated ('' when there is none), attaching it once. */
 function handoffFor(chat, kind) {
-    const { pending } = chatState();
-    if (!pending) return '';
+    // A narrating reply deleted since: the result waits again, for this reply.
+    generating = false;
+    const pending = settleHandoff(chatState().pending, chat);
+    if (!pending) {
+        if (chatState().pending) saveChatState({ pending: null });
+        return '';
+    }
     const replacing = (kind.includes('swipe') || kind.includes('regenerate')) && isAssistant(chat.at(-1));
     const replyIndex = replacing ? chat.length - 1 : chat.length;
     if (pending.attachedTo === null || pending.attachedTo === undefined) {
         saveChatState({ pending: { ...pending, attachedTo: replyIndex } });
+        generating = true;
         return pending.handoff;
     }
     // A swipe of the narrating reply narrates the same result.
-    if (pending.attachedTo === replyIndex) return pending.handoff;
+    if (pending.attachedTo === replyIndex) {
+        generating = true;
+        return pending.handoff;
+    }
     // The story has moved past the narration: the hand-off is spent.
     saveChatState({ pending: null });
     return '';
@@ -1700,21 +1768,20 @@ function battleView() {
     }
     const sheet = currentSheet();
     if (screen.mode === 'setup' && sheet) {
-        // Autocomplete offers this story's creatures first; `known` (names and aliases) is what
-        // the setup checks to tag a name as new, made up when the fight starts.
+        // The story's engagement as it will be fought, read-only; `known` (names and aliases) is
+        // what the setup checks to tag a name as new, made up when the fight starts.
         const bestiary = fightBestiary(ctx);
         return {
             mode: 'setup',
-            bestiary: [...new Set(bestiary.map(entry => entry.name))],
+            rows: setupRows(screen.prefill, sheet, r, bestiary),
+            stakes: screen.stakes === 'death' ? 'death' : 'normal',
             known: bestiary.flatMap(entry => [entry.name, ...(entry.aliases ?? [])]),
-            suggestedRank: suggestRank(sheet.level, r),
-            prefill: screen.prefill ?? null,
             preparing: screen.preparing ?? null,
             rules: r,
         };
     }
     const offer = encounterOffer(ctx, state);
-    return { mode: 'offer', encounter: offer ? { text: offer.text, label: offer.label, rows: offer.rows } : null, pending: state.pending?.handoff ?? null, rules: r };
+    return { mode: 'offer', encounter: offer ? { text: offer.text, summary: encounterSummary(offer.text), label: offer.label, rows: offer.rows, stakes: offer.stakes } : null, pending: handoffNow(ctx, state) === 'waiting' ? state.pending.handoff : null, rules: r };
 }
 
 /** A member's card data beyond the sheet: resolved skills, capped gear, the dossier link. */
@@ -1775,7 +1842,9 @@ function partyView() {
         autoSpend: settings(ctx).autoSpend !== false,
         gameOver: isDead(sheet) ? { name: sheet.name } : null,
         importing,
-        pending: state.pending?.handoff ?? null,
+        // Only a result still waiting asks to go back to the story; one being narrated says so.
+        pending: handoffNow(ctx, state) === 'waiting' ? state.pending.handoff : null,
+        narrating: handoffNow(ctx, state) === 'narrating',
         offers: currentOffers(ctx, state).map(({ key, kind, text, accept, note, confirm }) => ({ key, kind, text, accept, note, confirm })),
         recovered,
         story,
@@ -2072,7 +2141,10 @@ const handlers = {
         if (partyScreen.mode) goParty(null);
         else go(null);
     },
-    onStart: setup => void guarded(async () => {
+    // Whatever the tab sends is ignored: the fight is the offer Fight? opened, as the story
+    // wrote it (foes and stakes), so a changed page cannot change it. No offer, no fight.
+    onStart: () => void guarded(async () => {
+        const setup = storyFight(screen.mode === 'setup' && screen.chatId === chatIdOf(context()) ? { rows: screen.prefill, stakes: screen.stakes } : null);
         const offerKey = screen.offerKey ?? null;
         // New names are made up (and flavoured) first; the fight starts once they are ready.
         const started = await prepareAndStart(setup);
@@ -2089,17 +2161,15 @@ const handlers = {
     onAction: action => void guarded(() => playAction(action)),
     onAuto: () => void guarded(() => playAction({ type: 'auto' })),
     onReturn: () => returnToStory(),
-    onDiscard: () => {
-        saveChatState({ pending: null });
-        setPrompt('');
-        go(null);
-    },
     onDone: () => go(null),
     onUndoStory: () => void guarded(undoStory),
-    onFightEncounter: rows => fightEncounter(rows),
+    // The offer as code parsed it, not the rows the tab sends back.
+    onFightEncounter: () => fightEncounter(encounterOffer()),
+    // Not now, on the offer or the setup: put away for that reply.
     onDismissEncounter: () => {
-        dismissEncounter(encounterOffer()?.key);
-        storyBlock()?.refresh?.();
+        dismissEncounter(screen.mode === 'setup' && screen.offerKey ? screen.offerKey : encounterOffer()?.key);
+        if (screen.mode === 'setup') go(null);
+        else storyBlock()?.refresh?.();
     },
     onDisableStorySheet: () => disableStorySheet(),
 };
@@ -2110,13 +2180,13 @@ const battleHandlers = { ...handlers, onBack: () => go(null) };
 
 function baseKey(ctx, state) {
     const chat = ctx?.chat ?? [];
-    return [chatIdOf(ctx), chat.length, String(chat.at(-1)?.mes ?? '').length, String(chat[0]?.mes ?? '').length, JSON.stringify(settings()), state.pending?.fightId ?? ''];
+    return [chatIdOf(ctx), chat.length, String(chat.at(-1)?.mes ?? '').length, String(chat[0]?.mes ?? '').length, JSON.stringify(settings()), state.pending?.fightId ?? '', handoffNow(ctx, state)];
 }
 
 function battleKey() {
     const ctx = context();
     const state = chatState(ctx);
-    return [...baseKey(ctx, state), screen.mode, JSON.stringify(screen.prefill ?? null), fightKey(state.fight), state.dismissed.length,
+    return [...baseKey(ctx, state), screen.mode, JSON.stringify(screen.prefill ?? null), screen.stakes ?? '', fightKey(state.fight), state.dismissed.length,
         encounterOffer(ctx, state)?.key ?? '', JSON.stringify(screen.preparing ?? null), state.bestiary.length].join('|');
 }
 
@@ -2309,10 +2379,29 @@ function init() {
     ensureUi();
     const ctx = context();
     const events = ctx?.event_types ?? ctx?.eventTypes ?? {};
+    // A reply in, or its generation stopped: a hand-off given to it is no longer "being
+    // narrated" (not on GENERATION_ENDED: a quiet call elsewhere ends one too). A reply in, or
+    // one deleted: the hand-off is settled (spent after a newer reply; a deleted narration
+    // makes it wait again).
+    const handoffEvent = (event, { done = false, settles = false }) => {
+        if (event) ctx.eventSource?.on?.(event, () => {
+            if (done) generating = false;
+            try {
+                if (settles) settlePending();
+            } catch (error) {
+                console.warn('[RPG Battle] the hand-off could not be settled', error);
+            }
+            storyBlock()?.refresh?.();
+        });
+    };
+    handoffEvent(events.MESSAGE_RECEIVED, { done: true, settles: true });
+    handoffEvent(events.GENERATION_STOPPED, { done: true });
+    handoffEvent(events.MESSAGE_DELETED, { settles: true });
     for (const event of [events.CHAT_CHANGED, events.CHAT_LOADED]) {
         if (event) ctx.eventSource?.on?.(event, () => {
             screen = { chatId: chatIdOf(context()), mode: null };
             live = { chatId: null, key: '', fight: null };
+            generating = false;
             setPrompt('');
             setPrompt('', RULES_PROMPT_KEY);
         });

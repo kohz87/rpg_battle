@@ -171,8 +171,14 @@ option; it costs one reply per fight.)
 
 ### 4.1 Starting a fight
 
-Since 0.4 a fight starts only from the story (§4.2): its offer opens the setup, which the reader
-can still change. The setup:
+Since 0.4 a fight starts only from the story (§4.2): its offer opens the setup. Since 0.4.2 the
+setup is the story's engagement and stakes as it gave them, read-only, with **Start** and **Not
+now**: the story drives, the reader decides whether to fight, not what the fight is. Each line
+shows the count, the name (tagged *new* when it will be made up), its power in the reader's
+terms, its role, *Boss*, and the story's threat word; engagements after the first are listed in
+order; the stakes are said, not chosen. The glue builds the fight from the offer it parsed, never
+from what the tab sends, so a changed page changes nothing. The pre-0.4.2 setup, kept for the
+record:
 
 - Rows of enemies: **name** (bestiary names autocomplete; any name works), **count**, **rank**
   (F to SSS, suggested from your level), **role** (brute, skirmisher, caster, tank, support).
@@ -209,7 +215,15 @@ stop at the first blow, so the prose does not resolve what the buttons are about
 - **Offered, never started:** a toast with **Fight** on the reply, and a notice in the Battle tab,
   *A fight is starting: …*, with **Fight?** (the setup opens with the rows filled in; the reader
   can change anything, stakes default to normal) and **Not now** (that offer, by reply and text,
-  is put away). Nothing is offered during a fight or while a result waits to be narrated.
+  is put away). Nothing is offered during a fight or while a result waits to be narrated (0.4.2:
+  once its reply is in, the next fight is offered again).
+- **Stakes (0.4.2):** a fight to the death is marked after a bar, `<Encounter>3 bandit; then:
+  bandit captain (boss) | to the death</Encounter>` (also `| death`, `| stakes: death`, any case);
+  without it the stakes are normal. A planned fight's text may carry the same mark. What follows a
+  bar is the fight's, never a foe. The instruction says so in nine tokens (§8.6).
+- **Read-only (0.4.2):** the setup shows the engagement as code resolved it (bestiary or made-up
+  creature, threat words to levels, boss, roles, `then:` engagements); **Fight?** sends nothing
+  back, **Start** sends nothing, and without a stored offer there is no fight.
 
 ## 5. Numbers
 
@@ -446,7 +460,10 @@ alone makes every one of them fight alike.
   far below); half for parleyed enemies; split evenly across the party, not divided.
 - **Level-ups:** HP and MP maxima rise; points are added to spend.
 - **Loot:** from the bestiary's tables or the rank's defaults; rarity rolled with LUK; money (8.3).
-  Written into the Inventory block.
+  Written into the Inventory block. Since 0.4.2 only foes that would carry coin drop money:
+  people, their leaders and casters (and a drake boss on its hoard); a wolf leaves a pelt or a
+  fang instead, its first material made likelier (`loot.coinlessMaterial`, 85 %). The shipped
+  bestiary says so per creature (`coins`), a made-up one by its template.
 - **Sheets:** HP, MP, conditions, skill mastery, consumables used.
 
 ### 8.2 The hand-off (narrated once)
@@ -569,7 +586,10 @@ fight, rest, skill or companion: the story brings them. What follows is the 0.3 
   the log (last lines, scrollable); the action bar: **Attack · Skill · Item · Defend · Parley ·
   Flee** and **Auto** (the rest of the fight on auto). Target picking by tapping a card. On a
   phone the action bar sits at the bottom, thumb-sized.
-- **Result:** the outcome, what changed, the hand-off text, **Return to story**.
+- **Result:** the outcome, what changed, the hand-off text, **Return to story** and **Done** (0.4.2:
+  no Discard; the result always reaches the story, so numbers and narrative agree). The hand-off
+  waits until a reply narrates it; once that reply is in, the waiting notice goes (its swipes
+  still narrate it), a newer reply spends it, and deleting the narrating reply makes it wait again.
 
 ## 10. Storage, swipes and the seed
 

@@ -51,8 +51,10 @@ const SIGNATURE = { brute: 'Crushing Blow', skirmisher: 'Flurry', caster: 'Dark 
 // What a projected (unknown) enemy can do, so a caster casts and a support heals.
 const ROLE_SKILLS = { brute: ['Smash'], skirmisher: ['Claw'], caster: ['Spark'], tank: ['Bone Shield'], support: ['Dark Mending', 'Hex'] };
 
-const beast = (name, rank, role, skills, loot, extra = {}) => ({ name, rank, role, talks: false, morale: 2, fleesBelow: 0.25, skills, loot, ...extra });
-const person = (name, rank, role, morale, skills, loot, extra = {}) => ({ name, rank, role, talks: true, morale, fleesBelow: 0.3, skills, loot, ...extra });
+// `coins`: whether it carries money (carriesCoin): people do, beasts and the dead do not, and
+// 'boss' only as a boss (a wyvern on its hoard).
+const beast = (name, rank, role, skills, loot, extra = {}) => ({ name, rank, role, talks: false, coins: false, morale: 2, fleesBelow: 0.25, skills, loot, ...extra });
+const person = (name, rank, role, morale, skills, loot, extra = {}) => ({ name, rank, role, talks: true, coins: true, morale, fleesBelow: 0.3, skills, loot, ...extra });
 
 export const DEFAULT_BESTIARY = Object.freeze([
     beast('Giant Rat', 'F', 'skirmisher', ['Bite'], 'vermin', { aliases: ['Rat', 'Sewer Rat'] }),
@@ -68,13 +70,13 @@ export const DEFAULT_BESTIARY = Object.freeze([
     beast('Dire Wolf', 'D', 'brute', ['Bite', 'Howl'], 'beast-large'),
     person('Bandit Captain', 'D', 'brute', 6, ['Power Strike', 'Intimidate'], 'bandit-leader'),
     beast('Bear', 'D', 'brute', ['Claw', 'Smash'], 'beast-large', { aliases: ['Brown Bear', 'Cave Bear'] }),
-    { name: 'Wraith', rank: 'D', role: 'caster', talks: false, morale: 9, fleesBelow: 0, skills: ['Chill Touch', 'Shadow Bolt'], loot: 'spirit' },
+    { name: 'Wraith', rank: 'D', role: 'caster', talks: false, coins: false, morale: 9, fleesBelow: 0, skills: ['Chill Touch', 'Shadow Bolt'], loot: 'spirit' },
     person('Cult Priest', 'D', 'support', 6, ['Dark Mending', 'Hex'], 'cultist'),
     person('Orc Warrior', 'D', 'brute', 5, ['Smash'], 'orc', { aliases: ['Orc'] }),
     person('Ogre', 'C', 'brute', 6, ['Smash', 'Stomp'], 'giant', { fleesBelow: 0.2 }),
     beast('Troll', 'C', 'tank', ['Regenerate', 'Claw'], 'troll', { fleesBelow: 0.15, morale: 6 }),
-    { name: 'Wight', rank: 'C', role: 'caster', talks: true, morale: 9, fleesBelow: 0, skills: ['Chill Touch', 'Dark Nova'], loot: 'spirit' },
-    beast('Wyvern', 'C', 'skirmisher', ['Venom Bite', 'Claw'], 'wyvern'),
+    { name: 'Wight', rank: 'C', role: 'caster', talks: true, coins: false, morale: 9, fleesBelow: 0, skills: ['Chill Touch', 'Dark Nova'], loot: 'spirit' },
+    beast('Wyvern', 'C', 'skirmisher', ['Venom Bite', 'Claw'], 'wyvern', { coins: 'boss' }),
 ]);
 
 const drop = (name, chance, qty, kind, extra = {}) => ({ name, chance, qty, kind, ...extra });
@@ -128,6 +130,27 @@ export function findCreature(bestiary, name) {
         if (hit) return hit;
     }
     return null;
+}
+
+// The made-up kinds (templates.js) that carry coin: people, their leaders and casters. A
+// drake that is a boss sits on a hoard; beasts, insects, oozes, plants, constructs, spirits,
+// the dead and the plain fallback carry none.
+const COIN_TEMPLATES = ['humanoid', 'leader', 'caster'];
+
+/**
+ * Whether a foe carries money (0.4.2): a wolf drops pelts and fangs, not silver. A creature's
+ * own `coins` decides (true, false, or 'boss': only as a boss); else a made-up creature's
+ * template (COIN_TEMPLATES, and a drake boss); else none. Takes a bestiary entry or a
+ * projected enemy (which carries `coins`).
+ */
+export function carriesCoin(creature, { boss = false } = {}) {
+    const coins = creature?.coins;
+    const asBoss = Boolean(boss || creature?.boss);
+    if (typeof coins === 'boolean') return coins;
+    if (coins === 'boss') return asBoss;
+    const template = creature?.template;
+    if (template) return COIN_TEMPLATES.includes(template) || (template === 'drake' && asBoss);
+    return false;
 }
 
 /**
@@ -232,6 +255,7 @@ export function projectEnemy({ name, rank = null, level: rowLevel = null, role =
         fleesBelow: boss ? 0 : Number.isFinite(entry?.fleesBelow) ? entry.fleesBelow : e.fleesBelow,
         xp: round(r.xp * b.xp),
         loot: Array.isArray(entry?.loot) ? structuredClone(entry.loot) : entry?.loot ?? `rank-${useRank}`,
+        coins: carriesCoin(entry, { boss }),
         gone: null,
         memberId: null,
         ...(entry?.generated ? { generated: true, look: String(entry.look ?? '') } : {}),
@@ -247,18 +271,26 @@ function bumpRarity(rarity, steps) {
  * What one defeated enemy drops: items from its loot table (its own rows for a made-up
  * creature, else the table its id names, or its rank's default table) and
  * money in the smallest currency unit. Luck above the start stat raises drop chances, can lift
- * an equipment drop one rarity, and adds a little money.
+ * an equipment drop one rarity, and adds a little money. A foe that carries no coin
+ * (`coins: false`, carriesCoin) drops no money but something of itself instead: its first
+ * material is at least rules.loot.coinlessMaterial % likely. An enemy without `coins` (a fight
+ * stored before 0.4.2) pays as before. The rolls are the same either way, so a seed's drops
+ * stay put.
  */
 export function rollLoot(enemy, { rng, luck = null, rules = DEFAULT_RULES, tables = LOOT_TABLES } = {}) {
     const l = rules.loot;
-    const lucky = (Number.isFinite(Number(luck)) ? Number(luck) : rules.character.startStat) - rules.character.startStat;
+    // No luck given is the start stat's (Number(null) would be 0, an unlucky party).
+    const lucky = (luck !== null && luck !== undefined && Number.isFinite(Number(luck)) ? Number(luck) : rules.character.startStat) - rules.character.startStat;
     const rank = RANKS.includes(enemy?.rank) ? enemy.rank : 'F';
     const table = Array.isArray(enemy?.loot) ? enemy.loot : tables[enemy?.loot] ?? tables[`rank-${rank}`] ?? [];
     const rolls = enemy?.boss ? l.bossRolls : 1;
+    const coins = enemy?.coins !== false;
+    const first = coins ? -1 : table.findIndex(row => row.kind === 'material');
     const items = [];
     for (let roll = 0; roll < rolls; roll++) {
-        for (const row of table) {
-            const chance = row.chance * Math.max(0.5, 1 + lucky * l.luckChancePerPoint);
+        for (const [index, row] of table.entries()) {
+            const base = index === first ? Math.max(row.chance, Number(l.coinlessMaterial) || 0) : row.chance;
+            const chance = base * Math.max(0.5, 1 + lucky * l.luckChancePerPoint);
             if (!rng.chance(chance)) continue;
             const [lo, hi] = Array.isArray(row.qty) ? row.qty : [1, 1];
             let rarity = row.rarity ?? 'common';
@@ -269,6 +301,8 @@ export function rollLoot(enemy, { rng, luck = null, rules = DEFAULT_RULES, table
         }
     }
     const [low, high] = rules.moneyByRank[rank] ?? [0, 0];
-    const money = Math.max(0, Math.round(rng.int(low, high) * (enemy?.boss ? l.bossMoney : 1) * Math.max(0.5, 1 + lucky * l.luckMoneyPerPoint)));
+    // Rolled either way, so the rolls after it do not move.
+    const rolled = rng.int(low, high);
+    const money = !coins ? 0 : Math.max(0, Math.round(rolled * (enemy?.boss ? l.bossMoney : 1) * Math.max(0.5, 1 + lucky * l.luckMoneyPerPoint)));
     return { items, money };
 }

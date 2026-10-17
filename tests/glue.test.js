@@ -164,3 +164,113 @@ test('a companion follows their NPC\'s rename in NPC State Delta, into the lates
     assert.match(partyText(), /^## Lyra Moon — healer/m);
     assert.ok(toasts.includes('Lyra is now Lyra Moon (from NPC State Delta).'));
 });
+
+// ---------------------------------------------------------------------------
+// 0.4.2: the engagement and its stakes are the story's; the hand-off clears once narrated
+
+const drawTab = id => {
+    const pane = doc.createElement('div');
+    hooks.tabs[id].render(pane);
+    return pane;
+};
+const find = (pane, selector) => pane.querySelector(selector);
+const findAll = (pane, selector) => pane.querySelectorAll(selector);
+const userMessage = text => ({ mes: text, is_user: true, is_system: false });
+
+test('Fight? opens the story\'s engagement read-only; Start fights it as written, to the death when it says so', async () => {
+    openChat('fight-chat', [reply(`<Party>\n${REN}\n</Party>`), userMessage('We ride on.'), reply('Bandits block the road.\n<Encounter>2 bandit; then: bandit captain (boss) | to the death</Encounter>')]);
+    hooks.update();
+    await settle();
+    let pane = drawTab('rpg-battle');
+    assert.match(find(pane, '.rpg-battle-encounter-stakes').textContent, /To the death/);
+    find(pane, '.rpg-battle-encounter-fight').click();
+    pane = drawTab('rpg-battle');
+    assert.equal(find(pane, 'input'), null, 'nothing to edit');
+    assert.equal(find(pane, 'select'), null);
+    assert.deepEqual(findAll(pane, '.rpg-battle-enemy-name').map(node => node.textContent), ['Bandit', 'Bandit Captain']);
+    assert.deepEqual(findAll(pane, '.rpg-battle-enemy-power').map(node => node.textContent), ['Rank E', 'Rank D'], 'the bestiary\'s own ranks');
+    assert.deepEqual(findAll(pane, '.rpg-battle-enemy-role').map(node => node.textContent), ['skirmisher', 'brute']);
+    assert.equal(find(pane, '.rpg-battle-stakes').textContent, 'Stakes: To the death — defeat is death.');
+    // A page changed by hand changes nothing: the glue builds the fight from its own offer.
+    for (const node of findAll(pane, '.rpg-battle-enemy-name')) node.textContent = 'Slime';
+    find(pane, '.rpg-battle-stakes').textContent = 'Stakes: Normal';
+    find(pane, '.rpg-battle-begin').click();
+    await settle();
+    const fight = ctx.chatMetadata.rpgBattle.fight;
+    assert.ok(fight, 'the fight started');
+    assert.equal(fight.setup.stakes, 'death');
+    assert.deepEqual(fight.setup.enemies.map(enemy => enemy.name), ['Bandit A', 'Bandit B']);
+    assert.deepEqual(fight.setup.waves.map(wave => wave.enemies.map(enemy => [enemy.name, enemy.boss])), [[['Bandit Captain', true]]]);
+    assert.ok(ctx.chatMetadata.rpgBattle.dismissed.some(key => key.endsWith('| to the death')), 'the offer is spent');
+});
+
+test('a Story Director fight carries its stakes marker too; without one the stakes are normal', async () => {
+    openChat('director-chat', [reply(`<Party>\n${REN}\n</Party>`), userMessage('To the weir.'), reply('Mist on the water.')]);
+    globalThis.StoryDirector = { encountersAt: () => [{ key: 'Ambush at the weir', encounter: '2 wolves | to the death', status: 'due', place: 'the weir' }] };
+    try {
+        hooks.update();
+        await settle();
+        let pane = drawTab('rpg-battle');
+        assert.match(find(pane, '.rpg-battle-encounter-label').textContent, /Ambush at the weir/);
+        assert.match(find(pane, '.rpg-battle-encounter-stakes').textContent, /To the death/);
+        find(pane, '.rpg-battle-encounter-fight').click();
+        pane = drawTab('rpg-battle');
+        assert.deepEqual(findAll(pane, '.rpg-battle-enemy-name').map(node => node.textContent), ['Wolf']);
+        assert.equal(find(pane, '.rpg-battle-stakes').textContent, 'Stakes: To the death — defeat is death.');
+        // Not now, from the setup: put away, back to nothing on offer.
+        find(pane, '.rpg-battle-encounter-dismiss').click();
+        assert.equal(hooks.tabs['rpg-battle'].badge(), 0);
+        globalThis.StoryDirector = { encountersAt: () => [{ key: 'Wolves', encounter: '3 wolves', status: 'due' }] };
+        pane = drawTab('rpg-battle');
+        assert.equal(find(pane, '.rpg-battle-encounter-stakes'), null, 'normal stakes');
+        find(pane, '.rpg-battle-encounter-fight').click();
+        assert.match(drawTab('rpg-battle').querySelector('.rpg-battle-stakes').textContent, /^Stakes: Normal/);
+    } finally {
+        delete globalThis.StoryDirector;
+    }
+});
+
+test('the hand-off: waiting until given to a reply, gone once that reply is in, waiting again if it is deleted, spent after a newer one', async () => {
+    const handoff = '[Battle resolved by RPG Battle: narrate this outcome, do not change it]\nVictory in 3 rounds.';
+    openChat('handoff-chat', [reply(`<Party>\n${REN}\n</Party>`), userMessage('Onward.'), reply('The bandits fall back.')], {
+        pending: { handoff, fightId: 'f1', attachedTo: null },
+    });
+    hooks.update();
+    await settle();
+    const notice = () => find(drawTab('rpg-party'), '.rpg-battle-notice.is-pending');
+    assert.ok(notice(), 'waiting: Return to story');
+    // The next reply is generated with the hand-off: being narrated.
+    ctx.chat.push(userMessage('What now?'));
+    await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+    assert.equal(ctx.chatMetadata.rpgBattle.pending.attachedTo, 4);
+    assert.equal(notice(), null);
+    assert.ok(find(drawTab('rpg-party'), '.rpg-battle-narrating'), 'being narrated');
+    // The reply is in: narrated, nothing more to show, and a fight that reply starts is offered.
+    ctx.chat.push(reply('They bind their wounds. Then wolves howl.\n<Encounter>2 wolves</Encounter>'));
+    await hooks.reply({ messageIndex: 4 });
+    await settle();
+    assert.equal(notice(), null);
+    assert.equal(find(drawTab('rpg-party'), '.rpg-battle-narrating'), null);
+    assert.ok(ctx.chatMetadata.rpgBattle.pending, 'kept for swipes of that reply');
+    assert.equal(hooks.tabs['rpg-battle'].badge(), 1, 'a narrated result does not hold back the next fight');
+    // A swipe of the narrating reply narrates the same result.
+    await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'swipe');
+    assert.match(ctx.chatMetadata.rpgBattle.pending.handoff, /Victory/);
+    await hooks.reply({ messageIndex: 4 });
+    // The narrating reply deleted: the result waits again, for the next reply.
+    ctx.chat.pop();
+    hooks.update();
+    await settle();
+    assert.ok(notice(), 'waiting again');
+    assert.equal(hooks.tabs['rpg-battle'].badge(), 0, 'no new fight while a result waits');
+    await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+    assert.equal(ctx.chatMetadata.rpgBattle.pending.attachedTo, 4, 'given to the new reply');
+    ctx.chat.push(reply('They bind their wounds.'));
+    await hooks.reply({ messageIndex: 4 });
+    // A newer reply: the hand-off is spent, at once.
+    ctx.chat.push(userMessage('Sleep.'), reply('Morning comes.'));
+    await hooks.reply({ messageIndex: 6 });
+    await settle();
+    assert.equal(ctx.chatMetadata.rpgBattle.pending, null);
+    assert.equal(notice(), null);
+});
