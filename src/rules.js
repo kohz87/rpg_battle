@@ -49,21 +49,25 @@ export const DEFAULT_RULES = Object.freeze({
     // Budget cost of one point of each item stat; negatives refund `negativeRefund` of it.
     statCost: { ATK: 1, MATK: 1, DEF: 1, MDEF: 1, HP: 0.2, MP: 0.25, STR: 2, VIT: 2, AGI: 2, DEX: 2, INT: 2, LUK: 2, CHA: 2, crit: 0.5 },
     negativeRefund: 0.5,
+    // Tuned by tests/balance.test.js for the §7.1 target: one character against three enemies
+    // of suggestRank(level) lasts 4–6 rounds and costs about half the character's HP. The
+    // first draft (F 30/8/3 … SSS 1900/125/60) suited a full party; solo it was unwinnable
+    // from rank D up.
     ranks: {
-        F: { level: 1, hp: 30, attack: 8, defence: 3, xp: 15 },
-        E: { level: 3, hp: 55, attack: 12, defence: 5, xp: 35 },
-        D: { level: 6, hp: 95, attack: 18, defence: 8, xp: 70 },
-        C: { level: 10, hp: 160, attack: 26, defence: 12, xp: 140 },
-        B: { level: 15, hp: 260, attack: 36, defence: 17, xp: 280 },
-        A: { level: 22, hp: 420, attack: 50, defence: 24, xp: 560 },
-        S: { level: 32, hp: 700, attack: 68, defence: 33, xp: 1100 },
-        SS: { level: 45, hp: 1150, attack: 92, defence: 45, xp: 2200 },
-        SSS: { level: 60, hp: 1900, attack: 125, defence: 60, xp: 4500 },
+        F: { level: 1, hp: 20, attack: 14.5, defence: 4, xp: 15 },
+        E: { level: 3, hp: 34, attack: 19, defence: 5, xp: 35 },
+        D: { level: 6, hp: 41, attack: 22, defence: 7, xp: 70 },
+        C: { level: 10, hp: 52, attack: 29.5, defence: 10, xp: 140 },
+        B: { level: 15, hp: 70, attack: 38, defence: 13, xp: 280 },
+        A: { level: 22, hp: 94, attack: 50, defence: 17, xp: 560 },
+        S: { level: 32, hp: 128, attack: 68, defence: 23, xp: 1100 },
+        SS: { level: 45, hp: 172, attack: 90, defence: 31, xp: 2200 },
+        SSS: { level: 60, hp: 224, attack: 116, defence: 40, xp: 4500 },
     },
     roles: {
         brute: { hp: 1.3, attack: 1.2, defence: 1, agi: 0.7, dex: 0.9, magic: 0.5 },
         skirmisher: { hp: 0.8, attack: 1, defence: 0.9, agi: 1.4, dex: 1.3, magic: 0.5 },
-        caster: { hp: 0.7, attack: 0.6, defence: 0.8, agi: 1, dex: 1, magic: 1.5 },
+        caster: { hp: 0.7, attack: 0.6, defence: 0.8, agi: 1, dex: 1, magic: 1.3 },
         tank: { hp: 1.4, attack: 0.7, defence: 1.6, agi: 0.7, dex: 0.9, magic: 0.5 },
         support: { hp: 0.9, attack: 0.7, defence: 1, agi: 1, dex: 1, magic: 1.2 },
     },
@@ -72,6 +76,40 @@ export const DEFAULT_RULES = Object.freeze({
     // XP factor by (enemy level − member level): ×1.5 when it outranks, down to ×0.1.
     xp: { perLevelAbove: 0.1, maxFactor: 1.5, perLevelBelow: 0.15, minFactor: 0.1 },
     secondsPerRound: 6,
+    // How the fight resolves the things §5 leaves open (conditions, AI thresholds, safety stop).
+    combat: {
+        // Damage per tick of a damage-over-time condition, × the attack value of whoever applied it.
+        dot: { poison: 0.2, burn: 0.25, bleed: 0.2 },
+        // A condition carried in from the sheet has no source; it ticks for this share of max HP.
+        dotMaxHpShare: 0.05,
+        regen: 0.3,        // heal per tick, × the caster's skill value × power
+        shield: 1,         // absorbed damage, × the caster's skill value × power
+        weaken: 0.75,      // attack × this while weakened
+        healBelow: 0.4,    // AI heals an ally under this HP share
+        itemHealBelow: 0.3,
+        nearDeath: 0.2,    // a party member at or under this HP share is a key moment
+        maxRounds: 60,     // a fight that has not ended by then is broken off (never in practice)
+    },
+    // Numbers for enemies the rank table does not give directly.
+    enemy: {
+        statBase: 5, statPerLevel: 0.6,          // the seven stats, before role weights
+        mpBase: 10, mpPerLevel: 3,               // × the role's magic weight
+        moraleBase: 3,                           // + rank index
+        fleesBelow: 0.25,
+    },
+    // Story-taught skills (skills.skillFromTemplate): numbers per type at level 1.
+    templates: {
+        physical: { power: 1.5, mp: 4, cooldown: 1, effect: null },
+        magic: { power: 1.5, mp: 5, cooldown: 0, effect: null },
+        heal: { power: 1.8, mp: 6, cooldown: 1, effect: null },
+        buff: { power: 1, mp: 5, cooldown: 3, effect: { shield: 3 } },
+        debuff: { power: 0, mp: 4, cooldown: 3, effect: { weaken: 2 } },
+        widePower: 0.6, wideMp: 1.6,
+        powerPerLevel: 0.02, maxLevelPower: 1.6, mpPerLevel: 0.5,
+        tier2Level: 8, tier3Level: 16,
+    },
+    // Loot (enemies.rollLoot): how much each point of LUK above the start stat helps.
+    loot: { luckChancePerPoint: 0.03, luckRarityPerPoint: 2, luckMoneyPerPoint: 0.02, bossMoney: 3, bossRolls: 2 },
     currency: {
         mode: 'tiers',
         // Smallest first; `rate` = how many of the previous unit make one of this.

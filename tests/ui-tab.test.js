@@ -1,0 +1,737 @@
+// The Battle tab against the fake DOM: every mode of the contract table (create, idle,
+// spend, learn, setup, fight, result), the handlers each one calls and with what, and the
+// transient state (drafts, the action being aimed) that must survive a redraw.
+//
+// View fixtures are built by hand from docs/ARCHITECTURE.md's shapes rather than imported
+// from combat/sheet/skills, so these tests pin the tab to the contract, not to whatever
+// those modules happen to return today.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { installFakeDom, texts } from './ui-fake-dom.js';
+import { DEFAULT_RULES, STATS, maxHp, xpToNext } from '../src/rules.js';
+
+const doc = installFakeDom();
+const { renderBattleTab } = await import('../src/ui/tab.js');
+
+const rules = DEFAULT_RULES;
+
+// ---------------------------------------------------------------------------
+// Fixtures
+
+function skill(name, over = {}) {
+    return {
+        name, tier: 1, type: 'physical', stat: 'STR', power: 1.2, mp: 4, cooldown: 0,
+        target: 'one', effect: null, requires: null, description: `${name} description`, ...over,
+    };
+}
+
+const LIBRARY = [
+    skill('Power Strike', { mp: 5, cooldown: 1 }),
+    skill('Quick Jab', { mp: 2 }),
+    skill('Spark', { type: 'magic', stat: 'INT', mp: 4 }),
+    skill('Mend', { type: 'heal', stat: 'INT', mp: 6, target: 'ally' }),
+    skill('Guard Up', { type: 'buff', stat: 'VIT', mp: 3, target: 'self' }),
+];
+
+const TIER2 = [
+    skill('Fireball', { tier: 2, type: 'magic', stat: 'INT', mp: 12, target: 'all', requires: { INT: 8 } }),
+    skill('Rending Strike', { tier: 2, mp: 6, cooldown: 2, requires: { STR: 7 } }),
+];
+
+const PRESETS = [
+    { id: 'fighter', name: 'Fighter', points: { STR: 4, VIT: 3, AGI: 1, DEX: 2 }, skills: ['Power Strike', 'Quick Jab', 'Guard Up'] },
+    { id: 'caster', name: 'Caster', points: { INT: 6, VIT: 2, DEX: 2 }, skills: ['Spark', 'Mend', 'Not In Library'] },
+];
+
+function stats(over = {}) {
+    return { STR: 9, VIT: 7, AGI: 8, DEX: 8, INT: 4, LUK: 5, CHA: 6, ...over };
+}
+
+function sheet(over = {}) {
+    return {
+        name: 'Ren', level: 4, xp: 310, points: 2,
+        hp: { cur: 58, max: 62 }, mp: { cur: 21, max: 30 },
+        stats: stats(),
+        skills: [{ name: 'Rending Strike', mastery: 2 }, { name: 'Quick Jab', mastery: 1 }],
+        conditions: [],
+        uses: {},
+        ...over,
+    };
+}
+
+function unit(id, side, over = {}) {
+    return {
+        id, name: id, side, controller: side === 'party' ? 'player' : 'auto',
+        level: 3, rank: side === 'enemy' ? 'E' : null, role: side === 'enemy' ? 'brute' : null, boss: false,
+        stats: stats(), hp: { cur: 40, max: 50 }, mp: { cur: 10, max: 20 },
+        patk: 18, matk: 8, pdef: 7, mdef: 6, crit: 12,
+        skills: [], items: [], conditions: [],
+        morale: side === 'enemy' ? 4 : 0, talks: false, fleesBelow: side === 'enemy' ? 0.25 : 0,
+        xp: 35, loot: null, gone: null, memberId: side === 'party' ? id : null,
+        ...over,
+    };
+}
+
+function fightView(over = {}, actionsOver = {}) {
+    const ren = unit('pc', 'party', {
+        name: 'Ren',
+        skills: [
+            { ...skill('Power Strike', { mp: 5, cooldown: 1 }), mastery: 2, cooldownLeft: 0 },
+            { ...skill('Mend', { type: 'heal', mp: 6, target: 'one' }), mastery: 1, cooldownLeft: 0 },
+            { ...skill('Whirl', { mp: 8, target: 'all' }), mastery: 1, cooldownLeft: 0 },
+            { ...skill('Rending Strike', { mp: 6, cooldown: 2 }), mastery: 1, cooldownLeft: 2 },
+        ],
+        items: [
+            { name: 'Healing Draught', qty: 2, effect: { heal: 30 } },
+            { name: 'Ember Flask', qty: 1, effect: { damage: { amount: 25, element: 'fire', target: 'all' } } },
+        ],
+    });
+    const astra = unit('astra', 'party', { name: 'Astra', controller: 'auto', conditions: [{ name: 'regen', rounds: 2, power: 3 }] });
+    const goblin = unit('e1', 'enemy', { name: 'Goblin', conditions: [{ name: 'poison', rounds: 2, power: 3 }] });
+    const shaman = unit('e2', 'enemy', { name: 'Goblin Shaman', role: 'caster', talks: true });
+    const wolf = unit('e3', 'enemy', { name: 'Wolf', gone: 'fled', hp: { cur: 10, max: 40 } });
+    const log = Array.from({ length: 11 }, (_, i) => ({ round: 1 + Math.floor(i / 4), actor: 'pc', text: `line ${i + 1}`, kind: i === 10 ? 'crit' : 'hit', important: i === 10 }));
+    const fight = {
+        id: 'f1', seed: 7, stakes: 'normal', round: 3, status: 'active',
+        order: ['pc', 'e1', 'astra', 'e2', 'e3'], turn: 0,
+        combatants: [ren, astra, goblin, shaman, wolf],
+        log, actions: [], rngState: 1, setup: {}, stats: {},
+        ...over,
+    };
+    const actions = {
+        actor: fight.combatants.find(entry => entry.id === 'pc'),
+        targets: { enemies: ['e1', 'e2'], allies: ['pc', 'astra'] },
+        skills: [
+            { name: 'Power Strike', usable: true, reason: null, target: 'one' },
+            { name: 'Mend', usable: true, reason: null, target: 'one' },
+            { name: 'Whirl', usable: true, reason: null, target: 'all' },
+            { name: 'Rending Strike', usable: false, reason: 'cooldown', target: 'one' },
+        ],
+        items: [{ name: 'Healing Draught', qty: 2, target: 'one' }, { name: 'Ember Flask', qty: 1, target: 'all' }],
+        canParley: true, parleyChance: 45,
+        canFlee: true, fleeChance: 62,
+        ...actionsOver,
+    };
+    return { mode: 'fight', fight, actions };
+}
+
+function result(over = {}) {
+    return {
+        outcome: 'victory', rounds: 4, seconds: 24, stakes: 'normal',
+        party: [
+            { memberId: 'pc', name: 'Ren', hp: { cur: 34, max: 62 }, mp: { cur: 12, max: 30 }, down: false, conditions: [] },
+            { memberId: 'astra', name: 'Astra', hp: { cur: 0, max: 44 }, mp: { cur: 20, max: 38 }, down: true, conditions: [{ name: 'poison', rounds: 3 }] },
+        ],
+        enemies: [], defeated: ['Goblin'], fled: [], parleyed: [],
+        xp: { pc: 38, astra: 38 },
+        loot: { items: [{ name: 'Bone Fetish', qty: 1, rarity: 'uncommon', kind: 'material' }, { name: 'Goblin Ear', qty: 3, rarity: 'common', kind: 'material' }], money: 14 },
+        keyMoments: ['Ren crit the second goblin.', 'One goblin fled toward the weir.'],
+        uses: {}, itemsUsed: {},
+        ...over,
+    };
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+
+function render(view, handlers = {}) {
+    const pane = doc.createElement('div');
+    doc.body.appendChild(pane);
+    renderBattleTab(pane, view, handlers);
+    return pane;
+}
+
+// The tab redraws itself for local state; always query the pane's current root.
+const root = pane => pane.firstElementChild;
+const $ = (pane, selector) => root(pane).querySelector(selector);
+const $$ = (pane, selector) => root(pane).querySelectorAll(selector);
+const buttonByText = (pane, label) => $$(pane, 'button').find(node => node.textContent.trim() === label) ?? null;
+const buttonStarting = (pane, label) => $$(pane, 'button').find(node => node.textContent.trim().startsWith(label)) ?? null;
+const stepRow = (pane, stat) => $$(pane, '.rpg-battle-stepper').find(row => row.dataset.stat === stat);
+const plus = (pane, stat) => stepRow(pane, stat).querySelector('.rpg-battle-step.is-plus');
+const minus = (pane, stat) => stepRow(pane, stat).querySelector('.rpg-battle-step.is-minus');
+const valueOf = (pane, stat) => stepRow(pane, stat).querySelector('.rpg-battle-stepper-value').textContent;
+const factValue = (pane, label) => {
+    const terms = $$(pane, '.rpg-battle-preview dt');
+    const term = terms.find(node => node.textContent === label);
+    return term?.nextElementSibling?.textContent ?? null;
+};
+const card = (pane, id) => $$(pane, '.rpg-battle-card').find(node => node.dataset.combatantId === id);
+
+function recorder() {
+    const calls = [];
+    const handlers = new Proxy({}, {
+        get: (_, name) => (...args) => { calls.push({ name, args }); },
+        has: () => true,
+    });
+    return { calls, handlers, last: name => calls.filter(call => call.name === name).at(-1) ?? null };
+}
+
+// A different mode in between drops every draft, so tests start clean.
+const reset = () => render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules });
+
+// ---------------------------------------------------------------------------
+// create
+
+test('create: seven steppers at the start value, a points budget, and minus/plus limits', () => {
+    reset();
+    const pane = render({ mode: 'create', presets: PRESETS, library: LIBRARY, rules });
+    assert.equal($$(pane, '.rpg-battle-stepper').length, STATS.length);
+    for (const stat of STATS) {
+        assert.equal(valueOf(pane, stat), String(rules.character.startStat));
+        assert.equal(minus(pane, stat).disabled, true, `${stat} cannot go below the start`);
+    }
+    assert.match($(pane, '.rpg-battle-remaining').textContent, /^10 of 10 points left/);
+    for (let i = 0; i < 10; i += 1) plus(pane, 'STR').click();
+    assert.equal(valueOf(pane, 'STR'), '15');
+    assert.match($(pane, '.rpg-battle-remaining').textContent, /^0 of 10/);
+    assert.equal(plus(pane, 'VIT').disabled, true, 'over budget is impossible');
+    plus(pane, 'VIT').click();
+    assert.equal(valueOf(pane, 'VIT'), '5');
+    minus(pane, 'STR').click();
+    assert.equal(valueOf(pane, 'STR'), '14');
+    assert.equal(plus(pane, 'VIT').disabled, false);
+    assert.equal($(pane, '.rpg-battle-create').disabled, true);
+});
+
+test('create: a preset fills points and skills; exactly three skills; onCreate gets the draft', () => {
+    reset();
+    const { handlers, last } = recorder();
+    const pane = render({ mode: 'create', presets: PRESETS, library: [...LIBRARY, ...TIER2], rules }, handlers);
+    // Tier-2 skills never show in the starter picker.
+    assert.deepEqual(texts(root(pane), '.rpg-battle-skill-pick .rpg-battle-pick-name'), LIBRARY.map(entry => entry.name));
+    const pick = $$(pane, '.rpg-battle-skill-pick').find(node => node.dataset.skill === 'Power Strike');
+    assert.match(pick.textContent, /physical · 5 MP · cooldown 1/);
+    assert.match(pick.textContent, /Power Strike description/);
+
+    $$(pane, '.rpg-battle-preset').find(node => node.dataset.preset === 'fighter').click();
+    assert.equal(valueOf(pane, 'STR'), '9');
+    assert.equal(valueOf(pane, 'VIT'), '8');
+    assert.match($(pane, '.rpg-battle-remaining').textContent, /^0 of 10/);
+    assert.equal($$(pane, '.rpg-battle-preset').find(node => node.dataset.preset === 'fighter').getAttribute('aria-pressed'), 'true');
+    const pressed = () => $$(pane, '.rpg-battle-skill-pick').filter(node => node.getAttribute('aria-pressed') === 'true').map(node => node.dataset.skill);
+    assert.deepEqual(pressed(), ['Power Strike', 'Quick Jab', 'Guard Up']);
+    const spark = $$(pane, '.rpg-battle-skill-pick').find(node => node.dataset.skill === 'Spark');
+    assert.equal(spark.disabled, true, 'a fourth skill cannot be picked');
+
+    // Live preview from rules: VIT 8 at level 1.
+    assert.equal(factValue(pane, 'Max HP'), String(maxHp({ VIT: 8 }, 1, rules)));
+    assert.equal(factValue(pane, 'Attack'), '18');
+
+    assert.equal($(pane, '.rpg-battle-create').disabled, true, 'no name yet');
+    const name = $(pane, '.rpg-battle-name-input');
+    name.value = '  Ren  ';
+    name.dispatch('input');
+    assert.equal($(pane, '.rpg-battle-create').disabled, false);
+    $(pane, '.rpg-battle-create').click();
+    const call = last('onCreate');
+    assert.deepEqual(call.args[0], {
+        name: 'Ren',
+        stats: { STR: 9, VIT: 8, AGI: 6, DEX: 7, INT: 5, LUK: 5, CHA: 5 },
+        skills: ['Power Strike', 'Quick Jab', 'Guard Up'],
+    });
+});
+
+test('create: a preset naming a missing skill fills what exists; toggling a skill frees a slot; draft survives a redraw', () => {
+    reset();
+    const view = { mode: 'create', presets: PRESETS, library: LIBRARY, rules };
+    const pane = render(view);
+    $$(pane, '.rpg-battle-preset').find(node => node.dataset.preset === 'caster').click();
+    const pressed = () => $$(pane, '.rpg-battle-skill-pick').filter(node => node.getAttribute('aria-pressed') === 'true').map(node => node.dataset.skill);
+    assert.deepEqual(pressed(), ['Spark', 'Mend']);
+    assert.match($(pane, '.rpg-battle-create-hint').textContent, /a name/);
+    assert.match($(pane, '.rpg-battle-create-hint').textContent, /1 more skill/);
+    $$(pane, '.rpg-battle-skill-pick').find(node => node.dataset.skill === 'Quick Jab').click();
+    // Picks read in library order.
+    assert.deepEqual(pressed(), ['Quick Jab', 'Spark', 'Mend']);
+    $$(pane, '.rpg-battle-skill-pick').find(node => node.dataset.skill === 'Spark').click();
+    assert.deepEqual(pressed(), ['Quick Jab', 'Mend']);
+    // Manual changes clear the preset mark.
+    assert.equal($$(pane, '.rpg-battle-preset').every(node => node.getAttribute('aria-pressed') === 'false'), true);
+
+    // The glue redraws on chat events: the half-made character is still there.
+    renderBattleTab(pane, view, {});
+    assert.equal(valueOf(pane, 'INT'), '11');
+    assert.deepEqual(pressed(), ['Quick Jab', 'Mend']);
+    // Leaving the mode drops the draft.
+    renderBattleTab(pane, { mode: 'idle', sheet: sheet(), rules }, {});
+    renderBattleTab(pane, view, {});
+    assert.equal(valueOf(pane, 'INT'), '5');
+});
+
+// ---------------------------------------------------------------------------
+// idle
+
+test('idle: header, bars, stats with checks, skills, party and the main buttons', () => {
+    const { handlers, calls } = recorder();
+    const party = [{ id: 'astra', name: 'Astra', role: 'companion', control: 'auto', sheet: sheet({ name: 'Astra', level: 3, hp: { cur: 30, max: 44 } }), gear: [] },
+        { id: 'merrit', name: 'Merrit', role: 'hireling', control: 'command', sheet: sheet({ name: 'Merrit', level: 2 }), gear: [] }];
+    const resolved = [{ ...skill('Rending Strike', { mp: 6, cooldown: 2 }), mastery: 2 }, { ...skill('Quick Jab', { mp: 2 }), mastery: 1 }];
+    const checks = { STR: 2, VIT: 1, AGI: 1, DEX: 1, INT: -1, LUK: 0, CHA: 0 };
+    const pane = render({ mode: 'idle', sheet: sheet({ conditions: [{ name: 'poison', rounds: 2 }] }), checks, skills: resolved, party, rules, pending: null }, handlers);
+
+    assert.equal($(pane, '.rpg-battle-head-name').textContent, 'Ren');
+    assert.equal($(pane, '.rpg-battle-level').textContent, 'Level 4');
+    const bars = $$(pane, '.rpg-battle-section.is-sheet [role="progressbar"]');
+    assert.deepEqual(bars.map(node => [node.getAttribute('aria-valuenow'), node.getAttribute('aria-valuemax')]), [['58', '62'], ['21', '30'], ['310', String(xpToNext(4, rules))]]);
+    assert.equal(bars[0].querySelector('.rpg-battle-bar-fill').style.width, '94%');
+    assert.deepEqual(texts(root(pane), '.rpg-battle-section.is-sheet .rpg-battle-chip'), ['poison 2']);
+
+    const stat = name => $$(pane, '.rpg-battle-stat').find(node => node.dataset.stat === name);
+    assert.equal(stat('STR').querySelector('.rpg-battle-stat-value').textContent, '9');
+    assert.equal(stat('STR').querySelector('.rpg-battle-stat-check').textContent, '+2');
+    assert.equal(stat('INT').querySelector('.rpg-battle-stat-check').textContent, '-1');
+
+    assert.equal($(pane, '.rpg-battle-points-text').textContent, '2 unspent points');
+    assert.deepEqual(texts(root(pane), '.rpg-battle-skill .rpg-battle-record-name'), ['Rending Strike', 'Quick Jab']);
+    assert.match($(pane, '.rpg-battle-skill .rpg-battle-record-meta').textContent, /physical · 6 MP · cooldown 2/);
+    assert.equal($(pane, '.rpg-battle-skill .rpg-battle-tag').textContent, 'Lv 2');
+
+    assert.deepEqual(texts(root(pane), '.rpg-battle-member .rpg-battle-record-name'), ['Astra', 'Merrit']);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-member .rpg-battle-control'), ['auto', 'command']);
+    assert.equal($(pane, '.rpg-battle-member [role="progressbar"]').getAttribute('aria-valuenow'), '30');
+
+    assert.equal($(pane, '.rpg-battle-notice'), null, 'no pending notice');
+    $(pane, '.rpg-battle-spend').click();
+    $(pane, '.rpg-battle-start').click();
+    $(pane, '.rpg-battle-learn').click();
+    assert.deepEqual(calls.map(call => call.name), ['onSpend', 'onSetup', 'onLearn']);
+});
+
+test('idle: no Spend without points; a pending hand-off offers Return to story; model text stays text', () => {
+    const { handlers, last } = recorder();
+    const pane = render({
+        mode: 'idle',
+        sheet: sheet({ name: '<img src=x onerror=alert(1)>', points: 0 }),
+        skills: [], party: [], rules,
+        pending: '[Battle resolved by RPG Battle: narrate this outcome, do not change it]\nVictory in 4 rounds.',
+    }, handlers);
+    assert.equal($(pane, '.rpg-battle-spend'), null);
+    assert.equal($(pane, '.rpg-battle-head-name').textContent, '<img src=x onerror=alert(1)>');
+    assert.equal($(pane, '.rpg-battle-head-name').children.length, 0, 'no element was parsed from the name');
+    assert.equal(root(pane).querySelectorAll('img').length, 0);
+    assert.match($(pane, '.rpg-battle-notice .rpg-battle-handoff').textContent, /Victory in 4 rounds/);
+    $(pane, '.rpg-battle-notice .rpg-battle-return').click();
+    assert.ok(last('onReturn'));
+    // Checks fall back to the rules when the view has none.
+    const str = $$(pane, '.rpg-battle-stat').find(node => node.dataset.stat === 'STR');
+    assert.equal(str.querySelector('.rpg-battle-stat-check').textContent, '+2');
+});
+
+// ---------------------------------------------------------------------------
+// spend
+
+test('spend: steppers place sheet.points, the preview shows before → after, Confirm sends the allocation', () => {
+    const { handlers, last } = recorder();
+    const pane = render({ mode: 'spend', sheet: sheet({ points: 3 }), rules }, handlers);
+    assert.equal(valueOf(pane, 'VIT'), '7');
+    assert.equal(minus(pane, 'VIT').disabled, true, 'cannot take back points already spent');
+    assert.equal($(pane, '.rpg-battle-confirm').disabled, true);
+    assert.equal(factValue(pane, 'Max HP'), '62');
+
+    plus(pane, 'VIT').click();
+    plus(pane, 'VIT').click();
+    plus(pane, 'STR').click();
+    assert.equal(plus(pane, 'INT').disabled, true, 'budget used');
+    assert.equal(valueOf(pane, 'VIT'), '9');
+    // The sheet's 62 already includes gear, so the preview adds only the VIT part (+16).
+    assert.equal(factValue(pane, 'Max HP'), '62 → 78');
+    assert.equal(factValue(pane, 'Attack'), '18 → 20');
+    assert.equal(factValue(pane, 'Max MP'), '30');
+    minus(pane, 'STR').click();
+    plus(pane, 'INT').click();
+    assert.equal(factValue(pane, 'Max MP'), '30 → 34');
+
+    $(pane, '.rpg-battle-confirm').click();
+    assert.deepEqual(last('onConfirmSpend').args[0], { STR: 0, VIT: 2, AGI: 0, DEX: 0, INT: 1, LUK: 0, CHA: 0 });
+    $(pane, '.rpg-battle-back').click();
+    assert.ok(last('onBack'));
+});
+
+// ---------------------------------------------------------------------------
+// learn
+
+test('learn: library skills show requirements and whether they are met; known ones cannot be relearned', () => {
+    reset();
+    const { handlers, last } = recorder();
+    const pane = render({ mode: 'learn', sheet: sheet(), library: [...LIBRARY, ...TIER2], rules }, handlers);
+    const row = name => $$(pane, '.rpg-battle-library-skill').find(node => node.dataset.skill === name);
+    const fireball = row('Fireball');
+    assert.deepEqual(texts(fireball, '.rpg-battle-require'), ['INT 8 (you have 4)']);
+    assert.ok(fireball.querySelector('.rpg-battle-require').classList.contains('is-unmet'));
+    assert.equal(fireball.querySelector('.rpg-battle-learn-library').disabled, true);
+
+    const rending = row('Rending Strike');
+    assert.ok(rending.classList.contains('is-known'));
+    assert.equal(rending.querySelector('.rpg-battle-learn-library').disabled, true);
+    assert.ok(rending.querySelector('.rpg-battle-require').classList.contains('is-met'));
+
+    // The tier with something learnable starts open.
+    assert.equal($(pane, '.rpg-battle-fold.is-tier-1').open, true);
+    row('Spark').querySelector('.rpg-battle-learn-library').click();
+    assert.deepEqual(last('onConfirmLearn').args[0], { name: 'Spark', fromLibrary: true });
+});
+
+test('learn: a new skill from a template (name, type, stat, target)', () => {
+    reset();
+    const { handlers, last } = recorder();
+    const pane = render({ mode: 'learn', sheet: sheet(), library: LIBRARY, rules }, handlers);
+    const learn = $(pane, '.rpg-battle-learn-template');
+    assert.equal(learn.disabled, true);
+    const name = $(pane, '.rpg-battle-template-name');
+    name.value = 'Quick Jab';
+    name.dispatch('input');
+    assert.equal(learn.disabled, true, 'already known');
+    name.value = 'Tidebreaker';
+    name.dispatch('input');
+    assert.equal(learn.disabled, false);
+
+    const type = $(pane, '.rpg-battle-template-type');
+    type.value = 'heal';
+    type.dispatch('change');
+    // A heal suggests INT and an ally until the reader picks their own.
+    assert.equal($(pane, '.rpg-battle-template-stat').value, 'INT');
+    assert.equal($(pane, '.rpg-battle-template-target').value, 'ally');
+    const stat = $(pane, '.rpg-battle-template-stat');
+    stat.value = 'CHA';
+    stat.dispatch('change');
+    type.value = 'magic';
+    type.dispatch('change');
+    assert.equal($(pane, '.rpg-battle-template-stat').value, 'CHA', 'a chosen stat is kept');
+
+    learn.click();
+    assert.deepEqual(last('onConfirmLearn').args[0], { name: 'Tidebreaker', template: { type: 'magic', stat: 'CHA', target: 'one' } });
+    $(pane, '.rpg-battle-back').click();
+    assert.ok(last('onBack'));
+});
+
+// ---------------------------------------------------------------------------
+// setup
+
+test('setup: rows with bestiary autocomplete, rank defaulting to the suggestion, add/remove, stakes, Start', () => {
+    reset();
+    const { handlers, last } = recorder();
+    const view = { mode: 'setup', bestiary: ['Goblin', 'Goblin Shaman', 'Wolf'], suggestedRank: 'E', rules };
+    const pane = render(view, handlers);
+    const datalist = $(pane, 'datalist');
+    assert.deepEqual(datalist.querySelectorAll('option').map(node => node.value), ['Goblin', 'Goblin Shaman', 'Wolf']);
+    assert.equal($(pane, '.rpg-battle-enemy-name').getAttribute('list'), datalist.id);
+    assert.equal($(pane, '.rpg-battle-enemy-rank').value, '', 'auto: the bestiary rank, or the fair one');
+    assert.deepEqual($(pane, '.rpg-battle-enemy-rank').querySelectorAll('option').map(node => node.value), ['', 'F', 'E', 'D', 'C', 'B', 'A', 'S', 'SS', 'SSS']);
+    assert.match($(pane, '.rpg-battle-enemy-rank').querySelectorAll('option')[0].textContent, /fair: E/);
+    assert.deepEqual($(pane, '.rpg-battle-enemy-count').querySelectorAll('option').map(node => node.value), ['1', '2', '3', '4', '5', '6', '7', '8', '9']);
+    assert.deepEqual($(pane, '.rpg-battle-enemy-role').querySelectorAll('option').map(node => node.value), ['', 'brute', 'skirmisher', 'caster', 'tank', 'support']);
+    assert.equal($(pane, '.rpg-battle-begin').disabled, true, 'no named row yet');
+
+    const name = $(pane, '.rpg-battle-enemy-name');
+    name.value = 'Goblin';
+    name.dispatch('input');
+    const count = $(pane, '.rpg-battle-enemy-count');
+    count.value = '3';
+    count.dispatch('change');
+    assert.equal($(pane, '.rpg-battle-begin').disabled, false);
+    assert.equal($(pane, '.rpg-battle-setup-summary').textContent, '3 enemies.');
+
+    $(pane, '.rpg-battle-add-row').click();
+    $(pane, '.rpg-battle-add-row').click();
+    assert.equal($$(pane, '.rpg-battle-enemy-row').length, 3);
+    assert.equal($$(pane, '.rpg-battle-enemy-name')[0].value, 'Goblin', 'rows survive the redraw');
+    const second = $$(pane, '.rpg-battle-enemy-row')[1];
+    second.querySelector('.rpg-battle-enemy-name').value = 'Bog Wight';
+    second.querySelector('.rpg-battle-enemy-name').dispatch('input');
+    second.querySelector('.rpg-battle-enemy-rank').value = 'D';
+    second.querySelector('.rpg-battle-enemy-rank').dispatch('change');
+    second.querySelector('.rpg-battle-enemy-role').value = 'tank';
+    second.querySelector('.rpg-battle-enemy-role').dispatch('change');
+    second.querySelector('.rpg-battle-enemy-boss').checked = true;
+    second.querySelector('.rpg-battle-enemy-boss').dispatch('change');
+    // The third, empty row is dropped; remove it anyway to test removal.
+    $$(pane, '.rpg-battle-remove-row')[2].click();
+    assert.equal($$(pane, '.rpg-battle-enemy-row').length, 2);
+    assert.equal($$(pane, '.rpg-battle-remove-row')[0].getAttribute('aria-label'), 'Remove enemy 1');
+
+    const radios = $$(pane, '.rpg-battle-stake-input');
+    assert.deepEqual(radios.map(node => [node.value, node.checked]), [['normal', true], ['death', false]]);
+    assert.match(texts(root(pane), '.rpg-battle-stake-note').join(' '), /captured, robbed/);
+    radios[1].checked = true;
+    radios[1].dispatch('change');
+
+    // The glue redraws mid-setup: nothing is lost.
+    renderBattleTab(pane, view, handlers);
+    assert.equal($$(pane, '.rpg-battle-enemy-row')[1].querySelector('.rpg-battle-enemy-boss').checked, true);
+    assert.equal($$(pane, '.rpg-battle-stake-input')[1].checked, true);
+
+    $(pane, '.rpg-battle-begin').click();
+    assert.deepEqual(last('onStart').args[0], {
+        rows: [
+            { name: 'Goblin', count: 3, rank: null, role: null, boss: false },
+            { name: 'Bog Wight', count: 1, rank: 'D', role: 'tank', boss: true },
+        ],
+        stakes: 'death',
+    });
+    $(pane, '.rpg-battle-back').click();
+    assert.ok(last('onBack'));
+});
+
+test('setup: removing the last row leaves one empty row; bestiary entries may be objects', () => {
+    reset();
+    const pane = render({ mode: 'setup', bestiary: [{ name: 'Slime' }], suggestedRank: 'nonsense', rules });
+    assert.match($(pane, '.rpg-battle-enemy-rank').querySelectorAll('option')[0].textContent, /fair: F/, 'an unknown suggestion falls back to F');
+    assert.deepEqual($(pane, 'datalist').querySelectorAll('option').map(node => node.value), ['Slime']);
+    $(pane, '.rpg-battle-remove-row').click();
+    assert.equal($$(pane, '.rpg-battle-enemy-row').length, 1);
+    assert.equal($(pane, '.rpg-battle-begin').disabled, true);
+});
+
+// ---------------------------------------------------------------------------
+// fight
+
+test('fight: enemy and party cards, gone ones greyed, the turn highlighted, the order strip and the log', () => {
+    reset();
+    const pane = render(fightView());
+    const goblin = card(pane, 'e1');
+    assert.ok(goblin.classList.contains('is-enemy'));
+    assert.deepEqual(texts(goblin, '.rpg-battle-badge'), ['E · brute']);
+    assert.deepEqual(texts(goblin, '.rpg-battle-chip'), ['poison 2']);
+    assert.equal(goblin.querySelector('[role="progressbar"]').getAttribute('aria-valuenow'), '40');
+    const wolf = card(pane, 'e3');
+    assert.ok(wolf.classList.contains('is-gone'));
+    assert.ok(texts(wolf, '.rpg-battle-badge').includes('fled'));
+    assert.equal($(pane, '.rpg-battle-section.is-enemies .rpg-battle-count').textContent, '2');
+
+    const ren = card(pane, 'pc');
+    assert.ok(ren.classList.contains('is-turn'));
+    assert.equal(ren.getAttribute('aria-current'), 'true');
+    assert.equal(ren.querySelectorAll('[role="progressbar"]').length, 2, 'party cards show HP and MP');
+    assert.deepEqual(texts(card(pane, 'astra'), '.rpg-battle-chip'), ['regen 2']);
+
+    assert.deepEqual(texts(root(pane), '.rpg-battle-order-item'), ['Ren', 'Goblin', 'Astra', 'Goblin Shaman', 'Wolf']);
+    const current = $(pane, '.rpg-battle-order-item.is-current');
+    assert.equal(current.textContent, 'Ren');
+    assert.equal(current.getAttribute('aria-current'), 'step');
+    assert.ok($$(pane, '.rpg-battle-order-item')[4].classList.contains('is-gone'));
+
+    const lines = texts(root(pane), '.rpg-battle-log-text');
+    assert.equal(lines.length, 8);
+    assert.equal(lines.at(-1), 'line 11', 'newest at the bottom');
+    assert.equal(lines[0], 'line 4');
+    assert.ok($$(pane, '.rpg-battle-log-line').at(-1).classList.contains('is-important'));
+    assert.equal($(pane, '.rpg-battle-actor').textContent, 'Ren’s turn');
+    assert.equal($(pane, '.rpg-battle-over'), null);
+});
+
+test('fight: Attack with two targets enters target picking; tapping an enemy card sends the action', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    const view = fightView();
+    const pane = render(view, handlers);
+    buttonByText(pane, 'Attack').click();
+    assert.equal(calls.length, 0, 'nothing sent before a target is chosen');
+    assert.match($(pane, '.rpg-battle-picking-text').textContent, /Attack: tap an enemy/);
+    const pickable = $$(pane, '.rpg-battle-card.is-pickable').map(node => node.dataset.combatantId);
+    assert.deepEqual(pickable, ['e1', 'e2'], 'gone enemies and allies are not targets');
+    assert.equal(card(pane, 'e1').getAttribute('role'), 'button');
+    assert.equal(card(pane, 'e1').getAttribute('aria-label'), 'Target Goblin');
+
+    // A redraw of the same moment keeps the picking state.
+    renderBattleTab(pane, view, handlers);
+    assert.ok($(pane, '.rpg-battle-picking'));
+    card(pane, 'e2').click();
+    assert.deepEqual(calls.at(-1), { name: 'onAction', args: [{ type: 'attack', target: 'e2' }] });
+    assert.equal($(pane, '.rpg-battle-picking'), null, 'the state clears after sending');
+});
+
+test('fight: a single possible target is chosen at once; Defend and Flee send straight away', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    const pane = render(fightView({}, { targets: { enemies: ['e1'], allies: ['pc'] } }), handlers);
+    buttonByText(pane, 'Attack').click();
+    assert.deepEqual(calls.at(-1).args[0], { type: 'attack', target: 'e1' });
+    buttonByText(pane, 'Defend').click();
+    assert.deepEqual(calls.at(-1).args[0], { type: 'defend' });
+    const flee = buttonByText(pane, 'Flee 62%');
+    assert.ok(flee);
+    flee.click();
+    assert.deepEqual(calls.at(-1).args[0], { type: 'flee' });
+});
+
+test('fight: the Skill list shows MP, cooldowns and why a skill is unusable; heals aim at allies, areas need no target', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    const view = fightView();
+    const pane = render(view, handlers);
+    const skillButton = buttonByText(pane, 'Skill');
+    assert.equal(skillButton.getAttribute('aria-expanded'), 'false');
+    skillButton.click();
+    assert.equal(buttonByText(pane, 'Skill').getAttribute('aria-expanded'), 'true');
+    const entry = name => $$(pane, '.rpg-battle-menu-entry').find(node => node.dataset.skill === name);
+    assert.match(entry('Power Strike').textContent, /5 MP · cooldown 1 · one enemy/);
+    assert.match(entry('Power Strike').textContent, /Lv 2/);
+    assert.equal(entry('Rending Strike').disabled, true);
+    assert.equal(entry('Rending Strike').querySelector('.rpg-battle-pick-reason').textContent, 'Cooldown: 2 rounds');
+
+    // The open list survives a redraw of the same moment.
+    renderBattleTab(pane, view, handlers);
+    assert.ok(entry('Mend'));
+    entry('Mend').click();
+    assert.match($(pane, '.rpg-battle-picking-text').textContent, /Mend: tap an ally/);
+    assert.deepEqual($$(pane, '.rpg-battle-card.is-pickable').map(node => node.dataset.combatantId), ['pc', 'astra']);
+    card(pane, 'astra').click();
+    assert.deepEqual(calls.at(-1).args[0], { type: 'skill', target: 'astra', skill: 'Mend' });
+
+    buttonByText(pane, 'Skill').click();
+    entry('Whirl').click();
+    assert.deepEqual(calls.at(-1).args[0], { type: 'skill', target: null, skill: 'Whirl' });
+});
+
+test('fight: items aim by their effect; Esc and Cancel leave the picking state', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    const pane = render(fightView(), handlers);
+    buttonByText(pane, 'Item').click();
+    const entry = name => $$(pane, '.rpg-battle-menu-entry').find(node => node.dataset.item === name);
+    assert.match(entry('Healing Draught').textContent, /×2/);
+    entry('Ember Flask').click();
+    assert.deepEqual(calls.at(-1).args[0], { type: 'item', target: null, item: 'Ember Flask' });
+
+    buttonByText(pane, 'Item').click();
+    entry('Healing Draught').click();
+    assert.match($(pane, '.rpg-battle-picking-text').textContent, /tap an ally/);
+    root(pane).dispatch('keydown', { key: 'Escape' });
+    assert.equal($(pane, '.rpg-battle-picking'), null);
+    assert.equal($$(pane, '.rpg-battle-card.is-pickable').length, 0);
+
+    buttonByText(pane, 'Attack').click();
+    buttonByText(pane, 'Cancel').click();
+    assert.equal($(pane, '.rpg-battle-picking'), null);
+    assert.equal(calls.length, 1, 'cancelling sends nothing');
+});
+
+test('fight: Parley shows its chance, aims at enemies that talk, and is disabled when not possible', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    let pane = render(fightView(), handlers);
+    const parley = buttonByText(pane, 'Parley 45%');
+    assert.ok(parley);
+    parley.click();
+    // Only the shaman talks, so it is chosen at once.
+    assert.deepEqual(calls.at(-1).args[0], { type: 'parley', target: 'e2' });
+
+    pane = render(fightView({}, { canParley: false, parleyChance: null, canFlee: false }), handlers);
+    assert.equal(buttonByText(pane, 'Parley').disabled, true);
+    assert.equal(buttonStarting(pane, 'Flee').disabled, true);
+});
+
+test('fight: picking state is keyed to the moment; a new turn starts clean', () => {
+    reset();
+    const pane = render(fightView());
+    buttonByText(pane, 'Attack').click();
+    assert.ok($(pane, '.rpg-battle-picking'));
+    const next = fightView({ turn: 2, actions: [{ type: 'attack', target: 'e1' }] });
+    renderBattleTab(pane, next, {});
+    assert.equal($(pane, '.rpg-battle-picking'), null);
+    assert.ok(buttonByText(pane, 'Attack'));
+});
+
+test('fight: Auto calls onAuto; without it, an auto action', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    let pane = render(fightView(), handlers);
+    buttonByText(pane, 'Auto').click();
+    assert.equal(calls.at(-1).name, 'onAuto');
+    const sent = [];
+    pane = render(fightView(), { onAction: action => sent.push(action) });
+    buttonByText(pane, 'Auto').click();
+    assert.deepEqual(sent, [{ type: 'auto' }]);
+});
+
+test('fight: a finished fight shows "Fight over" and no action bar', () => {
+    reset();
+    const pane = render(fightView({ status: 'victory' }, { actor: null }));
+    assert.equal($(pane, '.rpg-battle-over').textContent, 'Fight over: Victory.');
+    assert.equal($(pane, '.rpg-battle-actionbar'), null);
+    assert.equal($$(pane, '.rpg-battle-card.is-turn').length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// result
+
+test('result: outcome, time, party after, gains, loot, key moments and the hand-off', () => {
+    reset();
+    const pane = render({ mode: 'result', result: result(), handoff: '[Battle resolved by RPG Battle: narrate this outcome, do not change it]\nVictory in 4 rounds.', levelsGained: 1, pointsGained: 4, rules });
+    assert.equal($(pane, '.rpg-battle-outcome').textContent, 'Victory');
+    assert.match($(pane, '.rpg-battle-section.is-outcome .rpg-battle-hint').textContent, /4 rounds · about 24 seconds/);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-after .rpg-battle-record-name'), ['Ren', 'Astra']);
+    assert.ok($$(pane, '.rpg-battle-after')[1].classList.contains('is-down'));
+    assert.equal($$(pane, '.rpg-battle-after')[0].querySelector('[role="progressbar"]').getAttribute('aria-valuenow'), '34');
+    assert.deepEqual(texts(root(pane), '.rpg-battle-gains dd'), ['+38 each', '+1 level', '4 to spend']);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-loot-item'), ['14 copper', 'Bone Fetishuncommon', 'Goblin Ear×3']);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-moments li'), ['Ren crit the second goblin.', 'One goblin fled toward the weir.']);
+    assert.match($(pane, '.rpg-battle-section.is-handoff .rpg-battle-handoff').textContent, /^\[Battle resolved by RPG Battle/);
+});
+
+test('result: defeat and escape titles; per-member XP; no loot section without loot', () => {
+    reset();
+    let pane = render({ mode: 'result', result: result({ outcome: 'defeat', xp: {}, loot: { items: [], money: 0 }, keyMoments: [] }), handoff: '' });
+    assert.equal($(pane, '.rpg-battle-outcome').textContent, 'Defeated');
+    assert.equal($(pane, '.rpg-battle-section.is-loot'), null);
+    assert.equal($(pane, '.rpg-battle-section.is-moments'), null);
+    assert.equal($(pane, '.rpg-battle-section.is-handoff'), null);
+    pane = render({ mode: 'result', result: result({ outcome: 'fled', rounds: 1, seconds: 6, xp: { pc: 10, astra: 5 } }), handoff: 'Escaped after 1 round.', moneyText: '1 silver, 4 copper' });
+    assert.equal($(pane, '.rpg-battle-outcome').textContent, 'Escaped');
+    assert.match($(pane, '.rpg-battle-section.is-outcome .rpg-battle-hint').textContent, /1 round · about 6 seconds/);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-gains dt'), ['Ren XP', 'Astra XP']);
+    assert.equal($(pane, '.rpg-battle-loot-item.is-money').textContent, '1 silver, 4 copper');
+});
+
+test('result: Return, Done, and Discard only on a second click', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    const view = { mode: 'result', result: result(), handoff: 'text', levelsGained: 0, pointsGained: 0 };
+    const pane = render(view, handlers);
+    buttonByText(pane, 'Return to story').click();
+    buttonByText(pane, 'Done').click();
+    assert.deepEqual(calls.map(call => call.name), ['onReturn', 'onDone']);
+    buttonByText(pane, 'Discard result').click();
+    assert.equal(calls.length, 2, 'the first click only arms it');
+    const armed = buttonByText(pane, 'Click again to discard');
+    assert.ok(armed.classList.contains('is-armed'));
+    // A redraw with the same result keeps it armed.
+    renderBattleTab(pane, view, handlers);
+    buttonByText(pane, 'Click again to discard').click();
+    assert.equal(calls.at(-1).name, 'onDiscard');
+});
+
+// ---------------------------------------------------------------------------
+// robustness
+
+test('every mode renders and its buttons can be pressed with no handlers at all', () => {
+    reset();
+    const views = [
+        { mode: 'create', presets: PRESETS, library: LIBRARY, rules },
+        { mode: 'idle', sheet: sheet(), skills: [], party: [], rules, pending: 'x' },
+        { mode: 'spend', sheet: sheet(), rules },
+        { mode: 'learn', sheet: sheet(), library: LIBRARY, rules },
+        { mode: 'setup', bestiary: [], suggestedRank: 'E', rules },
+        fightView(),
+        { mode: 'result', result: result(), handoff: 'x' },
+        { mode: 'nonsense' },
+        { mode: 'idle' },
+        { mode: 'fight' },
+    ];
+    for (const view of views) {
+        const pane = doc.createElement('div');
+        renderBattleTab(pane, view);
+        assert.ok(root(pane).classList.contains('rpg-battle-tab'), view.mode);
+        for (const node of $$(pane, 'button')) if (!node.disabled) node.click();
+    }
+});
+
+test('the root is put in the pane with replaceChildren, replacing what was there', () => {
+    reset();
+    const pane = doc.createElement('div');
+    pane.append(doc.createElement('span'));
+    renderBattleTab(pane, { mode: 'idle', sheet: sheet(), rules });
+    assert.equal(pane.children.length, 1);
+    assert.equal(pane.firstElementChild.dataset.mode, 'idle');
+});

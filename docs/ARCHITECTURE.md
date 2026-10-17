@@ -281,6 +281,29 @@ the target for the chosen action. Styles in `style.css`, class prefix `rpg-battl
 SillyTavern's theme variables (`--SmartThemeBodyColor`, `--SmartThemeBorderColor`,
 `--SmartThemeQuoteColor` for accent).
 
+## `src/party.js`
+
+```js
+export function combatantFromSheet(sheet, { memberId, controller, gear, items, library, rules }) → Combatant
+    // stats + gear (capped by items.gearBonuses), max HP/MP with gear, current HP/MP from the sheet,
+    // skills resolved, consumables from `items`, `capped` (the items scaled down).
+export function enemiesFromRows(rows, { bestiary, library, rules, rng }) → Combatant[]
+    // ids e1, e2…; several of a kind lettered "Goblin A", "Goblin B".
+```
+
+## `src/ui/settings.js`
+
+`renderSettings(container, { settings, version, status, onChange })`: the on/off switch, the
+currency (mode, tiers as `name=rate, …`, single coin name, money row) and the block tags.
+
+## As built (0.1)
+
+- Actions from the tab: `skill` and `item` are names; area skills and items send `target: null`,
+  self skills the actor's id. `startFight` already runs the automatic turns up to the first player
+  turn. XP for defeated enemies is given on every outcome; loot only on victory.
+- Mastery progress (`sheet.uses`) is not in the block text; index.js keeps it in chat metadata.
+- The rank table was retuned by the balance simulation (see DESIGN §7.1).
+
 ## `index.js` (glue, written last)
 
 Settings, the Character and Party blocks registered with Story Block as kept blocks, the tab,
