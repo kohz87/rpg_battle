@@ -348,11 +348,19 @@ the story as it does now.
   fled becomes an agenda, the fetish becomes a hook), as it does for any reply.
 - The fight's duration is in the hand-off, so the scene clock moves on correctly.
 
-### 8.5 Resting
+### 8.5 Recovery
 
-HP and MP do not come back on their own between fights: the story decides when the party rests,
-and **Rest** in the Battle tab sets everyone back to full HP and MP (fight conditions wear off).
-A character at 0 HP cannot start a fight until they rest or are healed.
+HP and MP come back as the story says, never by the model's hand:
+
+- **Story time** (Story Director's clock, `StoryDirector.timeAt`): after each reply, the hours it
+  moved on from the reply before give back `recovery.perHour` (5 %) of max HP and MP per hour; a
+  gap of `recovery.longRestHours` (6) or more is a full rest. Written into that reply from the
+  sheets before it, so a swipe or an edit recomputes rather than adds.
+- **Short rest** (`recovery.shortRestShare`, a quarter) and **Long rest** (full; fight conditions
+  end, story conditions stay) in the Battle tab.
+- **Items at camp:** heal, MP and cure effects from the Inventory block; damage items are for fights.
+
+A character at 0 HP cannot start a fight until they recover.
 
 ## 9. The Battle tab
 

@@ -76,6 +76,9 @@ export const DEFAULT_RULES = Object.freeze({
     // XP factor by (enemy level − member level): ×1.5 when it outranks, down to ×0.1.
     xp: { perLevelAbove: 0.1, maxFactor: 1.5, perLevelBelow: 0.15, minFactor: 0.1 },
     secondsPerRound: 6,
+    // Out of a fight: a short rest gives back this share of max HP/MP; story time heals
+    // `perHour` of max HP/MP per hour, and a gap of `longRestHours` or more is a full rest.
+    recovery: { shortRestShare: 0.25, perHour: 0.05, longRestHours: 6 },
     // How the fight resolves the things §5 leaves open (conditions, AI thresholds, safety stop).
     combat: {
         // Damage per tick of a damage-over-time condition, × the attack value of whoever applied it.

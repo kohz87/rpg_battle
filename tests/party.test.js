@@ -32,3 +32,19 @@ test('enemy rows: counts become lettered individuals with stable ids', () => {
     assert.ok(enemies[2].boss);
     assert.equal(enemies[2].side, 'enemy');
 });
+
+test('a new companion: built from a preset, raised to the level, gear capped into max HP/MP, unique id', async () => {
+    const { newCompanion } = await import('../src/party.js');
+    const healer = PRESETS.find(preset => preset.id === 'healer');
+    const astra = newCompanion({ name: 'Astra', role: 'mage', level: 4, preset: healer, gearLines: 'Ashwood Staff (rare) · MATK +7, INT +1' }, { rules, existing: [] });
+    assert.equal(astra.id, 'astra');
+    assert.equal(astra.sheet.level, 4);
+    const spent = Object.values(astra.sheet.stats).reduce((sum, value) => sum + value, 0) - 7 * rules.character.startStat;
+    assert.equal(spent, rules.character.startPoints + 3 * rules.character.pointsPerLevel);
+    assert.equal(astra.sheet.hp.cur, astra.sheet.hp.max);
+    assert.deepEqual(astra.gear.map(item => item.name), ['Ashwood Staff']);
+    assert.deepEqual(astra.sheet.skills.map(skill => skill.name), healer.skills);
+    const twin = newCompanion({ name: 'Astra', preset: healer }, { rules, existing: [astra] });
+    assert.equal(twin.id, 'astra-2');
+    assert.throws(() => newCompanion({ name: ' ', preset: healer }, { rules }), /name/);
+});

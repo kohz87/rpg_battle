@@ -13,13 +13,14 @@ import { DEFAULT_SKILLS, PRESETS, findSkill, resolveSkills, skillFromTemplate } 
 import { DEFAULT_BESTIARY, findCreature } from './src/enemies.js';
 import { act, availableActions, replay, startFight, summarize } from './src/combat.js';
 import { applyResult, formatCharacter, formatParty, learnSkill, newSheet, parseCharacter, parseParty, spendPoints } from './src/sheet.js';
-import { addLoot, formatMoney, parseInventory, useItems } from './src/items.js';
+import { addLoot, consumables, formatMoney, parseInventory, useItems } from './src/items.js';
 import { buildHandoff } from './src/handoff.js';
-import { combatantFromSheet, enemiesFromRows } from './src/party.js';
+import { combatantFromSheet, enemiesFromRows, newCompanion } from './src/party.js';
+import { recoverOverTime, rest, useItemOutside } from './src/recovery.js';
 import { renderBattleTab } from './src/ui/tab.js';
 import { renderSettings } from './src/ui/settings.js';
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 const SETTINGS_KEY = 'rpgBattle';
 const TAB_ID = 'rpg-battle';
 const PROMPT_KEY = 'rpg_battle';
@@ -35,6 +36,8 @@ const DEFAULT_SETTINGS = Object.freeze({
     // Sent for you by "Return to story", so the narration comes straight away.
     returnMessage: '*(The fight is over.)*',
     currency: DEFAULT_RULES.currency,
+    // HP and MP come back as story time passes (needs Story Director's clock).
+    recoverWithTime: true,
     // The reader's rules.json, merged over the defaults (null: the defaults).
     rules: null,
 });
@@ -133,6 +136,7 @@ function chatState(ctx = context()) {
         last: state.last ?? null,
         skills: Array.isArray(state.skills) ? state.skills : [],
         uses: state.uses && typeof state.uses === 'object' ? state.uses : {},
+        recovered: state.recovered ?? null,
     };
 }
 
@@ -184,7 +188,8 @@ async function writeSheet(sheet) {
 }
 
 async function writeParty(members) {
-    await writeBlock(settings().partyTag, formatParty(members, rules()));
+    // An empty party is still written, so the last companion leaving is a change the chat keeps.
+    await writeBlock(settings().partyTag, formatParty(members, rules()) || 'No companions.');
 }
 
 // ---------------------------------------------------------------------------
@@ -315,6 +320,57 @@ async function finishFight(fight) {
 }
 
 // ---------------------------------------------------------------------------
+// Recovery as story time passes (DESIGN §8.5)
+
+function storyClock() {
+    const api = globalThis.StoryDirector;
+    return api && Number(api.apiVersion) >= 1 && typeof api.timeAt === 'function' ? api : null;
+}
+
+// After each reply: the story time it moved on from the reply before heals the sheets, written
+// into that reply. The sheets before it are the base, so a swipe or an edit recomputes the
+// same recovery instead of adding it twice.
+async function recoverAfterReply({ messageIndex }) {
+    const ctx = context();
+    const sb = storyBlock();
+    const clock = storyClock();
+    const own = settings(ctx);
+    if (!sb || !clock || !own.enabled || !own.recoverWithTime || chatState(ctx).fight) return;
+    const chat = ctx?.chat ?? [];
+    const index = Number(messageIndex);
+    if (!isAssistant(chat[index])) return;
+    const now = clock.timeAt(index);
+    const before = clock.timeAt(index - 1);
+    if (now === null || before === null || !(now > before)) return;
+    const hours = (now - before) / 60;
+    const r = rules();
+    const characterText = sb.getBlock(own.characterTag, { beforeIndex: index })?.text ?? '';
+    const sheet = characterText.trim() ? parseCharacter(characterText, r).sheet : null;
+    if (!sheet) return;
+    const gear = parseInventory(sb.getBlock(own.inventoryTag, { beforeIndex: index })?.text ?? '').items.filter(item => item.equipped);
+    const mine = recoverOverTime(sheet, hours, { gear, rules: r });
+    const partyText = sb.getBlock(own.partyTag, { beforeIndex: index })?.text ?? '';
+    const members = partyText.trim() ? parseParty(partyText, r).members : [];
+    const theirs = members.map(member => ({ member, recovery: recoverOverTime(member.sheet, hours, { gear: member.gear ?? [], rules: r }) }));
+    if (!mine.kind && !theirs.some(entry => entry.recovery.kind)) return;
+    try {
+        if (mine.kind) await sb.setBlockText(index, own.characterTag, formatCharacter(mine.sheet, r));
+        if (theirs.some(entry => entry.recovery.kind)) {
+            await sb.setBlockText(index, own.partyTag, formatParty(theirs.map(({ member, recovery }) => ({ ...member, sheet: recovery.sheet })), r));
+        }
+    } catch (error) {
+        console.error('[RPG Battle] recovery could not be written', error);
+        return;
+    }
+    const span = hours >= 1 ? `${Math.round(hours * 10) / 10} hours` : `${Math.round(hours * 60)} minutes`;
+    const text = mine.kind === 'long'
+        ? `${span} passed: ${sheet.name} is fully rested.`
+        : mine.kind ? `${span} passed: ${sheet.name} recovers ${mine.hp} HP and ${mine.mp} MP.` : `${span} passed: the party recovers.`;
+    saveChatState({ recovered: { index, text } });
+    sb.refresh?.();
+}
+
+// ---------------------------------------------------------------------------
 // The hand-off: injected once, into the next reply and its swipes
 
 function setPrompt(text) {
@@ -392,10 +448,14 @@ function viewFor() {
     const skills = resolveSkills(sheet.skills, library(ctx), sheet.level, r);
     if (screen.mode === 'spend') return { mode: 'spend', sheet, rules: r };
     if (screen.mode === 'learn') return { mode: 'learn', sheet, library: library(ctx), rules: r };
+    if (screen.mode === 'items') return { mode: 'items', sheet, party: currentParty(), items: consumables(currentItems()), rules: r };
+    if (screen.mode === 'companion') return { mode: 'companion', presets: PRESETS, level: sheet.level, maxLevel: Math.max(20, sheet.level + 10), rules: r };
     if (screen.mode === 'setup') {
         return { mode: 'setup', bestiary: DEFAULT_BESTIARY.map(entry => entry.name), suggestedRank: suggestRank(sheet.level, r), rules: r };
     }
-    return { mode: 'idle', sheet, checks: checkModifiers(sheet.stats, r), skills, party: currentParty(), rules: r, pending: state.pending?.handoff ?? null };
+    // The last automatic recovery, while it is the latest reply's.
+    const recovered = state.recovered && state.recovered.index === (ctx?.chat?.length ?? 0) - 1 ? state.recovered.text : '';
+    return { mode: 'idle', sheet, checks: checkModifiers(sheet.stats, r), skills, party: currentParty(), rules: r, pending: state.pending?.handoff ?? null, recovered };
 }
 
 function go(mode) {
@@ -451,16 +511,59 @@ const handlers = {
         }
         go('setup');
     },
-    onRest: () => void guarded(async () => {
+    onRest: kind => void guarded(async () => {
+        const r = rules();
         const sheet = currentSheet();
         if (!sheet) return;
-        // Full HP and MP; fight conditions (poison and the like) wear off with the rest.
-        await writeSheet({ ...sheet, hp: { ...sheet.hp, cur: sheet.hp.max }, mp: { ...sheet.mp, cur: sheet.mp.max }, conditions: [] });
+        const length = kind === 'short' ? 'short' : 'long';
+        const rested = rest(sheet, length, { gear: currentItems().filter(item => item.equipped), rules: r });
+        await writeSheet(rested);
         const members = currentParty();
-        if (members.length) {
-            await writeParty(members.map(member => ({ ...member, sheet: { ...member.sheet, hp: { ...member.sheet.hp, cur: member.sheet.hp.max }, mp: { ...member.sheet.mp, cur: member.sheet.mp.max }, conditions: [] } })));
+        if (members.length) await writeParty(members.map(member => ({ ...member, sheet: rest(member.sheet, length, { gear: member.gear ?? [], rules: r }) })));
+        notify('success', length === 'long' ? `${sheet.name} is fully rested.` : `${sheet.name} catches their breath: HP ${rested.hp.cur}/${rested.hp.max}, MP ${rested.mp.cur}/${rested.mp.max}.`);
+    }),
+    onItems: () => go('items'),
+    onUseItem: ({ name, target = 'pc' }) => void guarded(async () => {
+        const own = settings();
+        const item = consumables(currentItems()).find(entry => entry.name === name);
+        if (!item) throw new Error(`There is no ${name} left.`);
+        let outcome;
+        if (target === 'pc') {
+            outcome = useItemOutside(currentSheet(), item);
+            if (outcome.used) await writeSheet(outcome.sheet);
+        } else {
+            const members = currentParty();
+            const member = members.find(entry => entry.id === target);
+            if (!member) throw new Error('That companion is not in the party.');
+            outcome = useItemOutside(member.sheet, item);
+            if (outcome.used) await writeParty(members.map(entry => (entry.id === target ? { ...entry, sheet: outcome.sheet } : entry)));
         }
-        notify('success', `${sheet.name} is rested.`);
+        if (!outcome.used) {
+            notify('info', outcome.message);
+            return;
+        }
+        await writeBlock(own.inventoryTag, useItems(blockText(own.inventoryTag), { [item.name]: 1 }));
+        notify('success', outcome.message);
+    }),
+    onCompanion: () => go('companion'),
+    onAddCompanion: input => void guarded(async () => {
+        const r = rules();
+        const members = currentParty();
+        const preset = PRESETS.find(entry => entry.id === input.presetId);
+        const member = newCompanion({ ...input, preset }, { rules: r, existing: members });
+        await writeParty([...members, member]);
+        screen = { chatId: chatIdOf(context()), mode: null };
+        notify('success', `${member.name} joins the party.`);
+    }),
+    onSetControl: (memberId, control) => void guarded(async () => {
+        const members = currentParty();
+        await writeParty(members.map(member => (member.id === memberId ? { ...member, control: control === 'command' ? 'command' : 'auto' } : member)));
+    }),
+    onRemoveCompanion: memberId => void guarded(async () => {
+        const members = currentParty();
+        const leaving = members.find(member => member.id === memberId);
+        await writeParty(members.filter(member => member.id !== memberId));
+        if (leaving) notify('info', `${leaving.name} leaves the party.`);
     }),
     onBack: () => go(null),
     onStart: setup => void guarded(async () => {
@@ -482,7 +585,7 @@ function tabKey() {
     const chat = ctx?.chat ?? [];
     const state = chatState(ctx);
     const last = chat.at(-1);
-    return [chatIdOf(ctx), chat.length, String(last?.mes ?? '').length, screen.mode, fightKey(state.fight), state.pending?.fightId ?? '', JSON.stringify(settings())].join('|');
+    return [chatIdOf(ctx), chat.length, String(last?.mes ?? '').length, screen.mode, fightKey(state.fight), state.pending?.fightId ?? '', state.recovered?.text ?? '', JSON.stringify(settings())].join('|');
 }
 
 function renderTab(pane) {
@@ -539,6 +642,7 @@ function registerWithStoryBlock() {
         badge: () => (currentFight() ? 1 : 0),
         render: pane => renderTab(pane),
     });
+    sb.onReply?.(payload => void recoverAfterReply(payload));
     registered = true;
     return true;
 }

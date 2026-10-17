@@ -1,12 +1,13 @@
-# RPG Battle v0.1.0
+# RPG Battle v0.2.0
 
 Turn-based fights for SillyTavern, resolved in code. Press **Start fight**, choose the enemies,
 fight with buttons (**Attack, Skill, Item, Defend, Parley, Flee, Auto**), and the story gets one
 short summary to narrate. No model calls during the fight, no arithmetic for the model, and a
 lost fight cannot be rerolled by swiping.
 
-Needs [Story Block](https://github.com/kohz87/Story_block) **0.7** or newer. Works alongside
-[Story Director](https://github.com/kohz87/Story_director).
+Needs [Story Block](https://github.com/kohz87/Story_block) **0.7** or newer. With
+[Story Director](https://github.com/kohz87/Story_director) **0.7.2** or newer, HP and MP also come
+back as story time passes.
 
 ## Install
 
@@ -48,9 +49,26 @@ Conditions: none
 - **Skills:** learned from the story, added by hand (**Learn skill**): one from the library (some
   need a stat, like INT 8 for Fireball) or a new one built from a template for your level. Using
   a skill in fights raises its mastery (Lv 1 to 5).
-- **Rest:** HP and MP come back when the story has you rest: press **Rest**.
+- **Recovery:** see below.
 - **Checks outside fights:** the **Checks** line is your bonus per stat. With Story Block's Dice
   block on, the dice use it as the modifier (a CHA check is d20 + your CHA bonus).
+
+## Recovery
+
+HP and MP come back the way the story says:
+
+- **As story time passes** (with Story Director): after each reply, the time it moved on from
+  the reply before heals the party, **5 % of max HP and MP per hour**; **6 hours or more** is a
+  full rest (fight conditions like poison end). A note in the Battle tab says what happened
+  ("8 hours passed: Ren is fully rested."). It is written into that reply, so a swipe or an edit
+  recomputes it instead of adding it twice. Switch: *Recover HP and MP as story time passes*.
+- **Short rest:** a quarter of max HP and MP back (an hour's breather).
+- **Long rest:** full HP and MP; fight conditions end. For what the clock cannot see, or without
+  Story Director.
+- **Use item:** a consumable used at camp (`heal 30`, `mp 20`, `cure poison`) on you or a
+  companion; it comes off the inventory. Damage items stay for fights.
+
+A character at 0 HP cannot start a fight until they recover.
 
 ## Equipment and loot: your Inventory block
 
@@ -106,9 +124,14 @@ editable), **one coin** named as you like, or **your own** names and rates (for 
 
 ## Companions
 
-A **Party** block (kept by RPG Battle, like the Character block) holds companions, each with the
-same stats and skills and `control: auto` (acts on its own) or `control: command` (you choose
-its actions). They level with you.
+**Add companion** in the Battle tab brings someone the story introduced into the party: a name,
+a role, the level they join at (yours by default), a build (the presets spread their points and
+give three starter skills), who controls them, and optionally their equipment, one item per line
+(`Ashwood Staff (rare) · MATK +7, INT +1`, capped by rarity like yours).
+
+They live in the **Party** block, kept by RPG Battle like the Character block, fight beside you
+(acting on their own, or on your command: tap to switch), get the same XP, rest and recover with
+you, and can be **Removed** (it asks twice) when they leave the story.
 
 ## Development
 

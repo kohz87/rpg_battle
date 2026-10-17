@@ -288,7 +288,7 @@ test('idle: header, bars, stats with checks, skills, party and the main buttons'
     assert.equal($(pane, '.rpg-battle-skill .rpg-battle-tag').textContent, 'Lv 2');
 
     assert.deepEqual(texts(root(pane), '.rpg-battle-member .rpg-battle-record-name'), ['Astra', 'Merrit']);
-    assert.deepEqual(texts(root(pane), '.rpg-battle-member .rpg-battle-control'), ['auto', 'command']);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-member .rpg-battle-control'), ['Acts on its own', 'You command']);
     assert.equal($(pane, '.rpg-battle-member [role="progressbar"]').getAttribute('aria-valuenow'), '30');
 
     assert.equal($(pane, '.rpg-battle-notice'), null, 'no pending notice');
@@ -296,6 +296,64 @@ test('idle: header, bars, stats with checks, skills, party and the main buttons'
     $(pane, '.rpg-battle-start').click();
     $(pane, '.rpg-battle-learn').click();
     assert.deepEqual(calls.map(call => call.name), ['onSpend', 'onSetup', 'onLearn']);
+});
+
+test('idle: rests, Use item, Add companion, a companion\'s control and two-click Remove', () => {
+    const { handlers, calls } = recorder();
+    const party = [{ id: 'astra', name: 'Astra', role: 'companion', control: 'auto', sheet: sheet({ name: 'Astra', level: 3 }), gear: [] }];
+    let pane = render({ mode: 'idle', sheet: sheet({ name: 'Ren', level: 4 }), skills: [], party, rules, recovered: '8 hours passed: Ren is fully rested.' }, handlers);
+    assert.match($(pane, '.rpg-battle-recovered').textContent, /fully rested/);
+    $(pane, '.rpg-battle-rest-short').click();
+    $(pane, '.rpg-battle-rest-long').click();
+    $(pane, '.rpg-battle-items').click();
+    $(pane, '.rpg-battle-add-companion').click();
+    $(pane, '.rpg-battle-member .rpg-battle-control').click();
+    assert.deepEqual(calls.map(call => [call.name, ...call.args]), [['onRest', 'short'], ['onRest', 'long'], ['onItems'], ['onCompanion'], ['onSetControl', 'astra', 'command']]);
+    $(pane, '.rpg-battle-remove-companion').click();
+    assert.match($(pane, '.rpg-battle-remove-companion').textContent, /Click again/);
+    $(pane, '.rpg-battle-remove-companion').click();
+    assert.deepEqual(calls.at(-1).name, 'onRemoveCompanion');
+    assert.deepEqual(calls.at(-1).args, ['astra']);
+});
+
+test('items: usable consumables on you or a companion; fight-only ones disabled', () => {
+    const { handlers, calls } = recorder();
+    const party = [{ id: 'astra', name: 'Astra', role: 'companion', control: 'auto', sheet: sheet({ name: 'Astra' }), gear: [] }];
+    const items = [
+        { name: 'Healing Draught', qty: 2, effect: { heal: 30 } },
+        { name: 'Ember Flask', qty: 1, effect: { damage: { amount: 25, element: 'fire', target: 'all' } } },
+    ];
+    const pane = render({ mode: 'items', sheet: sheet({ name: 'Ren' }), party, items, rules }, handlers);
+    const rows = root(pane).querySelectorAll('.rpg-battle-use-item');
+    assert.match(rows[0].textContent, /heals 30/);
+    assert.ok(rows[1].querySelector('.rpg-battle-use').disabled, 'a fire flask is for fights');
+    const who = $(pane, '.rpg-battle-item-target');
+    who.value = 'astra';
+    who.dispatch('change');
+    rows[0].querySelector('.rpg-battle-use').click();
+    assert.deepEqual(calls.at(-1), { name: 'onUseItem', args: [{ name: 'Healing Draught', target: 'astra' }] });
+});
+
+test('companion: name, role, level, build, control and equipment go to onAddCompanion', () => {
+    const { handlers, calls } = recorder();
+    const presets = [{ id: 'healer', name: 'Healer', points: { INT: 4, VIT: 3, CHA: 3 }, skills: ['Mend', 'Firebolt', 'Rally'] }, { id: 'fighter', name: 'Fighter', points: { STR: 4, VIT: 3, DEX: 3 }, skills: ['Power Strike'] }];
+    const pane = render({ mode: 'companion', presets, level: 4, maxLevel: 20, rules }, handlers);
+    assert.ok($(pane, '.rpg-battle-companion-add').disabled, 'needs a name');
+    const name = $(pane, '.rpg-battle-companion-name');
+    name.value = 'Astra';
+    name.dispatch('input');
+    assert.equal($(pane, '.rpg-battle-companion-level').value, '4', 'your level by default');
+    const build = $(pane, '.rpg-battle-companion-preset');
+    build.value = 'fighter';
+    build.dispatch('change');
+    const control = $(pane, '.rpg-battle-companion-control');
+    control.value = 'command';
+    control.dispatch('change');
+    const gear = $(pane, '.rpg-battle-companion-gear');
+    gear.value = 'Ashwood Staff (rare) · MATK +7';
+    gear.dispatch('input');
+    $(pane, '.rpg-battle-companion-add').click();
+    assert.deepEqual(calls.at(-1), { name: 'onAddCompanion', args: [{ name: 'Astra', role: 'companion', control: 'command', level: 4, presetId: 'fighter', gearLines: 'Ashwood Staff (rare) · MATK +7' }] });
 });
 
 test('idle: no Spend without points; a pending hand-off offers Return to story; model text stays text', () => {
