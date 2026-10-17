@@ -107,3 +107,7 @@ test('the Party prompt note points at the State lines and fits Story Block', asy
     }
     assert.match(source, /const PARTY_NOTE = '.*\(you\).*Visible Condition must agree/);
 });
+
+test('a character killed in a fight to the death reads "dead" and nothing else', () => {
+    assert.deepEqual(stateWords({ hp: { cur: 0, max: 50 }, mp: { cur: 3, max: 30 }, conditions: [{ name: 'Dead', rounds: null }, { name: 'poison', rounds: 2 }] }, R), { hp: 'dead', mp: '', conditions: [], text: 'dead' });
+});

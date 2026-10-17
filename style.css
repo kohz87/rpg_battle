@@ -1557,3 +1557,128 @@
 .rpg-battle-settings .rpg-battle-settings-fold > :last-child {
     margin-bottom: 0.6rem;
 }
+
+/* ---------------------------------------------------------------------------
+ * 0.4: the Party tab's cards, the story's offers, the companion's kit.
+ */
+
+.rpg-battle-tab .rpg-battle-member-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.rpg-battle-tab .rpg-battle-member-card {
+    border: 1px solid var(--rb-border);
+    border-radius: 8px;
+    background: var(--rb-tint);
+}
+
+.rpg-battle-tab .rpg-battle-member-card.is-you {
+    border-color: color-mix(in srgb, var(--rb-accent) 45%, var(--rb-border));
+}
+
+.rpg-battle-tab .rpg-battle-member-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding: 0.5rem 0.65rem;
+    list-style: none;
+    cursor: pointer;
+    border-radius: 8px;
+}
+
+.rpg-battle-tab .rpg-battle-member-summary::-webkit-details-marker {
+    display: none;
+}
+
+.rpg-battle-tab .rpg-battle-member-summary:focus-visible {
+    outline: 2px solid var(--rb-accent);
+    outline-offset: -2px;
+}
+
+.rpg-battle-tab .rpg-battle-member-summary .rpg-battle-head::after {
+    content: "";
+    flex: none;
+    width: 0.45rem;
+    height: 0.45rem;
+    margin-left: auto;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    opacity: 0.5;
+    transform: rotate(-45deg);
+    transition: transform 0.15s ease;
+}
+
+.rpg-battle-tab .rpg-battle-member-card[open] > .rpg-battle-member-summary .rpg-battle-head::after {
+    transform: rotate(45deg);
+}
+
+.rpg-battle-tab .rpg-battle-member-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    padding: 0.1rem 0.65rem 0.65rem;
+    border-top: 1px solid var(--rb-border);
+}
+
+.rpg-battle-tab .rpg-battle-points-tag {
+    color: var(--rb-accent);
+}
+
+.rpg-battle-tab .rpg-battle-skill.is-aside,
+.rpg-battle-tab .rpg-battle-gear.is-unused {
+    opacity: 0.65;
+}
+
+.rpg-battle-tab .rpg-battle-record-head .rpg-battle-button {
+    margin-left: auto;
+}
+
+.rpg-battle-tab .rpg-battle-aside-label {
+    margin: 0.2rem 0 0;
+}
+
+.rpg-battle-tab .rpg-battle-give {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 0.4rem 0.5rem;
+    border: 1px dashed var(--rb-border);
+    border-radius: 6px;
+}
+
+.rpg-battle-tab .rpg-battle-start-over-row {
+    align-items: center;
+}
+
+.rpg-battle-tab .rpg-battle-start-over.is-armed,
+.rpg-battle-tab .rpg-battle-offer-accept.is-armed {
+    border-color: var(--rb-bad);
+    color: var(--rb-bad);
+}
+
+.rpg-battle-tab .rpg-battle-notice.is-game-over {
+    border-color: color-mix(in srgb, var(--rb-bad) 60%, transparent);
+    background: color-mix(in srgb, var(--rb-bad) 10%, transparent);
+}
+
+.rpg-battle-tab .rpg-battle-notice.is-game-over .rpg-battle-notice-text > i {
+    color: var(--rb-bad);
+}
+
+.rpg-battle-tab .rpg-battle-offer-note {
+    margin: 0;
+}
+
+.rpg-battle-tab .rpg-battle-kit-skill .rpg-battle-record-desc {
+    margin: 0.1rem 0 0;
+}
+
+.rpg-battle-tab .rpg-battle-wave {
+    flex: none;
+}
+
+.rpg-battle-tab .rpg-battle-import-wrap {
+    display: contents;
+}

@@ -32,26 +32,34 @@
 
 import { DEFAULT_RULES, checkModifiers, makeRules, suggestRank } from './src/rules.js';
 import { hashSeed, makeRng } from './src/rng.js';
-import { DEFAULT_SKILLS, PRESETS, findSkill, resolveSkills, skillFromTemplate } from './src/skills.js';
+import { DEFAULT_SKILLS, findSkill, resolveSkills, skillFromTemplate } from './src/skills.js';
 import { DEFAULT_BESTIARY, findCreature } from './src/enemies.js';
 import { cleanCreature, combinedBestiary, creaturesToMake, generateCreature, storeCreatures } from './src/templates.js';
 import { applyFlavour, flavourPrompt, parseFlavour, sceneText } from './src/flavour.js';
 import { act, availableActions, replay, startFight, summarize } from './src/combat.js';
-import { applyResult, formatPartyBlock, learnSkill, newSheet, readSheets, spendPoints } from './src/sheet.js';
-import { addLoot, consumables, formatMoney, gearSummary, parseInventory, useItems } from './src/items.js';
+import { applyResult, formatPartyBlock, learnSkill, newSheet, readSheets, setSkillActive, spendPoints } from './src/sheet.js';
+import { addLoot, consumables, formatGearEntry, formatMoney, gearSummary, parseGearEntry, parseInventory, useItems } from './src/items.js';
 import { buildHandoff } from './src/handoff.js';
-import { combatantFromSheet, editCompanion, enemiesFromRows, newCompanion, remapIds } from './src/party.js';
-import { recoverOverTime, rest, useItemOutside } from './src/recovery.js';
-import { STORY_INSTRUCTION, applyWounds, describeWound, parseEncounter, parseWounds, resolveThreats } from './src/story.js';
+import { combatantFromSheet, editCompanion, enemiesFromRows, engagements, newCompanion, remapIds } from './src/party.js';
+import { recoverOverTime, restAfter, useItemOutside } from './src/recovery.js';
+import { STORY_INSTRUCTION, applyWounds, describeWound, findTarget, parseEncounter, parseWounds, resolveThreats } from './src/story.js';
+import { questOffers, storyOffers } from './src/offers.js';
+import { awardParty, settleCompanions } from './src/growth.js';
+import { guessFocus } from './src/builds.js';
+import { fallbackKit, kitPrompt, kitTemplate, namedKit, parseKit, usableKit } from './src/kit.js';
+import { cleanParty, exportParty } from './src/partyfile.js';
 import { renderBattleTab } from './src/ui/tab.js';
 import { renderSettings } from './src/ui/settings.js';
 import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
-import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, truthChoices } from './src/handshake.js';
+import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
 const VERSION = '0.3.3';
 const SETTINGS_KEY = 'rpgBattle';
+// Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
+const PARTY_TAB_ID = 'rpg-party';
+const NPC_SUITE_ID = 'npc-state-delta';
 const PROMPT_KEY = 'rpg_battle';
 // The story instruction (<Wounds>, <Encounter>) has its own key: the hand-off comes and goes
 // with one reply, the instruction stays on.
@@ -63,14 +71,17 @@ const JOINS_TAG = 'Joins';
 const LEAVES_TAG = 'Leaves';
 const LEARNED_TAG = 'Learned';
 const XP_TAG = 'XP';
+const REST_TAG = 'Rest';
 const TRANSPORT_TAGS = [
     ['rpg-wounds', WOUNDS_TAG], ['rpg-encounter', ENCOUNTER_TAG], ['rpg-joins', JOINS_TAG],
-    ['rpg-leaves', LEAVES_TAG], ['rpg-learned', LEARNED_TAG], ['rpg-xp', XP_TAG],
+    ['rpg-leaves', LEAVES_TAG], ['rpg-learned', LEARNED_TAG], ['rpg-xp', XP_TAG], ['rpg-rest', REST_TAG],
 ];
 // Story Block's own Character Sheet block (a template of its own), which keeps a second HP.
 const STORY_SHEET_TEMPLATE = 'character-sheet';
-// How many dismissed encounter offers are remembered per chat.
-const DISMISSED_KEPT = 30;
+// How many offers put away (Not now, or taken) are remembered per chat; the opening message's
+// are kept apart, so a long story never offers its start again.
+const DISMISSED_KEPT = 60;
+const OPENING_KEPT = 60;
 const EXTENSION_PROMPT_IN_CHAT = 1;
 const EXTENSION_PROMPT_ROLE_SYSTEM = 0;
 const MIN_STORY_BLOCK_VERSION = [0, 7, 0];
@@ -82,6 +93,8 @@ const FLAVOUR_PER_FIGHT = 4;
 const BESTIARY_KEPT = 200;
 const SCENE_MESSAGES = 6;
 const SCENE_WORDS = 300;
+// The condition a fight lost to the death leaves on your sheet: game over until Start over.
+const DEAD = 'dead';
 
 const DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
@@ -91,9 +104,6 @@ const DEFAULT_SETTINGS = Object.freeze({
     // has your section. Not in the settings panel any more.
     characterTag: 'Character',
     inventoryTag: 'Inventory',
-    // With Story Block 0.9.1 or newer the Party block is kept without a sidebar tab of its own
-    // (the Battle tab shows it); on, it gets one as before.
-    partyTab: false,
     // Skills a member fights with (3–12); more are kept, set aside (rules.character.activeSkills).
     activeSkills: DEFAULT_RULES.character.activeSkills,
     // Companions on auto spend the points a level gives them in their build's proportions.
@@ -127,8 +137,10 @@ const PARTY_NOTE = 'Your character ("(you)") and companions as the game knows th
 let registered = false;
 let uiRetry = null;
 let settingsPanel = null;
-// What the Battle tab shows when it is not dictated by the chat (a fight, a result).
+// What the Battle tab shows when it is not dictated by the chat (the setup, a result), and
+// what the Party tab shows beside the cards (spend, learn, a companion joining, items).
 let screen = { chatId: null, mode: null };
+let partyScreen = { chatId: null, mode: null };
 // The fight being played, replayed from the chat's metadata once per chat.
 let live = { chatId: null, key: '', fight: null };
 
@@ -211,10 +223,12 @@ function rules() {
 // of its <Wounds> text; written: hashes of the sheet texts the pipeline wrote into it),
 // dismissed: ['index:encounter text'] encounter offers the reader said Not now to,
 // bestiary: [creature] the creatures made up in this story (src/templates.js), cleaned when stored,
-// npcLinks: { [memberId]: npcId } the NPC State Delta NPC a companion was added from }.
+// npcLinks: { [memberId]: npcId } the NPC State Delta NPC a companion was added from,
+// done: ['0:kind:line'] the opening message's offers taken or put away,
+// fallen: [{ memberId, name }] companions who fell in a fight to the death, to remove or keep }.
 function chatState(ctx = context()) {
     const meta = chatMeta(ctx);
-    if (!meta) return { fight: null, pending: null, story: null, dismissed: [], bestiary: [], skills: [], uses: {}, npcLinks: {} };
+    if (!meta) return { fight: null, pending: null, story: null, dismissed: [], bestiary: [], skills: [], uses: {}, npcLinks: {}, done: [], fallen: [] };
     const state = meta[SETTINGS_KEY] && typeof meta[SETTINGS_KEY] === 'object' ? meta[SETTINGS_KEY] : {};
     return {
         fight: state.fight ?? null,
@@ -227,6 +241,8 @@ function chatState(ctx = context()) {
         dismissed: Array.isArray(state.dismissed) ? state.dismissed : [],
         bestiary: Array.isArray(state.bestiary) ? state.bestiary.filter(entry => entry && typeof entry === 'object' && entry.name) : [],
         npcLinks: state.npcLinks && typeof state.npcLinks === 'object' ? state.npcLinks : {},
+        done: Array.isArray(state.done) ? state.done : [],
+        fallen: Array.isArray(state.fallen) ? state.fallen.filter(entry => entry && entry.memberId) : [],
     };
 }
 
@@ -425,11 +441,14 @@ function startNewFight({ rows, stakes }, { fresh = [] } = {}) {
     const bestiary = fightBestiary(ctx);
     const ranked = rankedRows(rows, sheet, r, bestiary);
     const made = new Set(fresh.map(name => name.toLowerCase()));
-    const enemies = enemiesFromRows(ranked, { bestiary, library: library(), rules: r, rng: makeRng(`${seed}:enemies`) })
+    const all = enemiesFromRows(ranked, { bestiary, library: library(), rules: r, rng: makeRng(`${seed}:enemies`) })
         // A creature made up for this very fight wears a "new" tag on its card.
         .map(enemy => (enemy.generated && made.has(String(findCreature(bestiary, enemy.name)?.name ?? '').toLowerCase()) ? { ...enemy, fresh: true } : enemy));
-    if (!enemies.length) throw new Error('Name at least one enemy.');
-    const setup = { id, seed, party, enemies, stakes: stakes === 'death' ? 'death' : 'normal' };
+    if (!all.length) throw new Error('Name at least one enemy.');
+    // Engagements after the first ("then:") join as waves once the field is clear: one battle,
+    // HP and MP as they stand, one result.
+    const { enemies, waves } = engagements(all);
+    const setup = { id, seed, party, enemies, ...(waves.length ? { waves } : {}), stakes: stakes === 'death' ? 'death' : 'normal' };
     // Validate by starting it once; the stored form is the setup and the actions.
     startFight({ ...setup, rules: r });
     saveChatState({ fight: { setup, actions: [] } });
@@ -657,13 +676,23 @@ async function finishFight(fight) {
             report.levelsReached = applied.levelsGained ? applied.sheet.level : 0;
             uses.pc = applied.sheet.uses ?? {};
             pc = applied.sheet;
+            // Lost to the death: the story of this character ends. The sheet says so (the State
+            // line reads "dead"), so a swipe or a deleted reply takes it back with the rest.
+            if (fight.stakes === 'death' && result.outcome === 'defeat') pc = { ...pc, hp: { ...pc.hp, cur: 0 }, conditions: [{ name: DEAD, rounds: null }] };
         }
-        const members = currentParty().map(member => {
+        const raised = currentParty().map(member => {
             const applied = applyResult({ ...member.sheet, uses: uses[member.id] ?? {} }, member.id, result, r);
             uses[member.id] = applied.sheet.uses ?? {};
             return { ...member, sheet: applied.sheet };
         });
+        // Companions on auto spend what a level gave them, by build (the setting allowing).
+        const members = settleCompanions(raised, { autoSpend: own.autoSpend !== false, rules: r });
         if (pc || members.length) await writeSheets(pc, members);
+        // A companion at 0 HP when a fight to the death ends fell: offered for removal afterwards.
+        if (fight.stakes === 'death') {
+            const fell = result.party.filter(entry => entry.memberId !== 'pc' && (entry.down || entry.hp?.cur <= 0)).map(entry => members.find(member => member.id === entry.memberId)).filter(Boolean);
+            if (fell.length) saveChatState({ fallen: [...chatState().fallen.filter(entry => !fell.some(member => member.id === entry.memberId)), ...fell.map(member => ({ memberId: member.id, name: member.name }))] });
+        }
         const inventory = blockText(own.inventoryTag);
         if (inventory.trim() || result.loot?.items?.length || result.loot?.money) {
             let next = useItems(inventory, result.itemsUsed?.pc ?? {});
@@ -729,6 +758,8 @@ function planReply(sb, index, { withWounds = true } = {}) {
     let pc = before;
     let party = members;
     let note = '';
+    // What story time gave each member in this reply, so a <Rest> accepted for it adds only the rest.
+    const gains = {};
     const clock = storyClock();
     if (before && clock && own.recoverWithTime) {
         const now = clock.timeAt(index);
@@ -739,6 +770,8 @@ function planReply(sb, index, { withWounds = true } = {}) {
             const mine = recoverOverTime(before, hours, { gear, rules: r });
             const theirs = members.map(member => ({ member, recovery: recoverOverTime(member.sheet, hours, { gear: member.gear ?? [], rules: r }) }));
             if (mine.kind || theirs.some(entry => entry.recovery.kind)) {
+                gains.pc = { hp: mine.hp, mp: mine.mp };
+                for (const { member, recovery } of theirs) gains[member.id] = { hp: recovery.hp, mp: recovery.mp };
                 pc = mine.sheet;
                 party = theirs.map(({ member, recovery }) => ({ ...member, sheet: recovery.sheet }));
                 const span = hours >= 1 ? `${Math.round(hours * 10) / 10} hours` : `${Math.round(hours * 60)} minutes`;
@@ -755,7 +788,7 @@ function planReply(sb, index, { withWounds = true } = {}) {
         ({ pc, applied } = result);
         party = result.members;
     }
-    return { before, members, pc, party, note, applied, legacy, signature: wounds.signature };
+    return { before, members, pc, party, note, gains, applied, legacy, signature: wounds.signature };
 }
 
 /**
@@ -811,12 +844,13 @@ async function afterReply({ messageIndex }) {
     }
     if (result.ok) {
         saveChatState({
-            recovered: plan.note ? { index, text: plan.note } : state.recovered?.index === index ? null : state.recovered,
+            recovered: plan.note ? { index, text: plan.note, gains: plan.gains } : state.recovered?.index === index ? null : state.recovered,
             story: { index, signature, applied: undone ? state.story.applied : plan.applied, undone, written: result.written },
         });
         if (plan.applied.length) toastWounds(plan.applied);
     }
     if (!narrating) toastEncounter(sb, index);
+    toastOffers(currentOffers().filter(offer => offer.index === index));
     sb.refresh?.();
 }
 
@@ -911,6 +945,9 @@ function plannedEncounters(index) {
 function encounterOffer(ctx = context(), state = chatState(ctx)) {
     const sb = storyBlock();
     if (!sb || state.fight || state.pending) return null;
+    // No fight without a living character to fight it.
+    const pc = currentSheet();
+    if (!pc || isDead(pc)) return null;
     const index = latestAssistantIndex(ctx?.chat ?? []);
     if (index < 0) return null;
     const candidates = [];
@@ -935,17 +972,330 @@ function encounterOffer(ctx = context(), state = chatState(ctx)) {
 function fightEncounter(rows, offerKey = encounterOffer()?.key ?? null) {
     const sheet = currentSheet();
     if (sheet && sheet.hp.cur <= 0) {
-        notify('warning', `${sheet.name} is down: rest (or heal) first.`);
+        notify('warning', `${sheet.name} is down: heal them first (an item, or a rest in the story).`);
         return;
     }
     screen = { chatId: chatIdOf(context()), mode: 'setup', prefill: Array.isArray(rows) ? rows : [], offerKey };
     storyBlock()?.refresh?.();
+    showBattleTab();
+}
+
+// The Battle tab comes and goes with the battle; when a toast's Fight? opens the setup, its tab
+// is brought forward (Story Block has no call for that, so its tab button is pressed, if found).
+function showBattleTab() {
+    setTimeout(() => {
+        try {
+            globalThis.document?.querySelector?.(`[data-tab-id="ext:${TAB_ID}"]`)?.click?.();
+        } catch {
+            // Only a convenience: the Battle tab is there either way.
+        }
+    }, 80);
 }
 
 function dismissEncounter(key) {
     if (!key) return;
     const dismissed = chatState().dismissed.filter(entry => entry !== key);
     saveChatState({ dismissed: [...dismissed, key].slice(-DISMISSED_KEPT) });
+}
+
+// ---------------------------------------------------------------------------
+// The party's story: offers from the hidden blocks, Story Director's quests, and the rest
+
+/** NPC State Delta's suite api while it shares one (1.2.2: npcProfiles, openDossier), else null. */
+function npcApi() {
+    try {
+        return storySuite().api(NPC_SUITE_ID) ?? null;
+    } catch {
+        return null;
+    }
+}
+
+/** NPC State Delta's profiles of this chat's NPCs ([{ id, name, aliases, present, role, summary }]); [] without it. */
+function npcProfiles() {
+    const api = npcApi();
+    if (typeof api?.npcProfiles !== 'function') return [];
+    try {
+        const list = api.npcProfiles();
+        return Array.isArray(list) ? list.filter(entry => entry && entry.id && String(entry.name ?? '').trim()) : [];
+    } catch (error) {
+        console.warn('[RPG Battle] NPC State Delta\'s profiles could not be read', error);
+        return [];
+    }
+}
+
+/** The NPC profile a companion's name means (its name, first name or an alias), or null. */
+function profileFor(name, profiles = npcProfiles()) {
+    const targets = profiles.flatMap(profile => [{ ...profile, name: profile.name }, ...(profile.aliases ?? []).map(alias => ({ ...profile, name: alias, alias: true }))]);
+    const found = findTarget(targets, name);
+    return found ? profiles.find(profile => profile.id === found.id) ?? null : null;
+}
+
+/** Story Director 0.8.2's quests finished in reply `index` ([{ id, name, difficulty, … }]); [] without it. */
+function questsDoneAt(index) {
+    const api = globalThis.StoryDirector;
+    if (typeof api?.questsDoneAt !== 'function') return [];
+    try {
+        const list = api.questsDoneAt(index);
+        return Array.isArray(list) ? list : [];
+    } catch (error) {
+        console.warn('[RPG Battle] Story Director\'s finished quests could not be read', error);
+        return [];
+    }
+}
+
+/** One message's hidden party blocks, as text ('' for each it lacks). */
+function partyBlocksAt(sb, index) {
+    return {
+        joins: blockAt(sb, index, JOINS_TAG) ?? '',
+        leaves: blockAt(sb, index, LEAVES_TAG) ?? '',
+        learned: blockAt(sb, index, LEARNED_TAG) ?? '',
+        xp: blockAt(sb, index, XP_TAG) ?? '',
+        rest: blockAt(sb, index, REST_TAG) ?? '',
+    };
+}
+
+// Your persona as last seen in this chat: a switch to another name offers to rename a
+// character who still carries the old one (once per switch).
+let personaSeen = { chatId: null, name: '' };
+let personaRename = null;
+
+function watchPersona(ctx, pc) {
+    const chatId = chatIdOf(ctx);
+    const now = personaName(ctx);
+    if (personaSeen.chatId !== chatId) {
+        personaSeen = { chatId, name: now };
+        personaRename = null;
+        return;
+    }
+    if (now === personaSeen.name) return;
+    if (pc && now && pc.name === personaSeen.name) personaRename = { from: pc.name, to: now, key: `persona:${pc.name}>${now}` };
+    personaSeen = { chatId, name: now };
+}
+
+/**
+ * Everything the story offers the party now, put-away ones left out: the latest reply's hidden
+ * blocks and Story Director's quests done in it, the opening message's (kept until taken or put
+ * away), companions who fell in a fight to the death, a persona renamed, an NPC renamed in NPC
+ * State Delta. Each { key, kind, text, accept, note?, confirm?, data, index, opening? }. None
+ * during a fight.
+ */
+function currentOffers(ctx = context(), state = chatState(ctx)) {
+    const sb = storyBlock();
+    const own = settings(ctx);
+    if (!sb || !own.enabled || state.fight) return [];
+    const chat = ctx?.chat ?? [];
+    const { pc, members } = currentSheets();
+    const r = rules();
+    const lib = library(ctx);
+    const persona = personaName(ctx);
+    const latest = latestAssistantIndex(chat);
+    const waiting = Boolean(state.pending) && (state.pending.attachedTo === null || state.pending.attachedTo === undefined);
+    const offers = [];
+    const from = (index, opening) => storyOffers({
+        index, texts: partyBlocksAt(sb, index), pc, members, persona, rules: r, library: lib, opening,
+        narrating: state.pending?.attachedTo === index, pending: waiting,
+    }).map(offer => ({ ...offer, index, ...(opening ? { opening: true } : {}) }));
+    if (isAssistant(chat[0]) && latest !== 0) offers.push(...from(0, true));
+    if (latest >= 0) {
+        offers.push(...from(latest, latest === 0));
+        offers.push(...questOffers({ index: latest, quests: questsDoneAt(latest), pc, rules: r }).map(offer => ({ ...offer, index: latest })));
+    }
+    for (const entry of state.fallen) {
+        const member = members.find(other => other.id === entry.memberId);
+        if (member) offers.push({ key: `fallen:${member.id}`, kind: 'fallen', text: `${member.name} fell. Remove from the party?`, accept: 'Remove', confirm: true, data: { memberId: member.id }, index: -1 });
+    }
+    watchPersona(ctx, pc);
+    if (personaRename && pc && pc.name === personaRename.from) {
+        offers.push({ key: personaRename.key, kind: 'rename', text: `Rename ${pc.name} to ${personaRename.to}?`, accept: 'Rename', data: { memberId: 'pc', name: personaRename.to }, index: -1 });
+    }
+    // A companion added from an NPC follows a rename there, when the reader agrees.
+    const profiles = Object.keys(state.npcLinks).length ? npcProfiles() : [];
+    for (const member of members) {
+        const profile = member.npcId ? profiles.find(entry => entry.id === member.npcId) : null;
+        if (profile && profile.name.trim() && profile.name.trim() !== member.name && !(profile.aliases ?? []).includes(member.name)) {
+            offers.push({ key: `npc:${profile.id}:${profile.name}`, kind: 'rename', text: `${member.name} is ${profile.name.trim()} in NPC State Delta now. Rename?`, accept: 'Rename', data: { memberId: member.id, name: profile.name.trim() }, index: -1 });
+        }
+    }
+    const away = new Set([...state.dismissed, ...state.done]);
+    const seen = new Set();
+    return offers.filter(offer => !away.has(offer.key) && !seen.has(offer.key) && seen.add(offer.key));
+}
+
+/** An offer taken or put away: the opening message's are kept apart, so they are never offered again. */
+function putAway(offer) {
+    if (!offer) return;
+    const state = chatState();
+    if (offer.kind === 'fallen') {
+        saveChatState({ fallen: state.fallen.filter(entry => entry.memberId !== offer.data.memberId) });
+        return;
+    }
+    if (offer.opening) saveChatState({ done: [...state.done.filter(key => key !== offer.key), offer.key].slice(-OPENING_KEPT) });
+    else saveChatState({ dismissed: [...state.dismissed.filter(key => key !== offer.key), offer.key].slice(-DISMISSED_KEPT) });
+}
+
+function offerByKey(key) {
+    return currentOffers().find(offer => offer.key === key) ?? null;
+}
+
+/** Accept: what each offer does. Joins and Learned open their forms, prefilled; the rest apply now. */
+async function acceptOffer(key) {
+    const offer = offerByKey(key);
+    if (!offer) throw new Error('That offer is no longer there.');
+    const r = rules();
+    const own = settings();
+    const chatId = chatIdOf(context());
+    const { pc, members } = currentSheets();
+    switch (offer.kind) {
+        case 'joins': {
+            // With NPC State Delta, the NPC of that name refines the guess and keeps the link.
+            const profile = profileFor(offer.data.name);
+            const role = offer.data.role || profile?.role || '';
+            const prefill = {
+                name: offer.data.name, role, level: offer.data.level,
+                focus: offer.data.focus?.length ? offer.data.focus : guessFocus(role, profile?.summary ?? ''),
+                npcId: profile?.id ?? null, summary: profile?.summary ?? '',
+            };
+            partyScreen = { chatId, mode: 'companion', prefill, offerKey: offer.key, kit: null };
+            void generateKit({ ...prefill, skills: offer.data.skills });
+            return;
+        }
+        case 'learned':
+            partyScreen = { chatId, mode: 'learn', memberId: offer.data.memberId, prefill: offer.data.prefill, offerKey: offer.key };
+            return;
+        case 'leaves':
+        case 'fallen': {
+            const leaving = members.find(member => member.id === offer.data.memberId);
+            await writeSheets(pc, members.filter(member => member.id !== offer.data.memberId));
+            forgetMember(offer.data.memberId);
+            putAway(offer);
+            if (leaving) notify('info', `${leaving.name} leaves the party.`);
+            return;
+        }
+        case 'xp':
+        case 'quest': {
+            const out = awardParty({ pc, members }, offer.data.share, { autoSpend: own.autoSpend !== false, rules: r });
+            await writeSheets(out.pc, out.members);
+            putAway(offer);
+            const ups = out.gains.filter(gain => gain.levelsGained).map(gain => `${gain.name} reaches ${levelText((gain.memberId === 'pc' ? out.pc : out.members.find(member => member.id === gain.memberId)?.sheet)?.level ?? 1, r)}`);
+            notify('success', `Awarded.${ups.length ? ` ${ups.join('; ')}.` : ''}`);
+            return;
+        }
+        case 'rest': {
+            const state = chatState();
+            const gains = state.recovered?.index === offer.index ? state.recovered.gains ?? {} : {};
+            const gear = currentItems().filter(item => item.equipped);
+            const rested = pc ? restAfter(pc, offer.data.kind, { gear, rules: r, already: gains.pc }) : null;
+            await writeSheets(rested, members.map(member => ({ ...member, sheet: restAfter(member.sheet, offer.data.kind, { gear: member.gear ?? [], rules: r, already: gains[member.id] }) })));
+            putAway(offer);
+            notify('success', offer.data.kind === 'long' ? 'The party is fully rested.' : 'The party catches its breath.');
+            return;
+        }
+        case 'rename': {
+            if (offer.data.memberId === 'pc') {
+                if (members.some(member => member.name.toLowerCase() === offer.data.name.toLowerCase())) throw new Error(`A companion is already called ${offer.data.name}.`);
+                await writeSheets({ ...pc, name: offer.data.name }, members);
+            } else {
+                await renameCompanion(offer.data.memberId, { name: offer.data.name });
+            }
+            putAway(offer);
+            return;
+        }
+        default:
+            throw new Error('RPG Battle does not know that offer.');
+    }
+}
+
+/** A companion gone: what the chat keeps by their id goes with them. */
+function forgetMember(memberId) {
+    const state = chatState();
+    const npcLinks = { ...state.npcLinks };
+    delete npcLinks[memberId];
+    const uses = { ...state.uses };
+    delete uses[memberId];
+    saveChatState({ npcLinks, uses, fallen: state.fallen.filter(entry => entry.memberId !== memberId) });
+}
+
+// A companion's id follows their name, so a rename moves what the chat keeps by id (mastery
+// progress, the NPC link) to the new id; sheet, skills and gear go along in the block itself.
+async function renameCompanion(memberId, changes) {
+    const { pc, members } = currentSheets();
+    const before = members.find(member => member.id === memberId);
+    const edited = editCompanion(members, memberId, changes ?? {}, { pcName: pc?.name ?? '' });
+    await writeSheets(pc, edited.members);
+    const state = chatState();
+    if (Object.entries(edited.idMap).some(([from, to]) => from !== to)) saveChatState({ uses: remapIds(state.uses, edited.idMap), npcLinks: remapIds(state.npcLinks, edited.idMap) });
+    const after = edited.members.find(member => member.id === edited.idMap[memberId]);
+    if (before && after && before.name !== after.name) notify('success', `${before.name} is now ${after.name}.`);
+}
+
+/** Toasts for new offers, with their Accept button; the Party tab lists them too. */
+function toastOffers(offers) {
+    for (const offer of (offers ?? []).filter(entry => !entry.confirm).slice(0, 4)) {
+        const html = `${escapeHtml(offer.text)}<div class="rpg-battle-toast-actions"><button type="button" class="menu_button rpg-battle-toast-accept">${escapeHtml(offer.accept)}</button></div>`;
+        const toast = notify('info', html, { escapeHtml: false, timeOut: 15000, extendedTimeOut: 6000, closeButton: true });
+        bindToastButton(toast, '.rpg-battle-toast-accept', () => void guarded(() => acceptOffer(offer.key)));
+    }
+}
+
+// The opening message's offers are toasted once per chat opened (the Party tab keeps them).
+const openingToasted = new Set();
+
+function toastOpening() {
+    const chatId = chatIdOf(context());
+    if (!chatId || openingToasted.has(chatId)) return;
+    openingToasted.add(chatId);
+    toastOffers(currentOffers().filter(offer => offer.opening));
+}
+
+// ---------------------------------------------------------------------------
+// A companion's starting kit (src/kit.js): their skills in words from one call, or the library's
+
+let kitRun = 0;
+
+/**
+ * The skills shown in the Add companion form: the ones a <Joins> hint names; else, with the
+ * flavour setting on, two or three from one words-only call (the Monsters model and deadline);
+ * else, or when that fails or says too little, library skills fitting the focus and role.
+ * Written into the companion screen when ready, unless the reader has moved on.
+ */
+async function generateKit(who) {
+    const own = settings();
+    const r = rules();
+    const run = ++kitRun;
+    const key = `kit-${run}`;
+    const chatId = chatIdOf(context());
+    const set = kit => {
+        if (partyScreen.mode !== 'companion' || partyScreen.chatId !== chatId || run !== kitRun) return;
+        partyScreen = { ...partyScreen, kit };
+        storyBlock()?.refresh?.();
+    };
+    set({ key, status: 'working', skills: [] });
+    let skills = null;
+    let note = '';
+    if (who?.skills?.length) {
+        skills = namedKit(who.skills, library());
+        note = 'Named by the story. Code sets every number for their level.';
+    } else if (own.flavour.enabled) {
+        try {
+            const messages = kitPrompt({ ...who, level: powerText(Math.max(1, Number(who?.level) || 1), r) });
+            const maxTokens = Math.max(100, Math.min(2000, Number(own.flavour.maxTokens) || 400));
+            const answer = await withTimeout(sendToModel(messages, own.flavour.model, maxTokens), Math.max(5, Number(own.flavour.timeoutSeconds) || 30) * 1000);
+            const parsed = parseKit(answer);
+            if (usableKit(parsed)) {
+                skills = parsed;
+                note = 'From who they are, in the model\'s words. Code sets every number for their level.';
+            } else {
+                console.info(`[RPG Battle] the skills for ${who?.name ?? 'a companion'} had too little usable; library skills instead.`);
+            }
+        } catch (error) {
+            console.info(`[RPG Battle] the skills for ${who?.name ?? 'a companion'} could not be generated (${error instanceof Error ? error.message : String(error)}); library skills instead.`);
+        }
+    }
+    if (!skills) {
+        skills = fallbackKit({ focus: who?.focus ?? [], level: who?.level ?? 1, role: who?.role ?? '' }, DEFAULT_SKILLS, r);
+        note = 'Library skills that fit their focus and role.';
+    }
+    set({ key, status: 'ready', skills, note });
 }
 
 // ---------------------------------------------------------------------------
@@ -1029,6 +1379,15 @@ const SUITE_MANAGE = manageApi({
         applySettings({ ...settings(), sourceOfTruth: { ...settings().sourceOfTruth, [area]: choice } });
         settingsPanel?.update?.(settings());
         settingsPanel?.setTruth?.(area, choice);
+    },
+    // The next ordinary reply: the waiting hand-off, else the story instruction when it would go.
+    tokens: () => {
+        const own = settings();
+        if (!own.enabled) return tokenEstimate();
+        const state = chatState();
+        const pc = currentSheet();
+        const asks = Boolean(pc) && !isDead(pc) && !state.fight;
+        return tokenEstimate({ handoff: state.pending?.handoff ?? '', instruction: asks ? STORY_INSTRUCTION : '' });
     },
     enabled: () => settings().enabled,
     enable: on => {
@@ -1154,7 +1513,8 @@ async function onGenerationInterceptor(chat, _contextSize, _abort, type = 'norma
         setPrompt(handoff);
         // The story instruction, while there is a sheet to keep in step and no fight under way.
         // Not for the reply that narrates a fight: its wounds were dealt in the fight.
-        const asks = own.enabled && !handoff && !chatState(ctx).fight && Boolean(currentSheet());
+        const pc = own.enabled ? currentSheet() : null;
+        const asks = Boolean(pc) && !isDead(pc) && !handoff && !chatState(ctx).fight;
         setPrompt(asks ? STORY_INSTRUCTION : '', RULES_PROMPT_KEY);
     } catch (error) {
         console.error('[RPG Battle] interceptor failed', error);
@@ -1176,14 +1536,28 @@ function returnToStory() {
 }
 
 // ---------------------------------------------------------------------------
-// The Battle tab
+// The Party and Battle tabs
 
 /** The SillyTavern persona's name (the reader's PC), trimmed; '' without one. A new character starts with it. */
 function personaName(ctx = context()) {
     return String(ctx?.name1 ?? '').trim();
 }
 
-function viewFor() {
+const isDead = sheet => Boolean(sheet?.conditions?.some(condition => String(condition?.name ?? '').toLowerCase() === DEAD));
+
+/**
+ * Whether there is a battle, so the Battle tab is there: a fight the story offers (Fight? /
+ * Not now), the setup opened from it, the fight, or its result until it goes back to the story.
+ */
+function battleOn(ctx = context(), state = chatState(ctx)) {
+    if (!settings(ctx).enabled) return false;
+    if (state.fight) return true;
+    if (screen.chatId === chatIdOf(ctx) && (screen.mode === 'setup' || screen.mode === 'result')) return true;
+    return Boolean(encounterOffer(ctx, state));
+}
+
+/** The Battle tab: the offer, the setup, the fight, the result. */
+function battleView() {
     const ctx = context();
     const chatId = chatIdOf(ctx);
     if (screen.chatId !== chatId) screen = { chatId, mode: null };
@@ -1203,13 +1577,7 @@ function viewFor() {
         return { mode: 'result', result: state.last.result, handoff: state.last.handoff, levelsGained: state.last.levelsGained, pointsGained: state.last.pointsGained, levelsReached: state.last.levelsReached ?? 0, moneyText: money ? formatMoney(money, r.currency) : '', rules: r };
     }
     const sheet = currentSheet();
-    if (!sheet) return { mode: 'create', presets: PRESETS, library: DEFAULT_SKILLS.filter(skill => skill.tier === 1), persona: personaName(ctx), rules: r };
-    const skills = resolveSkills(sheet.skills, library(ctx), sheet.level, r);
-    if (screen.mode === 'spend') return { mode: 'spend', sheet, rules: r };
-    if (screen.mode === 'learn') return { mode: 'learn', sheet, library: library(ctx), rules: r };
-    if (screen.mode === 'items') return { mode: 'items', sheet, party: currentParty(), items: consumables(currentItems()), rules: r };
-    if (screen.mode === 'companion') return { mode: 'companion', presets: PRESETS, level: sheet.level, maxLevel: Math.min(maxLevel(r), Math.max(20, sheet.level + 10)), rules: r };
-    if (screen.mode === 'setup') {
+    if (screen.mode === 'setup' && sheet) {
         // Autocomplete offers this story's creatures first; `known` (names and aliases) is what
         // the setup checks to tag a name as new, made up when the fight starts.
         const bestiary = fightBestiary(ctx);
@@ -1223,20 +1591,70 @@ function viewFor() {
             rules: r,
         };
     }
+    const offer = encounterOffer(ctx, state);
+    return { mode: 'offer', encounter: offer ? { text: offer.text, label: offer.label, rows: offer.rows } : null, pending: state.pending?.handoff ?? null, rules: r };
+}
+
+/** A member's card data beyond the sheet: resolved skills, capped gear, the dossier link. */
+function cardMember(member, r, lib, npc) {
+    const linked = member.npcId ?? null;
+    return {
+        ...member,
+        skills: resolveSkills(member.sheet.skills, lib, member.sheet.level, r).map((skill, index) => ({ ...skill, aside: Boolean(member.sheet.skills[index]?.aside) })),
+        gearSummary: gearSummary(member.gear ?? [], member.sheet.level, r),
+        dossier: Boolean(linked && typeof npc?.openDossier === 'function'),
+    };
+}
+
+/** The Party tab: creation, the cards with what the story offers, and the forms the offers open. */
+function partyView() {
+    const ctx = context();
+    const chatId = chatIdOf(ctx);
+    if (partyScreen.chatId !== chatId) partyScreen = { chatId, mode: null };
+    const r = rules();
+    const state = chatState(ctx);
+    const { pc: sheet, members } = currentSheets();
+    const importing = pendingImport?.chatId === chatId ? { summary: pendingImport.summary, note: pendingImport.note } : null;
+    if (!sheet) return { mode: 'create', persona: personaName(ctx), importing, rules: r };
+    const lib = library(ctx);
+    if (partyScreen.mode === 'spend') {
+        const who = partyScreen.memberId && partyScreen.memberId !== 'pc' ? members.find(member => member.id === partyScreen.memberId) : null;
+        if (who || partyScreen.memberId === 'pc' || !partyScreen.memberId) return { mode: 'spend', sheet: who ? who.sheet : sheet, memberId: who ? who.id : 'pc', rules: r };
+    }
+    if (partyScreen.mode === 'learn') {
+        const who = partyScreen.memberId && partyScreen.memberId !== 'pc' ? members.find(member => member.id === partyScreen.memberId) : null;
+        if (who || partyScreen.memberId === 'pc') return { mode: 'learn', sheet: who ? who.sheet : sheet, memberId: who ? who.id : 'pc', library: lib, prefill: partyScreen.prefill ?? null, rules: r };
+    }
+    if (partyScreen.mode === 'items') return { mode: 'items', sheet, party: members, items: consumables(currentItems()), rules: r };
+    if (partyScreen.mode === 'companion') {
+        return {
+            mode: 'companion', level: sheet.level, maxLevel: Math.min(maxLevel(r), Math.max(20, sheet.level + 10)),
+            prefill: partyScreen.prefill ?? null, kit: partyScreen.kit ?? null, npcs: npcProfiles(), rules: r,
+        };
+    }
     // The last automatic recovery, while it is the latest reply's.
     const recovered = state.recovered && state.recovered.index === (ctx?.chat?.length ?? 0) - 1 ? state.recovered.text : '';
     // The latest reply's story wounds, while they stand.
     const story = state.story && !state.story.undone && state.story.applied?.length && state.story.index === latestAssistantIndex(ctx?.chat ?? [])
         ? { lines: state.story.applied.map(describeWound), canUndo: canUndoStory(ctx, state) }
         : null;
-    const offer = encounterOffer(ctx, state);
+    const npc = npcApi();
+    const items = currentItems();
     return {
-        mode: 'idle', sheet, checks: checkModifiers(sheet.stats, r), skills, party: currentParty(), rules: r,
-        gear: gearSummary(currentItems(), sheet.level, r),
+        mode: 'idle', chatId, sheet, checks: checkModifiers(sheet.stats, r),
+        skills: resolveSkills(sheet.skills, lib, sheet.level, r).map((skill, index) => ({ ...skill, aside: Boolean(sheet.skills[index]?.aside) })),
+        party: members.map(member => cardMember(member, r, lib, npc)),
+        rules: r,
+        gear: gearSummary(items, sheet.level, r),
+        // Your Inventory's equipment, to give a companion.
+        giveable: items.filter(item => item.slot && item.qty > 0).map(item => ({ name: item.name, slot: item.slot, rarity: item.rarity, stats: item.stats })),
+        autoSpend: settings(ctx).autoSpend !== false,
+        gameOver: isDead(sheet) ? { name: sheet.name } : null,
+        importing,
         pending: state.pending?.handoff ?? null,
+        offers: currentOffers(ctx, state).map(({ key, kind, text, accept, note, confirm }) => ({ key, kind, text, accept, note, confirm })),
         recovered,
         story,
-        encounter: offer ? { text: offer.text, label: offer.label, rows: offer.rows } : null,
         sheetConflict: sheetConflict(ctx),
         // This story's own creatures, for the Bestiary fold.
         bestiary: state.bestiary.map(entry => ({
@@ -1251,8 +1669,13 @@ function viewFor() {
     };
 }
 
-function go(mode) {
-    screen = { chatId: chatIdOf(context()), mode };
+function go(mode, extra = {}) {
+    screen = { chatId: chatIdOf(context()), mode, ...extra };
+    storyBlock()?.refresh?.();
+}
+
+function goParty(mode, extra = {}) {
+    partyScreen = { chatId: chatIdOf(context()), mode, ...extra };
     storyBlock()?.refresh?.();
 }
 
@@ -1266,109 +1689,245 @@ async function guarded(action) {
     storyBlock()?.refresh?.();
 }
 
+/** An offer the open form came from is spent once the form is done. */
+function spendScreenOffer() {
+    const offer = partyScreen.offerKey ? offerByKey(partyScreen.offerKey) : null;
+    if (offer) putAway(offer);
+}
+
+// ---------------------------------------------------------------------------
+// The party as a file (src/partyfile.js)
+
+let pendingImport = null;
+
+function exportPartyFile() {
+    const { pc, members } = currentSheets();
+    if (!pc && !members.length) throw new Error('There is no party to save yet.');
+    const data = exportParty({ pc, members, yourGear: currentItems().filter(item => item.equipped && item.slot), skills: chatState().skills });
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `rpg-battle-party${pc ? `-${pc.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}` : ''}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+
+// A file is read and cleaned first; nothing changes until the reader confirms what it holds.
+function readPartyFile(text) {
+    let data;
+    try {
+        data = JSON.parse(String(text ?? ''));
+    } catch {
+        throw new Error('That file is not JSON.');
+    }
+    const r = rules();
+    const party = cleanParty(data, r, DEFAULT_SKILLS);
+    const count = party.members.length;
+    const who = [party.pc ? `${party.pc.name} (${levelText(party.pc.level, r)})` : 'no character', count ? `${count} ${count === 1 ? 'companion' : 'companions'}` : ''].filter(Boolean).join(' and ');
+    const inventory = parseInventory(blockText(settings().inventoryTag)).items;
+    const newGear = party.yourGear.filter(item => !inventory.some(row => row.name.toLowerCase() === item.name.toLowerCase()));
+    pendingImport = {
+        chatId: chatIdOf(context()),
+        party,
+        newGear,
+        summary: `Load ${who} into this chat? It replaces the party here.`,
+        note: newGear.length ? `Your gear in the file goes into the Inventory (not equipped): ${newGear.map(item => item.name).join(', ')}.` : '',
+    };
+}
+
+async function confirmImport() {
+    const loading = pendingImport;
+    pendingImport = null;
+    if (!loading || loading.chatId !== chatIdOf(context())) return;
+    const { party, newGear } = loading;
+    await writeSheets(party.pc, party.members);
+    const own = settings();
+    if (newGear.length) {
+        const inventory = blockText(own.inventoryTag);
+        await writeBlock(own.inventoryTag, addLoot(inventory, { items: newGear.map(item => ({ name: item.name, qty: 1, rarity: item.rarity, slot: item.slot, stats: item.stats, tags: item.tags, kind: 'equipment' })) }, rules().currency));
+    }
+    const state = chatState();
+    const names = new Set(party.skills.map(skill => skill.name.toLowerCase()));
+    saveChatState({ skills: [...state.skills.filter(skill => !names.has(skill.name.toLowerCase())), ...party.skills], uses: {}, npcLinks: {}, fallen: [] });
+    partyScreen = { chatId: chatIdOf(context()), mode: null };
+    notify('success', 'The party is loaded.');
+}
+
+// ---------------------------------------------------------------------------
+// Give and take back: your Inventory's equipment onto a companion, and back
+
+async function giveItem(memberId, name) {
+    const own = settings();
+    const { pc, members } = currentSheets();
+    const member = members.find(entry => entry.id === memberId);
+    if (!member) throw new Error('That companion is not in the party.');
+    const item = currentItems().find(entry => entry.name === name && entry.slot && entry.qty > 0);
+    if (!item) throw new Error(`There is no ${name} in your Inventory.`);
+    // The row's own words, read again as an Equipped entry: worn by them, capped by rarity at their level.
+    const worn = parseGearEntry(formatGearEntry({ ...item, equipped: true }));
+    await writeSheets(pc, members.map(entry => (entry.id === memberId ? { ...entry, gear: [...(entry.gear ?? []), worn] } : entry)));
+    await writeBlock(own.inventoryTag, useItems(blockText(own.inventoryTag), { [item.name]: 1 }));
+    notify('success', `${member.name} takes the ${item.name}.`);
+}
+
+async function takeBack(memberId, name) {
+    const own = settings();
+    const { pc, members } = currentSheets();
+    const member = members.find(entry => entry.id === memberId);
+    const index = member?.gear?.findIndex(item => item.name === name) ?? -1;
+    if (!member || index < 0) throw new Error(`${member?.name ?? 'They'} do not carry ${name}.`);
+    const item = member.gear[index];
+    await writeSheets(pc, members.map(entry => (entry.id === memberId ? { ...entry, gear: entry.gear.filter((_, at) => at !== index) } : entry)));
+    const inventory = blockText(own.inventoryTag);
+    await writeBlock(own.inventoryTag, addLoot(inventory, { items: [{ name: item.name, qty: 1, rarity: item.rarity, slot: item.slot, stats: item.stats, tags: item.tags, kind: 'equipment' }] }, rules().currency));
+    notify('success', `The ${item.name} is back in your Inventory.`);
+}
+
+/** A member's sheet changed, written back: 'pc' or a companion's id. */
+async function writeMember(memberId, change) {
+    const { pc, members } = currentSheets();
+    if (memberId === 'pc' || !memberId) {
+        if (!pc) throw new Error('Make your character first.');
+        await writeSheets(change(pc), members);
+        return;
+    }
+    if (!members.some(member => member.id === memberId)) throw new Error('That companion is not in the party.');
+    await writeSheets(pc, members.map(member => (member.id === memberId ? { ...member, sheet: change(member.sheet) } : member)));
+}
+
 const handlers = {
     onCreate: input => void guarded(async () => {
         // The tab sends the stats as totals; a new sheet takes the points spent on top of the start.
+        // No skills: they come from the story (the opening message, a later <Learned>).
         const r = rules();
         const allocation = Object.fromEntries(Object.entries(input.stats ?? {}).map(([stat, value]) => [stat, Math.max(0, Number(value) - r.character.startStat)]));
-        const sheet = newSheet({ ...input, stats: allocation }, r);
+        const sheet = newSheet({ name: input.name, stats: allocation, skills: [] }, r);
         await writeSheet(sheet);
-        screen = { chatId: chatIdOf(context()), mode: null };
+        partyScreen = { chatId: chatIdOf(context()), mode: null };
+        saveChatState({ uses: { ...chatState().uses, pc: {} } });
         notify('success', `${sheet.name} is ready.`);
+        // What the story's opening holds for the new character comes now.
+        toastOffers(currentOffers().filter(offer => offer.opening && offer.data?.memberId === 'pc'));
     }),
-    onSpend: () => go('spend'),
-    onConfirmSpend: allocation => void guarded(async () => {
-        await writeSheet(spendPoints(currentSheet(), allocation, rules()));
-        screen = { chatId: chatIdOf(context()), mode: null };
+    onSpend: memberId => goParty('spend', { memberId: memberId ?? 'pc' }),
+    onConfirmSpend: (allocation, memberId = 'pc') => void guarded(async () => {
+        await writeMember(memberId, sheet => spendPoints(sheet, allocation, rules()));
+        partyScreen = { chatId: chatIdOf(context()), mode: null };
     }),
-    onLearn: () => go('learn'),
-    onConfirmLearn: ({ name, fromLibrary = false, template = null }) => void guarded(async () => {
-        const sheet = currentSheet();
+    onSetSkillActive: (memberId, name, active) => void guarded(() => writeMember(memberId, sheet => setSkillActive(sheet, name, active, rules()))),
+    onConfirmLearn: ({ name, fromLibrary = false, template = null, setAside = null, memberId = 'pc' }) => void guarded(async () => {
+        const r = rules();
         const skillName = String(name ?? '').trim();
         if (!skillName) throw new Error('Give the skill a name.');
-        if (!fromLibrary && template) {
+        const { pc, members } = currentSheets();
+        const sheet = memberId === 'pc' ? pc : members.find(member => member.id === memberId)?.sheet;
+        if (!sheet) throw new Error('That member is not in the party.');
+        const found = findSkill(library(), skillName);
+        // The opening message's skills are theirs from the start (the card says so).
+        const free = Boolean(partyScreen.prefill?.free);
+        if (found && !free) {
+            const missing = Object.entries(found.requires ?? {}).filter(([stat, need]) => (Number(sheet.stats?.[stat]) || 0) < need);
+            if (missing.length) throw new Error(`${sheet.name} cannot learn ${found.name} yet: it needs ${missing.map(([stat, need]) => `${stat} ${need}`).join(', ')}.`);
+        }
+        if (!found && !fromLibrary && template) {
             // A story-taught skill: kept with this chat, so its numbers survive a reload.
-            const custom = skillFromTemplate({ name: skillName, ...template }, sheet.level, rules());
+            const custom = skillFromTemplate({ name: skillName, ...template }, sheet.level, r);
             saveChatState({ skills: [...chatState().skills.filter(skill => skill.name.toLowerCase() !== skillName.toLowerCase()), custom] });
-        } else if (!findSkill(library(), skillName)) {
+        } else if (!found) {
             throw new Error(`"${skillName}" is not in the skill library.`);
         }
-        await writeSheet(learnSkill(sheet, skillName));
-        screen = { chatId: chatIdOf(context()), mode: null };
+        await writeMember(memberId, current => learnSkill(current, found?.name ?? skillName, { rules: r, setAside }));
+        spendScreenOffer();
+        partyScreen = { chatId: chatIdOf(context()), mode: null };
     }),
-    onSetup: () => {
-        const sheet = currentSheet();
-        if (sheet && sheet.hp.cur <= 0) {
-            notify('warning', `${sheet.name} is down: rest (or heal) first.`);
-            return;
-        }
-        go('setup');
-    },
-    onRest: kind => void guarded(async () => {
-        const r = rules();
-        const sheet = currentSheet();
-        if (!sheet) return;
-        const length = kind === 'short' ? 'short' : 'long';
-        const rested = rest(sheet, length, { gear: currentItems().filter(item => item.equipped), rules: r });
-        await writeSheets(rested, currentParty().map(member => ({ ...member, sheet: rest(member.sheet, length, { gear: member.gear ?? [], rules: r }) })));
-        notify('success', length === 'long' ? `${sheet.name} is fully rested.` : `${sheet.name} catches their breath: HP ${rested.hp.cur}/${rested.hp.max}, MP ${rested.mp.cur}/${rested.mp.max}.`);
-    }),
-    onItems: () => go('items'),
+    onItems: () => goParty('items'),
     onUseItem: ({ name, target = 'pc' }) => void guarded(async () => {
         const own = settings();
         const item = consumables(currentItems()).find(entry => entry.name === name);
         if (!item) throw new Error(`There is no ${name} left.`);
-        let outcome;
-        if (target === 'pc') {
-            outcome = useItemOutside(currentSheet(), item);
-            if (outcome.used) await writeSheet(outcome.sheet);
-        } else {
-            const members = currentParty();
-            const member = members.find(entry => entry.id === target);
-            if (!member) throw new Error('That companion is not in the party.');
-            outcome = useItemOutside(member.sheet, item);
-            if (outcome.used) await writeParty(members.map(entry => (entry.id === target ? { ...entry, sheet: outcome.sheet } : entry)));
-        }
+        const { pc, members } = currentSheets();
+        const sheet = target === 'pc' ? pc : members.find(entry => entry.id === target)?.sheet;
+        if (!sheet) throw new Error('That companion is not in the party.');
+        const outcome = useItemOutside(sheet, item);
         if (!outcome.used) {
             notify('info', outcome.message);
             return;
         }
+        await writeMember(target, () => outcome.sheet);
         await writeBlock(own.inventoryTag, useItems(blockText(own.inventoryTag), { [item.name]: 1 }));
         notify('success', outcome.message);
     }),
-    onCompanion: () => go('companion'),
+    onGenerateKit: who => void generateKit({ ...(who ?? {}), skills: [] }),
     onAddCompanion: input => void guarded(async () => {
         const r = rules();
-        const members = currentParty();
-        const preset = PRESETS.find(entry => entry.id === input.presetId);
-        const member = newCompanion({ ...input, preset }, { rules: r, existing: members });
+        const { members } = currentSheets();
+        const level = Math.max(1, Math.min(maxLevel(r), Math.round(Number(input.level) || 1)));
+        // The kit's skills: library ones by name; the rest built from their template at the
+        // companion's level and kept with this chat, like any story-taught skill.
+        const specs = (input.skills ?? []).filter(spec => spec && String(spec.name ?? '').trim()).slice(0, r.character.starterSkills);
+        const custom = specs.filter(spec => !findSkill(library(), spec.name)).map(spec => skillFromTemplate(kitTemplate(spec), level, r));
+        if (custom.length) {
+            const names = new Set(custom.map(skill => skill.name.toLowerCase()));
+            saveChatState({ skills: [...chatState().skills.filter(skill => !names.has(skill.name.toLowerCase())), ...custom] });
+        }
+        const member = newCompanion({ ...input, level, skills: specs.map(spec => findSkill(library(), spec.name)?.name ?? spec.name) }, { rules: r, existing: members });
         await writeParty([...members, member]);
-        screen = { chatId: chatIdOf(context()), mode: null };
+        // The NPC they were added from stays linked, by the id their name gives in the block.
+        const added = currentParty().find(entry => entry.name === member.name);
+        if (input.npcId && added) saveChatState({ npcLinks: { ...chatState().npcLinks, [added.id]: String(input.npcId) } });
+        spendScreenOffer();
+        partyScreen = { chatId: chatIdOf(context()), mode: null };
         notify('success', `${member.name} joins the party.`);
     }),
     onSetControl: (memberId, control) => void guarded(async () => {
-        const members = currentParty();
-        await writeParty(members.map(member => (member.id === memberId ? { ...member, control: control === 'command' ? 'command' : 'auto' } : member)));
+        const { pc, members } = currentSheets();
+        await writeSheets(pc, members.map(member => (member.id === memberId ? { ...member, control: control === 'command' ? 'command' : 'auto' } : member)));
     }),
-    onEditCompanion: (memberId, changes) => void guarded(async () => {
-        // A companion's id follows their name, so a rename moves what the chat keeps by id
-        // (mastery progress) to the new id; sheet, skills and gear go along in the block itself.
-        const members = currentParty();
-        const before = members.find(member => member.id === memberId);
-        const edited = editCompanion(members, memberId, changes ?? {}, { pcName: currentSheet()?.name ?? '' });
-        await writeParty(edited.members);
-        const uses = chatState().uses;
-        if (Object.entries(edited.idMap).some(([from, to]) => from !== to && from in uses)) saveChatState({ uses: remapIds(uses, edited.idMap) });
-        const after = edited.members.find(member => member.id === edited.idMap[memberId]);
-        if (before && after && before.name !== after.name) notify('success', `${before.name} is now ${after.name}.`);
-    }),
+    onEditCompanion: (memberId, changes) => void guarded(() => renameCompanion(memberId, changes)),
     onRemoveCompanion: memberId => void guarded(async () => {
-        const members = currentParty();
+        const { pc, members } = currentSheets();
         const leaving = members.find(member => member.id === memberId);
-        await writeParty(members.filter(member => member.id !== memberId));
+        await writeSheets(pc, members.filter(member => member.id !== memberId));
+        forgetMember(memberId);
         if (leaving) notify('info', `${leaving.name} leaves the party.`);
     }),
-    onBack: () => go(null),
+    onGiveItem: (memberId, name) => void guarded(() => giveItem(memberId, name)),
+    onTakeBack: (memberId, name) => void guarded(() => takeBack(memberId, name)),
+    onOpenDossier: memberId => void guarded(async () => {
+        const member = currentParty().find(entry => entry.id === memberId);
+        const api = npcApi();
+        if (!member?.npcId || typeof api?.openDossier !== 'function') return;
+        if (api.openDossier(member.npcId) === false) notify('info', `NPC State Delta has no dossier for ${member.name} now (gone or archived).`);
+    }),
+    onStartOver: ({ keepCompanions = false } = {}) => void guarded(async () => {
+        // Nothing carried over: your sheet goes, and the companions unless kept.
+        const { members } = currentSheets();
+        await writeSheets(null, keepCompanions ? members : []);
+        const state = chatState();
+        const { pc: _, ...uses } = state.uses;
+        saveChatState(keepCompanions ? { uses } : { uses: {}, npcLinks: {}, fallen: [] });
+        partyScreen = { chatId: chatIdOf(context()), mode: null };
+        notify('info', 'Make a new character.');
+    }),
+    onExportParty: () => void guarded(async () => exportPartyFile()),
+    onImportParty: text => void guarded(async () => readPartyFile(text)),
+    onConfirmImport: () => void guarded(confirmImport),
+    onCancelImport: () => {
+        pendingImport = null;
+        storyBlock()?.refresh?.();
+    },
+    onAcceptOffer: key => void guarded(() => acceptOffer(key)),
+    onDismissOffer: key => {
+        putAway(offerByKey(key));
+        storyBlock()?.refresh?.();
+    },
+    onBack: () => {
+        // The Party tab's forms go back to the cards; the Battle tab's setup to its offer.
+        if (partyScreen.mode) goParty(null);
+        else go(null);
+    },
     onStart: setup => void guarded(async () => {
         const offerKey = screen.offerKey ?? null;
         // New names are made up (and flavoured) first; the fight starts once they are ready.
@@ -1401,25 +1960,39 @@ const handlers = {
     onDisableStorySheet: () => disableStorySheet(),
 };
 
-function tabKey() {
-    const ctx = context();
+// The Party tab's form buttons share these handlers; Back on a Party form goes back to the cards.
+const partyHandlers = { ...handlers, onBack: () => goParty(null) };
+const battleHandlers = { ...handlers, onBack: () => go(null) };
+
+function baseKey(ctx, state) {
     const chat = ctx?.chat ?? [];
-    const state = chatState(ctx);
-    const last = chat.at(-1);
-    const story = state.story ? `${state.story.index}:${state.story.signature}:${state.story.undone}:${state.story.applied?.length ?? 0}:${canUndoStory(ctx, state)}` : '';
-    return [
-        chatIdOf(ctx), chat.length, String(last?.mes ?? '').length, screen.mode, JSON.stringify(screen.prefill ?? null),
-        fightKey(state.fight), state.pending?.fightId ?? '', state.recovered?.text ?? '', story,
-        state.dismissed.length, encounterOffer(ctx, state)?.key ?? '', sheetConflict(ctx), JSON.stringify(settings()),
-        JSON.stringify(screen.preparing ?? null), personaName(ctx), state.bestiary.map(entry => `${entry.name}:${entry.level}:${entry.flavoured}:${String(entry.look ?? '').length}`).join(','),
-    ].join('|');
+    return [chatIdOf(ctx), chat.length, String(chat.at(-1)?.mes ?? '').length, String(chat[0]?.mes ?? '').length, JSON.stringify(settings()), state.pending?.fightId ?? ''];
 }
 
-function renderTab(pane) {
+function battleKey() {
+    const ctx = context();
+    const state = chatState(ctx);
+    return [...baseKey(ctx, state), screen.mode, JSON.stringify(screen.prefill ?? null), fightKey(state.fight), state.dismissed.length,
+        encounterOffer(ctx, state)?.key ?? '', JSON.stringify(screen.preparing ?? null), state.bestiary.length].join('|');
+}
+
+function partyKey() {
+    const ctx = context();
+    const state = chatState(ctx);
+    const story = state.story ? `${state.story.index}:${state.story.signature}:${state.story.undone}:${state.story.applied?.length ?? 0}:${canUndoStory(ctx, state)}` : '';
+    return [...baseKey(ctx, state), JSON.stringify(partyScreen), state.recovered?.text ?? '', story, state.dismissed.length, state.done.length, state.fallen.length,
+        currentOffers(ctx, state).map(offer => offer.key).join(','), sheetConflict(ctx), personaName(ctx), JSON.stringify(state.npcLinks), JSON.stringify(pendingImport?.summary ?? null),
+        state.bestiary.map(entry => `${entry.name}:${entry.level}:${entry.flavoured}:${String(entry.look ?? '').length}`).join(','), npcProfiles().length].join('|');
+}
+
+function renderParty(pane) {
     if (currentSheets().legacy) scheduleMigration();
-    const view = viewFor();
-    renderBattleTab(pane, view, handlers);
+    renderBattleTab(pane, partyView(), partyHandlers);
     settingsPanel?.setSheetConflict?.(sheetConflict());
+}
+
+function renderBattle(pane) {
+    renderBattleTab(pane, battleView(), battleHandlers);
 }
 
 // ---------------------------------------------------------------------------
@@ -1439,9 +2012,9 @@ function registerKeptBlocks(sb) {
         promptNote: PARTY_NOTE,
         diceModifier: `Modifier: the matching stat's bonus from the Checks line of your "(you)" section of the <${own.partyTag}> block (for example CHA +1); do not guess one.`,
     };
-    // Story Block 0.9.1 keeps a block without a sidebar tab of its own: the Battle tab already
-    // shows the party. An older Story Block gives it a tab, as before.
-    if (versionAtLeast(sb.version, NO_TAB_STORY_BLOCK)) party.tab = own.partyTab === true;
+    // Story Block 0.9.1 keeps a block without a sidebar tab of its own: RPG Battle's Party tab
+    // already shows the party. An older Story Block gives it a tab too, as before.
+    if (versionAtLeast(sb.version, NO_TAB_STORY_BLOCK)) party.tab = false;
     const results = [sb.registerBlock(party)];
     // An older chat's Character block: no longer kept (not shown to the model, no tab, never
     // written), only read until the chat's Party block has your section. Registered as
@@ -1458,15 +2031,28 @@ function registerWithStoryBlock() {
     const sb = storyBlock();
     if (!sb) return false;
     registerKeptBlocks(sb);
+    // The party, always there while RPG Battle is on: the cards, what the story offers them.
+    sb.registerTab({
+        id: PARTY_TAB_ID,
+        label: 'Party',
+        icon: '👥',
+        order: 79,
+        isAvailable: () => settings().enabled,
+        key: partyKey,
+        badge: () => currentOffers().length,
+        render: pane => renderParty(pane),
+    });
+    // The battle, only while there is one: Story Block asks isAvailable on every refresh, so the
+    // tab appears with the story's offer and goes once the result is back with the story.
     sb.registerTab({
         id: TAB_ID,
         label: 'Battle',
         icon: '⚔️',
         order: 80,
-        isAvailable: () => settings().enabled,
-        key: tabKey,
-        badge: () => (currentFight() ? 1 : 0),
-        render: pane => renderTab(pane),
+        isAvailable: () => battleOn(),
+        key: battleKey,
+        badge: () => (currentFight() || encounterOffer() ? 1 : 0),
+        render: pane => renderBattle(pane),
     });
     sb.onReply?.(payload => void afterReply(payload));
     // Story Block's settings can change under us (its Character Sheet switched on or off).
@@ -1474,6 +2060,8 @@ function registerWithStoryBlock() {
         settingsPanel?.setSheetConflict?.(sheetConflict());
         // A chat opened (or changed) may still keep your sheet in the older Character block.
         scheduleMigration();
+        // The opening message's offers, once per chat opened.
+        setTimeout(() => { try { toastOpening(); } catch (error) { console.warn('[RPG Battle] the opening message could not be read', error); } }, 0);
     });
     registered = true;
     return true;
@@ -1487,7 +2075,7 @@ function registerWithStoryBlock() {
 function applySettings(next) {
     const ctx = context();
     if (!ctx?.extensionSettings) return;
-    const blocksKey = () => JSON.stringify([termsOf(rules()), settings(ctx).partyTab, settings(ctx).partyTag, settings(ctx).characterTag]);
+    const blocksKey = () => JSON.stringify([termsOf(rules()), settings(ctx).partyTag, settings(ctx).characterTag]);
     const termsBefore = JSON.stringify(termsOf(rules()));
     const blocksBefore = blocksKey();
     const enabledBefore = settings(ctx).enabled;

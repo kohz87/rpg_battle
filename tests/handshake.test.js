@@ -223,3 +223,18 @@ test('the signature changes with what is offered, not with a repeated announceme
     suite.announce({ ...BLOCK, owns: ['scene', 'items'] });
     assert.notEqual(suiteSignature(suite), together, 'the Character Sheet switched off');
 });
+
+test('api.manage.tokens: what RPG Battle adds to the next reply, about four characters a token, never throwing', async () => {
+    const { HIDDEN_BLOCKS_ALLOWANCE, manageApi, tokenEstimate } = await import('../src/handshake.js');
+    const { STORY_INSTRUCTION } = await import('../src/story.js');
+    assert.deepEqual(tokenEstimate(), { input: 0, output: 0, parts: [] });
+    const asks = tokenEstimate({ instruction: STORY_INSTRUCTION });
+    assert.deepEqual(asks.parts, [{ label: 'Story instruction (rpg_battle_rules)', input: Math.ceil(STORY_INSTRUCTION.length / 4), output: HIDDEN_BLOCKS_ALLOWANCE }]);
+    assert.equal(asks.input, Math.ceil(STORY_INSTRUCTION.length / 4));
+    const narrating = tokenEstimate({ instruction: STORY_INSTRUCTION, handoff: 'x'.repeat(400) });
+    assert.deepEqual(narrating, { input: 100, output: 0, parts: [{ label: 'Fight hand-off (rpg_battle)', input: 100, output: 0 }] }, 'the hand-off goes instead of the instruction');
+    const base = { choices: () => ({}), choose: () => {}, enabled: () => true, enable: () => {} };
+    assert.deepEqual(manageApi({ ...base, tokens: () => { throw new Error('boom'); } }).tokens(), { input: 0, output: 0, parts: [] });
+    assert.equal(manageApi({ ...base, tokens: () => asks }).tokens(), asks);
+    assert.deepEqual(manageApi(base).tokens(), { input: 0, output: 0, parts: [] });
+});

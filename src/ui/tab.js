@@ -30,7 +30,7 @@ import { STATS, RANKS, DEFAULT_RULES, maxHp, maxMp, derive, checkModifiers } fro
 import { stateWords } from '../narrative.js';
 import { SLOT_NAMES, formatStats } from '../items.js';
 import { levelLabel, levelTag, levelText, powerOptions, progress, termsOf, tierOf, xpGainText } from '../terms.js';
-import { buildStats, cleanFocus, guessFocus, lockedReason, suggestSkills } from '../builds.js';
+import { buildStats, cleanFocus, guessFocus } from '../builds.js';
 
 const ROLES = ['brute', 'skirmisher', 'caster', 'tank', 'support'];
 const SKILL_TYPES = ['physical', 'magic', 'heal', 'buff', 'debuff'];
@@ -41,6 +41,9 @@ const ELEMENT_LABELS = { none: 'none', fire: 'fire (burns)', ice: 'ice (slows)',
 // The learn screen's "keep the new skill set aside" choice.
 const NEW_ASIDE = '\u0000new';
 const LOG_LINES = 8;
+// Which tab a mode belongs to: the Party tab (always there) or the Battle tab (while there is a battle).
+const PARTY_MODES = ['create', 'idle', 'spend', 'learn', 'companion', 'items'];
+const BATTLE_MODES = ['offer', 'setup', 'fight', 'result'];
 
 // What each stat does, in a few words, for the reader building a character.
 const STAT_HINTS = {
@@ -290,12 +293,11 @@ const PERSONA_HINT = 'From your persona; change it if your character goes by ano
 
 function renderCreate(root, view, handlers) {
     const rules = view.rules ?? DEFAULT_RULES;
-    const { startStat, startPoints, starterSkills } = rules.character;
-    const library = list(view.library).filter(skill => skill && str(skill.name) && num(skill.tier, 1) === 1);
+    const { startStat, startPoints } = rules.character;
     // The name starts as the SillyTavern persona's and follows it (a persona switched meanwhile)
     // until the reader types in the Name box; from then on it is theirs.
     const persona = str(view.persona);
-    if (!createDraft) createDraft = { name: persona, nameFromPersona: true, stats: Object.fromEntries(STATS.map(stat => [stat, startStat])), skills: [] };
+    if (!createDraft) createDraft = { name: persona, nameFromPersona: true, stats: Object.fromEntries(STATS.map(stat => [stat, startStat])) };
     else if (createDraft.nameFromPersona) createDraft.name = persona;
     const draft = createDraft;
     const spent = () => STATS.reduce((sum, stat) => sum + draft.stats[stat] - startStat, 0);
@@ -313,40 +315,18 @@ function renderCreate(root, view, handlers) {
         onPlus: () => { if (remaining() > 0) { draft.stats[stat] += 1; refresh(); } },
     }));
 
-    const skillButtons = library.map(skill => {
-        const node = el('button', { className: 'menu_button rpg-battle-pick rpg-battle-skill-pick' }, [
-            el('span', { className: 'rpg-battle-pick-head' }, [
-                icon(TYPE_ICONS[skill.type] ?? 'fa-star'),
-                el('span', { className: 'rpg-battle-pick-name', text: skill.name }),
-            ]),
-            el('span', { className: 'rpg-battle-pick-meta', text: skillMeta(skill) }),
-            str(skill.description) ? el('span', { className: 'rpg-battle-pick-desc', text: skill.description }) : null,
-        ]);
-        node.type = 'button';
-        node.dataset.skill = skill.name;
-        node.addEventListener('click', () => {
-            const index = draft.skills.findIndex(name => sameName(name, skill.name));
-            if (index >= 0) draft.skills.splice(index, 1);
-            else if (draft.skills.length < starterSkills) draft.skills.push(skill.name);
-            else return;
-            refresh();
-        });
-        return node;
-    });
-    const skillCount = el('span', { className: 'rpg-battle-count' });
-
     const preview = previewList();
     const hint = el('p', { className: 'rpg-battle-hint rpg-battle-create-hint', attrs: { 'aria-live': 'polite' } });
     const create = button('Create character', 'rpg-battle-primary rpg-battle-create', {
         iconName: 'fa-user-plus',
         onClick: () => {
             if (!valid()) return;
-            emit(handlers, 'onCreate', { name: str(draft.name), stats: { ...draft.stats }, skills: [...draft.skills] });
+            emit(handlers, 'onCreate', { name: str(draft.name), stats: { ...draft.stats } });
         },
     });
 
     function valid() {
-        return Boolean(str(draft.name)) && remaining() === 0 && draft.skills.length === starterSkills;
+        return Boolean(str(draft.name)) && remaining() === 0;
     }
 
     function refresh() {
@@ -360,19 +340,10 @@ function renderCreate(root, view, handlers) {
             step.plus.disabled = left <= 0;
             step.extra.textContent = `check ${signed(checkModifiers(draft.stats, rules)[stat])}`;
         }
-        const full = draft.skills.length >= starterSkills;
-        for (const node of skillButtons) {
-            const on = draft.skills.some(name => sameName(name, node.dataset.skill));
-            node.setAttribute('aria-pressed', String(on));
-            node.classList.toggle('is-selected', on);
-            node.disabled = full && !on;
-        }
-        skillCount.textContent = `${draft.skills.length}/${starterSkills}`;
         fillPreview(preview, previewRows(numbersFor(draft.stats, 1, rules), numbersFor(draft.stats, 1, rules)), false);
         const missing = [];
         if (!str(draft.name)) missing.push('a name');
         if (left > 0) missing.push(`${left} more ${left === 1 ? 'point' : 'points'}`);
-        if (draft.skills.length < starterSkills) missing.push(`${starterSkills - draft.skills.length} more ${starterSkills - draft.skills.length === 1 ? 'skill' : 'skills'}`);
         hint.textContent = missing.length ? `Still needed: ${missing.join(', ')}.` : 'Ready.';
         create.disabled = !valid();
         nameHint.hidden = !(draft.nameFromPersona && str(draft.name));
@@ -382,18 +353,12 @@ function renderCreate(root, view, handlers) {
         view.importing ? importNotice(view.importing, handlers) : null,
         section('is-create-intro', [
             sub('New character', 'fa-user-plus'),
-            el('p', { className: 'rpg-battle-hint', text: `No classes: every stat starts at ${startStat}; spend ${startPoints} points the way you see your character and pick ${starterSkills} starter skills.` }),
+            el('p', { className: 'rpg-battle-hint', text: `No classes: every stat starts at ${startStat}; spend ${startPoints} points the way you see your character. Skills come from the story: the opening message or a later scene teaches them, and you accept each one.` }),
             el('label', { className: 'rpg-battle-field' }, [el('span', { className: 'rpg-battle-field-label', text: 'Name' }), nameInput, nameHint]),
         ]),
         section('is-stats', [
             el('div', { className: 'rpg-battle-sub-row' }, [sub('Stats', 'fa-chart-simple'), remainingNode]),
             el('ul', { className: 'rpg-battle-steppers' }, steppers.map(step => step.row)),
-        ]),
-        section('is-skills', [
-            el('div', { className: 'rpg-battle-sub-row' }, [sub('Starter skills', 'fa-wand-sparkles'), skillCount]),
-            library.length
-                ? el('div', { className: 'rpg-battle-picks', attrs: { role: 'group', 'aria-label': 'Starter skills' } }, skillButtons)
-                : el('p', { className: 'rpg-battle-hint', text: 'The skill library has no tier-1 skills.' }),
         ]),
         section('is-preview', [sub(termsOf(rules).custom ? `At ${levelText(1, rules)}` : 'At level 1', 'fa-heart-pulse'), preview]),
         el('div', { className: 'rpg-battle-actions is-end' }, [hint, create]),
@@ -441,25 +406,9 @@ function renderIdle(root, view, handlers) {
         ]));
     }
 
-    // A fight the story has started (the reply's <Encounter>, or one Story Director planned):
-    // offered, never started on its own, so the reader decides whether it is a fight at all.
-    const encounter = view.encounter;
-    if (encounter && str(encounter.text)) {
-        root.append(el('div', { className: 'rpg-battle-notice is-encounter', attrs: { role: 'status' } }, [
-            el('div', { className: 'rpg-battle-notice-text' }, [
-                icon('fa-dragon'),
-                el('span', { className: 'rpg-battle-encounter-text', text: `A fight is starting: ${str(encounter.text)}` }),
-            ]),
-            str(encounter.label) ? el('p', { className: 'rpg-battle-hint rpg-battle-encounter-label', text: str(encounter.label) }) : null,
-            el('div', { className: 'rpg-battle-actions' }, [
-                button('Fight?', 'rpg-battle-primary rpg-battle-encounter-fight', { iconName: 'fa-dragon', onClick: () => emit(handlers, 'onFightEncounter', list(encounter.rows).map(row => ({ ...row }))) }),
-                button('Not now', 'rpg-battle-encounter-dismiss', { iconName: 'fa-xmark', onClick: () => emit(handlers, 'onDismissEncounter') }),
-            ]),
-        ]));
-    }
-
-    // What else the story offers (someone joins, leaves or learns a skill, XP, a quest done,
-    // a fallen companion, a rename): each waits for Accept, never applied on its own.
+    // What the story offers the party (someone joins, leaves or learns a skill, XP, a quest
+    // done, a rest, a fallen companion, a rename): each waits for Accept, never applied on its
+    // own. A fight it offers is the Battle tab's.
     for (const offer of list(view.offers).filter(entry => entry && str(entry.key) && str(entry.text))) root.append(offerNotice(offer, handlers));
 
     // Story Block's own Character Sheet block keeps an HP of its own, written by the model; with
@@ -496,11 +445,10 @@ function renderIdle(root, view, handlers) {
         ]));
     }
 
+    // Fights, skills, companions and rests come from the story (its offers); a consumable from
+    // the Inventory is the one thing used by hand, since it spends what the party carries.
     root.append(el('div', { className: 'rpg-battle-actions' }, [
-        button('Start fight', 'rpg-battle-primary rpg-battle-start', { iconName: 'fa-dragon', onClick: () => emit(handlers, 'onSetup') }),
-        button('Learn skill', 'rpg-battle-learn', { iconName: 'fa-book', onClick: () => emit(handlers, 'onLearn', 'pc') }),
         button('Use item', 'rpg-battle-items', { iconName: 'fa-flask', onClick: () => emit(handlers, 'onItems') }),
-        button('Add companion', 'rpg-battle-add-companion', { iconName: 'fa-user-plus', onClick: () => emit(handlers, 'onCompanion') }),
     ]));
     // The whole party as a file: saved, or loaded into this chat (after a confirm).
     root.append(fold('is-party-file', 'Party file', 'fa-file-arrow-down', null, [
@@ -512,15 +460,6 @@ function renderIdle(root, view, handlers) {
     ]));
     const creatures = list(view.bestiary).filter(entry => entry && str(entry.name));
     root.append(bestiaryFold(creatures, handlers));
-    // HP and MP come back when the story says so: story time heals on its own (with Story
-    // Director), and these are for what the clock cannot see.
-    root.append(section('is-rest', [
-        sub('Rest', 'fa-bed'),
-        el('div', { className: 'rpg-battle-actions' }, [
-            button('Short rest', 'rpg-battle-rest-short', { iconName: 'fa-mug-hot', title: 'An hour or so: a quarter of max HP and MP back', onClick: () => emit(handlers, 'onRest', 'short') }),
-            button('Long rest', 'rpg-battle-rest-long', { iconName: 'fa-moon', title: 'A night\'s sleep: full HP and MP, fight conditions end', onClick: () => emit(handlers, 'onRest', 'long') }),
-        ]),
-    ]));
 }
 
 // The offer whose Accept is armed (an offer that asks twice, like a fallen companion's Remove).
@@ -671,8 +610,8 @@ let editDraft = null;
 /**
  * One member as a collapsible card. Folded: name, level (in the reader's terms), HP and MP
  * bars and the State words. Open: progress, conditions, stats (with checks for you), skills in
- * use and set aside, gear, and the controls (Spend, and for a companion Learn, Give item,
- * control, Edit and Remove; for you Start over).
+ * use and set aside, gear, and the controls (Spend, and for a companion Give item, control,
+ * Dossier, Edit and Remove; for you Start over).
  */
 function memberCard(member, view, handlers) {
     const rules = view.rules ?? DEFAULT_RULES;
@@ -849,7 +788,7 @@ function startOverControls(handlers, { companions = 0 } = {}) {
     ]);
 }
 
-// A companion's control mode (tap to switch), Learn, Give item, Edit, and Remove, which asks twice.
+// A companion's control mode (tap to switch), Give item, Dossier (when linked), Edit, and Remove, which asks twice.
 function memberControls(member, handlers) {
     const command = member.control === 'command';
     const toggle = button(command ? 'You command' : 'Acts on its own', `rpg-battle-control is-${command ? 'command' : 'auto'}`, {
@@ -881,8 +820,9 @@ function memberControls(member, handlers) {
         },
     });
     const give = button('Give item', 'rpg-battle-give-open', { iconName: 'fa-hand-holding-hand', title: `Give ${member.name ?? 'them'} equipment from your Inventory`, onClick: () => { giveOpen = giveOpen === member.id ? null : member.id; rerender(); } });
-    const learn = button('Learn skill', 'rpg-battle-learn-member', { iconName: 'fa-book', onClick: () => emit(handlers, 'onLearn', member.id) });
-    return el('div', { className: 'rpg-battle-member-actions' }, [toggle, learn, give, edit, remove]);
+    // Linked to an NPC State Delta NPC (and its dossier can be opened): straight to it.
+    const dossier = member.dossier ? button('Dossier', 'rpg-battle-dossier', { iconName: 'fa-address-card', title: `Open ${member.name ?? 'their'} dossier in NPC State Delta`, onClick: () => emit(handlers, 'onOpenDossier', member.id) }) : null;
+    return el('div', { className: 'rpg-battle-member-actions' }, [toggle, give, dossier, edit, remove]);
 }
 
 /**
@@ -966,47 +906,49 @@ function renderItems(root, view, handlers) {
 let itemsTarget = null;
 
 // ---------------------------------------------------------------------------
-// companion: a new companion joins
+// companion: someone the story brought joins
 
 let companionDraft = null;
 
 const FOCUS_LABELS = ['First focus (×3)', 'Second focus (×2)', 'Third focus (×1)'];
 
 /**
- * Add companion: name, role, level, control, equipment, up to three focus stats (their points
- * are spread over them, 3/2/1; none: evenly) and three skills from the library that the built
- * companion can take. The role's words fill in the focus until the reader picks their own; the
- * skills are suggested until the reader picks theirs. With NPC State Delta, "From the story's
- * NPCs" fills in name, role and focus, and the companion keeps that NPC's id. A story's
- * <Joins> arrives as `view.prefill`, seeding the draft once.
+ * Add companion, opened from a story's <Joins> (`view.prefill`, seeding the draft once): name,
+ * role, level, control, equipment and up to three focus stats (their points are spread over
+ * them, 3/2/1; none: evenly; the role's words fill them in until the reader picks their own).
+ * Their skills are generated from who they are (`view.kit`, from the glue: the model's words,
+ * or library skills that fit), shown before Add with Generate again and a Remove per skill.
+ * With NPC State Delta, "From the story's NPCs" fills in name, role and focus and keeps the link.
  */
 function renderCompanion(root, view, handlers) {
     const rules = view.rules ?? DEFAULT_RULES;
     const terms = termsOf(rules);
-    const count = num(rules.character?.starterSkills, 3);
-    const library = list(view.library).filter(skill => skill && str(skill.name));
     const npcs = list(view.npcs).filter(npc => npc && str(npc.name));
     const top = Math.min(terms.cap, Math.max(1, num(view.maxLevel, 20)));
     const prefill = view.prefill && str(view.prefill.name) ? view.prefill : null;
     const prefillKey = prefill ? JSON.stringify(prefill) : '';
     if (!companionDraft || (prefillKey && companionDraft.prefillKey !== prefillKey)) {
-        companionDraft = { name: '', role: '', control: 'auto', level: num(view.level, 1), focus: [], focusTouched: false, skills: [], skillsTouched: false, gear: '', npcId: null, prefillKey };
+        companionDraft = { name: '', role: '', control: 'auto', level: num(view.level, 1), focus: [], focusTouched: false, gear: '', npcId: null, summary: '', kit: [], kitKey: null, prefillKey };
         if (prefill) {
             Object.assign(companionDraft, {
                 name: str(prefill.name),
                 role: str(prefill.role),
                 level: Math.min(top, Math.max(1, Math.round(num(prefill.level, num(view.level, 1))))),
                 focus: cleanFocus(prefill.focus?.length ? prefill.focus : guessFocus(prefill.role, prefill.summary)),
+                focusTouched: Boolean(prefill.focus?.length),
                 npcId: prefill.npcId ?? null,
+                summary: str(prefill.summary),
             });
         }
     }
     const draft = companionDraft;
-    const built = () => buildStats(draft.focus, draft.level, rules);
-    const suggest = () => {
-        if (!draft.skillsTouched) draft.skills = suggestSkills(built(), draft.focus, library, { role: draft.role, count });
-    };
-    suggest();
+    // A new kit from the glue (generated, or again) replaces the draft's; removals stay until then.
+    const kit = view.kit ?? null;
+    if (kit && str(kit.key) && draft.kitKey !== kit.key) {
+        draft.kitKey = kit.key;
+        draft.kit = list(kit.skills).filter(spec => spec && str(spec.name)).map(spec => ({ ...spec }));
+    }
+    const working = kit?.status === 'working';
 
     const name = el('input', { className: 'text_pole rpg-battle-companion-name', attrs: { type: 'text', maxlength: '40', placeholder: 'Name', 'aria-label': 'Companion name' } });
     name.value = draft.name;
@@ -1018,62 +960,24 @@ function renderCompanion(root, view, handlers) {
     gear.value = draft.gear;
     const focusSelects = FOCUS_LABELS.map((label, index) => select(`rpg-battle-companion-focus is-${index + 1}`, label, [['', index ? 'none' : 'none (even spread)'], ...STATS.map(stat => [stat, `${stat} · ${STAT_HINTS[stat]}`])], draft.focus[index] ?? ''));
     const statsLine = el('p', { className: 'rpg-battle-hint rpg-battle-companion-stats', attrs: { 'aria-live': 'polite' } });
-    const picks = el('div', { className: 'rpg-battle-picks rpg-battle-companion-skills', attrs: { role: 'group', 'aria-label': 'Starting skills' } });
-    const skillCount = el('span', { className: 'rpg-battle-count' });
     const why = el('p', { className: 'rpg-battle-hint rpg-battle-companion-why', attrs: { 'aria-live': 'polite' } });
     const add = button('Add to the party', 'rpg-battle-primary rpg-battle-companion-add', { iconName: 'fa-user-plus' });
 
-    // The picks are rebuilt in place, so typing in a field above keeps its focus.
-    const drawSkills = () => {
-        const stats = built();
-        const usable = library.filter(skill => !lockedReason(stats, skill));
-        // A skill picked before the build changed keeps its button, locked, so the form can say why.
-        const shown = [...usable, ...library.filter(skill => lockedReason(stats, skill) && draft.skills.some(name => sameName(name, skill.name)))];
-        picks.replaceChildren(...shown.map(skill => {
-            const on = draft.skills.some(entry => sameName(entry, skill.name));
-            const locked = lockedReason(stats, skill);
-            const node = el('button', { className: `menu_button rpg-battle-pick rpg-battle-companion-skill${on ? ' is-selected' : ''}${locked ? ' is-locked' : ''}` }, [
-                el('span', { className: 'rpg-battle-pick-head' }, [icon(TYPE_ICONS[skill.type] ?? 'fa-star'), el('span', { className: 'rpg-battle-pick-name', text: skill.name })]),
-                el('span', { className: 'rpg-battle-pick-meta', text: [skillMeta(skill), locked].filter(Boolean).join(' · ') }),
-            ]);
-            node.type = 'button';
-            node.dataset.skill = skill.name;
-            node.setAttribute('aria-pressed', String(on));
-            node.disabled = !on && (Boolean(locked) || draft.skills.length >= count);
-            node.addEventListener('click', () => {
-                const index = draft.skills.findIndex(entry => sameName(entry, skill.name));
-                if (index >= 0) draft.skills.splice(index, 1);
-                else if (draft.skills.length < count && !locked) draft.skills.push(skill.name);
-                else return;
-                draft.skillsTouched = true;
-                refresh();
-            });
-            return node;
-        }));
-        return { stats, locked: draft.skills.map(entry => library.find(skill => sameName(skill.name, entry))).filter(skill => skill && lockedReason(stats, skill)) };
-    };
-
     function refresh() {
-        suggest();
-        const { stats, locked } = drawSkills();
+        const stats = buildStats(draft.focus, draft.level, rules);
         statsLine.textContent = `${STATS.map(stat => `${stat} ${stats[stat]}`).join(' · ')}${draft.focus.length ? '' : ' (no focus: spread evenly)'}`;
-        skillCount.textContent = `${draft.skills.length}/${count}`;
-        const missing = [];
-        if (!str(draft.name)) missing.push('a name');
-        if (draft.skills.length < count) missing.push(`${count - draft.skills.length} more ${count - draft.skills.length === 1 ? 'skill' : 'skills'}`);
-        why.textContent = locked.length
-            ? `${locked.map(skill => `${skill.name} ${lockedReason(stats, skill)}`).join('; ')}: pick another or change the focus.`
-            : missing.length ? `Still needed: ${missing.join(', ')}.` : 'Ready.';
-        add.disabled = Boolean(missing.length || locked.length);
+        why.textContent = !str(draft.name) ? 'Still needed: a name.' : working ? 'Their skills are being worked out…' : 'Ready.';
+        add.disabled = !str(draft.name) || working;
         focusSelects.forEach((node, index) => { node.value = draft.focus[index] ?? ''; });
     }
 
-    const setFocusFromWords = () => {
-        if (draft.focusTouched) return;
-        draft.focus = guessFocus(draft.role, '');
-    };
+    const who = () => ({ name: str(draft.name), role: str(draft.role), level: draft.level, focus: [...draft.focus], npcId: draft.npcId ?? null, summary: draft.summary });
     name.addEventListener('input', () => { draft.name = name.value; refresh(); });
-    role.addEventListener('input', () => { draft.role = role.value; setFocusFromWords(); refresh(); });
+    role.addEventListener('input', () => {
+        draft.role = role.value;
+        if (!draft.focusTouched) draft.focus = guessFocus(draft.role, draft.summary);
+        refresh();
+    });
     level.addEventListener('change', () => { draft.level = num(level.value, 1); refresh(); });
     control.addEventListener('change', () => { draft.control = control.value; });
     gear.addEventListener('input', () => { draft.gear = gear.value; });
@@ -1088,9 +992,22 @@ function renderCompanion(root, view, handlers) {
         if (add.disabled) return;
         emit(handlers, 'onAddCompanion', {
             name: str(draft.name), role: str(draft.role) || 'companion', control: draft.control, level: draft.level,
-            focus: [...draft.focus], skills: [...draft.skills], gearLines: draft.gear, npcId: draft.npcId ?? null,
+            focus: [...draft.focus], skills: draft.kit.map(spec => ({ ...spec })), gearLines: draft.gear, npcId: draft.npcId ?? null,
         });
     });
+
+    // The generated skills: each with its words and template, removable; Generate again asks anew.
+    const kitRows = draft.kit.map((spec, index) => el('li', { className: 'rpg-battle-record rpg-battle-kit-skill' }, [
+        el('div', { className: 'rpg-battle-record-head' }, [
+            icon(TYPE_ICONS[spec.type] ?? 'fa-star'),
+            el('span', { className: 'rpg-battle-record-name', text: str(spec.name) }),
+            spec.library ? el('span', { className: 'rpg-battle-tag is-quiet', text: 'library' }) : null,
+            button('', 'rpg-battle-icon-button rpg-battle-kit-remove', { iconName: 'fa-xmark', title: `Leave out ${str(spec.name)}`, onClick: () => { draft.kit.splice(index, 1); rerender(); } }),
+        ]),
+        el('div', { className: 'rpg-battle-record-meta', text: [str(spec.type), str(spec.stat), TARGET_LABELS[spec.target] ?? str(spec.target), spec.element && spec.element !== 'none' ? ELEMENT_LABELS[spec.element] ?? str(spec.element) : ''].filter(Boolean).join(' · ') }),
+        str(spec.words) ? el('p', { className: 'rpg-battle-record-desc', text: str(spec.words) }) : null,
+    ]));
+    const again = button(working ? 'Working…' : 'Generate again', 'rpg-battle-kit-again', { iconName: 'fa-rotate', disabled: working, onClick: () => emit(handlers, 'onGenerateKit', who()) });
 
     // From NPC State Delta's dossiers: present NPCs first. Picking one fills the form.
     let picker = null;
@@ -1100,7 +1017,8 @@ function renderCompanion(root, view, handlers) {
         picker.addEventListener('change', () => {
             const npc = ordered.find(entry => str(entry.id) === picker.value);
             if (!npc) return;
-            Object.assign(draft, { name: str(npc.name), role: str(npc.role), npcId: str(npc.id), focus: guessFocus(npc.role, npc.summary), focusTouched: false, skillsTouched: false });
+            Object.assign(draft, { name: str(npc.name), role: str(npc.role) || draft.role, npcId: str(npc.id), summary: str(npc.summary), focus: guessFocus(npc.role || draft.role, npc.summary), focusTouched: false });
+            emit(handlers, 'onGenerateKit', who());
             rerender();
         });
     }
@@ -1126,9 +1044,10 @@ function renderCompanion(root, view, handlers) {
         statsLine,
     ]));
     root.append(section('is-companion-skills', [
-        el('div', { className: 'rpg-battle-sub-row' }, [sub('Skills', 'fa-wand-sparkles'), skillCount]),
-        el('p', { className: 'rpg-battle-hint', text: 'From the library, only what this build can take.' }),
-        picks,
+        el('div', { className: 'rpg-battle-sub-row' }, [sub('Skills', 'fa-wand-sparkles'), el('span', { className: 'rpg-battle-count', text: String(draft.kit.length) })]),
+        el('p', { className: 'rpg-battle-hint rpg-battle-kit-note', text: working ? 'Working out what they can do…' : str(kit?.note) || 'What they can already do. Code sets every number for their level.' }),
+        draft.kit.length ? el('ul', { className: 'rpg-battle-records rpg-battle-kit' }, kitRows) : el('p', { className: 'rpg-battle-hint', text: working ? '' : 'No skills: they fight with attacks until the story teaches them one.' }),
+        el('div', { className: 'rpg-battle-actions' }, [again]),
         why,
     ]));
     root.append(section('is-companion-gear', [field('Equipment', gear, 'Optional, one item per line: name (rarity) · stats. Capped by rarity like yours.')]));
@@ -1272,7 +1191,9 @@ function renderLearn(root, view, handlers) {
         const skills = library.filter(skill => num(skill.tier, 1) === tier);
         const learnable = skills.filter(skill => !known(skill.name) && requirementCheck(sheet.stats, skill).ok).length;
         const items = skills.map(skill => {
-            const check = requirementCheck(sheet.stats, skill);
+            // The opening message's skills are theirs from the start: no stat requirement.
+            const given = Boolean(prefill?.free && sameName(prefill.name, skill.name));
+            const check = given ? { ok: true, missing: {} } : requirementCheck(sheet.stats, skill);
             const have = known(skill.name);
             const requires = Object.entries(skill.requires ?? {});
             const item = el('li', { className: `rpg-battle-record rpg-battle-library-skill${have ? ' is-known' : ''}${check.ok ? '' : ' is-locked'}` }, [
@@ -1328,7 +1249,7 @@ function renderLearn(root, view, handlers) {
         const inLibrary = library.find(skill => sameName(skill.name, name));
         learnTemplate.disabled = !name || known(name) || Boolean(inLibrary) || blocked;
         templateHint.textContent = name && known(name) ? `${name} is already known.`
-            : inLibrary ? `${inLibrary.name} is in the library: learn it there${Object.keys(inLibrary.requires ?? {}).length ? ` (it needs ${Object.entries(inLibrary.requires).map(([stat, need]) => `${stat} ${need}`).join(', ')})` : ''}.`
+            : inLibrary ? `${inLibrary.name} is in the library: learn it there${Object.keys(inLibrary.requires ?? {}).length && !(prefill?.free && sameName(prefill.name, inLibrary.name)) ? ` (it needs ${Object.entries(inLibrary.requires).map(([stat, need]) => `${stat} ${need}`).join(', ')})` : ''}.`
                 : 'Its power, MP and cooldown are set by code for this level.';
     };
     nameInput.addEventListener('input', () => { draft.name = nameInput.value; refresh(); });
@@ -1402,6 +1323,8 @@ function prefillRow(row, rules, custom) {
         boss: Boolean(row?.boss),
         // The story's word for how dangerous it is, shown beside the power it became.
         threat: str(row?.threat),
+        // A later engagement ("then:"), fought once the one before is done.
+        wave: Math.min(3, Math.max(0, Math.round(num(row?.wave, 0)))),
     };
 }
 
@@ -1465,6 +1388,7 @@ function renderSetup(root, view, handlers) {
                 ...(custom ? { level: num(row.level, 0) >= 1 ? Math.round(num(row.level)) : null } : { rank: row.rank || null }),
                 role: row.role || null,
                 boss: Boolean(row.boss),
+                ...(row.wave ? { wave: row.wave } : {}),
             }));
             if (rows.length) emit(handlers, 'onStart', { rows, stakes: draft.stakes === 'death' ? 'death' : 'normal' });
         },
@@ -1507,7 +1431,10 @@ function renderSetup(root, view, handlers) {
             },
         });
         const item = el('li', { className: 'rpg-battle-enemy-row' }, [
-            el('div', { className: 'rpg-battle-enemy-line' }, [nameInput, newTag, remove]),
+            el('div', { className: 'rpg-battle-enemy-line' }, [
+                row.wave ? el('span', { className: 'rpg-battle-tag rpg-battle-wave', text: `then ${row.wave + 1}`, title: 'A later engagement, fought straight after the one before' }) : null,
+                nameInput, newTag, remove,
+            ]),
             el('div', { className: 'rpg-battle-enemy-line is-options' }, [
                 count, rank,
                 str(row.threat) ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-threat', text: str(row.threat), title: 'How dangerous the story says it is; the power picker shows what that means for your level' }) : null,
@@ -1996,8 +1923,40 @@ function renderResult(root, view, handlers) {
 }
 
 // ---------------------------------------------------------------------------
+// offer: a fight the story starts (the Battle tab's first screen)
+
+/**
+ * The Battle tab exists while there is a battle: first the story's offer (the reply's
+ * <Encounter>, or one Story Director planned), Fight? or Not now; never started on its own,
+ * so the reader decides whether it is a fight at all. Engagements after the first ("then:")
+ * are listed in order.
+ */
+function renderOffer(root, view, handlers) {
+    const encounter = view.encounter;
+    if (!encounter || !str(encounter.text)) {
+        root.append(el('p', { className: 'rpg-battle-empty', text: 'No fight right now: the story starts them.' }));
+        return;
+    }
+    const waves = [...new Set(list(encounter.rows).map(row => num(row.wave, 0)))].sort((a, b) => a - b);
+    root.append(el('div', { className: 'rpg-battle-notice is-encounter', attrs: { role: 'status' } }, [
+        el('div', { className: 'rpg-battle-notice-text' }, [
+            icon('fa-dragon'),
+            el('span', { className: 'rpg-battle-encounter-text', text: `A fight is starting: ${str(encounter.text)}` }),
+        ]),
+        str(encounter.label) ? el('p', { className: 'rpg-battle-hint rpg-battle-encounter-label', text: str(encounter.label) }) : null,
+        waves.length > 1 ? el('p', { className: 'rpg-battle-hint rpg-battle-encounter-waves', text: `${waves.length} engagements, fought back to back: HP, MP and conditions carry over between them.` }) : null,
+        view.pending ? el('p', { className: 'rpg-battle-hint', text: 'The last fight\'s result is still to be narrated.' }) : null,
+        el('div', { className: 'rpg-battle-actions' }, [
+            button('Fight?', 'rpg-battle-primary rpg-battle-encounter-fight', { iconName: 'fa-dragon', onClick: () => emit(handlers, 'onFightEncounter', list(encounter.rows).map(row => ({ ...row }))) }),
+            button('Not now', 'rpg-battle-encounter-dismiss', { iconName: 'fa-xmark', onClick: () => emit(handlers, 'onDismissEncounter') }),
+        ]),
+    ]));
+}
+
+// ---------------------------------------------------------------------------
 
 const RENDERERS = {
+    offer: renderOffer,
     create: renderCreate,
     idle: renderIdle,
     spend: renderSpend,
@@ -2016,16 +1975,20 @@ const RENDERERS = {
 export function renderBattleTab(pane, view, handlers = {}) {
     if (!pane) return;
     const mode = view?.mode ?? '';
-    // Drafts belong to their mode: coming back later starts clean.
-    if (mode !== 'create') createDraft = null;
-    if (mode !== 'spend') spendDraft = null;
-    if (mode !== 'learn') learnDraft = null;
-    if (mode !== 'setup') setupDraft = null;
-    if (mode !== 'fight') fightUi = null;
-    if (mode !== 'result') discardArmed = null;
-    if (mode !== 'companion') companionDraft = null;
-    if (mode !== 'items') itemsTarget = null;
-    if (mode !== 'idle') {
+    // Drafts belong to their mode: coming back later starts clean. Two tabs draw with this
+    // renderer (the Party tab and, during a battle, the Battle tab), so a mode only drops the
+    // drafts of its own tab's other modes.
+    const group = BATTLE_MODES.includes(mode) ? BATTLE_MODES : PARTY_MODES;
+    const leaving = name => group.includes(name) && mode !== name;
+    if (leaving('create')) createDraft = null;
+    if (leaving('spend')) spendDraft = null;
+    if (leaving('learn')) learnDraft = null;
+    if (leaving('setup')) setupDraft = null;
+    if (leaving('fight')) fightUi = null;
+    if (leaving('result')) discardArmed = null;
+    if (leaving('companion')) companionDraft = null;
+    if (leaving('items')) itemsTarget = null;
+    if (leaving('idle')) {
         removeArmed = null;
         editDraft = null;
         forgetArmed = null;
@@ -2036,7 +1999,10 @@ export function renderBattleTab(pane, view, handlers = {}) {
 
     const root = el('div', { className: `rpg-battle-tab is-${mode || 'none'}` });
     root.dataset.mode = mode;
-    current = { pane, view, handlers: handlers ?? {}, root };
+    const drawn = { pane, view, handlers: handlers ?? {}, root };
+    current = drawn;
+    // Whatever the reader does in this pane redraws this pane: the other tab may have drawn since.
+    for (const type of ['click', 'input', 'change', 'toggle', 'keydown']) root.addEventListener(type, () => { current = drawn; }, true);
     const render = RENDERERS[mode];
     const extra = render ? render(root, view, handlers ?? {}) : (root.append(el('p', { className: 'rpg-battle-empty', text: 'Nothing to show.' })), null);
     pane.replaceChildren(root);

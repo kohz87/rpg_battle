@@ -51,9 +51,9 @@ test('defeat lines follow the stakes and carry no loot or XP', () => {
     assert.match(normal, /^Defeated: the story decides what follows \(captured, robbed, left for dead\)\.$/m);
     assert.doesNotMatch(normal, /Loot|XP/);
     const death = buildHandoff(result({ outcome: 'defeat', stakes: 'death' }), { currency: COINS, pcName: 'Ren' });
-    assert.equal(death.split('\n')[1], 'Defeated: Ren is killed.');
+    assert.equal(death.split('\n')[1], 'Defeated: Ren is killed. Ren is dead and does not come back; narrate the death, not a rescue.');
     const named = buildHandoff(result({ outcome: 'defeat' }), { stakes: 'death' });
-    assert.equal(named.split('\n')[1], 'Defeated: Ren is killed.', 'the hero defaults to the pc entry');
+    assert.equal(named.split('\n')[1], 'Defeated: Ren is killed. Ren is dead and does not come back; narrate the death, not a rescue.', 'the hero defaults to the pc entry');
 });
 
 test('an escape, down members, conditions, fled and parleyed enemies', () => {

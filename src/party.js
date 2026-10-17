@@ -132,7 +132,7 @@ export function newCompanion({ name, role = 'companion', control = 'auto', level
 
 // What a Party heading can hold: `## Name — role | control: auto` is split on the dash, the
 // bar and a trailing bracket, so a name or role carrying them would not read back as written.
-function headingText(value, max) {
+export function headingText(value, max) {
     return String(value ?? '')
         .replace(/[|#\r\n<>]/g, ' ')
         .replace(/\s+[—–-]+\s+/g, ' ')

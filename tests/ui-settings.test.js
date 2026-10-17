@@ -220,7 +220,8 @@ test('the sections fold, closed, each with a one-line summary that follows the s
     assert.equal(hint('money'), 'copper / silver / gold');
     assert.equal(hint('equipment'), '1 worn · 2 accessories');
     assert.equal(hint('terms'), 'Soul Class · Soul Growth · tiers');
-    assert.equal(hint('monsters'), 'Flavour on');
+    assert.equal(hint('monsters'), 'Model calls on');
+    assert.match(container.querySelector('.rpg-battle-settings-fold.is-monsters .rpg-battle-settings-fold-title').textContent, /Generated words/);
     assert.equal(hint('truth'), 'Automatic');
     assert.equal(hint('blocks'), 'Party · Inventory');
     assert.equal(hint('party'), '6 active skills · auto-spend');
@@ -290,7 +291,7 @@ test('Story Suite: choices and the switch changed in the overlay show in the pan
     assert.equal($('#rpg_battle_enabled').checked, true);
 });
 
-test('Party: active skills 3 to 12, companions\' points spent automatically, the Party block\'s own tab', () => {
+test('Party: active skills 3 to 12, companions\' points spent automatically', () => {
     const { $, changes } = mount();
     const active = $('.rpg-battle-settings-fold.is-party #rpg_battle_active_skills');
     assert.equal(active.value, '6');
@@ -307,10 +308,5 @@ test('Party: active skills 3 to 12, companions\' points spent automatically, the
     auto.dispatch('change');
     assert.equal(changes.at(-1).autoSpend, false);
     assert.equal($('.rpg-battle-settings-fold.is-party .rpg-battle-settings-fold-hint').textContent, '6 active skills · points by hand');
-    const tab = $('.rpg-battle-settings-fold.is-blocks #rpg_battle_party_tab');
-    assert.equal(tab.checked, false, 'off by default');
-    tab.checked = true;
-    tab.dispatch('change');
-    assert.equal(changes.at(-1).partyTab, true);
-    assert.equal($('.rpg-battle-settings-fold.is-blocks .rpg-battle-settings-fold-hint').textContent, 'Party · Inventory · Party tab');
+    assert.equal($('#rpg_battle_party_tab'), null, 'RPG Battle\'s Party tab shows the party: the block has none of its own');
 });

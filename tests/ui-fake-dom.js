@@ -98,10 +98,15 @@ function matchComplex(node, parts, index, scope) {
 const dataKey = name => name.slice(5).replace(/-([a-z])/g, (_, char) => char.toUpperCase());
 const dataName = key => `data-${key.replace(/[A-Z]/g, char => `-${char.toLowerCase()}`)}`;
 
+// The links back up the tree (and the listeners) are not enumerable, so a failed assertion
+// that prints an element (node's AssertionError ignores custom inspectors) prints a subtree
+// instead of walking the whole document and hanging.
+const hidden = (node, name, value) => Object.defineProperty(node, name, { value, writable: true, enumerable: false, configurable: true });
+
 class FakeNode {
     constructor(doc) {
-        this.ownerDocument = doc;
-        this.parentNode = null;
+        hidden(this, 'ownerDocument', doc);
+        hidden(this, 'parentNode', null);
     }
     get parentElement() { return this.parentNode?.nodeType === 1 ? this.parentNode : null; }
     get isConnected() {
@@ -139,7 +144,7 @@ export class FakeElement extends FakeNode {
         this.childNodes = [];
         this.attributes = {};
         this.dataset = {};
-        this.listeners = [];
+        hidden(this, 'listeners', []);
         this.styleProps = {};
         const element = this;
         this.style = {

@@ -81,6 +81,8 @@ function conditionWords(conditions) {
  * (magic is not what the story needs to know about them).
  */
 export function stateWords(sheet, rules = DEFAULT_RULES) {
+    // A fight lost to the death (0.4) leaves "dead" on the sheet: nothing else is to be portrayed.
+    if ((sheet?.conditions ?? []).some(condition => String(condition?.name ?? '').trim().toLowerCase() === 'dead')) return { hp: 'dead', mp: '', conditions: [], text: 'dead' };
     const n = narrativeRules(rules);
     const hp = hpWord(sheet?.hp, n);
     const mp = mpWord(sheet?.mp, n);

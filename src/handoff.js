@@ -27,7 +27,7 @@ function outcomeLine(result, stakes, pcName) {
     const rounds = Math.max(0, Math.round(Number(result.rounds) || 0));
     if (result.outcome === 'victory') return `Victory in ${plural(rounds, 'round')} (${duration(result.seconds)}).`;
     if (result.outcome === 'fled') return `Escaped after ${plural(rounds, 'round')}.`;
-    return stakes === 'death' ? `Defeated: ${pcName} is killed.` : 'Defeated: the story decides what follows (captured, robbed, left for dead).';
+    return stakes === 'death' ? `Defeated: ${pcName} is killed. ${pcName} is dead and does not come back; narrate the death, not a rescue.` : 'Defeated: the story decides what follows (captured, robbed, left for dead).';
 }
 
 // One line per member: with the state words a party of four would not fit one readable line,

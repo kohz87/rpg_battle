@@ -6,9 +6,9 @@
 // ("Soul Class I" for levels 1–10…) and the level cap; nothing here knows any world's words.
 // The status area also says when Story Block's own Character Sheet block is on beside RPG
 // Battle's sheet, with a button to turn it off; it is never turned off for the reader.
-// Monsters (DESIGN §7.4): whether a made-up creature gets the story's words from a model
-// call, on the chat's model or a connection profile (picked like Story Director's), and how
-// long that answer may be.
+// Generated words (DESIGN §7.4): whether a made-up creature, and a companion's starting skills
+// (0.4), get the story's words from a model call, on the chat's model or a connection profile
+// (picked like Story Director's), and how long that answer may be.
 // Source of truth (Story Suite, docs/STORY_SUITE.md): for each area RPG Battle shares with the
 // other extensions, Automatic, This extension or The other one, with who the story follows now.
 // With two or more of them installed, a "Manage all in Story Suite" link at the top opens Story
@@ -124,10 +124,10 @@ export function foldHints(settings) {
         money: currency.mode === 'single' ? String(currency.single || 'coins') : (currency.tiers ?? []).map(tier => tier.name).join(' / ') || 'coins',
         equipment: `${gear.worn} worn · ${gear.accessories} ${Number(gear.accessories) === 1 ? 'accessory' : 'accessories'}`,
         terms: [terms.levelName || 'Level', terms.xpName || 'XP', terms.tiers ? 'tiers' : '', terms.cap ? `cap ${terms.cap}` : ''].filter(Boolean).join(' · '),
-        monsters: current.flavour?.enabled === false ? 'Flavour off' : 'Flavour on',
+        monsters: current.flavour?.enabled === false ? 'Model calls off' : 'Model calls on',
         party: `${Number(current.activeSkills) || 6} active skills · ${current.autoSpend === false ? 'points by hand' : 'auto-spend'}`,
         truth: chosen ? `${chosen} chosen by hand` : 'Automatic',
-        blocks: [current.partyTag || 'Party', current.inventoryTag || 'Inventory', current.partyTab ? 'Party tab' : ''].filter(Boolean).join(' · '),
+        blocks: [current.partyTag || 'Party', current.inventoryTag || 'Inventory'].join(' · '),
     };
 }
 
@@ -249,7 +249,7 @@ export function renderSettings(container, { settings, version = '', status = '',
     const accessoryCount = gearInput('rpg_battle_gear_accessories', 'accessories', 2);
 
     // Party (0.4): how many skills a member fights with, and whether companions on auto spend
-    // the points a level gives them; the Party block's own sidebar tab (Story Block 0.9.1).
+    // the points a level gives them.
     const activeSkills = numberInput('rpg_battle_active_skills', current.activeSkills ?? 6, { min: 3, max: 12 });
     activeSkills.addEventListener('change', () => {
         const value = wholeOrNull(activeSkills.value, 3, 12) ?? 6;
@@ -259,9 +259,6 @@ export function renderSettings(container, { settings, version = '', status = '',
     const autoSpend = el('input', { attrs: { id: 'rpg_battle_auto_spend', type: 'checkbox' } });
     autoSpend.checked = current.autoSpend !== false;
     autoSpend.addEventListener('change', () => commit(next => { next.autoSpend = autoSpend.checked; }));
-    const partyTab = el('input', { attrs: { id: 'rpg_battle_party_tab', type: 'checkbox' } });
-    partyTab.checked = current.partyTab === true;
-    partyTab.addEventListener('change', () => commit(next => { next.partyTab = partyTab.checked; }));
 
     const recover = el('input', { attrs: { id: 'rpg_battle_recover', type: 'checkbox' } });
     recover.checked = current.recoverWithTime !== false;
@@ -379,9 +376,9 @@ export function renderSettings(container, { settings, version = '', status = '',
                     tierRows,
                     row('Level cap', 'The highest level. Empty: 99.', cap, 'rpg_battle_terms_cap'),
                 ]),
-                fold('monsters', 'Monsters', [
-                    el('small', { className: 'rpg-battle-settings-hint', text: 'A foe the bestiary does not know is made up from its name when its fight starts, and kept for this story. Flavour asks the model once per new creature for its look, traits and the names of its skills and loot; code still sets every number.' }),
-                    el('label', { className: 'checkbox_label', attrs: { for: 'rpg_battle_flavour' } }, [flavourOn, el('span', { text: 'Flavour new creatures with a model call (a few seconds before the fight)' })]),
+                fold('monsters', 'Generated words', [
+                    el('small', { className: 'rpg-battle-settings-hint', text: 'A foe the bestiary does not know is made up from its name when its fight starts, and kept for this story; a companion who joins starts with skills that fit who they are. One short model call each gives the words (a creature\'s look, traits, skill and loot names; a companion\'s skills); code still sets every number. Off, or when a call fails: templates and library skills.' }),
+                    el('label', { className: 'checkbox_label', attrs: { for: 'rpg_battle_flavour' } }, [flavourOn, el('span', { text: 'Generate words with a model call (new creatures before their fight, a new companion\'s skills)' })]),
                     row('Model', profiles === null ? 'Connection Manager is off, so the chat\'s own connection is used.' : 'A connection profile has its own API and model; a small, fast one is enough.', flavourModel, 'rpg_battle_flavour_model'),
                     row('Answer length', 'Most tokens one answer may use.', flavourTokens, 'rpg_battle_flavour_tokens'),
                 ]),
@@ -395,7 +392,6 @@ export function renderSettings(container, { settings, version = '', status = '',
                 ]),
                 fold('blocks', 'Blocks', [
                     tag('rpg_battle_party_tag', 'partyTag', 'Party tag', 'The kept block with your character and companions.'),
-                    el('label', { className: 'checkbox_label', attrs: { for: 'rpg_battle_party_tab' } }, [partyTab, el('span', { text: 'Show the Party block as its own tab (Story Block 0.9.1 or newer; the Battle tab shows it either way)' })]),
                     tag('rpg_battle_inventory_tag', 'inventoryTag', 'Inventory tag', 'Your Story Block inventory (equipment, consumables, loot).'),
                     row('Return to story', 'Sent for you after a fight so the narration comes straight away. Empty: send nothing.', returnMessage, 'rpg_battle_return'),
                 ]),
