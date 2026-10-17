@@ -280,18 +280,25 @@ function numbersFor(stats, level, rules, { hpBonus = 0, mpBonus = 0 } = {}) {
 
 let createDraft = null;
 
+const PERSONA_HINT = 'From your persona; change it if your character goes by another name.';
+
 function renderCreate(root, view, handlers) {
     const rules = view.rules ?? DEFAULT_RULES;
     const { startStat, startPoints, starterSkills } = rules.character;
     const library = list(view.library).filter(skill => skill && str(skill.name) && num(skill.tier, 1) === 1);
-    if (!createDraft) createDraft = { name: '', stats: Object.fromEntries(STATS.map(stat => [stat, startStat])), skills: [], preset: null };
+    // The name starts as the SillyTavern persona's and follows it (a persona switched meanwhile)
+    // until the reader types in the Name box; from then on it is theirs.
+    const persona = str(view.persona);
+    if (!createDraft) createDraft = { name: persona, nameFromPersona: true, stats: Object.fromEntries(STATS.map(stat => [stat, startStat])), skills: [], preset: null };
+    else if (createDraft.nameFromPersona) createDraft.name = persona;
     const draft = createDraft;
     const spent = () => STATS.reduce((sum, stat) => sum + draft.stats[stat] - startStat, 0);
     const remaining = () => startPoints - spent();
 
     const nameInput = el('input', { className: 'text_pole rpg-battle-name-input', attrs: { type: 'text', maxlength: '60', placeholder: 'Name', 'aria-label': 'Character name', autocomplete: 'off' } });
     nameInput.value = draft.name;
-    nameInput.addEventListener('input', () => { draft.name = nameInput.value; refresh(); });
+    const nameHint = el('small', { className: 'rpg-battle-hint rpg-battle-name-hint', text: PERSONA_HINT });
+    nameInput.addEventListener('input', () => { draft.name = nameInput.value; draft.nameFromPersona = false; refresh(); });
 
     const presetButtons = list(view.presets).filter(preset => preset && preset.id).map(preset => {
         const node = button(str(preset.name) || preset.id, 'rpg-battle-preset', {
@@ -385,13 +392,14 @@ function renderCreate(root, view, handlers) {
         if (draft.skills.length < starterSkills) missing.push(`${starterSkills - draft.skills.length} more ${starterSkills - draft.skills.length === 1 ? 'skill' : 'skills'}`);
         hint.textContent = missing.length ? `Still needed: ${missing.join(', ')}.` : 'Ready.';
         create.disabled = !valid();
+        nameHint.hidden = !(draft.nameFromPersona && str(draft.name));
     }
 
     root.append(
         section('is-create-intro', [
             sub('New character', 'fa-user-plus'),
             el('p', { className: 'rpg-battle-hint', text: `No classes: every stat starts at ${startStat}; spend ${startPoints} points and pick ${starterSkills} starter skills. A preset only fills these in.` }),
-            el('label', { className: 'rpg-battle-field' }, [el('span', { className: 'rpg-battle-field-label', text: 'Name' }), nameInput]),
+            el('label', { className: 'rpg-battle-field' }, [el('span', { className: 'rpg-battle-field-label', text: 'Name' }), nameInput, nameHint]),
         ]),
         presetButtons.length ? section('is-presets', [
             sub('Presets', 'fa-wand-magic-sparkles'),

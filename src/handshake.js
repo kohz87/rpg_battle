@@ -18,6 +18,8 @@ export const SUITE_NAME = 'RPG Battle';
 // owns it first in the suite's order, and RPG Battle reads gear from it and writes loot into it.
 export const SHARED_AREAS = Object.freeze(['stats', 'rolls', 'items']);
 export const TRUTH_CHOICES = Object.freeze(['auto', 'mine', 'theirs']);
+// The root of RPG Battle's panel under Extensions; Story Suite's overlay moves it into its tab.
+export const SETTINGS_ROOT = '#rpg_battle_settings';
 const STORY_BLOCK = 'story-block';
 
 /** The reader's saved choices, one per shared area; anything unknown is 'auto'. */
@@ -26,9 +28,44 @@ export function truthChoices(saved) {
     return Object.fromEntries(SHARED_AREAS.map(area => [area, TRUTH_CHOICES.includes(source[area]) ? source[area] : 'auto']));
 }
 
-/** What RPG Battle announces to the suite (its api is the caller's: index.js reads the sheets). */
-export function announcement({ version, api }) {
-    return { id: SUITE_ID, name: SUITE_NAME, version: String(version ?? ''), owns: [...SHARED_AREAS], api };
+/**
+ * What RPG Battle announces to the suite (its api is the caller's: index.js reads the sheets).
+ * Switched off it is still announced, with `enabled: false`, so Story Suite's overlay can show
+ * it and switch it back on through api.manage; the registry skips it for owner, has and api.
+ */
+export function announcement({ version, api, enabled = true }) {
+    return { id: SUITE_ID, name: SUITE_NAME, version: String(version ?? ''), owns: [...SHARED_AREAS], enabled: enabled !== false, settings: SETTINGS_ROOT, api };
+}
+
+/**
+ * api.manage, for Story Suite's overlay (docs/STORY_SUITE.md): the Source of truth choices and
+ * the on/off switch. The glue passes how to read and apply them (saving, the panel, the tab),
+ * so the overlay changes them exactly as the panel's own controls do. setSource ignores an
+ * area or a choice RPG Battle does not know and says whether it applied the change.
+ */
+export function manageApi({ choices, choose, enabled, enable }) {
+    return Object.freeze({
+        areas: [...SHARED_AREAS],
+        sources: () => ({ ...truthChoices(choices()) }),
+        setSource(area, choice) {
+            if (!SHARED_AREAS.includes(area) || !TRUTH_CHOICES.includes(choice)) return false;
+            choose(area, choice);
+            return true;
+        },
+        enabled: () => enabled() !== false,
+        setEnabled(on) { enable(Boolean(on)); },
+    });
+}
+
+/**
+ * Opens Story Suite's overlay on RPG Battle's tab, while it can be offered (two or more
+ * extensions announced, on or off, and Story Block on and sharing openSuite), else null: what
+ * the settings' "Manage all in Story Suite" link does, and whether it shows.
+ */
+export function suiteOverlay(suite) {
+    if (!suite || suite.providers().length < 2) return null;
+    const api = suite.api(STORY_BLOCK);
+    return typeof api?.openSuite === 'function' ? () => api.openSuite(SUITE_ID) : null;
 }
 
 const whole = value => (Number.isFinite(Number(value)) ? Number(value) : 0);

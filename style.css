@@ -1462,6 +1462,22 @@
     margin: 0;
 }
 
+.rpg-battle-settings .rpg-battle-settings-suite {
+    margin: 0.35rem 0;
+}
+
+.rpg-battle-settings .rpg-battle-settings-suite[hidden] {
+    display: none;
+}
+
+.rpg-battle-settings .rpg-battle-settings-suite-open {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    width: auto;
+    margin: 0;
+}
+
 /* ------------------------------------------------------------------------- */
 /* Edit companion                                                              */
 

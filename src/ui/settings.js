@@ -11,6 +11,8 @@
 // long that answer may be.
 // Source of truth (Story Suite, docs/STORY_SUITE.md): for each area RPG Battle shares with the
 // other extensions, Automatic, This extension or The other one, with who the story follows now.
+// With two or more of them installed, a "Manage all in Story Suite" link at the top opens Story
+// Block's overlay on RPG Battle's tab (the glue says when it shows and what it opens).
 
 const CURRENCY_MODES = [
     { value: 'tiers', label: 'Copper / silver / gold, or your own coins' },
@@ -128,7 +130,7 @@ export function foldHints(settings) {
     };
 }
 
-export function renderSettings(container, { settings, version = '', status = '', sheetConflict = false, sources = null, profiles = null, onDisableSheet, onChange } = {}) {
+export function renderSettings(container, { settings, version = '', status = '', sheetConflict = false, sources = null, profiles = null, suiteLink = false, onOpenSuite, onDisableSheet, onChange } = {}) {
     let current = structuredClone(settings ?? {});
     const hintNodes = {};
     const refreshHints = () => {
@@ -284,6 +286,7 @@ export function renderSettings(container, { settings, version = '', status = '',
     // Source of truth: one select per shared area, and who the story follows now (from the glue).
     const truth = { stats: 'auto', rolls: 'auto', items: 'auto', ...(current.sourceOfTruth ?? {}) };
     const nowLabels = {};
+    const truthSelects = {};
     const truthRows = TRUTH_AREAS.map(({ area, label, hint }) => {
         const id = `rpg_battle_truth_${area}`;
         const select = el('select', { className: 'text_pole rpg-battle-settings-input', attrs: { id } },
@@ -293,6 +296,7 @@ export function renderSettings(container, { settings, version = '', status = '',
                 return node;
             }));
         select.value = TRUTH_OPTIONS.some(option => option.value === truth[area]) ? truth[area] : 'auto';
+        truthSelects[area] = select;
         select.addEventListener('change', () => commit(next => { next.sourceOfTruth = { ...truth, ...(next.sourceOfTruth ?? {}), [area]: select.value }; }));
         nowLabels[area] = el('small', { className: 'rpg-battle-settings-hint rpg-battle-settings-source', text: sourceText(sources?.[area]) });
         const line = row(label, hint, select, id);
@@ -319,6 +323,15 @@ export function renderSettings(container, { settings, version = '', status = '',
     ]);
     conflict.hidden = !sheetConflict;
 
+    const openSuite = el('button', { className: 'menu_button rpg-battle-settings-suite-open', attrs: { type: 'button' } }, [
+        el('i', { className: 'fa-solid fa-gear' }),
+        el('span', { text: 'Manage all in Story Suite' }),
+    ]);
+    openSuite.addEventListener('click', () => onOpenSuite?.());
+    // data-story-suite-link: Story Block's overlay hides the line while the panel sits inside it.
+    const suite = el('div', { className: 'rpg-battle-settings-suite', attrs: { 'data-story-suite-link': '' } }, [openSuite]);
+    suite.hidden = !suiteLink;
+
     const root = el('div', { className: 'rpg-battle-settings' }, [
         el('div', { className: 'inline-drawer' }, [
             el('div', { className: 'inline-drawer-toggle inline-drawer-header' }, [
@@ -326,6 +339,7 @@ export function renderSettings(container, { settings, version = '', status = '',
                 el('div', { className: 'inline-drawer-icon fa-solid fa-circle-chevron-down down' }),
             ]),
             el('div', { className: 'inline-drawer-content' }, [
+                suite,
                 status ? el('div', { className: 'rpg-battle-settings-status', text: status }) : null,
                 conflict,
                 el('label', { className: 'checkbox_label', attrs: { for: 'rpg_battle_enabled' } }, [enabled, el('span', { text: 'Battles on (the Battle tab in Story Block)' })]),
@@ -382,5 +396,20 @@ export function renderSettings(container, { settings, version = '', status = '',
         setSheetConflict(on) { conflict.hidden = !on; },
         /** Who the story follows now per area ({ [area]: { mine, name } }, or null for nothing shown). */
         setSources,
+        /** Show a Source of truth choice made elsewhere (Story Suite's overlay); unknown ones are ignored. */
+        setTruth(area, value) {
+            const select = truthSelects[area];
+            if (!select || !TRUTH_OPTIONS.some(option => option.value === value)) return;
+            select.value = value;
+            current.sourceOfTruth = { ...truth, ...(current.sourceOfTruth ?? {}), [area]: value };
+            refreshHints();
+        },
+        /** Show the on/off switch as set elsewhere (Story Suite's overlay). */
+        setEnabled(on) {
+            enabled.checked = Boolean(on);
+            current.enabled = Boolean(on);
+        },
+        /** Show or hide the "Manage all in Story Suite" link (the glue checks it on every suite change). */
+        setSuiteLink(on) { suite.hidden = !on; },
     };
 }

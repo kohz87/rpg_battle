@@ -234,3 +234,56 @@ test('the sections fold, closed, each with a one-line summary that follows the s
     // The switches stay outside the folds.
     assert.equal(container.querySelector('.rpg-battle-settings-fold #rpg_battle_enabled'), null);
 });
+
+test('Story Suite: a "Manage all" link above the switches, shown and hidden by the glue', () => {
+    const container = doc.createElement('div');
+    doc.body.appendChild(container);
+    let opened = 0;
+    const panel = renderSettings(container, { settings: SETTINGS, onOpenSuite: () => { opened += 1; } });
+    const link = container.querySelector('.rpg-battle-settings-suite');
+    assert.equal(link.hidden, true, 'hidden unless the glue says the overlay is there');
+    assert.match(link.textContent, /Manage all in Story Suite/);
+    assert.equal(link.getAttribute('data-story-suite-link'), '', 'marked for Story Block\'s overlay to hide it inside');
+    assert.equal(container.querySelectorAll('[data-story-suite-link]').length, 1);
+    const content = container.querySelector('.inline-drawer-content');
+    assert.equal(content.children[0], link, 'first in the panel, above the switches');
+    panel.setSuiteLink(true);
+    assert.equal(link.hidden, false);
+    container.querySelector('.rpg-battle-settings-suite-open').click();
+    assert.equal(opened, 1);
+    panel.setSuiteLink(false);
+    assert.equal(link.hidden, true);
+    const shown = doc.createElement('div');
+    renderSettings(shown, { settings: SETTINGS, suiteLink: true });
+    assert.equal(shown.querySelector('.rpg-battle-settings-suite').hidden, false);
+    assert.doesNotThrow(() => shown.querySelector('.rpg-battle-settings-suite-open').click(), 'no handler: nothing happens');
+});
+
+test('Story Suite: choices and the switch changed in the overlay show in the panel', () => {
+    const container = doc.createElement('div');
+    doc.body.appendChild(container);
+    const changes = [];
+    const panel = renderSettings(container, { settings: SETTINGS, onChange: next => changes.push(next) });
+    const $ = selector => container.querySelector(selector);
+    const hint = () => $('.rpg-battle-settings-fold.is-truth .rpg-battle-settings-fold-hint').textContent;
+    panel.setTruth('stats', 'theirs');
+    assert.equal($('#rpg_battle_truth_stats').value, 'theirs');
+    assert.equal(hint(), '1 chosen by hand');
+    panel.setTruth('items', 'nonsense');
+    panel.setTruth('scene', 'mine');
+    assert.equal($('#rpg_battle_truth_items').value, 'auto', 'an unknown choice is ignored');
+    assert.equal(changes.length, 0, 'showing a change made elsewhere does not save it again');
+    // A later change in the panel keeps the overlay's choice.
+    const rolls = $('#rpg_battle_truth_rolls');
+    rolls.value = 'mine';
+    rolls.dispatch('change');
+    assert.deepEqual(changes.at(-1).sourceOfTruth, { stats: 'theirs', rolls: 'mine', items: 'auto' });
+    panel.setEnabled(false);
+    assert.equal($('#rpg_battle_enabled').checked, false);
+    const tag = $('#rpg_battle_party_tag');
+    tag.value = 'Allies';
+    tag.dispatch('change');
+    assert.equal(changes.at(-1).enabled, false, 'the switch as the overlay left it');
+    panel.setEnabled(true);
+    assert.equal($('#rpg_battle_enabled').checked, true);
+});

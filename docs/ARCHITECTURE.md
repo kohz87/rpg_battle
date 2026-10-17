@@ -448,8 +448,16 @@ registry (`announce`, `withdraw`, `providers`, `has`, `api`, `owner(area)`, `off
 
 ```js
 export const SUITE_ID = 'rpg-battle', SUITE_NAME = 'RPG Battle', SHARED_AREAS = ['stats', 'rolls', 'items']
+export const TRUTH_CHOICES = ['auto', 'mine', 'theirs'], SETTINGS_ROOT = '#rpg_battle_settings'
 export function truthChoices(saved) → { stats, rolls, items }        // 'auto' | 'mine' | 'theirs'; unknown → 'auto'
-export function announcement({ version, api }) → { id, name, version, owns: SHARED_AREAS, api }
+export function announcement({ version, api, enabled = true }) → { id, name, version, owns: SHARED_AREAS, enabled, settings: SETTINGS_ROOT, api }
+    // (0.3.3) switched off: enabled false, still announced, so Story Suite's overlay can switch it back on
+export function manageApi({ choices, choose, enabled, enable }) → frozen api.manage (0.3.3):
+    { areas: SHARED_AREAS (a copy), sources() → truthChoices(choices()) copy,
+      setSource(area, choice) → boolean (false, nothing called, for an unknown area or choice; else choose(area, choice)),
+      enabled() → enabled() !== false, setEnabled(on) → enable(Boolean(on)) }
+export function suiteOverlay(suite) → (() => openSuite('rpg-battle')) | null
+    // (0.3.3) providers().length >= 2 and suite.api('story-block').openSuite is a function: the "Manage all" link
 export function partyMembers(pc: Sheet | null, members: Member[], rules) → frozen
     [{ id: 'pc' | member id, name, role: null (the Character) | string, level, levelLabel (levelText), hp: { cur, max }, mp: { cur, max }, state (stateWords text) }]
 export function sheetNotice({ suite, choice, storySheetOn }) → boolean
@@ -486,7 +494,7 @@ export function renderBattleTab(pane, view, handlers)
 
 | mode | data | handlers used |
 |---|---|---|
-| `create` | `{ presets, library (tier 1), rules }` | `onCreate({ name, stats, skills })` |
+| `create` | `{ presets, library (tier 1), persona, rules }`; (0.3.3) `persona` is `ctx.name1` trimmed (`''` without one): the Name box starts with it and follows it until the reader types there, with a hint (`.rpg-battle-name-hint`) while it does | `onCreate({ name, stats, skills })` |
 | `idle` | `{ sheet, checks, skills: resolved, party: [Member], rules, pending: handoff text or null, recovered: text, story: { lines: [text], canUndo } \| null, encounter: { text, label, rows } \| null, sheetConflict: boolean, bestiary: [{ name, power, role, template, traits, look, flavoured }] }` (the State words under the HP/MP bars, `.rpg-battle-state`; the Bestiary fold `.is-bestiary`) | `onSpend()` (opens spend), `onLearn()`, `onSetup()`, `onReturn()`, `onRest(kind)`, `onItems()`, `onCompanion()`, `onSetControl(id, control)`, `onEditCompanion(id, { name, role, control })` (the row's **Edit** form), `onRemoveCompanion(id)`, `onUndoStory()`, `onFightEncounter(rows)`, `onDismissEncounter()`, `onDisableStorySheet()`, `onRegenerateCreature(name)`, `onForgetCreature(name)` (asks twice), `onExportBestiary()`, `onImportBestiary(text)` |
 | `spend` | `{ sheet, rules }` | `onConfirmSpend(allocation)`, `onBack()` |
 | `learn` | `{ sheet, library, rules }` | `onConfirmLearn({ name, fromLibrary? , template? })`, `onBack()` |
@@ -537,8 +545,13 @@ Rows for `enemiesFromRows` may carry `level` (passed to `projectEnemy`).
 
 ## `src/ui/settings.js`
 
-`renderSettings(container, { settings, version, status, sheetConflict, sources, profiles, onDisableSheet, onChange })
-→ { update(settings), setSheetConflict(on), setSources(sources) }`: (0.3.2) the sections fold
+`renderSettings(container, { settings, version, status, sheetConflict, sources, profiles, suiteLink, onOpenSuite, onDisableSheet, onChange })
+→ { update(settings), setSheetConflict(on), setSources(sources), setTruth(area, choice), setEnabled(on), setSuiteLink(on) }`:
+(0.3.3) **Manage all in Story Suite** (`.rpg-battle-settings-suite[data-story-suite-link]`, which Story Block's overlay hides while the panel is inside it; first in the panel, above the
+switches; shown while `suiteLink` / `setSuiteLink(true)`, its button calls `onOpenSuite`);
+`setTruth` and `setEnabled` show a choice or the switch changed in Story Suite's overlay (the
+select or checkbox and the fold summary; nothing is sent to `onChange`; an unknown area or choice is
+ignored). (0.3.2) the sections fold
 (`details.rpg-battle-settings-fold[data-fold=money|equipment|terms|monsters|truth|blocks]`, all closed,
 open ones remembered in `localStorage['rpg_battle_settings_folds']`), each summary from `foldHints(settings)`.
 (0.3) **Source of truth**: a
@@ -620,8 +633,15 @@ As built (0.3):
   `extensionSettings.storyBlock.blocks` (`listBlocks()` has `enabled` but no template; it is the
   fallback, by id, before Story Block has stored its list). `onDisableStorySheet` sets their
   `enabled` to false, saves settings and refreshes Story Block.
-- **Story Suite:** `init` announces (`announcement`, `api: { version, members }`) before the UI and
-  subscribes once to `onChange`; the settings' on/off switch announces again or withdraws.
+- **Story Suite:** `init` announces (`announcement`, `api: { version, members, manage }`) before the
+  UI and subscribes once to `onChange`; the settings' on/off switch announces again (0.3.3: with
+  `enabled: false` when off, rather than withdrawing). `applySettings(next)` is the panel's
+  `onChange` and what `api.manage` calls: save, announce when the switch changed, re-register the
+  kept blocks when the terms did, the notice, the "Now:" lines, Story Block's refresh.
+  `manage.setSource` and `setEnabled` then show the change in the panel (`update`, `setTruth` /
+  `setEnabled`). The "Manage all in Story Suite" link follows `suiteOverlay(storySuite())` at
+  mount and on every suite change (the watcher's key is `suiteSignature` plus whether the overlay
+  is offered); it opens the overlay on `'rpg-battle'`.
   `members()` is `partyMembers` of the kept Character and Party blocks (`getBlock(tag)`), memoised
   on their text and the terms and rules, `[]` when off or on any error. `sheetConflict()` is
   `sheetNotice` with `settings.sourceOfTruth.stats`; the settings-based check above is its
