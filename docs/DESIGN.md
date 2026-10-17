@@ -255,15 +255,18 @@ A skill is a library entry; the Character and Party blocks list only names.
 
 | Rank | Level | HP | Attack | Defence | XP |
 |---|---|---|---|---|---|
-| F | 1 | 30 | 8 | 3 | 15 |
-| E | 3 | 55 | 12 | 5 | 35 |
-| D | 6 | 95 | 18 | 8 | 70 |
-| C | 10 | 160 | 26 | 12 | 140 |
-| B | 15 | 260 | 36 | 17 | 280 |
-| A | 22 | 420 | 50 | 24 | 560 |
-| S | 32 | 700 | 68 | 33 | 1100 |
-| SS | 45 | 1150 | 92 | 45 | 2200 |
-| SSS | 60 | 1900 | 125 | 60 | 4500 |
+| F | 1 | 20 | 14.5 | 4 | 15 |
+| E | 3 | 34 | 19 | 5 | 35 |
+| D | 6 | 41 | 22 | 7 | 70 |
+| C | 10 | 52 | 29.5 | 10 | 140 |
+| B | 15 | 70 | 38 | 13 | 280 |
+| A | 22 | 94 | 50 | 17 | 560 |
+| S | 32 | 128 | 68 | 23 | 1100 |
+| SS | 45 | 172 | 90 | 31 | 2200 |
+| SSS | 60 | 224 | 116 | 40 | 4500 |
+
+(Tuned in 0.1 by the balance simulation: 300 seeded solo fights per level against three enemies
+of the fair rank give a median of 5 rounds and 40–49 % HP lost at levels 1, 5 and 10.)
 
 Roles weight those numbers: **brute** (HP × 1.3, attack × 1.2, AGI low), **skirmisher** (AGI and
 DEX high, HP × 0.8), **caster** (magic attack, MP, HP × 0.7), **tank** (defence × 1.6, attack ×
@@ -344,6 +347,12 @@ the story as it does now.
 - The model writes Story Director change lines for what the fight leaves behind (a goblin that
   fled becomes an agenda, the fetish becomes a hook), as it does for any reply.
 - The fight's duration is in the hand-off, so the scene clock moves on correctly.
+
+### 8.5 Resting
+
+HP and MP do not come back on their own between fights: the story decides when the party rests,
+and **Rest** in the Battle tab sets everyone back to full HP and MP (fight conditions wear off).
+A character at 0 HP cannot start a fight until they rest or are healed.
 
 ## 9. The Battle tab
 

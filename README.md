@@ -1,16 +1,128 @@
-# RPG Battle
+# RPG Battle v0.1.0
 
-Turn-based fights for SillyTavern, resolved in code: press **Start fight**, choose the enemies,
-fight with buttons (Attack, Skill, Item, Defend, Parley, Flee), and the story gets one short
-summary to narrate. No model calls during the fight, no arithmetic for the model, and a lost
-fight cannot be rerolled by swiping.
+Turn-based fights for SillyTavern, resolved in code. Press **Start fight**, choose the enemies,
+fight with buttons (**Attack, Skill, Item, Defend, Parley, Flee, Auto**), and the story gets one
+short summary to narrate. No model calls during the fight, no arithmetic for the model, and a
+lost fight cannot be rerolled by swiping.
 
-Works with [Story Block](https://github.com/kohz87/Story_block) (your Character, Party and
-Inventory blocks) and [Story Director](https://github.com/kohz87/Story_director).
+Needs [Story Block](https://github.com/kohz87/Story_block) **0.7** or newer. Works alongside
+[Story Director](https://github.com/kohz87/Story_director).
 
-**Status: design.** Nothing is built yet; see [docs/DESIGN.md](docs/DESIGN.md).
+## Install
+
+1. Install Story Block 0.7+ and enable it.
+2. **Extensions → Install extension**, paste `https://github.com/kohz87/rpg_battle`, reload.
+3. Story Block's sidebar gets a **Battle** tab. Settings are under **Extensions → RPG Battle**.
+
+## Your character
+
+The first time you open the Battle tab, you make your character: a name, **10 points** to spread
+over seven stats that all start at 5, and **three starter skills**. There are no classes; the
+presets (fighter, skirmisher, caster, healer, archer) only fill in the points and suggest skills.
+
+| Stat | Does |
+|---|---|
+| **STR** | Physical attack |
+| **VIT** | Max HP and defence |
+| **AGI** | Turn order, dodging, fleeing |
+| **DEX** | Accuracy and critical hits |
+| **INT** | Max MP, magic attack and resistance |
+| **LUK** | Critical hits and loot |
+| **CHA** | Parley in a fight; the social stat outside one |
+
+Your sheet is the **Character** block, kept by RPG Battle: the model reads it every reply (so it
+knows you are hurt, how strong you are and what you can do) and never writes it.
+
+```
+Name: Ren
+Level: 1 | XP: 72/100 | Points: 0
+HP: 61/98 | MP: 15/32
+STR: 9 | VIT: 8 | AGI: 6 | DEX: 7 | INT: 5 | LUK: 5 | CHA: 5
+Checks: STR +2 | VIT +1 | AGI +0 | DEX +1 | INT +0 | LUK +0 | CHA +0
+Skills: Power Strike | Sweep | Second Wind
+Conditions: none
+```
+
+- **Levels:** XP from fights; each level gives **4 points** you spend yourself (**Spend** in the
+  Battle tab).
+- **Skills:** learned from the story, added by hand (**Learn skill**): one from the library (some
+  need a stat, like INT 8 for Fireball) or a new one built from a template for your level. Using
+  a skill in fights raises its mastery (Lv 1 to 5).
+- **Rest:** HP and MP come back when the story has you rest: press **Rest**.
+- **Checks outside fights:** the **Checks** line is your bonus per stat. With Story Block's Dice
+  block on, the dice use it as the modifier (a CHA check is d20 + your CHA bonus).
+
+## Equipment and loot: your Inventory block
+
+RPG Battle reads equipment from Story Block's **Inventory** block. Mark what you wear as
+`equipped` and give it a rarity and stats:
+
+```
+[Equipment > Weapons]
+Iron Longsword | 1 | equipped · uncommon · ATK +6, DEX -1
+[Equipment > Armour]
+Studded Jerkin | 1 | equipped · common · DEF +4
+[Consumables]
+Healing Draught | 2 | heal 30
+```
+
+- **Stats are limited by rarity and your level** (common < uncommon < rare < epic < legendary),
+  so an item the model makes up cannot carry "ATK +50": in a fight it is scaled down to what its
+  rarity allows, and the Battle tab shows it as capped. An item without stats gets them from its
+  rarity and kind.
+- **Consumables** with an effect (`heal 30`, `mp 20`, `cure poison`, `fire 25, all enemies`) can
+  be used in a fight; what you use comes off the inventory afterwards.
+- **Loot** from a won fight is written into the inventory, money into your money row.
+
+## A fight
+
+1. **Start fight**: name the enemies (the bestiary autocompletes; any name works), how many, and
+   optionally a rank (F to SSS), a role (brute, skirmisher, caster, tank, support) and **Boss**.
+   Leave the rank on *auto* for the bestiary's rank or a fair one for your level. Choose the
+   stakes: *Normal* (defeat means the story decides: captured, robbed, left for dead) or *To the
+   death* (defeat is death: game over).
+2. **Fight**: on your turn pick an action and tap a target. Enemies (and companions on *auto*)
+   act on their own, by simple predictable rules. **Auto** plays the rest of the fight for you.
+3. **The result**: outcome, HP and MP left, XP, loot and the key moments are applied to your
+   sheet and inventory, and a short summary waits for the next reply:
+
+```
+[Battle resolved by RPG Battle: narrate this outcome, do not change it]
+Victory in 5 rounds (about 30 seconds).
+Ren: HP 61/98, MP 15/32.
+Key moments: Ren finishes the Goblin A; Critical! Ren's Power Strike hits the Goblin Shaman for 34.
+Loot: 1 silver, 3 copper, a goblin ear, a shaman's charm. XP +72.
+```
+
+**Return to story** sends a short message for you so the narration comes straight away. The
+summary is given to that one reply only; its swipes narrate the same result.
+
+## Money
+
+Your lorebook names the money, so the currency is a setting: **copper / silver / gold** (rates
+editable), **one coin** named as you like, or **your own** names and rates (for example
+`bits=1, marks=12, crowns=20`). Loot is added to the inventory row named in the setting
+(`Coins` by default).
+
+## Companions
+
+A **Party** block (kept by RPG Battle, like the Character block) holds companions, each with the
+same stats and skills and `control: auto` (acts on its own) or `control: command` (you choose
+its actions). They level with you.
+
+## Development
+
+Plain ES modules, no dependencies, Node.js 24:
+
+```sh
+npm run check   # syntax check
+npm test        # node:test suites, including a balance simulation
+```
+
+The design is in [docs/DESIGN.md](docs/DESIGN.md), the module contract in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## License
 
 To be decided (Story Block and Story Director are GPL-3.0). Mirage RPG Suite, whose rank tables
-and hand-off idea it borrows, is MIT, which fits either; its notice is kept for anything copied.
+and hand-off idea it borrows, is MIT, which fits either.
