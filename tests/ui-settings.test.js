@@ -213,29 +213,29 @@ test('the sections fold, closed, each with a one-line summary that follows the s
     const container = doc.createElement('div');
     doc.body.appendChild(container);
     renderSettings(container, { settings: { ...SETTINGS, gear: { worn: 1, accessories: 2 }, terms: { levelName: 'Soul Class', xpName: 'Soul Growth', tiers: { size: 10, numerals: 'roman' }, cap: null } }, onChange: () => {} });
-    const folds = container.querySelectorAll('.rpg-battle-settings-fold');
+    const folds = container.querySelectorAll('.story-suite-fold');
     assert.deepEqual(folds.map(node => node.dataset.fold), ['money', 'equipment', 'terms', 'monsters', 'party', 'truth', 'blocks']);
     assert.ok(folds.every(node => node.open === false), 'all start closed');
-    const hint = key => container.querySelector(`.rpg-battle-settings-fold.is-${key} .rpg-battle-settings-fold-hint`).textContent;
+    const hint = key => container.querySelector(`.story-suite-fold[data-fold="${key}"] > summary small`).textContent;
     assert.equal(hint('money'), 'copper / silver / gold');
     assert.equal(hint('equipment'), '1 worn · 2 accessories');
     assert.equal(hint('terms'), 'Soul Class · Soul Growth · tiers');
     assert.equal(hint('monsters'), 'Model calls on');
-    assert.match(container.querySelector('.rpg-battle-settings-fold.is-monsters .rpg-battle-settings-fold-title').textContent, /Generated words/);
+    assert.match(container.querySelector('.story-suite-fold[data-fold="monsters"] > summary b').textContent, /Generated words/);
     assert.equal(hint('truth'), 'Automatic');
     assert.equal(hint('blocks'), 'Party · Inventory');
     assert.equal(hint('party'), '6 active skills · auto-spend');
     // The controls live inside their fold, and a change updates its summary.
-    const accessories = container.querySelector('.rpg-battle-settings-fold.is-equipment #rpg_battle_gear_accessories');
+    const accessories = container.querySelector('.story-suite-fold[data-fold="equipment"] #rpg_battle_gear_accessories');
     accessories.value = '1';
     accessories.dispatch('change');
     assert.equal(hint('equipment'), '1 worn · 1 accessory');
-    const truth = container.querySelector('.rpg-battle-settings-fold.is-truth #rpg_battle_truth_stats');
+    const truth = container.querySelector('.story-suite-fold[data-fold="truth"] #rpg_battle_truth_stats');
     truth.value = 'mine';
     truth.dispatch('change');
     assert.equal(hint('truth'), '1 chosen by hand');
     // The switches stay outside the folds.
-    assert.equal(container.querySelector('.rpg-battle-settings-fold #rpg_battle_enabled'), null);
+    assert.equal(container.querySelector('.story-suite-fold #rpg_battle_enabled'), null);
 });
 
 test('Story Suite: a "Manage all" link above the switches, shown and hidden by the glue', () => {
@@ -243,7 +243,7 @@ test('Story Suite: a "Manage all" link above the switches, shown and hidden by t
     doc.body.appendChild(container);
     let opened = 0;
     const panel = renderSettings(container, { settings: SETTINGS, onOpenSuite: () => { opened += 1; } });
-    const link = container.querySelector('.rpg-battle-settings-suite');
+    const link = container.querySelector('.story-suite-manage');
     assert.equal(link.hidden, true, 'hidden unless the glue says the overlay is there');
     assert.match(link.textContent, /Manage all in Story Suite/);
     assert.equal(link.getAttribute('data-story-suite-link'), '', 'marked for Story Block\'s overlay to hide it inside');
@@ -252,14 +252,14 @@ test('Story Suite: a "Manage all" link above the switches, shown and hidden by t
     assert.equal(content.children[0], link, 'first in the panel, above the switches');
     panel.setSuiteLink(true);
     assert.equal(link.hidden, false);
-    container.querySelector('.rpg-battle-settings-suite-open').click();
+    container.querySelector('.story-suite-manage .menu_button').click();
     assert.equal(opened, 1);
     panel.setSuiteLink(false);
     assert.equal(link.hidden, true);
     const shown = doc.createElement('div');
     renderSettings(shown, { settings: SETTINGS, suiteLink: true });
-    assert.equal(shown.querySelector('.rpg-battle-settings-suite').hidden, false);
-    assert.doesNotThrow(() => shown.querySelector('.rpg-battle-settings-suite-open').click(), 'no handler: nothing happens');
+    assert.equal(shown.querySelector('.story-suite-manage').hidden, false);
+    assert.doesNotThrow(() => shown.querySelector('.story-suite-manage .menu_button').click(), 'no handler: nothing happens');
 });
 
 test('Story Suite: choices and the switch changed in the overlay show in the panel', () => {
@@ -268,7 +268,7 @@ test('Story Suite: choices and the switch changed in the overlay show in the pan
     const changes = [];
     const panel = renderSettings(container, { settings: SETTINGS, onChange: next => changes.push(next) });
     const $ = selector => container.querySelector(selector);
-    const hint = () => $('.rpg-battle-settings-fold.is-truth .rpg-battle-settings-fold-hint').textContent;
+    const hint = () => $('.story-suite-fold[data-fold="truth"] > summary small').textContent;
     panel.setTruth('stats', 'theirs');
     assert.equal($('#rpg_battle_truth_stats').value, 'theirs');
     assert.equal(hint(), '1 chosen by hand');
@@ -293,7 +293,7 @@ test('Story Suite: choices and the switch changed in the overlay show in the pan
 
 test('Party: active skills 3 to 12, companions\' points spent automatically', () => {
     const { $, changes } = mount();
-    const active = $('.rpg-battle-settings-fold.is-party #rpg_battle_active_skills');
+    const active = $('.story-suite-fold[data-fold="party"] #rpg_battle_active_skills');
     assert.equal(active.value, '6');
     active.value = '20';
     active.dispatch('change');
@@ -302,11 +302,37 @@ test('Party: active skills 3 to 12, companions\' points spent automatically', ()
     active.value = 'x';
     active.dispatch('change');
     assert.equal(changes.at(-1).activeSkills, 6);
-    const auto = $('.rpg-battle-settings-fold.is-party #rpg_battle_auto_spend');
+    const auto = $('.story-suite-fold[data-fold="party"] #rpg_battle_auto_spend');
     assert.equal(auto.checked, true, 'on by default');
     auto.checked = false;
     auto.dispatch('change');
     assert.equal(changes.at(-1).autoSpend, false);
-    assert.equal($('.rpg-battle-settings-fold.is-party .rpg-battle-settings-fold-hint').textContent, '6 active skills · points by hand');
+    assert.equal($('.story-suite-fold[data-fold="party"] > summary small').textContent, '6 active skills · points by hand');
     assert.equal($('#rpg_battle_party_tab'), null, 'RPG Battle\'s Party tab shows the party: the block has none of its own');
+});
+
+test('the panel wears the Story Suite look: quickbar switches, folds of rows, the notice, the Manage line', () => {
+    const container = doc.createElement('div');
+    doc.body.appendChild(container);
+    renderSettings(container, { settings: SETTINGS, sheetConflict: true, suiteLink: true, onChange: () => {} });
+    const panel = container.querySelector('.inline-drawer-content.story-suite-panel');
+    assert.ok(panel);
+    assert.equal(panel.firstElementChild, container.querySelector('.story-suite-manage[data-story-suite-link]'), 'the Manage line first');
+    assert.ok(container.querySelector('.story-suite-manage .menu_button .fa-layer-group'));
+    assert.ok(container.querySelector('.story-suite-notice .rpg-battle-settings-sheet-off'), 'the Character Sheet notice with its button');
+    const switches = container.querySelectorAll('.story-suite-quickbar > label.story-suite-row');
+    assert.deepEqual(switches.map(row => [row.getAttribute('for'), row.querySelector('b').textContent, row.lastElementChild?.id ?? row.children.at(-1).id]), [
+        ['rpg_battle_enabled', 'Battles on', 'rpg_battle_enabled'],
+        ['rpg_battle_recover', 'Recover over time', 'rpg_battle_recover'],
+    ]);
+    assert.equal(container.querySelectorAll('.story-suite-folds > details.story-suite-fold').length, 7);
+    for (const fold of container.querySelectorAll('details.story-suite-fold')) {
+        assert.ok(fold.querySelector(':scope > summary > b') && fold.querySelector(':scope > summary > small'), fold.dataset.fold);
+        assert.ok(fold.querySelector(':scope > .story-suite-fold-body'), fold.dataset.fold);
+    }
+    const currency = container.querySelector('label.story-suite-row[for="rpg_battle_currency_mode"]');
+    assert.equal(currency.querySelector('span > b').textContent, 'Currency');
+    assert.equal(currency.querySelector('span > small').textContent, 'Loot is written in it.');
+    assert.ok(container.querySelector('label.story-suite-row[for="rpg_battle_gear_worn"] .story-suite-number #rpg_battle_gear_worn'), 'a number with its unit');
+    assert.equal(container.querySelector('.rpg-battle-settings-fold'), null, 'no panel classes of its own for what the suite styles');
 });

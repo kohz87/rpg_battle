@@ -1,8 +1,11 @@
-// The "Battle" tab in Story Block's sidebar.
+// RPG Battle's two tabs in Story Block's sidebar: Party (always there) and Battle (only while
+// there is a battle).
 //
 // One entry point, `renderBattleTab(pane, view, handlers)`, draws whichever mode the glue
-// asks for (create, idle, spend, learn, setup, fight, result; see docs/ARCHITECTURE.md) and
-// reports what the reader chose through `handlers`. It owns no game state: every number
+// asks for: the Party tab's create, idle (the party cards and what the story offers them),
+// spend, learn, companion and items; the Battle tab's offer, setup, fight and result (see
+// docs/ARCHITECTURE.md), and reports what the reader chose through `handlers`. It owns no
+// game state: every number
 // arrives in `view`, and every decision leaves through a handler. What it does keep is the
 // reader's half-finished input (a character being made, points being placed, the enemy
 // rows of a setup, the action picked but not yet aimed), in module-level drafts, because

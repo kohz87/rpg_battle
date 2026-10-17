@@ -1,9 +1,14 @@
-# RPG Battle v0.3.3
+# RPG Battle v0.4.0
 
-Turn-based fights for SillyTavern, resolved in code. Press **Start fight**, choose the enemies,
-fight with buttons (**Attack, Skill, Item, Defend, Parley, Flee, Auto**), and the story gets one
-short summary to narrate. No model calls during the fight, no arithmetic for the model, and a
-lost fight cannot be rerolled by swiping.
+Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
+When the story starts a fight, RPG Battle offers it: **Fight?** opens the setup, you fight with
+buttons (**Attack, Skill, Item, Defend, Parley, Flee, Auto**), and the story gets one short
+summary to narrate. No model calls during the fight, no arithmetic for the model, and a lost
+fight cannot be rerolled by swiping.
+
+The story drives, you decide: fights, rests, new skills, companions joining or leaving and XP
+for what the party achieves all come from the story as **offers** you accept or put away. There
+is no free fight, rest or skill on demand; code sets every number.
 
 Needs [Story Block](https://github.com/kohz87/Story_block) **0.7** or newer. With
 [Story Director](https://github.com/kohz87/Story_director) **0.7.2** or newer, HP and MP also come
@@ -14,15 +19,16 @@ them.
 
 1. Install Story Block 0.7+ and enable it.
 2. **Extensions → Install extension**, paste `https://github.com/kohz87/rpg_battle`, reload.
-3. Story Block's sidebar gets a **Battle** tab. Settings are under **Extensions → RPG Battle**.
+3. Story Block's sidebar gets a **Party** tab (always, while RPG Battle is on) and a **Battle** tab
+   (only while there is a battle). Settings are under **Extensions → RPG Battle**.
 
 ## Your character
 
-The first time you open the Battle tab, you make your character: a name, **10 points** to spread
-over seven stats that all start at 5, and **three starter skills**. There are no classes; the
-presets (fighter, skirmisher, caster, healer, archer) only fill in the points and suggest skills.
-The name starts as your SillyTavern persona's (and follows it if you switch persona before
-typing); type another if your character goes by a different name.
+The first time you open the **Party** tab, you make your character: a name (your SillyTavern
+persona's to start with; it follows a persona switch until you type another) and **10 points**
+to spread over seven stats that all start at 5. That is all: there are no classes, and a new
+character has **no skills**. Skills come from the story (see *The story's offers* and *For card
+authors* below); without any, a character still attacks, defends, uses items, parleys and flees.
 
 | Stat | Does |
 |---|---|
@@ -34,37 +40,70 @@ typing); type another if your character goes by a different name.
 | **LUK** | Critical hits and loot |
 | **CHA** | Parley in a fight; the social stat outside one |
 
-Your sheet is the **Character** block, kept by RPG Battle: the model reads it every reply (so it
-knows you are hurt, how strong you are and what you can do) and never writes it.
+Your sheet is the first section of the **Party** block, kept by RPG Battle: the model reads it
+every reply (so it knows you are hurt, how strong you are and what you can do) and never writes
+it. Your companions follow in the same block.
 
 ```
-Name: Ren
+## Ren (you)
 Level: 1 | XP: 72/100 | Points: 0
 HP: 61/98 | MP: 15/32
 STR: 9 | VIT: 8 | AGI: 6 | DEX: 7 | INT: 5 | LUK: 5 | CHA: 5
 Checks: STR +2 | VIT +1 | AGI +0 | DEX +1 | INT +0 | LUK +0 | CHA +0
 State: hurt (aching, favouring a wound) · tired of magic
-Skills: Power Strike | Sweep | Second Wind
+Skills: Power Strike | Sweep | Shadow Step
 Conditions: none
+
+## Lyra — healer | control: auto
+Level: 3 | XP: 0/520 | Points: 0
+HP: 138/138 | MP: 80/80
+State: unhurt
+STR: 5 | VIT: 12 | AGI: 5 | DEX: 5 | INT: 16 | LUK: 5 | CHA: 5
+Skills: Frost Lance | Mend
 ```
 
-- **Levels:** XP from fights; each level gives **4 points** you spend yourself (**Spend** in the
-  Battle tab).
-- **Skills:** learned from the story, added by hand (**Learn skill**): one from the library (some
-  need a stat, like INT 8 for Fireball) or a new one built from a template for your level. Using
-  a skill in fights raises its mastery (Lv 1 to 5).
-- **Recovery:** see below.
+- **The Party tab** shows the party as cards: yours first and open, each companion folded to its
+  name, level, HP and MP and State. Open, a card has the stats (with checks for you), the
+  skills in use and set aside, the gear, and its controls. Which cards are open is kept while
+  you play.
+- **Levels:** XP from fights and from the story (*XP awards* below); each level gives **4 points**
+  you spend yourself (**Spend** on your card).
+- **Skills:** learned from the story (a `<Learned>` offer opens the learn form, prefilled; a
+  library skill keeps its stat requirements, like INT 9 for Fireball). Using a skill in fights
+  raises its mastery (Lv 1 to 5).
+- **Skills in use:** a member fights with at most **6** skills (*Settings → Party*, 3 to 12).
+  More are kept, **set aside** (a `Set aside:` line in the block), and swapped on the card with
+  **Set aside** and **Use**. Learning one past the cap asks which sits out. An older sheet over
+  the cap keeps its first six in use.
 - **State:** your HP, MP and conditions in words (*unhurt*, *bruised*, *hurt*, *badly hurt*,
   *barely standing*, *down*; *tired* or *drained of magic*; *poisoned*…), worked out by RPG
   Battle. The model is told to portray you exactly as it says, so a character at a fifth of
   their HP is written bleeding and slow, not fighting on unbothered. Companions get one too.
-- **Checks outside fights:** the **Checks** line is your bonus per stat. With Story Block's Dice
-  block on, the dice use it as the modifier (a CHA check is d20 + your CHA bonus).
+- **Checks outside fights:** the **Checks** line in your section is your bonus per stat. With
+  Story Block's Dice block on, the dice use it as the modifier (a CHA check is d20 + your CHA
+  bonus).
+- **Start over** (on your card, it asks twice): your sheet is cleared, and the companions too
+  unless *Keep companions* is ticked; creation opens. Nothing is carried over; there is no
+  respec.
+- **Death:** losing a fight *to the death* ends your character's story. The sheet reads `State:
+  dead`, the hand-off tells the model plainly, and the Party tab shows *Ren has died.* with
+  **Start over**. Delete or swipe the reply that wrote it and it is undone, like any sheet change.
+- **Party file:** *Party file → Export party* saves your character and companions (sheets, skills,
+  gear) as JSON; **Import party** (there, and on the creation screen) loads one into this chat
+  after you confirm. It is cleaned on the way in (names, bounds, max HP and MP worked out again,
+  story-taught skills built again); your equipped gear in the file goes into the Inventory, not
+  equipped, unless a row of that name is already there.
+- **Persona rename:** switch your SillyTavern persona to another name while your character still
+  has the old one, and the Party tab offers *Rename Ren to Kael?*, once.
+
+Older chats kept your sheet in a separate **Character** block. RPG Battle still reads it, and
+writes it into the Party block as your section the first time the chat is open; the old block is
+no longer kept, shown to the model or given a tab.
 
 ## Your world's terms
 
 Your lorebook may not say "Level" and "XP". Under **Extensions → RPG Battle → Terms** you name
-them, and the sheets, the Battle tab and the fight summaries use your words (the numbers stay
+them, and the sheets, the Party and Battle tabs and the fight summaries use your words (the numbers stay
 the same):
 
 - **Level name** (`Level` by default): *Rank*, *Circle*, *Soul Power*, *Soul Class*…
@@ -74,7 +113,7 @@ the same):
   through the tier, out of 100.
 - **Level cap** (99 by default): no level past it; XP stops there and shows **MAX**.
 
-With tier titles on, the Character block's level line reads
+With tier titles on, the level line of your section reads
 
 ```
 Soul Class: III (Lv 24) | Soul Growth: 28.10/100 | Points: 2
@@ -82,29 +121,36 @@ Soul Class: III (Lv 24) | Soul Growth: 28.10/100 | Points: 2
 
 and with names of your own but no tiers `Soul Power: 24 | Power Growth: 5400/11760 | Points: 2`.
 The exact level always stays in the block, so changing or turning off the terms never loses a
-sheet. With your own terms, **Start fight** picks an enemy's power as one of your tiers (or
+sheet. With your own terms, the fight setup picks an enemy's power as one of your tiers (or
 levels) instead of F to SSS, a story's `<Encounter>` may name one (`3 wolf (Soul Class I)`), and
 a won fight says `Soul Growth +12%` (or `Power Growth +38`).
 
 **Story Block's own Character Sheet block** (a template with an HP meter the model writes) does
 the same job by guesswork. With both on, the story reads two HP values that disagree, so the
-Battle tab and RPG Battle's settings say so, with a **Turn it off** button. It is never turned
+Party tab and RPG Battle's settings say so, with a **Turn it off** button. It is never turned
 off for you. If you keep both on purpose, choose **The other one** for *Stats* under **Source of
 truth** (below) and the notice goes away.
 
 ## Recovery
 
-HP and MP come back the way the story says:
+HP and MP come back the way the story says; there is no rest button, since a free heal on demand
+would be a cheat:
 
 - **As story time passes** (with Story Director): after each reply, the time it moved on from
   the reply before heals the party, **5 % of max HP and MP per hour**; **6 hours or more** is a
-  full rest (fight conditions like poison end). A note in the Battle tab says what happened
+  full rest (fight conditions like poison end). A note in the Party tab says what happened
   ("8 hours passed: Ren is fully rested."). It is written into that reply, so a swipe or an edit
   recomputes it instead of adding it twice. Switch: *Recover HP and MP as story time passes*.
-- **Short rest:** a quarter of max HP and MP back (an hour's breather).
-- **Long rest:** full HP and MP; fight conditions end. For what the clock cannot see, or without
-  Story Director.
-- **Use item:** a consumable used at camp (`heal 30`, `mp 20`, `cure poison`) on you or a
+- **A rest in the story:** when the party rests, the model adds `<Rest>short: an hour by the
+  fire</Rest>` or `<Rest>long: slept at the inn</Rest>`, offered as *Rest (long): slept at the inn.
+  Recover?* **Recover** gives your character and every companion a **short rest** (a quarter of
+  max HP and MP) or a **long rest** (full; fight conditions end). Not offered during a fight, while
+  a fight result waits to be narrated, or for the reply that narrates one.
+- **No double counting:** a rest and story time in the same reply are one stretch of time. A short
+  rest adds only what its quarter gives beyond what the clock already gave that reply (the result
+  is the larger of the two, not their sum; wounds taken in the reply stay taken); a long rest
+  fills everything, which makes the clock's part moot.
+- **Use item:** a consumable used outside a fight (`heal 30`, `mp 20`, `cure poison`) on you or a
   companion; it comes off the inventory. Damage items stay for fights.
 
 A character at 0 HP cannot start a fight until they recover.
@@ -112,9 +158,9 @@ A character at 0 HP cannot start a fight until they recover.
 ## Story wounds
 
 The story hurts people between fights too: a fall, a poisoned cup, a healer's poultice. While
-you have a Character block, the model is told (in about 100 tokens, with the encounter and
-threat words below) to add a hidden **Wounds** block when that happens to someone on your
-Character or Party sheet, one line each, in words, never numbers:
+you have a character, the model is told (in one instruction of about 160 tokens with every hidden
+block below) to add a hidden **Wounds** block when that happens to someone on the Party sheet, one
+line each, in words, never numbers:
 
 ```
 <Wounds>
@@ -137,17 +183,76 @@ Astra — cure poison: an antidote
   **cure** removes one. The shares are `wounds` in `rules.json`.
 - **One blow per person per reply:** the first harm or heal line for someone counts, the rest are
   ignored; conditions may come alongside.
-- **Names** are your Character's or a companion's, in any case, also by first name ("Ren" is
-  Ren Aldane). Anyone else (an NPC) is left to the story.
+- **Names** are yours or a companion's, in any case, also by first name ("Ren" is Ren Aldane).
+  Anyone else (an NPC) is left to the story.
 - **Applied after the reply, into that reply**, after story-time recovery, from the sheets before
   it: a swipe recomputes it and a continue does not add it twice. Not during a fight, and not in
   the reply that narrates one (the fight already dealt its wounds).
 - **Undo:** a toast says what happened ("Ren: wound (−29 HP), fell down the ravine.") with an
-  **Undo** button, and the Battle tab shows the same line with **Undo** while that reply's sheets
+  **Undo** button, and the Party tab shows the same line with **Undo** while that reply's sheets
   are still the ones it wrote (after a rest, an item or a fight, they have moved on). Undo keeps
   the recovery and the wounds stay undone for that reply.
 
 The Wounds block never shows in the story: Story Block hides it with its other blocks.
+
+## The story's offers
+
+Besides `<Wounds>` and `<Encounter>`, the model is asked for these hidden blocks, each only when
+the story makes it true (Story Block hides them with its other blocks):
+
+| Block | Offer | Accept |
+|---|---|---|
+| `<Joins>Lyra — healer, level 6</Joins>` | *Lyra joined. Add as companion?* | Opens **Add companion**, filled in (see *Companions*) |
+| `<Leaves>Lyra: returned to her village</Leaves>` | *Lyra left the party. Remove?* | Removes her |
+| `<Learned>Lyra — Frost Lance: ice magic, hits all</Learned>` | *Lyra learned Frost Lance. Add it?* | Opens the learn form, filled in |
+| `<XP>major: rescued the caravan</XP>` | *XP +25: rescued the caravan. Award?* | XP for the whole party |
+| `<Rest>long: slept at the inn</Rest>` | *Rest (long): slept at the inn. Recover?* | A rest (see *Recovery*) |
+| A quest Story Director 0.8.2 closes in the reply | *Quest done: The Lost Caravan (hard). Award XP +15?* | XP for the whole party |
+
+- **Offers, never applied on their own:** each shows as a toast with its button and at the top of
+  the Party tab with **Accept** and **Not now**. They belong to their reply: a swipe recomputes
+  them, and one put away stays away for that reply's text.
+- **Names** match by full or first name, as story wounds do; `You` (or your character's or
+  persona's name) is you. A name nobody in the party has is ignored, except in `<Joins>`.
+- **Learned:** the type, stat, target and effect (fire, ice, lightning, poison) are guessed from
+  the words and can be changed; code sets power, MP and cooldown for the learner's level. A
+  library skill's name is the library skill, with its stat requirements (the form says why one is
+  out of reach). At the cap of skills in use, it asks which to set aside.
+- **XP awards** are a share of the XP the member needs for their next level, each at their own
+  level, so they mean the same at level 2 and level 40: **minor** 10 %, **major** 25 %,
+  **milestone** 50 %; a quest **easy** 5 %, **normal** 10 %, **hard** 15 %, **nightmare** 25 % (by
+  Story Director's quest difficulty; none given is normal). Nothing at the level cap. They level
+  up exactly as fight XP does. `xpAwards` and `questXp` in `rules.json`.
+- **Not from the reply that narrates a fight** (XP and rests: the fight gave its own), and no rest
+  while a result waits to be narrated. Nothing at all during a fight.
+- **Also offered:** a companion who fell in a fight to the death (*Lyra fell. Remove from the
+  party?*, it asks twice), your persona's new name, and a companion's NPC renamed in NPC State
+  Delta.
+
+## For card authors: starting skills and companions
+
+A new character has no skills; the story's **opening message** (the character card's greeting,
+whichever greeting or swipe is shown) gives them, and can bring companions along. Its hidden
+blocks are read like a reply's and offered the same way. Lines for your character wait until it
+is made (or imported), then appear in the Party tab; a `<Joins>` can be accepted before or after.
+
+```
+The caravan master waves you over. "Lyra here patches up my drivers. Mind your blade."
+<Learned>
+You — Shadow Step: dash behind a foe | type: physical, stat: AGI, target: one, effect: stun
+You — Power Strike: a heavy blow
+</Learned>
+<Joins>Lyra — healer, level 3 | focus: INT, VIT | skills: Frost Lance, Mend</Joins>
+```
+
+- **Hints** after a bar make it exact: `type` (physical, magic, heal, buff, debuff), `stat`
+  (STR…CHA), `target` (one, all, self, ally, allies), `effect` (fire, ice, lightning, poison);
+  for `<Joins>`, `level`, `focus` (up to three stats, first weighs most) and `skills`. Unknown
+  words are ignored, and code still sets every number.
+- A skill from the opening message comes **without stat requirements** (the card says the
+  character starts with it); it still counts toward the skills in use.
+- Story Block hides the blocks when it normalizes a message (on receive, render, swipe and
+  edit); if a greeting shows them raw, Story Block's **Rescan** tidies it.
 
 ## Equipment and loot: your Inventory block
 
@@ -166,30 +271,40 @@ Healing Draught | 2 | heal 30
 - **What counts in a fight:** one weapon, one off-hand (none with a two-handed weapon), one
   armour, **one worn piece** (helm, gloves, boots, belt…) and **two accessories** (rings,
   amulets, charms…). Equip more and only the first of each, in inventory order, counts; the
-  Battle tab's **Gear** list shows what the fight uses and names the rest as *not counted* (and
+  **Gear** list on your card shows what the fight uses and names the rest as *not counted* (and
   why). **Settings → Equipment** changes how many worn pieces and accessories count (0 to 9).
   The slot comes from the item's kind, its category (`[Equipment > Boots]`) or `slot: worn` /
   `slot: accessory` in its note.
 - **Stats are limited by rarity and your level** (common < uncommon < rare < epic < legendary),
   so an item the model makes up cannot carry "ATK +50": in a fight it is scaled down to what its
-  rarity allows, and the Battle tab's Gear list shows it as capped ("STR +2 · capped from STR +20"). An item without stats gets them from its
+  rarity allows, and the Gear list on your card shows it as capped ("STR +2 · capped from STR +20"). An item without stats gets them from its
   rarity and kind.
 - **Consumables** with an effect (`heal 30`, `mp 20`, `cure poison`, `fire 25, all enemies`) can
   be used in a fight; what you use comes off the inventory afterwards.
 - **Loot** from a won fight is written into the inventory, money into your money row.
+- **Give item** (on a companion's card) moves one equipment row from your Inventory onto their
+  gear (the Equipped line of their section; the same slot limits and rarity caps, at their
+  level); **Take back** puts a piece back into your Inventory, not equipped.
 
 ## A fight
 
-1. **Start fight**: name the enemies (the bestiary autocompletes; any name works, and one it
-   does not know is made up, see *Monsters on the fly*), how many, and
-   optionally a rank (F to SSS), a role (brute, skirmisher, caster, tank, support) and **Boss**.
-   Leave the rank on *auto* for the bestiary's rank or a fair one for your level. Choose the
-   stakes: *Normal* (defeat means the story decides: captured, robbed, left for dead) or *To the
-   death* (defeat is death: game over).
-2. **Fight**: on your turn pick an action and tap a target. Enemies (and companions on *auto*)
+Fights start from the story only: a reply's `<Encounter>`, or a fight Story Director planned
+(see below). There is no Start fight button. The **Battle** tab exists only while there is a
+battle: the offer, the setup, the fight, and its result until it goes back to the story.
+
+1. **The offer:** *A fight is starting: 3 bandit, bandit captain (boss)*, **Fight?** or **Not now**
+   (also as a toast). **Fight?** opens the setup.
+2. **Setup**: the rows the story named (the bestiary autocompletes; any name works, and one it
+   does not know is made up, see *Monsters on the fly*), how many, and optionally a rank (F to
+   SSS), a role (brute, skirmisher, caster, tank, support) and **Boss**; change anything. Leave
+   the rank on *auto* for the bestiary's rank or a fair one for your level. Choose the stakes:
+   *Normal* (defeat means the story decides: captured, robbed, left for dead) or *To the death*
+   (defeat is death: game over).
+3. **Fight**: on your turn pick an action and tap a target. Enemies (and companions on *auto*)
    act on their own, by simple predictable rules. **Auto** plays the rest of the fight for you.
-3. **The result**: outcome, HP and MP left, XP, loot and the key moments are applied to your
-   sheet and inventory, and a short summary waits for the next reply:
+4. **The result**: outcome, HP and MP left, XP, loot and the key moments are applied to the
+   sheets and inventory (companions on auto spend new points by their build), and a short
+   summary waits for the next reply:
 
 ```
 [Battle resolved by RPG Battle: narrate this outcome, do not change it]
@@ -200,7 +315,8 @@ Loot: 1 silver, 3 copper, a goblin ear, a shaman's charm. XP +72.
 ```
 
 **Return to story** sends a short message for you so the narration comes straight away. The
-summary is given to that one reply only; its swipes narrate the same result.
+summary is given to that one reply only; its swipes narrate the same result. **Done** closes the
+Battle tab; while the summary waits, the Party tab shows it with **Return to story**.
 
 ## Fights from the story
 
@@ -211,8 +327,8 @@ foes and stops at the first blow, so the fight itself is yours to play:
 <Encounter>3 bandit, bandit captain (boss)</Encounter>
 ```
 
-A toast and the Battle tab offer it: *A fight is starting: 3 bandit, bandit captain (boss)*,
-**Fight?** or **Not now**. **Fight?** opens the setup with the rows filled in (three Bandits, one
+A toast and the Battle tab (which appears for it) offer it: *A fight is starting: 3 bandit,
+bandit captain (boss)*, **Fight?** or **Not now**. **Fight?** opens the setup with the rows filled in (three Bandits, one
 Bandit Captain as a boss, normal stakes); change anything before **Start**. **Not now** puts the
 offer away for that reply. Groups are separated by commas, `and` or new lines; each is a count
 (`3`, `3 x`, `two`, `a`), the name, and optionally `(boss)`, `rank D` and a role. A plural is made
@@ -238,8 +354,18 @@ A step is **4 levels**, or **one tier** when your terms have tier titles (`threa
 (`3 weak marsh wolves`; "Lesser Demon" and "High Priest" stay names). A power written outright
 (`rank D`, `level 12`, `Soul Class II`) wins over it; with neither, the fight is even.
 
+**Engagements back to back:** `then:` starts the next engagement, fought once the one before is
+done, with no rest between:
+
+```
+<Encounter>3 bandit; then: bandit captain (boss)</Encounter>
+```
+
+It is one battle: HP, MP and conditions carry over, and there is one result and one hand-off at
+the end. The setup tags the later rows (*then 2*); up to three engagements after the first.
+
 With Story Director 0.8, a fight it has planned (a beat with foes, now due or due soon) is
-offered the same way, with its name and place.
+offered the same way, with its name and place; its text may use `then:` too.
 
 ## Monsters on the fly
 
@@ -288,13 +414,14 @@ looked up in this story's creatures first, then the shipped bestiary, and only t
 
 - **Setup:** a name nobody knows is tagged **new**; in the fight, its card is too (its look is
   the card's tooltip).
-- **Bestiary** (a fold on the Battle tab): this story's creatures with their power in your
+- **Bestiary** (a fold at the bottom of the Party tab): this story's creatures with their power in your
   terms, role, traits and look; **Regenerate** makes one again (and flavours it again),
   **Forget** drops it (the name is made up anew next time). **Export** saves the list as JSON,
   **Import** adds one (cleaned like anything stored: known words only, every number worked out
   again).
-- **Settings → Monsters:** flavour on or off, the model (the chat's own, or a connection
-  profile, as in Story Director; a small fast one is enough), and the answer length (400 tokens).
+- **Settings → Generated words:** model calls on or off (for new creatures and a new companion's
+  skills), the model (the chat's own, or a connection profile, as in Story Director; a small fast
+  one is enough), and the answer length (400 tokens).
 
 ## Money
 
@@ -305,16 +432,40 @@ editable), **one coin** named as you like, or **your own** names and rates (for 
 
 ## Companions
 
-**Add companion** in the Battle tab brings someone the story introduced into the party: a name,
-a role, the level they join at (yours by default), a build (the presets spread their points and
-give three starter skills), who controls them, and optionally their equipment, one item per line
-(`Ashwood Staff (rare) · MATK +7, INT +1`, capped by rarity like yours).
+Companions join from the story. A `<Joins>Lyra — healer, level 6</Joins>` is offered as *Lyra
+joined. Add as companion?*; **Add as companion** opens the form, filled in:
 
-They live in the **Party** block, kept by RPG Battle like the Character block, fight beside you
-(acting on their own, or on your command: tap to switch), get the same XP, rest and recover with
-you, and can be **Removed** (it asks twice) when they leave the story. **Edit** changes a
-companion's name, role and who controls them; their sheet, skills and gear stay as they are
-(their skill mastery progress follows them through a rename).
+- **Name, role** (free words), **level** (yours if none is given, never past the cap) and who
+  controls them (*Acts on its own* or *I command it*).
+- **Focus:** up to three stats in order; every point they have (the starting 10 and 4 per level
+  after the first) is spread over them by weight, 3, 2 and 1 (none: evenly). Role words fill it
+  in, from a small table of generic words, and you can change it: *healer, cleric, priest* → INT,
+  VIT, CHA; *mage, wizard, sorcerer, caster* → INT, DEX; *warrior, knight, fighter, guard* → STR,
+  VIT; *tank, defender* → VIT, STR; *rogue, thief, assassin, scout* → AGI, DEX, LUK; *archer,
+  ranger, hunter* → DEX, AGI; *bard, diplomat, merchant* → CHA, LUK; *monk, brawler* → STR, AGI.
+- **Skills:** worked out from who they are by one short model call, in words only (name, a few
+  words, type, stat, target, effect from fixed lists), as a made-up creature is flavoured (the
+  *Generated words* settings, 30 seconds at most). Code builds each one for their level and sets
+  every number. With the calls off, no model, a failure or too little in the answer: two or
+  three library skills that fit the focus and role. The form shows them with **Generate again**
+  and a remove button per skill; a `| skills: Frost Lance, Mend` hint names them instead. Later
+  skills come from `<Learned>`, like yours.
+- **Equipment**, optionally, one item per line (`Ashwood Staff (rare) · MATK +7, INT +1`, capped by
+  rarity like yours), or given later with **Give item**.
+- **From the story's NPCs** (with NPC State Delta 1.2.2): pick one of the chat's NPCs to fill in
+  name, role and focus (from its role and summary; the skills are generated again for them). The
+  companion stays linked: **Dossier** on their card opens the NPC's dossier, and a rename there
+  is offered here. A `<Joins>` naming a known NPC is linked and refined the same way.
+
+They live in the **Party** block after your section, fight beside you (on their own, or on your
+command: tap to switch), level from fights and XP awards like you (each at their own level),
+rest and recover with you. A companion on *auto* spends the points a level gives in proportion to
+their build so far (*Settings → Party → Spend companions' points automatically*, on by default);
+one you command, or everyone with the setting off, keeps them for **Spend** on their card.
+**Edit** changes a companion's name, role and control (sheet, skills and gear stay; their mastery
+progress follows a rename); **Remove** asks twice; a `<Leaves>` offers it. A companion at 0 HP when
+a fight *to the death* ends **fell**: the Party tab offers to remove them (it asks twice). At
+normal stakes they are only down, as before.
 
 ## With the other extensions
 
@@ -326,8 +477,18 @@ source of truth for each area, so the model is not told the same thing twice; se
 - RPG Battle offers **stats** (HP, MP, stats, skills, fights) and **rolls** (the Checks line as
   the Dice modifier), and **items** after Story Block's Inventory (it reads gear from it and
   writes loot into it either way).
-- It shares its party with the others: the Character and each companion with their level (in
+- It shares its party with the others: your character and each companion with their level (in
   your terms), HP, MP and State words, as the sheets say.
+- **Story Block 0.9.1** keeps the Party block without a sidebar tab of its own (`tab: false`), so
+  RPG Battle's Party tab is the one party tab. With an older Story Block the block keeps its tab
+  as before.
+- **Story Director 0.8.2:** a quest it closes in a reply is offered as XP by its difficulty
+  (`questsDoneAt`). Without it, nothing.
+- **NPC State Delta 1.2.2:** its NPC profiles fill in a new companion (`npcProfiles`), and a linked
+  companion's **Dossier** opens it (`openDossier`). Without it, the form has no NPC picker.
+- **Story Suite's overlay** can show what RPG Battle adds to the next reply (`api.manage.tokens()`,
+  an estimate: the story instruction or a waiting fight hand-off; the Party block is Story Block's
+  to count).
 - **Settings → Source of truth:** for *Stats*, *Roll modifiers* and *Items*, **Automatic** (the
   specialist for the area), **This extension** or **The other one**, with who the story follows
   now. For *Stats*, it decides whether Story Block's Character Sheet is pointed out as a second
@@ -337,6 +498,14 @@ source of truth for each area, so the model is not told the same thing twice; se
   the source of truth for all of them in one table and switches RPG Battle on or off; *Manage all
   in Story Suite* at the top of RPG Battle's settings opens it
   ([docs/STORY_SUITE.md](docs/STORY_SUITE.md#one-place-to-manage-them-all)).
+
+## Settings
+
+Under **Extensions → RPG Battle**: the on/off switch and *Recover HP and MP as story time passes*
+on top, then folds: **Money**, **Equipment** (worn pieces and accessories that count), **Terms**,
+**Generated words** (model calls for new creatures and a new companion's skills), **Party**
+(skills in use per member, 3 to 12; companions' points spent automatically), **Source of truth**
+and **Blocks** (the Party and Inventory tags, the Return to story message).
 
 ## Development
 

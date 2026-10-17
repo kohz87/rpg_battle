@@ -1,17 +1,21 @@
 // RPG Battle: SillyTavern glue.
 //
 // Everything that touches SillyTavern or Story Block lives here; the rules, the fight and the
-// sheets are pure modules under src/. The Character and Party sheets are Story Block blocks
-// "kept by an extension": the model reads them every reply and never writes them; this file
-// writes them, with Story Block's setBlockText, into the latest reply (so deleting that reply
-// rolls them back). A fight is stored in the chat's metadata as its setup and actions and
+// sheets are pure modules under src/. The party is one Story Block block "kept by an
+// extension" (0.4: your character first, `## Ren (you)`, then the companions): the model reads
+// it every reply and never writes it; this file writes it, with Story Block's setBlockText,
+// into the latest reply (so deleting that reply rolls it back). A fight is stored in the chat's metadata as its setup and actions and
 // replayed with its seed; its result reaches the story once, through the generate interceptor.
 //
 // Between fights the story itself moves the numbers. After each reply one pipeline
 // (afterReply) takes the sheets as they were before that reply, heals them by the story time
 // it moved on, applies the reply's hidden <Wounds>, and writes the result into that reply
 // once, so a swipe or a continue recomputes it instead of adding to it. A reply's
-// <Encounter> (or a fight Story Director planned) is offered as a fight, never started.
+// <Encounter> (or a fight Story Director planned) is offered as a fight, never started; its
+// <Joins>, <Leaves>, <Learned>, <XP> and <Rest> (and the opening message's), Story Director's
+// finished quests, a fallen companion and a rename are offers too (src/offers.js), applied
+// only on Accept. The reader gets no free fight, rest, skill or companion: the story brings
+// them. Two tabs: Party, always there, and Battle, only while there is a battle.
 //
 // Levels and XP wear the reader's own words (settings `terms`, merged into rules as
 // `rules.terms`, see src/terms.js): the blocks, the tab, the hand-off and the enemy power
@@ -2093,7 +2097,23 @@ function applySettings(next) {
     storyBlock()?.refresh?.();
 }
 
+// The Story Suite look of the settings panels (src/suite.css, identical in the four extensions):
+// loaded once per page, by whichever extension comes first.
+function loadSuiteCss(documentRef) {
+    try {
+        if (documentRef.getElementById?.('story-suite-css')) return;
+        const link = documentRef.createElement('link');
+        link.id = 'story-suite-css';
+        link.rel = 'stylesheet';
+        link.href = new URL('./src/suite.css', import.meta.url).href;
+        documentRef.head?.appendChild(link);
+    } catch (error) {
+        console.warn('[RPG Battle] the Story Suite styles could not be loaded', error);
+    }
+}
+
 function addSettingsPanel(documentRef) {
+    loadSuiteCss(documentRef);
     if (documentRef.querySelector('#rpg_battle_settings')) return true;
     const host = documentRef.querySelector('#extensions_settings2') ?? documentRef.querySelector('#extensions_settings');
     if (!host) return false;
