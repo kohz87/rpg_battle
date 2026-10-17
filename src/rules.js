@@ -15,6 +15,8 @@ export const DEFAULT_RULES = Object.freeze({
         startPoints: 10,
         pointsPerLevel: 4,
         starterSkills: 3,
+        // Skills a member fights with; more are kept, set aside, and swapped in by hand.
+        activeSkills: 6,
         // XP to reach the next level = round10(xpBase × level ^ xpExponent).
         xpBase: 100,
         xpExponent: 1.5,
@@ -79,6 +81,11 @@ export const DEFAULT_RULES = Object.freeze({
     // XP factor by (enemy level − member level): ×1.5 when it outranks, down to ×0.1.
     xp: { perLevelAbove: 0.1, maxFactor: 1.5, perLevelBelow: 0.15, minFactor: 0.1 },
     secondsPerRound: 6,
+    // XP the story awards outside fights (growth.js): a share of the XP the member needs for
+    // their next level, by how big the achievement was, or by the difficulty of a quest Story
+    // Director closed. Everyone in the party gets it, each at their own level.
+    xpAwards: { minor: 0.10, major: 0.25, milestone: 0.50 },
+    questXp: { easy: 0.05, normal: 0.10, hard: 0.15, nightmare: 0.25 },
     // Out of a fight: a short rest gives back this share of max HP/MP; story time heals
     // `perHour` of max HP/MP per hour, and a gap of `longRestHours` or more is a full rest.
     recovery: { shortRestShare: 0.25, perHour: 0.05, longRestHours: 6 },
@@ -126,6 +133,9 @@ export const DEFAULT_RULES = Object.freeze({
         widePower: 0.6, wideMp: 1.6,
         powerPerLevel: 0.02, maxLevelPower: 1.6, mpPerLevel: 0.5,
         tier2Level: 8, tier3Level: 16,
+        // An element (fire, ice, lightning, poison) puts its condition on a harmful skill's hit
+        // (generated.effectRounds rounds) for this share of its power.
+        elementPower: 0.85,
     },
     // Loot (enemies.rollLoot): how much each point of LUK above the start stat helps.
     loot: { luckChancePerPoint: 0.03, luckRarityPerPoint: 2, luckMoneyPerPoint: 0.02, bossMoney: 3, bossRolls: 2 },

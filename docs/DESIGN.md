@@ -65,6 +65,11 @@ This is a Story Block release (0.7) that RPG Battle requires.
 
 ### 3.1 Character (new, kept by RPG Battle)
 
+Since 0.4 this is the first section of the Party block (§3.2), `## Ren (you)`, with the same
+lines (no `Name:`): one kept block for the whole party, one prompt note, the Dice modifier from
+your section's Checks line. Older chats' separate Character block is read until the next write
+merges it.
+
 ```
 <Character>
 Name: Ren
@@ -99,7 +104,7 @@ Conditions: none
   disagree). It is derived, so it is never read back: editing it changes nothing.
 - The model sees this every reply, so it knows Ren is hurt, what Ren can do, and how strong Ren is.
 
-### 3.2 Party (new, kept by RPG Battle, separate so solo stories can switch it off)
+### 3.2 Party (new, kept by RPG Battle; since 0.4 it holds your character too)
 
 ```
 <Party>
@@ -119,9 +124,9 @@ Equipped: Ashwood Staff (rare) · MATK +7, INT +1 | Traveller's Robe (common) ·
 - **control: auto** (the companion acts on its own) or **control: command** (you pick its action
   each turn). Switchable per companion in the Battle tab; the default is auto.
 - A companion's gear is listed on its section, because the Inventory block is yours.
-- Joining and leaving follows the story: the Battle tab offers **Add companion** (from a name in
-  the scene, with a starter template), **Edit** (name, role, control; the sheet stays) and
-  **Remove**. Companions level with the party (they get the same XP).
+- Joining and leaving follows the story (0.4): a `<Joins>` or `<Leaves>` is offered, and Add
+  companion opens only from a Joins, filled in (§8.7); **Edit** (name, role, control; the sheet
+  stays) and **Remove** stay on the card. Companions level with the party (they get the same XP).
 
 ### 3.3 Inventory (existing, written by the model; RPG Battle reads equipment and adds loot)
 
@@ -165,7 +170,8 @@ option; it costs one reply per fight.)
 
 ### 4.1 Starting a fight
 
-**Start fight** in the Battle tab (and a ⚔ button by the message box) opens the setup:
+Since 0.4 a fight starts only from the story (§4.2): its offer opens the setup, which the reader
+can still change. The setup:
 
 - Rows of enemies: **name** (bestiary names autocomplete; any name works), **count**, **rank**
   (F to SSS, suggested from your level), **role** (brute, skirmisher, caster, tank, support).
@@ -223,10 +229,11 @@ All constants below live in `rules.json` and can be edited.
 | **CHA** | Parley in combat; outside combat it is the social stat the story can use (Story Director's note can mention it) |
 
 **No classes.** A character is its stats and its skills. A new character starts with every stat
-at 5, **10 points** to spend and **three starter skills** picked from the library's first tier
-(section 6); each level gives **4 points**. XP to next level = 100 × level^1.5 (rounded to 10).
-Optional presets (a "fighter" spread, a "caster" spread…) only fill in the points and suggest
-skills, as a shortcut; they are not a class and change nothing afterwards.
+at 5 and **10 points** to spend, and (0.4) **no skills**: they come from the story (§8.7); each
+level gives **4 points**. XP to next level = 100 × level^1.5 (rounded to 10). There are no presets
+for the reader any more; the old spreads stay as internal data for the balance simulation.
+A companion is built from up to three **focus stats** in order, weighted 3, 2, 1 (none: evenly),
+over every point they have, largest remainder; generic role words suggest the focus.
 
 ### 5.2 One attack
 
@@ -314,11 +321,15 @@ A skill is a library entry; the Character and Party blocks list only names.
 - `type`: physical, magic, heal, buff, debuff. `target`: one, all, self, ally, allies.
 - **Open, not by class:** a skill may ask for a stat instead (`"requires": { "INT": 8 }`), so
   anyone who builds INT can learn Fireball. Tier 1 skills ask for nothing.
-- **Starter skills:** three from tier 1, picked when the character is made.
-- **New skills come from the story, added by hand.** A mentor teaches a technique, a scroll holds
-  a spell: in the Battle tab, **Learn skill** takes a name and either a library skill or a new
-  one built from a template (type, stat, target) scaled to your level, which you can edit.
-  Nothing is learned automatically on level-up, and the model never sets a skill's numbers.
+- **Starting skills (0.4):** none at creation; the story's opening message offers them
+  (`<Learned>`, with optional hints, without stat requirements). A companion's are generated from
+  who they are by one words-only call (library fallback).
+- **New skills come from the story.** A mentor teaches a technique, a scroll holds a spell: a
+  `<Learned>` offer opens the learn form, filled in, for a library skill or a new one built from
+  a template (type, stat, target, element) scaled to the learner's level, which the reader can
+  edit. Nothing is learned automatically on level-up, and the model never sets a skill's numbers.
+- **Skills in use (0.4):** at most `character.activeSkills` (6) per member; more are kept, set
+  aside, and swapped on the card.
 - **Mastery:** using a skill in fights raises it (Lv 1 to 5, +10 % power per level).
 
 ## 7. Enemies
@@ -527,9 +538,24 @@ Astra — poisoned: a dart in the dark
 - **Story Block's Character Sheet** (its own block, an HP the model writes) disagrees with this
   one; while both are on, the Battle tab and the settings say so and offer **Turn it off**.
 
-## 9. The Battle tab
+### 8.7 The party's story (0.4)
 
-A Story Block tab, always visible while RPG Battle is on.
+The same instruction (§8.6, about 160 tokens now) asks for `<Joins>`, `<Leaves>`, `<Learned>`,
+`<XP>minor|major|milestone: why</XP>` and `<Rest>short|long: why</Rest>`, each only when the
+story makes it true; Story Director 0.8.2 adds quests closed in a reply. Every one is an
+**offer** (Accept / Not now, per reply text, from the latest reply and the opening message),
+never applied on its own. XP is a share of the member's next level (10/25/50 %, quests 5–25 % by
+difficulty), each at their own level, through the fight's level-up path; companions on auto spend
+new points by their build. A rest and story time in one reply count once (the larger, not the
+sum). A fight lost to the death leaves `dead` on your sheet: game over until Start over.
+
+## 9. The Party and Battle tabs
+
+Since 0.4: a **Party** tab, always there while RPG Battle is on (the party as cards, yours first
+and open; what the story offers; the wounds line with Undo; the Bestiary), and a **Battle** tab
+only while there is a battle (the story's offer, the setup, the fight, the result until it goes
+back to the story). The kept Party block has no tab of its own (Story Block 0.9.1). No free
+fight, rest, skill or companion: the story brings them. What follows is the 0.3 layout.
 
 - **Idle:** your sheet at a glance (HP and MP bars with the State words under them, level, unspent points with **Spend**), the
   party with their control mode, skills, **Start fight**; a fight the story offers (**Fight?** /
@@ -588,13 +614,13 @@ Block change, listed in the roadmap). RPG Battle adds no check command of its ow
 
 | Question | Decision |
 |---|---|
-| Classes | None: open stats and skills; presets are only shortcuts |
+| Classes | None: open stats and skills; no presets (0.4); companions by focus stats |
 | Levelling | XP gives levels; you spend the points yourself |
 | Losing | The story decides (captured, robbed, left for dead); at *to the death* stakes, death is game over |
 | Skills | Three starter skills; new ones from the story, added by hand; skills may require a stat |
 | Equipment | From the Inventory block, capped by rarity and level |
-| Companions | Included; a separate Party block; auto or command per companion |
-| Starting a fight | A button; narrated once at the end |
+| Companions | Included; one Party block with your character (0.4); auto or command per companion; joining from the story |
+| Starting a fight | From the story only (0.4), offered; narrated once at the end |
 | Fight shapes | Single, waves and chains |
 | Money | A setting: copper/silver/gold, one coin, or your world's own names and rates |
 | Checks outside combat | Story Block's Dice block, with modifiers from the Character block |
@@ -608,4 +634,4 @@ Block change, listed in the roadmap). RPG Battle adds no check command of its ow
 ## 15. Still open
 
 1. **Licence:** GPL-3.0 like the other two, or MIT like Mirage? Either works with what we borrow.
-2. **Presets to ship:** fighter, skirmisher, caster, healer, archer spreads, or none at all?
+2. ~~Presets to ship~~: none (0.4); the spreads stay internal for the balance simulation.

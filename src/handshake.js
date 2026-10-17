@@ -43,8 +43,16 @@ export function announcement({ version, api, enabled = true }) {
  * so the overlay changes them exactly as the panel's own controls do. setSource ignores an
  * area or a choice RPG Battle does not know and says whether it applied the change.
  */
-export function manageApi({ choices, choose, enabled, enable }) {
+export function manageApi({ choices, choose, enabled, enable, tokens = null }) {
     return Object.freeze({
+        // (0.4) What RPG Battle itself adds to the next ordinary reply, estimated (tokenEstimate).
+        tokens() {
+            try {
+                return tokens ? tokens() : tokenEstimate();
+            } catch {
+                return tokenEstimate();
+            }
+        },
         areas: [...SHARED_AREAS],
         sources: () => ({ ...truthChoices(choices()) }),
         setSource(area, choice) {
@@ -55,6 +63,30 @@ export function manageApi({ choices, choose, enabled, enable }) {
         enabled: () => enabled() !== false,
         setEnabled(on) { enable(Boolean(on)); },
     });
+}
+
+// About four characters a token: an estimate for the overlay, no tokenizer and no model call.
+const CHARS_PER_TOKEN = 4;
+// The hidden blocks the instruction asks for are written only when the story makes them true,
+// mostly not at all: a small allowance per reply rather than their full size.
+export const HIDDEN_BLOCKS_ALLOWANCE = 20;
+
+/**
+ * What RPG Battle injects into the next ordinary reply, estimated: { input, output, parts:
+ * [{ label, input, output }] }. `handoff`: a fight result waiting to be narrated (sent instead of
+ * the instruction, as the interceptor does); `instruction`: the story instruction, when it would
+ * be sent. The kept Party block is not counted: Story Block counts it as its own. Never throws.
+ */
+export function tokenEstimate({ instruction = '', handoff = '' } = {}) {
+    const count = text => Math.ceil(String(text ?? '').length / CHARS_PER_TOKEN);
+    const parts = [];
+    if (String(handoff ?? '').trim()) parts.push({ label: 'Fight hand-off (rpg_battle)', input: count(handoff), output: 0 });
+    else if (String(instruction ?? '').trim()) parts.push({ label: 'Story instruction (rpg_battle_rules)', input: count(instruction), output: HIDDEN_BLOCKS_ALLOWANCE });
+    return {
+        input: parts.reduce((sum, part) => sum + part.input, 0),
+        output: parts.reduce((sum, part) => sum + part.output, 0),
+        parts,
+    };
 }
 
 /**

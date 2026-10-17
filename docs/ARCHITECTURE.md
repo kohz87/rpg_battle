@@ -14,21 +14,28 @@ module saying what it is for, comments that explain why rather than what.
 ```
 src/rules.js      constants and formulas (written)          tests/rules.test.js
 src/rng.js        seeded randomness (written)               tests/rng.test.js
-src/skills.js     skill library, presets, templates         tests/skills.test.js
+src/skills.js     skill library, templates (presets: internal) tests/skills.test.js
 src/enemies.js    ranks × roles projection, bestiary, loot  tests/enemies.test.js
 src/combat.js     the fight state machine                   tests/combat.test.js, tests/balance.test.js
-src/sheet.js      Character and Party blocks                tests/sheet.test.js
+src/sheet.js      the Party block (and older Character ones) tests/sheet.test.js
 src/items.js      inventory: equipment, consumables, money  tests/items.test.js
 src/handoff.js    the narration hand-off text               tests/handoff.test.js
 src/narrative.js  the State line: HP, MP, conditions in words tests/narrative.test.js
-src/story.js      story wounds and fights from the story    tests/story.test.js
+src/story.js      the story's hidden blocks, parsed          tests/story.test.js
+src/offers.js     (0.4) the story's offers to the party      tests/offers.test.js
+src/builds.js     (0.4) open-ended builds: focus, spreading  tests/builds.test.js
+src/growth.js     (0.4) XP awards, auto-spend                tests/growth.test.js
+src/kit.js        (0.4) a companion's starting skills        tests/kit.test.js
+src/partyfile.js  (0.4) party export / import, cleaned       tests/partyfile.test.js
 src/terms.js      display terms: level/XP names, tiers, cap tests/terms.test.js
 src/templates.js  creatures made up from their names        tests/templates.test.js, tests/balance.test.js
 src/flavour.js    the flavour call's prompt, parse, mapping tests/flavour.test.js
 src/suite.js      the Story Suite registry (shared, as is) tests/suite.test.js
 src/handshake.js  RPG Battle's side of the Story Suite     tests/handshake.test.js
-src/ui/tab.js     the Battle tab                            tests/ui-tab.test.js
-style.css         all styles
+src/ui/tab.js     the Party and Battle tabs                 tests/ui-tab.test.js
+src/ui/settings.js the settings panel                      tests/ui-settings.test.js
+src/suite.css     the Story Suite panel look (shared as is)
+style.css         RPG Battle's own styles
 index.js          SillyTavern + Story Block glue
 ```
 
@@ -52,11 +59,11 @@ Skill = {                                                 // a library entry
 Condition names: poison, burn, bleed, stun, slow, weaken, shield, regen, guard
   ConditionState = { name, rounds, power }               // power: damage/heal per round, shield amount…
 
-Sheet = {                                                 // the Character block, parsed
+Sheet = {                                                 // a Party block section, parsed
   name, level, xp, points,
   hp: { cur, max }, mp: { cur, max },
   stats: Stats,
-  skills: [{ name, mastery }],                            // mastery 1…5
+  skills: [{ name, mastery, aside? }],                    // mastery 1…5; aside: kept, not used in fights (0.4)
   conditions: [{ name, rounds }],                         // rounds null = until rest / removed
   uses: { [skillName]: number },                          // fight uses toward the next mastery (not shown)
 }
@@ -163,11 +170,15 @@ state() }`.
 ```js
 export const DEFAULT_SKILLS: Skill[]          // ≥ 12 tier-1 (no requirements), ≥ 10 tier-2/3 with requires
 export const PRESETS: [{ id, name, points: { STR: n, … } (sums to rules.character.startPoints), skills: [3 tier-1 names] }]
-                                              // fighter, skirmisher, caster, healer, archer
+                                              // fighter, skirmisher, caster, healer, archer; internal
+                                              // data since 0.4 (the balance simulation), never offered
+export const ELEMENTS = { fire: 'burn', ice: 'slow', lightning: 'stun', poison: 'poison' }   // (0.4)
 export function findSkill(library, name) → Skill | null          // case/space-insensitive
 export function canLearn(stats, skill) → { ok, missing: { [stat]: needed } }
-export function skillFromTemplate({ name, type, stat, target }, level, rules) → Skill
-                                              // a story-taught skill: power/mp/cooldown scaled to level and type
+export function skillFromTemplate({ name, type, stat, target, element? }, level, rules) → Skill
+                                              // a story-taught skill: power/mp/cooldown scaled to level and type;
+                                              // (0.4) an element on physical/magic adds its condition
+                                              // (generated.effectRounds) for templates.elementPower of the power
 export function effectivePower(skill, mastery, rules) → number   // power × (1 + (mastery − 1) × masteryPowerPerLevel)
 export function resolveSkills(entries, library, level, rules) → [Skill & { mastery }]
                                               // sheet skills → full skills; an unknown name gets a template (physical, STR, one)
@@ -266,8 +277,24 @@ Tune `DEFAULT_RULES.ranks` (in rules.js) if needed and say what changed.
 
 ## `src/sheet.js`
 
-The Character block text (DESIGN §3.1), one field per `Label: value` segment, segments joined
-with ` | ` on the lines shown:
+(0.4) One kept **Party** block: your section first, `## Ren (you)`, with the lines the
+Character block had (below, without `Name:`), then each companion as `formatParty` writes them.
+`## (you)` with `No character yet.` is a character being made anew. A `Set aside: A | B` line
+follows Skills when a member keeps skills past `rules.character.activeSkills` (6).
+
+```js
+export function parsePartyBlock(text, rules) → { pc: Sheet | null, members, you: boolean, errors }
+export function formatPartyBlock(pc | null, members, rules) → string
+export function readSheets({ party, character, partyIndex, characterIndex }, rules) → { pc, members, legacy }
+    // an older chat's Character block for your sheet while the Party block has no "(you)"
+    // section (or the Character copy is the newer one); legacy: the next write merges them
+export function activeCap(rules) → number, activeWithin(skills, rules) → skills, activeSkills(sheet) → skills in use
+export function learnSkill(sheet, name, { rules, setAside }) → Sheet   // at the cap: setAside names who sits out (or the new one); else throws
+export function setSkillActive(sheet, name, active, rules) → Sheet     // Use refused at the cap
+```
+
+`parseParty` gives the companions only (the "(you)" section left out). The Character block text
+(DESIGN §3.1), one field per `Label: value` segment, segments joined with ` | ` on the lines shown:
 
 ```
 Name: Ren
@@ -337,6 +364,7 @@ export function useItems(inventoryText, used: { [name]: n }) → string     // q
 
 ```js
 export function stateWords(sheet, rules) → { hp, mp, conditions: [words], text }
+    // (0.4) a sheet with the condition "dead" (a fight lost to the death) → { hp: 'dead', text: 'dead' }
     // hp: 'unhurt' | 'bruised' | 'hurt' | 'badly hurt' | 'barely standing' | 'down' (0 HP)
     // mp: 'fresh' | 'tired' | 'drained'; conditions: poison → poisoned, burn → burned, bleed → bleeding,
     // stun → stunned, slow → slowed, weaken → weakened, others as written (no repeats).
@@ -351,7 +379,7 @@ The model's two optional hidden blocks (DESIGN §4.2, §8.6), read leniently (bu
 en or em dash or a spaced hyphen, any case); never throws.
 
 ```js
-export const STORY_INSTRUCTION: string       // the always-on instruction (≈ 105 tokens with the threat words; tests hold it there)
+export const STORY_INSTRUCTION: string       // the always-on instruction, every hidden block (0.4: ≈ 160 tokens; tests hold it ≤ 170)
 export const SEVERITIES = ['scratch', 'wound', 'severe', 'grievous']   // mildest first
 export function parseWounds(text) → [{ name, kind: 'harm' | 'heal' | 'condition' | 'cure', severity?, condition?, cause }]
     // `Name — scratch|wound|severe|grievous: cause` harm (the worst severity word in a short
@@ -375,6 +403,20 @@ export function parseEncounter(text, bestiary, rules) → [{ name, count (1–9)
     // `[N ×|N x|N |a |two… ]name[ (boss)][ rank X][ role]`, or `name ×N`; brackets may hold
     // boss, rank X and a role. A creature's name is spelt as the bestiary spells it; a plural is
     // made singular when the singular is a creature (or alias); other names are kept as written.
+```
+
+Also (0.4): `then:` before a group starts the next engagement; its rows and the later ones carry
+`wave` (1…3). The party's blocks, each lenient and never throwing:
+
+```js
+export function parseHints(text) → { type?, stat?, target?, element?, focus?, level?, skills?, role? }   // after a bar; known words only
+export function parseJoins(text, rules) → [{ name, role, level | null, focus, skills, line }]
+export function parseLeaves(text) → [{ name, reason, line }]
+export function parseLearned(text) → [{ name, skill, words, hints, line }]
+export function guessSkill(words, hints) → { type, stat, target, element }          // hints first, then the words
+export function parseXp(text) → [{ kind: 'minor' | 'major' | 'milestone', reason, line }]
+export function parseRest(text) → [{ kind: 'short' | 'long', reason, line }]        // the first counts
+export function findTarget(targets, name), meansYou(name)
 ```
 
 Also (0.3): `THREATS = ['trivial', 'weak', 'even', 'strong', 'deadly']`; parseEncounter rows carry
@@ -481,14 +523,70 @@ Status: one line per member, `Ren: HP 34/62, MP 12/30 — hurt (aching, favourin
 magic.`; a member who is down reads `Astra: down (unconscious or unable to fight).`
 
 Defeat lines: normal stakes → `Defeated: the story decides what follows (captured, robbed, left
-for dead).`; death stakes → `Defeated: <pc> is killed.` Fled → `Escaped after N rounds.` Loot and
+for dead).`; death stakes → `Defeated: <pc> is killed. <pc> is dead and does not come back;
+narrate the death, not a rescue.` Fled → `Escaped after N rounds.` Loot and
 XP lines only on victory.
+
+## `src/builds.js`, `src/growth.js`, `src/offers.js`, `src/kit.js`, `src/partyfile.js` (0.4)
+
+```js
+// builds.js: open-ended builds
+export const ROLE_FOCUS, FOCUS_WEIGHTS = [3, 2, 1]
+export function focusFromRole(text), guessFocus(role, summary), cleanFocus(list) → [stats]
+export function spreadByWeights(total, weights) → { STR: n, … }   // largest remainder; none → even
+export function focusWeights(focus), buildStats(focus, level, rules) → Stats
+export function buildAllocation(sheet, rules) → allocation          // points by the build so far
+export function suggestSkills(stats, focus, library, { role, count }) → [names], lockedReason(stats, skill) → string
+
+// growth.js
+export function awardShare({ kind } | { difficulty }, rules), xpAward(share, level, rules) → xp (0 at the cap)
+export function gainXp(sheet, xp, rules), spendByBuild(sheet, rules), settleCompanions(members, { autoSpend, rules })
+export function awardParty({ pc, members }, share, { autoSpend, rules }) → { pc, members, gains }
+export function questDifficulty(value) → 'easy' | 'normal' | 'hard' | 'nightmare'
+
+// offers.js
+export function storyOffers({ index, texts: { joins, leaves, learned, xp, rest }, pc, members, persona, rules, library, opening, narrating, pending })
+    → [{ key: 'index:kind:line', kind, text, accept, note?, data }]   // yours wait while pc is null
+export function questOffers({ index, quests, pc, rules }) → [{ key: 'index:quest:id', kind: 'quest', … }]
+export function liveOffers(offers, { latest, foughtSince }) → offers   // a reply's only while it is the latest
+    // and no fight started since; the opening message's joins and learned wait; index −1 (fallen, renames) stays
+
+// kit.js: a companion's starting skills
+export const KIT_SYSTEM; export function kitPrompt(who) → messages, parseKit(text) → [{ name, words, type, stat, target, element }]
+export function fallbackKit({ focus, level, role }, library, rules), namedKit(names, library), usableKit(specs), kitTemplate(spec)
+
+// partyfile.js
+export function exportParty({ pc, members, yourGear, skills }) → { rpgBattleParty: 1, character, companions, gear, skills }
+export function cleanParty(data, rules, library) → { pc, members, yourGear, skills }   // throws on a non-party file
+```
+
+`rules.js` (0.4): `character.activeSkills` 6, `xpAwards { minor .10, major .25, milestone .50 }`,
+`questXp { easy .05, normal .10, hard .15, nightmare .25 }`, `templates.elementPower` 0.85.
+`handshake.js` (0.4): `tokenEstimate({ instruction, handoff }) → { input, output, parts }` (≈ 4
+characters a token; the hand-off replaces the instruction; `HIDDEN_BLOCKS_ALLOWANCE` 20 output
+tokens with the instruction), and `manageApi({ …, tokens })` adds `tokens()` (never throws).
 
 ## `src/ui/tab.js`
 
 ```js
 export function renderBattleTab(pane, view, handlers)
 ```
+
+(0.4) Two tabs draw with it: **Party** (`create`, `idle`, `spend`, `learn`, `companion`, `items`)
+and **Battle** (`offer`, `setup`, `fight`, `result`). A mode drops only the drafts of its own tab's
+other modes, and a pane's events redraw that pane (the other tab may have drawn since).
+
+| mode (0.4) | data | handlers |
+|---|---|---|
+| `create` | `{ persona, importing, rules }`: stats only, no skills | `onCreate({ name, stats })`, `onImportParty(text)`, `onConfirmImport()`, `onCancelImport()` |
+| `idle` | `{ chatId, sheet, checks, skills (with aside), party: [Member & { skills, gearSummary, dossier }], gear, giveable, autoSpend, gameOver, importing, pending, offers: [{ key, kind, text, accept, note, confirm }], recovered, story, sheetConflict, bestiary, rules }`: the cards (`details.rpg-battle-member-card`, yours `.is-you` open; open state per chat and member) | `onSpend(id)`, `onSetSkillActive(id, name, active)`, `onGiveItem(id, name)`, `onTakeBack(id, name)`, `onOpenDossier(id)`, `onSetControl`, `onEditCompanion`, `onRemoveCompanion`, `onStartOver({ keepCompanions })`, `onAcceptOffer(key)`, `onDismissOffer(key)`, `onItems()`, `onExportParty()`, `onImportParty(text)`, `onUndoStory()`, `onReturn()`, the Bestiary's |
+| `spend` | `{ sheet, memberId, rules }` | `onConfirmSpend(allocation, memberId)`, `onBack()` |
+| `learn` | `{ sheet, memberId, library, prefill: { name, words, type, stat, target, element, free } \| null, rules }`: at the cap a select asks who sits out | `onConfirmLearn({ name, fromLibrary?, template?, setAside?, memberId? })`, `onBack()` |
+| `companion` | `{ level, maxLevel, prefill: { name, role, level, focus, npcId, summary }, kit: { key, status: 'working' \| 'ready', skills, note }, npcs, rules }` | `onAddCompanion({ name, role, control, level, focus, skills: [spec], gearLines, npcId })`, `onGenerateKit(who)`, `onBack()` |
+| `offer` | `{ encounter: { text, label, rows } \| null, pending }` | `onFightEncounter(rows)`, `onDismissEncounter()` |
+
+The 0.3 table below still describes `setup`, `fight`, `result` and `items` (setup rows may carry
+`wave`, shown as *then N*).
 
 `view.mode` and its data:
 
@@ -528,10 +626,16 @@ export function enemiesFromRows(rows, { bestiary, library, rules, rng }) → Com
 export function rest(sheet, 'short' | 'long', { gear, rules }) → Sheet
 export function recoverOverTime(sheet, hours, { gear, rules }) → { sheet, kind: 'long' | 'regen' | null, hp, mp }
 export function useItemOutside(sheet, item) → { sheet, used, message }
+export function restAfter(sheet, 'short' | 'long', { gear, rules, already: { hp, mp } }) → Sheet
+    // (0.4) a <Rest> accepted for a reply story time already healed: a short rest adds only what
+    // its share gives beyond `already` (the larger of the two, not their sum); long: rest()
 ```
 
-`party.js` also has `newCompanion({ name, role, control, level, preset, gearLines }, { rules, existing }) → Member`
-(level capped at `maxLevel(rules)`), and for **Edit companion**:
+`party.js` also has `newCompanion({ name, role, control, level, focus, skills, preset?, gearLines }, { rules, existing, library? }) → Member`
+(level capped at `maxLevel(rules)`; 0.4: start and level points spread by the focus weights,
+builds.js; up to starterSkills skill names, checked against `library` when given; a `preset` still
+builds the old way), `engagements(enemies) → { enemies, waves: [{ round, enemies }] }` (rows'
+`wave`, fought once the field is clear), `headingText(value, max)`, and for **Edit companion**:
 
 ```js
 export function editCompanion(members, memberId, { name, role, control }, { pcName }) → { members, idMap: { oldId: newId } }
@@ -544,6 +648,15 @@ export function remapIds(records, idMap) → records    // { [memberId]: … } m
 Rows for `enemiesFromRows` may carry `level` (passed to `projectEnemy`).
 
 ## `src/ui/settings.js`
+
+(0.4) The panel wears the shared Story Suite look (`src/suite.css`, docs/STORY_SUITE.md): the
+Manage line `div.story-suite-manage[data-story-suite-link]`, a `.story-suite-quickbar` of switch
+rows (`#rpg_battle_enabled`, `#rpg_battle_recover`), the Character Sheet notice as
+`.story-suite-notice`, sections as `details.story-suite-fold[data-fold]` in `.story-suite-folds`
+(money, equipment, terms, monsters (titled *Generated words*), party, truth, blocks), each
+setting a `label.story-suite-row` (`<b>` label, `<small>` hint and *Now: …*), numbers with units
+in `.story-suite-number`. New: `#rpg_battle_active_skills` (3–12) and `#rpg_battle_auto_spend`
+(`settings.activeSkills`, `settings.autoSpend`); the Character tag is gone. The older 0.3 notes:
 
 `renderSettings(container, { settings, version, status, sheetConflict, sources, profiles, suiteLink, onOpenSuite, onDisableSheet, onChange })
 → { update(settings), setSheetConflict(on), setSources(sources), setTruth(area, choice), setEnabled(on), setSuiteLink(on) }`:
@@ -650,3 +763,53 @@ As built (0.3):
   so Story Block announcing from inside its own refresh is neither re-entered nor looped. Not the
   source of truth for stats changes only the notice: the kept blocks, their prompt notes, the
   story instruction and the Dice modifier stay as they are, since fights need RPG Battle's sheets.
+
+## As built (0.4)
+
+- **One Party block** (`rpg-party`, kept, `tab: false` on Story Block ≥ 0.9.1, a version check).
+  `sheetsAt(sb, { beforeIndex })` reads it and an older chat's `<Character>` (registered
+  transport-only as `rpg-character`: hidden, not prompted, no tab, never written) through
+  `readSheets`; companions get `npcId` from chat state `npcLinks`. Every write is
+  `writeSheets(pc, members)` (formatPartyBlock); `migrateLegacy` writes the merged block into the
+  latest reply when a chat still has your sheet in the old block (on Story Block's onUpdate and
+  when the Party tab draws; once per chat and length). The pipeline (`planReply`, `writePlan`)
+  plans one Party target; `story.written = { party }`. The dice modifier points at your section.
+- **Tabs:** `rpg-party` (label Party, always while on; badge: the offers) and `rpg-battle` (label
+  Battle; `isAvailable: battleOn()`: a fight stored, the setup or the result on screen, or an
+  encounter offer). Screens: `screen` (Battle: setup, result) and `partyScreen` (Party: spend,
+  learn, companion, items; `memberId`, `prefill`, `offerKey`, `kit`). A toast's Fight? opens the
+  setup and presses Story Block's tab button for Battle (`[data-tab-id="ext:rpg-battle"]`, best
+  effort). No Start fight, Learn skill, Add companion or rest handlers.
+- **Offers:** `currentOffers()` = the latest reply's blocks (`storyOffers`), the opening message's
+  (message 0; `opening: true`, put away into chat state `done`, kept apart from `dismissed`, 60
+  each), Story Director's `questsDoneAt(latest)` (typeof-guarded), `fallen` companions, a persona
+  rename (`watchPersona`: per chat, once per switch) and NPC renames (linked companions whose
+  `npcProfiles()` name changed). None during a fight. `liveOffers` keeps a reply's offers only
+  while it is the latest and no fight started since: `startNewFight` stores chat state
+  `foughtAt: { index, text }` (the latest reply and `replyStamp`, a hash of its hidden party
+  blocks, which RPG Battle never rewrites, so a swipe or a reply written after a delete is told
+  apart). `acceptOffer(key)`: joins → the companion
+  form (with an NPC profile of that name: `npcId`, role, summary), and `generateKit`; learned →
+  the learn form (`prefill.free` from the opening message skips stat requirements); leaves and
+  fallen → removed (`forgetMember`: uses, npcLinks); xp and quest → `awardParty`; rest →
+  `restAfter` with that reply's story-time `recovered.gains`; rename → your sheet or
+  `renameCompanion` (ids remapped in `uses` and `npcLinks`). After a reply, its new offers are
+  toasted; the opening message's once per chat opened, and yours after creation.
+- **Kit:** `generateKit(who)`: a Joins `skills` hint → `namedKit`; else with flavour on one call
+  (`kitPrompt`, `sendToModel` with the flavour model and answer length, `withTimeout` of
+  `flavour.timeoutSeconds`), `parseKit`, at least two usable; else `fallbackKit` from the shipped
+  library. Template specs become chat skills (`skillFromTemplate` at the companion's level) on Add.
+- **Fights:** `startNewFight` splits rows by `wave` (`engagements`). `finishFight` writes once,
+  settles companions (auto-spend), puts `dead` on your sheet after a defeat to the death, and adds
+  companions at 0 HP after a fight to the death to `fallen`. `encounterOffer` and the story
+  instruction need a living character.
+- **Give / take back:** `useItems` takes one of the row out of the Inventory and the item goes on
+  the companion's Equipped line (`parseGearEntry(formatGearEntry(item))`); back with `addLoot` as
+  equipment, not equipped. **Party file:** `exportParty` → a JSON download; Import reads and
+  cleans (`cleanParty`) into `pendingImport` and writes on confirm (your file gear appended to the
+  Inventory unless a row of that name exists; chat skills merged; uses, links and fallen reset).
+- **Dossier:** shown for a companion with `npcId` while `api('npc-state-delta').openDossier` is a
+  function; `openDossier(npcId) === false` → a toast.
+- **Story Suite:** `api.manage.tokens()` → `tokenEstimate` of the hand-off waiting, else the story
+  instruction while you have a living character and no fight. The settings panel loads
+  `src/suite.css` once (`<link id="story-suite-css">`).

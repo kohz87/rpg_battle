@@ -1,6 +1,15 @@
-// The Character and Party blocks (DESIGN §3.1, §3.2): reading them back from the text the
-// reader sees, writing them out canonically, and every change RPG Battle makes to a sheet
-// (spending points, learning a skill, a fight's result, a recompute after a gear change).
+// The Party block (DESIGN §3.1, §3.2): reading it back from the text the reader sees, writing
+// it out canonically, and every change RPG Battle makes to a sheet (spending points, learning a
+// skill, a fight's result, a recompute after a gear change).
+//
+// Since 0.4 the reader's character and the companions share one kept block: the character is
+// the first section, `## Ren (you)`, with everything the old Character block had (level line,
+// HP/MP, stats, Checks, State, Skills, Conditions), and each companion follows as before
+// (`## Lyra — healer | control: auto`). Older chats kept a separate Character block; readSheets
+// still takes it when the Party block has no "(you)" section, and the next write makes them one.
+//
+// A member keeps every skill they learn, but only `rules.character.activeSkills` of them are
+// in use; the rest are written on a `Set aside:` line and sit out fights until swapped back.
 //
 // The blocks are kept by RPG Battle, so the canonical text is what normally comes back;
 // the parser is still lenient (bold labels, any order, `|` or `,` between fields) because
@@ -32,6 +41,7 @@ const LABELS = {
     mp: 'mp', mana: 'mp',
     checks: 'checks',
     skills: 'skills',
+    'set aside': 'aside', aside: 'aside',
     conditions: 'conditions', condition: 'conditions', status: 'conditions',
     equipped: 'equipped', equipment: 'equipped', gear: 'equipped',
     ...Object.fromEntries(STATS.map(stat => [stat.toLowerCase(), stat])),
@@ -87,6 +97,41 @@ function copySheet(sheet) {
 }
 
 const skillKey = name => String(name ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
+
+/** How many skills a member uses in fights (rules.character.activeSkills, 6 by default; 1 to 99). */
+export function activeCap(rules = DEFAULT_RULES) {
+    const value = Math.round(Number(rules?.character?.activeSkills));
+    return Number.isFinite(value) && value >= 1 ? Math.min(99, value) : DEFAULT_RULES.character.activeSkills;
+}
+
+/**
+ * Skill entries with at most activeCap of them in use: the first ones not set aside stay
+ * active, any past the cap are set aside (an older sheet over the cap keeps its first N), a
+ * name written twice counts once. Active ones first, then the ones set aside, in order.
+ */
+export function activeWithin(skills, rules = DEFAULT_RULES) {
+    const cap = activeCap(rules);
+    const seen = new Set();
+    const unique = [];
+    for (const skill of skills ?? []) {
+        const key = skillKey(skill?.name);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        unique.push(skill);
+    }
+    const active = unique.filter(skill => !skill.aside).map(skill => ({ ...skill }));
+    const aside = unique.filter(skill => skill.aside).map(skill => ({ ...skill }));
+    for (const skill of active.slice(cap)) aside.unshift({ ...skill, aside: true });
+    return [
+        ...active.slice(0, cap).map(({ aside: _, ...skill }) => skill),
+        ...aside.map(skill => ({ ...skill, aside: true })),
+    ];
+}
+
+/** The skills a member fights with: the ones not set aside. */
+export function activeSkills(sheet) {
+    return (sheet?.skills ?? []).filter(skill => !skill?.aside);
+}
 
 // ---------------------------------------------------------------------------------------
 // Reading
@@ -215,7 +260,10 @@ function sheetFromLines(lines, rules, { name: givenName = null, label = 'Charact
         hp: pool('hp', maxHp(stats, level, rules)),
         mp: pool('mp', maxMp(stats, level, rules)),
         stats,
-        skills: parseSkills(found.skills, rules),
+        skills: activeWithin([
+            ...parseSkills(found.skills, rules),
+            ...parseSkills(found.aside, rules).map(skill => ({ ...skill, aside: true })),
+        ], rules),
         conditions: parseConditions(found.conditions),
         // Mastery progress is not in the text (it would be noise to the model), so a sheet
         // read back starts each skill's progress afresh.
@@ -280,16 +328,28 @@ function parseHeading(text) {
     return { name, role, control };
 }
 
-/** The Party block's text as Members; never throws. */
-export function parseParty(text, rules = DEFAULT_RULES) {
-    const r = rulesOf(rules);
+// `## Ren (you)`: the reader's own section. Whatever follows a bar is ignored, and an empty
+// name (`## (you)`) says the character is being made anew, so an older Character block is not
+// taken instead.
+const YOU_HEADING = /^(.*?)\s*\(\s*you\s*\)\s*$/i;
+
+function youHeading(text) {
+    const head = stripMarkup(text.replace(/^\s*#{1,6}\s*/, '')).split('|')[0].trim();
+    const match = head.match(YOU_HEADING);
+    return match ? { name: match[1].trim() } : null;
+}
+
+function sectionsOf(text) {
     const sections = [];
     for (const line of blockLines(text)) {
         if (/^\s*#{1,6}\s+\S/.test(line)) sections.push({ heading: line, lines: [] });
         else if (sections.length) sections.at(-1).lines.push(line);
     }
+    return sections;
+}
+
+function membersFrom(sections, r, errors) {
     const members = [];
-    const errors = [];
     for (const section of sections) {
         const heading = parseHeading(section.heading);
         if (!heading.name) {
@@ -315,15 +375,69 @@ export function parseParty(text, rules = DEFAULT_RULES) {
     }
     const ids = memberIds(members.map(member => member.name));
     members.forEach((member, index) => { member.id = ids[index]; });
+    return members;
+}
+
+/** The Party block's companions as Members (the reader's "(you)" section is left out); never throws. */
+export function parseParty(text, rules = DEFAULT_RULES) {
+    const r = rulesOf(rules);
+    const errors = [];
+    const members = membersFrom(sectionsOf(text).filter(section => !youHeading(section.heading)), r, errors);
     return { members, errors };
+}
+
+/**
+ * The whole Party block: { pc: Sheet | null, members, you, errors }. `you` says whether the
+ * block has the reader's section at all (an older Party block has none, and its character is
+ * in the old Character block); `pc` is null for `## (you)` with no name, a character being
+ * made anew. The first "(you)" section counts; never throws.
+ */
+export function parsePartyBlock(text, rules = DEFAULT_RULES) {
+    const r = rulesOf(rules);
+    const sections = sectionsOf(text);
+    const errors = [];
+    const mine = sections.find(section => youHeading(section.heading));
+    let pc = null;
+    if (mine) {
+        const { name } = youHeading(mine.heading);
+        if (name && mine.lines.some(line => fieldsOf(line, r).length)) {
+            const read = sheetFromLines(mine.lines, r, { name, label: `Party (${name}, you)` });
+            pc = read.sheet;
+            errors.push(...read.errors);
+        }
+    }
+    const members = membersFrom(sections.filter(section => !youHeading(section.heading)), r, errors);
+    return { pc, members, you: Boolean(mine), errors };
+}
+
+/**
+ * The sheets from the kept blocks: the Party block (`party`), and an older chat's separate
+ * Character block (`character`) for the reader's sheet when the Party block has no "(you)"
+ * section, or when that Character copy is the newer one (a chat played on with an older RPG
+ * Battle). `partyIndex` / `characterIndex` are the messages the copies are in, when known.
+ * { pc, members, legacy }: `legacy` is true while the reader's sheet comes from the old block
+ * (the next write makes them one).
+ */
+export function readSheets({ party = '', character = '', partyIndex = null, characterIndex = null } = {}, rules = DEFAULT_RULES) {
+    const r = rulesOf(rules);
+    const block = String(party ?? '').trim() ? parsePartyBlock(party, r) : { pc: null, members: [], you: false };
+    const older = String(character ?? '').trim() ? parseCharacter(character, r).sheet : null;
+    const newer = older && block.you && Number.isFinite(characterIndex) && Number.isFinite(partyIndex) && characterIndex > partyIndex;
+    if (older && (!block.you || newer)) return { pc: older, members: block.members, legacy: true };
+    return { pc: block.pc, members: block.members, legacy: false };
 }
 
 // ---------------------------------------------------------------------------------------
 // Writing
 
-function skillsLine(sheet) {
-    const skills = (sheet.skills ?? []).map(skill => (skill.mastery > 1 ? `${skill.name} (Lv ${skill.mastery})` : skill.name));
-    return `Skills: ${skills.length ? skills.join(' | ') : 'none'}`;
+const skillText = skill => (skill.mastery > 1 ? `${skill.name} (Lv ${skill.mastery})` : skill.name);
+
+// The Skills line holds the skills in use; the ones set aside get a line of their own, only
+// when there are any, so the model knows they exist but not that they are at hand.
+function skillsLines(sheet) {
+    const active = activeSkills(sheet).map(skillText);
+    const aside = (sheet.skills ?? []).filter(skill => skill?.aside).map(skillText);
+    return [`Skills: ${active.length ? active.join(' | ') : 'none'}`, ...(aside.length ? [`Set aside: ${aside.join(' | ')}`] : [])];
 }
 
 function conditionsText(sheet) {
@@ -369,7 +483,7 @@ export function formatCharacter(sheet, rules = DEFAULT_RULES) {
         statsLine(sheet),
         `Checks: ${STATS.map(stat => `${stat} ${signed(checks[stat])}`).join(' | ')}`,
         stateLine(sheet, r),
-        skillsLine(sheet),
+        ...skillsLines(sheet),
         `Conditions: ${conditionsText(sheet)}`,
     ].join('\n');
 }
@@ -390,12 +504,27 @@ export function formatParty(members, rules = DEFAULT_RULES) {
             poolsLine(sheet),
             stateLine(sheet, r),
             statsLine(sheet),
-            skillsLine(sheet),
+            ...skillsLines(sheet),
         ];
         if (sheet.conditions?.length) lines.push(`Conditions: ${conditionsText(sheet)}`);
         if (member.gear?.length) lines.push(`Equipped: ${member.gear.map(formatGearEntry).join(' | ')}`);
         return lines.join('\n');
     }).join('\n\n');
+}
+
+/**
+ * The canonical Party block: the reader's section first (`## Ren (you)` with the Character
+ * block's lines, Checks included, since the Dice block reads them there), then each companion
+ * as formatParty writes them. With no character (being made anew) the section is `## (you)`
+ * with one line, so an older Character block is not read in its place.
+ */
+export function formatPartyBlock(pc, members, rules = DEFAULT_RULES) {
+    const r = rulesOf(rules);
+    const mine = pc
+        ? [`## ${pc.name} (you)`, ...formatCharacter(pc, r).split('\n').filter(line => !/^Name:/.test(line))].join('\n')
+        : '## (you)\nNo character yet.';
+    const companions = formatParty(members ?? [], r);
+    return companions ? `${mine}\n\n${companions}` : mine;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -431,7 +560,7 @@ export function newSheet({ name, stats, skills } = {}, rules = DEFAULT_RULES) {
         hp: { cur: hp, max: hp }, mp: { cur: mp, max: mp },
         stats: base, skills: [], conditions: [], uses: {},
     };
-    for (const skill of skills ?? []) sheet = learnSkill(sheet, typeof skill === 'string' ? skill : skill?.name);
+    for (const skill of skills ?? []) sheet = learnSkill(sheet, typeof skill === 'string' ? skill : skill?.name, { rules: r });
     return sheet;
 }
 
@@ -457,12 +586,47 @@ export function spendPoints(sheet, allocation, rules = DEFAULT_RULES) {
     return next;
 }
 
-/** A skill added at mastery 1; a name already known (any case) changes nothing. */
-export function learnSkill(sheet, name) {
+/**
+ * A skill added at mastery 1; a name already known (any case) changes nothing. At the cap of
+ * skills in use (activeCap) something must sit out: `setAside` names it, an active skill or
+ * the new one itself (kept, set aside); without it the call throws, so the reader is asked.
+ */
+export function learnSkill(sheet, name, { rules = DEFAULT_RULES, setAside = null } = {}) {
     const trimmed = String(name ?? '').trim();
     if (!trimmed) throw new Error('Learn skill: a name is needed.');
     const next = copySheet(sheet);
-    if (!next.skills.some(skill => skillKey(skill.name) === skillKey(trimmed))) next.skills.push({ name: trimmed, mastery: 1 });
+    if (next.skills.some(skill => skillKey(skill.name) === skillKey(trimmed))) return next;
+    const cap = activeCap(rulesOf(rules));
+    if (activeSkills(next).length < cap) {
+        next.skills.push({ name: trimmed, mastery: 1 });
+    } else if (setAside && skillKey(setAside) === skillKey(trimmed)) {
+        next.skills.push({ name: trimmed, mastery: 1, aside: true });
+    } else {
+        const out = next.skills.find(skill => !skill.aside && skillKey(skill.name) === skillKey(setAside));
+        if (!out) throw new Error(`${sheet.name || 'They'} already use ${cap} skills: choose one to set aside.`);
+        out.aside = true;
+        next.skills.push({ name: trimmed, mastery: 1 });
+    }
+    next.skills = activeWithin(next.skills, rules);
+    return next;
+}
+
+/**
+ * A known skill put in use (`active`) or set aside. Setting aside is always allowed; putting
+ * one in use at the cap throws (set another aside first). An unknown name throws.
+ */
+export function setSkillActive(sheet, name, active, rules = DEFAULT_RULES) {
+    const next = copySheet(sheet);
+    const skill = next.skills.find(entry => skillKey(entry.name) === skillKey(name));
+    if (!skill) throw new Error(`${sheet.name || 'They'} do not know ${name}.`);
+    if (active && skill.aside) {
+        const cap = activeCap(rulesOf(rules));
+        if (activeSkills(next).length >= cap) throw new Error(`${sheet.name || 'They'} already use ${cap} skills: set one aside first.`);
+        delete skill.aside;
+    } else if (!active) {
+        skill.aside = true;
+    }
+    next.skills = activeWithin(next.skills, rules);
     return next;
 }
 

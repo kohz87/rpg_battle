@@ -1,4 +1,4 @@
-// RPG Battle's panel under Extensions: the on/off switch, the money, the terms, and the block tags.
+// RPG Battle's panel under Extensions: the on/off switch, the money, the terms, the party, and the block tags.
 //
 // Small on purpose: everything about a character happens in the Battle tab. Money follows the
 // reader's world (DESIGN §8.3): copper/silver/gold, one coin, or their own names and rates.
@@ -6,10 +6,12 @@
 // ("Soul Class I" for levels 1–10…) and the level cap; nothing here knows any world's words.
 // The status area also says when Story Block's own Character Sheet block is on beside RPG
 // Battle's sheet, with a button to turn it off; it is never turned off for the reader.
-// Monsters (DESIGN §7.4): whether a made-up creature gets the story's words from a model
-// call, on the chat's model or a connection profile (picked like Story Director's), and how
-// long that answer may be.
-// Source of truth (Story Suite, docs/STORY_SUITE.md): for each area RPG Battle shares with the
+// Generated words (DESIGN §7.4): whether a made-up creature, and a companion's starting skills
+// (0.4), get the story's words from a model call, on the chat's model or a connection profile
+// (picked like Story Director's), and how long that answer may be.
+// The panel wears the Story Suite look shared by all four extensions (src/suite.css, loaded by
+// the glue; docs/STORY_SUITE.md): switches in the quickbar, each section a fold, each setting a
+// row. Source of truth (Story Suite, docs/STORY_SUITE.md): for each area RPG Battle shares with the
 // other extensions, Automatic, This extension or The other one, with who the story follows now.
 // With two or more of them installed, a "Manage all in Story Suite" link at the top opens Story
 // Block's overlay on RPG Battle's tab (the glue says when it shows and what it opens).
@@ -29,18 +31,25 @@ function el(tag, { className, text, attrs } = {}, children = []) {
 }
 
 function input(id, value, placeholder = '') {
-    const node = el('input', { className: 'text_pole rpg-battle-settings-input', attrs: { id, type: 'text' } });
+    const node = el('input', { className: 'text_pole', attrs: { id, type: 'text' } });
     node.value = value ?? '';
     if (placeholder) node.placeholder = placeholder;
     return node;
 }
 
-function row(label, hint, control, id) {
-    return el('div', { className: 'rpg-battle-settings-row' }, [
-        el('label', { className: 'rpg-battle-settings-label', text: label, attrs: id ? { for: id } : {} }),
-        hint ? el('small', { className: 'rpg-battle-settings-hint', text: hint }) : null,
+// One setting in the Story Suite look (src/suite.css): a label row with the bold name and a
+// small hint (and "Now: …" where there is one) on the left, the control on the right. A
+// checkbox in a row shows as an Enabled/Disabled pill.
+function row(label, hint, control, id, extra = null) {
+    return el('label', { className: 'story-suite-row', attrs: id ? { for: id } : {} }, [
+        el('span', {}, [el('b', { text: label }), hint || extra ? el('small', {}, [hint ? el('span', { className: 'rpg-battle-settings-hint', text: hint }) : null, extra]) : null]),
         control,
     ]);
+}
+
+// A number with its unit beside it.
+function withUnit(control, unit) {
+    return el('span', { className: 'story-suite-number' }, [control, unit ? el('small', { text: unit }) : null]);
 }
 
 /** "copper=1, silver=10, gold=10" ⇄ [{ name, rate }]. */
@@ -65,7 +74,7 @@ const NUMERAL_CHOICES = [
 ];
 
 function numberInput(id, value, { min = 1, max = 999, placeholder = '' } = {}) {
-    const node = el('input', { className: 'text_pole rpg-battle-settings-input rpg-battle-settings-number', attrs: { id, type: 'number', min: String(min), max: String(max), step: '1' } });
+    const node = el('input', { className: 'text_pole', attrs: { id, type: 'number', min: String(min), max: String(max), step: '1' } });
     node.value = value === null || value === undefined ? '' : String(value);
     if (placeholder) node.placeholder = placeholder;
     return node;
@@ -124,9 +133,10 @@ export function foldHints(settings) {
         money: currency.mode === 'single' ? String(currency.single || 'coins') : (currency.tiers ?? []).map(tier => tier.name).join(' / ') || 'coins',
         equipment: `${gear.worn} worn · ${gear.accessories} ${Number(gear.accessories) === 1 ? 'accessory' : 'accessories'}`,
         terms: [terms.levelName || 'Level', terms.xpName || 'XP', terms.tiers ? 'tiers' : '', terms.cap ? `cap ${terms.cap}` : ''].filter(Boolean).join(' · '),
-        monsters: current.flavour?.enabled === false ? 'Flavour off' : 'Flavour on',
+        monsters: current.flavour?.enabled === false ? 'Model calls off' : 'Model calls on',
+        party: `${Number(current.activeSkills) || 6} active skills · ${current.autoSpend === false ? 'points by hand' : 'auto-spend'}`,
         truth: chosen ? `${chosen} chosen by hand` : 'Automatic',
-        blocks: [current.characterTag || 'Character', current.partyTag || 'Party', current.inventoryTag || 'Inventory'].join(' · '),
+        blocks: [current.partyTag || 'Party', current.inventoryTag || 'Inventory'].join(' · '),
     };
 }
 
@@ -144,10 +154,10 @@ export function renderSettings(container, { settings, version = '', status = '',
     };
     const open = foldsOpen();
     const fold = (key, title, children) => {
-        hintNodes[key] = el('small', { className: 'rpg-battle-settings-fold-hint' });
-        const node = el('details', { className: `rpg-battle-settings-fold is-${key}` }, [
-            el('summary', { className: 'rpg-battle-settings-fold-head' }, [el('span', { className: 'rpg-battle-settings-fold-title', text: title }), hintNodes[key]]),
-            ...children,
+        hintNodes[key] = el('small');
+        const node = el('details', { className: 'story-suite-fold' }, [
+            el('summary', {}, [el('b', { text: title }), hintNodes[key]]),
+            el('div', { className: 'story-suite-fold-body' }, children),
         ]);
         node.dataset.fold = key;
         node.open = open[key] === true;
@@ -159,7 +169,7 @@ export function renderSettings(container, { settings, version = '', status = '',
     enabled.checked = current.enabled !== false;
     enabled.addEventListener('change', () => commit(next => { next.enabled = enabled.checked; }));
 
-    const mode = el('select', { className: 'text_pole rpg-battle-settings-input', attrs: { id: 'rpg_battle_currency_mode' } },
+    const mode = el('select', { className: 'text_pole', attrs: { id: 'rpg_battle_currency_mode' } },
         CURRENCY_MODES.map(option => {
             const node = el('option', { text: option.label });
             node.value = option.value;
@@ -195,7 +205,7 @@ export function renderSettings(container, { settings, version = '', status = '',
     const tiersOn = el('input', { attrs: { id: 'rpg_battle_terms_tiers', type: 'checkbox' } });
     tiersOn.checked = Boolean(terms.tiers);
     const tierSize = numberInput('rpg_battle_terms_tier_size', terms.tiers?.size ?? 10, { min: 1, max: 100 });
-    const numerals = el('select', { className: 'text_pole rpg-battle-settings-input', attrs: { id: 'rpg_battle_terms_numerals' } },
+    const numerals = el('select', { className: 'text_pole', attrs: { id: 'rpg_battle_terms_numerals' } },
         NUMERAL_CHOICES.map(choice => {
             const node = el('option', { text: choice.label });
             node.value = choice.value;
@@ -204,7 +214,7 @@ export function renderSettings(container, { settings, version = '', status = '',
     numerals.value = terms.tiers?.numerals === 'arabic' ? 'arabic' : 'roman';
     const cap = numberInput('rpg_battle_terms_cap', terms.cap, { min: 1, max: 999, placeholder: '99' });
     const tierRows = el('div', { className: 'rpg-battle-settings-tiers' }, [
-        row('Levels per tier', 'Levels 1 to this are tier I, the next as many tier II…', tierSize, 'rpg_battle_terms_tier_size'),
+        row('Levels per tier', 'Levels 1 to this are tier I, the next as many tier II…', withUnit(tierSize, 'levels'), 'rpg_battle_terms_tier_size'),
         row('Numerals', '', numerals, 'rpg_battle_terms_numerals'),
     ]);
     const tiersValue = () => (tiersOn.checked
@@ -247,6 +257,18 @@ export function renderSettings(container, { settings, version = '', status = '',
     const wornCount = gearInput('rpg_battle_gear_worn', 'worn', 1);
     const accessoryCount = gearInput('rpg_battle_gear_accessories', 'accessories', 2);
 
+    // Party (0.4): how many skills a member fights with, and whether companions on auto spend
+    // the points a level gives them.
+    const activeSkills = numberInput('rpg_battle_active_skills', current.activeSkills ?? 6, { min: 3, max: 12 });
+    activeSkills.addEventListener('change', () => {
+        const value = wholeOrNull(activeSkills.value, 3, 12) ?? 6;
+        activeSkills.value = String(value);
+        commit(next => { next.activeSkills = value; });
+    });
+    const autoSpend = el('input', { attrs: { id: 'rpg_battle_auto_spend', type: 'checkbox' } });
+    autoSpend.checked = current.autoSpend !== false;
+    autoSpend.addEventListener('change', () => commit(next => { next.autoSpend = autoSpend.checked; }));
+
     const recover = el('input', { attrs: { id: 'rpg_battle_recover', type: 'checkbox' } });
     recover.checked = current.recoverWithTime !== false;
     recover.addEventListener('change', () => commit(next => { next.recoverWithTime = recover.checked; }));
@@ -259,7 +281,7 @@ export function renderSettings(container, { settings, version = '', status = '',
     const profileChoices = [{ value: '', label: 'Same as chat' }, ...(profiles ?? []).map(profile => ({ value: String(profile.id), label: String(profile.name ?? profile.id) }))];
     const chosen = flavourSetting.model?.source === 'profile' ? String(flavourSetting.model.profileId ?? '') : '';
     if (chosen && !profileChoices.some(choice => choice.value === chosen)) profileChoices.push({ value: chosen, label: '(missing profile)' });
-    const flavourModel = el('select', { className: 'text_pole rpg-battle-settings-input', attrs: { id: 'rpg_battle_flavour_model' } },
+    const flavourModel = el('select', { className: 'text_pole', attrs: { id: 'rpg_battle_flavour_model' } },
         profileChoices.map(choice => {
             const node = el('option', { text: choice.label });
             node.value = choice.value;
@@ -286,10 +308,11 @@ export function renderSettings(container, { settings, version = '', status = '',
     // Source of truth: one select per shared area, and who the story follows now (from the glue).
     const truth = { stats: 'auto', rolls: 'auto', items: 'auto', ...(current.sourceOfTruth ?? {}) };
     const nowLabels = {};
+    const dots = {};
     const truthSelects = {};
     const truthRows = TRUTH_AREAS.map(({ area, label, hint }) => {
         const id = `rpg_battle_truth_${area}`;
-        const select = el('select', { className: 'text_pole rpg-battle-settings-input', attrs: { id } },
+        const select = el('select', { className: 'text_pole', attrs: { id } },
             TRUTH_OPTIONS.map(option => {
                 const node = el('option', { text: option.label });
                 node.value = option.value;
@@ -298,13 +321,18 @@ export function renderSettings(container, { settings, version = '', status = '',
         select.value = TRUTH_OPTIONS.some(option => option.value === truth[area]) ? truth[area] : 'auto';
         truthSelects[area] = select;
         select.addEventListener('change', () => commit(next => { next.sourceOfTruth = { ...truth, ...(next.sourceOfTruth ?? {}), [area]: select.value }; }));
-        nowLabels[area] = el('small', { className: 'rpg-battle-settings-hint rpg-battle-settings-source', text: sourceText(sources?.[area]) });
-        const line = row(label, hint, select, id);
-        line.append(nowLabels[area]);
-        return line;
+        nowLabels[area] = el('span', { className: 'rpg-battle-settings-source', text: sourceText(sources?.[area]) });
+        // "hint · Now: …", the dot only while there is a "Now".
+        const dot = el('span', { className: 'rpg-battle-settings-dot', text: ' · ' });
+        dot.hidden = !nowLabels[area].textContent;
+        dots[area] = dot;
+        return row(label, hint, select, id, el('span', {}, [dot, nowLabels[area]]));
     });
     const setSources = next => {
-        for (const { area } of TRUTH_AREAS) nowLabels[area].textContent = sourceText(next?.[area]);
+        for (const { area } of TRUTH_AREAS) {
+            nowLabels[area].textContent = sourceText(next?.[area]);
+            dots[area].hidden = !nowLabels[area].textContent;
+        }
     };
 
     const tag = (id, key, label, hint) => {
@@ -317,67 +345,75 @@ export function renderSettings(container, { settings, version = '', status = '',
 
     const turnOff = el('button', { className: 'menu_button rpg-battle-settings-sheet-off', text: 'Turn it off', attrs: { type: 'button' } });
     turnOff.addEventListener('click', () => onDisableSheet?.());
-    const conflict = el('div', { className: 'rpg-battle-settings-status rpg-battle-settings-conflict' }, [
+    const conflict = el('div', { className: 'story-suite-notice rpg-battle-settings-conflict' }, [
         el('span', { text: CONFLICT_TEXT }),
         turnOff,
     ]);
     conflict.hidden = !sheetConflict;
 
-    const openSuite = el('button', { className: 'menu_button rpg-battle-settings-suite-open', attrs: { type: 'button' } }, [
-        el('i', { className: 'fa-solid fa-gear' }),
+    const openSuite = el('button', { className: 'menu_button', attrs: { type: 'button' } }, [
+        el('i', { className: 'fa-solid fa-layer-group' }),
         el('span', { text: 'Manage all in Story Suite' }),
     ]);
     openSuite.addEventListener('click', () => onOpenSuite?.());
     // data-story-suite-link: Story Block's overlay hides the line while the panel sits inside it.
-    const suite = el('div', { className: 'rpg-battle-settings-suite', attrs: { 'data-story-suite-link': '' } }, [openSuite]);
+    const suite = el('div', { className: 'story-suite-manage', attrs: { 'data-story-suite-link': '' } }, [openSuite]);
     suite.hidden = !suiteLink;
 
+    const muted = text => el('p', { className: 'story-suite-muted', text });
     const root = el('div', { className: 'rpg-battle-settings' }, [
         el('div', { className: 'inline-drawer' }, [
             el('div', { className: 'inline-drawer-toggle inline-drawer-header' }, [
                 el('b', {}, [globalThis.document.createTextNode('RPG Battle'), version ? el('span', { className: 'rpg-battle-version', text: ` ${version}` }) : null]),
                 el('div', { className: 'inline-drawer-icon fa-solid fa-circle-chevron-down down' }),
             ]),
-            el('div', { className: 'inline-drawer-content' }, [
+            el('div', { className: 'inline-drawer-content story-suite-panel' }, [
                 suite,
-                status ? el('div', { className: 'rpg-battle-settings-status', text: status }) : null,
+                status ? el('div', { className: 'story-suite-notice rpg-battle-settings-status', text: status }) : null,
                 conflict,
-                el('label', { className: 'checkbox_label', attrs: { for: 'rpg_battle_enabled' } }, [enabled, el('span', { text: 'Battles on (the Battle tab in Story Block)' })]),
-                el('label', { className: 'checkbox_label', attrs: { for: 'rpg_battle_recover' } }, [recover, el('span', { text: 'Recover HP and MP as story time passes (needs Story Director)' })]),
-                fold('money', 'Money', [
-                    row('Currency', 'Loot is written in it.', mode, 'rpg_battle_currency_mode'),
-                    tiersRow,
-                    singleRow,
-                    row('Inventory row', 'The Inventory row that holds your money.', moneyRow, 'rpg_battle_currency_row'),
+                el('div', { className: 'story-suite-quickbar' }, [
+                    row('Battles on', 'The Party and Battle tabs in Story Block.', enabled, 'rpg_battle_enabled'),
+                    row('Recover over time', 'HP and MP come back as story time passes (needs Story Director).', recover, 'rpg_battle_recover'),
                 ]),
-                fold('equipment', 'Equipment', [
-                    el('small', { className: 'rpg-battle-settings-hint', text: 'A fight uses one weapon, one off-hand (none with a two-handed weapon) and one armour, plus these. Anything else marked equipped is listed under Gear in the Battle tab as not counted.' }),
-                    row('Worn pieces', 'Helm, gloves, boots, belt…', wornCount, 'rpg_battle_gear_worn'),
-                    row('Accessories', 'Rings, amulets, charms…', accessoryCount, 'rpg_battle_gear_accessories'),
-                ]),
-                fold('terms', 'Terms', [
-                    el('small', { className: 'rpg-battle-settings-hint', text: 'What your world calls levels and XP. The sheets, the Battle tab and the fight summaries use these words; the numbers stay the same.' }),
-                    row('Level name', 'For example Rank, Circle or Soul Class. Empty: Level.', levelName, 'rpg_battle_terms_level'),
-                    row('XP name', 'For example Experience or Soul Growth. Empty: XP.', xpName, 'rpg_battle_terms_xp'),
-                    el('label', { className: 'checkbox_label', attrs: { for: 'rpg_battle_terms_tiers' } }, [tiersOn, el('span', { text: 'Tier titles (Level I for levels 1–10, Level II for 11–20…)' })]),
-                    tierRows,
-                    row('Level cap', 'The highest level. Empty: 99.', cap, 'rpg_battle_terms_cap'),
-                ]),
-                fold('monsters', 'Monsters', [
-                    el('small', { className: 'rpg-battle-settings-hint', text: 'A foe the bestiary does not know is made up from its name when its fight starts, and kept for this story. Flavour asks the model once per new creature for its look, traits and the names of its skills and loot; code still sets every number.' }),
-                    el('label', { className: 'checkbox_label', attrs: { for: 'rpg_battle_flavour' } }, [flavourOn, el('span', { text: 'Flavour new creatures with a model call (a few seconds before the fight)' })]),
-                    row('Model', profiles === null ? 'Connection Manager is off, so the chat\'s own connection is used.' : 'A connection profile has its own API and model; a small, fast one is enough.', flavourModel, 'rpg_battle_flavour_model'),
-                    row('Answer length', 'Most tokens one answer may use.', flavourTokens, 'rpg_battle_flavour_tokens'),
-                ]),
-                fold('truth', 'Source of truth', [
-                    el('small', { className: 'rpg-battle-settings-hint', text: 'With Story Block, Story Director or NPC State Delta beside RPG Battle, who the story follows for each area they share. Automatic: the specialist for it. Alone, every choice works like Automatic.' }),
-                    ...truthRows,
-                ]),
-                fold('blocks', 'Blocks', [
-                    tag('rpg_battle_character_tag', 'characterTag', 'Character tag', 'The kept block with your sheet.'),
-                    tag('rpg_battle_party_tag', 'partyTag', 'Party tag', 'The kept block with your companions.'),
-                    tag('rpg_battle_inventory_tag', 'inventoryTag', 'Inventory tag', 'Your Story Block inventory (equipment, consumables, loot).'),
-                    row('Return to story', 'Sent for you after a fight so the narration comes straight away. Empty: send nothing.', returnMessage, 'rpg_battle_return'),
+                el('div', { className: 'story-suite-folds' }, [
+                    fold('money', 'Money', [
+                        row('Currency', 'Loot is written in it.', mode, 'rpg_battle_currency_mode'),
+                        tiersRow,
+                        singleRow,
+                        row('Inventory row', 'The Inventory row that holds your money.', moneyRow, 'rpg_battle_currency_row'),
+                    ]),
+                    fold('equipment', 'Equipment', [
+                        muted('A fight uses one weapon, one off-hand (none with a two-handed weapon) and one armour, plus these. Anything else marked equipped is listed under Gear on its card as not counted.'),
+                        row('Worn pieces', 'Helm, gloves, boots, belt…', withUnit(wornCount, 'count'), 'rpg_battle_gear_worn'),
+                        row('Accessories', 'Rings, amulets, charms…', withUnit(accessoryCount, 'count'), 'rpg_battle_gear_accessories'),
+                    ]),
+                    fold('terms', 'Terms', [
+                        muted('What your world calls levels and XP. The sheets, the Party and Battle tabs and the fight summaries use these words; the numbers stay the same.'),
+                        row('Level name', 'For example Rank, Circle or Soul Class. Empty: Level.', levelName, 'rpg_battle_terms_level'),
+                        row('XP name', 'For example Experience or Soul Growth. Empty: XP.', xpName, 'rpg_battle_terms_xp'),
+                        row('Tier titles', 'Level I for levels 1–10, Level II for 11–20…', tiersOn, 'rpg_battle_terms_tiers'),
+                        tierRows,
+                        row('Level cap', 'The highest level. Empty: 99.', withUnit(cap, 'level'), 'rpg_battle_terms_cap'),
+                    ]),
+                    fold('monsters', 'Generated words', [
+                        muted('A foe the bestiary does not know is made up from its name when its fight starts, and kept for this story; a companion who joins starts with skills that fit who they are. One short model call each gives the words (a creature\'s look, traits, skill and loot names; a companion\'s skills); code still sets every number. Off, or when a call fails: templates and library skills.'),
+                        row('Model calls', 'New creatures before their fight, a new companion\'s skills.', flavourOn, 'rpg_battle_flavour'),
+                        row('Model', profiles === null ? 'Connection Manager is off, so the chat\'s own connection is used.' : 'A connection profile has its own API and model; a small, fast one is enough.', flavourModel, 'rpg_battle_flavour_model'),
+                        row('Answer length', 'Most tokens one answer may use.', withUnit(flavourTokens, 'tokens'), 'rpg_battle_flavour_tokens'),
+                    ]),
+                    fold('party', 'Party', [
+                        row('Active skills', 'Skills each member fights with (3 to 12). More are kept, set aside, and swapped in on their card.', withUnit(activeSkills, 'skills'), 'rpg_battle_active_skills'),
+                        row('Spend companions\' points automatically', 'Companions on auto, in their build\'s proportions; off: every companion keeps points for Spend.', autoSpend, 'rpg_battle_auto_spend'),
+                    ]),
+                    fold('truth', 'Source of truth', [
+                        muted('With Story Block, Story Director or NPC State Delta beside RPG Battle, who the story follows for each area they share. Automatic: the specialist for it. Alone, every choice works like Automatic.'),
+                        ...truthRows,
+                    ]),
+                    fold('blocks', 'Blocks', [
+                        tag('rpg_battle_party_tag', 'partyTag', 'Party tag', 'The kept block with your character and companions.'),
+                        tag('rpg_battle_inventory_tag', 'inventoryTag', 'Inventory tag', 'Your Story Block inventory (equipment, consumables, loot).'),
+                        row('Return to story', 'Sent for you after a fight so the narration comes straight away. Empty: send nothing.', returnMessage, 'rpg_battle_return'),
+                    ]),
                 ]),
             ]),
         ]),
@@ -409,7 +445,7 @@ export function renderSettings(container, { settings, version = '', status = '',
             enabled.checked = Boolean(on);
             current.enabled = Boolean(on);
         },
-        /** Show or hide the "Manage all in Story Suite" link (the glue checks it on every suite change). */
+        /** Show or hide the "Manage all in Story Suite" line (the glue checks it on every suite change). */
         setSuiteLink(on) { suite.hidden = !on; },
     };
 }

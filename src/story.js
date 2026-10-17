@@ -15,20 +15,21 @@
 // into a level from the party's own, so the model judges the danger and code sets the number.
 // A power written outright (a rank, a level, a tier in the reader's terms) wins over it. Pure.
 
-import { DEFAULT_RULES, RANKS } from './rules.js';
+import { DEFAULT_RULES, RANKS, STATS } from './rules.js';
 import { DEFAULT_BESTIARY, findCreature } from './enemies.js';
-import { parseLevelLabel, termsOf } from './terms.js';
+import { maxLevel, parseLevelLabel, termsOf } from './terms.js';
 import { creatureSingular } from './templates.js';
 
 /**
- * What the model is told every reply while a Character block exists (index.js injects it at
- * depth 1, apart from the fight hand-off). It is paid for on every reply, so it stays near 100
- * tokens (tests/story.test.js holds it there): the two tags, their grammar by example, and
- * the two judgement calls, which wound word and which threat word. "Stop at the first blow"
- * leaves the fight itself to RPG Battle, so the prose does not resolve what the buttons are
- * about to.
+ * What the model is told every reply while you have a character (index.js injects it at
+ * depth 1, apart from the fight hand-off). It is paid for on every reply, so it stays near 170
+ * tokens (tests/story.test.js holds it there): the hidden blocks by example, each only when
+ * the story makes it true, and the judgement calls (which wound word, which threat word, how
+ * big an achievement). "Stop at the first blow" leaves the fight itself to RPG Battle, so the
+ * prose does not resolve what the buttons are about to. Every block is only an offer: the
+ * reader accepts it or not.
  */
-export const STORY_INSTRUCTION = 'If the story (not an RPG Battle fight) hurts or heals someone on the Character or Party sheet, add <Wounds>, a line each: Name — scratch|wound|severe|grievous: cause (or heal wound, or poisoned). Mildest fitting word; severe/grievous only for crippling blows. If a fight starts, add <Encounter>3 wolf (weak), wolf matriarch (boss, strong)</Encounter> (threat vs party: trivial|weak|even|strong|deadly) and stop at the first blow.';
+export const STORY_INSTRUCTION = 'Hidden blocks, only when the story makes them true (not for an RPG Battle fight). Someone on the Party sheet hurt or healed: <Wounds>, a line each, Name — scratch|wound|severe|grievous: cause (or heal wound, or poisoned; mildest fitting word). A fight starts: <Encounter>3 wolf (weak); then: wolf matriarch (boss, strong)</Encounter> (threat vs party: trivial|weak|even|strong|deadly), then stop at the first blow. Also: <Joins>Lyra — healer, level 6</Joins>, <Leaves>Lyra: went home</Leaves>, <Learned>Lyra — Frost Lance: ice magic, hits all</Learned>, <XP>minor|major|milestone: why</XP>, <Rest>short|long: why</Rest> when the party rests.';
 
 // Mildest first, so "the worst word mentioned" is the one with the highest index.
 export const SEVERITIES = Object.freeze(['scratch', 'wound', 'severe', 'grievous']);
@@ -161,8 +162,8 @@ function sameCondition(a, b) {
     return x === y || (x.length >= 3 && y.length >= 3 && (x.startsWith(y) || y.startsWith(x)));
 }
 
-/** The person a written name means: the full name first, then the first name; the Character before the Party. */
-function findTarget(targets, name) {
+/** The person a written name means: the full name first, then the first name; your character before the companions. */
+export function findTarget(targets, name) {
     const wanted = nameKey(name);
     if (!wanted) return null;
     return targets.find(target => nameKey(target.name) === wanted)
@@ -255,6 +256,8 @@ const LEADING_THREATS = new Set(['trivial', 'feeble', 'puny', 'weak', 'easy', 'm
 
 const NUMBER_WORDS = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, several: 3, few: 3, pair: 2, couple: 2 };
 const MAX_COUNT = 9;
+// Engagements after the first (`then:`), each fought when the one before is done.
+const MAX_WAVES = 3;
 const nameMatch = (a, b) => nameKey(a).replace(/[^a-z0-9]+/g, ' ').trim() === nameKey(b).replace(/[^a-z0-9]+/g, ' ').trim();
 
 // A plural's last word in its likely singular forms, most likely first.
@@ -366,13 +369,24 @@ function parseGroup(raw, bestiary, rules) {
  * (boss, Soul Class II)", "(level 12)") adds `level` to the row (only then). A threat word in
  * brackets or before the name ("(weak)", "(boss, strong)", "3 deadly wyverns") adds `threat`
  * ('trivial' | 'weak' | 'even' | 'strong' | 'deadly'), only when no rank or level is written.
+ * `then:` before a group starts the next engagement ("3 bandit; then: bandit captain (boss)"):
+ * its rows and the ones after carry `wave` (1, 2, at most 3), fought back to back.
  */
 export function parseEncounter(text, bestiary = DEFAULT_BESTIARY, rules = DEFAULT_RULES) {
     const rows = [];
     // "(boss, rank D)" is one group's note, so separators inside brackets are kept for it.
     const guarded = String(text ?? '').replace(/[([][^)\]]*[)\]]/g, inside => inside.replace(/[,;]/g, '\u0001'));
-    for (const group of guarded.split(/\r?\n|[,;]|\s+(?:and|&|\+)\s+/i)) {
+    let wave = 0;
+    for (const raw of guarded.split(/\r?\n|[,;]|\s+(?:and|&|\+)\s+/i)) {
+        // "then:" starts the next engagement, fought straight after this one.
+        let group = raw;
+        const then = group.match(/^\s*(?:[-*•]\s*)?(?:and\s+)?then\b\s*:?\s*/i);
+        if (then) {
+            wave = Math.min(MAX_WAVES, wave + 1);
+            group = group.slice(then[0].length);
+        }
         const row = parseGroup(group.replace(/\u0001/g, ','), bestiary ?? DEFAULT_BESTIARY, rules ?? DEFAULT_RULES);
+        if (row && wave) row.wave = wave;
         if (row) rows.push(row);
     }
     return rows;
@@ -403,4 +417,199 @@ export function resolveThreats(rows, partyLevel, rules = DEFAULT_RULES) {
         const level = threatLevel(row.threat, partyLevel, rules);
         return level === null ? row : { ...row, level };
     });
+}
+
+// ---------------------------------------------------------------------------
+// The party's story (0.4): who joins or leaves, what someone learns, an achievement, a rest.
+// Each line becomes an offer the reader accepts or not (index.js); nothing here applies it.
+
+const SKILL_TYPES = ['physical', 'magic', 'heal', 'buff', 'debuff'];
+const SKILL_TARGETS = ['one', 'all', 'self', 'ally', 'allies'];
+// What a skill's words or an `effect:` hint name, as the template's element (skills.ELEMENTS).
+const EFFECT_ELEMENTS = [
+    [/\b(?:fire|flames?|burn(?:s|ing)?|blaze|ember|inferno)\b/, 'fire'],
+    [/\b(?:ice|icy|frost|cold|freez\w*|slow(?:s|ing)?|chill\w*)\b/, 'ice'],
+    [/\b(?:lightning|thunder\w*|shock\w*|storm|stun(?:s|ning)?|daze\w*)\b/, 'lightning'],
+    [/\b(?:poison\w*|venom\w*|toxic|toxin)\b/, 'poison'],
+];
+const XP_KINDS = ['minor', 'major', 'milestone'];
+const MAX_ROLE = 30;
+const MAX_SKILL_NAME = 40;
+const MAX_WORDS = 120;
+const HINT_KEYS = /\b(type|stat|target|effect|element|focus|level|skills?|role)\s*:/gi;
+
+const lineList = text => String(text ?? '').split(/\r?\n/).map(raw => clean(stripBullet(raw))).filter(line => line && !isTagLine(line));
+const splitDash = line => line.match(/^(.+?)\s*(?:[—–]|--|\s-)\s*(.+)$/);
+const tidyName = (text, max = 40) => clean(text).replace(/^[\s"'“”‘’]+|[\s"'“”‘’:,.]+$/g, '').slice(0, max).trim();
+
+/**
+ * Optional hints after a bar: "type: physical, stat: AGI, target: one, effect: stun",
+ * "focus: INT, VIT", "level: 3", "skills: Frost Lance, Mend". Only known keys and, for type,
+ * stat, target and effect, known words; anything else is dropped.
+ * { type?, stat?, target?, element?, focus?: [stats], level?: number, skills?: [names], role? }
+ */
+export function parseHints(text) {
+    const source = clean(text).replace(/\|/g, ',');
+    const marks = [...source.matchAll(HINT_KEYS)];
+    const hints = {};
+    marks.forEach((mark, index) => {
+        const key = mark[1].toLowerCase();
+        const value = source.slice(mark.index + mark[0].length, marks[index + 1]?.index ?? source.length).replace(/^[\s,;]+|[\s,;.]+$/g, '');
+        const words = value.split(/[\s,;/]+/).filter(Boolean);
+        if (key === 'type') {
+            const type = words.map(word => word.toLowerCase()).find(word => SKILL_TYPES.includes(word));
+            if (type) hints.type = type;
+        } else if (key === 'stat') {
+            const stat = words.map(word => word.toUpperCase()).find(word => STATS.includes(word));
+            if (stat) hints.stat = stat;
+        } else if (key === 'target') {
+            const target = words.map(word => word.toLowerCase()).find(word => SKILL_TARGETS.includes(word));
+            if (target) hints.target = target;
+        } else if (key === 'effect' || key === 'element') {
+            const element = EFFECT_ELEMENTS.find(([pattern]) => pattern.test(value.toLowerCase()))?.[1];
+            if (element) hints.element = element;
+        } else if (key === 'focus') {
+            const focus = [...new Set(words.map(word => word.toUpperCase()).filter(word => STATS.includes(word)))].slice(0, 3);
+            if (focus.length) hints.focus = focus;
+        } else if (key === 'level') {
+            const level = Number(value.match(/\d+/)?.[0]);
+            if (level >= 1) hints.level = level;
+        } else if (key === 'skills' || key === 'skill') {
+            const skills = value.split(/\s*[,;]\s*/).map(name => tidyName(name, MAX_SKILL_NAME)).filter(Boolean).slice(0, 3);
+            if (skills.length) hints.skills = skills;
+        } else if (key === 'role') {
+            const role = tidyName(value, MAX_ROLE);
+            if (role) hints.role = role;
+        }
+    });
+    return hints;
+}
+
+/** "head | hints" → [head, hints]: the first bar starts the hints. */
+function withHints(line) {
+    const at = line.indexOf('|');
+    return at < 0 ? [line, {}] : [line.slice(0, at).trim(), parseHints(line.slice(at + 1))];
+}
+
+/**
+ * <Joins> lines: `Lyra — healer, level 6 | focus: INT, VIT | skills: Frost Lance, Mend` →
+ * [{ name, role, level: number | null, focus: [stats], skills: [names], line }]. The level may be
+ * written in the reader's terms ("Soul Class II"), as "level 6", "Lv 6" or a bare number; the
+ * hints' level and focus win; the role is whatever else follows the name. Never throws.
+ */
+export function parseJoins(text, rules = DEFAULT_RULES) {
+    const out = [];
+    for (const line of lineList(text)) {
+        const [head, hints] = withHints(line);
+        const parts = splitDash(head);
+        const name = tidyName(parts ? parts[1] : head.split(/[,:]/)[0]);
+        if (!name || NOTHING.test(name.toLowerCase())) continue;
+        let level = null;
+        const role = [];
+        for (const part of (parts ? parts[2] : head.slice(head.split(/[,:]/)[0].length)).split(/\s*[,;:]\s*/).map(clean).filter(Boolean)) {
+            const written = parseLevelLabel(part, rules, { strict: true }) ?? (/^(?:lv\.?|level)?\s*\d+$/i.test(part) ? Number(part.match(/\d+/)[0]) : null);
+            if (written !== null && level === null) level = written;
+            else role.push(part);
+        }
+        const cap = maxLevel(rules);
+        const pick = hints.level ?? level;
+        out.push({
+            name,
+            role: tidyName(hints.role ?? role.join(', '), MAX_ROLE),
+            level: pick ? Math.min(cap, Math.max(1, Math.round(pick))) : null,
+            focus: hints.focus ?? [],
+            skills: hints.skills ?? [],
+            line,
+        });
+    }
+    return out;
+}
+
+/** <Leaves> lines: `Lyra: returned to her village` (or a dash) → [{ name, reason, line }]. */
+export function parseLeaves(text) {
+    const out = [];
+    for (const line of lineList(text)) {
+        const colon = line.indexOf(':');
+        const dash = splitDash(line);
+        const [name, reason] = colon >= 0 && (!dash || colon < dash[1].length) ? [line.slice(0, colon), line.slice(colon + 1)] : dash ? [dash[1], dash[2]] : [line, ''];
+        const who = tidyName(name);
+        if (who && !NOTHING.test(who.toLowerCase())) out.push({ name: who, reason: tidyCause(reason), line });
+    }
+    return out;
+}
+
+/**
+ * <Learned> lines: `Lyra — Frost Lance: ice magic, hits all | type: magic, stat: INT` (or
+ * `You — …`) → [{ name, skill, words, hints, line }]. The hints are parseHints'.
+ */
+export function parseLearned(text) {
+    const out = [];
+    for (const line of lineList(text)) {
+        const [head, hints] = withHints(line);
+        const parts = splitDash(head);
+        if (!parts) continue;
+        const colon = parts[2].indexOf(':');
+        const skill = tidyName(colon >= 0 ? parts[2].slice(0, colon) : parts[2], MAX_SKILL_NAME);
+        const name = tidyName(parts[1]);
+        if (!name || !skill) continue;
+        out.push({ name, skill, words: colon >= 0 ? clean(parts[2].slice(colon + 1)).slice(0, MAX_WORDS) : '', hints, line });
+    }
+    return out;
+}
+
+/**
+ * A story-taught skill's template guessed from its words, the hints first: { type, stat,
+ * target, element } (element 'none' or one of skills.ELEMENTS). Heal, guard and curse words set
+ * the type, magic and element words make it magic, "all", "every", "area" a wide target; code
+ * still sets every number (skills.skillFromTemplate).
+ */
+export function guessSkill(words, hints = {}) {
+    const text = ` ${clean(words).toLowerCase()} ${clean(hints.name ?? '').toLowerCase()} `;
+    const has = pattern => pattern.test(text);
+    let type = hints.type;
+    if (!type) {
+        if (has(/\b(?:heal\w*|mend\w*|cure\w*|restor\w*|revive\w*|regenerat\w*|soothe\w*)\b/)) type = 'heal';
+        else if (has(/\b(?:shield\w*|ward\w*|guard\w*|protect\w*|bless\w*|barrier|haste|inspir\w*|fortif\w*|buff)\b/)) type = 'buff';
+        else if (has(/\b(?:curse\w*|hex\w*|weaken\w*|debuff|fear|terrif\w*|intimidat\w*|blind\w*)\b/)) type = 'debuff';
+        else if (has(/\b(?:magic\w*|spell|arcane|fire|flames?|ice|frost|lightning|thunder|shadow|holy|light|dark|psychic)\b/)) type = 'magic';
+        else type = 'physical';
+    }
+    const element = hints.element ?? (type === 'physical' || type === 'magic' ? EFFECT_ELEMENTS.find(([pattern]) => has(pattern))?.[1] ?? 'none' : 'none');
+    const wide = has(/\b(?:all|every\w*|area|wave|sweep\w*|whole|crowd|enemies|foes|party|allies)\b/);
+    let target = hints.target;
+    if (!target) {
+        if (type === 'heal') target = wide ? 'allies' : has(/\b(?:self|own|oneself|herself|himself|themselves)\b/) ? 'self' : 'ally';
+        else if (type === 'buff') target = wide ? 'allies' : has(/\b(?:ally|friend|another|other)\b/) ? 'ally' : 'self';
+        else target = wide ? 'all' : 'one';
+    }
+    let stat = hints.stat;
+    if (!stat) {
+        if (type === 'physical') stat = has(/\b(?:arrow\w*|shot|shoot\w*|bow|throw\w*|dagger\w*|knife|knives|quick|dash\w*|precise|aim\w*|stealth\w*|backstab)\b/) ? 'DEX' : 'STR';
+        else stat = 'INT';
+    }
+    return { type, stat, target, element };
+}
+
+/** <XP> lines: `major: rescued the caravan` → [{ kind: 'minor' | 'major' | 'milestone', reason, line }]. */
+export function parseXp(text) {
+    const out = [];
+    for (const line of lineList(text)) {
+        const match = line.match(/^(minor|major|milestone)\b\s*[:—–-]?\s*(.*)$/i);
+        if (match && XP_KINDS.includes(match[1].toLowerCase())) out.push({ kind: match[1].toLowerCase(), reason: tidyCause(match[2]), line });
+    }
+    return out;
+}
+
+/** <Rest> lines: `long: slept at the inn` → [{ kind: 'short' | 'long', reason, line }] (the first counts). */
+export function parseRest(text) {
+    for (const line of lineList(text)) {
+        const match = line.match(/^(short|long)\b(?:\s+rest)?\s*[:—–-]?\s*(.*)$/i);
+        if (match) return [{ kind: match[1].toLowerCase(), reason: tidyCause(match[2]), line }];
+    }
+    return [];
+}
+
+/** "You", "me", "myself" (and the like) in a line: your character, whatever they are called. */
+export function meansYou(name) {
+    return /^(?:you|me|myself|yourself|the player|player|pc)$/i.test(clean(name));
 }

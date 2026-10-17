@@ -1,5 +1,5 @@
 /*
- * RPG Battle: the "Battle" tab in Story Block's sidebar (src/ui/tab.js).
+ * RPG Battle: the Party and Battle tabs in Story Block's sidebar (src/ui/tab.js).
  *
  * Drawn like Story Director's tab so the panel reads as one: quiet small-caps section
  * labels with an icon, hairlines between records, labelled rows, SillyTavern's
@@ -1405,155 +1405,134 @@
     }
 }
 
-/* The settings panel under Extensions. */
-.rpg-battle-settings .rpg-battle-settings-row {
+/* The settings panel under Extensions wears the Story Suite look (src/suite.css, shared by the
+ * four extensions); only what is RPG Battle's own is here. */
+.rpg-battle-settings .rpg-battle-version {
+    opacity: 0.6;
+    font-weight: 400;
+}
+
+/* ---------------------------------------------------------------------------
+ * 0.4: the Party tab's cards, the story's offers, the companion's kit.
+ */
+
+.rpg-battle-tab .rpg-battle-member-cards {
     display: flex;
     flex-direction: column;
-    gap: 0.15rem;
-    margin: 0.45rem 0;
+    gap: 0.5rem;
 }
 
-.rpg-battle-settings .rpg-battle-settings-label {
-    font-weight: 600;
-    font-size: 0.9em;
-}
-
-.rpg-battle-settings .rpg-battle-settings-hint {
-    opacity: 0.7;
-}
-
-.rpg-battle-settings .rpg-battle-settings-input {
-    width: 100%;
-    margin: 0;
-}
-
-.rpg-battle-settings .rpg-battle-settings-head {
-    margin: 0.75rem 0 0.25rem;
-    font-size: 0.75em;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    opacity: 0.65;
-}
-
-.rpg-battle-settings .rpg-battle-settings-status {
-    margin: 0.35rem 0;
-    color: var(--SmartThemeQuoteColor, #e18a24);
-}
-
-.rpg-battle-settings .rpg-battle-version {
-    font-weight: 400;
-    opacity: 0.6;
-}
-
-.rpg-battle-settings .rpg-battle-settings-conflict {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.4rem 0.6rem;
-}
-
-.rpg-battle-settings .rpg-battle-settings-conflict[hidden] {
-    display: none;
-}
-
-.rpg-battle-settings .rpg-battle-settings-sheet-off {
-    width: auto;
-    margin: 0;
-}
-
-.rpg-battle-settings .rpg-battle-settings-suite {
-    margin: 0.35rem 0;
-}
-
-.rpg-battle-settings .rpg-battle-settings-suite[hidden] {
-    display: none;
-}
-
-.rpg-battle-settings .rpg-battle-settings-suite-open {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    width: auto;
-    margin: 0;
-}
-
-/* ------------------------------------------------------------------------- */
-/* Edit companion                                                              */
-
-.rpg-battle-tab .rpg-battle-edit-form {
-    display: grid;
-    gap: 0.4rem;
-    margin-top: 0.35rem;
-    padding-top: 0.4rem;
-    border-top: 1px dashed var(--SmartThemeBorderColor, rgba(127, 127, 127, 0.35));
-}
-
-.rpg-battle-tab .rpg-battle-edit-form .text_pole {
-    width: 100%;
-    margin: 0;
-}
-
-/* Gear: a piece scaled down by its rarity, and what is equipped but not counted. */
-.rpg-battle-tab .rpg-battle-gear.is-capped .rpg-battle-record-meta {
-    color: #d9a441;
-    opacity: 0.9;
-}
-
-/* Settings folds: Money, Equipment, Terms, Monsters, Source of truth and Blocks, each one line
-   with a summary until opened. */
-.rpg-battle-settings .rpg-battle-settings-fold {
-    margin: 0 0 0.35rem;
-    border: 1px solid var(--SmartThemeBorderColor, rgba(127, 127, 127, 0.3));
+.rpg-battle-tab .rpg-battle-member-card {
+    border: 1px solid var(--rb-border);
     border-radius: 8px;
-    min-width: 0;
+    background: var(--rb-tint);
 }
 
-.rpg-battle-settings .rpg-battle-settings-fold > summary {
+.rpg-battle-tab .rpg-battle-member-card.is-you {
+    border-color: color-mix(in srgb, var(--rb-accent) 45%, var(--rb-border));
+}
+
+.rpg-battle-tab .rpg-battle-member-summary {
     display: flex;
-    align-items: baseline;
-    gap: 0.6rem;
-    padding: 0.45rem 0.6rem;
-    cursor: pointer;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding: 0.5rem 0.65rem;
     list-style: none;
-    user-select: none;
+    cursor: pointer;
+    border-radius: 8px;
 }
 
-.rpg-battle-settings .rpg-battle-settings-fold > summary::-webkit-details-marker {
+.rpg-battle-tab .rpg-battle-member-summary::-webkit-details-marker {
     display: none;
 }
 
-.rpg-battle-settings .rpg-battle-settings-fold > summary::after {
-    content: "\f078";
+.rpg-battle-tab .rpg-battle-member-summary:focus-visible {
+    outline: 2px solid var(--rb-accent);
+    outline-offset: -2px;
+}
+
+.rpg-battle-tab .rpg-battle-member-summary .rpg-battle-head::after {
+    content: "";
+    flex: none;
+    width: 0.45rem;
+    height: 0.45rem;
     margin-left: auto;
-    font-family: "Font Awesome 6 Free";
-    font-weight: 900;
-    font-size: 0.75em;
-    opacity: 0.55;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    opacity: 0.5;
+    transform: rotate(-45deg);
     transition: transform 0.15s ease;
 }
 
-.rpg-battle-settings .rpg-battle-settings-fold[open] > summary::after {
-    transform: rotate(180deg);
+.rpg-battle-tab .rpg-battle-member-card[open] > .rpg-battle-member-summary .rpg-battle-head::after {
+    transform: rotate(45deg);
 }
 
-.rpg-battle-settings .rpg-battle-settings-fold-title {
-    font-weight: 600;
+.rpg-battle-tab .rpg-battle-member-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    padding: 0.1rem 0.65rem 0.65rem;
+    border-top: 1px solid var(--rb-border);
 }
 
-.rpg-battle-settings .rpg-battle-settings-fold-hint {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    opacity: 0.6;
+.rpg-battle-tab .rpg-battle-points-tag {
+    color: var(--rb-accent);
 }
 
-.rpg-battle-settings .rpg-battle-settings-fold > :not(summary) {
-    margin-left: 0.6rem;
-    margin-right: 0.6rem;
+.rpg-battle-tab .rpg-battle-skill.is-aside,
+.rpg-battle-tab .rpg-battle-gear.is-unused {
+    opacity: 0.65;
 }
 
-.rpg-battle-settings .rpg-battle-settings-fold > :last-child {
-    margin-bottom: 0.6rem;
+.rpg-battle-tab .rpg-battle-record-head .rpg-battle-button {
+    margin-left: auto;
+}
+
+.rpg-battle-tab .rpg-battle-aside-label {
+    margin: 0.2rem 0 0;
+}
+
+.rpg-battle-tab .rpg-battle-give {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 0.4rem 0.5rem;
+    border: 1px dashed var(--rb-border);
+    border-radius: 6px;
+}
+
+.rpg-battle-tab .rpg-battle-start-over-row {
+    align-items: center;
+}
+
+.rpg-battle-tab .rpg-battle-start-over.is-armed,
+.rpg-battle-tab .rpg-battle-offer-accept.is-armed {
+    border-color: var(--rb-bad);
+    color: var(--rb-bad);
+}
+
+.rpg-battle-tab .rpg-battle-notice.is-game-over {
+    border-color: color-mix(in srgb, var(--rb-bad) 60%, transparent);
+    background: color-mix(in srgb, var(--rb-bad) 10%, transparent);
+}
+
+.rpg-battle-tab .rpg-battle-notice.is-game-over .rpg-battle-notice-text > i {
+    color: var(--rb-bad);
+}
+
+.rpg-battle-tab .rpg-battle-offer-note {
+    margin: 0;
+}
+
+.rpg-battle-tab .rpg-battle-kit-skill .rpg-battle-record-desc {
+    margin: 0.1rem 0 0;
+}
+
+.rpg-battle-tab .rpg-battle-wave {
+    flex: none;
+}
+
+.rpg-battle-tab .rpg-battle-import-wrap {
+    display: contents;
 }
