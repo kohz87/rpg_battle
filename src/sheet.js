@@ -5,10 +5,13 @@
 // The blocks are kept by RPG Battle, so the canonical text is what normally comes back;
 // the parser is still lenient (bold labels, any order, `|` or `,` between fields) because
 // the reader can edit the block by hand and older copies may have been written by a model.
-// It never throws: missing fields get defaults and are listed in `errors`. Pure.
+// It never throws: missing fields get defaults and are listed in `errors`. The State line
+// (narrative.js) is written out for the model and never read back: it follows from HP, MP and
+// conditions, so an edited or missing State line changes nothing. Pure.
 
 import { DEFAULT_RULES, STATS, checkModifiers, maxHp, maxMp, xpToNext } from './rules.js';
 import { formatGearEntry, gearBonuses, parseGearEntry } from './items.js';
+import { stateWords } from './narrative.js';
 
 // Condition names a fight resolves; anything else on a sheet (exhausted, cursed) is story
 // the fight cannot see, so a result never clears it. A written "poisoned" counts as poison.
@@ -169,10 +172,12 @@ function sheetFromLines(lines, rules, { name: givenName = null, label = 'Charact
     return { sheet, errors, found };
 }
 
+// Tag lines go, and so does the State line: it is derived, and its free words (a condition
+// written by hand may hold anything) must not be mistaken for fields.
 function blockLines(text) {
     return String(text ?? '')
         .split(/\r?\n/)
-        .filter(line => !/^\s*<\/?[A-Za-z][\w-]*>\s*$/.test(line));
+        .filter(line => !/^\s*<\/?[A-Za-z][\w-]*>\s*$/.test(line) && !/^state\s*:/i.test(stripMarkup(line)));
 }
 
 /** The Character block's text as a Sheet; never throws. */
@@ -274,7 +279,11 @@ function poolsLine(sheet) {
     return `HP: ${sheet.hp.cur}/${sheet.hp.max} | MP: ${sheet.mp.cur}/${sheet.mp.max}`;
 }
 
-/** The canonical Character block text (DESIGN §3.1), Checks worked out from the stats. */
+function stateLine(sheet, rules) {
+    return `State: ${stateWords(sheet, rules).text}`;
+}
+
+/** The canonical Character block text (DESIGN §3.1), Checks and State worked out by code. */
 export function formatCharacter(sheet, rules = DEFAULT_RULES) {
     const r = rulesOf(rules);
     const checks = checkModifiers(sheet.stats, r);
@@ -284,6 +293,7 @@ export function formatCharacter(sheet, rules = DEFAULT_RULES) {
         poolsLine(sheet),
         statsLine(sheet),
         `Checks: ${STATS.map(stat => `${stat} ${signed(checks[stat])}`).join(' | ')}`,
+        stateLine(sheet, r),
         skillsLine(sheet),
         `Conditions: ${conditionsText(sheet)}`,
     ].join('\n');
@@ -291,7 +301,8 @@ export function formatCharacter(sheet, rules = DEFAULT_RULES) {
 
 /**
  * The canonical Party block text: one `## Name — role | control: auto` section per member
- * with the Character block's lines (no Checks: those are for the reader's own rolls), a
+ * with the Character block's lines (no Checks: those are for the reader's own rolls; State
+ * right under HP/MP, so each companion's numbers and how to play them sit together), a
  * Conditions line only when there are any and an Equipped line only when there is gear.
  */
 export function formatParty(members, rules = DEFAULT_RULES) {
@@ -302,6 +313,7 @@ export function formatParty(members, rules = DEFAULT_RULES) {
             `## ${member.name ?? sheet.name} — ${member.role || 'companion'} | control: ${member.control === 'command' ? 'command' : 'auto'}`,
             levelLine(sheet, r),
             poolsLine(sheet),
+            stateLine(sheet, r),
             statsLine(sheet),
             skillsLine(sheet),
         ];

@@ -18,6 +18,7 @@
 // files the reader edits, so every node is filled through textContent, never innerHTML.
 
 import { STATS, RANKS, DEFAULT_RULES, maxHp, maxMp, derive, checkModifiers, xpToNext } from '../rules.js';
+import { stateWords } from '../narrative.js';
 
 const ROLES = ['brute', 'skirmisher', 'caster', 'tank', 'support'];
 const SKILL_TYPES = ['physical', 'magic', 'heal', 'buff', 'debuff'];
@@ -430,6 +431,8 @@ function renderIdle(root, view, handlers) {
         ]),
         bar('hp', sheet.hp?.cur, sheet.hp?.max, 'HP'),
         bar('mp', sheet.mp?.cur, sheet.mp?.max, 'MP'),
+        // The words the model is told to portray, so the reader sees what the story will say.
+        el('p', { className: 'rpg-battle-hint rpg-battle-state', text: stateWords(sheet, rules).text }),
         bar('xp', sheet.xp, xpToNext(level, rules), 'XP to next level'),
         chips(sheet.conditions),
     ]));

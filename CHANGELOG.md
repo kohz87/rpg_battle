@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+The story and the numbers agree.
+
+- **State line** on the Character block and each Party section: HP, MP and conditions in words the model must portray ("badly hurt (bleeding, slow to move) · drained of magic · poisoned"), worked out by code with bands in `rules.json` (`narrative`) and never read back. The blocks' prompt notes say to portray it exactly and never contradict it, and that the scene's Visible Condition must agree. The hand-off ends each member's line with the same words, and the Battle tab shows them under the HP and MP bars.
+
 ## 0.2.0
 
 Recovery and companions.

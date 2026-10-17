@@ -79,6 +79,15 @@ export const DEFAULT_RULES = Object.freeze({
     // Out of a fight: a short rest gives back this share of max HP/MP; story time heals
     // `perHour` of max HP/MP per hour, and a gap of `longRestHours` or more is a full rest.
     recovery: { shortRestShare: 0.25, perHour: 0.05, longRestHours: 6 },
+    // The State line (narrative.stateWords): [share of max, word], best first. HP at or above
+    // a share gets that word (0 HP is "down"); MP below the last band is "drained", and an MP
+    // word is shown as "<word> of magic". A max MP under `mpQuietBelow` is no caster's pool,
+    // so their MP is never mentioned.
+    narrative: {
+        hpBands: [[0.9, 'unhurt'], [0.7, 'bruised'], [0.45, 'hurt'], [0.2, 'badly hurt'], [0.01, 'barely standing']],
+        mpBands: [[0.6, 'fresh'], [0.25, 'tired']],
+        mpQuietBelow: 10,
+    },
     // How the fight resolves the things §5 leaves open (conditions, AI thresholds, safety stop).
     combat: {
         // Damage per tick of a damage-over-time condition, × the attack value of whoever applied it.

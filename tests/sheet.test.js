@@ -13,6 +13,7 @@ const REN = [
     'HP: 58/62 | MP: 21/30',
     'STR: 9 | VIT: 7 | AGI: 8 | DEX: 8 | INT: 4 | LUK: 5 | CHA: 6',
     'Checks: STR +2 | VIT +1 | AGI +1 | DEX +1 | INT -1 | LUK +0 | CHA +0',
+    'State: unhurt',
     'Skills: Rending Strike (Lv 2) | Guard Break | Second Wind',
     'Conditions: none',
 ].join('\n');
@@ -21,6 +22,7 @@ const PARTY = [
     '## Astra — companion | control: auto',
     'Level: 4 | XP: 120/800 | Points: 0',
     'HP: 44/44 | MP: 38/38',
+    'State: unhurt',
     'STR: 4 | VIT: 5 | AGI: 7 | DEX: 6 | INT: 10 | LUK: 4 | CHA: 7',
     'Skills: Ember Lance | Mend | Ward',
     'Equipped: Ashwood Staff (rare) · MATK +7, INT +1 | Traveller\'s Robe (common) · DEF +2, MDEF +3',
@@ -28,6 +30,7 @@ const PARTY = [
     '## Merrit — hireling | control: command',
     'Level: 4 | XP: 120/800 | Points: 0',
     'HP: 20/94 | MP: 22/30',
+    'State: badly hurt (bleeding, slow to move) · poisoned',
     'STR: 8 | VIT: 8 | AGI: 5 | DEX: 6 | INT: 3 | LUK: 4 | CHA: 4',
     'Skills: Shield Bash (Lv 3)',
     'Conditions: poisoned (2)',
@@ -85,6 +88,35 @@ test('formatCharacter computes Checks and shows XP against xpToNext', () => {
     const low = { ...sheet, stats: { ...sheet.stats, CHA: 2 }, conditions: [{ name: 'poisoned', rounds: 2 }, { name: 'exhausted', rounds: null }] };
     assert.match(formatCharacter(low, R), /CHA -2$/m);
     assert.match(formatCharacter(low, R), /^Conditions: poisoned \(2\), exhausted$/m);
+});
+
+test('the State line follows HP, MP and conditions and is never read back', () => {
+    const { sheet } = parseCharacter(REN, R);
+    const hurt = { ...sheet, hp: { cur: 15, max: 62 }, mp: { cur: 3, max: 30 }, conditions: [{ name: 'poison', rounds: 2 }] };
+    const text = formatCharacter(hurt, R);
+    const lines = text.split('\n');
+    assert.equal(lines[lines.findIndex(line => line.startsWith('Checks:')) + 1], 'State: badly hurt (bleeding, slow to move) · drained of magic · poisoned');
+    // An edited State line changes nothing, and one with stray labels is not read as fields.
+    const edited = text.replace(/^State: .*$/m, 'State: unhurt · HP: 62/62 | Conditions: none');
+    const back = parseCharacter(edited, R);
+    assert.deepEqual(back.errors, []);
+    assert.deepEqual(back.sheet.hp, { cur: 15, max: 62 });
+    assert.deepEqual(back.sheet.conditions, [{ name: 'poison', rounds: 2 }]);
+    assert.equal(formatCharacter(back.sheet, R), text);
+    // A sheet written before the State line existed reads the same.
+    const old = REN.replace(/^State: .*\n/m, '');
+    assert.deepEqual(parseCharacter(old, R), parseCharacter(REN, R));
+    assert.equal(formatCharacter(parseCharacter(old, R).sheet, R), REN);
+    assert.deepEqual(parseParty(PARTY.replace(/^State: .*\n/gm, ''), R), parseParty(PARTY, R));
+    // A block that is only a State line has no fields.
+    assert.equal(parseCharacter('**State:** down', R).sheet, null);
+});
+
+test('formatParty puts each State line under its HP/MP line', () => {
+    const members = parseParty(PARTY, R).members;
+    const down = { ...members[0], sheet: { ...members[0].sheet, hp: { cur: 0, max: 44 } } };
+    const lines = formatParty([down], R).split('\n');
+    assert.deepEqual(lines.slice(2, 4), ['HP: 0/44 | MP: 38/38', 'State: down (unconscious or unable to fight)']);
 });
 
 test('parseCharacter is lenient: bold labels, any order, commas, missing fields defaulted', () => {

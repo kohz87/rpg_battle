@@ -154,6 +154,12 @@
     overflow-wrap: anywhere;
 }
 
+/* The State line's words under the bars: quiet, since the bars already say it in numbers. */
+.rpg-battle-tab .rpg-battle-state {
+    margin: 0;
+    font-style: italic;
+}
+
 .rpg-battle-tab .rpg-battle-empty {
     padding: 0.5rem 0;
     opacity: 0.7;

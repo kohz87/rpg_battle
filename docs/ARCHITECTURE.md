@@ -19,6 +19,7 @@ src/combat.js     the fight state machine                   tests/combat.test.js
 src/sheet.js      Character and Party blocks                tests/sheet.test.js
 src/items.js      inventory: equipment, consumables, money  tests/items.test.js
 src/handoff.js    the narration hand-off text               tests/handoff.test.js
+src/narrative.js  the State line: HP, MP, conditions in words tests/narrative.test.js
 src/ui/tab.js     the Battle tab                            tests/ui-tab.test.js
 style.css         all styles
 index.js          SillyTavern + Story Block glue
@@ -88,6 +89,8 @@ mdef, crit }`, `checkModifier(stat, rules)`, `checkModifiers(stats, rules)`, `xp
 rules)`, `hitChance(dex, agi, rules)`, `mitigate(raw, defence)`, `xpFactor(memberLevel,
 enemyLevel, rules)`, `suggestRank(level, rules)`, `fleeChance(partyAgi, enemyAgi, { boss }, rules)`,
 `parleyChance(cha, morale, hpShare, rules)`, `rarityBudget(rarity, level, rules)`.
+`DEFAULT_RULES.narrative = { hpBands: [[share, word], …], mpBands: [[share, word], …], mpQuietBelow }`
+holds the State line's bands (best first).
 
 ## `src/rng.js` (written)
 
@@ -202,18 +205,22 @@ Level: 4 | XP: 310/400 | Points: 2
 HP: 58/62 | MP: 21/30
 STR: 9 | VIT: 7 | AGI: 8 | DEX: 8 | INT: 4 | LUK: 5 | CHA: 6
 Checks: STR +2 | VIT +1 | AGI +1 | DEX +1 | INT -1 | LUK +0 | CHA +0
+State: unhurt
 Skills: Rending Strike (Lv 2) | Guard Break | Second Wind
 Conditions: none
 ```
 
+The State line is `narrative.stateWords(sheet, rules).text`; the parsers skip any line starting
+`State:` (it is derived, never read back) and do not need it.
+
 ```js
 export function newSheet({ name, stats, skills }, rules) → Sheet        // level 1, HP/MP full, validates startPoints spent
 export function parseCharacter(text, rules) → { sheet: Sheet | null, errors: [string] }   // lenient (bold labels, order)
-export function formatCharacter(sheet, rules) → string                  // the canonical text above (Checks computed)
+export function formatCharacter(sheet, rules) → string                  // the canonical text above (Checks and State computed)
 export function parseParty(text, rules) → { members: Member[], errors }
 export function formatParty(members, rules) → string
     // ## Name — role | control: auto
-    // Level / HP / MP / stats / Skills lines as the Character block; Equipped: Item (rarity) · stats | …
+    // Level / HP / MP / State / stats / Skills lines as the Character block; Equipped: Item (rarity) · stats | …
 export function spendPoints(sheet, allocation: { STR: n, … }, rules) → Sheet   // throws when over budget or negative
 export function learnSkill(sheet, name) → Sheet                          // adds at mastery 1, no duplicates
 export function applyResult(sheet, memberId, result, rules) → { sheet, levelsGained, pointsGained, masteryGained: [names] }
@@ -246,12 +253,27 @@ export function addLoot(inventoryText, { items, money }, currency) → string
 export function useItems(inventoryText, used: { [name]: n }) → string     // quantities down, a row at 0 removed
 ```
 
+## `src/narrative.js`
+
+```js
+export function stateWords(sheet, rules) → { hp, mp, conditions: [words], text }
+    // hp: 'unhurt' | 'bruised' | 'hurt' | 'badly hurt' | 'barely standing' | 'down' (0 HP)
+    // mp: 'fresh' | 'tired' | 'drained'; conditions: poison → poisoned, burn → burned, bleed → bleeding,
+    // stun → stunned, slow → slowed, weaken → weakened, others as written (no repeats).
+    // text: the HP word with its hint for hurt and worse ("badly hurt (bleeding, slow to move)"),
+    // "<mp> of magic" unless fresh (never when max MP < mpQuietBelow or HP is down), the conditions,
+    // joined with ' · '. Works on a Sheet or a Result party entry.
+```
+
 ## `src/handoff.js`
 
 ```js
-export function buildHandoff(result, { names, currency, stakes, pcName }) → string   // DESIGN §8.2, exact header line:
+export function buildHandoff(result, { names, currency, stakes, pcName, rules }) → string   // DESIGN §8.2, exact header line:
 // [Battle resolved by RPG Battle: narrate this outcome, do not change it]
 ```
+
+Status: one line per member, `Ren: HP 34/62, MP 12/30 — hurt (aching, favouring a wound) · tired of
+magic.`; a member who is down reads `Astra: down (unconscious or unable to fight).`
 
 Defeat lines: normal stakes → `Defeated: the story decides what follows (captured, robbed, left
 for dead).`; death stakes → `Defeated: <pc> is killed.` Fled → `Escaped after N rounds.` Loot and
@@ -268,7 +290,7 @@ export function renderBattleTab(pane, view, handlers)
 | mode | data | handlers used |
 |---|---|---|
 | `create` | `{ presets, library (tier 1), rules }` | `onCreate({ name, stats, skills })` |
-| `idle` | `{ sheet, checks, skills: resolved, party: [Member], rules, pending: handoff text or null }` | `onSpend()` (opens spend), `onLearn()`, `onSetup()`, `onReturn()` |
+| `idle` | `{ sheet, checks, skills: resolved, party: [Member], rules, pending: handoff text or null }` (the State words under the HP/MP bars, `.rpg-battle-state`) | `onSpend()` (opens spend), `onLearn()`, `onSetup()`, `onReturn()` |
 | `spend` | `{ sheet, rules }` | `onConfirmSpend(allocation)`, `onBack()` |
 | `learn` | `{ sheet, library, rules }` | `onConfirmLearn({ name, fromLibrary? , template? })`, `onBack()` |
 | `setup` | `{ bestiary names, suggestedRank, rules }` | `onStart({ rows: [{ name, count, rank, role, boss }], stakes })`, `onBack()` |

@@ -298,6 +298,21 @@ test('idle: header, bars, stats with checks, skills, party and the main buttons'
     assert.deepEqual(calls.map(call => call.name), ['onSpend', 'onSetup', 'onLearn']);
 });
 
+test('idle: the State words sit quietly under the HP and MP bars', () => {
+    let pane = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules });
+    const state = $(pane, '.rpg-battle-section.is-sheet .rpg-battle-state');
+    assert.equal(state.textContent, 'unhurt');
+    assert.equal(state.tagName.toLowerCase(), 'p');
+    assert.match(state.className, /rpg-battle-hint/);
+    const kids = $(pane, '.rpg-battle-section.is-sheet').children;
+    const index = kids.indexOf(state);
+    assert.equal(kids[index - 1].getAttribute('aria-label'), 'MP', 'right under the MP bar');
+    pane = render({ mode: 'idle', sheet: sheet({ hp: { cur: 15, max: 62 }, mp: { cur: 3, max: 30 }, conditions: [{ name: 'poison', rounds: 2 }] }), skills: [], party: [], rules });
+    assert.equal($(pane, '.rpg-battle-state').textContent, 'badly hurt (bleeding, slow to move) · drained of magic · poisoned');
+    pane = render({ mode: 'idle', sheet: sheet({ hp: { cur: 0, max: 62 } }), skills: [], party: [], rules });
+    assert.equal($(pane, '.rpg-battle-state').textContent, 'down (unconscious or unable to fight)');
+});
+
 test('idle: rests, Use item, Add companion, a companion\'s control and two-click Remove', () => {
     const { handlers, calls } = recorder();
     const party = [{ id: 'astra', name: 'Astra', role: 'companion', control: 'auto', sheet: sheet({ name: 'Astra', level: 3 }), gear: [] }];

@@ -40,6 +40,7 @@ Level: 1 | XP: 72/100 | Points: 0
 HP: 61/98 | MP: 15/32
 STR: 9 | VIT: 8 | AGI: 6 | DEX: 7 | INT: 5 | LUK: 5 | CHA: 5
 Checks: STR +2 | VIT +1 | AGI +0 | DEX +1 | INT +0 | LUK +0 | CHA +0
+State: hurt (aching, favouring a wound) · tired of magic
 Skills: Power Strike | Sweep | Second Wind
 Conditions: none
 ```
@@ -50,6 +51,10 @@ Conditions: none
   need a stat, like INT 8 for Fireball) or a new one built from a template for your level. Using
   a skill in fights raises its mastery (Lv 1 to 5).
 - **Recovery:** see below.
+- **State:** your HP, MP and conditions in words (*unhurt*, *bruised*, *hurt*, *badly hurt*,
+  *barely standing*, *down*; *tired* or *drained of magic*; *poisoned*…), worked out by RPG
+  Battle. The model is told to portray you exactly as it says, so a character at a fifth of
+  their HP is written bleeding and slow, not fighting on unbothered. Companions get one too.
 - **Checks outside fights:** the **Checks** line is your bonus per stat. With Story Block's Dice
   block on, the dice use it as the modifier (a CHA check is d20 + your CHA bonus).
 

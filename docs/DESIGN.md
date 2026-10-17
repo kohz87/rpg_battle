@@ -70,6 +70,7 @@ Level: 4 | XP: 310/400 | Points: 2
 HP: 58/62 | MP: 21/30
 STR: 9 | VIT: 7 | AGI: 8 | DEX: 8 | INT: 4 | LUK: 5 | CHA: 6
 Checks: STR +2 | VIT +1 | AGI +1 | DEX +1 | INT -1 | LUK +0 | CHA +0
+State: unhurt
 Skills: Rending Strike (Lv 2) | Guard Break | Second Wind
 Conditions: none
 </Character>
@@ -84,6 +85,16 @@ Conditions: none
 - **Skills** lists names (and mastery level); each skill's numbers live in the skill library
   (section 6), so the block stays short and the model cannot inflate a skill by renaming it.
 - **Conditions** that outlast a fight (poisoned, exhausted) are listed until they wear off.
+- **State** is HP, MP and conditions in words the model must portray, worked out by code
+  (`rules.json` → `narrative`): HP at or above 90 % of max is *unhurt*, 70 % *bruised*, 45 %
+  *hurt (aching, favouring a wound)*, 20 % *badly hurt (bleeding, slow to move)*, above 0
+  *barely standing (staggering, could fall at any moment)*, 0 *down (unconscious or unable to
+  fight)*; MP under 60 % adds *tired of magic*, under 25 % *drained of magic* (never for a max
+  MP under 10); then the conditions as words (poison → poisoned, bleed → bleeding). For example
+  `State: badly hurt (bleeding, slow to move) · drained of magic · poisoned`. A number does not
+  say how to play someone at a fifth of their HP; these words do, and the block's prompt note
+  says to portray them exactly and never contradict them (nor let the scene's Visible Condition
+  disagree). It is derived, so it is never read back: editing it changes nothing.
 - The model sees this every reply, so it knows Ren is hurt, what Ren can do, and how strong Ren is.
 
 ### 3.2 Party (new, kept by RPG Battle, separate so solo stories can switch it off)
@@ -92,6 +103,7 @@ Conditions: none
 <Party>
 ## Astra — companion | control: auto
 Level: 4 | HP: 44/44 | MP: 38/38
+State: unhurt
 STR: 4 | VIT: 5 | AGI: 7 | DEX: 6 | INT: 10 | LUK: 4 | CHA: 7
 Skills: Ember Lance | Mend | Ward
 Equipped: Ashwood Staff (rare) · MATK +7, INT +1 | Traveller's Robe (common) · DEF +2, MDEF +3
@@ -101,7 +113,7 @@ Equipped: Ashwood Staff (rare) · MATK +7, INT +1 | Traveller's Robe (common) ·
 </Party>
 ```
 
-- One section per companion, with the same stats as the Character block.
+- One section per companion, with the same stats and State line as the Character block.
 - **control: auto** (the companion acts on its own) or **control: command** (you pick its action
   each turn). Switchable per companion in the Battle tab; the default is auto.
 - A companion's gear is listed on its section, because the Inventory block is yours.
@@ -314,12 +326,15 @@ Injected into the next reply as a system note at depth 1, exactly once:
 ```
 [Battle resolved by RPG Battle: narrate this outcome, do not change it]
 Victory in 4 rounds (about 30 seconds).
-Ren: HP 34/62, MP 12/30. Astra: HP 44/44, MP 20/38.
+Ren: HP 34/62, MP 12/30 — hurt (aching, favouring a wound) · tired of magic.
+Astra: HP 44/44, MP 20/38 — unhurt · tired of magic.
 Key moments: the shaman's hex missed Ren; Ren's Rending Strike crit the second goblin;
 Astra's Ember Lance finished the shaman; one goblin fled toward the weir.
 Loot: 14 copper, a bone fetish. XP +38 each.
 ```
 
+- One line per member, ending in the same words as the sheets' State line (someone down gets
+  only the words), so the narration and the next reply's sheets agree on how hurt everyone is.
 - The key moments are the few that matter (crits, finishing blows, flights, parleys, near-deaths),
   chosen by code, at most six lines.
 - A defeat at normal stakes ends "Defeated: the story decides what follows (captured, robbed, left
@@ -366,7 +381,7 @@ A character at 0 HP cannot start a fight until they recover.
 
 A Story Block tab, always visible while RPG Battle is on.
 
-- **Idle:** your sheet at a glance (HP and MP bars, level, unspent points with **Spend**), the
+- **Idle:** your sheet at a glance (HP and MP bars with the State words under them, level, unspent points with **Spend**), the
   party with their control mode, skills, **Start fight**.
 - **Spend points:** + and − per stat, the effect on HP, MP and attacks shown live, **Confirm**.
 - **Setup:** section 4.1.

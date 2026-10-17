@@ -51,9 +51,19 @@ const CHARACTER_FIELDS = [
     { label: 'MP', type: 'meter', max: 100 },
     ...['STR', 'VIT', 'AGI', 'DEX', 'INT', 'LUK', 'CHA'].map(label => ({ label, type: 'number' })),
     { label: 'Checks', type: 'text' },
+    { label: 'State', type: 'text' },
     { label: 'Skills', type: 'text' },
     { label: 'Conditions', type: 'text' },
 ];
+
+// What the model is told about each kept block, under Story Block's 300-character limit.
+// The numbers alone do not say how to play someone at a fifth of their HP, so the notes
+// point at the State line (narrative.js) and make it binding. The scene board's PC card has a
+// Visible Condition the model writes itself; State is the source, so the note ties the two
+// together rather than let them disagree. Story Block does not fill in placeholders here,
+// hence "the character" and "each companion" rather than names.
+const CHARACTER_NOTE = 'Your character as the game knows them. Portray the character exactly as the State line says (badly hurt means bleeding and slow; down means unconscious or unable to fight) and never contradict it; the scene\'s Visible Condition must agree. HP, MP and conditions change only through RPG Battle.';
+const PARTY_NOTE = 'Companions fighting alongside you, as the game knows them. Portray each companion exactly as their State line says (badly hurt means bleeding and slow; down means unconscious or unable to fight) and never contradict it; HP, MP and conditions change only through RPG Battle.';
 
 let registered = false;
 let uiRetry = null;
@@ -310,6 +320,7 @@ async function finishFight(fight) {
         currency: r.currency,
         stakes: fight.stakes,
         pcName: sheet?.name ?? 'You',
+        rules: r,
     });
     saveChatState({ fight: null, pending: { handoff, fightId: fight.id, attachedTo: null }, last: { fightId: fight.id, result, handoff, ...report }, uses });
     await context()?.saveMetadata?.();
@@ -609,7 +620,7 @@ function registerKeptBlocks(sb) {
             format: 'fields',
             display: 'fields',
             fields: CHARACTER_FIELDS,
-            promptNote: 'Your character as the game knows them: level, HP and MP, stats and skills. Fights are resolved by RPG Battle; describe what the sheet says.',
+            promptNote: CHARACTER_NOTE,
             diceModifier: `Modifier: the matching stat's bonus from the <${own.characterTag}> block's Checks line (for example CHA +1); do not guess one.`,
         }),
         sb.registerBlock({
@@ -621,7 +632,7 @@ function registerKeptBlocks(sb) {
             owner: 'RPG Battle',
             format: 'text',
             display: 'plain',
-            promptNote: 'Companions fighting alongside you, as the game knows them.',
+            promptNote: PARTY_NOTE,
         }),
     ];
     for (const result of results) if (result && result.ok === false) console.warn('[RPG Battle] block not registered:', result.error);

@@ -1,10 +1,13 @@
 // The hand-off (DESIGN §8.2): the one short note the model gets after a fight, injected
 // into the next reply only. It states the outcome as settled fact so the model narrates it
 // instead of re-deciding it, and stays short (about 120 words for a typical fight) because
-// it rides along with a normal prompt. Pure.
+// it rides along with a normal prompt. Each member's numbers end in the same state words as
+// the sheets' State line, so the narration of the fight and the next reply's sheet agree on
+// how hurt everyone is. Pure.
 
 import { DEFAULT_RULES } from './rules.js';
 import { formatMoney } from './items.js';
+import { stateWords } from './narrative.js';
 
 export const HANDOFF_HEADER = '[Battle resolved by RPG Battle: narrate this outcome, do not change it]';
 const WRAP = 100;
@@ -25,14 +28,17 @@ function outcomeLine(result, stakes, pcName) {
     return stakes === 'death' ? `Defeated: ${pcName} is killed.` : 'Defeated: the story decides what follows (captured, robbed, left for dead).';
 }
 
-function statusLine(party, names) {
+// One line per member: with the state words a party of four would not fit one readable line,
+// and each member's state is its own fact. Someone down needs no numbers, only the words.
+function statusLines(party, names, rules) {
     return party.map(member => {
         const name = names?.[member.memberId] ?? member.name;
-        if (member.down) return `${name}: down.`;
-        const lasting = (member.conditions ?? []).map(condition => condition.name).filter(Boolean);
-        const tail = lasting.length ? `, ${lasting.join(' and ')}` : '';
-        return `${name}: HP ${member.hp.cur}/${member.hp.max}, MP ${member.mp.cur}/${member.mp.max}${tail}.`;
-    }).join(' ');
+        const hp = member.hp ?? { cur: 0, max: 0 };
+        const mp = member.mp ?? { cur: 0, max: 0 };
+        const state = stateWords({ ...member, hp: member.down ? { ...hp, cur: 0 } : hp, mp }, rules).text;
+        if (member.down) return `${name}: ${state}.`;
+        return `${name}: HP ${hp.cur}/${hp.max}, MP ${mp.cur}/${mp.max} — ${state}.`;
+    }).join('\n');
 }
 
 /** Greedy word wrap, so a long line of moments stays readable in the prompt view. */
@@ -91,13 +97,13 @@ function xpText(xp, party, names) {
 /**
  * The hand-off text for a fight's Result. `names` may rename combatants by id, `currency`
  * is rules.currency, `stakes` overrides result.stakes, `pcName` names the hero in a
- * to-the-death defeat.
+ * to-the-death defeat, `rules` gives the state-word bands (rules.narrative).
  */
-export function buildHandoff(result, { names = {}, currency = DEFAULT_RULES.currency, stakes, pcName } = {}) {
+export function buildHandoff(result, { names = {}, currency = DEFAULT_RULES.currency, stakes, pcName, rules = DEFAULT_RULES } = {}) {
     const party = result?.party ?? [];
     const hero = pcName ?? names?.pc ?? party.find(member => member.memberId === 'pc')?.name ?? party[0]?.name ?? 'the hero';
     const lines = [HANDOFF_HEADER, outcomeLine(result ?? {}, stakes ?? result?.stakes ?? 'normal', hero)];
-    if (party.length) lines.push(statusLine(party, names));
+    if (party.length) lines.push(statusLines(party, names, rules));
 
     // Joined into one sentence, so a moment that opens with "The" continues in lower case.
     const moments = (result?.keyMoments ?? []).map(sentence).filter(Boolean).slice(0, 6)
