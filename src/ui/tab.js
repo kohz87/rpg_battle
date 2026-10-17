@@ -932,7 +932,7 @@ function renderCompanion(root, view, handlers) {
     const prefill = view.prefill && str(view.prefill.name) ? view.prefill : null;
     const prefillKey = prefill ? JSON.stringify(prefill) : '';
     if (!companionDraft || (prefillKey && companionDraft.prefillKey !== prefillKey)) {
-        companionDraft = { name: '', role: '', control: 'auto', level: num(view.level, 1), focus: [], focusTouched: false, gear: '', npcId: null, summary: '', kit: [], kitKey: null, prefillKey };
+        companionDraft = { name: '', role: '', control: 'auto', level: num(view.level, 1), focus: [], focusTouched: false, npcId: null, summary: '', kit: [], kitKey: null, kitStatus: null, prefillKey };
         if (prefill) {
             Object.assign(companionDraft, {
                 name: str(prefill.name),
@@ -948,8 +948,10 @@ function renderCompanion(root, view, handlers) {
     const draft = companionDraft;
     // A new kit from the glue (generated, or again) replaces the draft's; removals stay until then.
     const kit = view.kit ?? null;
-    if (kit && str(kit.key) && draft.kitKey !== kit.key) {
+    // The same run reports twice, 'working' (empty) then 'ready': the second must land too.
+    if (kit && str(kit.key) && (draft.kitKey !== kit.key || draft.kitStatus !== kit.status)) {
         draft.kitKey = kit.key;
+        draft.kitStatus = kit.status;
         draft.kit = list(kit.skills).filter(spec => spec && str(spec.name)).map(spec => ({ ...spec }));
     }
     const working = kit?.status === 'working';
@@ -959,9 +961,10 @@ function renderCompanion(root, view, handlers) {
     const role = el('input', { className: 'text_pole rpg-battle-companion-role', attrs: { type: 'text', maxlength: '30', placeholder: 'healer, guard, scout…', 'aria-label': 'Role' } });
     role.value = draft.role;
     const level = select('rpg-battle-companion-level', terms.levelName, Array.from({ length: top }, (_, i) => [String(i + 1), levelText(i + 1, rules)]), String(Math.min(draft.level, top)));
+    // The story's level is theirs; without one, they join at most at yours.
+    const storyLevel = num(view.prefill?.level, 0) >= 1;
+    if (storyLevel) level.disabled = true;
     const control = select('rpg-battle-companion-control', 'Control', [['auto', 'Acts on its own'], ['command', 'I command it']], draft.control);
-    const gear = el('textarea', { className: 'text_pole rpg-battle-companion-gear', attrs: { rows: '3', placeholder: 'Ashwood Staff (rare) · MATK +7\nTraveller\'s Robe (common) · DEF +2', 'aria-label': 'Equipment, one per line' } });
-    gear.value = draft.gear;
     const focusSelects = FOCUS_LABELS.map((label, index) => select(`rpg-battle-companion-focus is-${index + 1}`, label, [['', index ? 'none' : 'none (even spread)'], ...STATS.map(stat => [stat, `${stat} · ${STAT_HINTS[stat]}`])], draft.focus[index] ?? ''));
     const statsLine = el('p', { className: 'rpg-battle-hint rpg-battle-companion-stats', attrs: { 'aria-live': 'polite' } });
     const why = el('p', { className: 'rpg-battle-hint rpg-battle-companion-why', attrs: { 'aria-live': 'polite' } });
@@ -984,7 +987,6 @@ function renderCompanion(root, view, handlers) {
     });
     level.addEventListener('change', () => { draft.level = num(level.value, 1); refresh(); });
     control.addEventListener('change', () => { draft.control = control.value; });
-    gear.addEventListener('input', () => { draft.gear = gear.value; });
     focusSelects.forEach((node, index) => node.addEventListener('change', () => {
         const next = [...draft.focus];
         next[index] = node.value;
@@ -996,7 +998,7 @@ function renderCompanion(root, view, handlers) {
         if (add.disabled) return;
         emit(handlers, 'onAddCompanion', {
             name: str(draft.name), role: str(draft.role) || 'companion', control: draft.control, level: draft.level,
-            focus: [...draft.focus], skills: draft.kit.map(spec => ({ ...spec })), gearLines: draft.gear, npcId: draft.npcId ?? null,
+            focus: [...draft.focus], skills: draft.kit.map(spec => ({ ...spec })), npcId: draft.npcId ?? null,
         });
     });
 
@@ -1054,7 +1056,7 @@ function renderCompanion(root, view, handlers) {
         el('div', { className: 'rpg-battle-actions' }, [again]),
         why,
     ]));
-    root.append(section('is-companion-gear', [field('Equipment', gear, 'Optional, one item per line: name (rarity) · stats. Capped by rarity like yours.')]));
+    root.append(el('p', { className: 'rpg-battle-hint rpg-battle-companion-gear-hint', text: 'Gear: give them equipment from your Inventory on their card once they join.' }));
     root.append(el('div', { className: 'rpg-battle-actions' }, [
         add,
         button('Back', 'rpg-battle-back', { iconName: 'fa-arrow-left', onClick: () => emit(handlers, 'onBack') }),
@@ -1188,8 +1190,9 @@ function renderLearn(root, view, handlers) {
     const withAside = payload => (full ? { ...payload, setAside: draft.setAside === NEW_ASIDE ? payload.name : draft.setAside } : payload);
     const send = payload => emit(handlers, 'onConfirmLearn', { ...withAside(payload), ...(memberId !== 'pc' ? { memberId } : {}) });
 
-    // Library: by tier, the reader's next steps open first.
-    const library = list(view.library).filter(skill => skill && str(skill.name));
+    // Library: by tier, the reader's next steps open first. Skills come from the story, so a
+    // story's skill shows only its own library entry (when it has one), never the whole library.
+    const library = list(view.library).filter(skill => skill && str(skill.name) && (!prefill || sameName(skill.name, prefill.name)));
     const tiers = [...new Set(library.map(skill => num(skill.tier, 1)))].sort((a, b) => a - b);
     const tierFolds = tiers.map(tier => {
         const skills = library.filter(skill => num(skill.tier, 1) === tier);
@@ -1234,6 +1237,8 @@ function renderLearn(root, view, handlers) {
 
     const nameInput = el('input', { className: 'text_pole rpg-battle-template-name', attrs: { type: 'text', maxlength: '60', placeholder: 'e.g. Tidebreaker Stance', 'aria-label': 'Skill name', autocomplete: 'off' } });
     nameInput.value = draft.name;
+    // The story names the skill; only how it works is the reader's to adjust.
+    if (prefill) nameInput.readOnly = true;
     const typeSelect = select('rpg-battle-template-type', 'Type', SKILL_TYPES, draft.type);
     const statSelect = select('rpg-battle-template-stat', 'Stat', STATS, draft.stat);
     const targetSelect = select('rpg-battle-template-target', 'Target', SKILL_TARGETS.map(target => [target, TARGET_LABELS[target]]), draft.target);
@@ -1272,16 +1277,16 @@ function renderLearn(root, view, handlers) {
     root.append(
         section('is-learn-intro', [
             sub(`Learn skill${who}`, 'fa-book'),
-            el('p', { className: 'rpg-battle-hint', text: prefill ? `From the story: ${str(prefill.name)}${str(prefill.words) ? ` (${str(prefill.words)})` : ''}. Check the guess below, or take it from the library.` : 'A mentor, a scroll, a lesson from the story: take a skill from the library, or name a new one and build it from a template.' }),
+            el('p', { className: 'rpg-battle-hint', text: prefill ? `From the story: ${str(prefill.name)}${str(prefill.words) ? ` (${str(prefill.words)})` : ''}. Check how it works below; code sets its numbers for your level.` : 'A mentor, a scroll, a lesson from the story: take a skill from the library, or name a new one and build it from a template.' }),
             aside ? el('div', { className: 'rpg-battle-learn-cap' }, [
                 el('p', { className: 'rpg-battle-hint', text: `${memberId === 'pc' ? 'You already use' : `${str(sheet.name)} already uses`} ${cap} skills: one sits out (kept, set aside).` }),
                 field('To make room', aside),
             ]) : null,
         ]),
-        section('is-library', [
+        ...(prefill && !library.length ? [] : [section('is-library', [
             sub('From the library', 'fa-book-bookmark'),
             library.length ? el('div', { className: 'rpg-battle-tiers' }, tierFolds) : el('p', { className: 'rpg-battle-hint', text: 'The skill library is empty.' }),
-        ]),
+        ])]),
         section('is-template', [
             sub('New from a template', 'fa-feather'),
             field('Name', nameInput),

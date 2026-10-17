@@ -1648,7 +1648,9 @@ function partyView() {
     if (partyScreen.mode === 'items') return { mode: 'items', sheet, party: members, items: consumables(currentItems()), rules: r };
     if (partyScreen.mode === 'companion') {
         return {
-            mode: 'companion', level: sheet.level, maxLevel: Math.min(maxLevel(r), Math.max(20, sheet.level + 10)),
+            mode: 'companion', level: sheet.level,
+            // The story's level for them, else at most yours.
+            maxLevel: Math.min(maxLevel(r), Number(partyScreen.prefill?.level) >= 1 ? Math.round(Number(partyScreen.prefill.level)) : sheet.level),
             prefill: partyScreen.prefill ?? null, kit: partyScreen.kit ?? null, npcs: npcProfiles(), rules: r,
         };
     }
@@ -1841,6 +1843,12 @@ const handlers = {
         const r = rules();
         const skillName = String(name ?? '').trim();
         if (!skillName) throw new Error('Give the skill a name.');
+        // Skills come from the story: only the skill a waiting offer names, under that name (its
+        // type, stat, target and element may be adjusted; a different name could be a stronger
+        // library skill).
+        const offered = String(partyScreen.prefill?.name ?? '').trim();
+        if (partyScreen.mode !== 'learn' || !offered) throw new Error('Skills come from the story: accept one it offers.');
+        if (skillName.toLowerCase() !== offered.toLowerCase()) throw new Error(`The story offered ${offered}; that is the skill to learn.`);
         const { pc, members } = currentSheets();
         const sheet = memberId === 'pc' ? pc : members.find(member => member.id === memberId)?.sheet;
         if (!sheet) throw new Error('That member is not in the party.');
@@ -1882,8 +1890,16 @@ const handlers = {
     onGenerateKit: who => void generateKit({ ...(who ?? {}), skills: [] }),
     onAddCompanion: input => void guarded(async () => {
         const r = rules();
-        const { members } = currentSheets();
-        const level = Math.max(1, Math.min(maxLevel(r), Math.round(Number(input.level) || 1)));
+        const { pc, members } = currentSheets();
+        // Companions come from the story: only while a Joins offer's form is open, at the level the
+        // story gave (else at most yours), with the skills worked out for them, and no gear typed in
+        // (gear is given from your Inventory once they join).
+        if (partyScreen.mode !== 'companion' || !partyScreen.offerKey) throw new Error('Companions come from the story: accept one it offers.');
+        const storyLevel = Number(partyScreen.prefill?.level) >= 1 ? Math.round(Number(partyScreen.prefill.level)) : null;
+        const ceiling = Math.max(1, Math.round(Number(pc?.level) || 1));
+        const level = Math.max(1, Math.min(maxLevel(r), storyLevel ?? Math.min(ceiling, Math.round(Number(input.level) || 1))));
+        const offeredSkills = new Set((partyScreen.kit?.skills ?? []).map(spec => String(spec?.name ?? '').toLowerCase()));
+        input = { ...input, gearLines: '', skills: (input.skills ?? []).filter(spec => offeredSkills.has(String(spec?.name ?? '').toLowerCase())) };
         // The kit's skills: library ones by name; the rest built from their template at the
         // companion's level and kept with this chat, like any story-taught skill.
         const specs = (input.skills ?? []).filter(spec => spec && String(spec.name ?? '').trim()).slice(0, r.character.starterSkills);

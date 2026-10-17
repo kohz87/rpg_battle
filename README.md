@@ -438,8 +438,8 @@ editable), **one coin** named as you like, or **your own** names and rates (for 
 Companions join from the story. A `<Joins>Lyra — healer, level 6</Joins>` is offered as *Lyra
 joined. Add as companion?*; **Add as companion** opens the form, filled in:
 
-- **Name, role** (free words), **level** (yours if none is given, never past the cap) and who
-  controls them (*Acts on its own* or *I command it*).
+- **Name, role** (free words), **level** (the story's, fixed; with none given, at most yours) and
+  who controls them (*Acts on its own* or *I command it*).
 - **Focus:** up to three stats in order; every point they have (the starting 10 and 4 per level
   after the first) is spread over them by weight, 3, 2 and 1 (none: evenly). Role words fill it
   in, from a small table of generic words, and you can change it: *healer, cleric, priest* → INT,
@@ -453,8 +453,8 @@ joined. Add as companion?*; **Add as companion** opens the form, filled in:
   three library skills that fit the focus and role. The form shows them with **Generate again**
   and a remove button per skill; a `| skills: Frost Lance, Mend` hint names them instead. Later
   skills come from `<Learned>`, like yours.
-- **Equipment**, optionally, one item per line (`Ashwood Staff (rare) · MATK +7, INT +1`, capped by
-  rarity like yours), or given later with **Give item**.
+- **Equipment** is never typed in: once they join, **Give item** on their card moves gear from
+  your Inventory (slot limits and rarity caps as for yours).
 - **From the story's NPCs** (with NPC State Delta 1.2.2): pick one of the chat's NPCs to fill in
   name, role and focus (from its role and summary; the skills are generated again for them). The
   companion stays linked: **Dossier** on their card opens the NPC's dossier, and a rename there

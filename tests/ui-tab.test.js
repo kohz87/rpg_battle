@@ -403,7 +403,7 @@ test('items: usable consumables on you or a companion; fight-only ones disabled'
     assert.deepEqual(calls.at(-1), { name: 'onUseItem', args: [{ name: 'Healing Draught', target: 'astra' }] });
 });
 
-test('companion: from a Joins offer, name, role, level, focus (from the role), the generated skills, control and equipment go to onAddCompanion', () => {
+test('companion: from a Joins offer, name, role, level (the story\'s, fixed), focus (from the role), the generated skills and control go to onAddCompanion; no gear typed in', () => {
     reset();
     const { handlers, calls } = recorder();
     const kit = { key: 'k1', status: 'ready', note: 'From the model.', skills: [
@@ -436,11 +436,11 @@ test('companion: from a Joins offer, name, role, level, focus (from the role), t
     const control = $(pane, '.rpg-battle-companion-control');
     control.value = 'command';
     control.dispatch('change');
-    const gear = $(pane, '.rpg-battle-companion-gear');
-    gear.value = 'Ashwood Staff (rare) · MATK +7';
-    gear.dispatch('input');
+    // No gear typed in (it is given from your Inventory once they join), and the story's level is fixed.
+    assert.equal($(pane, '.rpg-battle-companion-gear'), null);
+    assert.equal($(pane, '.rpg-battle-companion-level').disabled, true);
     $(pane, '.rpg-battle-companion-add').click();
-    assert.deepEqual(calls.at(-1), { name: 'onAddCompanion', args: [{ name: 'Astra', role: 'healer', control: 'command', level: 6, focus: ['STR', 'DEX'], skills: [kit.skills[0]], gearLines: 'Ashwood Staff (rare) · MATK +7', npcId: null }] });
+    assert.deepEqual(calls.at(-1), { name: 'onAddCompanion', args: [{ name: 'Astra', role: 'healer', control: 'command', level: 6, focus: ['STR', 'DEX'], skills: [kit.skills[0]], npcId: null }] });
     // While the skills are being worked out, Add waits; a new kit replaces the draft's.
     pane = render(view({ kit: { key: 'k2', status: 'working', skills: [] } }), handlers);
     assert.equal($(pane, '.rpg-battle-companion-add').disabled, true);
@@ -448,6 +448,11 @@ test('companion: from a Joins offer, name, role, level, focus (from the role), t
     pane = render(view({ kit: { key: 'k3', status: 'ready', skills: [kit.skills[1]] } }), handlers);
     assert.deepEqual(texts(root(pane), '.rpg-battle-kit-skill .rpg-battle-record-name'), ['Mend']);
     assert.equal($(pane, '.rpg-battle-companion-add').disabled, false);
+    // The glue reports one run twice under the same key: 'working' (empty), then 'ready'.
+    pane = render(view({ kit: { key: 'k4', status: 'working', skills: [] } }), handlers);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-kit-skill .rpg-battle-record-name'), []);
+    pane = render(view({ kit: { key: 'k4', status: 'ready', skills: [kit.skills[0], kit.skills[1]] } }), handlers);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-kit-skill .rpg-battle-record-name'), ['Frost Lance', 'Mend'], 'the ready report lands');
 });
 
 test('companion: a story\'s Joins prefills the form; NPC State Delta\'s profiles fill it in and keep the link', () => {
@@ -1438,13 +1443,14 @@ test('learn: at the cap it asks which skill sits out; a companion learns; the st
     keepNew.dispatch('change');
     $(pane, '.rpg-battle-learn-template').click();
     assert.equal(last('onConfirmLearn').args[0].setAside, 'Frost Lance');
-    // A library skill's name is learned from the library, with its requirements.
-    const name = $(pane, '.rpg-battle-template-name');
-    name.value = 'fireball';
-    name.dispatch('input');
-    assert.equal($(pane, '.rpg-battle-learn-template').disabled, true);
-    assert.match($(pane, '.rpg-battle-template-hint').textContent, /Fireball is in the library: learn it there \(it needs INT 8\)/);
-    assert.match($$(pane, '.rpg-battle-library-skill').find(node => node.dataset.skill === 'Fireball').textContent, /INT 8 \(has 6\)/);
+    // Skills come from the story: the name is the story's, and the library is not on offer.
+    assert.equal($(pane, '.rpg-battle-template-name').readOnly, true);
+    assert.equal($$(pane, '.rpg-battle-library-skill').length, 0, 'no library to pick from');
+    assert.equal($$(pane, '.rpg-battle-section.is-library').length, 0);
+    // A story skill that is in the library shows that one entry, with its requirements.
+    const fromLibrary = render({ mode: 'learn', sheet: lyra, library: [...LIBRARY, ...TIER2], rules, memberId: 'lyra', prefill: { name: 'Fireball', type: 'magic' } }, handlers);
+    assert.deepEqual($$(fromLibrary, '.rpg-battle-library-skill').map(node => node.dataset.skill), ['Fireball']);
+    assert.match($$(fromLibrary, '.rpg-battle-library-skill')[0].textContent, /INT 8 \(has 6\)/);
 });
 
 test('spend: a companion\'s points, sent with their id', () => {
