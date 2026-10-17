@@ -144,6 +144,8 @@ let settingsPanel = null;
 // What the Battle tab shows when it is not dictated by the chat (the setup, a result), and
 // what the Party tab shows beside the cards (spend, learn, a companion joining, items).
 let screen = { chatId: null, mode: null };
+// The fight whose result is being written ({ chatId, fight }), shown meanwhile (finishFight).
+let ending = null;
 let partyScreen = { chatId: null, mode: null };
 // The fight being played, replayed from the chat's metadata once per chat.
 let live = { chatId: null, key: '', fight: null };
@@ -670,6 +672,9 @@ async function finishFight(fight) {
     const r = rules();
     const own = settings();
     const result = summarize(fight, r);
+    // Shown in the Battle tab while the result is written, so the tab does not drop out (and the
+    // sidebar jump to another tab) between the fight and its result.
+    ending = { chatId: chatIdOf(context()), fight };
     // The fight is over before anything is written: the block writes save the chat, and the
     // saved chat must not hold a fight that is still "active".
     saveChatState({ fight: null });
@@ -722,6 +727,7 @@ async function finishFight(fight) {
     saveChatState({ fight: null, pending: { handoff, fightId: fight.id, attachedTo: null }, last: { fightId: fight.id, result, handoff, ...report }, uses });
     await context()?.saveMetadata?.();
     finishing = null;
+    ending = null;
     live = { chatId: chatIdOf(context()), key: '', fight: null };
     screen = { chatId: chatIdOf(context()), mode: 'result' };
     storyBlock()?.refresh?.();
@@ -1572,6 +1578,7 @@ const isDead = sheet => Boolean(sheet?.conditions?.some(condition => String(cond
 function battleOn(ctx = context(), state = chatState(ctx)) {
     if (!settings(ctx).enabled) return false;
     if (state.fight) return true;
+    if (ending && ending.chatId === chatIdOf(ctx)) return true;
     if (screen.chatId === chatIdOf(ctx) && (screen.mode === 'setup' || screen.mode === 'result')) return true;
     return Boolean(encounterOffer(ctx, state));
 }
@@ -1591,6 +1598,8 @@ function battleView() {
     } else if (fight) {
         return { mode: 'fight', fight, actions: availableActions(fight, r), rules: r };
     }
+    // The fight just ended and its result is being written: its last state, without actions.
+    if (ending && ending.chatId === chatId) return { mode: 'fight', fight: ending.fight, actions: [], rules: r };
     const state = chatState(ctx);
     if (screen.mode === 'result' && state.last) {
         const money = state.last.result?.loot?.money ?? 0;
