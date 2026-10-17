@@ -103,3 +103,23 @@ export function questOffers({ index, quests = [], pc = null, rules = DEFAULT_RUL
         };
     }).filter(offer => offer.data.share > 0);
 }
+
+// The opening message's offers that wait for the reader (a character to be made, a companion to
+// add): its starting skills and companions. Anything else in it is of its moment, like a reply's.
+const WAITING_KINDS = ['joins', 'learned'];
+
+/**
+ * Offers that still belong to their moment: a reply's (and a quest it finished) only while it
+ * is the latest assistant reply and no fight has started since it (`foughtSince`: a fight
+ * started while that reply was the latest), so a rest from before a fight can never heal after
+ * it. The opening message's skills and companions wait until taken or put away; offers tied to
+ * no reply (`index` −1: a fallen companion, a rename) stay. Each offer carries `index` and,
+ * from the opening message, `opening`.
+ */
+export function liveOffers(offers, { latest, foughtSince = false } = {}) {
+    return (offers ?? []).filter(offer => {
+        if (offer.index === -1 || offer.index === undefined) return true;
+        if (offer.opening && WAITING_KINDS.includes(offer.kind)) return true;
+        return offer.index === latest && !foughtSince;
+    });
+}

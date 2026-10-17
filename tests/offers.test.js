@@ -71,3 +71,20 @@ test('quests done in a reply: XP by difficulty; none without a character', () =>
     assert.deepEqual(questOffers({ index: 9, quests: [{ name: 'X' }], pc: null }), []);
     assert.deepEqual(questOffers({ index: 9, quests: 'nonsense', pc: ren }), []);
 });
+
+test('offers last while their reply is the latest and no fight has started since; the opening message\'s skills and companions wait', async () => {
+    const { liveOffers } = await import('../src/offers.js');
+    const rest = { key: '5:rest:long', kind: 'rest', index: 5 };
+    const xp = { key: '5:xp:major', kind: 'xp', index: 5 };
+    const quest = { key: '5:quest:q1', kind: 'quest', index: 5 };
+    const openingSkill = { key: '0:learned:You — Sweep', kind: 'learned', index: 0, opening: true };
+    const openingJoin = { key: '0:joins:Lyra', kind: 'joins', index: 0, opening: true };
+    const openingRest = { key: '0:rest:short', kind: 'rest', index: 0, opening: true };
+    const fallen = { key: 'fallen:lyra', kind: 'fallen', index: -1 };
+    const all = [rest, xp, quest, openingSkill, openingJoin, openingRest, fallen];
+    assert.deepEqual(liveOffers(all, { latest: 5 }).map(offer => offer.key), [rest, xp, quest, openingSkill, openingJoin, fallen].map(offer => offer.key), 'the latest reply\'s, the opening\'s skills and companions, the fallen');
+    assert.deepEqual(liveOffers(all, { latest: 5, foughtSince: true }).map(offer => offer.key), [openingSkill, openingJoin, fallen].map(offer => offer.key), 'a rest from before the fight is gone after it, quest XP too');
+    assert.deepEqual(liveOffers(all, { latest: 7 }).map(offer => offer.key), [openingSkill, openingJoin, fallen].map(offer => offer.key), 'a newer reply ends them');
+    assert.deepEqual(liveOffers([openingRest, openingSkill], { latest: 0 }).map(offer => offer.key), [openingRest.key, openingSkill.key], 'the opening message\'s rest only while it is the latest');
+    assert.deepEqual(liveOffers([openingRest, openingSkill], { latest: 0, foughtSince: true }).map(offer => offer.key), [openingSkill.key]);
+});

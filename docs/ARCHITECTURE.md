@@ -548,6 +548,8 @@ export function questDifficulty(value) → 'easy' | 'normal' | 'hard' | 'nightma
 export function storyOffers({ index, texts: { joins, leaves, learned, xp, rest }, pc, members, persona, rules, library, opening, narrating, pending })
     → [{ key: 'index:kind:line', kind, text, accept, note?, data }]   // yours wait while pc is null
 export function questOffers({ index, quests, pc, rules }) → [{ key: 'index:quest:id', kind: 'quest', … }]
+export function liveOffers(offers, { latest, foughtSince }) → offers   // a reply's only while it is the latest
+    // and no fight started since; the opening message's joins and learned wait; index −1 (fallen, renames) stays
 
 // kit.js: a companion's starting skills
 export const KIT_SYSTEM; export function kitPrompt(who) → messages, parseKit(text) → [{ name, words, type, stat, target, element }]
@@ -782,7 +784,11 @@ As built (0.3):
   (message 0; `opening: true`, put away into chat state `done`, kept apart from `dismissed`, 60
   each), Story Director's `questsDoneAt(latest)` (typeof-guarded), `fallen` companions, a persona
   rename (`watchPersona`: per chat, once per switch) and NPC renames (linked companions whose
-  `npcProfiles()` name changed). None during a fight. `acceptOffer(key)`: joins → the companion
+  `npcProfiles()` name changed). None during a fight. `liveOffers` keeps a reply's offers only
+  while it is the latest and no fight started since: `startNewFight` stores chat state
+  `foughtAt: { index, text }` (the latest reply and `replyStamp`, a hash of its hidden party
+  blocks, which RPG Battle never rewrites, so a swipe or a reply written after a delete is told
+  apart). `acceptOffer(key)`: joins → the companion
   form (with an NPC profile of that name: `npcId`, role, summary), and `generateKit`; learned →
   the learn form (`prefill.free` from the opening message skips stat requirements); leaves and
   fallen → removed (`forgetMember`: uses, npcLinks); xp and quest → `awardParty`; rest →

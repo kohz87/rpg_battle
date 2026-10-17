@@ -210,8 +210,11 @@ the story makes it true (Story Block hides them with its other blocks):
 | A quest Story Director 0.8.2 closes in the reply | *Quest done: The Lost Caravan (hard). Award XP +15?* | XP for the whole party |
 
 - **Offers, never applied on their own:** each shows as a toast with its button and at the top of
-  the Party tab with **Accept** and **Not now**. They belong to their reply: a swipe recomputes
-  them, and one put away stays away for that reply's text.
+  the Party tab with **Accept** and **Not now**. They belong to their moment: a reply's offers
+  (and a quest it finished) last only while it is the latest reply and no fight has started since
+  it, so a rest from before a fight can never heal after it. A swipe recomputes them, and one put
+  away stays away for that reply's text. The opening message's skills and companions are the
+  exception: they wait until taken or put away.
 - **Names** match by full or first name, as story wounds do; `You` (or your character's or
   persona's name) is you. A name nobody in the party has is ignored, except in `<Joins>`.
 - **Learned:** the type, stat, target and effect (fire, ice, lightning, poison) are guessed from

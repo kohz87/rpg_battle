@@ -47,7 +47,7 @@ import { buildHandoff } from './src/handoff.js';
 import { combatantFromSheet, editCompanion, enemiesFromRows, engagements, newCompanion, remapIds } from './src/party.js';
 import { recoverOverTime, restAfter, useItemOutside } from './src/recovery.js';
 import { STORY_INSTRUCTION, applyWounds, describeWound, findTarget, parseEncounter, parseWounds, resolveThreats } from './src/story.js';
-import { questOffers, storyOffers } from './src/offers.js';
+import { liveOffers, questOffers, storyOffers } from './src/offers.js';
 import { awardParty, settleCompanions } from './src/growth.js';
 import { guessFocus } from './src/builds.js';
 import { fallbackKit, kitPrompt, kitTemplate, namedKit, parseKit, usableKit } from './src/kit.js';
@@ -229,7 +229,8 @@ function rules() {
 // bestiary: [creature] the creatures made up in this story (src/templates.js), cleaned when stored,
 // npcLinks: { [memberId]: npcId } the NPC State Delta NPC a companion was added from,
 // done: ['0:kind:line'] the opening message's offers taken or put away,
-// fallen: [{ memberId, name }] companions who fell in a fight to the death, to remove or keep }.
+// fallen: [{ memberId, name }] companions who fell in a fight to the death, to remove or keep,
+// foughtAt: { index, text } the latest reply (and a hash of its text) when the last fight started }.
 function chatState(ctx = context()) {
     const meta = chatMeta(ctx);
     if (!meta) return { fight: null, pending: null, story: null, dismissed: [], bestiary: [], skills: [], uses: {}, npcLinks: {}, done: [], fallen: [] };
@@ -247,6 +248,7 @@ function chatState(ctx = context()) {
         npcLinks: state.npcLinks && typeof state.npcLinks === 'object' ? state.npcLinks : {},
         done: Array.isArray(state.done) ? state.done : [],
         fallen: Array.isArray(state.fallen) ? state.fallen.filter(entry => entry && entry.memberId) : [],
+        foughtAt: state.foughtAt && typeof state.foughtAt === 'object' ? state.foughtAt : null,
     };
 }
 
@@ -455,7 +457,10 @@ function startNewFight({ rows, stakes }, { fresh = [] } = {}) {
     const setup = { id, seed, party, enemies, ...(waves.length ? { waves } : {}), stakes: stakes === 'death' ? 'death' : 'normal' };
     // Validate by starting it once; the stored form is the setup and the actions.
     startFight({ ...setup, rules: r });
-    saveChatState({ fight: { setup, actions: [] } });
+    // The latest reply's offers end here: a rest or an award from before the fight is not taken after it.
+    const latest = latestAssistantIndex(ctx?.chat ?? []);
+    const sb = storyBlock();
+    saveChatState({ fight: { setup, actions: [] }, foughtAt: sb && latest >= 0 ? { index: latest, text: replyStamp(sb, latest) } : null });
     screen = { chatId: chatIdOf(ctx), mode: 'fight' };
 }
 
@@ -1047,6 +1052,15 @@ function questsDoneAt(index) {
     }
 }
 
+/**
+ * What tells a reply apart from another written later at the same place (a swipe, or one after a
+ * delete): its hidden party blocks, which RPG Battle never rewrites (it does write the Party and
+ * Inventory blocks into the reply, so the whole text would not do).
+ */
+function replyStamp(sb, index) {
+    return textHash(JSON.stringify(partyBlocksAt(sb, index)));
+}
+
 /** One message's hidden party blocks, as text ('' for each it lacks). */
 function partyBlocksAt(sb, index) {
     return {
@@ -1122,7 +1136,9 @@ function currentOffers(ctx = context(), state = chatState(ctx)) {
     }
     const away = new Set([...state.dismissed, ...state.done]);
     const seen = new Set();
-    return offers.filter(offer => !away.has(offer.key) && !seen.has(offer.key) && seen.add(offer.key));
+    // A reply's offers last while it is the latest reply and no fight has started since.
+    const foughtSince = Boolean(state.foughtAt && state.foughtAt.index === latest && state.foughtAt.text === replyStamp(sb, latest));
+    return liveOffers(offers, { latest, foughtSince }).filter(offer => !away.has(offer.key) && !seen.has(offer.key) && seen.add(offer.key));
 }
 
 /** An offer taken or put away: the opening message's are kept apart, so they are never offered again. */
