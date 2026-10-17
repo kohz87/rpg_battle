@@ -37,7 +37,7 @@ import { DEFAULT_BESTIARY, findCreature } from './src/enemies.js';
 import { cleanCreature, combinedBestiary, creaturesToMake, generateCreature, storeCreatures } from './src/templates.js';
 import { applyFlavour, flavourPrompt, parseFlavour, sceneText } from './src/flavour.js';
 import { act, availableActions, replay, startFight, summarize } from './src/combat.js';
-import { applyResult, formatCharacter, formatParty, learnSkill, newSheet, parseCharacter, parseParty, spendPoints } from './src/sheet.js';
+import { applyResult, formatPartyBlock, learnSkill, newSheet, readSheets, spendPoints } from './src/sheet.js';
 import { addLoot, consumables, formatMoney, gearSummary, parseInventory, useItems } from './src/items.js';
 import { buildHandoff } from './src/handoff.js';
 import { combatantFromSheet, editCompanion, enemiesFromRows, newCompanion, remapIds } from './src/party.js';
@@ -59,6 +59,14 @@ const RULES_PROMPT_KEY = 'rpg_battle_rules';
 // Transport-only tags: Story Block moves them into its hidden envelope, out of the narration.
 const WOUNDS_TAG = 'Wounds';
 const ENCOUNTER_TAG = 'Encounter';
+const JOINS_TAG = 'Joins';
+const LEAVES_TAG = 'Leaves';
+const LEARNED_TAG = 'Learned';
+const XP_TAG = 'XP';
+const TRANSPORT_TAGS = [
+    ['rpg-wounds', WOUNDS_TAG], ['rpg-encounter', ENCOUNTER_TAG], ['rpg-joins', JOINS_TAG],
+    ['rpg-leaves', LEAVES_TAG], ['rpg-learned', LEARNED_TAG], ['rpg-xp', XP_TAG],
+];
 // Story Block's own Character Sheet block (a template of its own), which keeps a second HP.
 const STORY_SHEET_TEMPLATE = 'character-sheet';
 // How many dismissed encounter offers are remembered per chat.
@@ -66,6 +74,8 @@ const DISMISSED_KEPT = 30;
 const EXTENSION_PROMPT_IN_CHAT = 1;
 const EXTENSION_PROMPT_ROLE_SYSTEM = 0;
 const MIN_STORY_BLOCK_VERSION = [0, 7, 0];
+// Kept blocks without a sidebar tab (`tab: false`).
+const NO_TAB_STORY_BLOCK = [0, 9, 1];
 // Made-up creatures: at most this many flavour calls before one fight (the rest stay template
 // creatures), the most a chat's bestiary keeps, and the recent story the call reads.
 const FLAVOUR_PER_FIGHT = 4;
@@ -75,9 +85,19 @@ const SCENE_WORDS = 300;
 
 const DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
-    characterTag: 'Character',
+    // The kept block with your character and the companions (0.4: one block).
     partyTag: 'Party',
+    // An older chat's separate Character block: read (never written) until the Party block
+    // has your section. Not in the settings panel any more.
+    characterTag: 'Character',
     inventoryTag: 'Inventory',
+    // With Story Block 0.9.1 or newer the Party block is kept without a sidebar tab of its own
+    // (the Battle tab shows it); on, it gets one as before.
+    partyTab: false,
+    // Skills a member fights with (3–12); more are kept, set aside (rules.character.activeSkills).
+    activeSkills: DEFAULT_RULES.character.activeSkills,
+    // Companions on auto spend the points a level gives them in their build's proportions.
+    autoSpend: true,
     // Sent for you by "Return to story", so the narration comes straight away.
     returnMessage: '*(The fight is over.)*',
     currency: DEFAULT_RULES.currency,
@@ -96,33 +116,13 @@ const DEFAULT_SETTINGS = Object.freeze({
     sourceOfTruth: truthChoices(null),
 });
 
-// The Character block's fields for Story Block's Fields display, under the reader's terms:
-// "Soul Class" (text with tiers, since it reads "III (Lv 24)") and "Soul Growth" as a meter.
-function characterFields(r) {
-    const terms = termsOf(r);
-    return [
-        { label: 'Name', type: 'text' },
-        { label: terms.levelName, type: terms.tiers ? 'text' : 'number' },
-        { label: terms.xpName, type: 'meter', max: 100 },
-        { label: 'Points', type: 'number' },
-        { label: 'HP', type: 'meter', max: 100 },
-        { label: 'MP', type: 'meter', max: 100 },
-        ...['STR', 'VIT', 'AGI', 'DEX', 'INT', 'LUK', 'CHA'].map(label => ({ label, type: 'number' })),
-        { label: 'Checks', type: 'text' },
-        { label: 'State', type: 'text' },
-        { label: 'Skills', type: 'text' },
-        { label: 'Conditions', type: 'text' },
-    ];
-}
-
-// What the model is told about each kept block, under Story Block's 300-character limit.
-// The numbers alone do not say how to play someone at a fifth of their HP, so the notes
-// point at the State line (narrative.js) and make it binding. The scene board's PC card has a
+// What the model is told about the kept Party block, under Story Block's 300-character limit.
+// The numbers alone do not say how to play someone at a fifth of their HP, so the note points
+// at the State lines (narrative.js) and makes them binding. The scene board's PC card has a
 // Visible Condition the model writes itself; State is the source, so the note ties the two
 // together rather than let them disagree. Story Block does not fill in placeholders here,
-// hence "the character" and "each companion" rather than names.
-const CHARACTER_NOTE = 'Your character as the game knows them. Portray the character exactly as the State line says (badly hurt means bleeding and slow; down means unconscious or unable to fight) and never contradict it; the scene\'s Visible Condition must agree. HP, MP and conditions change only through RPG Battle.';
-const PARTY_NOTE = 'Companions fighting alongside you, as the game knows them. Portray each companion exactly as their State line says (badly hurt means bleeding and slow; down means unconscious or unable to fight) and never contradict it; HP, MP and conditions change only through RPG Battle.';
+// hence "(you)" rather than a name.
+const PARTY_NOTE = 'Your character ("(you)") and companions as the game knows them. Portray each exactly as their State line says (badly hurt: bleeding, slow; down: unconscious or unable to fight), never contradicting it; the scene\'s Visible Condition must agree. HP, MP and conditions change only through RPG Battle.';
 
 let registered = false;
 let uiRetry = null;
@@ -191,9 +191,16 @@ function settings(ctx = context()) {
     return store[SETTINGS_KEY];
 }
 
+const activeSkillsSetting = value => Math.min(12, Math.max(3, Math.round(Number(value)) || DEFAULT_RULES.character.activeSkills));
+
 function rules() {
     const own = settings();
-    return makeRules({ ...(own.rules ?? {}), currency: own.currency, terms: own.terms, gear: own.gear });
+    const custom = own.rules ?? {};
+    return makeRules({
+        ...custom,
+        character: { ...(custom.character ?? {}), activeSkills: activeSkillsSetting(own.activeSkills) },
+        currency: own.currency, terms: own.terms, gear: own.gear,
+    });
 }
 
 // Per-chat state: { fight: { setup, actions } | null, pending: { handoff, fightId, attachedTo } | null,
@@ -203,10 +210,11 @@ function rules() {
 // story: { index, signature, applied, undone, written } the last reply's story wounds (signature: a hash
 // of its <Wounds> text; written: hashes of the sheet texts the pipeline wrote into it),
 // dismissed: ['index:encounter text'] encounter offers the reader said Not now to,
-// bestiary: [creature] the creatures made up in this story (src/templates.js), cleaned when stored }.
+// bestiary: [creature] the creatures made up in this story (src/templates.js), cleaned when stored,
+// npcLinks: { [memberId]: npcId } the NPC State Delta NPC a companion was added from }.
 function chatState(ctx = context()) {
     const meta = chatMeta(ctx);
-    if (!meta) return { fight: null, pending: null, story: null, dismissed: [], bestiary: [] };
+    if (!meta) return { fight: null, pending: null, story: null, dismissed: [], bestiary: [], skills: [], uses: {}, npcLinks: {} };
     const state = meta[SETTINGS_KEY] && typeof meta[SETTINGS_KEY] === 'object' ? meta[SETTINGS_KEY] : {};
     return {
         fight: state.fight ?? null,
@@ -218,6 +226,7 @@ function chatState(ctx = context()) {
         story: state.story && typeof state.story === 'object' ? state.story : null,
         dismissed: Array.isArray(state.dismissed) ? state.dismissed : [],
         bestiary: Array.isArray(state.bestiary) ? state.bestiary.filter(entry => entry && typeof entry === 'object' && entry.name) : [],
+        npcLinks: state.npcLinks && typeof state.npcLinks === 'object' ? state.npcLinks : {},
     };
 }
 
@@ -246,15 +255,37 @@ function blockText(tag) {
     return storyBlock()?.getBlock?.(tag)?.text ?? '';
 }
 
+/**
+ * The sheets as the kept blocks hold them now, or before message `beforeIndex`: the Party
+ * block, and an older chat's Character block while the Party block has no "(you)" section
+ * (src/sheet.js readSheets). { pc, members, legacy }; companions carry the NPC State Delta id
+ * they were added from (chat state `npcLinks`), when they have one.
+ */
+function sheetsAt(sb = storyBlock(), { beforeIndex = null } = {}) {
+    const own = settings();
+    if (!sb) return { pc: null, members: [], legacy: false };
+    const party = sb.getBlock?.(own.partyTag, { beforeIndex }) ?? null;
+    const character = own.characterTag && own.characterTag !== own.partyTag ? sb.getBlock?.(own.characterTag, { beforeIndex }) ?? null : null;
+    const read = readSheets({
+        party: party?.text ?? '',
+        character: character?.text ?? '',
+        partyIndex: party?.messageIndex ?? null,
+        characterIndex: character?.messageIndex ?? null,
+    }, rules());
+    const links = chatState().npcLinks;
+    return { ...read, members: read.members.map(member => (links[member.id] ? { ...member, npcId: links[member.id] } : member)) };
+}
+
+function currentSheets() {
+    return sheetsAt();
+}
+
 function currentSheet() {
-    const text = blockText(settings().characterTag);
-    if (!text.trim()) return null;
-    return parseCharacter(text, rules()).sheet;
+    return currentSheets().pc;
 }
 
 function currentParty() {
-    const text = blockText(settings().partyTag);
-    return text.trim() ? parseParty(text, rules()).members : [];
+    return currentSheets().members;
 }
 
 function currentItems() {
@@ -269,27 +300,59 @@ async function writeBlock(tag, text) {
     await sb.setBlockText(target, tag, text);
 }
 
+/** The one Party block: your section, then the companions (an older Character block is left as it was). */
+async function writeSheets(pc, members) {
+    await writeBlock(settings().partyTag, formatPartyBlock(pc, members ?? [], rules()));
+}
+
 async function writeSheet(sheet) {
-    await writeBlock(settings().characterTag, formatCharacter(sheet, rules()));
+    await writeSheets(sheet, currentParty());
 }
 
 async function writeParty(members) {
-    // An empty party is still written, so the last companion leaving is a change the chat keeps.
-    await writeBlock(settings().partyTag, formatParty(members, rules()) || 'No companions.');
+    await writeSheets(currentSheet(), members);
 }
 
-// The Character and Party blocks written again in the current terms, so the model reads the
-// new words from the next reply on rather than after the next change to a sheet. Quiet: with
-// no chat or no reply yet there is nothing to rewrite.
+// The Party block written again in the current terms, so the model reads the new words from
+// the next reply on rather than after the next change to a sheet. Quiet: with no chat or no
+// reply yet there is nothing to rewrite.
 async function rewriteSheets() {
     try {
         if (chatState().fight) return;
-        const sheet = currentSheet();
-        if (sheet) await writeSheet(sheet);
-        const members = currentParty();
-        if (members.length) await writeParty(members);
+        const { pc, members } = currentSheets();
+        if (pc || members.length) await writeSheets(pc, members);
     } catch (error) {
         console.warn('[RPG Battle] the sheets could not be rewritten in the new terms', error);
+    }
+}
+
+// An older chat keeps your sheet in the Character block, which is no longer kept (nor shown to
+// the model): once its chat is open, the two are written as the one Party block, into the
+// latest reply. Not during a fight (it owns the sheets), and once per chat and state.
+let migration = { key: '', timer: null };
+
+function scheduleMigration() {
+    if (migration.timer) return;
+    migration.timer = setTimeout(() => {
+        migration.timer = null;
+        void migrateLegacy();
+    }, 0);
+}
+
+async function migrateLegacy() {
+    try {
+        const ctx = context();
+        const own = settings(ctx);
+        if (!own.enabled || !storyBlock() || chatState(ctx).fight || latestAssistantIndex(ctx?.chat ?? []) < 0) return;
+        const { pc, members, legacy } = currentSheets();
+        if (!legacy || !pc) return;
+        const key = `${chatIdOf(ctx)}:${(ctx?.chat ?? []).length}`;
+        if (migration.key === key) return;
+        migration.key = key;
+        await writeSheets(pc, members);
+        console.info('[RPG Battle] the Character and Party blocks are now one Party block.');
+    } catch (error) {
+        console.warn('[RPG Battle] the older Character block could not be merged into the Party block', error);
     }
 }
 
@@ -586,22 +649,21 @@ async function finishFight(fight) {
     const report = { levelsGained: 0, pointsGained: 0, levelsReached: 0 };
     const uses = { ...chatState().uses };
     try {
+        let pc = sheet;
         if (sheet) {
             const applied = applyResult({ ...sheet, uses: uses.pc ?? {} }, 'pc', result, r);
             report.levelsGained = applied.levelsGained;
             report.pointsGained = applied.pointsGained;
             report.levelsReached = applied.levelsGained ? applied.sheet.level : 0;
             uses.pc = applied.sheet.uses ?? {};
-            await writeSheet(applied.sheet);
+            pc = applied.sheet;
         }
-        const members = currentParty();
-        if (members.length) {
-            await writeParty(members.map(member => {
-                const applied = applyResult({ ...member.sheet, uses: uses[member.id] ?? {} }, member.id, result, r);
-                uses[member.id] = applied.sheet.uses ?? {};
-                return { ...member, sheet: applied.sheet };
-            }));
-        }
+        const members = currentParty().map(member => {
+            const applied = applyResult({ ...member.sheet, uses: uses[member.id] ?? {} }, member.id, result, r);
+            uses[member.id] = applied.sheet.uses ?? {};
+            return { ...member, sheet: applied.sheet };
+        });
+        if (pc || members.length) await writeSheets(pc, members);
         const inventory = blockText(own.inventoryTag);
         if (inventory.trim() || result.loot?.items?.length || result.loot?.money) {
             let next = useItems(inventory, result.itemsUsed?.pc ?? {});
@@ -663,10 +725,7 @@ function woundsAt(sb, index) {
 function planReply(sb, index, { withWounds = true } = {}) {
     const own = settings();
     const r = rules();
-    const characterText = sb.getBlock(own.characterTag, { beforeIndex: index })?.text ?? '';
-    const before = characterText.trim() ? parseCharacter(characterText, r).sheet : null;
-    const partyText = sb.getBlock(own.partyTag, { beforeIndex: index })?.text ?? '';
-    const members = partyText.trim() ? parseParty(partyText, r).members : [];
+    const { pc: before, members, legacy } = sheetsAt(sb, { beforeIndex: index });
     let pc = before;
     let party = members;
     let note = '';
@@ -696,33 +755,31 @@ function planReply(sb, index, { withWounds = true } = {}) {
         ({ pc, applied } = result);
         party = result.members;
     }
-    return { before, members, pc, party, note, applied, signature: wounds.signature };
+    return { before, members, pc, party, note, applied, legacy, signature: wounds.signature };
 }
 
 /**
- * Writes a plan into reply `index`, once, and only what differs. A sheet already in that
- * reply that the pipeline did not write (a fight, a rest or an item since) is left alone and
- * nothing is written: recomputing from the sheets before the reply would throw that away.
- * { ok, written: { character, party } } with the hashes of what the reply now holds from us.
+ * Writes a plan into reply `index`, once, and only what differs. A Party block already in
+ * that reply that the pipeline did not write (a fight, a rest or an item since) is left alone
+ * and nothing is written: recomputing from the sheets before the reply would throw that away.
+ * An older chat's sheets (your sheet still in the Character block) are written as the one
+ * Party block even when nothing changed. { ok, written: { party } } with the hash of what the
+ * reply now holds from us.
  */
 async function writePlan(sb, index, plan, story) {
     const own = settings();
     const r = rules();
     const ours = story?.index === index ? story.written ?? {} : {};
-    const targets = [
-        { key: 'character', tag: own.characterTag, before: plan.before ? formatCharacter(plan.before, r) : null, next: plan.pc ? formatCharacter(plan.pc, r) : null },
-        { key: 'party', tag: own.partyTag, before: plan.members.length ? formatParty(plan.members, r) : null, next: plan.party.length ? formatParty(plan.party, r) : null },
-    ];
-    for (const target of targets) {
-        target.current = blockAt(sb, index, target.tag);
-        if (target.current !== null && textHash(target.current) !== ours[target.key]) return { ok: false, written: {} };
-    }
-    const written = { character: null, party: null };
-    for (const target of targets) {
-        if (target.next === null) continue;
-        const changed = target.current !== null ? target.current !== target.next.trim() : target.next !== target.before;
-        if (changed) await sb.setBlockText(index, target.tag, target.next);
-        if (changed || target.current !== null) written[target.key] = textHash(target.next);
+    const has = plan.pc || plan.party.length;
+    const before = plan.before || plan.members.length ? formatPartyBlock(plan.before, plan.members, r) : null;
+    const next = has ? formatPartyBlock(plan.pc, plan.party, r) : null;
+    const current = blockAt(sb, index, own.partyTag);
+    if (current !== null && textHash(current) !== ours.party) return { ok: false, written: {} };
+    const written = { party: null };
+    if (next !== null) {
+        const changed = current !== null ? current !== next.trim() : next !== before || Boolean(plan.legacy);
+        if (changed) await sb.setBlockText(index, own.partyTag, next);
+        if (changed || current !== null) written.party = textHash(next);
     }
     return { ok: true, written };
 }
@@ -770,12 +827,9 @@ function canUndoStory(ctx = context(), state = chatState(ctx)) {
     if (!sb || !story || story.undone || !story.applied?.length || state.fight) return false;
     if (story.index !== latestAssistantIndex(ctx?.chat ?? [])) return false;
     if (woundsAt(sb, story.index).signature !== story.signature) return false;
-    const own = settings(ctx);
-    const written = story.written ?? {};
-    return [[own.characterTag, written.character], [own.partyTag, written.party]].every(([tag, hash]) => {
-        const current = blockAt(sb, story.index, tag);
-        return current === null ? !hash : textHash(current) === hash;
-    });
+    const hash = story.written?.party;
+    const current = blockAt(sb, story.index, settings(ctx).partyTag);
+    return current === null ? !hash : textHash(current) === hash;
 }
 
 // Undo: that reply's sheets as the pipeline would write them without its wounds (story-time
@@ -954,13 +1008,10 @@ function suiteMembers() {
     try {
         const own = settings();
         if (!own.enabled) return [];
-        const characterText = blockText(own.characterTag);
-        const partyText = blockText(own.partyTag);
-        const key = JSON.stringify([characterText, partyText, own.terms, own.rules]);
+        const key = JSON.stringify([blockText(own.partyTag), blockText(own.characterTag), own.terms, own.rules]);
         if (membersMemo.key !== key) {
             const r = rules();
-            const pc = characterText.trim() ? parseCharacter(characterText, r).sheet : null;
-            const members = partyText.trim() ? parseParty(partyText, r).members : [];
+            const { pc, members } = currentSheets();
             membersMemo = { key, list: partyMembers(pc, members, r) };
         }
         return membersMemo.list;
@@ -1103,7 +1154,7 @@ async function onGenerationInterceptor(chat, _contextSize, _abort, type = 'norma
         setPrompt(handoff);
         // The story instruction, while there is a sheet to keep in step and no fight under way.
         // Not for the reply that narrates a fight: its wounds were dealt in the fight.
-        const asks = own.enabled && !handoff && !chatState(ctx).fight && Boolean(blockText(own.characterTag).trim());
+        const asks = own.enabled && !handoff && !chatState(ctx).fight && Boolean(currentSheet());
         setPrompt(asks ? STORY_INSTRUCTION : '', RULES_PROMPT_KEY);
     } catch (error) {
         console.error('[RPG Battle] interceptor failed', error);
@@ -1259,9 +1310,7 @@ const handlers = {
         if (!sheet) return;
         const length = kind === 'short' ? 'short' : 'long';
         const rested = rest(sheet, length, { gear: currentItems().filter(item => item.equipped), rules: r });
-        await writeSheet(rested);
-        const members = currentParty();
-        if (members.length) await writeParty(members.map(member => ({ ...member, sheet: rest(member.sheet, length, { gear: member.gear ?? [], rules: r }) })));
+        await writeSheets(rested, currentParty().map(member => ({ ...member, sheet: rest(member.sheet, length, { gear: member.gear ?? [], rules: r }) })));
         notify('success', length === 'long' ? `${sheet.name} is fully rested.` : `${sheet.name} catches their breath: HP ${rested.hp.cur}/${rested.hp.max}, MP ${rested.mp.cur}/${rested.mp.max}.`);
     }),
     onItems: () => go('items'),
@@ -1367,6 +1416,7 @@ function tabKey() {
 }
 
 function renderTab(pane) {
+    if (currentSheets().legacy) scheduleMigration();
     const view = viewFor();
     renderBattleTab(pane, view, handlers);
     settingsPanel?.setSheetConflict?.(sheetConflict());
@@ -1377,38 +1427,29 @@ function renderTab(pane) {
 
 function registerKeptBlocks(sb) {
     const own = settings();
-    const results = [
-        sb.registerBlock({
-            id: 'rpg-character',
-            tag: own.characterTag,
-            name: 'Character',
-            icon: '🛡️',
-            kept: true,
-            owner: 'RPG Battle',
-            format: 'fields',
-            display: 'fields',
-            fields: characterFields(rules()),
-            promptNote: CHARACTER_NOTE,
-            diceModifier: `Modifier: the matching stat's bonus from the <${own.characterTag}> block's Checks line (for example CHA +1); do not guess one.`,
-        }),
-        sb.registerBlock({
-            id: 'rpg-party',
-            tag: own.partyTag,
-            name: 'Party',
-            icon: '👥',
-            kept: true,
-            owner: 'RPG Battle',
-            format: 'text',
-            display: 'plain',
-            promptNote: PARTY_NOTE,
-        }),
-    ];
-    // The model's <Wounds> and <Encounter>: transport only, so Story Block hides them in its
-    // envelope (out of the narration and the prompt's history) and RPG Battle reads them.
-    results.push(
-        sb.registerBlock({ id: 'rpg-wounds', tag: WOUNDS_TAG, name: 'Wounds' }),
-        sb.registerBlock({ id: 'rpg-encounter', tag: ENCOUNTER_TAG, name: 'Encounter' }),
-    );
+    const party = {
+        id: 'rpg-party',
+        tag: own.partyTag,
+        name: 'Party',
+        icon: '👥',
+        kept: true,
+        owner: 'RPG Battle',
+        format: 'text',
+        display: 'plain',
+        promptNote: PARTY_NOTE,
+        diceModifier: `Modifier: the matching stat's bonus from the Checks line of your "(you)" section of the <${own.partyTag}> block (for example CHA +1); do not guess one.`,
+    };
+    // Story Block 0.9.1 keeps a block without a sidebar tab of its own: the Battle tab already
+    // shows the party. An older Story Block gives it a tab, as before.
+    if (versionAtLeast(sb.version, NO_TAB_STORY_BLOCK)) party.tab = own.partyTab === true;
+    const results = [sb.registerBlock(party)];
+    // An older chat's Character block: no longer kept (not shown to the model, no tab, never
+    // written), only read until the chat's Party block has your section. Registered as
+    // transport so Story Block still hides its old copies and getBlock still finds them.
+    if (own.characterTag && own.characterTag !== own.partyTag) results.push(sb.registerBlock({ id: 'rpg-character', tag: own.characterTag, name: 'Character (older chats)' }));
+    // The model's hidden blocks: transport only, so Story Block hides them in its envelope (out
+    // of the narration and the prompt's history) and RPG Battle reads them.
+    for (const [id, tag] of TRANSPORT_TAGS) results.push(sb.registerBlock({ id, tag, name: tag }));
     for (const result of results) if (result && result.ok === false) console.warn('[RPG Battle] block not registered:', result.error);
 }
 
@@ -1429,7 +1470,11 @@ function registerWithStoryBlock() {
     });
     sb.onReply?.(payload => void afterReply(payload));
     // Story Block's settings can change under us (its Character Sheet switched on or off).
-    sb.onUpdate?.(() => settingsPanel?.setSheetConflict?.(sheetConflict()));
+    sb.onUpdate?.(() => {
+        settingsPanel?.setSheetConflict?.(sheetConflict());
+        // A chat opened (or changed) may still keep your sheet in the older Character block.
+        scheduleMigration();
+    });
     registered = true;
     return true;
 }
@@ -1442,18 +1487,19 @@ function registerWithStoryBlock() {
 function applySettings(next) {
     const ctx = context();
     if (!ctx?.extensionSettings) return;
+    const blocksKey = () => JSON.stringify([termsOf(rules()), settings(ctx).partyTab, settings(ctx).partyTag, settings(ctx).characterTag]);
     const termsBefore = JSON.stringify(termsOf(rules()));
+    const blocksBefore = blocksKey();
     const enabledBefore = settings(ctx).enabled;
+    const activeBefore = settings(ctx).activeSkills;
     ctx.extensionSettings[SETTINGS_KEY] = { ...settings(ctx), ...next };
     ctx.saveSettingsDebounced?.();
     if (settings(ctx).enabled !== enabledBefore) announceToSuite();
-    // New terms rename the Character block's fields; Story Block replaces a block
-    // registered again under its id.
+    // New terms, tags or the tab switch: Story Block replaces a block registered again under its
+    // id. The sheets are written again for new words or a new skill cap.
     const sb = storyBlock();
-    if (registered && sb && JSON.stringify(termsOf(rules())) !== termsBefore) {
-        registerKeptBlocks(sb);
-        void rewriteSheets();
-    }
+    if (registered && sb && blocksKey() !== blocksBefore) registerKeptBlocks(sb);
+    if (registered && sb && (JSON.stringify(termsOf(rules())) !== termsBefore || settings(ctx).activeSkills !== activeBefore)) void rewriteSheets();
     settingsPanel?.setSheetConflict?.(sheetConflict(ctx));
     settingsPanel?.setSources?.(currentSources());
     storyBlock()?.refresh?.();

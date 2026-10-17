@@ -39,10 +39,11 @@ test('currency mode switches the rows; edits go through onChange', () => {
     tiers.value = 'bits, marks=12';
     tiers.dispatch('change');
     assert.deepEqual(changes.at(-1).currency.tiers, [{ name: 'bits', rate: 1 }, { name: 'marks', rate: 12 }]);
-    const tag = $('#rpg_battle_character_tag');
-    tag.value = 'Hero';
+    const tag = $('#rpg_battle_party_tag');
+    tag.value = 'Company';
     tag.dispatch('change');
-    assert.equal(changes.at(-1).characterTag, 'Hero');
+    assert.equal(changes.at(-1).partyTag, 'Company');
+    assert.equal($('#rpg_battle_character_tag'), null, 'one Party block since 0.4: no Character tag');
     const enabled = $('#rpg_battle_enabled');
     enabled.checked = false;
     enabled.dispatch('change');
@@ -213,7 +214,7 @@ test('the sections fold, closed, each with a one-line summary that follows the s
     doc.body.appendChild(container);
     renderSettings(container, { settings: { ...SETTINGS, gear: { worn: 1, accessories: 2 }, terms: { levelName: 'Soul Class', xpName: 'Soul Growth', tiers: { size: 10, numerals: 'roman' }, cap: null } }, onChange: () => {} });
     const folds = container.querySelectorAll('.rpg-battle-settings-fold');
-    assert.deepEqual(folds.map(node => node.dataset.fold), ['money', 'equipment', 'terms', 'monsters', 'truth', 'blocks']);
+    assert.deepEqual(folds.map(node => node.dataset.fold), ['money', 'equipment', 'terms', 'monsters', 'party', 'truth', 'blocks']);
     assert.ok(folds.every(node => node.open === false), 'all start closed');
     const hint = key => container.querySelector(`.rpg-battle-settings-fold.is-${key} .rpg-battle-settings-fold-hint`).textContent;
     assert.equal(hint('money'), 'copper / silver / gold');
@@ -221,7 +222,8 @@ test('the sections fold, closed, each with a one-line summary that follows the s
     assert.equal(hint('terms'), 'Soul Class · Soul Growth · tiers');
     assert.equal(hint('monsters'), 'Flavour on');
     assert.equal(hint('truth'), 'Automatic');
-    assert.equal(hint('blocks'), 'Character · Party · Inventory');
+    assert.equal(hint('blocks'), 'Party · Inventory');
+    assert.equal(hint('party'), '6 active skills · auto-spend');
     // The controls live inside their fold, and a change updates its summary.
     const accessories = container.querySelector('.rpg-battle-settings-fold.is-equipment #rpg_battle_gear_accessories');
     accessories.value = '1';
@@ -286,4 +288,29 @@ test('Story Suite: choices and the switch changed in the overlay show in the pan
     assert.equal(changes.at(-1).enabled, false, 'the switch as the overlay left it');
     panel.setEnabled(true);
     assert.equal($('#rpg_battle_enabled').checked, true);
+});
+
+test('Party: active skills 3 to 12, companions\' points spent automatically, the Party block\'s own tab', () => {
+    const { $, changes } = mount();
+    const active = $('.rpg-battle-settings-fold.is-party #rpg_battle_active_skills');
+    assert.equal(active.value, '6');
+    active.value = '20';
+    active.dispatch('change');
+    assert.equal(changes.at(-1).activeSkills, 12);
+    assert.equal(active.value, '12');
+    active.value = 'x';
+    active.dispatch('change');
+    assert.equal(changes.at(-1).activeSkills, 6);
+    const auto = $('.rpg-battle-settings-fold.is-party #rpg_battle_auto_spend');
+    assert.equal(auto.checked, true, 'on by default');
+    auto.checked = false;
+    auto.dispatch('change');
+    assert.equal(changes.at(-1).autoSpend, false);
+    assert.equal($('.rpg-battle-settings-fold.is-party .rpg-battle-settings-fold-hint').textContent, '6 active skills · points by hand');
+    const tab = $('.rpg-battle-settings-fold.is-blocks #rpg_battle_party_tab');
+    assert.equal(tab.checked, false, 'off by default');
+    tab.checked = true;
+    tab.dispatch('change');
+    assert.equal(changes.at(-1).partyTab, true);
+    assert.equal($('.rpg-battle-settings-fold.is-blocks .rpg-battle-settings-fold-hint').textContent, 'Party · Inventory · Party tab');
 });

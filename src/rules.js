@@ -15,6 +15,8 @@ export const DEFAULT_RULES = Object.freeze({
         startPoints: 10,
         pointsPerLevel: 4,
         starterSkills: 3,
+        // Skills a member fights with; more are kept, set aside, and swapped in by hand.
+        activeSkills: 6,
         // XP to reach the next level = round10(xpBase × level ^ xpExponent).
         xpBase: 100,
         xpExponent: 1.5,

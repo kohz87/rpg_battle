@@ -1,4 +1,4 @@
-// RPG Battle's panel under Extensions: the on/off switch, the money, the terms, and the block tags.
+// RPG Battle's panel under Extensions: the on/off switch, the money, the terms, the party, and the block tags.
 //
 // Small on purpose: everything about a character happens in the Battle tab. Money follows the
 // reader's world (DESIGN §8.3): copper/silver/gold, one coin, or their own names and rates.
@@ -125,8 +125,9 @@ export function foldHints(settings) {
         equipment: `${gear.worn} worn · ${gear.accessories} ${Number(gear.accessories) === 1 ? 'accessory' : 'accessories'}`,
         terms: [terms.levelName || 'Level', terms.xpName || 'XP', terms.tiers ? 'tiers' : '', terms.cap ? `cap ${terms.cap}` : ''].filter(Boolean).join(' · '),
         monsters: current.flavour?.enabled === false ? 'Flavour off' : 'Flavour on',
+        party: `${Number(current.activeSkills) || 6} active skills · ${current.autoSpend === false ? 'points by hand' : 'auto-spend'}`,
         truth: chosen ? `${chosen} chosen by hand` : 'Automatic',
-        blocks: [current.characterTag || 'Character', current.partyTag || 'Party', current.inventoryTag || 'Inventory'].join(' · '),
+        blocks: [current.partyTag || 'Party', current.inventoryTag || 'Inventory', current.partyTab ? 'Party tab' : ''].filter(Boolean).join(' · '),
     };
 }
 
@@ -246,6 +247,21 @@ export function renderSettings(container, { settings, version = '', status = '',
     };
     const wornCount = gearInput('rpg_battle_gear_worn', 'worn', 1);
     const accessoryCount = gearInput('rpg_battle_gear_accessories', 'accessories', 2);
+
+    // Party (0.4): how many skills a member fights with, and whether companions on auto spend
+    // the points a level gives them; the Party block's own sidebar tab (Story Block 0.9.1).
+    const activeSkills = numberInput('rpg_battle_active_skills', current.activeSkills ?? 6, { min: 3, max: 12 });
+    activeSkills.addEventListener('change', () => {
+        const value = wholeOrNull(activeSkills.value, 3, 12) ?? 6;
+        activeSkills.value = String(value);
+        commit(next => { next.activeSkills = value; });
+    });
+    const autoSpend = el('input', { attrs: { id: 'rpg_battle_auto_spend', type: 'checkbox' } });
+    autoSpend.checked = current.autoSpend !== false;
+    autoSpend.addEventListener('change', () => commit(next => { next.autoSpend = autoSpend.checked; }));
+    const partyTab = el('input', { attrs: { id: 'rpg_battle_party_tab', type: 'checkbox' } });
+    partyTab.checked = current.partyTab === true;
+    partyTab.addEventListener('change', () => commit(next => { next.partyTab = partyTab.checked; }));
 
     const recover = el('input', { attrs: { id: 'rpg_battle_recover', type: 'checkbox' } });
     recover.checked = current.recoverWithTime !== false;
@@ -369,13 +385,17 @@ export function renderSettings(container, { settings, version = '', status = '',
                     row('Model', profiles === null ? 'Connection Manager is off, so the chat\'s own connection is used.' : 'A connection profile has its own API and model; a small, fast one is enough.', flavourModel, 'rpg_battle_flavour_model'),
                     row('Answer length', 'Most tokens one answer may use.', flavourTokens, 'rpg_battle_flavour_tokens'),
                 ]),
+                fold('party', 'Party', [
+                    row('Active skills', 'Skills each member fights with (3 to 12). More are kept, set aside, and swapped in on their card.', activeSkills, 'rpg_battle_active_skills'),
+                    el('label', { className: 'checkbox_label', attrs: { for: 'rpg_battle_auto_spend' } }, [autoSpend, el('span', { text: 'Spend companions\' points automatically (companions on auto, in their build\'s proportions)' })]),
+                ]),
                 fold('truth', 'Source of truth', [
                     el('small', { className: 'rpg-battle-settings-hint', text: 'With Story Block, Story Director or NPC State Delta beside RPG Battle, who the story follows for each area they share. Automatic: the specialist for it. Alone, every choice works like Automatic.' }),
                     ...truthRows,
                 ]),
                 fold('blocks', 'Blocks', [
-                    tag('rpg_battle_character_tag', 'characterTag', 'Character tag', 'The kept block with your sheet.'),
-                    tag('rpg_battle_party_tag', 'partyTag', 'Party tag', 'The kept block with your companions.'),
+                    tag('rpg_battle_party_tag', 'partyTag', 'Party tag', 'The kept block with your character and companions.'),
+                    el('label', { className: 'checkbox_label', attrs: { for: 'rpg_battle_party_tab' } }, [partyTab, el('span', { text: 'Show the Party block as its own tab (Story Block 0.9.1 or newer; the Battle tab shows it either way)' })]),
                     tag('rpg_battle_inventory_tag', 'inventoryTag', 'Inventory tag', 'Your Story Block inventory (equipment, consumables, loot).'),
                     row('Return to story', 'Sent for you after a fight so the narration comes straight away. Empty: send nothing.', returnMessage, 'rpg_battle_return'),
                 ]),

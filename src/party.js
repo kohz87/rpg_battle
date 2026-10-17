@@ -7,14 +7,15 @@ import { STATS, derive, maxHp, maxMp } from './rules.js';
 import { resolveSkills } from './skills.js';
 import { projectEnemy } from './enemies.js';
 import { consumables, gearBonuses, parseGearEntry } from './items.js';
-import { memberIds, newSheet, recompute, slug } from './sheet.js';
+import { activeSkills, memberIds, newSheet, recompute, slug } from './sheet.js';
 import { maxLevel } from './terms.js';
 
 const clampInt = (value, min, max) => Math.min(max, Math.max(min, Math.round(Number(value) || 0)));
 
 /**
  * A party Combatant from a sheet: stats plus gear, max HP/MP with gear bonuses, current HP/MP
- * from the sheet (clamped), skills resolved against the library, consumables from `items`.
+ * from the sheet (clamped), the skills in use (not set aside) resolved against the library,
+ * consumables from `items`.
  */
 export function combatantFromSheet(sheet, { memberId = 'pc', controller = 'player', gear = [], items = [], library = [], rules }) {
     const bonus = gearBonuses(gear, sheet.level, rules);
@@ -37,7 +38,7 @@ export function combatantFromSheet(sheet, { memberId = 'pc', controller = 'playe
         hp: { cur: clampInt(sheet.hp?.cur ?? hpMax, 0, hpMax), max: hpMax },
         mp: { cur: clampInt(sheet.mp?.cur ?? mpMax, 0, mpMax), max: mpMax },
         ...numbers,
-        skills: resolveSkills(sheet.skills ?? [], library, sheet.level, rules).map(skill => ({ ...skill, cooldownLeft: 0 })),
+        skills: resolveSkills(activeSkills(sheet), library, sheet.level, rules).map(skill => ({ ...skill, cooldownLeft: 0 })),
         items: consumables(items),
         conditions: (sheet.conditions ?? []).filter(entry => entry.rounds).map(entry => ({ name: entry.name, rounds: entry.rounds, power: 0 })),
         morale: 0,
