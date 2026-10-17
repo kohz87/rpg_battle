@@ -8,7 +8,7 @@ import { DEFAULT_BESTIARY } from '../src/enemies.js';
 import { PRESETS } from '../src/skills.js';
 import { newSheet } from '../src/sheet.js';
 import { newCompanion } from '../src/party.js';
-import { STORY_INSTRUCTION, THREATS, applyWounds, describeWound, parseEncounter, parseWounds, resolveThreats, threatLevel } from '../src/story.js';
+import { STORY_INSTRUCTION, THREATS, applyWounds, describeWound, guessSkill, parseEncounter, parseHints, parseJoins, parseLearned, parseLeaves, parseRest, parseWounds, parseXp, resolveThreats, threatLevel } from '../src/story.js';
 
 const rules = makeRules();
 const ren = { ...newSheet({ name: 'Ren Aldane', stats: PRESETS[0].points, skills: PRESETS[0].skills }, rules), hp: { cur: 98, max: 98 } };
@@ -149,18 +149,25 @@ test('encounter: unknown names kept (singular only for a creature word), notes i
 // ---------------------------------------------------------------------------
 // The instruction
 
-// 0.3 added the threat words (about 15 tokens), so the bound moved from 95 to 110.
-test('the story instruction is short (about 100 tokens) and names both tags, the grammar and the threat words', () => {
+// 0.3 added the threat words (about 15 tokens), so the bound moved from 95 to 110; 0.4 makes it
+// one instruction for every hidden block (Joins, Leaves, Learned, XP, Rest, waves): 170.
+test('the story instruction is compact (about 170 tokens) and names every tag, the grammar and the threat words', () => {
     const pieces = STORY_INSTRUCTION.match(/[A-Za-z]+|\d+|[^\sA-Za-z\d]/g).length;
-    assert.ok(STORY_INSTRUCTION.length <= 440, `${STORY_INSTRUCTION.length} characters`);
-    assert.ok(Math.ceil(STORY_INSTRUCTION.length / 4) <= 110, 'about 100 tokens at four characters a token');
-    assert.ok(pieces <= 112, `${pieces} words and marks`);
-    for (const part of ['<Wounds>', '<Encounter>', 'scratch|wound|severe|grievous', 'heal', 'poisoned', 'Character or Party sheet', 'not an RPG Battle fight', 'stop at the first blow', 'trivial|weak|even|strong|deadly']) {
+    assert.ok(STORY_INSTRUCTION.length <= 680, `${STORY_INSTRUCTION.length} characters`);
+    assert.ok(Math.ceil(STORY_INSTRUCTION.length / 4) <= 170, 'about 170 tokens at four characters a token');
+    assert.ok(pieces <= 200, `${pieces} words and marks`);
+    for (const part of ['<Wounds>', '<Encounter>', '<Joins>', '<Leaves>', '<Learned>', '<XP>', '<Rest>', 'scratch|wound|severe|grievous', 'heal', 'poisoned', 'Party sheet', 'not for an RPG Battle fight', 'stop at the first blow', 'trivial|weak|even|strong|deadly', 'minor|major|milestone', 'short|long', 'then:']) {
         assert.ok(STORY_INSTRUCTION.includes(part), part);
     }
     // Its own examples read back as the grammar says.
     assert.deepEqual(parseWounds('Ren — heal wound: x').map(entry => entry.kind), ['heal']);
-    assert.deepEqual(parseEncounter(STORY_INSTRUCTION.match(/<Encounter>(.*?)<\/Encounter>/)[1]).map(row => [row.name, row.boss, row.threat]), [['Wolf', false, 'weak'], ['Wolf Matriarch', true, 'strong']]);
+    assert.deepEqual(parseEncounter(STORY_INSTRUCTION.match(/<Encounter>(.*?)<\/Encounter>/)[1]).map(row => [row.name, row.boss, row.threat, row.wave ?? 0]), [['Wolf', false, 'weak', 0], ['Wolf Matriarch', true, 'strong', 1]]);
+    const example = tag => STORY_INSTRUCTION.match(new RegExp(`<${tag}>(.*?)</${tag}>`))[1];
+    assert.deepEqual(parseJoins(example('Joins'), rules).map(entry => [entry.name, entry.role, entry.level]), [['Lyra', 'healer', 6]]);
+    assert.deepEqual(parseLeaves(example('Leaves')).map(entry => [entry.name, entry.reason]), [['Lyra', 'went home']]);
+    assert.deepEqual(parseLearned(example('Learned')).map(entry => [entry.name, entry.skill, entry.words]), [['Lyra', 'Frost Lance', 'ice magic, hits all']]);
+    assert.deepEqual(parseXp('major: rescued the caravan'), [{ kind: 'major', reason: 'rescued the caravan', line: 'major: rescued the caravan' }]);
+    assert.deepEqual(parseRest('long: slept at the inn').map(entry => entry.kind), ['long']);
 });
 
 test('parseEncounter: a power in the reader\'s terms becomes the row\'s level', async () => {
@@ -237,5 +244,52 @@ test('threatLevel: the party\'s level plus steps of rules.threat; a step is a ti
         { name: 'Bandit', count: 1, rank: 'D' },
         { name: 'Ogre', count: 1, rank: null, level: 12, threat: 'deadly' },
         { name: 'Goblin', count: 1, rank: null },
+    ]);
+});
+
+// ---------------------------------------------------------------------------
+// 0.4: the party's story
+
+test('Joins: name, role, level in any form, hints for level, focus and skills', () => {
+    const soul = makeRules({ terms: { levelName: 'Soul Class', tiers: { size: 10, numerals: 'roman' } } });
+    assert.deepEqual(parseJoins('Lyra — healer, level 6\n- **Bram** – old soldier, Lv 3\nMira'), [
+        { name: 'Lyra', role: 'healer', level: 6, focus: [], skills: [], line: 'Lyra — healer, level 6' },
+        { name: 'Bram', role: 'old soldier', level: 3, focus: [], skills: [], line: 'Bram – old soldier, Lv 3' },
+        { name: 'Mira', role: '', level: null, focus: [], skills: [], line: 'Mira' },
+    ]);
+    assert.equal(parseJoins('Kael — scout (Soul Class II)'.replace(' (', ', ').replace(')', ''), soul)[0].level, 11);
+    const hinted = parseJoins('Lyra — healer, level 3 | focus: int, VIT, xyz | skills: Frost Lance, Mend', rules)[0];
+    assert.deepEqual([hinted.level, hinted.focus, hinted.skills], [3, ['INT', 'VIT'], ['Frost Lance', 'Mend']]);
+    assert.equal(parseJoins('Lyra — healer, level 400', rules)[0].level, rules.character.maxLevel, 'capped');
+    assert.deepEqual(parseJoins('none\n</Joins>'), []);
+});
+
+test('Leaves, XP and Rest lines', () => {
+    assert.deepEqual(parseLeaves('Lyra: returned to her village\nBram — stayed behind.'), [
+        { name: 'Lyra', reason: 'returned to her village', line: 'Lyra: returned to her village' },
+        { name: 'Bram', reason: 'stayed behind', line: 'Bram — stayed behind.' },
+    ]);
+    assert.deepEqual(parseXp('Major: rescued the caravan\nhuge: nope\nmilestone — the dragon is dead').map(entry => [entry.kind, entry.reason]), [['major', 'rescued the caravan'], ['milestone', 'the dragon is dead']]);
+    assert.deepEqual(parseRest('nap\nLong rest: slept at the inn\nshort: tea'), [{ kind: 'long', reason: 'slept at the inn', line: 'Long rest: slept at the inn' }]);
+    assert.deepEqual(parseRest(''), []);
+});
+
+test('Learned: who, the skill and its words; hints validated; a template guessed from the words', () => {
+    const [line] = parseLearned('You — Shadow Step: dash behind a foe | type: physical, stat: agi, target: one, effect: stun, colour: red');
+    assert.deepEqual([line.name, line.skill, line.words], ['You', 'Shadow Step', 'dash behind a foe']);
+    assert.deepEqual(line.hints, { type: 'physical', stat: 'AGI', target: 'one', element: 'lightning' });
+    assert.deepEqual(guessSkill(line.words, line.hints), { type: 'physical', stat: 'AGI', target: 'one', element: 'lightning' });
+    assert.deepEqual(parseHints('type: wizardry, stat: MIGHT, target: everyone'), {}, 'unknown words are dropped');
+    assert.deepEqual(guessSkill('ice magic, hits all'), { type: 'magic', stat: 'INT', target: 'all', element: 'ice' });
+    assert.deepEqual(guessSkill('heals the whole party'), { type: 'heal', stat: 'INT', target: 'allies', element: 'none' });
+    assert.deepEqual(guessSkill('a quick shot that poisons'), { type: 'physical', stat: 'DEX', target: 'one', element: 'poison' });
+    assert.deepEqual(guessSkill('a protective ward'), { type: 'buff', stat: 'INT', target: 'self', element: 'none' });
+    assert.deepEqual(guessSkill('a heavy swing'), { type: 'physical', stat: 'STR', target: 'one', element: 'none' });
+    assert.deepEqual(parseLearned('Lyra learned a lot\nLyra — : nothing'), []);
+});
+
+test('encounter: "then:" starts the next engagement, fought back to back', () => {
+    assert.deepEqual(parseEncounter('3 bandit; then: bandit captain (boss), 2 wolves\nthen 1 ogre').map(row => [row.name, row.count, row.wave ?? 0]), [
+        ['Bandit', 3, 0], ['Bandit Captain', 1, 1], ['Wolf', 2, 1], ['Ogre', 1, 2],
     ]);
 });

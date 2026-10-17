@@ -83,3 +83,21 @@ export function useItemOutside(sheet, item) {
     const parts = [hp ? `+${hp} HP` : '', mp ? `+${mp} MP` : '', cured.length ? `cured ${cured.join(', ')}` : ''].filter(Boolean);
     return { sheet: next, used: true, message: `${sheet.name} uses the ${item.name}: ${parts.join(', ')}.` };
 }
+
+/**
+ * A rest the story offered (<Rest>, 0.4), on a reply whose story time may already have healed
+ * the party (recoverOverTime, written into that same reply). The two are one stretch of time,
+ * not two: a short rest gives only what its share adds beyond what the clock already gave
+ * (`already`: { hp, mp } that reply's recovery), so the result is the larger of the two, not
+ * their sum; a long rest fills everything anyway, which makes the clock's part moot. Wounds
+ * taken in that reply stay taken: only the missing part of the rest is added on top.
+ */
+export function restAfter(sheet, kind, { gear = null, rules = DEFAULT_RULES, already = null } = {}) {
+    if (kind === 'long') return rest(sheet, 'long', { gear, rules });
+    const r = rulesOf(rules);
+    const base = gear ? recompute(sheet, gear, r) : structuredClone(sheet);
+    const share = r.recovery.shortRestShare;
+    const hp = Math.max(0, Math.floor(base.hp.max * share) - Math.max(0, Number(already?.hp) || 0));
+    const mp = Math.max(0, Math.floor(base.mp.max * share) - Math.max(0, Number(already?.mp) || 0));
+    return healBy(base, hp, mp);
+}

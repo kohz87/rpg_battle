@@ -67,11 +67,30 @@ export function enemiesFromRows(rows, { bestiary, library, rules, rng }) {
             const id = `e${enemies.length + 1}`;
             const level = Number(row.level) >= 1 ? Math.round(Number(row.level)) : null;
             const enemy = projectEnemy({ name, rank: row.rank || null, level, role: row.role || null, boss: Boolean(row.boss) }, { bestiary, library, rules, rng, id });
-            // Several of a kind are told apart by letter: "Goblin A", "Goblin B".
-            enemies.push({ ...enemy, id, name: count > 1 ? `${name} ${String.fromCharCode(64 + n)}` : name });
+            // Several of a kind are told apart by letter: "Goblin A", "Goblin B". A row of a later
+            // engagement (`wave`, story.parseEncounter's "then:") keeps it, for the setup to split.
+            const wave = Math.max(0, Math.round(Number(row.wave) || 0));
+            enemies.push({ ...enemy, id, name: count > 1 ? `${name} ${String.fromCharCode(64 + n)}` : name, ...(wave ? { wave } : {}) });
         }
     }
     return enemies;
+}
+
+// A later engagement joins once the field is clear (combat.js: the next wave comes early when
+// nobody is left), never by the round: it is fought straight after, HP and MP as they stand.
+const BACK_TO_BACK = 1e6;
+
+/**
+ * Enemies split into the first engagement and the ones after it (`then:` in an <Encounter>):
+ * { enemies, waves: [{ round, enemies }] } for combat.startFight, waves in order.
+ */
+export function engagements(enemies) {
+    const first = (enemies ?? []).filter(enemy => !enemy.wave);
+    const later = [...new Set((enemies ?? []).map(enemy => enemy.wave).filter(Boolean))].sort((a, b) => a - b);
+    return {
+        enemies: first.length ? first : (enemies ?? []).filter(enemy => enemy.wave === later[0]),
+        waves: later.slice(first.length ? 0 : 1).map(wave => ({ round: BACK_TO_BACK, enemies: enemies.filter(enemy => enemy.wave === wave) })),
+    };
 }
 
 /**

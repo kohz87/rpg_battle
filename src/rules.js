@@ -81,6 +81,11 @@ export const DEFAULT_RULES = Object.freeze({
     // XP factor by (enemy level − member level): ×1.5 when it outranks, down to ×0.1.
     xp: { perLevelAbove: 0.1, maxFactor: 1.5, perLevelBelow: 0.15, minFactor: 0.1 },
     secondsPerRound: 6,
+    // XP the story awards outside fights (growth.js): a share of the XP the member needs for
+    // their next level, by how big the achievement was, or by the difficulty of a quest Story
+    // Director closed. Everyone in the party gets it, each at their own level.
+    xpAwards: { minor: 0.10, major: 0.25, milestone: 0.50 },
+    questXp: { easy: 0.05, normal: 0.10, hard: 0.15, nightmare: 0.25 },
     // Out of a fight: a short rest gives back this share of max HP/MP; story time heals
     // `perHour` of max HP/MP per hour, and a gap of `longRestHours` or more is a full rest.
     recovery: { shortRestShare: 0.25, perHour: 0.05, longRestHours: 6 },
