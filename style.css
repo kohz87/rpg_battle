@@ -858,54 +858,57 @@
     list-style: none;
 }
 
+/* The story's engagement, read-only: one line per enemy, its tags after the name. */
 .rpg-battle-tab .rpg-battle-enemy-row {
     display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-    padding: 0.45rem 0;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.4rem 0;
 }
 
 .rpg-battle-tab .rpg-battle-enemy-row + .rpg-battle-enemy-row {
     border-top: 1px solid var(--rb-border);
 }
 
-.rpg-battle-tab .rpg-battle-enemy-line {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-}
-
-.rpg-battle-tab .rpg-battle-enemy-line.is-options {
-    flex-wrap: wrap;
+.rpg-battle-tab .rpg-battle-enemy-count {
+    flex: none;
+    min-width: 1.8rem;
+    font-variant-numeric: tabular-nums;
+    opacity: 0.8;
 }
 
 .rpg-battle-tab .rpg-battle-enemy-name {
-    flex: 1 1 auto;
+    min-width: 0;
+    font-weight: 600;
+    overflow-wrap: anywhere;
 }
 
-.rpg-battle-tab .rpg-battle-enemy-line .rpg-battle-new {
-    flex: none;
+.rpg-battle-tab .rpg-battle-enemy-row .rpg-battle-new {
     color: var(--rb-accent);
     opacity: 0.9;
 }
 
-.rpg-battle-tab .rpg-battle-enemy-line .rpg-battle-threat {
-    flex: none;
+.rpg-battle-tab .rpg-battle-engagement + .rpg-battle-engagement {
+    margin-top: 0.4rem;
+}
+
+.rpg-battle-tab .rpg-battle-stakes {
+    padding: 0.45rem 0.55rem;
+    border: 1px solid var(--rb-border);
+    border-radius: 6px;
+}
+
+.rpg-battle-tab .rpg-battle-stakes.is-death,
+.rpg-battle-tab .rpg-battle-encounter-stakes.is-death {
+    border-color: var(--rb-bad);
+    color: var(--rb-bad);
 }
 
 /* The Bestiary fold: this story's own creatures. */
 .rpg-battle-tab .rpg-battle-creature-look {
     margin: 0.15rem 0 0.3rem;
     font-style: italic;
-}
-
-.rpg-battle-tab .rpg-battle-enemy-line.is-options .rpg-battle-select {
-    flex: 1 1 4.2rem;
-    width: auto;
-}
-
-.rpg-battle-tab .rpg-battle-enemy-line.is-options .rpg-battle-enemy-role {
-    flex-basis: 6.5rem;
 }
 
 .rpg-battle-tab .rpg-battle-check {
@@ -921,51 +924,6 @@
 .rpg-battle-tab .rpg-battle-check input {
     margin: 0;
     accent-color: var(--rb-accent);
-}
-
-.rpg-battle-tab fieldset.rpg-battle-stakes {
-    padding: 0;
-    border: 0;
-}
-
-.rpg-battle-tab .rpg-battle-stakes > legend {
-    margin-bottom: 0.3rem;
-    padding: 0;
-}
-
-.rpg-battle-tab .rpg-battle-stake {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.5rem;
-    padding: 0.45rem 0.55rem;
-    border: 1px solid var(--rb-border);
-    border-radius: 6px;
-    cursor: pointer;
-}
-
-.rpg-battle-tab .rpg-battle-stake:has(input:checked) {
-    border-color: var(--rb-accent);
-    background: color-mix(in srgb, var(--rb-accent) 10%, transparent);
-}
-
-.rpg-battle-tab .rpg-battle-stake input {
-    flex: none;
-    margin: 0.2rem 0 0;
-    accent-color: var(--rb-accent);
-}
-
-.rpg-battle-tab .rpg-battle-stake-text {
-    display: flex;
-    flex-direction: column;
-}
-
-.rpg-battle-tab .rpg-battle-stake-name {
-    font-weight: 600;
-}
-
-.rpg-battle-tab .rpg-battle-stake-note {
-    font-size: 0.82em;
-    opacity: 0.68;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -1324,12 +1282,6 @@
     background: var(--rb-accent);
 }
 
-.rpg-battle-tab .menu_button.rpg-battle-discard.is-armed {
-    border-color: var(--rb-bad);
-    background: color-mix(in srgb, var(--rb-bad) 18%, transparent);
-    color: var(--rb-bad);
-}
-
 /* ------------------------------------------------------------------------- */
 /* Touch, motion, forced colours                                               */
 
@@ -1338,8 +1290,7 @@
     .rpg-battle-tab .text_pole,
     .rpg-battle-tab .rpg-battle-select,
     .rpg-battle-tab .rpg-battle-fold-summary,
-    .rpg-battle-tab .rpg-battle-check,
-    .rpg-battle-tab .rpg-battle-stake {
+    .rpg-battle-tab .rpg-battle-check {
         min-height: 2.5rem;
     }
 
@@ -1356,8 +1307,7 @@
         min-height: 2.5rem;
     }
 
-    .rpg-battle-tab .rpg-battle-check input,
-    .rpg-battle-tab .rpg-battle-stake input {
+    .rpg-battle-tab .rpg-battle-check input {
         width: 1.2rem;
         height: 1.2rem;
     }

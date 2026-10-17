@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.2
+
+The engagement and the stakes are the story's: you decide whether to fight, not what the fight is.
+
+- **Read-only setup:** after **Fight?** the Battle tab shows the engagement as the story gave it (its `<Encounter>`, or the fight Story Director planned), resolved by code as before (the bestiary or a made-up creature, threat words to a power, boss, roles, `then:` engagements): per engagement, each line's count, name (tagged *new* when it will be made up), power in your terms, role and *Boss*, and the stakes as text. No inputs, no add or remove, no rank, role, boss, count or stakes controls; **Start** and **Not now**. *Preparing foes…* still shows while new creatures are flavoured. The setup's draft, row editors, power picker, autocomplete and stakes choice are gone.
+- **Stakes from the story:** `<Encounter>3 bandit; then: bandit captain (boss) | to the death</Encounter>` (also `| death`, `| stakes: death`, any case) is a fight to the death; without a mark, normal. A Story Director planned fight's text may carry the same mark. What follows a bar is never read as a foe. The story instruction says so (`; | to the death if defeat is death`, about 9 tokens; now about 169, within the 170 bound). The offer says *To the death* when it is.
+- **The glue enforces it:** Start sends nothing and the fight is built only from the offer RPG Battle parsed (`story.storyFight`), so a changed page cannot change the foes or the stakes; without an offer there is no fight ("Fights come from the story"). Fight? likewise opens the offer it parsed, not rows sent back by the tab.
+- **No Discard:** the result screen keeps **Return to story** and **Done**; a fight's result always reaches the story (Done leaves the hand-off waiting for the next reply, shown in the Party tab), so the sheets and the narration agree.
+- **The hand-off clears once narrated:** the *A fight result is waiting* notice (and its Return to story) shows only until a reply is given the result; while that reply is being generated a quiet *being narrated* line shows, and once it is in, nothing. Its swipes still narrate the same result; a newer reply spends it at once; deleting the narrating reply makes it wait again for the next one. A narrated result no longer holds back the story's next fight offer (`handoff.handoffState`, `settleHandoff`).
+- **Coin only from foes that carry it:** bandits, cultists, goblins, orcs and other people, their leaders and casters drop money as before (luck and the boss multiplier unchanged); beasts, insects, oozes, plants, constructs, spirits and the dead drop none, and a drake or wyvern only as a boss (its hoard). Instead their first material (a *Wolf Pelt*, *Spider Silk*, *Slime Jelly*, *Old Bone*…) is at least 85 % likely (`rules.loot.coinlessMaterial`), so most such kills leave something of the creature. The shipped bestiary marks each creature (`coins: true | false | 'boss'`); a made-up creature goes by its template (`enemies.carriesCoin`). A fight stored before 0.4.2 pays as it did. Loot is still seeded: a coin carrier's drops are unchanged; a coinless foe's item rolls may come out differently (a material that now drops draws its quantity).
+- **Fix:** `rollLoot` called without a luck value used luck 0 (an unlucky party) instead of the start stat; fights always pass it, so fights are unaffected.
+
 ## 0.4.1
 
 Mastery progress rolls back with the story; NPC renames are followed.

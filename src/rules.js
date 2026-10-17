@@ -137,8 +137,9 @@ export const DEFAULT_RULES = Object.freeze({
         // (generated.effectRounds rounds) for this share of its power.
         elementPower: 0.85,
     },
-    // Loot (enemies.rollLoot): how much each point of LUK above the start stat helps.
-    loot: { luckChancePerPoint: 0.03, luckRarityPerPoint: 2, luckMoneyPerPoint: 0.02, bossMoney: 3, bossRolls: 2 },
+    // Loot (enemies.rollLoot): how much each point of LUK above the start stat helps, and (0.4.2)
+    // how likely a foe that carries no coin is to leave its first material instead, in %.
+    loot: { luckChancePerPoint: 0.03, luckRarityPerPoint: 2, luckMoneyPerPoint: 0.02, bossMoney: 3, bossRolls: 2, coinlessMaterial: 85 },
     currency: {
         mode: 'tiers',
         // Smallest first; `rate` = how many of the previous unit make one of this.

@@ -8,7 +8,7 @@ import { DEFAULT_BESTIARY } from '../src/enemies.js';
 import { PRESETS } from '../src/skills.js';
 import { newSheet } from '../src/sheet.js';
 import { newCompanion } from '../src/party.js';
-import { STORY_INSTRUCTION, THREATS, applyWounds, describeWound, guessSkill, parseEncounter, parseHints, parseJoins, parseLearned, parseLeaves, parseRest, parseWounds, parseXp, resolveThreats, threatLevel } from '../src/story.js';
+import { STORY_INSTRUCTION, THREATS, applyWounds, describeWound, guessSkill, parseEncounter, parseHints, parseJoins, parseLearned, parseLeaves, parseRest, parseStakes, parseWounds, parseXp, resolveThreats, storyFight, threatLevel } from '../src/story.js';
 
 const rules = makeRules();
 const ren = { ...newSheet({ name: 'Ren Aldane', stats: PRESETS[0].points, skills: PRESETS[0].skills }, rules), hp: { cur: 98, max: 98 } };
@@ -151,12 +151,13 @@ test('encounter: unknown names kept (singular only for a creature word), notes i
 
 // 0.3 added the threat words (about 15 tokens), so the bound moved from 95 to 110; 0.4 makes it
 // one instruction for every hidden block (Joins, Leaves, Learned, XP, Rest, waves): 170.
+// 0.4.2 adds the stakes marker ("| to the death", about 9 tokens) within that bound.
 test('the story instruction is compact (about 170 tokens) and names every tag, the grammar and the threat words', () => {
     const pieces = STORY_INSTRUCTION.match(/[A-Za-z]+|\d+|[^\sA-Za-z\d]/g).length;
     assert.ok(STORY_INSTRUCTION.length <= 680, `${STORY_INSTRUCTION.length} characters`);
     assert.ok(Math.ceil(STORY_INSTRUCTION.length / 4) <= 170, 'about 170 tokens at four characters a token');
     assert.ok(pieces <= 200, `${pieces} words and marks`);
-    for (const part of ['<Wounds>', '<Encounter>', '<Joins>', '<Leaves>', '<Learned>', '<XP>', '<Rest>', 'scratch|wound|severe|grievous', 'heal', 'poisoned', 'Party sheet', 'not for an RPG Battle fight', 'stop at the first blow', 'trivial|weak|even|strong|deadly', 'minor|major|milestone', 'short|long', 'then:']) {
+    for (const part of ['<Wounds>', '<Encounter>', '<Joins>', '<Leaves>', '<Learned>', '<XP>', '<Rest>', 'scratch|wound|severe|grievous', 'heal', 'poisoned', 'Party sheet', 'not for an RPG Battle fight', 'stop at the first blow', 'trivial|weak|even|strong|deadly', 'minor|major|milestone', 'short|long', 'then:', '| to the death']) {
         assert.ok(STORY_INSTRUCTION.includes(part), part);
     }
     // Its own examples read back as the grammar says.
@@ -292,4 +293,33 @@ test('encounter: "then:" starts the next engagement, fought back to back', () =>
     assert.deepEqual(parseEncounter('3 bandit; then: bandit captain (boss), 2 wolves\nthen 1 ogre').map(row => [row.name, row.count, row.wave ?? 0]), [
         ['Bandit', 3, 0], ['Bandit Captain', 1, 1], ['Wolf', 2, 1], ['Ogre', 1, 2],
     ]);
+});
+
+// ---------------------------------------------------------------------------
+// The stakes, from the story (0.4.2)
+
+test('parseStakes: "| to the death" (or "| death", "| stakes: death") after a bar; else normal', () => {
+    assert.equal(parseStakes('3 bandit; then: bandit captain (boss) | to the death'), 'death');
+    assert.equal(parseStakes('3 bandit | To The Death.'), 'death');
+    assert.equal(parseStakes('wolf | death'), 'death');
+    assert.equal(parseStakes('wolf | stakes: death'), 'death');
+    assert.equal(parseStakes('3 wolf\nthen: wolf matriarch (boss) | to the death'), 'death', 'on any line');
+    for (const text of ['3 bandit, bandit captain (boss)', 'wolf | normal', 'wolf | no death', 'wolf | to the death of the king', 'death knight', '', null]) assert.equal(parseStakes(text), 'normal', String(text));
+});
+
+test('parseEncounter: what follows a bar is the fight\'s, not a foe', () => {
+    const rows = parseEncounter('3 bandit; then: bandit captain (boss) | to the death');
+    assert.deepEqual(rows.map(row => [row.name, row.count, row.boss, row.wave ?? 0]), [['Bandit', 3, false, 0], ['Bandit Captain', 1, true, 1]]);
+    assert.deepEqual(parseEncounter('2 wolves | whatever\nthen: bear').map(row => row.name), ['Wolf', 'Bear']);
+    assert.deepEqual(parseEncounter('| to the death'), []);
+});
+
+test('storyFight: the fight is the offer\'s rows and stakes, as copies; no rows, no fight', () => {
+    const offer = { rows: [{ name: 'Bandit', count: 3, rank: null, role: null, boss: false }, { name: '', count: 1 }], stakes: 'death', key: '2:x' };
+    const fight = storyFight(offer);
+    assert.deepEqual(fight, { rows: [{ name: 'Bandit', count: 3, rank: null, role: null, boss: false }], stakes: 'death' });
+    assert.notEqual(fight.rows[0], offer.rows[0], 'copies');
+    assert.equal(storyFight({ rows: offer.rows, stakes: 'nonsense' }).stakes, 'normal');
+    assert.equal(storyFight({ rows: offer.rows }).stakes, 'normal');
+    for (const none of [null, undefined, {}, { rows: [] }, { rows: [{ name: ' ' }] }]) assert.throws(() => storyFight(none), /Fights come from the story/);
 });

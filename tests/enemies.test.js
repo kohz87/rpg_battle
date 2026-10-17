@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import { DEFAULT_RULES, RANKS, RARITIES, makeRules } from '../src/rules.js';
 import { makeRng } from '../src/rng.js';
 import { DEFAULT_SKILLS, findSkill } from '../src/skills.js';
-import { DEFAULT_BESTIARY, LOOT_TABLES, MONSTER_SKILLS, findCreature, projectEnemy, rollLoot } from '../src/enemies.js';
+import { DEFAULT_BESTIARY, LOOT_TABLES, MONSTER_SKILLS, carriesCoin, findCreature, projectEnemy, rollLoot } from '../src/enemies.js';
+import { generateCreature } from '../src/templates.js';
+import { act, startFight, summarize } from '../src/combat.js';
 
 const ROLES = ['brute', 'skirmisher', 'caster', 'tank', 'support'];
 
@@ -151,7 +153,11 @@ test('rollLoot is deterministic, in the smallest unit, and luck helps', () => {
 });
 
 test('rollLoot falls back on the rank table, and a boss pays more', () => {
-    const thing = projectEnemy({ name: 'Bog Wight', rank: 'C' }, { rng: makeRng('t') });
+    // 0.4.2: a name nobody wrote up carries no coin; one that does (`coins`) pays by its rank.
+    const unknown = projectEnemy({ name: 'Bog Wight', rank: 'C' }, { rng: makeRng('t') });
+    assert.equal(unknown.coins, false);
+    assert.equal(rollLoot(unknown, { rng: makeRng('m0') }).money, 0);
+    const thing = { ...unknown, coins: true };
     const names = new Set(LOOT_TABLES['rank-C'].map(row => row.name));
     const rng = makeRng('fallback');
     for (let i = 0; i < 50; i++) for (const item of rollLoot(thing, { rng }).items) assert.ok(names.has(item.name));
@@ -205,4 +211,95 @@ test('projectEnemy with a level: interpolated numbers, the rank at or below for 
     assert.ok(goblin.hp.max > projectEnemy({ name: 'Goblin' }, { rules: DEFAULT_RULES }).hp.max * 5);
     // No level: exactly as before.
     assert.deepEqual(projectEnemy({ name: 'Bog Wight', rank: 'C', role: 'brute', level: null }, { rules: DEFAULT_RULES }), c);
+});
+
+// ---------------------------------------------------------------------------
+// Who carries coin (0.4.2)
+
+test('carriesCoin: people carry coin, beasts and the dead do not, a drake boss sits on a hoard', () => {
+    const shipped = name => carriesCoin(findCreature(DEFAULT_BESTIARY, name));
+    for (const name of ['Bandit', 'Bandit Captain', 'Cultist', 'Goblin', 'Goblin Shaman', 'Orc Warrior', 'Ogre', 'Cult Priest']) assert.equal(shipped(name), true, name);
+    for (const name of ['Wolf', 'Dire Wolf', 'Bear', 'Slime', 'Giant Rat', 'Giant Spider', 'Skeleton', 'Wraith', 'Wight', 'Troll', 'Wyvern']) assert.equal(shipped(name), false, name);
+    assert.equal(carriesCoin(findCreature(DEFAULT_BESTIARY, 'Wyvern'), { boss: true }), true, 'a wyvern boss has its hoard');
+    for (const c of DEFAULT_BESTIARY) assert.ok(c.coins === true || c.coins === false || c.coins === 'boss', c.name);
+    const made = (name, boss = false) => carriesCoin(generateCreature({ name, level: 5 }), { boss });
+    for (const name of ['Marsh Thug', 'Orc Chief', 'Bog Witch']) assert.equal(made(name), true, name);
+    for (const name of ['Marsh Wolf', 'Bog Wight', 'Skeleton Soldier', 'Bandit Ghost', 'Cave Spider', 'Acid Jelly', 'Iron Golem', 'Thorn Treant', 'Marsh Drake', 'Wolf Matriarch']) assert.equal(made(name), false, name);
+    assert.equal(made('Marsh Drake', true), true, 'a drake boss');
+    assert.equal(made('Marsh Wolf', true), false, 'a beast boss still has none');
+    assert.equal(carriesCoin(null), false);
+    // The projected enemy carries the answer for the loot roll.
+    assert.equal(projectEnemy({ name: 'Wolf' }).coins, false);
+    assert.equal(projectEnemy({ name: 'Bandit' }).coins, true);
+    assert.equal(projectEnemy({ name: 'Wyvern', boss: true }).coins, true);
+});
+
+test('rollLoot: a coinless foe drops no money but something of itself, more often; carriers pay as before', () => {
+    for (const name of ['Wolf', 'Bear', 'Slime', 'Giant Spider', 'Skeleton']) {
+        const enemy = projectEnemy({ name }, { rng: makeRng(name) });
+        const table = LOOT_TABLES[enemy.loot].map(row => row.name);
+        let money = 0;
+        let withItem = 0;
+        const rng = makeRng(`${name}:loot`);
+        for (let i = 0; i < 100; i++) {
+            const drop = rollLoot(enemy, { rng });
+            money += drop.money;
+            if (drop.items.length) withItem += 1;
+            for (const item of drop.items) assert.ok(table.includes(item.name), `${name}: ${item.name}`);
+        }
+        assert.equal(money, 0, name);
+        assert.ok(withItem >= 75, `${name}: ${withItem}/100 kills leave something`);
+    }
+    // The same enemy carrying coin: money, and its materials at their own chances.
+    const wolf = projectEnemy({ name: 'Wolf' }, { rng: makeRng('w') });
+    let pelts = { coinless: 0, carrier: 0 };
+    let paid = 0;
+    for (let i = 0; i < 200; i++) {
+        pelts.coinless += rollLoot(wolf, { rng: makeRng(`p${i}`) }).items.some(item => item.name === 'Wolf Pelt') ? 1 : 0;
+        const carrier = rollLoot({ ...wolf, coins: true }, { rng: makeRng(`p${i}`) });
+        pelts.carrier += carrier.items.some(item => item.name === 'Wolf Pelt') ? 1 : 0;
+        paid += carrier.money;
+    }
+    assert.ok(pelts.coinless > pelts.carrier, JSON.stringify(pelts));
+    assert.ok(paid > 0);
+    for (const name of ['Bandit', 'Bandit Captain', 'Cultist']) {
+        const enemy = projectEnemy({ name }, { rng: makeRng(name) });
+        let money = 0;
+        for (let i = 0; i < 20; i++) money += rollLoot(enemy, { rng: makeRng(`${name}${i}`) }).money;
+        assert.ok(money > 0, name);
+    }
+    // A drake boss made up for the story pays (a hoard); its kin that is no boss does not.
+    const drake = generateCreature({ name: 'Marsh Drake', level: 10 });
+    const bestiary = [drake];
+    const boss = projectEnemy({ name: 'Marsh Drake', boss: true }, { bestiary, rng: makeRng('d') });
+    const plain = projectEnemy({ name: 'Marsh Drake' }, { bestiary, rng: makeRng('d') });
+    assert.ok(rollLoot(boss, { rng: makeRng('hoard') }).money > 0);
+    assert.equal(rollLoot(plain, { rng: makeRng('hoard') }).money, 0);
+    // A fight stored before 0.4.2 (no `coins`) pays as it did.
+    const { coins, ...older } = wolf;
+    assert.equal(coins, false);
+    assert.ok(rollLoot(older, { rng: makeRng('old') }).money > 0);
+    // Deterministic: the same seed, the same drop.
+    assert.deepEqual(rollLoot(wolf, { rng: makeRng('same') }), rollLoot(wolf, { rng: makeRng('same') }));
+});
+
+test('a won fight against wolves gives pelts and fangs, not coin, across seeds', () => {
+    const rules = DEFAULT_RULES;
+    const hero = {
+        id: 'pc', memberId: 'pc', name: 'Ren', side: 'party', controller: 'player', level: 8, rank: null, role: null, boss: false,
+        stats: { STR: 14, VIT: 12, AGI: 10, DEX: 10, INT: 5, LUK: 5, CHA: 5 }, hp: { cur: 400, max: 400 }, mp: { cur: 0, max: 0 },
+        patk: 60, matk: 10, pdef: 20, mdef: 10, crit: 0, skills: [], items: [], conditions: [], morale: 0, talks: false, fleesBelow: 0, xp: 0, loot: null, gone: null,
+    };
+    for (const seed of ['w1', 'w2', 'w3', 'w4', 'w5']) {
+        const rng = makeRng(`${seed}:enemies`);
+        const enemies = ['e1', 'e2', 'e3'].map((id, n) => ({ ...projectEnemy({ name: 'Wolf' }, { rng, id }), name: `Wolf ${'ABC'[n]}`, fleesBelow: 0 }));
+        let fight = startFight({ id: seed, seed, party: [hero], enemies, stakes: 'normal', rules });
+        fight = act(fight, { type: 'auto' }, rules);
+        assert.equal(fight.status, 'victory', seed);
+        const { loot } = summarize(fight, rules);
+        assert.equal(loot.money, 0, seed);
+        assert.ok(loot.items.length > 0, `${seed}: something of the wolves`);
+        for (const item of loot.items) assert.ok(['Wolf Pelt', 'Fang'].includes(item.name), `${seed}: ${item.name}`);
+        assert.ok(loot.items.every(item => item.qty >= 1 && item.qty <= 6), `${seed}: modest`);
+    }
 });

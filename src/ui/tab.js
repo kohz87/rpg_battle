@@ -32,7 +32,7 @@
 import { STATS, RANKS, DEFAULT_RULES, maxHp, maxMp, derive, checkModifiers } from '../rules.js';
 import { stateWords } from '../narrative.js';
 import { SLOT_NAMES, formatStats } from '../items.js';
-import { levelLabel, levelTag, levelText, powerOptions, progress, termsOf, tierOf, xpGainText } from '../terms.js';
+import { levelLabel, levelTag, levelText, progress, termsOf, xpGainText } from '../terms.js';
 import { buildStats, cleanFocus, guessFocus } from '../builds.js';
 
 const ROLES = ['brute', 'skirmisher', 'caster', 'tank', 'support'];
@@ -408,6 +408,8 @@ function renderIdle(root, view, handlers) {
             fold('is-pending-text', 'Hand-off', 'fa-scroll', null, [el('pre', { className: 'rpg-battle-handoff', text: view.pending })]),
             button('Return to story', 'rpg-battle-return', { iconName: 'fa-book-open', onClick: () => emit(handlers, 'onReturn') }),
         ]));
+    } else if (view.narrating) {
+        root.append(el('p', { className: 'rpg-battle-hint rpg-battle-narrating', attrs: { role: 'status' }, text: 'The fight is being narrated…' }));
     }
 
     // What the story offers the party (someone joins, leaves or learns a skill, XP, a quest
@@ -1302,201 +1304,96 @@ function renderLearn(root, view, handlers) {
 }
 
 // ---------------------------------------------------------------------------
-// setup: the enemies and the stakes
+// setup: the story's engagement and stakes, to start or put away (0.4.2: never to change)
 
-let setupDraft = null;
+const STAKES = {
+    normal: 'Stakes: Normal — defeat means the story decides (captured, robbed, left for dead).',
+    death: 'Stakes: To the death — defeat is death.',
+};
 
-// A new row's power is blank: a bestiary creature keeps its own rank, anything else gets the
-// fair one. `rank` is an F–SSS rank; `level` the power picked in the reader's own terms.
-const blankRow = () => ({ name: '', count: 1, rank: '', level: '', role: '', boss: false });
-
-// The level a rank stands for, to place the plain ranks among the reader's tiers.
+// The level a rank stands for, to show a rank in the reader's own terms.
 const rankLevel = (rank, rules) => num(rules?.ranks?.[rank]?.level, 1);
 
-// A row offered by the story (view.prefill), made safe for the form: any name, a count of
-// 1 to 9, a known rank and role or blank. A power written as a level is kept as a level with
-// the reader's terms, and becomes the rank for that level with the plain ones (F–SSS).
-function prefillRow(row, rules, custom) {
-    const level = num(row?.level, 0) >= 1 ? Math.round(num(row.level)) : null;
-    const rank = RANKS.includes(row?.rank) ? row.rank : '';
-    let powerRank = rank;
-    let powerLevel = '';
-    if (custom) powerLevel = level ? String(level) : rank ? String(rankLevel(rank, rules)) : '';
-    else if (!rank && level) powerRank = RANKS.filter(entry => rules?.ranks?.[entry] && rankLevel(entry, rules) <= level).at(-1) ?? RANKS[0];
-    return {
-        name: str(row?.name),
-        count: Math.min(9, Math.max(1, Math.round(num(row?.count, 1)))),
-        rank: custom ? '' : powerRank,
-        level: powerLevel,
-        role: ROLES.includes(row?.role) ? row.role : '',
-        boss: Boolean(row?.boss),
-        // The story's word for how dangerous it is, shown beside the power it became.
-        threat: str(row?.threat),
-        // A later engagement ("then:"), fought once the one before is done.
-        wave: Math.min(3, Math.max(0, Math.round(num(row?.wave, 0)))),
-    };
+/**
+ * A row's power in the reader's terms: its level ('Level 12', 'Soul Class II (Lv 11)'), or
+ * its rank ('Rank D', or the rank's level with terms of their own); '' when neither is set.
+ */
+function powerText(row, rules) {
+    if (num(row?.level, 0) >= 1) return levelText(Math.round(num(row.level)), rules);
+    if (!RANKS.includes(row?.rank)) return '';
+    return termsOf(rules).custom ? levelText(rankLevel(row.rank, rules), rules) : `Rank ${row.rank}`;
 }
 
 /**
- * The power picker: F–SSS with the plain terms; with the reader's own, their tiers (or levels)
- * up to the cap, plus a row's own level when it is not one of them (a story fight "Lv 24").
+ * The setup is the story's engagement as it will be fought, read-only: per engagement each
+ * line's count, name (tagged new when it is made up when the fight starts), power, role, the
+ * story's threat word and Boss, then the stakes as text. Start sends nothing: the glue builds
+ * the fight from the offer it parsed, so nothing on this page can change it.
  */
-function powerSelect(row, label, { rules, custom, suggested }) {
-    if (!custom) {
-        const node = select('rpg-battle-enemy-rank', `${label} rank`, [['', `auto (fair: ${suggested})`], ...RANKS.map(value => [value, value === suggested ? `${value} (fair)` : value])], row.rank);
-        node.addEventListener('change', () => { row.rank = node.value; });
-        return node;
-    }
-    const fairLevel = rankLevel(suggested, rules);
-    const terms = termsOf(rules);
-    const fairStep = terms.tiers ? tierOf(fairLevel, rules) : fairLevel;
-    const options = powerOptions(rules).map(option => {
-        const step = terms.tiers ? tierOf(option.level, rules) : option.level;
-        return [String(option.level), step === fairStep ? `${option.label} (fair)` : option.label];
-    });
-    if (row.level && !options.some(([value]) => value === String(row.level))) options.push([String(row.level), levelText(num(row.level, 1), rules)]);
-    const node = select('rpg-battle-enemy-rank rpg-battle-enemy-power', `${label} ${terms.levelName}`, [['', `auto (fair: ${levelLabel(fairLevel, rules)})`], ...options], String(row.level ?? ''));
-    node.addEventListener('change', () => { row.level = node.value; });
-    return node;
-}
-
 function renderSetup(root, view, handlers) {
     const rules = view.rules ?? DEFAULT_RULES;
-    const custom = termsOf(rules).custom;
-    const suggested = RANKS.includes(view.suggestedRank) ? view.suggestedRank : RANKS[0];
-    // A fight from the story arrives with its rows filled in; they seed the draft once, and the
-    // reader's edits are kept across redraws. A different offer starts the draft over.
-    const prefill = list(view.prefill).map(row => prefillRow(row, rules, custom)).filter(row => row.name);
-    const prefillKey = prefill.length ? JSON.stringify(prefill) : '';
-    if (!setupDraft || (prefillKey && setupDraft.prefillKey !== prefillKey)) {
-        setupDraft = { rows: prefill.length ? prefill : [blankRow()], stakes: 'normal', prefillKey };
-    }
-    const draft = setupDraft;
-    const names = list(view.bestiary).map(entry => str(entry?.name ?? entry)).filter(Boolean);
-    // A name neither bestiary knows will be made up when the fight starts. Without `known`
-    // (an older glue) the autocomplete names stand in.
-    const known = new Set([...list(view.known), ...names].map(name => str(name).toLowerCase().replace(/\s+/g, ' ')).filter(Boolean));
+    const rows = list(view.rows).filter(row => str(row?.name));
+    // A name neither bestiary knows will be made up when the fight starts.
+    const known = new Set(list(view.known).map(name => str(name).toLowerCase().replace(/\s+/g, ' ')).filter(Boolean));
     const isNew = name => {
         const wanted = str(name).toLowerCase().replace(/\s+/g, ' ');
         return Boolean(wanted) && !known.has(wanted) && !known.has(wanted.replace(/\s*(?:#?\d+|\b[a-z])$/, ''));
     };
     const preparing = list(view.preparing).map(str).filter(Boolean);
-    const listId = 'rpg-battle-bestiary';
-    const datalist = el('datalist', { attrs: { id: listId } }, names.map(name => option(name)));
+    const dismiss = button('Not now', 'rpg-battle-encounter-dismiss', { iconName: 'fa-xmark', onClick: () => emit(handlers, 'onDismissEncounter') });
+    if (!rows.length) {
+        root.append(
+            el('p', { className: 'rpg-battle-empty', text: 'No fight right now: the story starts them.' }),
+            el('div', { className: 'rpg-battle-actions is-end' }, [dismiss]),
+        );
+        return;
+    }
 
-    const named = () => draft.rows.filter(row => str(row.name));
-    const start = button('Start', 'rpg-battle-primary rpg-battle-begin', {
-        iconName: 'fa-dragon',
-        onClick: () => {
-            // Not twice while the foes are being prepared.
-            if (start.disabled) return;
-            // With the reader's terms a row carries its power as a level; otherwise as a rank.
-            const rows = named().map(row => ({
-                name: str(row.name),
-                count: Math.min(9, Math.max(1, Math.round(num(row.count, 1)))),
-                ...(custom ? { level: num(row.level, 0) >= 1 ? Math.round(num(row.level)) : null } : { rank: row.rank || null }),
-                role: row.role || null,
-                boss: Boolean(row.boss),
-                ...(row.wave ? { wave: row.wave } : {}),
-            }));
-            if (rows.length) emit(handlers, 'onStart', { rows, stakes: draft.stakes === 'death' ? 'death' : 'normal' });
-        },
-    });
-    const summary = el('p', { className: 'rpg-battle-hint rpg-battle-setup-summary', attrs: { 'aria-live': 'polite' } });
-    const refresh = () => {
-        const rows = named();
-        const total = rows.reduce((sum, row) => sum + num(row.count, 1), 0);
-        start.disabled = !rows.length || preparing.length > 0;
-        const fresh = rows.filter(row => isNew(row.name)).length;
-        summary.textContent = preparing.length
-            ? `Preparing foes: ${preparing.join(', ')}…`
-            : rows.length ? `${total} ${total === 1 ? 'enemy' : 'enemies'}.${fresh ? ` ${fresh} new, made up from ${fresh === 1 ? 'its name' : 'their names'} when the fight starts.` : ''}` : 'Name at least one enemy.';
-        for (const [node, row] of newTags) node.hidden = !isNew(row.name);
+    const line = row => {
+        const count = Math.min(9, Math.max(1, Math.round(num(row.count, 1))));
+        const power = powerText(row, rules);
+        const role = ROLES.includes(row.role) ? row.role : '';
+        return el('li', { className: 'rpg-battle-enemy-row' }, [
+            el('span', { className: 'rpg-battle-enemy-count', text: `${count} ×` }),
+            el('span', { className: 'rpg-battle-enemy-name', text: str(row.name) }),
+            isNew(row.name) ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-new', text: 'new', title: 'Not in the bestiary: made up from its name when the fight starts' }) : null,
+            row.boss ? el('span', { className: 'rpg-battle-tag rpg-battle-boss', text: 'Boss' }) : null,
+            power ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-enemy-power', text: power }) : null,
+            str(row.threat) ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-threat', text: str(row.threat), title: 'How dangerous the story says it is, beside the power it means for your level' }) : null,
+            role ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-enemy-role', text: role }) : null,
+        ]);
     };
-    const newTags = [];
+    // Engagements in order ("then:"), each fought once the one before is done.
+    const waves = [...new Set(rows.map(row => num(row.wave, 0)))].sort((a, b) => a - b);
+    const groups = waves.map((wave, index) => el('div', { className: 'rpg-battle-engagement' }, [
+        waves.length > 1 ? el('p', { className: 'rpg-battle-hint rpg-battle-wave', text: index ? `Then, engagement ${index + 1}` : 'Engagement 1' }) : null,
+        el('ul', { className: 'rpg-battle-enemy-rows' }, rows.filter(row => num(row.wave, 0) === wave).map(line)),
+    ]));
 
-    const rowNodes = draft.rows.map((row, index) => {
-        const label = `Enemy ${index + 1}`;
-        const nameInput = el('input', { className: 'text_pole rpg-battle-enemy-name', attrs: { type: 'text', list: listId, maxlength: '60', placeholder: 'Name (any name works)', 'aria-label': `${label} name`, autocomplete: 'off' } });
-        nameInput.value = row.name;
-        const newTag = el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-new', text: 'new', title: 'Not in the bestiary: made up from its name when the fight starts' });
-        newTags.push([newTag, row]);
-        nameInput.addEventListener('input', () => { row.name = nameInput.value; refresh(); });
-        const count = select('rpg-battle-enemy-count', `${label} count`, Array.from({ length: 9 }, (_, i) => [String(i + 1), `×${i + 1}`]), String(row.count));
-        count.addEventListener('change', () => { row.count = Math.min(9, Math.max(1, num(count.value, 1))); refresh(); });
-        const rank = powerSelect(row, label, { rules, custom, suggested });
-        const role = select('rpg-battle-enemy-role', `${label} role`, [['', 'auto role'], ...ROLES], row.role);
-        role.addEventListener('change', () => { row.role = role.value; });
-        const boss = el('input', { className: 'rpg-battle-enemy-boss', attrs: { type: 'checkbox', 'aria-label': `${label} is a boss` } });
-        boss.checked = Boolean(row.boss);
-        boss.addEventListener('change', () => { row.boss = Boolean(boss.checked); });
-        const remove = button('', 'rpg-battle-icon-button rpg-battle-remove-row', {
-            iconName: 'fa-trash-can',
-            title: `Remove ${label.toLowerCase()}`,
-            onClick: () => {
-                draft.rows.splice(index, 1);
-                if (!draft.rows.length) draft.rows.push(blankRow());
-                rerender();
-            },
-        });
-        const item = el('li', { className: 'rpg-battle-enemy-row' }, [
-            el('div', { className: 'rpg-battle-enemy-line' }, [
-                row.wave ? el('span', { className: 'rpg-battle-tag rpg-battle-wave', text: `then ${row.wave + 1}`, title: 'A later engagement, fought straight after the one before' }) : null,
-                nameInput, newTag, remove,
-            ]),
-            el('div', { className: 'rpg-battle-enemy-line is-options' }, [
-                count, rank,
-                str(row.threat) ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-threat', text: str(row.threat), title: 'How dangerous the story says it is; the power picker shows what that means for your level' }) : null,
-                role,
-                el('label', { className: 'rpg-battle-check' }, [boss, el('span', { text: 'Boss' })]),
-            ]),
-        ]);
-        item.dataset.row = String(index);
-        return item;
+    const total = rows.reduce((sum, row) => sum + Math.min(9, Math.max(1, Math.round(num(row.count, 1)))), 0);
+    const fresh = rows.filter(row => isNew(row.name)).length;
+    const summary = el('p', {
+        className: 'rpg-battle-hint rpg-battle-setup-summary',
+        attrs: { 'aria-live': 'polite' },
+        text: preparing.length
+            ? `Preparing foes: ${preparing.join(', ')}…`
+            : `${total} ${total === 1 ? 'enemy' : 'enemies'}.${fresh ? ` ${fresh} new, made up from ${fresh === 1 ? 'its name' : 'their names'} when the fight starts.` : ''}`,
     });
-
-    const stakes = [
-        { value: 'normal', label: 'Normal', note: 'Defeat means the story decides: captured, robbed, left for dead.' },
-        { value: 'death', label: 'To the death', note: 'Defeat is death, and the hand-off says so.' },
-    ];
-    const stakeNodes = stakes.map(stake => {
-        const input = el('input', { className: 'rpg-battle-stake-input', attrs: { type: 'radio', name: 'rpg-battle-stakes', value: stake.value } });
-        input.value = stake.value;
-        input.checked = draft.stakes === stake.value;
-        input.addEventListener('change', () => { if (input.checked) draft.stakes = stake.value; });
-        return el('label', { className: `rpg-battle-stake is-${stake.value}` }, [
-            input,
-            el('span', { className: 'rpg-battle-stake-text' }, [
-                el('span', { className: 'rpg-battle-stake-name', text: stake.label }),
-                el('span', { className: 'rpg-battle-stake-note', text: stake.note }),
-            ]),
-        ]);
-    });
-
+    const stakes = view.stakes === 'death' ? 'death' : 'normal';
     root.append(
         section('is-setup', [
             sub('Enemies', 'fa-skull'),
-            prefillKey ? el('p', { className: 'rpg-battle-hint rpg-battle-prefill-hint', text: 'Filled in from the story. Change anything before you start.' }) : null,
-            datalist,
-            el('ul', { className: 'rpg-battle-enemy-rows' }, rowNodes),
-            el('div', { className: 'rpg-battle-actions' }, [
-                button('Add enemy', 'rpg-battle-add-row', {
-                    iconName: 'fa-plus',
-                    onClick: () => { draft.rows.push(blankRow()); rerender(); },
-                }),
-            ]),
+            el('p', { className: 'rpg-battle-hint rpg-battle-prefill-hint', text: 'As the story gave it: fight it, or put it away.' }),
+            ...groups,
         ]),
-        el('fieldset', { className: 'rpg-battle-section rpg-battle-stakes' }, [
-            el('legend', { className: 'rpg-battle-sub' }, [icon('fa-scale-balanced'), el('span', { text: 'Stakes' })]),
-            ...stakeNodes,
-        ]),
+        el('p', { className: `rpg-battle-section rpg-battle-stakes is-${stakes}`, text: STAKES[stakes] }),
         el('div', { className: 'rpg-battle-actions is-end' }, [
             summary,
-            button('Back', 'rpg-battle-back', { iconName: 'fa-arrow-left', onClick: () => emit(handlers, 'onBack') }),
-            start,
+            dismiss,
+            // Not twice while the foes are being prepared.
+            button('Start', 'rpg-battle-primary rpg-battle-begin', { iconName: 'fa-dragon', disabled: preparing.length > 0, onClick: () => { if (!preparing.length) emit(handlers, 'onStart'); } }),
         ]),
     );
-    refresh();
 }
 
 // ---------------------------------------------------------------------------
@@ -1796,9 +1693,6 @@ function renderFight(root, view, handlers) {
 // ---------------------------------------------------------------------------
 // result
 
-// The first click on Discard arms it; the second, on the same result, discards.
-let discardArmed = null;
-
 function moneyText(money, view) {
     if (str(view.moneyText)) return str(view.moneyText);
     const currency = (view.rules ?? DEFAULT_RULES).currency ?? {};
@@ -1817,7 +1711,6 @@ function renderResult(root, view, handlers) {
         root.append(el('p', { className: 'rpg-battle-empty', text: 'No result.' }));
         return;
     }
-    if (discardArmed && discardArmed !== result) discardArmed = null;
     const outcome = result.outcome ?? 'victory';
     const rounds = num(result.rounds);
     const seconds = num(result.seconds);
@@ -1911,22 +1804,9 @@ function renderResult(root, view, handlers) {
         ]));
     }
 
-    const armed = discardArmed === result;
-    const discard = button(armed ? 'Click again to discard' : 'Discard result', `rpg-battle-discard${armed ? ' is-armed' : ''}`, {
-        iconName: 'fa-trash-can',
-        onClick: () => {
-            if (discardArmed === result) {
-                discardArmed = null;
-                emit(handlers, 'onDiscard');
-                return;
-            }
-            discardArmed = result;
-            rerender();
-        },
-    });
+    // The result always reaches the story: Return to story now, or Done and the next reply.
     root.append(el('div', { className: 'rpg-battle-actions' }, [
         button('Return to story', 'rpg-battle-primary rpg-battle-return', { iconName: 'fa-book-open', onClick: () => emit(handlers, 'onReturn') }),
-        discard,
         button('Done', 'rpg-battle-done', { iconName: 'fa-check', onClick: () => emit(handlers, 'onDone') }),
     ]));
 }
@@ -1954,9 +1834,11 @@ function renderOffer(root, view, handlers) {
         ]),
         str(encounter.label) ? el('p', { className: 'rpg-battle-hint rpg-battle-encounter-label', text: str(encounter.label) }) : null,
         waves.length > 1 ? el('p', { className: 'rpg-battle-hint rpg-battle-encounter-waves', text: `${waves.length} engagements, fought back to back: HP, MP and conditions carry over between them.` }) : null,
+        encounter.stakes === 'death' ? el('p', { className: 'rpg-battle-hint rpg-battle-encounter-stakes is-death', text: STAKES.death }) : null,
         view.pending ? el('p', { className: 'rpg-battle-hint', text: 'The last fight\'s result is still to be narrated.' }) : null,
         el('div', { className: 'rpg-battle-actions' }, [
-            button('Fight?', 'rpg-battle-primary rpg-battle-encounter-fight', { iconName: 'fa-dragon', onClick: () => emit(handlers, 'onFightEncounter', list(encounter.rows).map(row => ({ ...row }))) }),
+            // Nothing sent back: the glue opens the offer it parsed from the story.
+            button('Fight?', 'rpg-battle-primary rpg-battle-encounter-fight', { iconName: 'fa-dragon', onClick: () => emit(handlers, 'onFightEncounter') }),
             button('Not now', 'rpg-battle-encounter-dismiss', { iconName: 'fa-xmark', onClick: () => emit(handlers, 'onDismissEncounter') }),
         ]),
     ]));
@@ -1992,9 +1874,7 @@ export function renderBattleTab(pane, view, handlers = {}) {
     if (leaving('create')) createDraft = null;
     if (leaving('spend')) spendDraft = null;
     if (leaving('learn')) learnDraft = null;
-    if (leaving('setup')) setupDraft = null;
     if (leaving('fight')) fightUi = null;
-    if (leaving('result')) discardArmed = null;
     if (leaving('companion')) companionDraft = null;
     if (leaving('items')) itemsTarget = null;
     if (leaving('idle')) {

@@ -123,3 +123,39 @@ test('the XP line speaks the reader\'s terms: a name of their own, or the share 
     assert.match(buildHandoff(mixed, { currency: COINS, rules: soul }), /Soul Growth \+12%\.$/m);
     assert.match(buildHandoff(result(), { currency: COINS }), /XP \+38 each\.$/m, 'plain terms as before');
 });
+
+// ---------------------------------------------------------------------------
+// Where a waiting hand-off stands (0.4.2)
+
+test('handoffState: none, waiting, narrating while its reply is generated, narrated once it is there', async () => {
+    const { handoffState } = await import('../src/handoff.js');
+    const user = { mes: 'go', is_user: true };
+    const reply = { mes: 'They fight.', is_user: false };
+    const pending = attachedTo => ({ handoff: 'Victory.', fightId: 'f1', attachedTo });
+    assert.equal(handoffState(null, [user]), 'none');
+    assert.equal(handoffState({ handoff: '', attachedTo: null }, [user]), 'none');
+    assert.equal(handoffState(pending(null), [user]), 'waiting');
+    assert.equal(handoffState(pending(undefined), [user]), 'waiting');
+    // Given to reply 1, which is being generated.
+    assert.equal(handoffState(pending(1), [user], { generating: true }), 'narrating');
+    assert.equal(handoffState(pending(1), [user, reply]), 'narrated');
+    assert.equal(handoffState(pending(1), [user, reply, user, reply]), 'narrated', 'moved past it');
+    // The narrating reply deleted (nothing being generated): it waits again.
+    assert.equal(handoffState(pending(1), [user]), 'waiting');
+    assert.equal(handoffState(pending(1), [user, user]), 'waiting', 'a user message is no narration');
+});
+
+test('settleHandoff: spent once a newer reply exists, waiting again when its reply is gone, else kept', async () => {
+    const { settleHandoff } = await import('../src/handoff.js');
+    const user = { mes: 'go', is_user: true };
+    const reply = { mes: 'They fight.', is_user: false };
+    const at = attachedTo => ({ handoff: 'Victory.', fightId: 'f1', attachedTo });
+    assert.deepEqual(settleHandoff(at(null), [user]), at(null));
+    assert.deepEqual(settleHandoff(at(1), [user], { generating: true }), at(1), 'being narrated: kept');
+    assert.deepEqual(settleHandoff(at(1), [user, reply]), at(1), 'narrated: kept, so its swipes narrate the same result');
+    assert.deepEqual(settleHandoff(at(1), [user, reply, user]), at(1), 'a user message after it is no newer reply');
+    assert.equal(settleHandoff(at(1), [user, reply, user, reply]), null, 'a newer reply: spent');
+    assert.deepEqual(settleHandoff(at(1), [user]), at(null), 'its reply deleted: waiting again');
+    assert.deepEqual(settleHandoff(at(3), [user]), at(null));
+    assert.equal(settleHandoff(null, [user]), null);
+});
