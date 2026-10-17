@@ -1830,7 +1830,7 @@ function renderOffer(root, view, handlers) {
     root.append(el('div', { className: 'rpg-battle-notice is-encounter', attrs: { role: 'status' } }, [
         el('div', { className: 'rpg-battle-notice-text' }, [
             icon('fa-dragon'),
-            el('span', { className: 'rpg-battle-encounter-text', text: `A fight is starting: ${str(encounter.text)}` }),
+            el('span', { className: 'rpg-battle-encounter-text', text: `A fight is starting: ${str(encounter.summary) || str(encounter.text)}` }),
         ]),
         str(encounter.label) ? el('p', { className: 'rpg-battle-hint rpg-battle-encounter-label', text: str(encounter.label) }) : null,
         waves.length > 1 ? el('p', { className: 'rpg-battle-hint rpg-battle-encounter-waves', text: `${waves.length} engagements, fought back to back: HP, MP and conditions carry over between them.` }) : null,

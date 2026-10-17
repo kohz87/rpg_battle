@@ -47,7 +47,7 @@ import { addLoot, consumables, formatGearEntry, formatMoney, gearSummary, parseG
 import { buildHandoff, handoffState, settleHandoff } from './src/handoff.js';
 import { combatantFromSheet, editCompanion, enemiesFromRows, engagements, newCompanion, npcRenames, remapIds } from './src/party.js';
 import { recoverOverTime, restAfter, useItemOutside } from './src/recovery.js';
-import { STORY_INSTRUCTION, applyWounds, describeWound, findTarget, parseEncounter, parseStakes, parseWounds, resolveThreats, storyFight } from './src/story.js';
+import { STORY_INSTRUCTION, applyWounds, describeWound, encounterSummary, findTarget, parseEncounter, parseStakes, parseWounds, resolveThreats, storyFight } from './src/story.js';
 import { liveOffers, questOffers, storyOffers } from './src/offers.js';
 import { awardParty, settleCompanions } from './src/growth.js';
 import { guessFocus } from './src/builds.js';
@@ -1032,7 +1032,8 @@ function toastEncounter(sb, index) {
     const text = blockAt(sb, index, ENCOUNTER_TAG) ?? '';
     const rows = text ? encounterRows(text) : [];
     if (!rows.length || chatState().dismissed.includes(`${index}:${text}`)) return;
-    const html = `A fight is starting: ${escapeHtml(text)}<div class="rpg-battle-toast-actions"><button type="button" class="menu_button rpg-battle-toast-fight">Fight</button></div>`;
+    const stakes = parseStakes(text) === 'death' ? ' — to the death' : '';
+    const html = `A fight is starting: ${escapeHtml(encounterSummary(text))}${stakes}<div class="rpg-battle-toast-actions"><button type="button" class="menu_button rpg-battle-toast-fight">Fight</button></div>`;
     const toast = notify('warning', html, { escapeHtml: false, timeOut: 15000, extendedTimeOut: 6000, closeButton: true });
     bindToastButton(toast, '.rpg-battle-toast-fight', () => fightEncounter({ rows, stakes: parseStakes(text), key: `${index}:${text}` }));
 }
@@ -1780,7 +1781,7 @@ function battleView() {
         };
     }
     const offer = encounterOffer(ctx, state);
-    return { mode: 'offer', encounter: offer ? { text: offer.text, label: offer.label, rows: offer.rows, stakes: offer.stakes } : null, pending: handoffNow(ctx, state) === 'waiting' ? state.pending.handoff : null, rules: r };
+    return { mode: 'offer', encounter: offer ? { text: offer.text, summary: encounterSummary(offer.text), label: offer.label, rows: offer.rows, stakes: offer.stakes } : null, pending: handoffNow(ctx, state) === 'waiting' ? state.pending.handoff : null, rules: r };
 }
 
 /** A member's card data beyond the sheet: resolved skills, capped gear, the dossier link. */

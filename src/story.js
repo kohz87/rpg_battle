@@ -402,6 +402,11 @@ export function parseEncounter(text, bestiary = DEFAULT_BESTIARY, rules = DEFAUL
  * An encounter's stakes, from the story: 'death' when a line ends with `| to the death` (also
  * `| death`, `| stakes: death`, any case), else 'normal' (defeat means the story decides).
  */
+/** What the story's fight says, for the offer line: each line without its `| …` notes (the stakes are shown on their own). */
+export function encounterSummary(text) {
+    return String(text ?? '').split(/\r?\n/).map(line => line.split('|')[0].trim()).filter(Boolean).join('; ');
+}
+
 export function parseStakes(text) {
     const notes = String(text ?? '').split(/\r?\n/).flatMap(line => line.split('|').slice(1));
     return notes.some(note => DEATH_MARK.test(note)) ? 'death' : 'normal';

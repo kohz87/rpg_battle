@@ -8,7 +8,7 @@ import { DEFAULT_BESTIARY } from '../src/enemies.js';
 import { PRESETS } from '../src/skills.js';
 import { newSheet } from '../src/sheet.js';
 import { newCompanion } from '../src/party.js';
-import { STORY_INSTRUCTION, THREATS, applyWounds, describeWound, guessSkill, parseEncounter, parseHints, parseJoins, parseLearned, parseLeaves, parseRest, parseStakes, parseWounds, parseXp, resolveThreats, storyFight, threatLevel } from '../src/story.js';
+import { STORY_INSTRUCTION, THREATS, applyWounds, describeWound, encounterSummary, guessSkill, parseEncounter, parseHints, parseJoins, parseLearned, parseLeaves, parseRest, parseStakes, parseWounds, parseXp, resolveThreats, storyFight, threatLevel } from '../src/story.js';
 
 const rules = makeRules();
 const ren = { ...newSheet({ name: 'Ren Aldane', stats: PRESETS[0].points, skills: PRESETS[0].skills }, rules), hp: { cur: 98, max: 98 } };
@@ -322,4 +322,10 @@ test('storyFight: the fight is the offer\'s rows and stakes, as copies; no rows,
     assert.equal(storyFight({ rows: offer.rows, stakes: 'nonsense' }).stakes, 'normal');
     assert.equal(storyFight({ rows: offer.rows }).stakes, 'normal');
     for (const none of [null, undefined, {}, { rows: [] }, { rows: [{ name: ' ' }] }]) assert.throws(() => storyFight(none), /Fights come from the story/);
+});
+
+test('encounterSummary: the fight without its notes, for the offer line', () => {
+    assert.equal(encounterSummary('2 bandit (weak) | to the death'), '2 bandit (weak)');
+    assert.equal(encounterSummary('3 wolf (weak); then: wolf matriarch (boss)\n| death'), '3 wolf (weak); then: wolf matriarch (boss)');
+    assert.equal(encounterSummary(''), '');
 });
