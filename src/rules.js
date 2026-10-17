@@ -137,6 +137,57 @@ export const DEFAULT_RULES = Object.freeze({
     // tier titles ({ size, numerals: 'roman' | 'arabic' }: levels 1–10 are "<levelName> I"…)
     // and a level cap (null: character.maxLevel). Words only; no number above depends on them.
     terms: { levelName: 'Level', xpName: 'XP', tiers: null, cap: null },
+    // Threat words in an <Encounter> (story.threatLevel): how far a foe the story calls "weak"
+    // or "deadly" sits from the party's level, in steps. A step is one tier when tier titles
+    // are on (a world that counts in tiers means "a tier above" when it says strong), else
+    // `step` levels, about the distance between two of the rank table's low ranks.
+    threat: { step: 4, offsets: { trivial: -2, weak: -1, even: 0, strong: 1, deadly: 2 } },
+    // Creatures made up on the fly (templates.js, DESIGN §7.4). The template picks the role,
+    // skills and loot; these are the only numbers a trait or a temperament may change.
+    generated: {
+        // Multipliers a trait puts on the projected numbers (projectEnemy's `mods`).
+        traits: {
+            armoured: { defence: 1.3, agi: 0.9 },
+            swift: { agi: 1.35, hp: 0.9 },
+            slow: { agi: 0.7, defence: 1.1 },
+            frail: { hp: 0.75, defence: 0.85 },
+            hulking: { hp: 1.3, agi: 0.8 },
+            fierce: { attack: 1.15, defence: 0.9 },
+            leader: { hp: 1.15, attack: 1.1 },
+        },
+        // Stacked traits multiply, within these bounds: three traits never make a foe twice as tough.
+        modMin: 0.6,
+        modMax: 1.5,
+        // Morale (against the party's CHA in a parley) and the HP share at which it flees.
+        temperaments: {
+            relentless: { morale: 9, fleesBelow: 0 },
+            mindless: { morale: 9, fleesBelow: 0 },
+            disciplined: { morale: 6, fleesBelow: 0.15 },
+            proud: { morale: 6, fleesBelow: 0.15 },
+            cunning: { morale: 4, fleesBelow: 0.3 },
+            wild: { morale: 2, fleesBelow: 0.25 },
+            cowardly: { morale: 1, fleesBelow: 0.4 },
+        },
+        moralePerRank: 0.5,   // + rank index × this: a foe from higher up is harder to talk down
+        leaderMorale: 2,      // + for a leader, who also flees no sooner than `leaderFleesBelow`
+        leaderFleesBelow: 0.1,
+        // Rounds of each condition a generated skill applies.
+        effectRounds: { poison: 3, burn: 2, bleed: 2, stun: 1, slow: 2, weaken: 2, shield: 3, regen: 3, guard: 2 },
+        // skillFromTemplate is tuned for players, who pay MP; a monster's skill is × this (and a
+        // physical one costs no MP, like the bestiary's). Lower than the bestiary's skills because
+        // a made-up creature has two or three in rotation; tuned by tests/balance.test.js so an
+        // even fight against made-up foes costs about what one against projected foes does.
+        skillPower: 0.65,
+        stunCooldown: 3,      // a skill that stuns waits at least this long
+        extraSkillLevel: 8,   // a third skill from this level, and always for leaders and bosses
+        // Loot: drop chances in %, and the gear rarity a creature of each rank drops (a
+        // flavoured rarity may go at most one step above it).
+        materialChance: [55, 30],
+        gearChance: 8,
+        potionChance: 12,
+        gearBudgetShare: 0.75, // gear stats: this share of the rarity's budget at the creature's level
+        gearRarity: { F: 'common', E: 'common', D: 'uncommon', C: 'uncommon', B: 'rare', A: 'rare', S: 'epic', SS: 'epic', SSS: 'legendary' },
+    },
     // Coins (in the smallest unit) a defeated enemy of each rank may drop.
     moneyByRank: { F: [2, 8], E: [5, 20], D: [15, 50], C: [40, 120], B: [100, 300], A: [250, 700], S: [600, 1600], SS: [1500, 4000], SSS: [4000, 10000] },
 });

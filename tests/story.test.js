@@ -8,7 +8,7 @@ import { DEFAULT_BESTIARY } from '../src/enemies.js';
 import { PRESETS } from '../src/skills.js';
 import { newSheet } from '../src/sheet.js';
 import { newCompanion } from '../src/party.js';
-import { STORY_INSTRUCTION, applyWounds, describeWound, parseEncounter, parseWounds } from '../src/story.js';
+import { STORY_INSTRUCTION, THREATS, applyWounds, describeWound, parseEncounter, parseWounds, resolveThreats, threatLevel } from '../src/story.js';
 
 const rules = makeRules();
 const ren = { ...newSheet({ name: 'Ren Aldane', stats: PRESETS[0].points, skills: PRESETS[0].skills }, rules), hp: { cur: 98, max: 98 } };
@@ -130,9 +130,13 @@ test('encounter: counts, bosses, ranks and roles; plurals made singular for best
     ]);
 });
 
-test('encounter: unknown names kept (and not singularised), notes in brackets, roles written last, counts capped', () => {
+test('encounter: unknown names kept (singular only for a creature word), notes in brackets, roles written last, counts capped', () => {
     assert.deepEqual(parseEncounter('1 bog wight (boss, rank C) tank'), [{ name: 'Bog Wight', count: 1, rank: 'C', role: 'tank', boss: true }]);
-    assert.deepEqual(parseEncounter('3 bog wights'), [{ name: 'Bog Wights', count: 3, rank: null, role: null, boss: false }]);
+    // "wight" is a word the creature templates know, so its plural is three of one creature;
+    // a name made of words nobody knows is kept as written.
+    assert.deepEqual(parseEncounter('3 bog wights'), [{ name: 'Bog Wight', count: 3, rank: null, role: null, boss: false }]);
+    assert.deepEqual(parseEncounter('2 marsh wolves'), [{ name: 'Marsh Wolf', count: 2, rank: null, role: null, boss: false }]);
+    assert.deepEqual(parseEncounter('2 Ashen Vyrrks'), [{ name: 'Ashen Vyrrks', count: 2, rank: null, role: null, boss: false }]);
     assert.deepEqual(parseEncounter('bandit caster x2'), [{ name: 'Bandit', count: 2, rank: null, role: 'caster', boss: false }]);
     assert.deepEqual(parseEncounter('a pair of brigands'), [{ name: 'Brigand', count: 2, rank: null, role: null, boss: false }], 'an alias keeps its own name');
     assert.deepEqual(parseEncounter('12 goblins'), [{ name: 'Goblin', count: 9, rank: null, role: null, boss: false }]);
@@ -145,17 +149,18 @@ test('encounter: unknown names kept (and not singularised), notes in brackets, r
 // ---------------------------------------------------------------------------
 // The instruction
 
-test('the story instruction is short (about 90 tokens) and names both tags and the grammar', () => {
+// 0.3 added the threat words (about 15 tokens), so the bound moved from 95 to 110.
+test('the story instruction is short (about 100 tokens) and names both tags, the grammar and the threat words', () => {
     const pieces = STORY_INSTRUCTION.match(/[A-Za-z]+|\d+|[^\sA-Za-z\d]/g).length;
-    assert.ok(STORY_INSTRUCTION.length <= 380, `${STORY_INSTRUCTION.length} characters`);
-    assert.ok(Math.ceil(STORY_INSTRUCTION.length / 4) <= 95, 'about 90 tokens at four characters a token');
-    assert.ok(pieces <= 92, `${pieces} words and marks`);
-    for (const part of ['<Wounds>', '<Encounter>', 'scratch|wound|severe|grievous', 'heal', 'poisoned', 'Character or Party sheet', 'not an RPG Battle fight', 'stop at the first blow']) {
+    assert.ok(STORY_INSTRUCTION.length <= 440, `${STORY_INSTRUCTION.length} characters`);
+    assert.ok(Math.ceil(STORY_INSTRUCTION.length / 4) <= 110, 'about 100 tokens at four characters a token');
+    assert.ok(pieces <= 112, `${pieces} words and marks`);
+    for (const part of ['<Wounds>', '<Encounter>', 'scratch|wound|severe|grievous', 'heal', 'poisoned', 'Character or Party sheet', 'not an RPG Battle fight', 'stop at the first blow', 'trivial|weak|even|strong|deadly']) {
         assert.ok(STORY_INSTRUCTION.includes(part), part);
     }
     // Its own examples read back as the grammar says.
     assert.deepEqual(parseWounds('Ren — heal wound: x').map(entry => entry.kind), ['heal']);
-    assert.equal(parseEncounter(STORY_INSTRUCTION.match(/<Encounter>(.*?)<\/Encounter>/)[1]).length, 2);
+    assert.deepEqual(parseEncounter(STORY_INSTRUCTION.match(/<Encounter>(.*?)<\/Encounter>/)[1]).map(row => [row.name, row.boss, row.threat]), [['Wolf', false, 'weak'], ['Wolf Matriarch', true, 'strong']]);
 });
 
 test('parseEncounter: a power in the reader\'s terms becomes the row\'s level', async () => {
@@ -172,4 +177,65 @@ test('parseEncounter: a power in the reader\'s terms becomes the row\'s level', 
     const ranked = makeRules({ terms: { levelName: 'Rank', tiers: { size: 10 } } });
     assert.deepEqual(parseEncounter('bandit (boss, rank D)', DEFAULT_BESTIARY, ranked), [{ name: 'Bandit', count: 1, rank: 'D', role: null, boss: true }]);
     assert.deepEqual(parseEncounter('bandit (Rank III)', DEFAULT_BESTIARY, ranked), [{ name: 'Bandit', count: 1, rank: null, role: null, boss: false, level: 21 }]);
+});
+
+// ---------------------------------------------------------------------------
+// Threat words
+
+test('parseEncounter: a threat word in brackets or before the name, kept only without a written power', async () => {
+    const { makeRules } = await import('../src/rules.js');
+    assert.deepEqual(parseEncounter('3 marsh wolf (weak), wolf matriarch (boss, strong)'), [
+        { name: 'Marsh Wolf', count: 3, rank: null, role: null, boss: false, threat: 'weak' },
+        { name: 'Wolf Matriarch', count: 1, rank: null, role: null, boss: true, threat: 'strong' },
+    ]);
+    assert.deepEqual(parseEncounter('3 weak marsh wolves and a deadly wyvern'), [
+        { name: 'Marsh Wolf', count: 3, rank: null, role: null, boss: false, threat: 'weak' },
+        { name: 'Wyvern', count: 1, rank: null, role: null, boss: false, threat: 'deadly' },
+    ]);
+    // Synonyms, by what they mean.
+    const threatOf = text => parseEncounter(text)[0].threat ?? null;
+    assert.equal(threatOf('rat (minor)'), 'weak');
+    assert.equal(threatOf('rat (lesser)'), 'weak');
+    assert.equal(threatOf('rat (puny)'), 'trivial');
+    assert.equal(threatOf('rat (fair)'), 'even');
+    assert.equal(threatOf('rat (tough)'), 'strong');
+    assert.equal(threatOf('rat (elite, caster)'), 'deadly');
+    assert.equal(threatOf('rat (calamity)'), 'deadly');
+    // Before a name, only words that are never part of one: "Lesser Demon" and "High Priest" are names.
+    assert.deepEqual(parseEncounter('lesser demon'), [{ name: 'Lesser Demon', count: 1, rank: null, role: null, boss: false }]);
+    assert.deepEqual(parseEncounter('high priest (deadly)'), [{ name: 'High Priest', count: 1, rank: null, role: null, boss: false, threat: 'deadly' }]);
+    assert.deepEqual(parseEncounter('2 tough bandits'), [{ name: 'Bandit', count: 2, rank: null, role: null, boss: false, threat: 'strong' }]);
+    // A power written outright wins over the threat word.
+    assert.deepEqual(parseEncounter('bandit (strong, rank D)'), [{ name: 'Bandit', count: 1, rank: 'D', role: null, boss: false }]);
+    const soul = makeRules({ terms: { levelName: 'Soul Class', tiers: { size: 10 } } });
+    assert.deepEqual(parseEncounter('wolf (deadly, Soul Class II)', undefined, soul), [{ name: 'Wolf', count: 1, rank: null, role: null, boss: false, level: 11 }]);
+    assert.deepEqual(THREATS, ['trivial', 'weak', 'even', 'strong', 'deadly']);
+});
+
+test('threatLevel: the party\'s level plus steps of rules.threat; a step is a tier with tier titles on', async () => {
+    const { DEFAULT_RULES, makeRules } = await import('../src/rules.js');
+    const step = DEFAULT_RULES.threat.step;
+    assert.equal(threatLevel('even', 10), 10);
+    assert.equal(threatLevel('weak', 10), 10 - step);
+    assert.equal(threatLevel('strong', 10), 10 + step);
+    assert.equal(threatLevel('deadly', 10), 10 + 2 * step);
+    assert.equal(threatLevel('trivial', 10), 10 - 2 * step);
+    assert.equal(threatLevel('trivial', 3), 1, 'never below level 1');
+    assert.equal(threatLevel('nonsense', 10), null);
+    const soul = makeRules({ terms: { levelName: 'Soul Class', tiers: { size: 10 }, cap: 50 } });
+    assert.equal(threatLevel('strong', 24, soul), 34, 'one tier up');
+    assert.equal(threatLevel('deadly', 45, soul), 50, 'never past the cap');
+    assert.equal(threatLevel('strong', 10, makeRules({ threat: { step: 2 } })), 12);
+    // Rows: a threat becomes a level, kept beside it; written powers stay as they are.
+    assert.deepEqual(resolveThreats([
+        { name: 'Marsh Wolf', count: 3, rank: null, threat: 'weak' },
+        { name: 'Bandit', count: 1, rank: 'D' },
+        { name: 'Ogre', count: 1, rank: null, level: 12, threat: 'deadly' },
+        { name: 'Goblin', count: 1, rank: null },
+    ], 9), [
+        { name: 'Marsh Wolf', count: 3, rank: null, threat: 'weak', level: 9 - step },
+        { name: 'Bandit', count: 1, rank: 'D' },
+        { name: 'Ogre', count: 1, rank: null, level: 12, threat: 'deadly' },
+        { name: 'Goblin', count: 1, rank: null },
+    ]);
 });

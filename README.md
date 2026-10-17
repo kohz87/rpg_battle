@@ -109,9 +109,9 @@ A character at 0 HP cannot start a fight until they recover.
 ## Story wounds
 
 The story hurts people between fights too: a fall, a poisoned cup, a healer's poultice. While
-you have a Character block, the model is told (in about 90 tokens) to add a hidden **Wounds**
-block when that happens to someone on your Character or Party sheet, one line each, in words,
-never numbers:
+you have a Character block, the model is told (in about 100 tokens, with the encounter and
+threat words below) to add a hidden **Wounds** block when that happens to someone on your
+Character or Party sheet, one line each, in words, never numbers:
 
 ```
 <Wounds>
@@ -170,7 +170,8 @@ Healing Draught | 2 | heal 30
 
 ## A fight
 
-1. **Start fight**: name the enemies (the bestiary autocompletes; any name works), how many, and
+1. **Start fight**: name the enemies (the bestiary autocompletes; any name works, and one it
+   does not know is made up, see *Monsters on the fly*), how many, and
    optionally a rank (F to SSS), a role (brute, skirmisher, caster, tank, support) and **Boss**.
    Leave the rank on *auto* for the bestiary's rank or a fair one for your level. Choose the
    stakes: *Normal* (defeat means the story decides: captured, robbed, left for dead) or *To the
@@ -205,10 +206,85 @@ A toast and the Battle tab offer it: *A fight is starting: 3 bandit, bandit capt
 Bandit Captain as a boss, normal stakes); change anything before **Start**. **Not now** puts the
 offer away for that reply. Groups are separated by commas, `and` or new lines; each is a count
 (`3`, `3 x`, `two`, `a`), the name, and optionally `(boss)`, `rank D` and a role. A plural is made
-singular when the bestiary knows the creature ("3 bandits" → Bandit); any other name is kept.
+singular when the bestiary knows the creature ("3 bandits" → Bandit) or its last word is a
+creature word ("3 bog wights" → Bog Wight); any other name is kept.
+
+The model may also say **how dangerous** a foe is, relative to the party, in one word:
+
+```
+<Encounter>3 marsh wolf (weak), wolf matriarch (boss, strong)</Encounter>
+```
+
+| Word (and its synonyms) | Power |
+|---|---|
+| **trivial** (feeble, puny) | 2 steps below the party's level |
+| **weak** (minor, easy, low, lesser) | 1 step below |
+| **even** (fair, matched, equal) | the party's level |
+| **strong** (tough, dangerous, high) | 1 step above |
+| **deadly** (lethal, overwhelming, elite, calamity) | 2 steps above |
+
+A step is **4 levels**, or **one tier** when your terms have tier titles (`threat` in
+`rules.json`). The word goes in brackets, or before the name for the unmistakable ones
+(`3 weak marsh wolves`; "Lesser Demon" and "High Priest" stay names). A power written outright
+(`rank D`, `level 12`, `Soul Class II`) wins over it; with neither, the fight is even.
 
 With Story Director 0.8, a fight it has planned (a beat with foes, now due or due soon) is
 offered the same way, with its name and place.
+
+## Monsters on the fly
+
+The bestiary knows twenty creatures; the story knows many more. A name it does not know is
+**made up when its fight starts**, automatically:
+
+1. **From a template** (free, instant). The name's words pick one: *beast* (wolf, hound, boar,
+   bear…), *undead* (ghoul, wight, skeleton, lich…), *humanoid* (bandit, thug, soldier, knight…),
+   *leader* (a captain, chief, warlord or lord of them), *caster* (shaman, witch, mage, priest…),
+   *construct* (golem, sentinel, automaton…), *ooze* (slime, jelly), *insect* (spider, scorpion,
+   wasp…), *drake* (drake, wyvern, dragon, lizard…), *spirit* (ghost, wisp, elemental…), *plant*
+   (treant, vine, shambler…), or a plain fallback. What it is beats what it does (a *skeleton
+   mage* is undead that casts), and a leader word on any kind makes it a leader of its kind (a
+   *wolf matriarch* is a beast with a leader's nerve). The template gives it a role, **traits**
+   (*armoured*, *swift*, *slow*, *frail*, *hulking*, *fierce*, *venomous*, *fiery*, *savage*,
+   *chilling*, *regenerating*), whether it **talks** (people and casters do; beasts, the dead,
+   constructs and oozes do not), a **temperament** (*relentless*, *mindless*, *disciplined*,
+   *proud*, *cunning*, *wild*, *cowardly*: its morale in a parley and when it flees), **two or
+   three skills** of its kind (*Bite*, *Pounce*, *Howl*; *Bone Claw*, *Grave Chill*…), built
+   by the skill machinery at the power it is fought at, and a **loot table** of its kind
+   (*Marsh Wolf Pelt*, *Wolf Fang*, now and then a *Wolf-fang Charm*) whose gear rarity follows
+   its power.
+2. **Flavoured by the model** (on by default, one short call per new creature, at most four per
+   fight). The model gets the name, its power in your terms, the template and the last few
+   hundred words of the story, and answers in **words only**:
+
+   ```
+   look: a drowned knight in rusted mail, marsh-light swinging from its ribs
+   traits: armoured, slow
+   talks: no
+   temperament: relentless
+   skills: Drowning Grip — grab, weaken; Marsh Stench — all foes, poison
+   loot: bog-iron shard (common), wight's lantern (rare, MATK)
+   ```
+
+   Code maps the words onto the template's knobs (known traits, conditions, targets and stat
+   names only), renames the skills and the loot, and works every number out again from the
+   rules. A number the model writes is ignored, so is a word it does not know, and a rarity is
+   at most one step above what the creature's power drops. If the call fails, times out (30
+   seconds for all of a fight's creatures) or there is no model, the creature stays the
+   template one, silently (a note in the console). The setup says *Preparing foes…* meanwhile.
+
+The creature is then **kept in the chat** (its metadata), so the same name is the same creature
+for the rest of the story, with its own level when a later fight names no power. Names are
+looked up in this story's creatures first, then the shipped bestiary, and only then made up.
+
+- **Setup:** a name nobody knows is tagged **new**; in the fight, its card is too (its look is
+  the card's tooltip).
+- **Bestiary** (a fold on the Battle tab): this story's creatures with their power in your
+  terms, role, traits and look; **Regenerate** makes one again (and flavours it again),
+  **Forget** drops it (the name is made up anew next time). **Export** saves the list as JSON,
+  **Import** adds one (cleaned like anything stored: known words only, every number worked out
+  again).
+- **Settings → Monsters:** flavour on or off, the model (the chat's own, or a connection
+  profile, as in Story Director; a small fast one is enough), and the answer length (400 tokens).
 
 ## Money
 

@@ -566,6 +566,12 @@
     opacity: 0.8;
 }
 
+/* A foe made up from its name for this fight. */
+.rpg-battle-tab .rpg-battle-badge.is-new {
+    border-color: color-mix(in srgb, var(--rb-accent) 60%, transparent);
+    color: var(--rb-accent);
+}
+
 /* ------------------------------------------------------------------------- */
 /* Sheet (idle)                                                                */
 
@@ -875,6 +881,22 @@
 
 .rpg-battle-tab .rpg-battle-enemy-name {
     flex: 1 1 auto;
+}
+
+.rpg-battle-tab .rpg-battle-enemy-line .rpg-battle-new {
+    flex: none;
+    color: var(--rb-accent);
+    opacity: 0.9;
+}
+
+.rpg-battle-tab .rpg-battle-enemy-line .rpg-battle-threat {
+    flex: none;
+}
+
+/* The Bestiary fold: this story's own creatures. */
+.rpg-battle-tab .rpg-battle-creature-look {
+    margin: 0.15rem 0 0.3rem;
+    font-style: italic;
 }
 
 .rpg-battle-tab .rpg-battle-enemy-line.is-options .rpg-battle-select {

@@ -20,6 +20,11 @@
 // Levels and XP are shown in the reader's terms (terms.js): "Soul Class III (Lv 24)" and
 // "Soul Growth 45.20/100" rather than "Level 24" and "XP 310/800", and with terms of their own
 // the enemy power picker offers their tiers (or levels) instead of F–SSS.
+//
+// A foe neither bestiary knows is made up when the fight starts (templates.js): the setup
+// tags its name "new" and says "Preparing foes…" while the glue makes and flavours it, its
+// card in the fight is tagged "new", and the idle screen's Bestiary fold lists this story's
+// creatures with Regenerate and Forget, and Export and Import for the whole list.
 
 import { STATS, RANKS, DEFAULT_RULES, maxHp, maxMp, derive, checkModifiers } from '../rules.js';
 import { stateWords } from '../narrative.js';
@@ -545,6 +550,8 @@ function renderIdle(root, view, handlers) {
         button('Use item', 'rpg-battle-items', { iconName: 'fa-flask', onClick: () => emit(handlers, 'onItems') }),
         button('Add companion', 'rpg-battle-add-companion', { iconName: 'fa-user-plus', onClick: () => emit(handlers, 'onCompanion') }),
     ]));
+    const creatures = list(view.bestiary).filter(entry => entry && str(entry.name));
+    root.append(bestiaryFold(creatures, handlers));
     // HP and MP come back when the story says so: story time heals on its own (with Story
     // Director), and these are for what the clock cannot see.
     root.append(section('is-rest', [
@@ -554,6 +561,69 @@ function renderIdle(root, view, handlers) {
             button('Long rest', 'rpg-battle-rest-long', { iconName: 'fa-moon', title: 'A night\'s sleep: full HP and MP, fight conditions end', onClick: () => emit(handlers, 'onRest', 'long') }),
         ]),
     ]));
+}
+
+// The creature whose Forget is armed (it asks twice, like Remove).
+let forgetArmed = null;
+
+/**
+ * This story's own creatures (made up for its fights, or imported): power, role, traits and
+ * look, with Regenerate (made again, and flavoured again) and Forget (the name is made up anew
+ * next time); Export and Import for the list as a JSON file.
+ */
+function bestiaryFold(creatures, handlers) {
+    const rows = creatures.map(entry => {
+        const armed = forgetArmed === entry.name;
+        const meta = [str(entry.power), str(entry.role), list(entry.traits).map(str).filter(Boolean).join(', ')].filter(Boolean).join(' · ');
+        const item = el('li', { className: 'rpg-battle-record rpg-battle-creature' }, [
+            el('div', { className: 'rpg-battle-record-head' }, [
+                el('span', { className: 'rpg-battle-record-name', text: str(entry.name) }),
+                str(entry.template) ? el('span', { className: 'rpg-battle-tag is-quiet', text: str(entry.template) }) : null,
+                entry.flavoured ? null : el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-creature-plain', text: 'template', title: 'Not flavoured by the model: it fights as its template' }),
+            ]),
+            meta ? el('div', { className: 'rpg-battle-record-meta', text: meta }) : null,
+            str(entry.look) ? el('p', { className: 'rpg-battle-hint rpg-battle-creature-look', text: str(entry.look) }) : null,
+            el('div', { className: 'rpg-battle-member-actions' }, [
+                button('Regenerate', 'rpg-battle-creature-regenerate', {
+                    iconName: 'fa-rotate',
+                    title: `Make ${str(entry.name)} again from its name`,
+                    onClick: () => { forgetArmed = null; emit(handlers, 'onRegenerateCreature', entry.name); },
+                }),
+                button(armed ? 'Click again to forget' : 'Forget', `rpg-battle-creature-forget${armed ? ' is-armed' : ''}`, {
+                    iconName: 'fa-eraser',
+                    onClick: () => {
+                        if (forgetArmed === entry.name) {
+                            forgetArmed = null;
+                            emit(handlers, 'onForgetCreature', entry.name);
+                        } else {
+                            forgetArmed = entry.name;
+                            rerender();
+                        }
+                    },
+                }),
+            ]),
+        ]);
+        item.dataset.creature = str(entry.name);
+        return item;
+    });
+    // The file picker is hidden behind the Import button; its text goes to the glue as it is.
+    const picker = el('input', { className: 'rpg-battle-bestiary-file', attrs: { type: 'file', accept: '.json,application/json', 'aria-label': 'Bestiary file to import' } });
+    picker.hidden = true;
+    picker.addEventListener('change', () => {
+        const file = picker.files?.[0];
+        if (!file || typeof file.text !== 'function') return;
+        void file.text().then(text => emit(handlers, 'onImportBestiary', text));
+    });
+    return fold('is-bestiary', 'Bestiary', 'fa-book-skull', creatures.length, [
+        rows.length
+            ? el('ul', { className: 'rpg-battle-records' }, rows)
+            : el('p', { className: 'rpg-battle-hint', text: 'No creatures of this story\'s own yet: a name the bestiary does not know is made up when its fight starts, and kept here.' }),
+        el('div', { className: 'rpg-battle-actions' }, [
+            rows.length ? button('Export', 'rpg-battle-bestiary-export', { iconName: 'fa-file-export', title: 'Save this story\'s creatures as a JSON file', onClick: () => emit(handlers, 'onExportBestiary') }) : null,
+            button('Import', 'rpg-battle-bestiary-import', { iconName: 'fa-file-import', title: 'Add creatures from a JSON file', onClick: () => picker.click?.() }),
+            picker,
+        ]),
+    ]);
 }
 
 // A companion's control mode (tap to switch), Edit, and Remove, which asks twice.
@@ -948,6 +1018,8 @@ function prefillRow(row, rules, custom) {
         level: powerLevel,
         role: ROLES.includes(row?.role) ? row.role : '',
         boss: Boolean(row?.boss),
+        // The story's word for how dangerous it is, shown beside the power it became.
+        threat: str(row?.threat),
     };
 }
 
@@ -987,6 +1059,14 @@ function renderSetup(root, view, handlers) {
     }
     const draft = setupDraft;
     const names = list(view.bestiary).map(entry => str(entry?.name ?? entry)).filter(Boolean);
+    // A name neither bestiary knows will be made up when the fight starts. Without `known`
+    // (an older glue) the autocomplete names stand in.
+    const known = new Set([...list(view.known), ...names].map(name => str(name).toLowerCase().replace(/\s+/g, ' ')).filter(Boolean));
+    const isNew = name => {
+        const wanted = str(name).toLowerCase().replace(/\s+/g, ' ');
+        return Boolean(wanted) && !known.has(wanted) && !known.has(wanted.replace(/\s*(?:#?\d+|\b[a-z])$/, ''));
+    };
+    const preparing = list(view.preparing).map(str).filter(Boolean);
     const listId = 'rpg-battle-bestiary';
     const datalist = el('datalist', { attrs: { id: listId } }, names.map(name => option(name)));
 
@@ -994,6 +1074,8 @@ function renderSetup(root, view, handlers) {
     const start = button('Start', 'rpg-battle-primary rpg-battle-begin', {
         iconName: 'fa-dragon',
         onClick: () => {
+            // Not twice while the foes are being prepared.
+            if (start.disabled) return;
             // With the reader's terms a row carries its power as a level; otherwise as a rank.
             const rows = named().map(row => ({
                 name: str(row.name),
@@ -1009,14 +1091,21 @@ function renderSetup(root, view, handlers) {
     const refresh = () => {
         const rows = named();
         const total = rows.reduce((sum, row) => sum + num(row.count, 1), 0);
-        start.disabled = !rows.length;
-        summary.textContent = rows.length ? `${total} ${total === 1 ? 'enemy' : 'enemies'}.` : 'Name at least one enemy.';
+        start.disabled = !rows.length || preparing.length > 0;
+        const fresh = rows.filter(row => isNew(row.name)).length;
+        summary.textContent = preparing.length
+            ? `Preparing foes: ${preparing.join(', ')}…`
+            : rows.length ? `${total} ${total === 1 ? 'enemy' : 'enemies'}.${fresh ? ` ${fresh} new, made up from ${fresh === 1 ? 'its name' : 'their names'} when the fight starts.` : ''}` : 'Name at least one enemy.';
+        for (const [node, row] of newTags) node.hidden = !isNew(row.name);
     };
+    const newTags = [];
 
     const rowNodes = draft.rows.map((row, index) => {
         const label = `Enemy ${index + 1}`;
         const nameInput = el('input', { className: 'text_pole rpg-battle-enemy-name', attrs: { type: 'text', list: listId, maxlength: '60', placeholder: 'Name (any name works)', 'aria-label': `${label} name`, autocomplete: 'off' } });
         nameInput.value = row.name;
+        const newTag = el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-new', text: 'new', title: 'Not in the bestiary: made up from its name when the fight starts' });
+        newTags.push([newTag, row]);
         nameInput.addEventListener('input', () => { row.name = nameInput.value; refresh(); });
         const count = select('rpg-battle-enemy-count', `${label} count`, Array.from({ length: 9 }, (_, i) => [String(i + 1), `×${i + 1}`]), String(row.count));
         count.addEventListener('change', () => { row.count = Math.min(9, Math.max(1, num(count.value, 1))); refresh(); });
@@ -1036,9 +1125,11 @@ function renderSetup(root, view, handlers) {
             },
         });
         const item = el('li', { className: 'rpg-battle-enemy-row' }, [
-            el('div', { className: 'rpg-battle-enemy-line' }, [nameInput, remove]),
+            el('div', { className: 'rpg-battle-enemy-line' }, [nameInput, newTag, remove]),
             el('div', { className: 'rpg-battle-enemy-line is-options' }, [
-                count, rank, role,
+                count, rank,
+                str(row.threat) ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-threat', text: str(row.threat), title: 'How dangerous the story says it is; the power picker shows what that means for your level' }) : null,
+                role,
                 el('label', { className: 'rpg-battle-check' }, [boss, el('span', { text: 'Boss' })]),
             ]),
         ]);
@@ -1132,6 +1223,8 @@ function combatantCard(unit, { turnId, pick, onPick, rules = DEFAULT_RULES }) {
         const rankRole = [power, unit.role].filter(Boolean).join(' · ');
         if (rankRole) badges.push(el('span', { className: 'rpg-battle-badge', text: rankRole }));
         if (unit.boss) badges.push(el('span', { className: 'rpg-battle-badge is-boss' }, [icon('fa-crown'), el('span', { text: 'boss' })]));
+        // Made up from its name for this fight (templates.js); its look, when the model gave one.
+        if (unit.fresh) badges.push(el('span', { className: 'rpg-battle-badge is-new', text: 'new', title: str(unit.look) || 'Made up from its name for this fight' }));
     } else if (unit.controller === 'auto') {
         badges.push(el('span', { className: 'rpg-battle-badge is-quiet', text: 'auto' }));
     }
@@ -1139,7 +1232,7 @@ function combatantCard(unit, { turnId, pick, onPick, rules = DEFAULT_RULES }) {
     const card = el('li', { className: classes.join(' ') }, [
         el('div', { className: 'rpg-battle-card-head' }, [
             unit.id === turnId ? icon('fa-caret-right') : null,
-            el('span', { className: 'rpg-battle-card-name', text: unit.name ?? '' }),
+            el('span', { className: 'rpg-battle-card-name', text: unit.name ?? '', title: isEnemy && str(unit.look) ? str(unit.look) : undefined }),
             ...badges,
         ]),
         bar('hp', unit.hp?.cur, unit.hp?.max, `${unit.name ?? ''} HP`),
@@ -1552,6 +1645,7 @@ export function renderBattleTab(pane, view, handlers = {}) {
     if (mode !== 'items') itemsTarget = null;
     if (mode !== 'idle') removeArmed = null;
     if (mode !== 'idle') editDraft = null;
+    if (mode !== 'idle') forgetArmed = null;
 
     const root = el('div', { className: `rpg-battle-tab is-${mode || 'none'}` });
     root.dataset.mode = mode;

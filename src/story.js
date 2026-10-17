@@ -8,20 +8,27 @@
 // in a few fixed words, and code turns the words into HP with a share of max HP per word
 // (rules.wounds). The model never writes a number. Likewise a fight the story starts is named
 // in an <Encounter> block ("3 bandit, bandit captain (boss)"), parsed here into setup rows the
-// reader confirms. Both parsers are lenient, because they read what a model wrote. Pure.
+// reader confirms. Both parsers are lenient, because they read what a model wrote.
+//
+// An encounter may also say how dangerous a foe is in one word, relative to the party
+// ("3 marsh wolf (weak)", "wolf matriarch (boss, strong)"): a threat, which threatLevel turns
+// into a level from the party's own, so the model judges the danger and code sets the number.
+// A power written outright (a rank, a level, a tier in the reader's terms) wins over it. Pure.
 
 import { DEFAULT_RULES, RANKS } from './rules.js';
 import { DEFAULT_BESTIARY, findCreature } from './enemies.js';
-import { parseLevelLabel } from './terms.js';
+import { parseLevelLabel, termsOf } from './terms.js';
+import { creatureSingular } from './templates.js';
 
 /**
  * What the model is told every reply while a Character block exists (index.js injects it at
- * depth 1, apart from the fight hand-off). It is paid for on every reply, so it stays near 90
+ * depth 1, apart from the fight hand-off). It is paid for on every reply, so it stays near 100
  * tokens (tests/story.test.js holds it there): the two tags, their grammar by example, and
- * the one judgement call, which word. "Stop at the first blow" leaves the fight itself to RPG
- * Battle, so the prose does not resolve what the buttons are about to.
+ * the two judgement calls, which wound word and which threat word. "Stop at the first blow"
+ * leaves the fight itself to RPG Battle, so the prose does not resolve what the buttons are
+ * about to.
  */
-export const STORY_INSTRUCTION = 'If the story (not an RPG Battle fight) hurts or heals someone on the Character or Party sheet, add <Wounds>, a line each: Name — scratch|wound|severe|grievous: cause (or heal wound, or poisoned). Mildest fitting word; severe/grievous only for crippling blows. If a fight starts, add <Encounter>3 bandit, bandit captain (boss)</Encounter> and stop at the first blow.';
+export const STORY_INSTRUCTION = 'If the story (not an RPG Battle fight) hurts or heals someone on the Character or Party sheet, add <Wounds>, a line each: Name — scratch|wound|severe|grievous: cause (or heal wound, or poisoned). Mildest fitting word; severe/grievous only for crippling blows. If a fight starts, add <Encounter>3 wolf (weak), wolf matriarch (boss, strong)</Encounter> (threat vs party: trivial|weak|even|strong|deadly) and stop at the first blow.';
 
 // Mildest first, so "the worst word mentioned" is the one with the highest index.
 export const SEVERITIES = Object.freeze(['scratch', 'wound', 'severe', 'grievous']);
@@ -233,6 +240,19 @@ export function describeWound(entry) {
 // ---------------------------------------------------------------------------
 // Encounters
 
+// Threat words, by what they mean relative to the party (rules.threat.offsets).
+export const THREATS = Object.freeze(['trivial', 'weak', 'even', 'strong', 'deadly']);
+const THREAT_WORDS = {
+    trivial: 'trivial', feeble: 'trivial', puny: 'trivial',
+    weak: 'weak', minor: 'weak', easy: 'weak', low: 'weak', lesser: 'weak',
+    even: 'even', fair: 'even', matched: 'even', equal: 'even',
+    strong: 'strong', tough: 'strong', dangerous: 'strong', high: 'strong',
+    deadly: 'deadly', lethal: 'deadly', overwhelming: 'deadly', elite: 'deadly', calamity: 'deadly',
+};
+// Before a name only the words that are never part of one: "lesser demon", "high priest" and
+// "elite guard" are names, so those words count only in brackets.
+const LEADING_THREATS = new Set(['trivial', 'feeble', 'puny', 'weak', 'easy', 'matched', 'strong', 'tough', 'dangerous', 'deadly', 'lethal', 'overwhelming']);
+
 const NUMBER_WORDS = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, several: 3, few: 3, pair: 2, couple: 2 };
 const MAX_COUNT = 9;
 const nameMatch = (a, b) => nameKey(a).replace(/[^a-z0-9]+/g, ' ').trim() === nameKey(b).replace(/[^a-z0-9]+/g, ' ').trim();
@@ -255,13 +275,18 @@ const titleCase = text => (text === text.toLowerCase() ? text.replace(/\b[a-z]/g
 
 /**
  * The name a row gets: the bestiary's own spelling when it is a creature (also for a plural,
- * "3 bandits" → Bandit), the written singular of an alias, or the name as written.
+ * "3 bandits" → Bandit), the written singular of an alias, the singular when the last word
+ * is the plural of a creature word the templates know ("3 bog wights" → Bog Wight, so the
+ * creature made up for it is not called a plural), or the name as written.
  */
 function rowName(name, bestiary) {
     for (const candidate of [name, ...singulars(name)]) {
         const creature = findCreature(bestiary, candidate);
         if (creature) return nameMatch(creature.name, candidate) ? creature.name : titleCase(candidate);
     }
+    const words = name.split(' ');
+    const singular = creatureSingular(words.at(-1));
+    if (singular) return titleCase([...words.slice(0, -1), words.at(-1).toLowerCase() === words.at(-1) ? singular : singular.replace(/^[a-z]/, letter => letter.toUpperCase())].join(' '));
     return titleCase(name);
 }
 
@@ -273,6 +298,7 @@ function parseGroup(raw, bestiary, rules) {
     let rank = null;
     let role = null;
     let level = null;
+    let threat = null;
     // "(boss)", "(boss, rank D)", "[caster]", "(Soul Class II)": what is in brackets is about the
     // row, not its name. A power in the reader's terms (or "level 12", "Lv 12") needs its name
     // written, so a stray numeral is not taken for one.
@@ -287,6 +313,7 @@ function parseGroup(raw, bestiary, rules) {
         words.forEach((word, index) => {
             if (word === 'boss') boss = true;
             else if (ROLES.includes(word)) role = word;
+            else if (THREAT_WORDS[word] && !threat) threat = THREAT_WORDS[word];
             else if (word === 'rank' && RANKS.includes(words[index + 1]?.toUpperCase())) rank = words[index + 1].toUpperCase();
         });
         return ' ';
@@ -303,6 +330,12 @@ function parseGroup(raw, bestiary, rules) {
     else if (trailing) [count, text] = [Number(trailing[2]), trailing[1]];
     else if (worded) [count, text] = [NUMBER_WORDS[worded[1].toLowerCase()], worded[2]];
     text = text.replace(/^the\s+/i, '').trim();
+    // "3 weak marsh wolves": a threat word before the name, unless the whole name is a creature.
+    const lead = text.match(/^(\S+)\s+(.+)$/);
+    if (lead && LEADING_THREATS.has(lead[1].toLowerCase()) && !findCreature(bestiary, text)) {
+        threat = threat ?? THREAT_WORDS[lead[1].toLowerCase()];
+        text = lead[2];
+    }
     // A role written last ("bandit caster"); a name that is only a role word stays a name.
     const words = text.split(' ');
     if (words.length > 1 && ROLES.includes(words.at(-1).toLowerCase())) {
@@ -318,6 +351,8 @@ function parseGroup(raw, bestiary, rules) {
         boss,
     };
     if (level !== null) row.level = level;
+    // A power written outright is the power; the threat word only stands in for a missing one.
+    else if (threat && !rank) row.threat = threat;
     return row;
 }
 
@@ -328,7 +363,9 @@ function parseGroup(raw, bestiary, rules) {
  * `[N ×|N x|N ]name[ (boss)][ rank X][ role]` (also "a"/"two"… and "name ×3"). A plural is
  * made singular when the singular is a bestiary creature; rank and role only when written.
  * A power written in brackets in the reader's terms ("3 wolf (Soul Class I)", "bandit captain
- * (boss, Soul Class II)", "(level 12)") adds `level` to the row (only then).
+ * (boss, Soul Class II)", "(level 12)") adds `level` to the row (only then). A threat word in
+ * brackets or before the name ("(weak)", "(boss, strong)", "3 deadly wyverns") adds `threat`
+ * ('trivial' | 'weak' | 'even' | 'strong' | 'deadly'), only when no rank or level is written.
  */
 export function parseEncounter(text, bestiary = DEFAULT_BESTIARY, rules = DEFAULT_RULES) {
     const rows = [];
@@ -339,4 +376,31 @@ export function parseEncounter(text, bestiary = DEFAULT_BESTIARY, rules = DEFAUL
         if (row) rows.push(row);
     }
     return rows;
+}
+
+/**
+ * The level a threat word means for a party of `partyLevel`: the party's level plus the word's
+ * offset (rules.threat.offsets) in steps, a step being one tier with tier titles on, else
+ * rules.threat.step levels; within 1 and the level cap. Null for an unknown word.
+ */
+export function threatLevel(threat, partyLevel, rules = DEFAULT_RULES) {
+    const t = rules?.threat ?? DEFAULT_RULES.threat;
+    const offset = Number(t.offsets?.[threat]);
+    if (!Number.isFinite(offset)) return null;
+    const terms = termsOf(rules);
+    const step = terms.tiers ? terms.tiers.size : Math.max(1, Number(t.step) || DEFAULT_RULES.threat.step);
+    const base = Math.max(1, Math.round(Number(partyLevel) || 1));
+    return Math.min(terms.cap, Math.max(1, Math.round(base + offset * step)));
+}
+
+/**
+ * Encounter rows with each threat turned into a level for this party (the row keeps its
+ * `threat`, for the reader); rows with a rank or level of their own, or no threat, unchanged.
+ */
+export function resolveThreats(rows, partyLevel, rules = DEFAULT_RULES) {
+    return (rows ?? []).map(row => {
+        if (!row?.threat || Number(row.level) >= 1 || row.rank) return row;
+        const level = threatLevel(row.threat, partyLevel, rules);
+        return level === null ? row : { ...row, level };
+    });
 }

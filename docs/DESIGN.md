@@ -173,7 +173,8 @@ option; it costs one reply per fight.)
   *To the death* (defeat is death, and the hand-off says so).
 - **Suggest from scene** (optional): one cheap model call reads the last reply and fills the rows
   ("3 goblins, rank E, skirmisher; 1 goblin shaman, rank E, caster"). You confirm or change it.
-  This is the only model call RPG Battle ever makes, and only when pressed.
+  Only when pressed. (The other model call RPG Battle makes is the flavour of a made-up
+  creature, §7.4, before its first fight; never during a fight.)
 
 ### 4.2 Fights from the story
 
@@ -183,8 +184,17 @@ stop at the first blow, so the prose does not resolve what the buttons are about
 
 - **Grammar:** groups separated by commas, semicolons, new lines or `and`; each is
   `[N ×|N x|N ]name[ (boss)][ rank X][ role]` (also *a*, *two*… and `name ×3`). A plural is made
-  singular when the singular is a bestiary creature (*3 bandits* → Bandit); rank and role are set
-  only when written. `story.parseEncounter` makes setup rows of it.
+  singular when the singular is a bestiary creature (*3 bandits* → Bandit) or the last word is
+  the plural of a creature word the templates know (*3 bog wights* → Bog Wight); rank and role
+  are set only when written. `story.parseEncounter` makes setup rows of it.
+- **Threat:** a word for how dangerous a foe is next to the party, in brackets or (for the
+  unmistakable ones) before the name: `3 marsh wolf (weak), wolf matriarch (boss, strong)`.
+  *trivial* (feeble, puny), *weak* (minor, easy, low, lesser), *even* (fair, matched, equal),
+  *strong* (tough, dangerous, high), *deadly* (lethal, overwhelming, elite, calamity). The model
+  judges the danger; code sets the level: the Character's level plus `threat.offsets` steps
+  (−2, −1, 0, +1, +2), a step being one tier with tier titles on (§5.7) and `threat.step` (4)
+  levels otherwise, within 1 and the cap (`story.threatLevel`). A rank or level written outright
+  wins; with neither, the fight is even (the fair rank, as before).
 - **Sources:** the latest reply's `<Encounter>`, else a fight Story Director planned that the story
   has reached (`StoryDirector.encountersAt(index)`, due first, then due soon), when it is there.
 - **Offered, never started:** a toast with **Fight** on the reply, and a notice in the Battle tab,
@@ -341,7 +351,8 @@ your HP. A parley or an escape can of course end it sooner.
 
 `bestiary.json`: named creatures with their rank, role, overrides, skills, morale, whether they
 talk, when they flee, and their loot. A name not in the bestiary is projected from the row's rank
-and role; its name is kept, so the story's bog wight stays a bog wight.
+and role; its name is kept, so the story's bog wight stays a bog wight. Since 0.3 the
+projection gets a template first: the name is made up as its kind (§7.4) and kept in the chat.
 
 ```json
 { "name": "Goblin Shaman", "rank": "E", "role": "caster", "talks": true, "morale": 4,
@@ -354,6 +365,62 @@ Simple and predictable: attack the target with the lowest HP share; casters use 
 when they have the MP; supports heal an ally below 40 %; anyone at `fleesBelow` tries to flee.
 Companions on *auto* use the same rules from the party's side (heal first, then the strongest
 affordable skill, then attack).
+
+### 7.4 Generated creatures
+
+A name neither the chat's bestiary nor the shipped one knows is **made up when its fight
+starts**, without asking: the story keeps inventing foes, and a projection from rank × role
+alone makes every one of them fight alike.
+
+- **Template by keyword** (`templates.js`): the name's words pick one of *beast, undead,
+  humanoid, leader, caster, construct, ooze, insect, drake, spirit, plant* or *generic*. What a
+  creature is beats what it does (a *skeleton mage* is undead and casts; a *goblin shaman* is a
+  caster); among natures the last word wins, since a name ends on its head noun (*bone golem*:
+  construct). Leader words (captain, chief, boss, warlord, lord, king, matriarch, alpha…) make a
+  humanoid a **leader** and give any other kind the `leader` trait. Plurals and compounds are
+  read too (*wolves*, *hellhound*).
+- **What a template gives:** a role; traits (`armoured` +DEF −AGI, `swift` +AGI −HP, `slow`,
+  `frail`, `hulking` +HP −AGI, `fierce`, `leader`: multipliers in `generated.traits`, their
+  product within `modMin`–`modMax`, 0.6–1.5; `venomous`, `fiery`, `savage`, `chilling` put
+  poison, burn, bleed or slow on the first harmful skill; `regenerating` adds a self-heal over
+  time); whether it talks (people and casters yes; beasts, undead, constructs, oozes no); a
+  temperament (`generated.temperaments`: morale and the flee threshold; + `moralePerRank` per rank
+  index; a leader + `leaderMorale` and fleeing no sooner than `leaderFleesBelow`); two skills from
+  its kind's four (the first, its signature, always; the rest by the seed), three from
+  `extraSkillLevel` (8) and for leaders and bosses; a loot table: its kind's materials named for
+  it (*Marsh Wolf Pelt*, *Wolf Fang*), at most one piece of gear whose rarity follows its rank
+  (`generated.gearRarity`) and whose stat is `gearBudgetShare` of that rarity's budget at its
+  level, and its rank's potion.
+- **Skills** are stored as specs (name, type, stat, target, conditions, cooldown) and built at
+  the level the creature is fought at by `skills.creatureSkill`: `skillFromTemplate`'s numbers
+  × `generated.skillPower` (0.65, since a made-up creature has two or three in rotation), no MP
+  for a physical one, conditions for `generated.effectRounds` rounds, a stun waiting at least
+  `stunCooldown` rounds. Tuned by the balance simulation: an even solo fight against three
+  made-up foes takes a median of 6 rounds and costs 44–55 % HP at levels 1, 5 and 10 (against
+  projected ones 5 rounds and 36–50 %).
+- **Deterministic:** the same name, level and seed (the chat's id) give the same creature.
+- **Flavour** (`flavour.js`, on by default): one call per new creature, at most four per fight,
+  before the fight starts (*Preparing foes…*), within one deadline for all (30 s); on a
+  connection profile the calls go out together, on the chat's own model one after another.
+  The prompt gives the name, its power and the party's in the reader's terms, the template
+  (kind, role, traits, temperament, talks, its skills with their words, its loot) and the last
+  ~300 words of the story, and asks for six lines of words: `look`, `traits`, `talks`,
+  `temperament`, `skills` (one per template skill, `Name — words`), `loot`
+  (`name (rarity[, stat])`). Code reads them leniently and maps them: known traits replace the
+  template's (a leader stays one); skills are renamed in order, their words set the target
+  (*all foes*, *self*, *ally*…), a type when clear (*heal*, a shield or guard with nothing
+  harmful, *magic*, a *curse*) and the conditions (*grab* is slow, *drain* weaken…); loot is
+  renamed (a stat makes it gear, valued again from the budget; a potion's name renames the
+  potion), rarity at most one step above the creature's. Every number in the answer is dropped,
+  money ("300 gold") is no item, and the numbers are worked out again from the words. A failed,
+  slow or empty answer leaves the template creature, with a console note.
+- **The chat's bestiary:** made-up creatures are kept in the chat's metadata
+  (`rpgBattle.bestiary`, at most 200, cleaned with `templates.cleanCreature` whenever stored), so
+  a name is the same creature for the rest of the story, at its own level when a row names no
+  power. Lookup order: the chat's bestiary, the shipped bestiary, then make it up. The Battle
+  tab's Bestiary fold lists them with Regenerate (a new seed, flavoured again), Forget, Export
+  and Import (JSON; cleaned on the way in, so a hand-edited file cannot carry numbers its words
+  do not give, except gear stats, which equipping caps by rarity anyway).
 
 ## 8. The end of a fight
 
@@ -429,9 +496,9 @@ A character at 0 HP cannot start a fight until they recover.
 
 The story also hurts and heals between fights. Left to the numbers alone, the sheet says
 *unhurt* while the prose says bleeding, and the State line (§3.1) then makes the model portray
-the wrong thing. So while a Character block exists, one short instruction (about 90 tokens, its
-own prompt key at depth 1, not on quiet or impersonate generations, not while a fight is under
-way or narrated) asks for a hidden `<Wounds>` block, one line per person on the sheets:
+the wrong thing. So while a Character block exists, one short instruction (about 105 tokens
+with §4.2's encounter and threat words, its own prompt key at depth 1, not on quiet or
+impersonate generations, not while a fight is under way or narrated) asks for a hidden `<Wounds>` block, one line per person on the sheets:
 
 ```
 <Wounds>
@@ -531,6 +598,8 @@ Block change, listed in the roadmap). RPG Battle adds no check command of its ow
 | Checks outside combat | Story Block's Dice block, with modifiers from the Character block |
 | Wounds outside combat | Words in a hidden `<Wounds>` block (scratch, wound, severe, grievous); code sets the HP, one blow per person per reply, with Undo |
 | Fights the story starts | Named in a hidden `<Encounter>` block (or planned by Story Director) and offered; the reader presses Fight |
+| Threat in an encounter | A word relative to the party (trivial…deadly); code turns it into a level in steps of 4 levels or one tier |
+| Foes nobody wrote up | Made up from a keyword template when the fight starts, flavoured by one words-only model call, kept per chat |
 | Balance | An even fight fought to the end lasts 4 to 6 rounds |
 | Mirage RPG | Retired; its tables and hand-off idea borrowed |
 

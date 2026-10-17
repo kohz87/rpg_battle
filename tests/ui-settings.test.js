@@ -116,3 +116,40 @@ test('Terms: level name, XP name, tier titles with size and numerals, and the ca
     assert.equal(saved.$('#rpg_battle_terms_numerals').value, 'arabic');
     assert.equal(saved.$('#rpg_battle_terms_cap').value, '40');
 });
+
+test('Monsters: flavour on by default, the chat\'s model or a connection profile, the answer length', () => {
+    const container = doc.createElement('div');
+    doc.body.appendChild(container);
+    const changes = [];
+    const profiles = [{ id: 'fast', name: 'Fast' }, { id: 'big', name: 'Big' }];
+    renderSettings(container, { settings: SETTINGS, profiles, onChange: next => changes.push(next) });
+    const $ = selector => container.querySelector(selector);
+    const on = $('#rpg_battle_flavour');
+    assert.equal(on.checked, true, 'on by default');
+    const model = $('#rpg_battle_flavour_model');
+    assert.deepEqual(model.querySelectorAll('option').map(node => node.textContent), ['Same as chat', 'Fast', 'Big']);
+    assert.equal(model.value, '');
+    model.value = 'fast';
+    model.dispatch('change');
+    assert.deepEqual(changes.at(-1).flavour.model, { source: 'profile', profileId: 'fast' });
+    model.value = '';
+    model.dispatch('change');
+    assert.deepEqual(changes.at(-1).flavour.model, { source: 'chat' });
+    const tokens = $('#rpg_battle_flavour_tokens');
+    assert.equal(tokens.value, '400');
+    tokens.value = '5000';
+    tokens.dispatch('change');
+    assert.equal(changes.at(-1).flavour.maxTokens, 2000, 'bounded');
+    on.checked = false;
+    on.dispatch('change');
+    assert.equal(changes.at(-1).flavour.enabled, false);
+    assert.equal(model.disabled, true);
+    // A saved profile that no longer exists is shown as missing, not silently dropped.
+    const other = doc.createElement('div');
+    doc.body.appendChild(other);
+    renderSettings(other, { settings: { ...SETTINGS, flavour: { enabled: true, model: { source: 'profile', profileId: 'gone' }, maxTokens: 300 } }, profiles: null });
+    const select = other.querySelector('#rpg_battle_flavour_model');
+    assert.equal(select.value, 'gone');
+    assert.ok(select.querySelectorAll('option').map(node => node.textContent).includes('(missing profile)'));
+    assert.match(other.textContent, /Connection Manager is off/);
+});

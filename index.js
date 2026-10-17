@@ -16,21 +16,29 @@
 // Levels and XP wear the reader's own words (settings `terms`, merged into rules as
 // `rules.terms`, see src/terms.js): the blocks, the tab, the hand-off and the enemy power
 // picker all speak them, and the Character block's fields are registered under them.
+//
+// A foe neither bestiary knows is made up when its fight starts (src/templates.js), and, with
+// the flavour setting on, dressed in the story's words by one short model call per new
+// creature (src/flavour.js) before the first turn. It is kept in the chat's own bestiary, so
+// the same name is the same creature for the rest of the story. The model never writes a
+// number there either: it describes, and code maps the words onto the template.
 
 import { DEFAULT_RULES, checkModifiers, makeRules, suggestRank } from './src/rules.js';
 import { hashSeed, makeRng } from './src/rng.js';
 import { DEFAULT_SKILLS, PRESETS, findSkill, resolveSkills, skillFromTemplate } from './src/skills.js';
 import { DEFAULT_BESTIARY, findCreature } from './src/enemies.js';
+import { cleanCreature, combinedBestiary, creaturesToMake, generateCreature, storeCreatures } from './src/templates.js';
+import { applyFlavour, flavourPrompt, parseFlavour, sceneText } from './src/flavour.js';
 import { act, availableActions, replay, startFight, summarize } from './src/combat.js';
 import { applyResult, formatCharacter, formatParty, learnSkill, newSheet, parseCharacter, parseParty, spendPoints } from './src/sheet.js';
 import { addLoot, consumables, formatMoney, parseInventory, useItems } from './src/items.js';
 import { buildHandoff } from './src/handoff.js';
 import { combatantFromSheet, editCompanion, enemiesFromRows, newCompanion, remapIds } from './src/party.js';
 import { recoverOverTime, rest, useItemOutside } from './src/recovery.js';
-import { STORY_INSTRUCTION, applyWounds, describeWound, parseEncounter, parseWounds } from './src/story.js';
+import { STORY_INSTRUCTION, applyWounds, describeWound, parseEncounter, parseWounds, resolveThreats } from './src/story.js';
 import { renderBattleTab } from './src/ui/tab.js';
 import { renderSettings } from './src/ui/settings.js';
-import { DEFAULT_TERMS, maxLevel, termsOf } from './src/terms.js';
+import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 
 const VERSION = '0.3.0';
 const SETTINGS_KEY = 'rpgBattle';
@@ -49,6 +57,12 @@ const DISMISSED_KEPT = 30;
 const EXTENSION_PROMPT_IN_CHAT = 1;
 const EXTENSION_PROMPT_ROLE_SYSTEM = 0;
 const MIN_STORY_BLOCK_VERSION = [0, 7, 0];
+// Made-up creatures: at most this many flavour calls before one fight (the rest stay template
+// creatures), the most a chat's bestiary keeps, and the recent story the call reads.
+const FLAVOUR_PER_FIGHT = 4;
+const BESTIARY_KEPT = 200;
+const SCENE_MESSAGES = 6;
+const SCENE_WORDS = 300;
 
 const DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
@@ -62,6 +76,9 @@ const DEFAULT_SETTINGS = Object.freeze({
     recoverWithTime: true,
     // What the reader's world calls levels and XP, tier titles and the level cap (src/terms.js).
     terms: DEFAULT_TERMS,
+    // Made-up creatures get the story's words from one call each, on the chat's model or a
+    // connection profile; `timeoutSeconds` is the longest a fight start waits for all of them.
+    flavour: { enabled: true, model: { source: 'chat' }, maxTokens: 400, timeoutSeconds: 30 },
     // The reader's rules.json, merged over the defaults (null: the defaults).
     rules: null,
 });
@@ -154,6 +171,7 @@ function settings(ctx = context()) {
         ...saved,
         currency: { ...DEFAULT_SETTINGS.currency, ...(saved.currency && typeof saved.currency === 'object' ? saved.currency : {}) },
         terms: { ...DEFAULT_SETTINGS.terms, ...(saved.terms && typeof saved.terms === 'object' ? saved.terms : {}) },
+        flavour: { ...DEFAULT_SETTINGS.flavour, ...(saved.flavour && typeof saved.flavour === 'object' ? saved.flavour : {}) },
     };
     return store[SETTINGS_KEY];
 }
@@ -169,10 +187,11 @@ function rules() {
 // recovered: { index, text } the last story-time recovery,
 // story: { index, signature, applied, undone, written } the last reply's story wounds (signature: a hash
 // of its <Wounds> text; written: hashes of the sheet texts the pipeline wrote into it),
-// dismissed: ['index:encounter text'] encounter offers the reader said Not now to }.
+// dismissed: ['index:encounter text'] encounter offers the reader said Not now to,
+// bestiary: [creature] the creatures made up in this story (src/templates.js), cleaned when stored }.
 function chatState(ctx = context()) {
     const meta = chatMeta(ctx);
-    if (!meta) return { fight: null, pending: null, story: null, dismissed: [] };
+    if (!meta) return { fight: null, pending: null, story: null, dismissed: [], bestiary: [] };
     const state = meta[SETTINGS_KEY] && typeof meta[SETTINGS_KEY] === 'object' ? meta[SETTINGS_KEY] : {};
     return {
         fight: state.fight ?? null,
@@ -183,6 +202,7 @@ function chatState(ctx = context()) {
         recovered: state.recovered ?? null,
         story: state.story && typeof state.story === 'object' ? state.story : null,
         dismissed: Array.isArray(state.dismissed) ? state.dismissed : [],
+        bestiary: Array.isArray(state.bestiary) ? state.bestiary.filter(entry => entry && typeof entry === 'object' && entry.name) : [],
     };
 }
 
@@ -197,6 +217,11 @@ function saveChatState(change) {
 // The skill library: the shipped skills and the ones this story taught.
 function library(ctx = context()) {
     return [...DEFAULT_SKILLS, ...chatState(ctx).skills];
+}
+
+// The bestiary a name is looked up in: this story's made-up creatures, then the shipped ones.
+function fightBestiary(ctx = context()) {
+    return combinedBestiary(chatState(ctx).bestiary, DEFAULT_BESTIARY);
 }
 
 // ---------------------------------------------------------------------------
@@ -282,7 +307,22 @@ function currentFight() {
     return live.fight;
 }
 
-function startNewFight({ rows, stakes }) {
+/**
+ * The setup's rows with their power settled: a row's level (picked in the reader's terms, or a
+ * story threat resolved) wins; else its rank; else a creature either bestiary knows keeps its
+ * own, and anything else gets the fair rank for the party. `makeAt` is the level a creature
+ * made up for the row is made at.
+ */
+function rankedRows(rows, sheet, r, bestiary) {
+    const fair = suggestRank(sheet.level, r);
+    return (rows ?? []).map(row => {
+        const level = Number(row.level) >= 1 ? Math.round(Number(row.level)) : null;
+        const rank = level ? null : row.rank || (findCreature(bestiary, row.name) ? null : fair);
+        return { ...row, level, rank, makeAt: level ?? r.ranks[rank ?? fair]?.level ?? sheet.level };
+    });
+}
+
+function startNewFight({ rows, stakes }, { fresh = [] } = {}) {
     const ctx = context();
     const sheet = currentSheet();
     if (!sheet) throw new Error('Make your character first.');
@@ -301,21 +341,206 @@ function startNewFight({ rows, stakes }) {
             rules: r,
         })),
     ];
-    // A blank power: a bestiary creature keeps its own rank, anything else is a fair fight for the
-    // party. A row picked in the reader's terms carries a level instead (interpolated on the
-    // rank table by projectEnemy).
-    const fair = suggestRank(sheet.level, r);
-    const ranked = (rows ?? []).map(row => {
-        const level = Number(row.level) >= 1 ? Math.round(Number(row.level)) : null;
-        return { ...row, level, rank: level ? null : row.rank || (findCreature(DEFAULT_BESTIARY, row.name) ? null : fair) };
-    });
-    const enemies = enemiesFromRows(ranked, { bestiary: DEFAULT_BESTIARY, library: library(), rules: r, rng: makeRng(`${seed}:enemies`) });
+    // A blank power: a creature either bestiary knows keeps its own power, anything else is a
+    // fair fight for the party. A row picked in the reader's terms carries a level instead
+    // (interpolated on the rank table by projectEnemy).
+    const bestiary = fightBestiary(ctx);
+    const ranked = rankedRows(rows, sheet, r, bestiary);
+    const made = new Set(fresh.map(name => name.toLowerCase()));
+    const enemies = enemiesFromRows(ranked, { bestiary, library: library(), rules: r, rng: makeRng(`${seed}:enemies`) })
+        // A creature made up for this very fight wears a "new" tag on its card.
+        .map(enemy => (enemy.generated && made.has(String(findCreature(bestiary, enemy.name)?.name ?? '').toLowerCase()) ? { ...enemy, fresh: true } : enemy));
     if (!enemies.length) throw new Error('Name at least one enemy.');
     const setup = { id, seed, party, enemies, stakes: stakes === 'death' ? 'death' : 'normal' };
     // Validate by starting it once; the stored form is the setup and the actions.
     startFight({ ...setup, rules: r });
     saveChatState({ fight: { setup, actions: [] } });
     screen = { chatId: chatIdOf(ctx), mode: 'fight' };
+}
+
+// ---------------------------------------------------------------------------
+// Made-up creatures (DESIGN §7.4)
+
+function connectionProfiles() {
+    const service = context()?.ConnectionManagerRequestService;
+    try {
+        return service?.getSupportedProfiles ? service.getSupportedProfiles().map(profile => ({ id: profile.id, name: profile.name })) : null;
+    } catch {
+        // Connection Manager switched off.
+        return null;
+    }
+}
+
+// One call on the chosen model: a connection profile (its own API and model) or the chat's own,
+// as Story Director makes its calls.
+async function sendToModel(messages, model, maxTokens) {
+    const ctx = context();
+    if (model?.source === 'profile' && model.profileId) {
+        const service = ctx?.ConnectionManagerRequestService;
+        if (!service?.sendRequest) throw new Error('Connection Manager is not available.');
+        const result = await service.sendRequest(model.profileId, messages, maxTokens);
+        return typeof result === 'string' ? result : String(result?.content ?? '');
+    }
+    if (typeof ctx?.generateRaw !== 'function') throw new Error('This SillyTavern cannot run a raw generation.');
+    return String(await ctx.generateRaw({ systemPrompt: messages[0].content, prompt: messages[1].content, responseLength: maxTokens }) ?? '');
+}
+
+/** A promise that gives up after `ms` (the call itself runs on; its answer is then ignored). */
+function withTimeout(promise, ms) {
+    let timer = null;
+    const limit = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timed out')), Math.max(0, ms)); });
+    return Promise.race([promise, limit]).finally(() => clearTimeout(timer));
+}
+
+/** A power as the reader reads it: their terms, or "Level 6 (rank D)" with the plain ones. */
+function powerText(level, r) {
+    const terms = termsOf(r);
+    if (terms.custom) return levelText(level, r);
+    const rank = Object.entries(r.ranks).filter(([, row]) => row.level <= level).map(([name]) => name).at(-1) ?? 'F';
+    return `Level ${level} (rank ${rank})`;
+}
+
+function recentScene(ctx = context()) {
+    const chat = (ctx?.chat ?? []).filter(message => message && !message.is_system).slice(-SCENE_MESSAGES);
+    return sceneText(chat.map(message => ({ name: message.name || (message.is_user ? 'User' : 'Narrator'), text: message.mes })), SCENE_WORDS);
+}
+
+/**
+ * The flavour for some creatures, within one deadline for all of them: on a connection
+ * profile the calls go out together; on the chat's own model one after another (its
+ * connection is the story's, and not every backend takes two at once). A creature whose call
+ * fails, times out or says nothing usable stays the template creature; a console note says why.
+ */
+async function flavourAll(entries, { sheet, r }) {
+    const own = settings().flavour;
+    const deadline = Date.now() + Math.max(5, Number(own.timeoutSeconds) || 30) * 1000;
+    const scene = recentScene();
+    const party = powerText(sheet.level, r);
+    const maxTokens = Math.max(100, Math.min(2000, Number(own.maxTokens) || 400));
+    const one = async entry => {
+        const left = deadline - Date.now();
+        if (left <= 0) {
+            console.info(`[RPG Battle] no time left to flavour ${entry.name}; it stays a template ${entry.template}.`);
+            return entry;
+        }
+        try {
+            const messages = flavourPrompt(entry, { power: powerText(entry.level, r), party, scene });
+            const answer = await withTimeout(sendToModel(messages, own.model, maxTokens), left);
+            const flavoured = applyFlavour(entry, parseFlavour(answer), { rules: r });
+            if (!flavoured.flavoured) console.info(`[RPG Battle] the flavour for ${entry.name} had nothing usable; it stays a template ${entry.template}.`);
+            return flavoured;
+        } catch (error) {
+            console.info(`[RPG Battle] ${entry.name} stays a template ${entry.template}: the flavour call failed (${error instanceof Error ? error.message : String(error)}).`);
+            return entry;
+        }
+    };
+    if (own.model?.source === 'profile' && own.model.profileId) return Promise.all(entries.map(one));
+    const out = [];
+    for (const entry of entries) out.push(await one(entry));
+    return out;
+}
+
+let preparing = false;
+
+/**
+ * Before a fight: every name neither bestiary knows is made up from its template, flavoured
+ * (the first FLAVOUR_PER_FIGHT, with the setting on) and kept in the chat's bestiary. The
+ * names made, for the cards' "new" tag.
+ */
+async function prepareFoes(rows) {
+    const ctx = context();
+    const sheet = currentSheet();
+    if (!sheet) throw new Error('Make your character first.');
+    const r = rules();
+    const state = chatState(ctx);
+    const ranked = rankedRows(rows, sheet, r, fightBestiary(ctx)).map(row => ({ ...row, level: row.makeAt }));
+    const made = creaturesToMake(ranked, { chatBestiary: state.bestiary, defaults: DEFAULT_BESTIARY, rules: r, seed: String(chatIdOf(ctx) ?? '') });
+    if (!made.length) return [];
+    let ready = made;
+    const own = settings(ctx);
+    if (own.flavour.enabled) {
+        const names = made.slice(0, FLAVOUR_PER_FIGHT).map(entry => entry.name);
+        screen = { ...screen, preparing: names };
+        storyBlock()?.refresh?.();
+        const toast = notify('info', `Preparing foes: ${names.join(', ')}…`, { timeOut: 0, extendedTimeOut: 0 });
+        try {
+            const flavoured = await flavourAll(made.slice(0, FLAVOUR_PER_FIGHT), { sheet, r });
+            ready = [...flavoured, ...made.slice(FLAVOUR_PER_FIGHT)];
+        } finally {
+            if (toast) globalThis.toastr?.clear?.(toast);
+            screen = { ...screen, preparing: null };
+        }
+    }
+    saveChatState({ bestiary: storeCreatures(chatState().bestiary, ready.map(entry => cleanCreature(entry, r)), BESTIARY_KEPT) });
+    return ready.map(entry => entry.name);
+}
+
+async function prepareAndStart(setup) {
+    if (preparing) return false;
+    preparing = true;
+    try {
+        const fresh = await prepareFoes(setup?.rows ?? []);
+        // The reader may have left the setup (or the chat) while the calls ran.
+        if (screen.mode !== 'setup' || screen.chatId !== chatIdOf(context())) return false;
+        startNewFight(setup, { fresh });
+        return true;
+    } finally {
+        preparing = false;
+    }
+}
+
+/** A creature of the chat's bestiary made again: the template at its level with a new seed, flavoured. */
+async function regenerateCreature(name) {
+    const r = rules();
+    const sheet = currentSheet();
+    const state = chatState();
+    const old = state.bestiary.find(entry => entry.name === name);
+    if (!old) throw new Error(`${name} is not in this story's bestiary.`);
+    let entry = generateCreature({ name: old.name, level: old.level, role: null }, { rules: r, seed: `${chatIdOf(context())}:${Date.now()}` });
+    if (settings().flavour.enabled && sheet) {
+        const toast = notify('info', `Preparing ${entry.name}…`, { timeOut: 0, extendedTimeOut: 0 });
+        try {
+            [entry] = await flavourAll([entry], { sheet, r });
+        } finally {
+            if (toast) globalThis.toastr?.clear?.(toast);
+        }
+    }
+    saveChatState({ bestiary: storeCreatures(chatState().bestiary, [cleanCreature(entry, r)], BESTIARY_KEPT) });
+    notify('success', `${entry.name} is made anew.`);
+}
+
+function forgetCreature(name) {
+    saveChatState({ bestiary: chatState().bestiary.filter(entry => entry.name !== name) });
+}
+
+function exportBestiary() {
+    const list = chatState().bestiary;
+    if (!list.length) throw new Error('This story has no creatures of its own yet.');
+    const blob = new Blob([JSON.stringify({ rpgBattleBestiary: 1, creatures: list }, null, 2)], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'rpg-battle-bestiary.json';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+
+// An imported file is the reader's, but it is still cleaned like anything stored: known words
+// only, and every number worked out again from them.
+function importBestiary(text) {
+    let data;
+    try {
+        data = JSON.parse(String(text ?? ''));
+    } catch {
+        throw new Error('That file is not JSON.');
+    }
+    const list = Array.isArray(data) ? data : Array.isArray(data?.creatures) ? data.creatures : [];
+    const r = rules();
+    const clean = list.map(entry => cleanCreature(entry, r)).filter(Boolean);
+    if (!clean.length) throw new Error('No creatures in that file.');
+    saveChatState({ bestiary: storeCreatures(chatState().bestiary, clean, BESTIARY_KEPT) });
+    notify('success', `${clean.length} ${clean.length === 1 ? 'creature' : 'creatures'} imported.`);
 }
 
 async function playAction(action) {
@@ -571,10 +796,20 @@ function toastWounds(applied) {
     bindToastButton(toast, '.rpg-battle-toast-undo', () => void guarded(undoStory));
 }
 
+/**
+ * An <Encounter> as setup rows: names looked up in this story's creatures and the shipped
+ * ones, and a threat word ("weak", "deadly") turned into a level from the Character's.
+ */
+function encounterRows(text) {
+    const r = rules();
+    const rows = parseEncounter(text, fightBestiary(), r);
+    return resolveThreats(rows, currentSheet()?.level ?? 1, r);
+}
+
 function toastEncounter(sb, index) {
     if (!currentSheet()) return;
     const text = blockAt(sb, index, ENCOUNTER_TAG) ?? '';
-    const rows = text ? parseEncounter(text, DEFAULT_BESTIARY, rules()) : [];
+    const rows = text ? encounterRows(text) : [];
     if (!rows.length || chatState().dismissed.includes(`${index}:${text}`)) return;
     const html = `A fight is starting: ${escapeHtml(text)}<div class="rpg-battle-toast-actions"><button type="button" class="menu_button rpg-battle-toast-fight">Fight</button></div>`;
     const toast = notify('warning', html, { escapeHtml: false, timeOut: 15000, extendedTimeOut: 6000, closeButton: true });
@@ -621,7 +856,7 @@ function encounterOffer(ctx = context(), state = chatState(ctx)) {
     for (const candidate of candidates) {
         const key = `${index}:${candidate.text}`;
         if (dismissed.has(key)) continue;
-        const rows = parseEncounter(candidate.text, DEFAULT_BESTIARY, rules());
+        const rows = encounterRows(candidate.text);
         if (rows.length) return { ...candidate, rows, key };
     }
     return null;
@@ -771,7 +1006,18 @@ function viewFor() {
     if (screen.mode === 'items') return { mode: 'items', sheet, party: currentParty(), items: consumables(currentItems()), rules: r };
     if (screen.mode === 'companion') return { mode: 'companion', presets: PRESETS, level: sheet.level, maxLevel: Math.min(maxLevel(r), Math.max(20, sheet.level + 10)), rules: r };
     if (screen.mode === 'setup') {
-        return { mode: 'setup', bestiary: DEFAULT_BESTIARY.map(entry => entry.name), suggestedRank: suggestRank(sheet.level, r), prefill: screen.prefill ?? null, rules: r };
+        // Autocomplete offers this story's creatures first; `known` (names and aliases) is what
+        // the setup checks to tag a name as new, made up when the fight starts.
+        const bestiary = fightBestiary(ctx);
+        return {
+            mode: 'setup',
+            bestiary: [...new Set(bestiary.map(entry => entry.name))],
+            known: bestiary.flatMap(entry => [entry.name, ...(entry.aliases ?? [])]),
+            suggestedRank: suggestRank(sheet.level, r),
+            prefill: screen.prefill ?? null,
+            preparing: screen.preparing ?? null,
+            rules: r,
+        };
     }
     // The last automatic recovery, while it is the latest reply's.
     const recovered = state.recovered && state.recovered.index === (ctx?.chat?.length ?? 0) - 1 ? state.recovered.text : '';
@@ -787,6 +1033,16 @@ function viewFor() {
         story,
         encounter: offer ? { text: offer.text, label: offer.label, rows: offer.rows } : null,
         sheetConflict: sheetConflict(ctx),
+        // This story's own creatures, for the Bestiary fold.
+        bestiary: state.bestiary.map(entry => ({
+            name: entry.name,
+            power: powerText(entry.level, r),
+            role: entry.role,
+            template: entry.template,
+            traits: (entry.traits ?? []).filter(trait => trait !== 'leader'),
+            look: entry.look ?? '',
+            flavoured: Boolean(entry.flavoured),
+        })),
     };
 }
 
@@ -912,10 +1168,18 @@ const handlers = {
     onBack: () => go(null),
     onStart: setup => void guarded(async () => {
         const offerKey = screen.offerKey ?? null;
-        startNewFight(setup);
+        // New names are made up (and flavoured) first; the fight starts once they are ready.
+        const started = await prepareAndStart(setup);
         // A fight the story offered is now being fought: the offer is spent.
-        dismissEncounter(offerKey);
+        if (started) dismissEncounter(offerKey);
     }),
+    onRegenerateCreature: name => void guarded(() => regenerateCreature(name)),
+    onForgetCreature: name => void guarded(async () => {
+        forgetCreature(name);
+        notify('info', `${name} is forgotten; the name will be made up anew next time.`);
+    }),
+    onExportBestiary: () => void guarded(async () => exportBestiary()),
+    onImportBestiary: text => void guarded(async () => importBestiary(text)),
     onAction: action => void guarded(() => playAction(action)),
     onAuto: () => void guarded(() => playAction({ type: 'auto' })),
     onReturn: () => returnToStory(),
@@ -944,6 +1208,7 @@ function tabKey() {
         chatIdOf(ctx), chat.length, String(last?.mes ?? '').length, screen.mode, JSON.stringify(screen.prefill ?? null),
         fightKey(state.fight), state.pending?.fightId ?? '', state.recovered?.text ?? '', story,
         state.dismissed.length, encounterOffer(ctx, state)?.key ?? '', sheetConflict(ctx), JSON.stringify(settings()),
+        JSON.stringify(screen.preparing ?? null), state.bestiary.map(entry => `${entry.name}:${entry.level}:${entry.flavoured}:${String(entry.look ?? '').length}`).join(','),
     ].join('|');
 }
 
@@ -1027,6 +1292,7 @@ function addSettingsPanel(documentRef) {
         version: `v${VERSION}`,
         status: storyBlock() ? '' : 'Needs Story Block 0.7 or newer.',
         sheetConflict: sheetConflict(),
+        profiles: connectionProfiles(),
         onDisableSheet: () => disableStorySheet(),
         onChange: next => {
             const ctx = context();

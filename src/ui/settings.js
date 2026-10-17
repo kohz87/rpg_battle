@@ -6,6 +6,9 @@
 // ("Soul Class I" for levels 1–10…) and the level cap; nothing here knows any world's words.
 // The status area also says when Story Block's own Character Sheet block is on beside RPG
 // Battle's sheet, with a button to turn it off; it is never turned off for the reader.
+// Monsters (DESIGN §7.4): whether a made-up creature gets the story's words from a model
+// call, on the chat's model or a connection profile (picked like Story Director's), and how
+// long that answer may be.
 
 const CURRENCY_MODES = [
     { value: 'tiers', label: 'Copper / silver / gold, or your own coins' },
@@ -71,7 +74,10 @@ const wholeOrNull = (text, min, max) => {
 
 const CONFLICT_TEXT = 'Story Block\'s Character Sheet is also on: two HP values will disagree.';
 
-export function renderSettings(container, { settings, version = '', status = '', sheetConflict = false, onDisableSheet, onChange } = {}) {
+// The flavour call's answer length: enough for six short lines, never a story.
+const FLAVOUR_TOKENS = { min: 100, max: 2000 };
+
+export function renderSettings(container, { settings, version = '', status = '', sheetConflict = false, profiles = null, onDisableSheet, onChange } = {}) {
     let current = structuredClone(settings ?? {});
     const commit = change => {
         change(current);
@@ -160,6 +166,38 @@ export function renderSettings(container, { settings, version = '', status = '',
     recover.checked = current.recoverWithTime !== false;
     recover.addEventListener('change', () => commit(next => { next.recoverWithTime = recover.checked; }));
 
+    // Monsters: the flavour call. Connection profiles carry their own API and model; null
+    // means Connection Manager is off, so only the chat's own model is offered.
+    const flavourSetting = { enabled: true, model: { source: 'chat' }, maxTokens: 400, ...(current.flavour ?? {}) };
+    const flavourOn = el('input', { attrs: { id: 'rpg_battle_flavour', type: 'checkbox' } });
+    flavourOn.checked = flavourSetting.enabled !== false;
+    const profileChoices = [{ value: '', label: 'Same as chat' }, ...(profiles ?? []).map(profile => ({ value: String(profile.id), label: String(profile.name ?? profile.id) }))];
+    const chosen = flavourSetting.model?.source === 'profile' ? String(flavourSetting.model.profileId ?? '') : '';
+    if (chosen && !profileChoices.some(choice => choice.value === chosen)) profileChoices.push({ value: chosen, label: '(missing profile)' });
+    const flavourModel = el('select', { className: 'text_pole rpg-battle-settings-input', attrs: { id: 'rpg_battle_flavour_model' } },
+        profileChoices.map(choice => {
+            const node = el('option', { text: choice.label });
+            node.value = choice.value;
+            return node;
+        }));
+    flavourModel.value = chosen;
+    const flavourTokens = numberInput('rpg_battle_flavour_tokens', flavourSetting.maxTokens, FLAVOUR_TOKENS);
+    const commitFlavour = change => commit(next => { next.flavour = { ...flavourSetting, ...(next.flavour ?? {}), ...change }; });
+    const syncFlavour = () => {
+        flavourModel.disabled = !flavourOn.checked;
+        flavourTokens.disabled = !flavourOn.checked;
+    };
+    flavourOn.addEventListener('change', () => {
+        syncFlavour();
+        commitFlavour({ enabled: flavourOn.checked });
+    });
+    flavourModel.addEventListener('change', () => commitFlavour({ model: flavourModel.value ? { source: 'profile', profileId: flavourModel.value } : { source: 'chat' } }));
+    flavourTokens.addEventListener('change', () => {
+        const value = wholeOrNull(flavourTokens.value, FLAVOUR_TOKENS.min, FLAVOUR_TOKENS.max) ?? 400;
+        flavourTokens.value = String(value);
+        commitFlavour({ maxTokens: value });
+    });
+
     const tag = (id, key, label, hint) => {
         const node = input(id, current[key]);
         node.addEventListener('change', () => commit(next => { next[key] = node.value.trim() || next[key]; }));
@@ -199,6 +237,11 @@ export function renderSettings(container, { settings, version = '', status = '',
                 el('label', { className: 'checkbox_label', attrs: { for: 'rpg_battle_terms_tiers' } }, [tiersOn, el('span', { text: 'Tier titles (Level I for levels 1–10, Level II for 11–20…)' })]),
                 tierRows,
                 row('Level cap', 'The highest level. Empty: 99.', cap, 'rpg_battle_terms_cap'),
+                el('div', { className: 'rpg-battle-settings-head', text: 'Monsters' }),
+                el('small', { className: 'rpg-battle-settings-hint', text: 'A foe the bestiary does not know is made up from its name when its fight starts, and kept for this story. Flavour asks the model once per new creature for its look, traits and the names of its skills and loot; code still sets every number.' }),
+                el('label', { className: 'checkbox_label', attrs: { for: 'rpg_battle_flavour' } }, [flavourOn, el('span', { text: 'Flavour new creatures with a model call (a few seconds before the fight)' })]),
+                row('Model', profiles === null ? 'Connection Manager is off, so the chat\'s own connection is used.' : 'A connection profile has its own API and model; a small, fast one is enough.', flavourModel, 'rpg_battle_flavour_model'),
+                row('Answer length', 'Most tokens one answer may use.', flavourTokens, 'rpg_battle_flavour_tokens'),
                 el('div', { className: 'rpg-battle-settings-head', text: 'Blocks' }),
                 tag('rpg_battle_character_tag', 'characterTag', 'Character tag', 'The kept block with your sheet.'),
                 tag('rpg_battle_party_tag', 'partyTag', 'Party tag', 'The kept block with your companions.'),
@@ -209,6 +252,7 @@ export function renderSettings(container, { settings, version = '', status = '',
     ]);
     sync();
     syncTerms();
+    syncFlavour();
     container.replaceChildren(root);
     return {
         update(next) { current = structuredClone(next); },

@@ -864,7 +864,9 @@ test('setup: a story fight pre-fills the rows; the reader can still edit them, a
     assert.deepEqual($$(pane, '.rpg-battle-enemy-rank').map(node => node.value), ['', 'D', '']);
     assert.deepEqual($$(pane, '.rpg-battle-enemy-role').map(node => node.value), ['', 'brute', '']);
     assert.deepEqual($$(pane, '.rpg-battle-enemy-boss').map(node => node.checked), [false, true, false]);
-    assert.equal($(pane, '.rpg-battle-setup-summary').textContent, '13 enemies.');
+    // The Bog Wight is in neither bestiary: tagged new, made up when the fight starts.
+    assert.equal($(pane, '.rpg-battle-setup-summary').textContent, '13 enemies. 1 new, made up from its name when the fight starts.');
+    assert.deepEqual($$(pane, '.rpg-battle-new').map(node => node.hidden), [true, true, false]);
     assert.deepEqual($$(pane, '.rpg-battle-stake-input').map(node => node.checked), [true, false], 'normal stakes');
 
     // The reader changes their mind: two bandits, no wight.
@@ -1080,4 +1082,85 @@ test('companion: the level picker in the reader\'s terms, up to the cap', () => 
     assert.equal(options.length, 30);
     assert.equal(options[23].textContent, 'Soul Class III (Lv 24)');
     assert.match(root(pane).textContent, /You are Soul Class III \(Lv 24\)\./);
+});
+
+// ---------------------------------------------------------------------------
+// Made-up creatures
+
+test('setup: names neither bestiary knows are tagged new as they are typed; a threat shows beside its power', () => {
+    reset();
+    const prefill = [
+        { name: 'Marsh Wolf', count: 3, rank: null, level: 1, role: null, boss: false, threat: 'weak' },
+        { name: 'Wolf', count: 1, rank: null, role: null, boss: false },
+    ];
+    const pane = render({ mode: 'setup', bestiary: ['Wolf'], known: ['Wolf', 'Grey Wolf'], suggestedRank: 'E', prefill, rules });
+    assert.deepEqual($$(pane, '.rpg-battle-new').map(node => node.hidden), [false, true]);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-threat'), ['weak']);
+    assert.equal($(pane, '.rpg-battle-setup-summary').textContent, '4 enemies. 1 new, made up from its name when the fight starts.');
+    const name = $$(pane, '.rpg-battle-enemy-name')[0];
+    name.value = 'grey wolf';
+    name.dispatch('input');
+    assert.equal($$(pane, '.rpg-battle-new')[0].hidden, true, 'an alias is known');
+    assert.equal($(pane, '.rpg-battle-setup-summary').textContent, '4 enemies.');
+});
+
+test('setup: while foes are being prepared Start waits and the summary says so', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    const pane = render({ mode: 'setup', bestiary: [], suggestedRank: 'E', prefill: [{ name: 'Bog Wight', count: 1 }], preparing: ['Bog Wight'], rules }, handlers);
+    assert.equal($(pane, '.rpg-battle-setup-summary').textContent, 'Preparing foes: Bog Wight…');
+    assert.equal($(pane, '.rpg-battle-begin').disabled, true);
+    $(pane, '.rpg-battle-begin').click();
+    assert.equal(calls.filter(call => call.name === 'onStart').length, 0);
+});
+
+test('fight: a foe made up for this fight wears a new badge with its look as the title', () => {
+    reset();
+    const view = fightView();
+    view.fight.combatants[2] = { ...view.fight.combatants[2], name: 'Bog Wight', generated: true, fresh: true, look: 'A drowned knight.' };
+    view.fight.combatants[3] = { ...view.fight.combatants[3], generated: true };
+    const pane = render(view);
+    const wight = card(pane, 'e1');
+    const badge = wight.querySelector('.rpg-battle-badge.is-new');
+    assert.ok(badge);
+    assert.equal(badge.textContent, 'new');
+    assert.equal(badge.title, 'A drowned knight.');
+    assert.equal(wight.querySelector('.rpg-battle-card-name').title, 'A drowned knight.');
+    assert.equal(card(pane, 'e2').querySelector('.rpg-battle-badge.is-new'), null, 'met before: no tag');
+});
+
+test('idle: the Bestiary fold lists this story\'s creatures with Regenerate, Forget (asked twice), Export and Import', () => {
+    reset();
+    const { handlers, calls, last } = recorder();
+    const bestiary = [
+        { name: 'Bog Wight', power: 'Level 12 (rank C)', role: 'brute', template: 'undead', traits: ['armoured', 'slow'], look: 'A drowned knight.', flavoured: true },
+        { name: 'Marsh Wolf', power: 'Level 4 (rank E)', role: 'skirmisher', template: 'beast', traits: ['swift'], look: '', flavoured: false },
+    ];
+    const pane = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules, bestiary }, handlers);
+    const fold = $(pane, '.rpg-battle-fold.is-bestiary');
+    assert.ok(fold);
+    assert.equal(fold.querySelector('.rpg-battle-count').textContent, '2');
+    const rows = $$(pane, '.rpg-battle-creature');
+    assert.deepEqual(rows.map(row => row.dataset.creature), ['Bog Wight', 'Marsh Wolf']);
+    assert.equal(rows[0].querySelector('.rpg-battle-record-meta').textContent, 'Level 12 (rank C) · brute · armoured, slow');
+    assert.equal(rows[0].querySelector('.rpg-battle-creature-look').textContent, 'A drowned knight.');
+    assert.equal(rows[0].querySelector('.rpg-battle-creature-plain'), null);
+    assert.ok(rows[1].querySelector('.rpg-battle-creature-plain'), 'an unflavoured one says so');
+    rows[0].querySelector('.rpg-battle-creature-regenerate').click();
+    assert.deepEqual(last('onRegenerateCreature').args, ['Bog Wight']);
+    $$(pane, '.rpg-battle-creature-forget')[1].click();
+    assert.equal(calls.filter(call => call.name === 'onForgetCreature').length, 0, 'the first click only arms it');
+    const armed = $$(pane, '.rpg-battle-creature-forget')[1];
+    assert.ok(armed.textContent.includes('Click again'));
+    armed.click();
+    assert.deepEqual(last('onForgetCreature').args, ['Marsh Wolf']);
+    $(pane, '.rpg-battle-bestiary-export').click();
+    assert.ok(last('onExportBestiary'));
+    assert.ok($(pane, '.rpg-battle-bestiary-import'));
+    assert.equal($(pane, '.rpg-battle-bestiary-file').hidden, true);
+    // Empty: a hint and Import only.
+    const empty = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules, bestiary: [] });
+    assert.equal($(empty, '.rpg-battle-bestiary-export'), null);
+    assert.ok($(empty, '.rpg-battle-bestiary-import'));
+    assert.match($(empty, '.rpg-battle-fold.is-bestiary .rpg-battle-hint').textContent, /made up when its fight starts/);
 });
