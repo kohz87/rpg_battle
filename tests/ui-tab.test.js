@@ -194,25 +194,28 @@ test('create: seven steppers at the start value, a points budget, and minus/plus
     assert.equal($(pane, '.rpg-battle-create').disabled, true);
 });
 
-test('create: a preset fills points and skills; exactly three skills; onCreate gets the draft', () => {
+test('create: no presets, the points by hand, exactly three skills; onCreate gets the draft', () => {
     reset();
     const { handlers, last } = recorder();
-    const pane = render({ mode: 'create', presets: PRESETS, library: [...LIBRARY, ...TIER2], rules }, handlers);
+    const pane = render({ mode: 'create', library: [...LIBRARY, ...TIER2], rules }, handlers);
+    assert.equal($$(pane, '.rpg-battle-preset').length, 0, 'no class presets since 0.4');
     // Tier-2 skills never show in the starter picker.
     assert.deepEqual(texts(root(pane), '.rpg-battle-skill-pick .rpg-battle-pick-name'), LIBRARY.map(entry => entry.name));
     const pick = $$(pane, '.rpg-battle-skill-pick').find(node => node.dataset.skill === 'Power Strike');
     assert.match(pick.textContent, /physical · 5 MP · cooldown 1/);
     assert.match(pick.textContent, /Power Strike description/);
 
-    $$(pane, '.rpg-battle-preset').find(node => node.dataset.preset === 'fighter').click();
-    assert.equal(valueOf(pane, 'STR'), '9');
-    assert.equal(valueOf(pane, 'VIT'), '8');
+    for (let i = 0; i < 4; i += 1) plus(pane, 'STR').click();
+    for (let i = 0; i < 3; i += 1) plus(pane, 'VIT').click();
+    plus(pane, 'AGI').click();
+    plus(pane, 'DEX').click();
+    plus(pane, 'DEX').click();
     assert.match($(pane, '.rpg-battle-remaining').textContent, /^0 of 10/);
-    assert.equal($$(pane, '.rpg-battle-preset').find(node => node.dataset.preset === 'fighter').getAttribute('aria-pressed'), 'true');
+    const skillPick = name => $$(pane, '.rpg-battle-skill-pick').find(node => node.dataset.skill === name);
+    for (const name of ['Power Strike', 'Quick Jab', 'Guard Up']) skillPick(name).click();
     const pressed = () => $$(pane, '.rpg-battle-skill-pick').filter(node => node.getAttribute('aria-pressed') === 'true').map(node => node.dataset.skill);
     assert.deepEqual(pressed(), ['Power Strike', 'Quick Jab', 'Guard Up']);
-    const spark = $$(pane, '.rpg-battle-skill-pick').find(node => node.dataset.skill === 'Spark');
-    assert.equal(spark.disabled, true, 'a fourth skill cannot be picked');
+    assert.equal(skillPick('Spark').disabled, true, 'a fourth skill cannot be picked');
 
     // Live preview from rules: VIT 8 at level 1.
     assert.equal(factValue(pane, 'Max HP'), String(maxHp({ VIT: 8 }, 1, rules)));
@@ -224,12 +227,13 @@ test('create: a preset fills points and skills; exactly three skills; onCreate g
     name.dispatch('input');
     assert.equal($(pane, '.rpg-battle-create').disabled, false);
     $(pane, '.rpg-battle-create').click();
-    const call = last('onCreate');
-    assert.deepEqual(call.args[0], {
+    assert.deepEqual(last('onCreate').args[0], {
         name: 'Ren',
         stats: { STR: 9, VIT: 8, AGI: 6, DEX: 7, INT: 5, LUK: 5, CHA: 5 },
         skills: ['Power Strike', 'Quick Jab', 'Guard Up'],
     });
+    // A party file can be imported from here too.
+    assert.ok($(pane, '.rpg-battle-party-import'));
 });
 
 test('create: the name starts as the persona\'s, with a hint, and follows a persona switch until typed over', () => {
@@ -274,22 +278,22 @@ test('create: no persona leaves the name empty and the hint hidden', () => {
     assert.equal($(pane, '.rpg-battle-name-input').value, 'Ren');
 });
 
-test('create: a preset naming a missing skill fills what exists; toggling a skill frees a slot; draft survives a redraw', () => {
+test('create: toggling a skill frees a slot; the draft survives a redraw and is dropped on leaving', () => {
     reset();
-    const view = { mode: 'create', presets: PRESETS, library: LIBRARY, rules };
+    const view = { mode: 'create', library: LIBRARY, rules };
     const pane = render(view);
-    $$(pane, '.rpg-battle-preset').find(node => node.dataset.preset === 'caster').click();
+    for (let i = 0; i < 6; i += 1) plus(pane, 'INT').click();
+    const skillPick = name => $$(pane, '.rpg-battle-skill-pick').find(node => node.dataset.skill === name);
+    skillPick('Spark').click();
+    skillPick('Mend').click();
     const pressed = () => $$(pane, '.rpg-battle-skill-pick').filter(node => node.getAttribute('aria-pressed') === 'true').map(node => node.dataset.skill);
-    assert.deepEqual(pressed(), ['Spark', 'Mend']);
     assert.match($(pane, '.rpg-battle-create-hint').textContent, /a name/);
     assert.match($(pane, '.rpg-battle-create-hint').textContent, /1 more skill/);
-    $$(pane, '.rpg-battle-skill-pick').find(node => node.dataset.skill === 'Quick Jab').click();
+    skillPick('Quick Jab').click();
     // Picks read in library order.
     assert.deepEqual(pressed(), ['Quick Jab', 'Spark', 'Mend']);
-    $$(pane, '.rpg-battle-skill-pick').find(node => node.dataset.skill === 'Spark').click();
+    skillPick('Spark').click();
     assert.deepEqual(pressed(), ['Quick Jab', 'Mend']);
-    // Manual changes clear the preset mark.
-    assert.equal($$(pane, '.rpg-battle-preset').every(node => node.getAttribute('aria-pressed') === 'false'), true);
 
     // The glue redraws on chat events: the half-made character is still there.
     renderBattleTab(pane, view, {});
@@ -301,52 +305,74 @@ test('create: a preset naming a missing skill fills what exists; toggling a skil
     assert.equal(valueOf(pane, 'INT'), '5');
 });
 
-// ---------------------------------------------------------------------------
-// idle
-
-test('idle: header, bars, stats with checks, skills, party and the main buttons', () => {
+test('idle: the party as cards, yours first and open; header, bars, stats with checks, skills and the main buttons', () => {
     const { handlers, calls } = recorder();
     const party = [{ id: 'astra', name: 'Astra', role: 'companion', control: 'auto', sheet: sheet({ name: 'Astra', level: 3, hp: { cur: 30, max: 44 } }), gear: [] },
         { id: 'merrit', name: 'Merrit', role: 'hireling', control: 'command', sheet: sheet({ name: 'Merrit', level: 2 }), gear: [] }];
     const resolved = [{ ...skill('Rending Strike', { mp: 6, cooldown: 2 }), mastery: 2 }, { ...skill('Quick Jab', { mp: 2 }), mastery: 1 }];
     const checks = { STR: 2, VIT: 1, AGI: 1, DEX: 1, INT: -1, LUK: 0, CHA: 0 };
-    const pane = render({ mode: 'idle', sheet: sheet({ conditions: [{ name: 'poison', rounds: 2 }] }), checks, skills: resolved, party, rules, pending: null }, handlers);
+    const pane = render({ mode: 'idle', chatId: 'c1', sheet: sheet({ conditions: [{ name: 'poison', rounds: 2 }] }), checks, skills: resolved, party, rules, pending: null }, handlers);
 
-    assert.equal($(pane, '.rpg-battle-head-name').textContent, 'Ren');
-    assert.equal($(pane, '.rpg-battle-level').textContent, 'Level 4');
-    const bars = $$(pane, '.rpg-battle-section.is-sheet [role="progressbar"]');
-    assert.deepEqual(bars.map(node => [node.getAttribute('aria-valuenow'), node.getAttribute('aria-valuemax')]), [['58', '62'], ['21', '30'], ['310', String(xpToNext(4, rules))]]);
-    assert.equal(bars[0].querySelector('.rpg-battle-bar-fill').style.width, '94%');
-    assert.deepEqual(texts(root(pane), '.rpg-battle-section.is-sheet .rpg-battle-chip'), ['poison 2']);
+    const cards = $$(pane, '.rpg-battle-member-card');
+    assert.deepEqual(cards.map(node => [node.dataset.memberId, node.open]), [['pc', true], ['astra', false], ['merrit', false]], 'yours open, companions folded');
+    const you = cards[0];
+    assert.equal(you.querySelector('.rpg-battle-head-name').textContent, 'Ren');
+    assert.equal(you.querySelector('.rpg-battle-level').textContent, 'Level 4');
+    // Folded: name, level, HP and MP, State; the XP bar and the rest are inside.
+    const summary = you.querySelector('.rpg-battle-member-summary');
+    assert.deepEqual(summary.querySelectorAll('[role="progressbar"]').map(node => [node.getAttribute('aria-valuenow'), node.getAttribute('aria-valuemax')]), [['58', '62'], ['21', '30']]);
+    assert.equal(summary.querySelector('.rpg-battle-state').textContent, 'unhurt · poisoned');
+    const body = you.querySelector('.rpg-battle-member-body');
+    assert.equal(body.querySelector('[role="progressbar"]').getAttribute('aria-valuemax'), String(xpToNext(4, rules)));
+    assert.equal(summary.querySelector('[role="progressbar"] .rpg-battle-bar-fill').style.width, '94%');
+    assert.deepEqual(texts(you, '.rpg-battle-chip'), ['poison 2']);
 
-    const stat = name => $$(pane, '.rpg-battle-stat').find(node => node.dataset.stat === name);
+    const stat = name => you.querySelectorAll('.rpg-battle-stat').find(node => node.dataset.stat === name);
     assert.equal(stat('STR').querySelector('.rpg-battle-stat-value').textContent, '9');
     assert.equal(stat('STR').querySelector('.rpg-battle-stat-check').textContent, '+2');
     assert.equal(stat('INT').querySelector('.rpg-battle-stat-check').textContent, '-1');
+    assert.equal(cards[1].querySelector('.rpg-battle-stat-check'), null, 'checks are for your own rolls');
 
-    assert.equal($(pane, '.rpg-battle-points-text').textContent, '2 unspent points');
-    assert.deepEqual(texts(root(pane), '.rpg-battle-skill .rpg-battle-record-name'), ['Rending Strike', 'Quick Jab']);
-    assert.match($(pane, '.rpg-battle-skill .rpg-battle-record-meta').textContent, /physical · 6 MP · cooldown 2/);
-    assert.equal($(pane, '.rpg-battle-skill .rpg-battle-tag').textContent, 'Lv 2');
+    assert.equal(you.querySelector('.rpg-battle-points-text').textContent, '2 unspent points');
+    assert.deepEqual(texts(you, '.rpg-battle-skill .rpg-battle-record-name'), ['Rending Strike', 'Quick Jab']);
+    assert.match(you.querySelector('.rpg-battle-skill .rpg-battle-record-meta').textContent, /physical · 6 MP · cooldown 2/);
+    assert.equal(you.querySelector('.rpg-battle-skill .rpg-battle-tag').textContent, 'Lv 2');
+    assert.equal(you.querySelector('.rpg-battle-skill-count').textContent, '2/6');
 
-    assert.deepEqual(texts(root(pane), '.rpg-battle-member .rpg-battle-record-name'), ['Astra', 'Merrit']);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-member .rpg-battle-member-name'), ['Astra', 'Merrit']);
     assert.deepEqual(texts(root(pane), '.rpg-battle-member .rpg-battle-control'), ['Acts on its own', 'You command']);
     assert.equal($(pane, '.rpg-battle-member [role="progressbar"]').getAttribute('aria-valuenow'), '30');
 
     assert.equal($(pane, '.rpg-battle-notice'), null, 'no pending notice');
-    $(pane, '.rpg-battle-spend').click();
+    you.querySelector('.rpg-battle-spend').click();
     $(pane, '.rpg-battle-start').click();
     $(pane, '.rpg-battle-learn').click();
-    assert.deepEqual(calls.map(call => call.name), ['onSpend', 'onSetup', 'onLearn']);
+    assert.deepEqual(calls.map(call => [call.name, ...call.args]), [['onSpend', 'pc'], ['onSetup'], ['onLearn', 'pc']]);
+});
+
+test('idle: which cards are open survives redraws, per chat', () => {
+    reset();
+    const party = [{ id: 'astra', name: 'Astra', role: 'healer', control: 'auto', sheet: sheet({ name: 'Astra' }), gear: [] }];
+    const view = chatId => ({ mode: 'idle', chatId, sheet: sheet(), skills: [], party, rules });
+    let pane = render(view('c2'));
+    const card = id => $$(pane, '.rpg-battle-member-card').find(node => node.dataset.memberId === id);
+    card('astra').open = true;
+    card('astra').dispatch('toggle');
+    card('pc').open = false;
+    card('pc').dispatch('toggle');
+    pane = render(view('c2'));
+    assert.deepEqual([card('pc').open, card('astra').open], [false, true]);
+    pane = render(view('c3'));
+    assert.deepEqual([card('pc').open, card('astra').open], [true, false], 'another chat starts as usual');
 });
 
 test('idle: the State words sit quietly under the HP and MP bars', () => {
     let pane = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules });
-    const state = $(pane, '.rpg-battle-section.is-sheet .rpg-battle-state');
+    const state = $(pane, '.rpg-battle-member-card.is-you .rpg-battle-state');
     assert.equal(state.textContent, 'unhurt');
     assert.equal(state.tagName.toLowerCase(), 'p');
     assert.match(state.className, /rpg-battle-hint/);
-    const kids = $(pane, '.rpg-battle-section.is-sheet').children;
+    const kids = $(pane, '.rpg-battle-member-card.is-you .rpg-battle-member-summary').children;
     const index = kids.indexOf(state);
     assert.equal(kids[index - 1].getAttribute('aria-label'), 'MP', 'right under the MP bar');
     pane = render({ mode: 'idle', sheet: sheet({ hp: { cur: 15, max: 62 }, mp: { cur: 3, max: 30 }, conditions: [{ name: 'poison', rounds: 2 }] }), skills: [], party: [], rules });
@@ -391,18 +417,40 @@ test('items: usable consumables on you or a companion; fight-only ones disabled'
     assert.deepEqual(calls.at(-1), { name: 'onUseItem', args: [{ name: 'Healing Draught', target: 'astra' }] });
 });
 
-test('companion: name, role, level, build, control and equipment go to onAddCompanion', () => {
+test('companion: name, role, level, focus (prefilled from the role), skills within the build, control and equipment go to onAddCompanion', () => {
+    reset();
     const { handlers, calls } = recorder();
-    const presets = [{ id: 'healer', name: 'Healer', points: { INT: 4, VIT: 3, CHA: 3 }, skills: ['Mend', 'Firebolt', 'Rally'] }, { id: 'fighter', name: 'Fighter', points: { STR: 4, VIT: 3, DEX: 3 }, skills: ['Power Strike'] }];
-    const pane = render({ mode: 'companion', presets, level: 4, maxLevel: 20, rules }, handlers);
+    const library = [...LIBRARY, ...TIER2];
+    const pane = render({ mode: 'companion', library, level: 4, maxLevel: 20, rules }, handlers);
+    assert.equal($$(pane, '.rpg-battle-companion-preset').length, 0, 'no class presets');
     assert.ok($(pane, '.rpg-battle-companion-add').disabled, 'needs a name');
     const name = $(pane, '.rpg-battle-companion-name');
     name.value = 'Astra';
     name.dispatch('input');
     assert.equal($(pane, '.rpg-battle-companion-level').value, '4', 'your level by default');
-    const build = $(pane, '.rpg-battle-companion-preset');
-    build.value = 'fighter';
-    build.dispatch('change');
+    const role = $(pane, '.rpg-battle-companion-role');
+    role.value = 'court wizard';
+    role.dispatch('input');
+    const focus = () => $$(pane, '.rpg-battle-companion-focus').map(node => node.value);
+    assert.deepEqual(focus(), ['INT', 'DEX', ''], 'role words fill in the focus');
+    assert.match($(pane, '.rpg-battle-companion-stats').textContent, /INT 1[0-9]/);
+    // Skills: suggested within the build until the reader picks; locked ones are not offered.
+    const shown = () => $$(pane, '.rpg-battle-companion-skill').map(node => node.dataset.skill);
+    assert.ok(!shown().includes('Rending Strike'), 'STR 7 is out of reach for this build');
+    const picked = () => $$(pane, '.rpg-battle-companion-skill').filter(node => node.getAttribute('aria-pressed') === 'true').map(node => node.dataset.skill);
+    assert.equal(picked().length, 3);
+    // The reader changes the focus by hand; a role edited later no longer moves it.
+    const first = $$(pane, '.rpg-battle-companion-focus')[0];
+    first.value = 'STR';
+    first.dispatch('change');
+    assert.deepEqual(focus(), ['STR', 'DEX', '']);
+    role.value = 'healer';
+    role.dispatch('input');
+    assert.deepEqual(focus(), ['STR', 'DEX', '']);
+    // Picks by hand: clear the suggestion, take three.
+    for (const node of $$(pane, '.rpg-battle-companion-skill').filter(entry => entry.getAttribute('aria-pressed') === 'true')) node.click();
+    for (const skillName of ['Power Strike', 'Quick Jab', 'Rending Strike']) $$(pane, '.rpg-battle-companion-skill').find(node => node.dataset.skill === skillName).click();
+    assert.deepEqual(picked(), ['Power Strike', 'Quick Jab', 'Rending Strike']);
     const control = $(pane, '.rpg-battle-companion-control');
     control.value = 'command';
     control.dispatch('change');
@@ -410,7 +458,40 @@ test('companion: name, role, level, build, control and equipment go to onAddComp
     gear.value = 'Ashwood Staff (rare) · MATK +7';
     gear.dispatch('input');
     $(pane, '.rpg-battle-companion-add').click();
-    assert.deepEqual(calls.at(-1), { name: 'onAddCompanion', args: [{ name: 'Astra', role: 'companion', control: 'command', level: 4, presetId: 'fighter', gearLines: 'Ashwood Staff (rare) · MATK +7' }] });
+    assert.deepEqual(calls.at(-1), { name: 'onAddCompanion', args: [{ name: 'Astra', role: 'healer', control: 'command', level: 4, focus: ['STR', 'DEX'], skills: ['Power Strike', 'Quick Jab', 'Rending Strike'], gearLines: 'Ashwood Staff (rare) · MATK +7', npcId: null }] });
+    // A picked skill the build no longer allows is named, with why, and Add waits.
+    first.value = 'INT';
+    $$(pane, '.rpg-battle-companion-focus')[0].value = 'INT';
+    $$(pane, '.rpg-battle-companion-focus')[0].dispatch('change');
+    assert.match($(pane, '.rpg-battle-companion-why').textContent, /Rending Strike needs STR 7 \(has \d\)/);
+    assert.equal($(pane, '.rpg-battle-companion-add').disabled, true);
+});
+
+test('companion: a story\'s Joins prefills the form; NPC State Delta\'s profiles fill it in and keep the link', () => {
+    reset();
+    const { handlers, last } = recorder();
+    const npcs = [
+        { id: 'n1', name: 'Bram', present: false, role: 'blacksmith', summary: 'A smith.' },
+        { id: 'n2', name: 'Lyra Vance', present: true, role: '', summary: 'A wandering cleric who mends the sick.' },
+    ];
+    let pane = render({ mode: 'companion', library: LIBRARY, level: 4, maxLevel: 20, rules, prefill: { name: 'Lyra', role: 'healer', level: 6 }, npcs }, handlers);
+    assert.ok($(pane, '.rpg-battle-prefill-hint'));
+    assert.equal($(pane, '.rpg-battle-companion-name').value, 'Lyra');
+    assert.equal($(pane, '.rpg-battle-companion-level').value, '6');
+    assert.deepEqual($$(pane, '.rpg-battle-companion-focus').map(node => node.value), ['INT', 'VIT', 'CHA']);
+    const picker = $(pane, '.rpg-battle-companion-npc');
+    assert.deepEqual(picker.querySelectorAll('option').map(node => node.value), ['', 'n2', 'n1'], 'present NPCs first');
+    picker.value = 'n2';
+    picker.dispatch('change');
+    assert.equal($(pane, '.rpg-battle-companion-name').value, 'Lyra Vance');
+    assert.deepEqual($$(pane, '.rpg-battle-companion-focus').map(node => node.value), ['INT', 'VIT', 'CHA'], 'the summary\'s words when the role is empty');
+    $(pane, '.rpg-battle-companion-add').click();
+    assert.equal(last('onAddCompanion').args[0].npcId, 'n2');
+    assert.equal(last('onAddCompanion').args[0].name, 'Lyra Vance');
+    // Without NPC State Delta, no picker.
+    reset();
+    pane = render({ mode: 'companion', library: LIBRARY, level: 1, rules });
+    assert.equal($(pane, '.rpg-battle-companion-npc'), null);
 });
 
 test('idle: no Spend without points; a pending hand-off offers Return to story; model text stays text', () => {
@@ -515,7 +596,7 @@ test('learn: a new skill from a template (name, type, stat, target)', () => {
     assert.equal($(pane, '.rpg-battle-template-stat').value, 'CHA', 'a chosen stat is kept');
 
     learn.click();
-    assert.deepEqual(last('onConfirmLearn').args[0], { name: 'Tidebreaker', template: { type: 'magic', stat: 'CHA', target: 'one' } });
+    assert.deepEqual(last('onConfirmLearn').args[0], { name: 'Tidebreaker', template: { type: 'magic', stat: 'CHA', target: 'one', element: 'none' } });
     $(pane, '.rpg-battle-back').click();
     assert.ok(last('onBack'));
 });
@@ -972,20 +1053,20 @@ test('idle: the level and XP in the reader\'s terms; party rows show the tier', 
     const party = [{ id: 'astra', name: 'Astra', role: 'companion', control: 'auto', sheet: sheet({ name: 'Astra', level: 12 }), gear: [] }];
     let pane = render({ mode: 'idle', sheet: sheet({ level: 24, xp: 3120 }), skills: [], party, rules: SOUL });
     assert.equal($(pane, '.rpg-battle-level').textContent, 'Soul Class III (Lv 24)');
-    const xpBar = $$(pane, '.rpg-battle-section.is-sheet [role="progressbar"]')[2];
+    const xpBar = $(pane, '.rpg-battle-member-card.is-you .rpg-battle-bar.is-xp');
     assert.equal(xpBar.getAttribute('aria-label'), 'Soul Growth');
     assert.equal(xpBar.querySelector('.rpg-battle-bar-name').textContent, 'Soul Growth');
     assert.equal(xpBar.querySelector('.rpg-battle-bar-value').textContent, '26.34/100');
     assert.ok(xpBar.classList.contains('is-named'));
-    assert.equal($(pane, '.rpg-battle-member-level').textContent, 'Soul Class II');
+    assert.equal($(pane, '.rpg-battle-member .rpg-battle-member-level').textContent, 'Soul Class II');
     pane = render({ mode: 'idle', sheet: sheet({ level: 100, xp: 0 }), skills: [], party: [], rules: SOUL });
-    assert.equal($$(pane, '.rpg-battle-section.is-sheet [role="progressbar"]')[2].querySelector('.rpg-battle-bar-value').textContent, 'MAX');
+    assert.equal($(pane, '.rpg-battle-member-card.is-you .rpg-battle-bar.is-xp .rpg-battle-bar-value').textContent, 'MAX');
     pane = render({ mode: 'idle', sheet: sheet(), skills: [], party, rules: POWER });
     assert.equal($(pane, '.rpg-battle-level').textContent, 'Soul Power 4');
-    assert.equal($(pane, '.rpg-battle-member-level').textContent, 'Soul Power 12');
-    assert.equal($$(pane, '.rpg-battle-section.is-sheet [role="progressbar"]')[2].querySelector('.rpg-battle-bar-value').textContent, `310/${xpToNext(4, rules)}`);
+    assert.equal($(pane, '.rpg-battle-member .rpg-battle-member-level').textContent, 'Soul Power 12');
+    assert.equal($(pane, '.rpg-battle-member-card.is-you .rpg-battle-bar.is-xp .rpg-battle-bar-value').textContent, `310/${xpToNext(4, rules)}`);
     pane = render({ mode: 'idle', sheet: sheet(), skills: [], party, rules });
-    assert.equal($(pane, '.rpg-battle-member-level').textContent, 'Lv 12', 'the plain terms as before');
+    assert.equal($(pane, '.rpg-battle-member .rpg-battle-member-level').textContent, 'Lv 12', 'the plain terms as before');
 });
 
 test('idle: Edit opens a small form for a companion; Save sends name, role and control', () => {
@@ -1219,12 +1300,173 @@ test('idle: Gear lists what the fight uses, capped stats, and what does not coun
     let pane = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules, gear });
     assert.deepEqual(texts(root(pane), '.rpg-battle-gear .rpg-battle-record-name'), ['Iron Sword', 'Ring of Giants', 'Iron Helm']);
     assert.deepEqual(texts(root(pane), '.rpg-battle-gear .rpg-battle-tag'), ['weapon', 'accessory', 'worn piece']);
+    assert.ok($(pane, '.rpg-battle-member-card.is-you .rpg-battle-gear'), 'on your card');
     assert.deepEqual(texts(root(pane), '.rpg-battle-gear .rpg-battle-record-meta'), ['ATK +6', 'STR +2 · capped from STR +20', 'DEF +4']);
     assert.equal(root(pane).querySelectorAll('.rpg-battle-gear.is-capped').length, 1);
     assert.deepEqual(texts(root(pane), '.rpg-battle-gear-unused'), ['Not counted: Silver Ring (only 2 accessories count)']);
     pane = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules, gear: { counted: [], unused: [] } });
-    assert.match(texts(root(pane), '.rpg-battle-section.is-gear .rpg-battle-hint')[0], /Nothing equipped/);
+    assert.match(texts(root(pane), '.is-gear .rpg-battle-hint')[0], /Nothing equipped/);
     assert.equal(root(pane).querySelectorAll('.rpg-battle-gear-unused').length, 0);
     pane = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules });
-    assert.equal(root(pane).querySelectorAll('.rpg-battle-section.is-gear').length, 0, 'no gear in the view: no section');
+    assert.equal(root(pane).querySelectorAll('.is-gear').length, 0, 'no gear in the view: no section');
+});
+
+// ---------------------------------------------------------------------------
+// 0.4: party cards, skills set aside, companions' gear, Start over, offers, party files
+
+test('cards: skills in use and set aside; Set aside and Use send onSetSkillActive, Use waits at the cap', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    const three = { ...rules, character: { ...rules.character, activeSkills: 2 } };
+    const you = sheet({ skills: [{ name: 'Quick Jab', mastery: 1 }, { name: 'Spark', mastery: 1 }, { name: 'Mend', mastery: 3, aside: true }] });
+    const skills = [{ ...skill('Quick Jab'), mastery: 1 }, { ...skill('Spark', { type: 'magic' }), mastery: 1 }, { ...skill('Mend', { type: 'heal' }), mastery: 3, aside: true }];
+    const party = [{ id: 'astra', name: 'Astra', role: 'healer', control: 'auto', sheet: sheet({ name: 'Astra', skills: [{ name: 'Ward', mastery: 1 }, { name: 'Rally', mastery: 1, aside: true }] }), gear: [] }];
+    const pane = render({ mode: 'idle', sheet: you, skills, party, rules: three }, handlers);
+    const mine = $(pane, '.rpg-battle-member-card.is-you');
+    assert.deepEqual(texts(mine, '.rpg-battle-skill:not(.is-aside) .rpg-battle-record-name'), ['Quick Jab', 'Spark']);
+    assert.deepEqual(texts(mine, '.rpg-battle-skill.is-aside .rpg-battle-record-name'), ['Mend']);
+    assert.equal(mine.querySelector('.rpg-battle-skill-count').textContent, '2/2');
+    assert.equal(mine.querySelector('.rpg-battle-skill-use').disabled, true, 'at the cap: set one aside first');
+    mine.querySelectorAll('.rpg-battle-skill-aside')[1].click();
+    assert.deepEqual(calls.at(-1), { name: 'onSetSkillActive', args: ['pc', 'Spark', false] });
+    // A companion's names only (no resolved skills sent): still listed, Use allowed under the cap.
+    const astra = $(pane, '.rpg-battle-member-card.rpg-battle-member');
+    assert.deepEqual(texts(astra, '.rpg-battle-skill .rpg-battle-record-name'), ['Ward', 'Rally']);
+    astra.querySelector('.rpg-battle-skill-use').click();
+    assert.deepEqual(calls.at(-1), { name: 'onSetSkillActive', args: ['astra', 'Rally', true] });
+});
+
+test('cards: Spend for you and commanded companions (auto ones only with auto-spend off); Learn, Give item and Take back', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    const gearSummary = { counted: [{ name: 'Ashwood Staff', slot: 'weapon', stats: { MATK: 5 }, capped: true, from: { MATK: 7 } }], unused: [{ name: 'Second Staff', slot: 'weapon', why: 'one weapon counts' }] };
+    const party = [
+        { id: 'astra', name: 'Astra', role: 'healer', control: 'auto', sheet: sheet({ name: 'Astra', points: 4 }), gear: [], gearSummary },
+        { id: 'merrit', name: 'Merrit', role: 'guard', control: 'command', sheet: sheet({ name: 'Merrit', points: 4 }), gear: [] },
+    ];
+    const giveable = [{ name: 'Iron Helm', slot: 'worn', rarity: 'common', stats: { DEF: 2 } }];
+    const view = autoSpend => ({ mode: 'idle', sheet: sheet({ points: 0 }), skills: [], party, rules, giveable, autoSpend });
+    let pane = render(view(true), handlers);
+    const card = id => $$(pane, '.rpg-battle-member-card').find(node => node.dataset.memberId === id);
+    assert.equal(card('pc').querySelector('.rpg-battle-spend'), null, 'no points, no Spend');
+    assert.equal(card('astra').querySelector('.rpg-battle-spend'), null, 'auto companions spend on their own');
+    assert.match(card('astra').querySelector('.rpg-battle-points-text').textContent, /spent on their next level/);
+    card('merrit').querySelector('.rpg-battle-spend').click();
+    assert.deepEqual(calls.at(-1), { name: 'onSpend', args: ['merrit'] });
+    pane = render(view(false), handlers);
+    card('astra').querySelector('.rpg-battle-spend').click();
+    assert.deepEqual(calls.at(-1), { name: 'onSpend', args: ['astra'] });
+
+    // Gear on the card, capped, with Take back; Give item lists your Inventory's equipment.
+    assert.deepEqual(texts(card('astra'), '.rpg-battle-gear .rpg-battle-record-meta'), ['MATK +5 · capped from MATK +7', 'no stats · not counted: one weapon counts']);
+    card('astra').querySelector('.rpg-battle-take-back').click();
+    assert.deepEqual(calls.at(-1), { name: 'onTakeBack', args: ['astra', 'Ashwood Staff'] });
+    card('astra').querySelector('.rpg-battle-give-open').click();
+    assert.deepEqual(texts(card('astra'), '.rpg-battle-give-item .rpg-battle-record-name'), ['Iron Helm']);
+    card('astra').querySelector('.rpg-battle-give-confirm').click();
+    assert.deepEqual(calls.at(-1), { name: 'onGiveItem', args: ['astra', 'Iron Helm'] });
+    assert.equal(card('astra').querySelector('.rpg-battle-give'), null, 'the list closes');
+    card('merrit').querySelector('.rpg-battle-learn-member').click();
+    assert.deepEqual(calls.at(-1), { name: 'onLearn', args: ['merrit'] });
+});
+
+test('cards: Start over asks twice, with Keep companions; a fight lost to the death shows the game over', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    const party = [{ id: 'astra', name: 'Astra', role: 'healer', control: 'auto', sheet: sheet({ name: 'Astra' }), gear: [] }];
+    let pane = render({ mode: 'idle', sheet: sheet(), skills: [], party, rules }, handlers);
+    $(pane, '.rpg-battle-start-over').click();
+    assert.equal(calls.length, 0, 'the first click only arms it');
+    assert.match($(pane, '.rpg-battle-start-over').textContent, /Click again/);
+    const keep = $(pane, '.rpg-battle-keep-companions');
+    assert.equal(keep.checked, true);
+    keep.checked = false;
+    keep.dispatch('change');
+    $(pane, '.rpg-battle-start-over').click();
+    assert.deepEqual(calls.at(-1), { name: 'onStartOver', args: [{ keepCompanions: false }] });
+
+    reset();
+    pane = render({ mode: 'idle', sheet: sheet({ hp: { cur: 0, max: 62 } }), skills: [], party: [], rules, gameOver: { name: 'Ren' } }, handlers);
+    assert.equal($(pane, '.rpg-battle-game-over-text').textContent, 'Ren has died.');
+    assert.equal($(pane, '.rpg-battle-start'), null, 'no fights after death');
+    assert.equal($(pane, '.rpg-battle-keep-companions'), null, 'no companions to keep');
+    $(pane, '.rpg-battle-start-over').click();
+    $(pane, '.rpg-battle-start-over').click();
+    assert.deepEqual(calls.at(-1), { name: 'onStartOver', args: [{ keepCompanions: false }] });
+    assert.ok($(pane, '.rpg-battle-party-import'));
+});
+
+test('offers: each with its own Accept and Not now; one that asks twice; model text stays text', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    const offers = [
+        { key: '7:joins:Lyra', kind: 'joins', text: 'Lyra joined. Add as companion?', accept: 'Add as companion' },
+        { key: '7:xp:major', kind: 'xp', text: '+25 XP: <b>rescued</b> the caravan. Award?', accept: 'Award' },
+        { key: 'fallen:astra', kind: 'fallen', text: 'Astra fell. Remove from the party?', accept: 'Remove', confirm: true },
+    ];
+    const pane = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules, offers }, handlers);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-offer-text'), offers.map(offer => offer.text));
+    assert.equal(root(pane).querySelectorAll('b').length, 0);
+    const notice = key => $$(pane, '.rpg-battle-notice.is-offer').find(node => node.dataset.offer === key);
+    notice('7:joins:Lyra').querySelector('.rpg-battle-offer-accept').click();
+    notice('7:xp:major').querySelector('.rpg-battle-offer-dismiss').click();
+    assert.deepEqual(calls.map(call => [call.name, ...call.args]), [['onAcceptOffer', '7:joins:Lyra'], ['onDismissOffer', '7:xp:major']]);
+    notice('fallen:astra').querySelector('.rpg-battle-offer-accept').click();
+    assert.equal(calls.length, 2, 'asks twice');
+    assert.match(notice('fallen:astra').querySelector('.rpg-battle-offer-accept').textContent, /Click again/);
+    notice('fallen:astra').querySelector('.rpg-battle-offer-accept').click();
+    assert.deepEqual(calls.at(-1), { name: 'onAcceptOffer', args: ['fallen:astra'] });
+});
+
+test('party file: Export, Import (a picked file goes to the glue) and the confirm notice', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    const pane = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules, importing: { summary: 'Load Ren (Level 4) and 1 companion into this chat?', note: 'Your gear goes into the Inventory: Iron Sword.' } }, handlers);
+    assert.equal($(pane, '.rpg-battle-import-text').textContent, 'Load Ren (Level 4) and 1 companion into this chat?');
+    $(pane, '.rpg-battle-import-confirm').click();
+    $(pane, '.rpg-battle-import-cancel').click();
+    $(pane, '.rpg-battle-party-export').click();
+    assert.deepEqual(calls.map(call => call.name), ['onConfirmImport', 'onCancelImport', 'onExportParty']);
+    assert.equal($(pane, '.rpg-battle-party-file').hidden, true);
+});
+
+test('learn: at the cap it asks which skill sits out; a companion learns; the story\'s skill prefills the template', () => {
+    reset();
+    const { handlers, last } = recorder();
+    const two = { ...rules, character: { ...rules.character, activeSkills: 2 } };
+    const lyra = sheet({ name: 'Lyra', stats: stats({ INT: 6 }), skills: [{ name: 'Quick Jab', mastery: 1 }, { name: 'Spark', mastery: 1 }] });
+    const prefill = { name: 'Frost Lance', type: 'magic', stat: 'INT', target: 'all', element: 'ice', words: 'ice magic, hits all' };
+    const pane = render({ mode: 'learn', sheet: lyra, library: [...LIBRARY, ...TIER2], rules: two, memberId: 'lyra', prefill }, handlers);
+    assert.match($(pane, '.rpg-battle-section.is-learn-intro').textContent, /From the story: Frost Lance \(ice magic, hits all\)/);
+    assert.equal($(pane, '.rpg-battle-template-name').value, 'Frost Lance');
+    assert.deepEqual([$(pane, '.rpg-battle-template-type').value, $(pane, '.rpg-battle-template-target').value, $(pane, '.rpg-battle-template-element').value], ['magic', 'all', 'ice']);
+    assert.equal($(pane, '.rpg-battle-learn-template').disabled, true, 'at the cap, choose first');
+    const aside = $(pane, '.rpg-battle-learn-aside');
+    assert.deepEqual(aside.querySelectorAll('option').map(node => node.textContent), ['Choose one to set aside…', 'Set aside Quick Jab', 'Set aside Spark', 'Keep the new skill set aside']);
+    aside.value = 'Quick Jab';
+    aside.dispatch('change');
+    $(pane, '.rpg-battle-learn-template').click();
+    assert.deepEqual(last('onConfirmLearn').args[0], { name: 'Frost Lance', template: { type: 'magic', stat: 'INT', target: 'all', element: 'ice' }, setAside: 'Quick Jab', memberId: 'lyra' });
+    const keepNew = $(pane, '.rpg-battle-learn-aside');
+    keepNew.value = keepNew.querySelectorAll('option').at(-1).value;
+    keepNew.dispatch('change');
+    $(pane, '.rpg-battle-learn-template').click();
+    assert.equal(last('onConfirmLearn').args[0].setAside, 'Frost Lance');
+    // A library skill's name is learned from the library, with its requirements.
+    const name = $(pane, '.rpg-battle-template-name');
+    name.value = 'fireball';
+    name.dispatch('input');
+    assert.equal($(pane, '.rpg-battle-learn-template').disabled, true);
+    assert.match($(pane, '.rpg-battle-template-hint').textContent, /Fireball is in the library: learn it there \(it needs INT 8\)/);
+    assert.match($$(pane, '.rpg-battle-library-skill').find(node => node.dataset.skill === 'Fireball').textContent, /INT 8 \(has 6\)/);
+});
+
+test('spend: a companion\'s points, sent with their id', () => {
+    reset();
+    const { handlers, last } = recorder();
+    const pane = render({ mode: 'spend', sheet: sheet({ name: 'Merrit', points: 1 }), memberId: 'merrit', rules }, handlers);
+    assert.match($(pane, '.rpg-battle-section.is-spend').textContent, /Spend points: Merrit/);
+    plus(pane, 'VIT').click();
+    $(pane, '.rpg-battle-confirm').click();
+    assert.deepEqual(last('onConfirmSpend').args, [{ STR: 0, VIT: 1, AGI: 0, DEX: 0, INT: 0, LUK: 0, CHA: 0 }, 'merrit']);
 });

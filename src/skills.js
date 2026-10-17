@@ -91,11 +91,17 @@ function fitTarget(type, target) {
     return target;
 }
 
+// What an element puts on a harmful template skill's hit.
+export const ELEMENTS = Object.freeze({ fire: 'burn', ice: 'slow', lightning: 'stun', poison: 'poison' });
+
 /**
  * A story-taught skill built from a template: the numbers come from rules.templates for its
- * type and target, scaled to the learner's level so a skill learned late is not a dud.
+ * type and target, scaled to the learner's level so a skill learned late is not a dud. An
+ * `element` (fire, ice, lightning, poison) on a physical or magic skill adds its condition
+ * (rules.generated.effectRounds) for templates.elementPower of the power; a stun waits at
+ * least generated.stunCooldown rounds.
  */
-export function skillFromTemplate({ name, type, stat, target } = {}, level = 1, rules = DEFAULT_RULES) {
+export function skillFromTemplate({ name, type, stat, target, element = null } = {}, level = 1, rules = DEFAULT_RULES) {
     const t = rules.templates ?? DEFAULT_RULES.templates;
     const kind = TYPES.includes(type) ? type : 'physical';
     const where = fitTarget(kind, target);
@@ -104,20 +110,29 @@ export function skillFromTemplate({ name, type, stat, target } = {}, level = 1, 
     const lv = Math.max(1, Number(level) || 1);
     const power = base.power * (wide ? t.widePower : 1) * Math.min(t.maxLevelPower, 1 + (lv - 1) * t.powerPerLevel);
     const mp = Math.round((base.mp + (lv - 1) * t.mpPerLevel) * (wide ? t.wideMp : 1));
-    const effect = base.effect ? { ...base.effect } : null;
+    let effect = base.effect ? { ...base.effect } : null;
     const fallbackStat = kind === 'physical' ? 'STR' : kind === 'buff' || kind === 'debuff' ? 'CHA' : 'INT';
+    const condition = (kind === 'physical' || kind === 'magic') ? ELEMENTS[String(element ?? '').toLowerCase()] : null;
+    const g = rules.generated ?? DEFAULT_RULES.generated;
+    let cooldown = base.cooldown + (wide ? 1 : 0);
+    let scaled = power;
+    if (condition) {
+        effect = { [condition]: Math.max(1, Math.round(Number(g.effectRounds?.[condition]) || 2)) };
+        scaled = power * (Number(t.elementPower) || DEFAULT_RULES.templates.elementPower);
+        if (condition === 'stun') cooldown = Math.max(cooldown, Number(g.stunCooldown) || 3);
+    }
     return {
         name: String(name ?? '').trim() || 'Technique',
         tier: lv >= t.tier3Level ? 3 : lv >= t.tier2Level ? 2 : 1,
         type: kind,
         stat: STATS.includes(stat) ? stat : fallbackStat,
-        power: Math.round(power * 100) / 100,
+        power: Math.round(scaled * 100) / 100,
         mp,
-        cooldown: base.cooldown + (wide ? 1 : 0),
+        cooldown,
         target: where,
         effect,
         requires: null,
-        description: `A ${kind} technique learned in the story.`,
+        description: condition ? `A ${String(element).toLowerCase()} ${kind} technique learned in the story.` : `A ${kind} technique learned in the story.`,
     };
 }
 

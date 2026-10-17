@@ -1,10 +1,11 @@
-// From the sheets to the fighters: a Character sheet (or a Party member) with its gear and
+// From the sheets to the fighters: your sheet (or a companion's) with its gear and
 // consumables becomes a Combatant, and the setup's enemy rows become projected enemies. Also
-// the party's own changes: a companion joining, and one renamed (whose id follows the name,
-// so what the chat keeps by id has to move with it). Pure.
+// the party's own changes: a companion joining (built open-ended, builds.js), and one renamed
+// (whose id follows the name, so what the chat keeps by id has to move with it). Pure.
 
 import { STATS, derive, maxHp, maxMp } from './rules.js';
-import { resolveSkills } from './skills.js';
+import { findSkill, resolveSkills } from './skills.js';
+import { focusWeights, lockedReason, spreadByWeights } from './builds.js';
 import { projectEnemy } from './enemies.js';
 import { consumables, gearBonuses, parseGearEntry } from './items.js';
 import { activeSkills, memberIds, newSheet, recompute, slug } from './sheet.js';
@@ -74,36 +75,34 @@ export function enemiesFromRows(rows, { bestiary, library, rules, rng }) {
 }
 
 /**
- * A new companion: { name, role, control, level, preset, gearLines } → Member. Built like a
- * character (start stats + the preset's points), then raised to `level` with its extra points
- * spread in the preset's proportions, so a level-6 healer joins as a level-6 healer. `gearLines`
+ * A new companion: { name, role, control, level, focus, skills, gearLines } → Member. Built
+ * open-ended (builds.js): every stat at the start value, the starting points and those of each
+ * level after the first spread over up to three focus stats by weight (3, 2, 1; none: evenly),
+ * so a level-6 healer joins as a level-6 healer. `skills` are up to starterSkills library
+ * names their built stats allow (with `library` given, an unknown or locked one throws, saying
+ * why). A `preset` ({ points, skills }, internal data) still builds the old way. `gearLines`
  * are Equipped entries ("Ashwood Staff (rare) · MATK +7"), one per line.
  */
-export function newCompanion({ name, role = 'companion', control = 'auto', level = 1, preset, gearLines = '' }, { rules, existing = [] }) {
+export function newCompanion({ name, role = 'companion', control = 'auto', level = 1, preset = null, focus = [], skills = null, gearLines = '' }, { rules, existing = [], library = null }) {
     const trimmed = String(name ?? '').trim();
     if (!trimmed) throw new Error('Give the companion a name.');
-    if (!preset) throw new Error('Pick a preset for the companion.');
     const target = Math.max(1, Math.min(maxLevel(rules), Math.round(Number(level) || 1)));
-    let sheet = newSheet({ name: trimmed, stats: preset.points, skills: preset.skills }, rules);
-    const extra = (target - 1) * rules.character.pointsPerLevel;
-    if (extra > 0) {
-        // A preset with no points spreads evenly.
-        const raw = STATS.map(stat => Math.max(0, Number(preset.points?.[stat]) || 0));
-        const weights = raw.some(Boolean) ? raw : raw.map(() => 1);
-        const total = weights.reduce((sum, value) => sum + value, 0);
-        // Largest remainder, so the shares add up exactly.
-        const shares = STATS.map((stat, index) => {
-            const exact = extra * weights[index] / total;
-            return { stat, whole: Math.floor(exact), rest: exact - Math.floor(exact) };
-        });
-        let left = extra - shares.reduce((sum, entry) => sum + entry.whole, 0);
-        for (const entry of [...shares].sort((a, b) => b.rest - a.rest)) {
-            if (left <= 0) break;
-            entry.whole += 1;
-            left -= 1;
+    const weights = preset ? preset.points ?? {} : focusWeights(focus);
+    const start = preset ? preset.points ?? {} : spreadByWeights(rules.character.startPoints, weights);
+    const extra = spreadByWeights((target - 1) * rules.character.pointsPerLevel, weights);
+    const stats = Object.fromEntries(STATS.map(stat => [stat, rules.character.startStat + (Number(start[stat]) || 0) + extra[stat]]));
+    const names = [...new Set((preset ? preset.skills : skills ?? []).map(entry => String(entry ?? '').trim()).filter(Boolean))];
+    if (names.length > rules.character.starterSkills) throw new Error(`A new companion starts with ${rules.character.starterSkills} skills at most.`);
+    if (library) {
+        for (const skillName of names) {
+            const found = findSkill(library, skillName);
+            if (!found) throw new Error(`"${skillName}" is not in the skill library.`);
+            const why = lockedReason(stats, found);
+            if (why) throw new Error(`${trimmed} cannot take ${found.name}: it ${why}.`);
         }
-        sheet = { ...sheet, level: target, stats: Object.fromEntries(shares.map(entry => [entry.stat, sheet.stats[entry.stat] + entry.whole])) };
     }
+    let sheet = newSheet({ name: trimmed, stats: Object.fromEntries(STATS.map(stat => [stat, Number(start[stat]) || 0])), skills: names }, rules);
+    sheet = { ...sheet, level: target, stats };
     const gear = String(gearLines ?? '').split(/\n|\s+\|\s+/).map(line => line.trim()).filter(Boolean).map(parseGearEntry);
     sheet = recompute({ ...sheet, hp: { cur: Infinity, max: 0 }, mp: { cur: Infinity, max: 0 } }, gear, rules);
     const taken = new Set(['pc', ...existing.map(member => member.id)]);
