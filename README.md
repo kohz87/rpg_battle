@@ -1,4 +1,4 @@
-# RPG Battle v0.3.0
+# RPG Battle v0.3.1
 
 Turn-based fights for SillyTavern, resolved in code. Press **Start fight**, choose the enemies,
 fight with buttons (**Attack, Skill, Item, Defend, Parley, Flee, Auto**), and the story gets one
@@ -161,9 +161,16 @@ Studded Jerkin | 1 | equipped · common · DEF +4
 Healing Draught | 2 | heal 30
 ```
 
+- **What counts in a fight:** one weapon, one off-hand (none with a two-handed weapon), one
+  armour, **one worn piece** (helm, gloves, boots, belt…) and **two accessories** (rings,
+  amulets, charms…). Equip more and only the first of each, in inventory order, counts; the
+  Battle tab's **Gear** list shows what the fight uses and names the rest as *not counted* (and
+  why). **Settings → Equipment** changes how many worn pieces and accessories count (0 to 9).
+  The slot comes from the item's kind, its category (`[Equipment > Boots]`) or `slot: worn` /
+  `slot: accessory` in its note.
 - **Stats are limited by rarity and your level** (common < uncommon < rare < epic < legendary),
   so an item the model makes up cannot carry "ATK +50": in a fight it is scaled down to what its
-  rarity allows, and the Battle tab shows it as capped. An item without stats gets them from its
+  rarity allows, and the Battle tab's Gear list shows it as capped ("STR +2 · capped from STR +20"). An item without stats gets them from its
   rarity and kind.
 - **Consumables** with an effect (`heal 30`, `mp 20`, `cure poison`, `fire 25, all enemies`) can
   be used in a fight; what you use comes off the inventory afterwards.

@@ -1477,3 +1477,9 @@
     width: 100%;
     margin: 0;
 }
+
+/* Gear: a piece scaled down by its rarity, and what is equipped but not counted. */
+.rpg-battle-tab .rpg-battle-gear.is-capped .rpg-battle-record-meta {
+    color: #d9a441;
+    opacity: 0.9;
+}

@@ -11,7 +11,7 @@
 import { DEFAULT_RULES, STATS, rarityBudget } from './rules.js';
 
 const RARITY_WORDS = ['legendary', 'epic', 'rare', 'uncommon', 'common'];
-const SLOTS = ['weapon', 'offhand', 'armour', 'accessory'];
+const SLOTS = ['weapon', 'offhand', 'armour', 'worn', 'accessory'];
 const ITEM_STATS = ['ATK', 'MATK', 'DEF', 'MDEF', 'HP', 'MP', ...STATS, 'crit'];
 const TAGS = ['range', 'fire', 'ice', 'holy', 'poison', 'two-handed'];
 // Combat condition names; a written "poisoned" or "stunned" maps to them by prefix.
@@ -35,7 +35,13 @@ const KINDS = [
             'coat', 'vest', 'tunic'],
         slot: 'armour', main: 'DEF',
     },
-    { words: ['helm', 'helmet', 'hood', 'boots', 'gloves', 'gauntlets', 'bracers', 'greaves', 'belt'], slot: 'accessory', main: 'DEF' },
+    // Head, hands, feet and waist: worn pieces, a slot of their own so a helm and boots leave
+    // the rings alone.
+    {
+        words: ['helm', 'helmet', 'hood', 'coif', 'boot', 'shoe', 'sandal', 'sabaton', 'glove', 'gauntlet', 'mitten', 'bracer',
+            'vambrace', 'greave', 'belt', 'girdle', 'sash'],
+        slot: 'worn', main: 'DEF',
+    },
     {
         words: ['ring', 'amulet', 'charm', 'necklace', 'pendant', 'talisman', 'bracelet', 'brooch', 'earring', 'trinket',
             'circlet', 'torc', 'locket', 'crown', 'diadem', 'tiara'],
@@ -43,7 +49,7 @@ const KINDS = [
     },
 ].map(kind => ({ ...kind, pattern: new RegExp(`(?:${kind.words.join('|')})s?\\b`, 'i') }));
 
-const MAIN_BY_SLOT = { weapon: 'ATK', offhand: 'DEF', armour: 'DEF', accessory: 'LUK' };
+const MAIN_BY_SLOT = { weapon: 'ATK', offhand: 'DEF', armour: 'DEF', worn: 'DEF', accessory: 'LUK' };
 
 // ---------------------------------------------------------------------------------------
 // Text helpers shared by reading and writing.
@@ -158,6 +164,7 @@ function slotFromWord(word) {
     if (/^(?:weapon|mainhand|hand)$/.test(w)) return 'weapon';
     if (/^(?:offhand|shield)$/.test(w)) return 'offhand';
     if (/^(?:armour|armor|body|chest)$/.test(w)) return 'armour';
+    if (/^(?:worn|head|hands|feet|waist|helm|helmet|boots|gloves|belt)$/.test(w)) return 'worn';
     if (/^(?:accessory|accessories|ring|amulet|trinket|neck)$/.test(w)) return 'accessory';
     return null;
 }
@@ -168,6 +175,7 @@ function slotFromCategory(category) {
     for (const segment of segments.reverse()) {
         if (/weapon/.test(segment)) return 'weapon';
         if (/off-?\s?hand|shield/.test(segment)) return 'offhand';
+        if (/head\s?(?:gear|wear)|helm|hand\s?wear|gloves|gauntlets|foot\s?wear|boots|shoes|belts/.test(segment)) return 'worn';
         if (/accessor|jewel|rings?\b|amulet|trinket/.test(segment)) return 'accessory';
         if (/armou?r|clothing|apparel|outfit/.test(segment)) return 'armour';
     }
@@ -311,7 +319,8 @@ export function describeRow({ name, category = '', note = '' }) {
     const fromCategory = slotFromCategory(category);
     const kind = kindOf(name);
     let slot = explicit ? slotFromWord(explicit[1]) : null;
-    if (!slot && fromCategory) slot = fromCategory === 'armour' && kind?.slot === 'offhand' ? 'offhand' : fromCategory;
+    // [Armour] holds shields, helms and boots too; their kind says which slot they take.
+    if (!slot && fromCategory) slot = fromCategory === 'armour' && (kind?.slot === 'offhand' || kind?.slot === 'worn') ? kind.slot : fromCategory;
     const equipmentish = EQUIPMENT_CATEGORY.test(category) || equippedMark || hasRarityWord(text) || Object.keys(stats).length > 0;
     if (!slot && equipmentish && kind) slot = kind.slot;
     if (!slot && (equippedMark || EQUIPMENT_CATEGORY.test(category)) && Object.keys(stats).length) slot = slotFromStats(stats);
@@ -398,17 +407,59 @@ export function capItem(item, level, rules = DEFAULT_RULES) {
     return { stats, capped: true, budget, cost };
 }
 
-/** The gear that counts: the first equipped item per slot, two accessories, no off-hand with a two-handed weapon. */
-export function equipped(items) {
+/** How many worn pieces and accessories count (the reader's rules.gear), whole and at least 0. */
+export function gearLimits(rules = DEFAULT_RULES) {
+    const limit = (value, fallback) => (Number.isFinite(Number(value)) ? Math.max(0, Math.min(9, Math.round(Number(value)))) : fallback);
+    return { worn: limit(rules?.gear?.worn, 1), accessory: limit(rules?.gear?.accessories, 2) };
+}
+
+const SLOT_NAMES = { weapon: 'weapon', offhand: 'off-hand', armour: 'armour', worn: 'worn piece', accessory: 'accessory' };
+// "only 2 accessories count", "only 1 worn piece counts", "no accessories count".
+function limitText(count, slot) {
+    const word = slot === 'accessory' ? (count === 1 ? 'accessory' : 'accessories') : (count === 1 ? 'worn piece' : 'worn pieces');
+    return count ? `only ${count} ${word} ${count === 1 ? 'counts' : 'count'}` : `no ${word} count`;
+}
+
+/**
+ * The gear that counts: the first equipped item per slot, as many worn pieces and accessories
+ * as the rules allow (one and two by default), no off-hand with a two-handed weapon.
+ * `unused` is every other equipped item with why it does not count, for the Battle tab.
+ */
+export function equipped(items, rules = DEFAULT_RULES) {
+    const limits = gearLimits(rules);
     const worn = (items ?? []).filter(item => item?.equipped && item.slot);
     const first = slot => worn.find(item => item.slot === slot) ?? null;
     const weapon = first('weapon');
-    return {
+    const gear = {
         weapon,
         offhand: weapon?.tags?.includes('two-handed') ? null : first('offhand'),
         armour: first('armour'),
-        accessory: worn.filter(item => item.slot === 'accessory').slice(0, 2),
+        worn: worn.filter(item => item.slot === 'worn').slice(0, limits.worn),
+        accessory: worn.filter(item => item.slot === 'accessory').slice(0, limits.accessory),
     };
+    const counted = new Set([gear.weapon, gear.offhand, gear.armour, ...gear.worn, ...gear.accessory].filter(Boolean));
+    const unused = worn.filter(item => !counted.has(item)).map(item => {
+        let why;
+        if (item.slot === 'offhand' && weapon?.tags?.includes('two-handed') && first('offhand') === item) why = `${weapon.name} is two-handed`;
+        else if (item.slot === 'worn' || item.slot === 'accessory') why = limitText(limits[item.slot], item.slot);
+        else why = `one ${SLOT_NAMES[item.slot]} counts`;
+        return { item, why };
+    });
+    return { ...gear, unused };
+}
+
+/**
+ * What the Battle tab lists under Gear: { counted: [{ name, slot, stats, capped, from }],
+ * unused: [{ name, slot, why }] }. `stats` are what the fight uses (capped by rarity);
+ * `from` is what the inventory says, when it was more.
+ */
+export function gearSummary(items, level, rules = DEFAULT_RULES) {
+    const gear = equipped(items, rules);
+    const counted = [gear.weapon, gear.offhand, gear.armour, ...gear.worn, ...gear.accessory].filter(Boolean).map(item => {
+        const result = capItem(item, level, rules);
+        return { name: item.name, slot: item.slot, stats: result.stats, capped: result.capped, from: result.capped ? { ...item.stats } : null };
+    });
+    return { counted, unused: gear.unused.map(({ item, why }) => ({ name: item.name, slot: item.slot, why })) };
 }
 
 /**
@@ -420,8 +471,8 @@ export function gearBonuses(items, level, rules = DEFAULT_RULES) {
     const totals = Object.fromEntries(ITEM_STATS.map(name => [name, 0]));
     const tags = new Set();
     const capped = [];
-    const gear = equipped(items);
-    for (const item of [gear.weapon, gear.offhand, gear.armour, ...gear.accessory].filter(Boolean)) {
+    const gear = equipped(items, rules);
+    for (const item of [gear.weapon, gear.offhand, gear.armour, ...gear.worn, ...gear.accessory].filter(Boolean)) {
         const result = capItem(item, level, rules);
         for (const [name, value] of Object.entries(result.stats)) totals[name] = (totals[name] ?? 0) + value;
         for (const tag of item.tags ?? []) tags.add(tag);
@@ -698,4 +749,4 @@ export function useItems(inventoryText, used = {}) {
     return lines.join(eol);
 }
 
-export { SLOTS, ITEM_STATS };
+export { SLOTS, SLOT_NAMES, ITEM_STATS };

@@ -179,6 +179,20 @@ export function renderSettings(container, { settings, version = '', status = '',
         commitTerms({ cap: value });
     });
 
+    // Equipment: how many worn pieces and accessories count (rules.gear); 0 to 9 each.
+    const gearSetting = { worn: 1, accessories: 2, ...(current.gear ?? {}) };
+    const gearInput = (id, key, fallback) => {
+        const node = numberInput(id, gearSetting[key], { min: 0, max: 9 });
+        node.addEventListener('change', () => {
+            const value = wholeOrNull(node.value, 0, 9) ?? fallback;
+            node.value = String(value);
+            commit(next => { next.gear = { ...gearSetting, ...(next.gear ?? {}), [key]: value }; });
+        });
+        return node;
+    };
+    const wornCount = gearInput('rpg_battle_gear_worn', 'worn', 1);
+    const accessoryCount = gearInput('rpg_battle_gear_accessories', 'accessories', 2);
+
     const recover = el('input', { attrs: { id: 'rpg_battle_recover', type: 'checkbox' } });
     recover.checked = current.recoverWithTime !== false;
     recover.addEventListener('change', () => commit(next => { next.recoverWithTime = recover.checked; }));
@@ -269,6 +283,10 @@ export function renderSettings(container, { settings, version = '', status = '',
                 tiersRow,
                 singleRow,
                 row('Inventory row', 'The Inventory row that holds your money.', moneyRow, 'rpg_battle_currency_row'),
+                el('div', { className: 'rpg-battle-settings-head', text: 'Equipment' }),
+                el('small', { className: 'rpg-battle-settings-hint', text: 'A fight uses one weapon, one off-hand (none with a two-handed weapon) and one armour, plus these. Anything else marked equipped is listed under Gear in the Battle tab as not counted.' }),
+                row('Worn pieces', 'Helm, gloves, boots, belt…', wornCount, 'rpg_battle_gear_worn'),
+                row('Accessories', 'Rings, amulets, charms…', accessoryCount, 'rpg_battle_gear_accessories'),
                 el('div', { className: 'rpg-battle-settings-head', text: 'Terms' }),
                 el('small', { className: 'rpg-battle-settings-hint', text: 'What your world calls levels and XP. The sheets, the Battle tab and the fight summaries use these words; the numbers stay the same.' }),
                 row('Level name', 'For example Rank, Circle or Soul Class. Empty: Level.', levelName, 'rpg_battle_terms_level'),

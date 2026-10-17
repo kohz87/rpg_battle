@@ -66,7 +66,7 @@ Member = { id, name, role, control: 'auto' | 'command', sheet: Sheet, gear: [Ite
 Item = {                                                  // an inventory row, parsed
   name, qty, category: 'A > B' | '',
   equipped: boolean, rarity: 'common' | … | 'legendary',
-  slot: 'weapon' | 'offhand' | 'armour' | 'accessory' | null,
+  slot: 'weapon' | 'offhand' | 'armour' | 'worn' | 'accessory' | null,
   stats: { ATK?, MATK?, DEF?, MDEF?, HP?, MP?, STR?, …, crit? },
   tags: [string],                                         // range, fire, two-handed…
   effect: { heal?, mp?, cure?: [names], damage?: { amount, element, target: 'one' | 'all' } } | null,  // consumables
@@ -320,7 +320,9 @@ export function capItem(item, level, rules) → { stats, capped: boolean, budget
     // stats scaled down proportionally when their cost exceeds rarityBudget; an item with no
     // stats gets its budget spent on its kind's main stat (weapon → ATK, staff/wand → MATK,
     // armour → DEF, robe → MDEF, accessory → LUK).
-export function equipped(items) → { weapon, offhand, armour, accessory: [two] }   // first equipped per slot
+export function gearLimits(rules) → { worn, accessory }   // rules.gear: how many count (0–9; 1 and 2 by default)
+export function equipped(items, rules) → { weapon, offhand, armour, worn: [], accessory: [], unused: [{ item, why }] }   // first equipped per slot
+export function gearSummary(items, level, rules) → { counted: [{ name, slot, stats, capped, from }], unused: [{ name, slot, why }] }   // the Battle tab's Gear list
 export function gearBonuses(items, level, rules) → { ATK, MATK, DEF, MDEF, HP, MP, STR…, crit, capped: [{ name, from, to }] }
 export function consumables(items) → Item[]                              // rows with an effect (heal 30, mp 20, cure poison, fire 25 all)
 export function formatMoney(amount, currency) → string                   // '1 gold, 3 silver, 4 copper' | '134 coins'
@@ -539,7 +541,9 @@ Rows for `enemiesFromRows` may carry `level` (passed to `projectEnemy`).
 → { update(settings), setSheetConflict(on), setSources(sources) }`: (0.3) **Source of truth**: a
 select per shared area (`#rpg_battle_truth_stats|rolls|items`: Automatic / This extension / The
 other one, `settings.sourceOfTruth = { stats, rolls, items }` of `'auto' | 'mine' | 'theirs'`) with
-"Now: <name>" from `sources` (`.rpg-battle-settings-source`). **Monsters**: `settings.flavour = { enabled,
+"Now: <name>" from `sources` (`.rpg-battle-settings-source`). (0.3.1) **Equipment**:
+`settings.gear = { worn, accessories }` (0–9, `#rpg_battle_gear_worn|accessories`), passed to the rules as
+`rules.gear`. **Monsters**: `settings.flavour = { enabled,
 model: { source: 'chat' } | { source: 'profile', profileId }, maxTokens (100–2000) }` (`profiles`:
 [{ id, name }] or null when Connection Manager is off; a saved profile that is gone shows as
 "(missing profile)"); the on/off switch, the currency (mode, tiers as

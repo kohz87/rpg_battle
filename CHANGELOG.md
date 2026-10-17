@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1
+
+Equipment limits you can see.
+
+- **Worn pieces:** helms, hoods, gloves, gauntlets, bracers, boots, greaves and belts are a slot of their own (`worn`; from the name, a category like `[Equipment > Boots]`, or `slot: worn`), so they no longer take the two accessory places from rings and amulets. A helm or boots in `[Equipment > Armour]` is a worn piece, not the body armour. Singular names count too ("Leather Gauntlet").
+- **How many count:** one worn piece and two accessories by default; **Settings → Equipment** sets each from 0 to 9 (`rules.gear`). Weapon, off-hand and armour stay one each.
+- **Gear in the Battle tab:** what the fight uses, with its stats as capped by rarity ("STR +2 · capped from STR +20"), and a *Not counted* line for anything else marked equipped, with why ("only 2 accessories count", "one weapon counts", "Greatsword is two-handed").
+
 ## 0.3.0
 
 The story and the numbers agree.

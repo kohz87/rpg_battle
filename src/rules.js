@@ -26,6 +26,9 @@ export const DEFAULT_RULES = Object.freeze({
         atkPerStr: 2, matkPerInt: 2,
     },
     checks: { pivot: 5, divisor: 2, min: -3, max: 10 },
+    // Equipped gear that counts beyond one weapon, off-hand and armour: worn pieces (head,
+    // hands, feet, waist) and accessories (rings, amulets…). More equipped is listed, not used.
+    gear: { worn: 1, accessories: 2 },
     attack: {
         hitBase: 75, hitPerPoint: 3, hitMin: 5, hitMax: 95,
         critBase: 3, critPerDex: 0.5, critPerLuk: 1, critMax: 50, critMultiplier: 1.5,

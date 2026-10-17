@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_RULES, rarityBudget } from '../src/rules.js';
 import {
-    addLoot, capItem, consumables, equipped, formatGearEntry, formatMoney, gearBonuses, parseGearEntry, parseInventory, parseMoney,
+    addLoot, capItem, consumables, equipped, formatGearEntry, formatMoney, gearBonuses, gearLimits, gearSummary, parseGearEntry, parseInventory, parseMoney,
     useItems,
 } from '../src/items.js';
 
@@ -174,7 +174,70 @@ test('equipped picks the first per slot, two accessories, and respects two-hande
     assert.equal(gear.armour.name, 'E');
     assert.deepEqual(gear.accessory.map(item => item.name), ['F', 'G']);
     assert.equal(equipped(items.slice(1)).offhand.name, 'C');
-    assert.deepEqual(equipped([]), { weapon: null, offhand: null, armour: null, accessory: [] });
+    assert.deepEqual(equipped([]), { weapon: null, offhand: null, armour: null, worn: [], accessory: [], unused: [] });
+    assert.deepEqual(gear.unused.map(({ item, why }) => [item.name, why]), [
+        ['B', 'one weapon counts'],
+        ['C', 'A is two-handed'],
+        ['H', 'only 2 accessories count'],
+    ]);
+});
+
+test('helms, gloves, boots and belts are worn pieces, a slot of their own', () => {
+    const { items } = parseInventory([
+        '[Equipment > Armour]',
+        'Iron Helm | 1 | equipped',
+        'Chainmail | 1 | equipped',
+        'Kite Shield | 1 | equipped',
+        '[Equipment]',
+        'Leather Gauntlet | 1 | equipped',
+        'Travel Boots | 1 | equipped · uncommon',
+        'Silver Ring | 1 | equipped',
+        '[Gear > Footwear]',
+        'Wading Things | 1 | equipped',
+        '[Keepsakes]',
+        'Plain Band | 1 | slot: worn, equipped',
+    ].join('\n'));
+    const slot = name => byName(items, name).slot;
+    assert.equal(slot('Iron Helm'), 'worn', 'a helm in [Armour] is not the body armour');
+    assert.equal(slot('Chainmail'), 'armour');
+    assert.equal(slot('Kite Shield'), 'offhand');
+    assert.equal(slot('Leather Gauntlet'), 'worn', 'singular names count too');
+    assert.equal(slot('Travel Boots'), 'worn');
+    assert.equal(slot('Silver Ring'), 'accessory');
+    assert.equal(slot('Wading Things'), 'worn', 'from the category');
+    assert.equal(slot('Plain Band'), 'worn', 'from slot: worn');
+    const gear = equipped(items);
+    assert.deepEqual(gear.worn.map(item => item.name), ['Iron Helm']);
+    assert.deepEqual(gear.accessory.map(item => item.name), ['Silver Ring'], 'boots and gloves no longer push rings out');
+    assert.deepEqual(gear.unused.map(({ item, why }) => [item.name, why]), [
+        ['Leather Gauntlet', 'only 1 worn piece counts'],
+        ['Travel Boots', 'only 1 worn piece counts'],
+        ['Wading Things', 'only 1 worn piece counts'],
+        ['Plain Band', 'only 1 worn piece counts'],
+    ]);
+});
+
+test('the reader sets how many worn pieces and accessories count', () => {
+    assert.deepEqual(gearLimits(R), { worn: 1, accessory: 2 });
+    assert.deepEqual(gearLimits({ gear: { worn: 3.4, accessories: 20 } }), { worn: 3, accessory: 9 });
+    assert.deepEqual(gearLimits({ gear: { worn: -1, accessories: 'x' } }), { worn: 0, accessory: 2 });
+    assert.deepEqual(gearLimits({}), { worn: 1, accessory: 2 });
+    const rings = ['Ring A', 'Ring B', 'Ring C', 'Ring D'].map(name => ({ name, slot: 'accessory', equipped: true, rarity: 'common', stats: { LUK: 1 }, tags: [] }));
+    const four = { ...R, gear: { worn: 1, accessories: 4 } };
+    assert.equal(gearBonuses(rings, 5, R).LUK, 2);
+    assert.equal(gearBonuses(rings, 5, four).LUK, 4);
+    const none = equipped(rings, { ...R, gear: { worn: 1, accessories: 0 } });
+    assert.deepEqual(none.accessory, []);
+    assert.equal(none.unused[0].why, 'no accessories count');
+});
+
+test('gearSummary lists what the fight uses, capped, and what it leaves out', () => {
+    const { items } = parseInventory(`${INVENTORY}\n[Equipment > Accessories]\nRing of Giants | 1 | equipped · common · STR +20\nRing B | 1 | equipped\nRing C | 1 | equipped`);
+    const summary = gearSummary(items, 4, R);
+    const giants = summary.counted.find(piece => piece.name === 'Ring of Giants');
+    assert.deepEqual(giants, { name: 'Ring of Giants', slot: 'accessory', stats: { STR: 2 }, capped: true, from: { STR: 20 } });
+    assert.ok(summary.counted.every(piece => piece.name !== 'Ring C'));
+    assert.deepEqual(summary.unused, [{ name: 'Ring C', slot: 'accessory', why: 'only 2 accessories count' }]);
 });
 
 test('gearBonuses sums capped stats of what is equipped and lists the capped items', () => {

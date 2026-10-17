@@ -1164,3 +1164,25 @@ test('idle: the Bestiary fold lists this story\'s creatures with Regenerate, For
     assert.ok($(empty, '.rpg-battle-bestiary-import'));
     assert.match($(empty, '.rpg-battle-fold.is-bestiary .rpg-battle-hint').textContent, /made up when its fight starts/);
 });
+
+test('idle: Gear lists what the fight uses, capped stats, and what does not count', () => {
+    const gear = {
+        counted: [
+            { name: 'Iron Sword', slot: 'weapon', stats: { ATK: 6 }, capped: false, from: null },
+            { name: 'Ring of Giants', slot: 'accessory', stats: { STR: 2 }, capped: true, from: { STR: 20 } },
+            { name: 'Iron Helm', slot: 'worn', stats: { DEF: 4 }, capped: false, from: null },
+        ],
+        unused: [{ name: 'Silver Ring', slot: 'accessory', why: 'only 2 accessories count' }],
+    };
+    let pane = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules, gear });
+    assert.deepEqual(texts(root(pane), '.rpg-battle-gear .rpg-battle-record-name'), ['Iron Sword', 'Ring of Giants', 'Iron Helm']);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-gear .rpg-battle-tag'), ['weapon', 'accessory', 'worn piece']);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-gear .rpg-battle-record-meta'), ['ATK +6', 'STR +2 · capped from STR +20', 'DEF +4']);
+    assert.equal(root(pane).querySelectorAll('.rpg-battle-gear.is-capped').length, 1);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-gear-unused'), ['Not counted: Silver Ring (only 2 accessories count)']);
+    pane = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules, gear: { counted: [], unused: [] } });
+    assert.match(texts(root(pane), '.rpg-battle-section.is-gear .rpg-battle-hint')[0], /Nothing equipped/);
+    assert.equal(root(pane).querySelectorAll('.rpg-battle-gear-unused').length, 0);
+    pane = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules });
+    assert.equal(root(pane).querySelectorAll('.rpg-battle-section.is-gear').length, 0, 'no gear in the view: no section');
+});
