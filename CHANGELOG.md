@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2
+
+- **Settings in sections:** Money, Equipment, Terms, Monsters, Source of truth and Blocks fold, each one line with a summary until opened ("copper / silver / gold", "1 worn · 2 accessories", "Soul Class · Soul Growth · tiers", "Flavour on", "Automatic", "Character · Party · Inventory"); the on/off switches and the Character Sheet notice stay on top. All start closed; which are open is remembered in this browser.
+
 ## 0.3.1
 
 Equipment limits you can see.

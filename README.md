@@ -1,4 +1,4 @@
-# RPG Battle v0.3.1
+# RPG Battle v0.3.2
 
 Turn-based fights for SillyTavern, resolved in code. Press **Start fight**, choose the enemies,
 fight with buttons (**Attack, Skill, Item, Defend, Parley, Flee, Auto**), and the story gets one

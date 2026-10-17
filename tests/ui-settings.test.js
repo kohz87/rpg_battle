@@ -207,3 +207,30 @@ test('Equipment: how many worn pieces and accessories count, whole numbers 0 to 
     worn.dispatch('change');
     assert.equal(worn.value, '1', 'empty goes back to the default');
 });
+
+test('the sections fold, closed, each with a one-line summary that follows the settings', () => {
+    const container = doc.createElement('div');
+    doc.body.appendChild(container);
+    renderSettings(container, { settings: { ...SETTINGS, gear: { worn: 1, accessories: 2 }, terms: { levelName: 'Soul Class', xpName: 'Soul Growth', tiers: { size: 10, numerals: 'roman' }, cap: null } }, onChange: () => {} });
+    const folds = container.querySelectorAll('.rpg-battle-settings-fold');
+    assert.deepEqual(folds.map(node => node.dataset.fold), ['money', 'equipment', 'terms', 'monsters', 'truth', 'blocks']);
+    assert.ok(folds.every(node => node.open === false), 'all start closed');
+    const hint = key => container.querySelector(`.rpg-battle-settings-fold.is-${key} .rpg-battle-settings-fold-hint`).textContent;
+    assert.equal(hint('money'), 'copper / silver / gold');
+    assert.equal(hint('equipment'), '1 worn · 2 accessories');
+    assert.equal(hint('terms'), 'Soul Class · Soul Growth · tiers');
+    assert.equal(hint('monsters'), 'Flavour on');
+    assert.equal(hint('truth'), 'Automatic');
+    assert.equal(hint('blocks'), 'Character · Party · Inventory');
+    // The controls live inside their fold, and a change updates its summary.
+    const accessories = container.querySelector('.rpg-battle-settings-fold.is-equipment #rpg_battle_gear_accessories');
+    accessories.value = '1';
+    accessories.dispatch('change');
+    assert.equal(hint('equipment'), '1 worn · 1 accessory');
+    const truth = container.querySelector('.rpg-battle-settings-fold.is-truth #rpg_battle_truth_stats');
+    truth.value = 'mine';
+    truth.dispatch('change');
+    assert.equal(hint('truth'), '1 chosen by hand');
+    // The switches stay outside the folds.
+    assert.equal(container.querySelector('.rpg-battle-settings-fold #rpg_battle_enabled'), null);
+});

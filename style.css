@@ -1483,3 +1483,61 @@
     color: #d9a441;
     opacity: 0.9;
 }
+
+/* Settings folds: Money, Equipment, Terms, Monsters, Source of truth and Blocks, each one line
+   with a summary until opened. */
+.rpg-battle-settings .rpg-battle-settings-fold {
+    margin: 0 0 0.35rem;
+    border: 1px solid var(--SmartThemeBorderColor, rgba(127, 127, 127, 0.3));
+    border-radius: 8px;
+    min-width: 0;
+}
+
+.rpg-battle-settings .rpg-battle-settings-fold > summary {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    padding: 0.45rem 0.6rem;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+}
+
+.rpg-battle-settings .rpg-battle-settings-fold > summary::-webkit-details-marker {
+    display: none;
+}
+
+.rpg-battle-settings .rpg-battle-settings-fold > summary::after {
+    content: "\f078";
+    margin-left: auto;
+    font-family: "Font Awesome 6 Free";
+    font-weight: 900;
+    font-size: 0.75em;
+    opacity: 0.55;
+    transition: transform 0.15s ease;
+}
+
+.rpg-battle-settings .rpg-battle-settings-fold[open] > summary::after {
+    transform: rotate(180deg);
+}
+
+.rpg-battle-settings .rpg-battle-settings-fold-title {
+    font-weight: 600;
+}
+
+.rpg-battle-settings .rpg-battle-settings-fold-hint {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0.6;
+}
+
+.rpg-battle-settings .rpg-battle-settings-fold > :not(summary) {
+    margin-left: 0.6rem;
+    margin-right: 0.6rem;
+}
+
+.rpg-battle-settings .rpg-battle-settings-fold > :last-child {
+    margin-bottom: 0.6rem;
+}

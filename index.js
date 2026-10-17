@@ -47,7 +47,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { SUITE_ID, announcement, partyMembers, sheetNotice, sources, suiteSignature, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.3.1';
+const VERSION = '0.3.2';
 const SETTINGS_KEY = 'rpgBattle';
 const TAB_ID = 'rpg-battle';
 const PROMPT_KEY = 'rpg_battle';
