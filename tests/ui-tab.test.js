@@ -298,6 +298,21 @@ test('idle: header, bars, stats with checks, skills, party and the main buttons'
     assert.deepEqual(calls.map(call => call.name), ['onSpend', 'onSetup', 'onLearn']);
 });
 
+test('idle: the State words sit quietly under the HP and MP bars', () => {
+    let pane = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules });
+    const state = $(pane, '.rpg-battle-section.is-sheet .rpg-battle-state');
+    assert.equal(state.textContent, 'unhurt');
+    assert.equal(state.tagName.toLowerCase(), 'p');
+    assert.match(state.className, /rpg-battle-hint/);
+    const kids = $(pane, '.rpg-battle-section.is-sheet').children;
+    const index = kids.indexOf(state);
+    assert.equal(kids[index - 1].getAttribute('aria-label'), 'MP', 'right under the MP bar');
+    pane = render({ mode: 'idle', sheet: sheet({ hp: { cur: 15, max: 62 }, mp: { cur: 3, max: 30 }, conditions: [{ name: 'poison', rounds: 2 }] }), skills: [], party: [], rules });
+    assert.equal($(pane, '.rpg-battle-state').textContent, 'badly hurt (bleeding, slow to move) · drained of magic · poisoned');
+    pane = render({ mode: 'idle', sheet: sheet({ hp: { cur: 0, max: 62 } }), skills: [], party: [], rules });
+    assert.equal($(pane, '.rpg-battle-state').textContent, 'down (unconscious or unable to fight)');
+});
+
 test('idle: rests, Use item, Add companion, a companion\'s control and two-click Remove', () => {
     const { handlers, calls } = recorder();
     const party = [{ id: 'astra', name: 'Astra', role: 'companion', control: 'auto', sheet: sheet({ name: 'Astra', level: 3 }), gear: [] }];
@@ -792,4 +807,360 @@ test('the root is put in the pane with replaceChildren, replacing what was there
     renderBattleTab(pane, { mode: 'idle', sheet: sheet(), rules });
     assert.equal(pane.children.length, 1);
     assert.equal(pane.firstElementChild.dataset.mode, 'idle');
+});
+
+// ---------------------------------------------------------------------------
+// The story: wounds, fights it starts, and Story Block's own Character Sheet
+
+test('idle: the story wounds line with Undo; no Undo once the sheets moved on; model text stays text', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    const lines = ['Ren: wound (−29 HP), fell down the ravine.', 'Astra: <b>poisoned</b>, a dart.'];
+    let pane = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules, story: { lines, canUndo: true } }, handlers);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-story-line'), lines);
+    assert.equal(root(pane).querySelectorAll('b').length, 0, 'a cause is never parsed as markup');
+    $(pane, '.rpg-battle-story-undo').click();
+    assert.deepEqual(calls.map(call => call.name), ['onUndoStory']);
+    pane = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules, story: { lines, canUndo: false } }, handlers);
+    assert.equal(texts(root(pane), '.rpg-battle-story-line').length, 2);
+    assert.equal($(pane, '.rpg-battle-story-undo'), null);
+    pane = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules, story: null }, handlers);
+    assert.equal($(pane, '.rpg-battle-story'), null);
+});
+
+test('idle: a fight the story starts is offered: Fight? sends its rows, Not now dismisses it', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    const rows = [{ name: 'Bandit', count: 3, rank: null, role: null, boss: false }, { name: 'Bandit Captain', count: 1, rank: null, role: null, boss: true }];
+    const pane = render({
+        mode: 'idle', sheet: sheet(), skills: [], party: [], rules,
+        encounter: { text: '3 bandit, bandit captain (boss)', label: 'Planned by Story Director: Ambush at the weir.', rows },
+    }, handlers);
+    assert.equal($(pane, '.rpg-battle-encounter-text').textContent, 'A fight is starting: 3 bandit, bandit captain (boss)');
+    assert.match($(pane, '.rpg-battle-encounter-label').textContent, /Ambush at the weir/);
+    assert.equal(buttonByText(pane, 'Fight?'), $(pane, '.rpg-battle-encounter-fight'));
+    $(pane, '.rpg-battle-encounter-fight').click();
+    $(pane, '.rpg-battle-encounter-dismiss').click();
+    assert.deepEqual(calls.map(call => call.name), ['onFightEncounter', 'onDismissEncounter']);
+    assert.deepEqual(calls[0].args[0], rows);
+    assert.notEqual(calls[0].args[0][0], rows[0], 'the handler gets copies');
+    const quiet = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules, encounter: null });
+    assert.equal($(quiet, '.rpg-battle-encounter-text'), null);
+});
+
+test('setup: a story fight pre-fills the rows; the reader can still edit them, and edits survive a redraw', () => {
+    reset();
+    const { handlers, last } = recorder();
+    const prefill = [
+        { name: 'Bandit', count: 3, rank: null, role: null, boss: false },
+        { name: 'Bandit Captain', count: 1, rank: 'D', role: 'brute', boss: true },
+        { name: 'Bog Wight', count: 12, rank: 'nonsense', role: 'wizard', boss: false },
+    ];
+    const view = { mode: 'setup', bestiary: ['Bandit', 'Bandit Captain'], suggestedRank: 'E', prefill, rules };
+    const pane = render(view, handlers);
+    assert.ok($(pane, '.rpg-battle-prefill-hint'));
+    assert.deepEqual($$(pane, '.rpg-battle-enemy-name').map(node => node.value), ['Bandit', 'Bandit Captain', 'Bog Wight']);
+    assert.deepEqual($$(pane, '.rpg-battle-enemy-count').map(node => node.value), ['3', '1', '9']);
+    assert.deepEqual($$(pane, '.rpg-battle-enemy-rank').map(node => node.value), ['', 'D', '']);
+    assert.deepEqual($$(pane, '.rpg-battle-enemy-role').map(node => node.value), ['', 'brute', '']);
+    assert.deepEqual($$(pane, '.rpg-battle-enemy-boss').map(node => node.checked), [false, true, false]);
+    // The Bog Wight is in neither bestiary: tagged new, made up when the fight starts.
+    assert.equal($(pane, '.rpg-battle-setup-summary').textContent, '13 enemies. 1 new, made up from its name when the fight starts.');
+    assert.deepEqual($$(pane, '.rpg-battle-new').map(node => node.hidden), [true, true, false]);
+    assert.deepEqual($$(pane, '.rpg-battle-stake-input').map(node => node.checked), [true, false], 'normal stakes');
+
+    // The reader changes their mind: two bandits, no wight.
+    const count = $$(pane, '.rpg-battle-enemy-count')[0];
+    count.value = '2';
+    count.dispatch('change');
+    $$(pane, '.rpg-battle-remove-row')[2].click();
+    renderBattleTab(pane, view, handlers);
+    assert.deepEqual($$(pane, '.rpg-battle-enemy-name').map(node => node.value), ['Bandit', 'Bandit Captain'], 'the same prefill does not undo the edits');
+    $(pane, '.rpg-battle-begin').click();
+    assert.deepEqual(last('onStart').args[0], {
+        rows: [
+            { name: 'Bandit', count: 2, rank: null, role: null, boss: false },
+            { name: 'Bandit Captain', count: 1, rank: 'D', role: 'brute', boss: true },
+        ],
+        stakes: 'normal',
+    });
+
+    // A different offer starts over; no prefill is the usual empty row.
+    renderBattleTab(pane, { ...view, prefill: [{ name: 'Wolf', count: 2 }] }, handlers);
+    assert.deepEqual($$(pane, '.rpg-battle-enemy-name').map(node => node.value), ['Wolf']);
+    reset();
+    const plain = render({ mode: 'setup', bestiary: [], suggestedRank: 'E', prefill: null, rules });
+    assert.deepEqual($$(plain, '.rpg-battle-enemy-name').map(node => node.value), ['']);
+    assert.equal($(plain, '.rpg-battle-prefill-hint'), null);
+});
+
+test('idle: Story Block\'s Character Sheet notice offers to turn it off, and only when asked', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    const pane = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules, sheetConflict: true }, handlers);
+    assert.match($(pane, '.rpg-battle-notice.is-sheet-conflict').textContent, /Story Block's Character Sheet is also on: two HP values will disagree\./);
+    assert.deepEqual(calls, [], 'nothing happens on its own');
+    $(pane, '.rpg-battle-sheet-off').click();
+    assert.deepEqual(calls.map(call => call.name), ['onDisableStorySheet']);
+    const off = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules, sheetConflict: false });
+    assert.equal($(off, '.rpg-battle-notice.is-sheet-conflict'), null);
+});
+
+test('the story notices render and can be pressed with no handlers at all', () => {
+    reset();
+    for (const view of [
+        { mode: 'idle', sheet: sheet(), rules, story: { lines: ['x'], canUndo: true }, encounter: { text: 'x', rows: [] }, sheetConflict: true },
+        { mode: 'idle', sheet: sheet(), rules, story: { lines: 'not a list' }, encounter: { text: '' } },
+        { mode: 'setup', bestiary: [], suggestedRank: 'E', prefill: 'not a list', rules },
+    ]) {
+        const pane = doc.createElement('div');
+        renderBattleTab(pane, view);
+        for (const node of $$(pane, 'button')) if (!node.disabled) node.click();
+        assert.ok(root(pane));
+    }
+});
+
+// ---------------------------------------------------------------------------
+// Display terms and Edit companion
+
+const SOUL = { ...rules, terms: { levelName: 'Soul Class', xpName: 'Soul Growth', tiers: { size: 10, numerals: 'roman' }, cap: 100 } };
+const POWER = { ...rules, terms: { levelName: 'Soul Power', xpName: 'Power Growth', tiers: null, cap: null } };
+
+test('idle: the level and XP in the reader\'s terms; party rows show the tier', () => {
+    const party = [{ id: 'astra', name: 'Astra', role: 'companion', control: 'auto', sheet: sheet({ name: 'Astra', level: 12 }), gear: [] }];
+    let pane = render({ mode: 'idle', sheet: sheet({ level: 24, xp: 3120 }), skills: [], party, rules: SOUL });
+    assert.equal($(pane, '.rpg-battle-level').textContent, 'Soul Class III (Lv 24)');
+    const xpBar = $$(pane, '.rpg-battle-section.is-sheet [role="progressbar"]')[2];
+    assert.equal(xpBar.getAttribute('aria-label'), 'Soul Growth');
+    assert.equal(xpBar.querySelector('.rpg-battle-bar-name').textContent, 'Soul Growth');
+    assert.equal(xpBar.querySelector('.rpg-battle-bar-value').textContent, '26.34/100');
+    assert.ok(xpBar.classList.contains('is-named'));
+    assert.equal($(pane, '.rpg-battle-member-level').textContent, 'Soul Class II');
+    pane = render({ mode: 'idle', sheet: sheet({ level: 100, xp: 0 }), skills: [], party: [], rules: SOUL });
+    assert.equal($$(pane, '.rpg-battle-section.is-sheet [role="progressbar"]')[2].querySelector('.rpg-battle-bar-value').textContent, 'MAX');
+    pane = render({ mode: 'idle', sheet: sheet(), skills: [], party, rules: POWER });
+    assert.equal($(pane, '.rpg-battle-level').textContent, 'Soul Power 4');
+    assert.equal($(pane, '.rpg-battle-member-level').textContent, 'Soul Power 12');
+    assert.equal($$(pane, '.rpg-battle-section.is-sheet [role="progressbar"]')[2].querySelector('.rpg-battle-bar-value').textContent, `310/${xpToNext(4, rules)}`);
+    pane = render({ mode: 'idle', sheet: sheet(), skills: [], party, rules });
+    assert.equal($(pane, '.rpg-battle-member-level').textContent, 'Lv 12', 'the plain terms as before');
+});
+
+test('idle: Edit opens a small form for a companion; Save sends name, role and control', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    const party = [
+        { id: 'astra', name: 'Astra', role: 'companion', control: 'auto', sheet: sheet({ name: 'Astra' }), gear: [] },
+        { id: 'merrit', name: 'Merrit', role: 'hireling', control: 'command', sheet: sheet({ name: 'Merrit' }), gear: [] },
+    ];
+    const view = { mode: 'idle', sheet: sheet(), skills: [], party, rules };
+    const pane = render(view, handlers);
+    assert.equal($(pane, '.rpg-battle-edit-form'), null);
+    $$(pane, '.rpg-battle-edit-companion')[0].click();
+    assert.ok($$(pane, '.rpg-battle-member')[0].querySelector('.rpg-battle-edit-form'), 'the form opens in Astra\'s row');
+    assert.equal($$(pane, '.rpg-battle-edit-form').length, 1);
+    assert.equal($(pane, '.rpg-battle-edit-name').value, 'Astra');
+    assert.equal($(pane, '.rpg-battle-edit-role').value, 'companion');
+    assert.equal($(pane, '.rpg-battle-edit-control').value, 'auto');
+    assert.equal($$(pane, '.rpg-battle-control').length, 1, 'the row being edited shows the form instead of its buttons');
+
+    const name = $(pane, '.rpg-battle-edit-name');
+    name.value = '';
+    name.dispatch('input');
+    assert.equal($(pane, '.rpg-battle-edit-save').disabled, true, 'a name is needed');
+    name.value = 'Astra the Bold';
+    name.dispatch('input');
+    const role = $(pane, '.rpg-battle-edit-role');
+    role.value = 'mage';
+    role.dispatch('input');
+    const control = $(pane, '.rpg-battle-edit-control');
+    control.value = 'command';
+    control.dispatch('change');
+    // The glue redraws mid-edit: the form and what was typed stay.
+    renderBattleTab(pane, view, handlers);
+    assert.equal($(pane, '.rpg-battle-edit-name').value, 'Astra the Bold');
+    assert.equal($(pane, '.rpg-battle-edit-control').value, 'command');
+    $(pane, '.rpg-battle-edit-save').click();
+    assert.deepEqual(calls.at(-1), { name: 'onEditCompanion', args: ['astra', { name: 'Astra the Bold', role: 'mage', control: 'command' }] });
+    assert.equal($(pane, '.rpg-battle-edit-form'), null, 'closed after Save');
+
+    // Cancel closes without a call; an empty role becomes "companion".
+    $$(pane, '.rpg-battle-edit-companion')[1].click();
+    $(pane, '.rpg-battle-edit-cancel').click();
+    assert.equal($(pane, '.rpg-battle-edit-form'), null);
+    assert.equal(calls.filter(call => call.name === 'onEditCompanion').length, 1);
+    $$(pane, '.rpg-battle-edit-companion')[1].click();
+    const merritRole = $(pane, '.rpg-battle-edit-role');
+    merritRole.value = '   ';
+    merritRole.dispatch('input');
+    $(pane, '.rpg-battle-edit-save').click();
+    assert.deepEqual(calls.at(-1).args, ['merrit', { name: 'Merrit', role: 'companion', control: 'command' }]);
+    // Leaving the idle screen drops a half-done edit.
+    $$(pane, '.rpg-battle-edit-companion')[0].click();
+    render({ mode: 'setup', bestiary: [], suggestedRank: 'E', rules });
+    const back = render(view, handlers);
+    assert.equal($(back, '.rpg-battle-edit-form'), null);
+});
+
+test('setup: with the reader\'s terms the power picker offers their tiers and Start sends a level', () => {
+    reset();
+    const { handlers, last } = recorder();
+    const pane = render({ mode: 'setup', bestiary: ['Goblin'], suggestedRank: 'A', rules: SOUL }, handlers);
+    const power = $(pane, '.rpg-battle-enemy-power');
+    const options = power.querySelectorAll('option');
+    assert.deepEqual(options.map(node => node.value), ['', '1', '11', '21', '31', '41', '51', '61', '71', '81', '91']);
+    assert.equal(options[0].textContent, 'auto (fair: Soul Class III)', 'rank A is level 22');
+    assert.equal(options[3].textContent, 'Soul Class III (fair)');
+    assert.equal(options[10].textContent, 'Soul Class X');
+    assert.equal(power.getAttribute('aria-label'), 'Enemy 1 Soul Class');
+    const name = $(pane, '.rpg-battle-enemy-name');
+    name.value = 'Bog Wight';
+    name.dispatch('input');
+    power.value = '11';
+    power.dispatch('change');
+    $(pane, '.rpg-battle-add-row').click();
+    const second = $$(pane, '.rpg-battle-enemy-row')[1];
+    second.querySelector('.rpg-battle-enemy-name').value = 'Goblin';
+    second.querySelector('.rpg-battle-enemy-name').dispatch('input');
+    $(pane, '.rpg-battle-begin').click();
+    assert.deepEqual(last('onStart').args[0].rows, [
+        { name: 'Bog Wight', count: 1, level: 11, role: null, boss: false },
+        { name: 'Goblin', count: 1, level: null, role: null, boss: false },
+    ]);
+    // Names of their own without tiers: every level up to the cap.
+    reset();
+    const levels = render({ mode: 'setup', bestiary: [], suggestedRank: 'E', rules: { ...POWER, terms: { ...POWER.terms, cap: 30 } } });
+    const picker = $(levels, '.rpg-battle-enemy-power').querySelectorAll('option');
+    assert.equal(picker.length, 31);
+    assert.equal(picker[3].textContent, 'Soul Power 3 (fair)', 'rank E is level 3');
+});
+
+test('setup: a story fight\'s level is kept with the terms and becomes a rank without them', () => {
+    reset();
+    const prefill = [{ name: 'Wolf', count: 3, rank: null, role: null, boss: false, level: 1 }, { name: 'Bandit Captain', count: 1, rank: null, role: null, boss: true, level: 24 }];
+    const { handlers, last } = recorder();
+    let pane = render({ mode: 'setup', bestiary: [], suggestedRank: 'A', prefill, rules: SOUL }, handlers);
+    const pickers = $$(pane, '.rpg-battle-enemy-power');
+    assert.deepEqual(pickers.map(node => node.value), ['1', '24']);
+    assert.equal(pickers[1].querySelectorAll('option').at(-1).textContent, 'Soul Class III (Lv 24)', 'an exact level not among the tiers is offered as itself');
+    $(pane, '.rpg-battle-begin').click();
+    assert.deepEqual(last('onStart').args[0].rows.map(row => row.level), [1, 24]);
+    reset();
+    pane = render({ mode: 'setup', bestiary: [], suggestedRank: 'A', prefill, rules }, handlers);
+    assert.deepEqual($$(pane, '.rpg-battle-enemy-rank').map(node => node.value), ['F', 'A'], 'level 24 → rank A (level 22)');
+    $(pane, '.rpg-battle-begin').click();
+    assert.deepEqual(last('onStart').args[0].rows.map(row => [row.rank, 'level' in row]), [['F', false], ['A', false]]);
+});
+
+test('fight: an enemy\'s power badge in the reader\'s terms', () => {
+    reset();
+    let pane = render({ ...fightView(), rules: SOUL });
+    assert.match(card(pane, 'e1').querySelector('.rpg-battle-badge').textContent, /^Soul Class I · brute$/);
+    pane = render(fightView());
+    assert.match(card(pane, 'e1').querySelector('.rpg-battle-badge').textContent, /^E · brute$/);
+});
+
+test('result: gains in the reader\'s terms, with the level reached', () => {
+    reset();
+    let pane = render({ mode: 'result', result: result(), handoff: '', levelsGained: 1, pointsGained: 4, levelsReached: 5, rules: POWER });
+    assert.deepEqual(texts(root(pane), '.rpg-battle-gains dt'), ['Power Growth', 'Soul Power', 'Points']);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-gains dd'), ['+38 each', '+1 level (Soul Power 5)', '4 to spend']);
+    let span = 0;
+    for (let level = 1; level <= 10; level++) span += xpToNext(level, rules);
+    const gain = Math.round(span * 0.12);
+    const party = result().party.map(member => ({ ...member, level: 4 }));
+    pane = render({ mode: 'result', result: result({ party, xp: { pc: gain, astra: gain } }), handoff: '', levelsGained: 0, pointsGained: 0, rules: SOUL });
+    assert.deepEqual(texts(root(pane), '.rpg-battle-gains dd'), ['+12% each']);
+    pane = render({ mode: 'result', result: result({ party: [{ ...party[0] }, { ...party[1], level: 14 }], xp: { pc: gain, astra: gain } }), handoff: '', rules: SOUL });
+    assert.deepEqual(texts(root(pane), '.rpg-battle-gains dt'), ['Ren Soul Growth', 'Astra Soul Growth'], 'different tiers, different shares');
+});
+
+test('companion: the level picker in the reader\'s terms, up to the cap', () => {
+    reset();
+    const pane = render({ mode: 'companion', presets: [{ id: 'healer', name: 'Healer', points: { INT: 4 }, skills: [] }], level: 24, maxLevel: 34, rules: { ...SOUL, terms: { ...SOUL.terms, cap: 30 } } });
+    const options = $(pane, '.rpg-battle-companion-level').querySelectorAll('option');
+    assert.equal(options.length, 30);
+    assert.equal(options[23].textContent, 'Soul Class III (Lv 24)');
+    assert.match(root(pane).textContent, /You are Soul Class III \(Lv 24\)\./);
+});
+
+// ---------------------------------------------------------------------------
+// Made-up creatures
+
+test('setup: names neither bestiary knows are tagged new as they are typed; a threat shows beside its power', () => {
+    reset();
+    const prefill = [
+        { name: 'Marsh Wolf', count: 3, rank: null, level: 1, role: null, boss: false, threat: 'weak' },
+        { name: 'Wolf', count: 1, rank: null, role: null, boss: false },
+    ];
+    const pane = render({ mode: 'setup', bestiary: ['Wolf'], known: ['Wolf', 'Grey Wolf'], suggestedRank: 'E', prefill, rules });
+    assert.deepEqual($$(pane, '.rpg-battle-new').map(node => node.hidden), [false, true]);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-threat'), ['weak']);
+    assert.equal($(pane, '.rpg-battle-setup-summary').textContent, '4 enemies. 1 new, made up from its name when the fight starts.');
+    const name = $$(pane, '.rpg-battle-enemy-name')[0];
+    name.value = 'grey wolf';
+    name.dispatch('input');
+    assert.equal($$(pane, '.rpg-battle-new')[0].hidden, true, 'an alias is known');
+    assert.equal($(pane, '.rpg-battle-setup-summary').textContent, '4 enemies.');
+});
+
+test('setup: while foes are being prepared Start waits and the summary says so', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    const pane = render({ mode: 'setup', bestiary: [], suggestedRank: 'E', prefill: [{ name: 'Bog Wight', count: 1 }], preparing: ['Bog Wight'], rules }, handlers);
+    assert.equal($(pane, '.rpg-battle-setup-summary').textContent, 'Preparing foes: Bog Wight…');
+    assert.equal($(pane, '.rpg-battle-begin').disabled, true);
+    $(pane, '.rpg-battle-begin').click();
+    assert.equal(calls.filter(call => call.name === 'onStart').length, 0);
+});
+
+test('fight: a foe made up for this fight wears a new badge with its look as the title', () => {
+    reset();
+    const view = fightView();
+    view.fight.combatants[2] = { ...view.fight.combatants[2], name: 'Bog Wight', generated: true, fresh: true, look: 'A drowned knight.' };
+    view.fight.combatants[3] = { ...view.fight.combatants[3], generated: true };
+    const pane = render(view);
+    const wight = card(pane, 'e1');
+    const badge = wight.querySelector('.rpg-battle-badge.is-new');
+    assert.ok(badge);
+    assert.equal(badge.textContent, 'new');
+    assert.equal(badge.title, 'A drowned knight.');
+    assert.equal(wight.querySelector('.rpg-battle-card-name').title, 'A drowned knight.');
+    assert.equal(card(pane, 'e2').querySelector('.rpg-battle-badge.is-new'), null, 'met before: no tag');
+});
+
+test('idle: the Bestiary fold lists this story\'s creatures with Regenerate, Forget (asked twice), Export and Import', () => {
+    reset();
+    const { handlers, calls, last } = recorder();
+    const bestiary = [
+        { name: 'Bog Wight', power: 'Level 12 (rank C)', role: 'brute', template: 'undead', traits: ['armoured', 'slow'], look: 'A drowned knight.', flavoured: true },
+        { name: 'Marsh Wolf', power: 'Level 4 (rank E)', role: 'skirmisher', template: 'beast', traits: ['swift'], look: '', flavoured: false },
+    ];
+    const pane = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules, bestiary }, handlers);
+    const fold = $(pane, '.rpg-battle-fold.is-bestiary');
+    assert.ok(fold);
+    assert.equal(fold.querySelector('.rpg-battle-count').textContent, '2');
+    const rows = $$(pane, '.rpg-battle-creature');
+    assert.deepEqual(rows.map(row => row.dataset.creature), ['Bog Wight', 'Marsh Wolf']);
+    assert.equal(rows[0].querySelector('.rpg-battle-record-meta').textContent, 'Level 12 (rank C) · brute · armoured, slow');
+    assert.equal(rows[0].querySelector('.rpg-battle-creature-look').textContent, 'A drowned knight.');
+    assert.equal(rows[0].querySelector('.rpg-battle-creature-plain'), null);
+    assert.ok(rows[1].querySelector('.rpg-battle-creature-plain'), 'an unflavoured one says so');
+    rows[0].querySelector('.rpg-battle-creature-regenerate').click();
+    assert.deepEqual(last('onRegenerateCreature').args, ['Bog Wight']);
+    $$(pane, '.rpg-battle-creature-forget')[1].click();
+    assert.equal(calls.filter(call => call.name === 'onForgetCreature').length, 0, 'the first click only arms it');
+    const armed = $$(pane, '.rpg-battle-creature-forget')[1];
+    assert.ok(armed.textContent.includes('Click again'));
+    armed.click();
+    assert.deepEqual(last('onForgetCreature').args, ['Marsh Wolf']);
+    $(pane, '.rpg-battle-bestiary-export').click();
+    assert.ok(last('onExportBestiary'));
+    assert.ok($(pane, '.rpg-battle-bestiary-import'));
+    assert.equal($(pane, '.rpg-battle-bestiary-file').hidden, true);
+    // Empty: a hint and Import only.
+    const empty = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules, bestiary: [] });
+    assert.equal($(empty, '.rpg-battle-bestiary-export'), null);
+    assert.ok($(empty, '.rpg-battle-bestiary-import'));
+    assert.match($(empty, '.rpg-battle-fold.is-bestiary .rpg-battle-hint').textContent, /made up when its fight starts/);
 });

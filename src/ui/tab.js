@@ -16,8 +16,19 @@
 //
 // Names, descriptions, log lines and the hand-off come from the model, the sheet or data
 // files the reader edits, so every node is filled through textContent, never innerHTML.
+//
+// Levels and XP are shown in the reader's terms (terms.js): "Soul Class III (Lv 24)" and
+// "Soul Growth 45.20/100" rather than "Level 24" and "XP 310/800", and with terms of their own
+// the enemy power picker offers their tiers (or levels) instead of F–SSS.
+//
+// A foe neither bestiary knows is made up when the fight starts (templates.js): the setup
+// tags its name "new" and says "Preparing foes…" while the glue makes and flavours it, its
+// card in the fight is tagged "new", and the idle screen's Bestiary fold lists this story's
+// creatures with Regenerate and Forget, and Export and Import for the whole list.
 
-import { STATS, RANKS, DEFAULT_RULES, maxHp, maxMp, derive, checkModifiers, xpToNext } from '../rules.js';
+import { STATS, RANKS, DEFAULT_RULES, maxHp, maxMp, derive, checkModifiers } from '../rules.js';
+import { stateWords } from '../narrative.js';
+import { levelLabel, levelTag, levelText, powerOptions, progress, termsOf, tierOf, xpGainText } from '../terms.js';
 
 const ROLES = ['brute', 'skirmisher', 'caster', 'tank', 'support'];
 const SKILL_TYPES = ['physical', 'magic', 'heal', 'buff', 'debuff'];
@@ -143,27 +154,29 @@ const sameName = (a, b) => str(a).toLowerCase().replace(/\s+/g, ' ') === str(b).
  * A labelled meter: "HP [████░░] 58/62". role="progressbar" so a screen reader reads the
  * numbers; the fill width is the only inline style.
  */
-function bar(kind, cur, max, label = kind.toUpperCase()) {
+function bar(kind, cur, max, label = kind.toUpperCase(), { name = kind.toUpperCase(), text = null } = {}) {
     const value = Math.max(0, Math.round(num(cur)));
     const top = Math.max(0, Math.round(num(max)));
     const pct = top > 0 ? Math.min(100, Math.round((value / top) * 100)) : 0;
     const fill = el('span', { className: 'rpg-battle-bar-fill' });
     fill.style.width = `${pct}%`;
     const low = kind === 'hp' && top > 0 && pct <= 25;
+    // A long name ("Soul Growth") gets a wider first column than HP and MP need.
+    const named = name.length > 3 ? ' is-named' : '';
     return el('div', {
-        className: `rpg-battle-bar is-${kind}${low ? ' is-low' : ''}`,
+        className: `rpg-battle-bar is-${kind}${low ? ' is-low' : ''}${named}`,
         attrs: {
             role: 'progressbar',
             'aria-label': label,
             'aria-valuemin': '0',
             'aria-valuemax': String(top),
             'aria-valuenow': String(Math.min(value, top)),
-            'aria-valuetext': `${value} of ${top}`,
+            'aria-valuetext': text ?? `${value} of ${top}`,
         },
     }, [
-        el('span', { className: 'rpg-battle-bar-name', text: kind.toUpperCase(), attrs: { 'aria-hidden': 'true' } }),
+        el('span', { className: 'rpg-battle-bar-name', text: name, attrs: { 'aria-hidden': 'true' } }),
         el('span', { className: 'rpg-battle-bar-track' }, [fill]),
-        el('span', { className: 'rpg-battle-bar-value', text: `${value}/${top}`, attrs: { 'aria-hidden': 'true' } }),
+        el('span', { className: 'rpg-battle-bar-value', text: text ?? `${value}/${top}`, attrs: { 'aria-hidden': 'true' } }),
     ]);
 }
 
@@ -393,7 +406,7 @@ function renderCreate(root, view, handlers) {
                 ? el('div', { className: 'rpg-battle-picks', attrs: { role: 'group', 'aria-label': 'Starter skills' } }, skillButtons)
                 : el('p', { className: 'rpg-battle-hint', text: 'The skill library has no tier-1 skills.' }),
         ]),
-        section('is-preview', [sub('At level 1', 'fa-heart-pulse'), preview]),
+        section('is-preview', [sub(termsOf(rules).custom ? `At ${levelText(1, rules)}` : 'At level 1', 'fa-heart-pulse'), preview]),
         el('div', { className: 'rpg-battle-actions is-end' }, [hint, create]),
     );
     refresh();
@@ -423,14 +436,47 @@ function renderIdle(root, view, handlers) {
         ]));
     }
 
+    // A fight the story has started (the reply's <Encounter>, or one Story Director planned):
+    // offered, never started on its own, so the reader decides whether it is a fight at all.
+    const encounter = view.encounter;
+    if (encounter && str(encounter.text)) {
+        root.append(el('div', { className: 'rpg-battle-notice is-encounter', attrs: { role: 'status' } }, [
+            el('div', { className: 'rpg-battle-notice-text' }, [
+                icon('fa-dragon'),
+                el('span', { className: 'rpg-battle-encounter-text', text: `A fight is starting: ${str(encounter.text)}` }),
+            ]),
+            str(encounter.label) ? el('p', { className: 'rpg-battle-hint rpg-battle-encounter-label', text: str(encounter.label) }) : null,
+            el('div', { className: 'rpg-battle-actions' }, [
+                button('Fight?', 'rpg-battle-primary rpg-battle-encounter-fight', { iconName: 'fa-dragon', onClick: () => emit(handlers, 'onFightEncounter', list(encounter.rows).map(row => ({ ...row }))) }),
+                button('Not now', 'rpg-battle-encounter-dismiss', { iconName: 'fa-xmark', onClick: () => emit(handlers, 'onDismissEncounter') }),
+            ]),
+        ]));
+    }
+
+    // Story Block's own Character Sheet block keeps an HP of its own, written by the model; with
+    // both on, the story reads two HP values that disagree. Only the reader may switch it off.
+    if (view.sheetConflict) {
+        root.append(el('div', { className: 'rpg-battle-notice is-quiet is-sheet-conflict', attrs: { role: 'status' } }, [
+            el('div', { className: 'rpg-battle-notice-text' }, [
+                icon('fa-triangle-exclamation'),
+                el('span', { text: 'Story Block\'s Character Sheet is also on: two HP values will disagree.' }),
+            ]),
+            button('Turn it off', 'rpg-battle-sheet-off', { iconName: 'fa-power-off', onClick: () => emit(handlers, 'onDisableStorySheet') }),
+        ]));
+    }
+
+    const terms = termsOf(rules);
+    const growth = progress(sheet, rules);
     root.append(section('is-sheet', [
         el('div', { className: 'rpg-battle-head' }, [
             el('span', { className: 'rpg-battle-head-name', text: sheet.name ?? '' }),
-            el('span', { className: 'rpg-battle-tag rpg-battle-level', text: `Level ${level}` }),
+            el('span', { className: 'rpg-battle-tag rpg-battle-level', text: levelText(level, rules) }),
         ]),
         bar('hp', sheet.hp?.cur, sheet.hp?.max, 'HP'),
         bar('mp', sheet.mp?.cur, sheet.mp?.max, 'MP'),
-        bar('xp', sheet.xp, xpToNext(level, rules), 'XP to next level'),
+        // The words the model is told to portray, so the reader sees what the story will say.
+        el('p', { className: 'rpg-battle-hint rpg-battle-state', text: stateWords(sheet, rules).text }),
+        bar('xp', growth.cur, growth.max, terms.custom ? terms.xpName : 'XP to next level', { name: terms.xpName, text: growth.capped || terms.tiers ? growth.text : null }),
         chips(sheet.conditions),
     ]));
 
@@ -471,14 +517,15 @@ function renderIdle(root, view, handlers) {
         root.append(section('is-party', [
             sub('Party', 'fa-users', party.length),
             el('ul', { className: 'rpg-battle-records' }, party.map(member => {
-                const item = el('li', { className: 'rpg-battle-record rpg-battle-member' }, [
+                const editing = editDraft?.id === member.id && member.id;
+                const item = el('li', { className: `rpg-battle-record rpg-battle-member${editing ? ' is-editing' : ''}` }, [
                     el('div', { className: 'rpg-battle-record-head' }, [
                         el('span', { className: 'rpg-battle-record-name', text: member.name ?? member.sheet.name ?? '' }),
-                        el('span', { className: 'rpg-battle-tag', text: `Lv ${num(member.sheet.level, 1)}` }),
+                        el('span', { className: 'rpg-battle-tag rpg-battle-member-level', text: levelTag(num(member.sheet.level, 1), rules) }),
                         member.role ? el('span', { className: 'rpg-battle-tag is-quiet', text: member.role }) : null,
                     ]),
                     bar('hp', member.sheet.hp?.cur, member.sheet.hp?.max, `${member.name ?? ''} HP`),
-                    memberControls(member, handlers),
+                    editing ? editForm(member, handlers) : memberControls(member, handlers),
                 ]);
                 if (member.id) item.dataset.memberId = member.id;
                 return item;
@@ -487,6 +534,15 @@ function renderIdle(root, view, handlers) {
     }
 
     if (view.recovered) root.append(el('p', { className: 'rpg-battle-hint rpg-battle-recovered', text: view.recovered }));
+    // What the story's <Wounds> did to the sheets in the latest reply, undoable while that
+    // reply's sheets are still the ones it wrote.
+    const storyLines = list(view.story?.lines).map(str).filter(Boolean);
+    if (storyLines.length) {
+        root.append(el('div', { className: 'rpg-battle-story' }, [
+            el('ul', { className: 'rpg-battle-story-lines' }, storyLines.map(line => el('li', { className: 'rpg-battle-hint rpg-battle-story-line', text: line }))),
+            view.story.canUndo ? button('Undo', 'rpg-battle-story-undo', { iconName: 'fa-rotate-left', title: 'Put the sheets back as they were before these wounds', onClick: () => emit(handlers, 'onUndoStory') }) : null,
+        ]));
+    }
 
     root.append(el('div', { className: 'rpg-battle-actions' }, [
         button('Start fight', 'rpg-battle-primary rpg-battle-start', { iconName: 'fa-dragon', onClick: () => emit(handlers, 'onSetup') }),
@@ -494,6 +550,8 @@ function renderIdle(root, view, handlers) {
         button('Use item', 'rpg-battle-items', { iconName: 'fa-flask', onClick: () => emit(handlers, 'onItems') }),
         button('Add companion', 'rpg-battle-add-companion', { iconName: 'fa-user-plus', onClick: () => emit(handlers, 'onCompanion') }),
     ]));
+    const creatures = list(view.bestiary).filter(entry => entry && str(entry.name));
+    root.append(bestiaryFold(creatures, handlers));
     // HP and MP come back when the story says so: story time heals on its own (with Story
     // Director), and these are for what the clock cannot see.
     root.append(section('is-rest', [
@@ -505,8 +563,73 @@ function renderIdle(root, view, handlers) {
     ]));
 }
 
-// A companion's control mode (tap to switch) and Remove, which asks twice.
+// The creature whose Forget is armed (it asks twice, like Remove).
+let forgetArmed = null;
+
+/**
+ * This story's own creatures (made up for its fights, or imported): power, role, traits and
+ * look, with Regenerate (made again, and flavoured again) and Forget (the name is made up anew
+ * next time); Export and Import for the list as a JSON file.
+ */
+function bestiaryFold(creatures, handlers) {
+    const rows = creatures.map(entry => {
+        const armed = forgetArmed === entry.name;
+        const meta = [str(entry.power), str(entry.role), list(entry.traits).map(str).filter(Boolean).join(', ')].filter(Boolean).join(' · ');
+        const item = el('li', { className: 'rpg-battle-record rpg-battle-creature' }, [
+            el('div', { className: 'rpg-battle-record-head' }, [
+                el('span', { className: 'rpg-battle-record-name', text: str(entry.name) }),
+                str(entry.template) ? el('span', { className: 'rpg-battle-tag is-quiet', text: str(entry.template) }) : null,
+                entry.flavoured ? null : el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-creature-plain', text: 'template', title: 'Not flavoured by the model: it fights as its template' }),
+            ]),
+            meta ? el('div', { className: 'rpg-battle-record-meta', text: meta }) : null,
+            str(entry.look) ? el('p', { className: 'rpg-battle-hint rpg-battle-creature-look', text: str(entry.look) }) : null,
+            el('div', { className: 'rpg-battle-member-actions' }, [
+                button('Regenerate', 'rpg-battle-creature-regenerate', {
+                    iconName: 'fa-rotate',
+                    title: `Make ${str(entry.name)} again from its name`,
+                    onClick: () => { forgetArmed = null; emit(handlers, 'onRegenerateCreature', entry.name); },
+                }),
+                button(armed ? 'Click again to forget' : 'Forget', `rpg-battle-creature-forget${armed ? ' is-armed' : ''}`, {
+                    iconName: 'fa-eraser',
+                    onClick: () => {
+                        if (forgetArmed === entry.name) {
+                            forgetArmed = null;
+                            emit(handlers, 'onForgetCreature', entry.name);
+                        } else {
+                            forgetArmed = entry.name;
+                            rerender();
+                        }
+                    },
+                }),
+            ]),
+        ]);
+        item.dataset.creature = str(entry.name);
+        return item;
+    });
+    // The file picker is hidden behind the Import button; its text goes to the glue as it is.
+    const picker = el('input', { className: 'rpg-battle-bestiary-file', attrs: { type: 'file', accept: '.json,application/json', 'aria-label': 'Bestiary file to import' } });
+    picker.hidden = true;
+    picker.addEventListener('change', () => {
+        const file = picker.files?.[0];
+        if (!file || typeof file.text !== 'function') return;
+        void file.text().then(text => emit(handlers, 'onImportBestiary', text));
+    });
+    return fold('is-bestiary', 'Bestiary', 'fa-book-skull', creatures.length, [
+        rows.length
+            ? el('ul', { className: 'rpg-battle-records' }, rows)
+            : el('p', { className: 'rpg-battle-hint', text: 'No creatures of this story\'s own yet: a name the bestiary does not know is made up when its fight starts, and kept here.' }),
+        el('div', { className: 'rpg-battle-actions' }, [
+            rows.length ? button('Export', 'rpg-battle-bestiary-export', { iconName: 'fa-file-export', title: 'Save this story\'s creatures as a JSON file', onClick: () => emit(handlers, 'onExportBestiary') }) : null,
+            button('Import', 'rpg-battle-bestiary-import', { iconName: 'fa-file-import', title: 'Add creatures from a JSON file', onClick: () => picker.click?.() }),
+            picker,
+        ]),
+    ]);
+}
+
+// A companion's control mode (tap to switch), Edit, and Remove, which asks twice.
 let removeArmed = null;
+// The companion being edited and the form's values, kept across redraws like every draft.
+let editDraft = null;
 
 function memberControls(member, handlers) {
     const command = member.control === 'command';
@@ -529,7 +652,52 @@ function memberControls(member, handlers) {
             }
         },
     });
-    return el('div', { className: 'rpg-battle-member-actions' }, [toggle, remove]);
+    const edit = button('Edit', 'rpg-battle-edit-companion', {
+        iconName: 'fa-pen',
+        title: `Change ${member.name ?? 'this companion'}'s name, role or control`,
+        onClick: () => {
+            removeArmed = null;
+            editDraft = { id: member.id, name: str(member.name ?? member.sheet?.name), role: str(member.role) || 'companion', control: member.control === 'command' ? 'command' : 'auto' };
+            rerender();
+        },
+    });
+    return el('div', { className: 'rpg-battle-member-actions' }, [toggle, edit, remove]);
+}
+
+/**
+ * The small Edit form in a companion's row: name, role and control. Save sends
+ * onEditCompanion(memberId, { name, role, control }); the sheet, stats and gear are untouched.
+ */
+function editForm(member, handlers) {
+    const draft = editDraft;
+    const label = `${member.name ?? 'Companion'}`;
+    const name = el('input', { className: 'text_pole rpg-battle-edit-name', attrs: { type: 'text', maxlength: '40', placeholder: 'Name', 'aria-label': `${label}: name`, autocomplete: 'off' } });
+    name.value = draft.name;
+    const role = el('input', { className: 'text_pole rpg-battle-edit-role', attrs: { type: 'text', maxlength: '30', placeholder: 'companion, hireling, familiar…', 'aria-label': `${label}: role` } });
+    role.value = draft.role;
+    const control = select('rpg-battle-edit-control', `${label}: control`, [['auto', 'Acts on its own'], ['command', 'I command it']], draft.control);
+    const save = button('Save', 'rpg-battle-primary rpg-battle-edit-save', { iconName: 'fa-check' });
+    const sync = () => { save.disabled = !str(draft.name); };
+    name.addEventListener('input', () => { draft.name = name.value; sync(); });
+    role.addEventListener('input', () => { draft.role = role.value; });
+    control.addEventListener('change', () => { draft.control = control.value === 'command' ? 'command' : 'auto'; });
+    save.addEventListener('click', () => {
+        if (save.disabled) return;
+        const payload = { name: str(draft.name), role: str(draft.role) || 'companion', control: draft.control };
+        editDraft = null;
+        emit(handlers, 'onEditCompanion', member.id, payload);
+        rerender();
+    });
+    const cancel = button('Cancel', 'rpg-battle-edit-cancel', { iconName: 'fa-xmark', onClick: () => { editDraft = null; rerender(); } });
+    sync();
+    const field = (text, control) => el('label', { className: 'rpg-battle-field' }, [el('span', { className: 'rpg-battle-field-label', text }), control]);
+    return el('div', { className: 'rpg-battle-edit-form', attrs: { role: 'group', 'aria-label': `Edit ${label}` } }, [
+        field('Name', name),
+        field('Role', role),
+        field('Control', control),
+        el('p', { className: 'rpg-battle-hint', text: 'Their sheet, skills and gear stay as they are.' }),
+        el('div', { className: 'rpg-battle-actions' }, [save, cancel]),
+    ]);
 }
 
 // ---------------------------------------------------------------------------
@@ -589,7 +757,10 @@ function renderCompanion(root, view, handlers) {
     name.value = draft.name;
     const role = el('input', { className: 'text_pole rpg-battle-companion-role', attrs: { type: 'text', maxlength: '30', placeholder: 'companion, hireling, familiar…', 'aria-label': 'Role' } });
     role.value = draft.role;
-    const level = select('rpg-battle-companion-level', 'Level', Array.from({ length: Math.max(1, num(view.maxLevel, 20)) }, (_, i) => [String(i + 1), `Level ${i + 1}`]), String(draft.level));
+    const rules = view.rules ?? DEFAULT_RULES;
+    const terms = termsOf(rules);
+    const top = Math.min(terms.cap, Math.max(1, num(view.maxLevel, 20)));
+    const level = select('rpg-battle-companion-level', terms.levelName, Array.from({ length: top }, (_, i) => [String(i + 1), levelText(i + 1, rules)]), String(Math.min(draft.level, top)));
     const preset = select('rpg-battle-companion-preset', 'Build', presets.map(entry => [entry.id, `${entry.name} — ${list(entry.skills).join(', ')}`]), draft.preset);
     const control = select('rpg-battle-companion-control', 'Control', [['auto', 'Acts on its own'], ['command', 'I command it']], draft.control);
     const gear = el('textarea', { className: 'text_pole rpg-battle-companion-gear', attrs: { rows: '3', placeholder: 'Ashwood Staff (rare) · MATK +7\nTraveller\'s Robe (common) · DEF +2', 'aria-label': 'Equipment, one per line' } });
@@ -617,7 +788,7 @@ function renderCompanion(root, view, handlers) {
         el('p', { className: 'rpg-battle-hint', text: 'Someone the story brought along. They join at the level you pick, built like the preset, and level with you from then on.' }),
         field('Name', name),
         field('Role', role),
-        field('Level', level, `Your level is ${num(view.level, 1)}.`),
+        field(terms.levelName, level, `You are ${levelText(num(view.level, 1), rules)}.`),
         field('Build', preset, 'Spreads their points and gives three starter skills.'),
         field('Control', control),
         field('Equipment', gear, 'Optional, one item per line: name (rarity) · stats. Capped by rarity like yours.'),
@@ -823,14 +994,79 @@ function renderLearn(root, view, handlers) {
 
 let setupDraft = null;
 
-// A new row's rank is blank: a bestiary creature keeps its own rank, anything else gets the fair one.
-const blankRow = () => ({ name: '', count: 1, rank: '', role: '', boss: false });
+// A new row's power is blank: a bestiary creature keeps its own rank, anything else gets the
+// fair one. `rank` is an F–SSS rank; `level` the power picked in the reader's own terms.
+const blankRow = () => ({ name: '', count: 1, rank: '', level: '', role: '', boss: false });
+
+// The level a rank stands for, to place the plain ranks among the reader's tiers.
+const rankLevel = (rank, rules) => num(rules?.ranks?.[rank]?.level, 1);
+
+// A row offered by the story (view.prefill), made safe for the form: any name, a count of
+// 1 to 9, a known rank and role or blank. A power written as a level is kept as a level with
+// the reader's terms, and becomes the rank for that level with the plain ones (F–SSS).
+function prefillRow(row, rules, custom) {
+    const level = num(row?.level, 0) >= 1 ? Math.round(num(row.level)) : null;
+    const rank = RANKS.includes(row?.rank) ? row.rank : '';
+    let powerRank = rank;
+    let powerLevel = '';
+    if (custom) powerLevel = level ? String(level) : rank ? String(rankLevel(rank, rules)) : '';
+    else if (!rank && level) powerRank = RANKS.filter(entry => rules?.ranks?.[entry] && rankLevel(entry, rules) <= level).at(-1) ?? RANKS[0];
+    return {
+        name: str(row?.name),
+        count: Math.min(9, Math.max(1, Math.round(num(row?.count, 1)))),
+        rank: custom ? '' : powerRank,
+        level: powerLevel,
+        role: ROLES.includes(row?.role) ? row.role : '',
+        boss: Boolean(row?.boss),
+        // The story's word for how dangerous it is, shown beside the power it became.
+        threat: str(row?.threat),
+    };
+}
+
+/**
+ * The power picker: F–SSS with the plain terms; with the reader's own, their tiers (or levels)
+ * up to the cap, plus a row's own level when it is not one of them (a story fight "Lv 24").
+ */
+function powerSelect(row, label, { rules, custom, suggested }) {
+    if (!custom) {
+        const node = select('rpg-battle-enemy-rank', `${label} rank`, [['', `auto (fair: ${suggested})`], ...RANKS.map(value => [value, value === suggested ? `${value} (fair)` : value])], row.rank);
+        node.addEventListener('change', () => { row.rank = node.value; });
+        return node;
+    }
+    const fairLevel = rankLevel(suggested, rules);
+    const terms = termsOf(rules);
+    const fairStep = terms.tiers ? tierOf(fairLevel, rules) : fairLevel;
+    const options = powerOptions(rules).map(option => {
+        const step = terms.tiers ? tierOf(option.level, rules) : option.level;
+        return [String(option.level), step === fairStep ? `${option.label} (fair)` : option.label];
+    });
+    if (row.level && !options.some(([value]) => value === String(row.level))) options.push([String(row.level), levelText(num(row.level, 1), rules)]);
+    const node = select('rpg-battle-enemy-rank rpg-battle-enemy-power', `${label} ${terms.levelName}`, [['', `auto (fair: ${levelLabel(fairLevel, rules)})`], ...options], String(row.level ?? ''));
+    node.addEventListener('change', () => { row.level = node.value; });
+    return node;
+}
 
 function renderSetup(root, view, handlers) {
+    const rules = view.rules ?? DEFAULT_RULES;
+    const custom = termsOf(rules).custom;
     const suggested = RANKS.includes(view.suggestedRank) ? view.suggestedRank : RANKS[0];
-    if (!setupDraft) setupDraft = { rows: [blankRow()], stakes: 'normal' };
+    // A fight from the story arrives with its rows filled in; they seed the draft once, and the
+    // reader's edits are kept across redraws. A different offer starts the draft over.
+    const prefill = list(view.prefill).map(row => prefillRow(row, rules, custom)).filter(row => row.name);
+    const prefillKey = prefill.length ? JSON.stringify(prefill) : '';
+    if (!setupDraft || (prefillKey && setupDraft.prefillKey !== prefillKey)) {
+        setupDraft = { rows: prefill.length ? prefill : [blankRow()], stakes: 'normal', prefillKey };
+    }
     const draft = setupDraft;
     const names = list(view.bestiary).map(entry => str(entry?.name ?? entry)).filter(Boolean);
+    // A name neither bestiary knows will be made up when the fight starts. Without `known`
+    // (an older glue) the autocomplete names stand in.
+    const known = new Set([...list(view.known), ...names].map(name => str(name).toLowerCase().replace(/\s+/g, ' ')).filter(Boolean));
+    const isNew = name => {
+        const wanted = str(name).toLowerCase().replace(/\s+/g, ' ');
+        return Boolean(wanted) && !known.has(wanted) && !known.has(wanted.replace(/\s*(?:#?\d+|\b[a-z])$/, ''));
+    };
+    const preparing = list(view.preparing).map(str).filter(Boolean);
     const listId = 'rpg-battle-bestiary';
     const datalist = el('datalist', { attrs: { id: listId } }, names.map(name => option(name)));
 
@@ -838,10 +1074,13 @@ function renderSetup(root, view, handlers) {
     const start = button('Start', 'rpg-battle-primary rpg-battle-begin', {
         iconName: 'fa-dragon',
         onClick: () => {
+            // Not twice while the foes are being prepared.
+            if (start.disabled) return;
+            // With the reader's terms a row carries its power as a level; otherwise as a rank.
             const rows = named().map(row => ({
                 name: str(row.name),
                 count: Math.min(9, Math.max(1, Math.round(num(row.count, 1)))),
-                rank: row.rank || null,
+                ...(custom ? { level: num(row.level, 0) >= 1 ? Math.round(num(row.level)) : null } : { rank: row.rank || null }),
                 role: row.role || null,
                 boss: Boolean(row.boss),
             }));
@@ -852,19 +1091,25 @@ function renderSetup(root, view, handlers) {
     const refresh = () => {
         const rows = named();
         const total = rows.reduce((sum, row) => sum + num(row.count, 1), 0);
-        start.disabled = !rows.length;
-        summary.textContent = rows.length ? `${total} ${total === 1 ? 'enemy' : 'enemies'}.` : 'Name at least one enemy.';
+        start.disabled = !rows.length || preparing.length > 0;
+        const fresh = rows.filter(row => isNew(row.name)).length;
+        summary.textContent = preparing.length
+            ? `Preparing foes: ${preparing.join(', ')}…`
+            : rows.length ? `${total} ${total === 1 ? 'enemy' : 'enemies'}.${fresh ? ` ${fresh} new, made up from ${fresh === 1 ? 'its name' : 'their names'} when the fight starts.` : ''}` : 'Name at least one enemy.';
+        for (const [node, row] of newTags) node.hidden = !isNew(row.name);
     };
+    const newTags = [];
 
     const rowNodes = draft.rows.map((row, index) => {
         const label = `Enemy ${index + 1}`;
         const nameInput = el('input', { className: 'text_pole rpg-battle-enemy-name', attrs: { type: 'text', list: listId, maxlength: '60', placeholder: 'Name (any name works)', 'aria-label': `${label} name`, autocomplete: 'off' } });
         nameInput.value = row.name;
+        const newTag = el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-new', text: 'new', title: 'Not in the bestiary: made up from its name when the fight starts' });
+        newTags.push([newTag, row]);
         nameInput.addEventListener('input', () => { row.name = nameInput.value; refresh(); });
         const count = select('rpg-battle-enemy-count', `${label} count`, Array.from({ length: 9 }, (_, i) => [String(i + 1), `×${i + 1}`]), String(row.count));
         count.addEventListener('change', () => { row.count = Math.min(9, Math.max(1, num(count.value, 1))); refresh(); });
-        const rank = select('rpg-battle-enemy-rank', `${label} rank`, [['', `auto (fair: ${suggested})`], ...RANKS.map(value => [value, value === suggested ? `${value} (fair)` : value])], row.rank);
-        rank.addEventListener('change', () => { row.rank = rank.value; });
+        const rank = powerSelect(row, label, { rules, custom, suggested });
         const role = select('rpg-battle-enemy-role', `${label} role`, [['', 'auto role'], ...ROLES], row.role);
         role.addEventListener('change', () => { row.role = role.value; });
         const boss = el('input', { className: 'rpg-battle-enemy-boss', attrs: { type: 'checkbox', 'aria-label': `${label} is a boss` } });
@@ -880,9 +1125,11 @@ function renderSetup(root, view, handlers) {
             },
         });
         const item = el('li', { className: 'rpg-battle-enemy-row' }, [
-            el('div', { className: 'rpg-battle-enemy-line' }, [nameInput, remove]),
+            el('div', { className: 'rpg-battle-enemy-line' }, [nameInput, newTag, remove]),
             el('div', { className: 'rpg-battle-enemy-line is-options' }, [
-                count, rank, role,
+                count, rank,
+                str(row.threat) ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-threat', text: str(row.threat), title: 'How dangerous the story says it is; the power picker shows what that means for your level' }) : null,
+                role,
                 el('label', { className: 'rpg-battle-check' }, [boss, el('span', { text: 'Boss' })]),
             ]),
         ]);
@@ -911,6 +1158,7 @@ function renderSetup(root, view, handlers) {
     root.append(
         section('is-setup', [
             sub('Enemies', 'fa-skull'),
+            prefillKey ? el('p', { className: 'rpg-battle-hint rpg-battle-prefill-hint', text: 'Filled in from the story. Change anything before you start.' }) : null,
             datalist,
             el('ul', { className: 'rpg-battle-enemy-rows' }, rowNodes),
             el('div', { className: 'rpg-battle-actions' }, [
@@ -960,7 +1208,7 @@ function aimOf(target, { type = null, damages = false } = {}) {
     }
 }
 
-function combatantCard(unit, { turnId, pick, onPick }) {
+function combatantCard(unit, { turnId, pick, onPick, rules = DEFAULT_RULES }) {
     const isEnemy = unit.side === 'enemy';
     const pickable = Boolean(pick && pick.ids.includes(unit.id) && !unit.gone);
     const classes = ['rpg-battle-card', isEnemy ? 'is-enemy' : 'is-party'];
@@ -970,9 +1218,13 @@ function combatantCard(unit, { turnId, pick, onPick }) {
     if (pickable) classes.push('is-pickable');
     const badges = [];
     if (isEnemy) {
-        const rankRole = [unit.rank, unit.role].filter(Boolean).join(' · ');
+        // With the reader's terms an enemy's power is told as theirs ("Soul Class II"), not F–SSS.
+        const power = termsOf(rules).custom && num(unit.level, 0) >= 1 ? levelLabel(unit.level, rules) : unit.rank;
+        const rankRole = [power, unit.role].filter(Boolean).join(' · ');
         if (rankRole) badges.push(el('span', { className: 'rpg-battle-badge', text: rankRole }));
         if (unit.boss) badges.push(el('span', { className: 'rpg-battle-badge is-boss' }, [icon('fa-crown'), el('span', { text: 'boss' })]));
+        // Made up from its name for this fight (templates.js); its look, when the model gave one.
+        if (unit.fresh) badges.push(el('span', { className: 'rpg-battle-badge is-new', text: 'new', title: str(unit.look) || 'Made up from its name for this fight' }));
     } else if (unit.controller === 'auto') {
         badges.push(el('span', { className: 'rpg-battle-badge is-quiet', text: 'auto' }));
     }
@@ -980,7 +1232,7 @@ function combatantCard(unit, { turnId, pick, onPick }) {
     const card = el('li', { className: classes.join(' ') }, [
         el('div', { className: 'rpg-battle-card-head' }, [
             unit.id === turnId ? icon('fa-caret-right') : null,
-            el('span', { className: 'rpg-battle-card-name', text: unit.name ?? '' }),
+            el('span', { className: 'rpg-battle-card-name', text: unit.name ?? '', title: isEnemy && str(unit.look) ? str(unit.look) : undefined }),
             ...badges,
         ]),
         bar('hp', unit.hp?.cur, unit.hp?.max, `${unit.name ?? ''} HP`),
@@ -1053,7 +1305,7 @@ function renderFight(root, view, handlers) {
     };
 
     const pick = ui.pick;
-    const cardOptions = { turnId, pick, onPick: pickTarget };
+    const cardOptions = { turnId, pick, onPick: pickTarget, rules: view.rules ?? DEFAULT_RULES };
     const enemies = units.filter(unit => unit.side === 'enemy');
     const party = units.filter(unit => unit.side !== 'enemy');
 
@@ -1278,25 +1530,34 @@ function renderResult(root, view, handlers) {
     }
 
     // XP, level-ups and points: per member when the glue gives a map, else one line for the PC.
+    // In the reader's terms: "Soul Growth +12%" with tiers (the share of each member's tier).
+    const rules = view.rules ?? DEFAULT_RULES;
+    const terms = termsOf(rules);
     const xp = result.xp && typeof result.xp === 'object' ? result.xp : {};
     const xpRows = [];
-    const xpValues = Object.values(xp).map(value => num(value));
-    if (xpValues.length && xpValues.every(value => value === xpValues[0])) {
-        if (xpValues[0] > 0) xpRows.push(['XP', `+${xpValues[0]}${xpValues.length > 1 ? ' each' : ''}`]);
+    const levelOf = memberId => party.find(member => member.memberId === memberId)?.level;
+    const gains = Object.entries(xp).map(([memberId, value]) => [memberId, num(value), xpGainText(value, levelOf(memberId), rules)]);
+    if (gains.length && gains.every(([, value, text]) => value === gains[0][1] && text === gains[0][2])) {
+        if (gains[0][1] > 0) xpRows.push([terms.xpName, `${gains[0][2]}${gains.length > 1 ? ' each' : ''}`]);
     } else {
-        for (const [memberId, value] of Object.entries(xp)) {
+        for (const [memberId, , text] of gains) {
             const name = party.find(member => member.memberId === memberId)?.name ?? memberId;
-            xpRows.push([`${name} XP`, `+${num(value)}`]);
+            xpRows.push([`${name} ${terms.xpName}`, text]);
         }
     }
+    // Where a member got to, when the glue says (view.levelsReached: number or { memberId: level }).
+    const reached = memberId => {
+        const value = view.levelsReached && typeof view.levelsReached === 'object' ? num(view.levelsReached[memberId], 0) : memberId === 'pc' ? num(view.levelsReached, 0) : 0;
+        return value >= 1 ? ` (${levelText(value, rules)})` : '';
+    };
     const levels = typeof view.levelsGained === 'object' && view.levelsGained ? null : num(view.levelsGained);
     const points = typeof view.pointsGained === 'object' && view.pointsGained ? null : num(view.pointsGained);
-    if (levels) xpRows.push(['Level', `+${levels}${levels === 1 ? ' level' : ' levels'}`]);
+    if (levels) xpRows.push([terms.levelName, `+${levels}${levels === 1 ? ' level' : ' levels'}${reached('pc')}`]);
     if (points) xpRows.push(['Points', `${points} to spend`]);
     for (const member of party) {
         const memberLevels = perMember(view.levelsGained, member.memberId);
         const memberPoints = perMember(view.pointsGained, member.memberId);
-        if (memberLevels) xpRows.push([`${member.name ?? ''}`, `+${memberLevels} ${memberLevels === 1 ? 'level' : 'levels'}${memberPoints ? `, ${memberPoints} points to spend` : ''}`]);
+        if (memberLevels) xpRows.push([`${member.name ?? ''}`, `+${memberLevels} ${memberLevels === 1 ? 'level' : 'levels'}${reached(member.memberId)}${memberPoints ? `, ${memberPoints} points to spend` : ''}`]);
     }
     const xpFacts = facts(xpRows, 'rpg-battle-gains');
     if (xpFacts) root.append(section('is-gains', [sub('Gains', 'fa-arrow-trend-up'), xpFacts]));
@@ -1383,6 +1644,8 @@ export function renderBattleTab(pane, view, handlers = {}) {
     if (mode !== 'companion') companionDraft = null;
     if (mode !== 'items') itemsTarget = null;
     if (mode !== 'idle') removeArmed = null;
+    if (mode !== 'idle') editDraft = null;
+    if (mode !== 'idle') forgetArmed = null;
 
     const root = el('div', { className: `rpg-battle-tab is-${mode || 'none'}` });
     root.dataset.mode = mode;

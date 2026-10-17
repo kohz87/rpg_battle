@@ -121,6 +121,41 @@ export function skillFromTemplate({ name, type, stat, target } = {}, level = 1, 
     };
 }
 
+// What a skill's `effect` may name, and on which side it lands: harm on a foe, help on a friend.
+export const HARMFUL_CONDITIONS = Object.freeze(['poison', 'burn', 'bleed', 'stun', 'slow', 'weaken']);
+export const HELPFUL_CONDITIONS = Object.freeze(['shield', 'regen', 'guard']);
+
+/**
+ * A made-up creature's skill (templates.js) at the level it is fought at: the shape of
+ * skillFromTemplate (power, MP and cooldown by type, target and level), × rules.generated
+ * .skillPower, with no MP for a physical one (the bestiary's monsters pay none either), its
+ * `effect` conditions with the rounds rules.generated.effectRounds gives each (only known
+ * conditions, at most two, on the side the type works on), and a cooldown no shorter than its
+ * spec's (a stun at least rules.generated.stunCooldown). A spec is
+ * { name, type, stat, target, effect: [condition] | { condition: rounds }, cooldown, description }.
+ */
+export function creatureSkill(spec = {}, level = 1, rules = DEFAULT_RULES) {
+    const g = rules.generated ?? DEFAULT_RULES.generated;
+    const base = skillFromTemplate(spec, level, rules);
+    const friendly = base.type === 'heal' || base.type === 'buff';
+    const allowed = friendly ? HELPFUL_CONDITIONS : HARMFUL_CONDITIONS;
+    const wanted = Array.isArray(spec.effect) ? spec.effect : Object.keys(spec.effect ?? {});
+    const names = [...new Set(wanted.map(name => String(name ?? '').toLowerCase()))].filter(name => allowed.includes(name)).slice(0, 2);
+    const effect = names.length ? Object.fromEntries(names.map(name => [name, Math.max(1, Math.round(Number(g.effectRounds?.[name]) || 2))])) : null;
+    // A buff or debuff needs something to apply, or the AI would cast it for nothing.
+    const fallback = base.type === 'buff' || base.type === 'debuff' ? base.effect : null;
+    const ownCooldown = Math.min(6, Math.max(0, Math.round(Number(spec.cooldown) || 0)));
+    const cooldown = Math.max(base.cooldown, ownCooldown, effect?.stun ? g.stunCooldown : 0);
+    return {
+        ...base,
+        power: Math.round(base.power * g.skillPower * 100) / 100,
+        mp: base.type === 'physical' ? 0 : base.mp,
+        cooldown,
+        effect: effect ?? fallback,
+        description: String(spec.description ?? '').trim().slice(0, 160) || `A ${base.type} move of its kind.`,
+    };
+}
+
 /** A skill's power at a mastery level: +masteryPowerPerLevel for each level above 1. */
 export function effectivePower(skill, mastery = 1, rules = DEFAULT_RULES) {
     const level = Math.min(rules.masteryMax, Math.max(1, Math.round(Number(mastery) || 1)));

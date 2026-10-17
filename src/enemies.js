@@ -3,10 +3,15 @@
 //
 // A name not in the bestiary keeps its name and gets its numbers from the row's rank and role,
 // so the story's bog wight stays a bog wight. Every individual varies a little from the seed,
-// and every number comes from the rules object. Pure.
+// and every number comes from the rules object.
+//
+// A world with its own terms (terms.js) picks an enemy's power as a level or a tier instead of
+// F–SSS; that level is placed on the same tuned rank table by interpolating between the two
+// ranks whose levels bracket it (rankRowForLevel), so "Soul Class II" is as hard as the table
+// says a level-11 foe should be, and F–SSS keep working unchanged. Pure.
 
 import { DEFAULT_RULES, RANKS, RARITIES } from './rules.js';
-import { findSkill, skillFromTemplate } from './skills.js';
+import { creatureSkill, findSkill, skillFromTemplate } from './skills.js';
 
 const ROLES = ['brute', 'skirmisher', 'caster', 'tank', 'support'];
 
@@ -125,10 +130,35 @@ export function findCreature(bestiary, name) {
     return null;
 }
 
+/**
+ * The rank table's numbers at any level: { level, hp, attack, defence, xp, rank }, linear
+ * between the two ranks whose levels bracket `level` (rank C is level 10 and B level 15, so a
+ * level-11 foe is a fifth of the way from C to B). Below the lowest rank its numbers; above
+ * the highest, the last step's slope goes on, so a cap past SSS's level still grows. `rank` is
+ * the highest rank at or below the level, for what stays per rank (loot table, money, morale).
+ */
+export function rankRowForLevel(level, rules = DEFAULT_RULES) {
+    const rows = RANKS.filter(rank => rules.ranks?.[rank]).map(rank => ({ rank, ...rules.ranks[rank] })).sort((a, b) => a.level - b.level);
+    const lv = Math.max(1, Math.round(Number(level) || 1));
+    const keys = ['hp', 'attack', 'defence', 'xp'];
+    const blend = (a, b, t) => Object.fromEntries(keys.map(key => [key, a[key] + (b[key] - a[key]) * t]));
+    let below = rows[0];
+    for (const row of rows) if (row.level <= lv) below = row;
+    if (lv <= rows[0].level || rows.length === 1) return { level: lv, ...blend(rows[0], rows[0], 0), rank: rows[0].rank };
+    const index = rows.indexOf(below);
+    const [a, b] = index < rows.length - 1 ? [below, rows[index + 1]] : [rows.at(-2), rows.at(-1)];
+    const t = (lv - a.level) / (b.level - a.level);
+    const out = blend(a, b, t);
+    return { level: lv, ...out, xp: Math.round(out.xp), rank: below.rank };
+}
+
 const vary = (rng, amount) => (rng ? 1 + rng.between(-amount, amount) : 1);
 const round = value => Math.max(0, Math.round(value));
 
+// A bestiary entry's skill is a name (the library, then MONSTER_SKILLS), or for a creature made
+// up on the fly (templates.js) a spec built at the level it is fought at.
 function lookupSkill(name, library, level, rules) {
+    if (name && typeof name === 'object') return { ...creatureSkill(name, level, rules), mastery: 1, cooldownLeft: 0 };
     const found = findSkill(library ?? [], name) ?? findSkill(MONSTER_SKILLS, name);
     const base = found ? structuredClone(found) : skillFromTemplate({ name, type: 'physical', stat: 'STR', target: 'one' }, level, rules);
     return { ...base, mastery: 1, cooldownLeft: 0 };
@@ -136,13 +166,20 @@ function lookupSkill(name, library, level, rules) {
 
 /**
  * A Combatant for an enemy row. A bestiary creature brings its role, skills, morale and loot
- * (its rank too, unless the row gives one); anything else is projected from rank × role.
+ * (its rank too, unless the row gives one); anything else is projected from rank × role. A
+ * row `level` (a power in the reader's terms) wins over both ranks: its numbers come from
+ * rankRowForLevel, and its `rank` is the one at or below that level. A creature made up on the
+ * fly (templates.js) has a `level` of its own instead of a rank, used when the row gives no
+ * power, skill specs instead of names, and its loot table inline; `generated` and `look` go
+ * along onto the Combatant for the Battle tab.
  */
-export function projectEnemy({ name, rank = null, role = null, boss = false } = {}, { bestiary = DEFAULT_BESTIARY, library = [], rules = DEFAULT_RULES, rng = null, id = 'e1' } = {}) {
+export function projectEnemy({ name, rank = null, level: rowLevel = null, role = null, boss = false } = {}, { bestiary = DEFAULT_BESTIARY, library = [], rules = DEFAULT_RULES, rng = null, id = 'e1' } = {}) {
     const entry = findCreature(bestiary, name);
-    const useRank = RANKS.includes(rank) && rules.ranks[rank] ? rank : RANKS.includes(entry?.rank) ? entry.rank : 'F';
+    const ownLevel = !RANKS.includes(rank) && Number(entry?.level) >= 1 ? entry.level : null;
+    const byLevel = Number(rowLevel) >= 1 ? rankRowForLevel(rowLevel, rules) : ownLevel ? rankRowForLevel(ownLevel, rules) : null;
+    const useRank = byLevel ? byLevel.rank : RANKS.includes(rank) && rules.ranks[rank] ? rank : RANKS.includes(entry?.rank) ? entry.rank : 'F';
     const useRole = ROLES.includes(role) ? role : ROLES.includes(entry?.role) ? entry.role : 'brute';
-    const r = rules.ranks[useRank];
+    const r = byLevel ?? rules.ranks[useRank];
     const w = rules.roles[useRole];
     const e = rules.enemy;
     const b = boss ? rules.boss : { hp: 1, attack: 1, defence: 1, xp: 1 };
@@ -167,7 +204,7 @@ export function projectEnemy({ name, rank = null, role = null, boss = false } = 
     const a = rules.attack;
 
     const names = entry?.skills?.length ? [...entry.skills] : [...(ROLE_SKILLS[useRole] ?? [])];
-    if (boss && !names.includes(SIGNATURE[useRole])) names.push(SIGNATURE[useRole]);
+    if (boss && !names.some(skill => (typeof skill === 'string' ? skill : skill?.name) === SIGNATURE[useRole])) names.push(SIGNATURE[useRole]);
     const rankIndex = RANKS.indexOf(useRank);
 
     return {
@@ -194,9 +231,10 @@ export function projectEnemy({ name, rank = null, role = null, boss = false } = 
         talks: typeof entry?.talks === 'boolean' ? entry.talks : useRole === 'caster' || useRole === 'support',
         fleesBelow: boss ? 0 : Number.isFinite(entry?.fleesBelow) ? entry.fleesBelow : e.fleesBelow,
         xp: round(r.xp * b.xp),
-        loot: entry?.loot ?? `rank-${useRank}`,
+        loot: Array.isArray(entry?.loot) ? structuredClone(entry.loot) : entry?.loot ?? `rank-${useRank}`,
         gone: null,
         memberId: null,
+        ...(entry?.generated ? { generated: true, look: String(entry.look ?? '') } : {}),
     };
 }
 
@@ -206,7 +244,8 @@ function bumpRarity(rarity, steps) {
 }
 
 /**
- * What one defeated enemy drops: items from its loot table (or its rank's default table) and
+ * What one defeated enemy drops: items from its loot table (its own rows for a made-up
+ * creature, else the table its id names, or its rank's default table) and
  * money in the smallest currency unit. Luck above the start stat raises drop chances, can lift
  * an equipment drop one rarity, and adds a little money.
  */
@@ -214,7 +253,7 @@ export function rollLoot(enemy, { rng, luck = null, rules = DEFAULT_RULES, table
     const l = rules.loot;
     const lucky = (Number.isFinite(Number(luck)) ? Number(luck) : rules.character.startStat) - rules.character.startStat;
     const rank = RANKS.includes(enemy?.rank) ? enemy.rank : 'F';
-    const table = tables[enemy?.loot] ?? tables[`rank-${rank}`] ?? [];
+    const table = Array.isArray(enemy?.loot) ? enemy.loot : tables[enemy?.loot] ?? tables[`rank-${rank}`] ?? [];
     const rolls = enemy?.boss ? l.bossRolls : 1;
     const items = [];
     for (let roll = 0; roll < rolls; roll++) {

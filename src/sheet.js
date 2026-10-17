@@ -5,10 +5,19 @@
 // The blocks are kept by RPG Battle, so the canonical text is what normally comes back;
 // the parser is still lenient (bold labels, any order, `|` or `,` between fields) because
 // the reader can edit the block by hand and older copies may have been written by a model.
-// It never throws: missing fields get defaults and are listed in `errors`. Pure.
+// It never throws: missing fields get defaults and are listed in `errors`. The State line
+// (narrative.js) is written out for the model and never read back: it follows from HP, MP and
+// conditions, so an edited or missing State line changes nothing.
+//
+// The level line speaks the reader's terms (terms.js): `Soul Class: III (Lv 24) | Soul Growth:
+// 45.20/100 | Points: 2`, or `Level: 4 | XP: 310/800 | Points: 2` with the plain ones. The
+// exact level is always in it, so the parsers read it back from the canonical form, from any
+// terms form (with or without the colon after the level name) and from older blocks. Pure.
 
 import { DEFAULT_RULES, STATS, checkModifiers, maxHp, maxMp, xpToNext } from './rules.js';
 import { formatGearEntry, gearBonuses, parseGearEntry } from './items.js';
+import { stateWords } from './narrative.js';
+import { maxLevel, numeral as numeralFor, parseLevelLabel, progress, termsOf, xpFromProgress } from './terms.js';
 
 // Condition names a fight resolves; anything else on a sheet (exhausted, cursed) is story
 // the fight cannot see, so a result never clears it. A written "poisoned" counts as poison.
@@ -27,10 +36,32 @@ const LABELS = {
     equipped: 'equipped', equipment: 'equipped', gear: 'equipped',
     ...Object.fromEntries(STATS.map(stat => [stat.toLowerCase(), stat])),
 };
-const LABEL_PATTERN = new RegExp(
-    `(?:^|[|,;]|\\s)\\s*(${Object.keys(LABELS).sort((a, b) => b.length - a.length).map(label => label.replace(/ /g, '\\s+')).join('|')})\\s*:`,
-    'gi',
-);
+const escapeRegExp = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// The labels with the reader's level and XP terms added ("soul class" → level), built once
+// per pair of terms. A term never takes over another field's label (a world that calls its
+// levels "Points" keeps Points as points).
+const labelCache = new Map();
+
+function labelsFor(rules) {
+    const terms = termsOf(rules);
+    const key = `${terms.levelName}|${terms.xpName}`;
+    if (labelCache.has(key)) return labelCache.get(key);
+    const labels = { ...LABELS };
+    for (const [term, field] of [[terms.levelName, 'level'], [terms.xpName, 'xp']]) {
+        const label = term.toLowerCase().replace(/\s+/g, ' ');
+        if (!(label in labels)) labels[label] = field;
+    }
+    const pattern = new RegExp(
+        `(?:^|[|,;]|\\s)\\s*(${Object.keys(labels).sort((a, b) => b.length - a.length).map(label => escapeRegExp(label).replace(/ /g, '\\s+')).join('|')})\\s*:`,
+        'gi',
+    );
+    // "Soul Class III (Lv 24)" written without a colon is still the level field.
+    const bare = new RegExp(`(^|\\|)\\s*(${escapeRegExp(terms.levelName).replace(/ /g, '\\s+')})\\s+(?=[^:|]*\\blv\\.?\\s*\\d)`, 'gi');
+    const entry = { labels, pattern, bare };
+    labelCache.set(key, entry);
+    return entry;
+}
 
 const int = value => {
     const match = String(value ?? '').match(/-?\d+/);
@@ -68,11 +99,12 @@ function stripMarkup(line) {
 }
 
 /** `Label: value` fields of one line, wherever the labels are and whatever separates them. */
-function fieldsOf(line) {
-    const text = stripMarkup(line);
+function fieldsOf(line, rules) {
+    const { labels, pattern, bare } = labelsFor(rules);
+    const text = stripMarkup(line).replace(bare, '$1 $2: ');
     const marks = [];
-    for (const match of text.matchAll(LABEL_PATTERN)) {
-        marks.push({ field: LABELS[match[1].toLowerCase().replace(/\s+/g, ' ')], start: match.index, valueStart: match.index + match[0].length });
+    for (const match of text.matchAll(pattern)) {
+        marks.push({ field: labels[match[1].toLowerCase().replace(/\s+/g, ' ')], start: match.index, valueStart: match.index + match[0].length });
     }
     return marks.map((mark, i) => ({
         field: mark.field,
@@ -116,35 +148,58 @@ function parseConditions(value) {
 }
 
 /**
+ * The level and XP of a level line written in terms these rules do not know (the reader
+ * changed or turned off their terms since): the line with the Points field is always
+ * `<level name>: <level> | <xp name>: <progress> | Points: n`, so its first two segments are
+ * taken as the level and the XP. "(Lv 24)" in the first one gives the exact level.
+ */
+function levelLineFields(lines, found) {
+    for (const line of lines) {
+        const segments = stripMarkup(line).split('|').map(part => part.trim());
+        if (segments.length < 2 || !segments.some(part => /^points\s*:/i.test(part)) || /^points\s*:/i.test(segments[0])) continue;
+        const valueOf = part => (part.includes(':') ? part.slice(part.indexOf(':') + 1).trim() : part);
+        const lv = segments[0].match(/\(\s*lv\.?\s*(\d+)\s*\)/i)?.[1] ?? int(valueOf(segments[0]));
+        if (lv === null || lv === undefined) return {};
+        const out = { level: String(lv) };
+        if (!('xp' in found) && segments[1].includes(':') && !/^points\s*:/i.test(segments[1])) out.xp = valueOf(segments[1]);
+        return out;
+    }
+    return {};
+}
+
+/**
  * A sheet from the lines of one block or Party section; `found` also carries the fields a
  * caller handles itself (a Party section's Equipped line).
  */
 function sheetFromLines(lines, rules, { name: givenName = null, label = 'Character' } = {}) {
     const found = {};
     for (const line of lines) {
-        for (const { field, value } of fieldsOf(line)) {
+        for (const { field, value } of fieldsOf(line, rules)) {
             // The first value wins: a repeated field is more likely a stray copy than a fix.
             if (!(field in found)) found[field] = value;
         }
     }
+    if (!('level' in found)) Object.assign(found, levelLineFields(lines, found));
     const errors = [];
     const missing = (what, fallback) => errors.push(`${label}: no ${what}, using ${fallback}.`);
     const name = (givenName ?? found.name ?? '').trim();
     if (!name) missing('Name', 'an empty name');
-    let level = int(found.level);
+    // "III (Lv 24)", "4", "Soul Class III": the exact level when written, else what the terms say.
+    let level = 'level' in found ? parseLevelLabel(found.level, rules) ?? int(found.level) : null;
     if (level === null || level < 1) {
         if ('level' in found) errors.push(`${label}: Level "${found.level}" is not a number, using 1.`);
         else missing('Level', '1');
         level = 1;
     }
-    level = Math.min(level, rules.character.maxLevel);
+    level = Math.min(level, maxLevel(rules));
     const stats = {};
     for (const stat of STATS) {
         const value = int(found[stat]);
         if (value === null) missing(stat, String(rules.character.startStat));
         stats[stat] = value === null ? rules.character.startStat : Math.max(0, value);
     }
-    const xp = Math.max(0, int(String(found.xp ?? '').split('/')[0]) ?? 0);
+    // XP within the level, or a tier's share ("45.20/100") turned back into XP, or MAX at the cap.
+    const xp = level >= maxLevel(rules) ? 0 : Math.max(0, xpFromProgress(found.xp ?? '', level, rules));
     const points = Math.max(0, int(found.points) ?? 0);
     const pool = (field, max) => {
         const pair = parsePair(found[field]);
@@ -169,17 +224,19 @@ function sheetFromLines(lines, rules, { name: givenName = null, label = 'Charact
     return { sheet, errors, found };
 }
 
+// Tag lines go, and so does the State line: it is derived, and its free words (a condition
+// written by hand may hold anything) must not be mistaken for fields.
 function blockLines(text) {
     return String(text ?? '')
         .split(/\r?\n/)
-        .filter(line => !/^\s*<\/?[A-Za-z][\w-]*>\s*$/.test(line));
+        .filter(line => !/^\s*<\/?[A-Za-z][\w-]*>\s*$/.test(line) && !/^state\s*:/i.test(stripMarkup(line)));
 }
 
 /** The Character block's text as a Sheet; never throws. */
 export function parseCharacter(text, rules = DEFAULT_RULES) {
     const r = rulesOf(rules);
     const lines = blockLines(text);
-    if (!lines.some(line => fieldsOf(line).length)) return { sheet: null, errors: ['Character: no fields found.'] };
+    if (!lines.some(line => fieldsOf(line, r).length)) return { sheet: null, errors: ['Character: no fields found.'] };
     const { sheet, errors } = sheetFromLines(lines, r);
     return { sheet, errors };
 }
@@ -193,6 +250,21 @@ export function slug(name) {
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '');
     return text || 'member';
+}
+
+/**
+ * The ids parseParty gives members with these names, in order: the slug of the name, "-2",
+ * "-3"… for a repeat, never 'pc' (the Character's id in a fight). An id follows the name, so
+ * a renamed member gets a new id; whoever renames must carry what is kept by id along.
+ */
+export function memberIds(names) {
+    const taken = new Set(['pc']);
+    return (names ?? []).map(name => {
+        let id = slug(name);
+        for (let n = 2; taken.has(id); n += 1) id = `${slug(name)}-${n}`;
+        taken.add(id);
+        return id;
+    });
 }
 
 function parseHeading(text) {
@@ -218,8 +290,6 @@ export function parseParty(text, rules = DEFAULT_RULES) {
     }
     const members = [];
     const errors = [];
-    // 'pc' is the Character's id in a fight, so no companion may take it.
-    const taken = new Set(['pc']);
     for (const section of sections) {
         const heading = parseHeading(section.heading);
         if (!heading.name) {
@@ -241,11 +311,10 @@ export function parseParty(text, rules = DEFAULT_RULES) {
             if (!/\d\s*(?:\/|of)\s*\d/.test(found.hp ?? '')) sheet.hp = { cur: Math.min(int(found.hp) ?? full.hp.max, full.hp.max), max: full.hp.max };
             if (!/\d\s*(?:\/|of)\s*\d/.test(found.mp ?? '')) sheet.mp = { cur: Math.min(int(found.mp) ?? full.mp.max, full.mp.max), max: full.mp.max };
         }
-        let id = slug(heading.name);
-        for (let n = 2; taken.has(id); n += 1) id = `${slug(heading.name)}-${n}`;
-        taken.add(id);
-        members.push({ id, name: heading.name, role: heading.role || 'companion', control, sheet, gear });
+        members.push({ id: null, name: heading.name, role: heading.role || 'companion', control, sheet, gear });
     }
+    const ids = memberIds(members.map(member => member.name));
+    members.forEach((member, index) => { member.id = ids[index]; });
     return { members, errors };
 }
 
@@ -266,15 +335,30 @@ function statsLine(sheet) {
     return STATS.map(stat => `${stat}: ${sheet.stats?.[stat] ?? 0}`).join(' | ');
 }
 
+// `Level: 4 | XP: 310/800 | Points: 2`, in the reader's terms. With tiers the level field
+// is the tier and the exact level (`Soul Class: III (Lv 24)`), with a colon so Story Block's
+// Fields display reads it as the level field. XP shows MAX at the cap.
 function levelLine(sheet, rules) {
-    return `Level: ${sheet.level} | XP: ${sheet.xp}/${xpToNext(sheet.level, rules)} | Points: ${sheet.points}`;
+    const terms = termsOf(rules);
+    const level = terms.tiers ? `${levelLabelValue(sheet.level, rules)} (Lv ${sheet.level})` : String(sheet.level);
+    return `${terms.levelName}: ${level} | ${terms.xpName}: ${progress(sheet, rules).text} | Points: ${sheet.points}`;
+}
+
+// The tier part of a level label ("III" of "Soul Class III").
+function levelLabelValue(level, rules) {
+    const terms = termsOf(rules);
+    return numeralFor(Math.ceil(Math.min(level, terms.cap) / terms.tiers.size), terms.tiers.numerals);
 }
 
 function poolsLine(sheet) {
     return `HP: ${sheet.hp.cur}/${sheet.hp.max} | MP: ${sheet.mp.cur}/${sheet.mp.max}`;
 }
 
-/** The canonical Character block text (DESIGN §3.1), Checks worked out from the stats. */
+function stateLine(sheet, rules) {
+    return `State: ${stateWords(sheet, rules).text}`;
+}
+
+/** The canonical Character block text (DESIGN §3.1), Checks and State worked out by code. */
 export function formatCharacter(sheet, rules = DEFAULT_RULES) {
     const r = rulesOf(rules);
     const checks = checkModifiers(sheet.stats, r);
@@ -284,6 +368,7 @@ export function formatCharacter(sheet, rules = DEFAULT_RULES) {
         poolsLine(sheet),
         statsLine(sheet),
         `Checks: ${STATS.map(stat => `${stat} ${signed(checks[stat])}`).join(' | ')}`,
+        stateLine(sheet, r),
         skillsLine(sheet),
         `Conditions: ${conditionsText(sheet)}`,
     ].join('\n');
@@ -291,7 +376,8 @@ export function formatCharacter(sheet, rules = DEFAULT_RULES) {
 
 /**
  * The canonical Party block text: one `## Name — role | control: auto` section per member
- * with the Character block's lines (no Checks: those are for the reader's own rolls), a
+ * with the Character block's lines (no Checks: those are for the reader's own rolls; State
+ * right under HP/MP, so each companion's numbers and how to play them sit together), a
  * Conditions line only when there are any and an Equipped line only when there is gear.
  */
 export function formatParty(members, rules = DEFAULT_RULES) {
@@ -302,6 +388,7 @@ export function formatParty(members, rules = DEFAULT_RULES) {
             `## ${member.name ?? sheet.name} — ${member.role || 'companion'} | control: ${member.control === 'command' ? 'command' : 'auto'}`,
             levelLine(sheet, r),
             poolsLine(sheet),
+            stateLine(sheet, r),
             statsLine(sheet),
             skillsLine(sheet),
         ];
@@ -405,14 +492,17 @@ export function applyResult(sheet, memberId, result, rules = DEFAULT_RULES) {
     }
 
     let levelsGained = 0;
+    const cap = maxLevel(r);
     next.xp += Math.max(0, Math.round(Number(result?.xp?.[memberId]) || 0));
-    while (next.level < r.character.maxLevel && next.xp >= xpToNext(next.level, r)) {
+    while (next.level < cap && next.xp >= xpToNext(next.level, r)) {
         const before = { stats: next.stats, level: next.level };
         next.xp -= xpToNext(next.level, r);
         next.level += 1;
         levelsGained += 1;
         growPools(next, before, r);
     }
+    // XP stops at the cap: the sheet shows MAX, and nothing piles up for a later, higher cap.
+    if (next.level >= cap) next.xp = 0;
     const pointsGained = levelsGained * r.character.pointsPerLevel;
     next.points += pointsGained;
 

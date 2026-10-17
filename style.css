@@ -154,6 +154,12 @@
     overflow-wrap: anywhere;
 }
 
+/* The State line's words under the bars: quiet, since the bars already say it in numbers. */
+.rpg-battle-tab .rpg-battle-state {
+    margin: 0;
+    font-style: italic;
+}
+
 .rpg-battle-tab .rpg-battle-empty {
     padding: 0.5rem 0;
     opacity: 0.7;
@@ -374,6 +380,53 @@
     align-self: stretch;
 }
 
+/* A notice about the setup rather than the story: there, but not asking for attention. */
+.rpg-battle-tab .rpg-battle-notice.is-quiet {
+    border-color: var(--rb-border);
+    background: var(--rb-tint);
+}
+
+.rpg-battle-tab .rpg-battle-notice.is-quiet .rpg-battle-notice-text > i {
+    color: inherit;
+    opacity: 0.7;
+}
+
+.rpg-battle-tab .rpg-battle-notice .rpg-battle-actions {
+    margin: 0;
+}
+
+/* What the story's <Wounds> did in the latest reply, with its Undo. */
+.rpg-battle-tab .rpg-battle-story {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem 0.6rem;
+}
+
+.rpg-battle-tab .rpg-battle-story-lines {
+    flex: 1 1 14rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.rpg-battle-tab .rpg-battle-story-line {
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+/* The buttons inside a toast (Undo, Fight): toasts are outside the tab, so they get their own size. */
+.rpg-battle-toast-actions {
+    margin-top: 0.35rem;
+}
+
+.rpg-battle-toast-actions .menu_button {
+    display: inline-flex;
+    width: auto;
+    margin: 0;
+    padding: 0.2rem 0.7rem;
+}
+
 /* The hand-off: model-bound text, shown quietly and exactly as it will be sent. */
 .rpg-battle-tab .rpg-battle-handoff {
     margin: 0;
@@ -417,6 +470,19 @@
     font-weight: 600;
     letter-spacing: 0.04em;
     opacity: 0.6;
+}
+
+/* A world's own XP name ("Soul Growth") needs more room than "HP"; it is cut short, never wrapped. */
+.rpg-battle-tab .rpg-battle-bar.is-named {
+    grid-template-columns: minmax(1.8rem, max-content) minmax(3rem, 1fr) auto;
+}
+
+.rpg-battle-tab .rpg-battle-bar.is-named .rpg-battle-bar-name {
+    max-width: 8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    letter-spacing: 0;
 }
 
 .rpg-battle-tab .rpg-battle-bar-track {
@@ -498,6 +564,12 @@
 
 .rpg-battle-tab .rpg-battle-badge.is-gone {
     opacity: 0.8;
+}
+
+/* A foe made up from its name for this fight. */
+.rpg-battle-tab .rpg-battle-badge.is-new {
+    border-color: color-mix(in srgb, var(--rb-accent) 60%, transparent);
+    color: var(--rb-accent);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -809,6 +881,22 @@
 
 .rpg-battle-tab .rpg-battle-enemy-name {
     flex: 1 1 auto;
+}
+
+.rpg-battle-tab .rpg-battle-enemy-line .rpg-battle-new {
+    flex: none;
+    color: var(--rb-accent);
+    opacity: 0.9;
+}
+
+.rpg-battle-tab .rpg-battle-enemy-line .rpg-battle-threat {
+    flex: none;
+}
+
+/* The Bestiary fold: this story's own creatures. */
+.rpg-battle-tab .rpg-battle-creature-look {
+    margin: 0.15rem 0 0.3rem;
+    font-style: italic;
 }
 
 .rpg-battle-tab .rpg-battle-enemy-line.is-options .rpg-battle-select {
@@ -1356,4 +1444,36 @@
 .rpg-battle-settings .rpg-battle-version {
     font-weight: 400;
     opacity: 0.6;
+}
+
+.rpg-battle-settings .rpg-battle-settings-conflict {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 0.6rem;
+}
+
+.rpg-battle-settings .rpg-battle-settings-conflict[hidden] {
+    display: none;
+}
+
+.rpg-battle-settings .rpg-battle-settings-sheet-off {
+    width: auto;
+    margin: 0;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Edit companion                                                              */
+
+.rpg-battle-tab .rpg-battle-edit-form {
+    display: grid;
+    gap: 0.4rem;
+    margin-top: 0.35rem;
+    padding-top: 0.4rem;
+    border-top: 1px dashed var(--SmartThemeBorderColor, rgba(127, 127, 127, 0.35));
+}
+
+.rpg-battle-tab .rpg-battle-edit-form .text_pole {
+    width: 100%;
+    margin: 0;
 }
