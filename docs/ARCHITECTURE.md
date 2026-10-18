@@ -618,7 +618,7 @@ other modes, and a pane's events redraw that pane (the other tab may have drawn 
 | mode (0.4) | data | handlers |
 |---|---|---|
 | `create` | `{ persona, importing, rules }`: stats only, no skills | `onCreate({ name, stats })`, `onImportParty(text)`, `onConfirmImport()`, `onCancelImport()` |
-| `idle` | `{ chatId, sheet, checks, skills (with aside), party: [Member & { skills, gearSummary, dossier }], gear, giveable, autoSpend, gameOver, importing, pending, offers: [{ key, kind, text, accept, note, confirm }], recovered, story, sheetConflict, bestiary, rules }`: the cards (`details.rpg-battle-member-card`, yours `.is-you` open; open state per chat and member) | `onSpend(id)`, `onSetSkillActive(id, name, active)`, `onGiveItem(id, name)`, `onTakeBack(id, name)`, `onOpenDossier(id)`, `onSetControl`, `onEditCompanion`, `onRemoveCompanion`, `onStartOver({ keepCompanions })`, `onAcceptOffer(key)`, `onDismissOffer(key)`, `onItems()`, `onExportParty()`, `onImportParty(text)`, `onUndoStory()`, `onReturn()`, the Bestiary's |
+| `idle` | `{ chatId, sheet, checks, skills (with aside), party: [Member & { skills, gearSummary, combat, dossier }], gear, combat, giveable, autoSpend, gameOver, importing, pending, offers: [{ key, kind, text, accept, note, confirm }], recovered, story, sheetConflict, bestiary, rules }`: the cards (`details.rpg-battle-member-card`, yours `.is-you` open; open state per chat and member) | `onSpend(id)`, `onSetSkillActive(id, name, active)`, `onGiveItem(id, name)`, `onTakeBack(id, name)`, `onOpenDossier(id)`, `onSetControl`, `onEditCompanion`, `onRemoveCompanion`, `onStartOver({ keepCompanions })`, `onAcceptOffer(key)`, `onDismissOffer(key)`, `onItems()`, `onExportParty()`, `onImportParty(text)`, `onUndoStory()`, `onReturn()`, the Bestiary's |
 | `spend` | `{ sheet, memberId, rules }` | `onConfirmSpend(allocation, memberId)`, `onBack()` |
 | `learn` | `{ sheet, memberId, library, prefill: { name, words, type, stat, target, element, free } \| null, rules }`: at the cap a select asks who sits out | `onConfirmLearn({ name, fromLibrary?, template?, setAside?, memberId? })`, `onBack()` |
 | `companion` | `{ level, maxLevel, prefill: { name, role, level, focus, npcId, summary }, kit: { key, status: 'working' \| 'ready', skills, note }, npcs, rules }` | `onAddCompanion({ name, role, control, level, focus, skills: [spec], gearLines, npcId })`, `onGenerateKit(who)`, `onBack()` |
@@ -662,6 +662,7 @@ SillyTavern's theme variables (`--SmartThemeBodyColor`, `--SmartThemeBorderColor
 export function combatantFromSheet(sheet, { memberId, controller, gear, items, library, rules }) → Combatant
     // stats + gear (capped by items.gearBonuses), max HP/MP with gear, current HP/MP from the sheet,
     // skills resolved, consumables from `items`, `capped` (the items scaled down).
+export function combatNumbers(sheet, { gear, rules }) → { attack, magic, defence, mdef, crit, hit, dodge, foe, stats }   // the Party card's combat line (0.5.13)
 export function enemiesFromRows(rows, { bestiary, library, rules, rng }) → Combatant[]
     // ids e1, e2…; several of a kind lettered "Goblin A", "Goblin B".
 ```

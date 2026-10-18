@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.13
+
+- **Combat numbers on the Party card.** Each member's card shows the numbers a fight uses, under the stats and with their gear: Attack, Magic, Defence, M.Def, Hit, Dodge and Crit. Hit and Dodge are against a typical foe of the member's level (DEX and AGI 5 + 0.6 × level), since the real chance depends on the attacker. Hovering a number shows where it comes from, including what gear adds after the level cap. Nothing about fights changed.
+
 ## 0.5.12
 
 - **Diagnostics: what the next reply will get.** "Last reply sent" and what was injected with it are kept for the session only, so after a fight and a browser restart they were empty, and nothing showed what the waiting hand-off would send. A **Next reply will get** line is now worked out from the saved chat as the interceptor would (without changing anything): the hand-off and the story or narrating instruction, both quoted, with their size; or that the hand-off went to an earlier reply and only a swipe of it gets it again. In the JSON too (`nextReply`). "Last reply sent" says it is filled in when a reply is generated.

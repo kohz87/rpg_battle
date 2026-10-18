@@ -633,6 +633,36 @@
     opacity: 0.6;
 }
 
+/* (0.5.13) The numbers a fight uses, one quiet wrapping line under the stats. */
+.rpg-battle-tab .rpg-battle-combat {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.15rem 0.75rem;
+    margin: 0.45rem 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: 0.85em;
+}
+
+.rpg-battle-tab .rpg-battle-combat-part {
+    display: inline-flex;
+    gap: 0.3rem;
+    align-items: baseline;
+    cursor: help;
+}
+
+.rpg-battle-tab .rpg-battle-combat-name {
+    font-size: 0.85em;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    opacity: 0.6;
+}
+
+.rpg-battle-tab .rpg-battle-combat-value {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
 .rpg-battle-tab .rpg-battle-points {
     display: flex;
     flex-wrap: wrap;

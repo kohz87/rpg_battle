@@ -52,7 +52,7 @@ import { addLoot, consumables, formatGearEntry, formatMoney, gearSummary, parseG
 import { NEXT_MOVES_MAX, fallbackMoves, nextMovesPrompt, parseNextMoves } from './src/nextmoves.js';
 import { buildHandoff, buildPlanHandoff, fightOrigin, grouped, handoffState, originHolds, settleHandoff } from './src/handoff.js';
 import { cleanPlan, newPlan, nextStage, planResult, stageDone, stageId } from './src/plan.js';
-import { combatantFromSheet, editCompanion, enemiesFromRows, engagements, newCompanion, npcRenames, remapIds } from './src/party.js';
+import { combatantFromSheet, combatNumbers, editCompanion, enemiesFromRows, engagements, newCompanion, npcRenames, remapIds } from './src/party.js';
 import { recoverOverTime, restAfter, useItemOutside } from './src/recovery.js';
 import { NARRATING_INSTRUCTION, STORY_INSTRUCTION, applyWounds, describeWound, encounterSummary, findTarget, parsePlan, parseStakes, parseWounds, resolveThreats, storyFight } from './src/story.js';
 import { liveOffers, questOffers, storyOffers } from './src/offers.js';
@@ -66,7 +66,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.12';
+const VERSION = '0.5.13';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -2442,6 +2442,7 @@ function cardMember(member, r, lib, npc) {
         ...member,
         skills: resolveSkills(member.sheet.skills, lib, member.sheet.level, r).map((skill, index) => ({ ...skill, aside: Boolean(member.sheet.skills[index]?.aside) })),
         gearSummary: gearSummary(member.gear ?? [], member.sheet.level, r),
+        combat: combatNumbers(member.sheet, { gear: member.gear ?? [], rules: r }),
         dossier: Boolean(linked && typeof npc?.openDossier === 'function'),
     };
 }
@@ -2488,6 +2489,8 @@ function partyView() {
         party: members.map(member => cardMember(member, r, lib, npc)),
         rules: r,
         gear: gearSummary(items, sheet.level, r),
+        // (0.5.13) Attack, defence, hit, dodge… with what you have equipped.
+        combat: combatNumbers(sheet, { gear: items.filter(item => item.equipped), rules: r }),
         // Your Inventory's equipment, to give a companion.
         giveable: items.filter(item => item.slot && item.qty > 0).map(item => ({ name: item.name, slot: item.slot, rarity: item.rarity, stats: item.stats })),
         autoSpend: settings(ctx).autoSpend !== false,

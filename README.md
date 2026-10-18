@@ -1,4 +1,4 @@
-# RPG Battle v0.5.12
+# RPG Battle v0.5.13
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -89,6 +89,12 @@ Skills: Frost Lance (Lv 1, 2/5) | Mend (Lv 3, 9/22)
   name, level, HP and MP and State. Open, a card has the stats (with checks for you), the
   skills in use and set aside, the gear, and its controls. Which cards are open is kept while
   you play.
+- **Combat numbers** (since 0.5.13), under the stats with the gear counted: *Attack 16 · Magic
+  10 · Defence 8 · M.Def 6 · Hit 78% · Dodge 34% · Crit 12.5%*. Attack is STR × 2 and magic
+  INT × 2, plus gear; defence is VIT plus armour; magic defence (INT + VIT) ÷ 2 plus gear. A
+  physical attack hits 75% of the time, +3% per point of the attacker's DEX over the target's
+  AGI (5% to 95%); spells never miss. Hit and Dodge are against a typical foe of the member's
+  level, since the real chance depends on who they face. Hover a number for where it comes from.
 - **Levels:** XP from fights and from the story (*XP and levels* below); each level gives **4
   points** you spend yourself (**Spend** on your card).
 - **Skills:** learned from the story (a `<Learned>` offer opens the learn form, prefilled; a
