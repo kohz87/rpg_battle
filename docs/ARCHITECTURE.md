@@ -997,6 +997,19 @@ export function buildPlanHandoff(result, { names, currency, stakes, pcName, rule
   `battleKey` adds the plan's id, stage, status and stages done.
 - **A fight's hand-off origin** is read before the fight is cleared (it was read after and fell
   back to `foughtAt`'s index).
+- **Offers go back with their reply.** Chat state `dismissedAt: { [key]: { index, date, swipe } }`
+  (`fightOrigin` of the reply at the key's leading index) is written beside `dismissed` by
+  `awayChange` (`dismissEncounter`, `putAway`); `chatState` drops a key whose record no longer
+  `originHolds`, so an identical reply sent again in that place is offered again (keys without a
+  record, from older chats, stay). `foughtAt` gains `origin` and reads as null once it no longer
+  holds. `last` gains `origin` and is read through `holding`, so a rolled-back result is not
+  shown. `opening` offers' `done` is unchanged.
+- **Narrating replies are remembered.** Chat state `narrated: [{ index, date, swipe }]` (the last
+  30): `noteNarrated` adds `fightOrigin` of `pending.attachedTo` once that reply is in
+  (`settlePending`, and `handoffFor` before it spends a hand-off). `narratesAt(state, chat,
+  index)` (the pending is attached there, or a record that still `originHolds`) replaces
+  `pending.attachedTo === index` for `storyOffers`' `narrating` and the after-reply pipeline's
+  wounds and encounter toast.
 - **Boss loot:** `rollLoot` rolls a boss's table `rules.loot.bossRolls` times as before, but
   material rows only on the first roll (one creature, one set of body parts); equipment and
   consumable rows keep the extra rolls; money as before. A non-boss's draws are unchanged.

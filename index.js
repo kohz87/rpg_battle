@@ -235,16 +235,18 @@ function rules() {
 // recovered: { index, text } the last story-time recovery,
 // story: { index, signature, applied, undone, written } the last reply's story wounds (signature: a hash
 // of its <Wounds> text; written: hashes of the sheet texts the pipeline wrote into it),
-// dismissed: ['index:encounter text'] encounter offers the reader said Not now to,
+// dismissed: ['index:encounter text'] encounter offers the reader said Not now to (and fought),
+// dismissedAt: { [key]: { index, date, swipe } } the reply each was put away on (0.5; gone with it),
+// narrated: [{ index, date, swipe }] the replies that narrated a fight's hand-off (0.5),
 // bestiary: [creature] the creatures made up in this story (src/templates.js), cleaned when stored,
 // npcLinks: { [memberId]: npcId } the NPC State Delta NPC a companion was added from,
 // done: ['0:kind:line'] the opening message's offers taken or put away,
 // fallen: [{ memberId, name }] companions who fell in a fight to the death, to remove or keep,
-// foughtAt: { index, text } the latest reply (and a hash of its text) when the last fight started,
+// foughtAt: { index, text, origin } the latest reply (a hash of its hidden blocks, and since 0.5 its origin) when the last fight started,
 // npcNames: { [npcId]: name } a linked NPC's name in NPC State Delta when last looked at (a change is followed once) }.
 function chatState(ctx = context()) {
     const meta = chatMeta(ctx);
-    if (!meta) return { fight: null, plan: null, pending: null, story: null, dismissed: [], bestiary: [], skills: [], npcLinks: {}, done: [], fallen: [], npcNames: {} };
+    if (!meta) return { fight: null, plan: null, pending: null, story: null, dismissed: [], dismissedAt: {}, narrated: [], bestiary: [], skills: [], npcLinks: {}, done: [], fallen: [], npcNames: {} };
     const state = meta[SETTINGS_KEY] && typeof meta[SETTINGS_KEY] === 'object' ? meta[SETTINGS_KEY] : {};
     // A fight or result from before 0.4.3 has no origin: the reply it started from is taken
     // from foughtAt (index only), so deleting back past it still takes them away.
@@ -252,27 +254,74 @@ function chatState(ctx = context()) {
     const legacyOrigin = state.foughtAt && Number.isInteger(state.foughtAt.index) ? { index: state.foughtAt.index } : null;
     const withOrigin = value => (value && typeof value === 'object' && !value.origin && legacyOrigin ? { ...value, origin: legacyOrigin } : value ?? null);
     const holding = value => (value && originHolds(value.origin, ctx?.chat ?? []) ? value : null);
+    // (0.5) An offer put away or fought belongs to its reply: once that reply is deleted, swiped
+    // away or replaced, its key no longer hides the offer of the reply now at that place (an
+    // identical reply sent again is a new reply). A key from before 0.5 has no record and stays.
+    const stamps = state.dismissedAt && typeof state.dismissedAt === 'object' ? state.dismissedAt : {};
+    const standing = key => !stamps[key] || originHolds(stamps[key], ctx?.chat ?? []);
+    const dismissed = (Array.isArray(state.dismissed) ? state.dismissed : []).filter(standing);
+    // Likewise the reply the last fight started from: a fight rolled back with it never happened.
+    const foughtAt = state.foughtAt && typeof state.foughtAt === 'object' && (!state.foughtAt.origin || originHolds(state.foughtAt.origin, ctx?.chat ?? [])) ? state.foughtAt : null;
     return {
         fight: holding(withOrigin(state.fight)),
         // (0.5) A plan under way, between stages too: tied to the reply it started from, like its fights.
         plan: holding(cleanPlan(state.plan)),
         pending: holding(withOrigin(state.pending)),
-        last: state.last ?? null,
+        // The result screen's record goes back with its fight's reply too (0.5: `origin`).
+        last: holding(state.last ?? null),
         skills: Array.isArray(state.skills) ? state.skills : [],
         recovered: state.recovered ?? null,
         story: state.story && typeof state.story === 'object' ? state.story : null,
-        dismissed: Array.isArray(state.dismissed) ? state.dismissed : [],
+        dismissed,
+        dismissedAt: Object.fromEntries(dismissed.filter(key => stamps[key]).map(key => [key, stamps[key]])),
+        // (0.5) The replies that narrated a fight ({ index, date, swipe }): no XP or rest offered from them.
+        narrated: Array.isArray(state.narrated) ? state.narrated.filter(entry => entry && Number.isInteger(entry.index)) : [],
         bestiary: Array.isArray(state.bestiary) ? state.bestiary.filter(entry => entry && typeof entry === 'object' && entry.name) : [],
         npcLinks: state.npcLinks && typeof state.npcLinks === 'object' ? state.npcLinks : {},
         done: Array.isArray(state.done) ? state.done : [],
         fallen: Array.isArray(state.fallen) ? state.fallen.filter(entry => entry && entry.memberId) : [],
-        foughtAt: state.foughtAt && typeof state.foughtAt === 'object' ? state.foughtAt : null,
+        foughtAt,
         npcNames: state.npcNames && typeof state.npcNames === 'object' ? state.npcNames : {},
     };
 }
 
 /** A fight being fought, or a plan under way (between its stages too): one battle, which owns the sheets. */
 const underWay = state => Boolean(state?.fight || state?.plan);
+
+const NARRATED_KEPT = 30;
+
+/**
+ * Whether the reply at `index` narrates a fight: it is the one the waiting hand-off is given to,
+ * or (0.5) it is still the very reply that narrated one (by place, send date and swipe), even
+ * once that hand-off is spent and another fight's came and went.
+ */
+function narratesAt(state, chat, index) {
+    if (state.pending?.attachedTo === index) return true;
+    return state.narrated.some(entry => entry.index === index && originHolds(entry, chat));
+}
+
+/** The narrated record with the hand-off's reply added once it is in the chat; null when unchanged. */
+function noteNarrated(state, chat) {
+    const at = state.pending?.attachedTo;
+    if (!Number.isInteger(at) || !isAssistant(chat?.[at])) return null;
+    const origin = fightOrigin(chat, at);
+    if (state.narrated.some(entry => entry.index === origin.index && entry.date === origin.date && entry.swipe === origin.swipe)) return null;
+    return [...state.narrated, origin].slice(-NARRATED_KEPT);
+}
+
+/** An offer put away (or fought) from the reply at its key's index: its key and that reply's record. */
+function awayChange(state, key, list = 'dismissed', kept = DISMISSED_KEPT) {
+    const index = Number(String(key ?? '').match(/^(\d+):/)?.[1] ?? NaN);
+    const origin = Number.isInteger(index) ? fightOrigin(context()?.chat ?? [], index) : null;
+    const keys = [...state[list].filter(entry => entry !== key), key].slice(-kept);
+    const change = { [list]: keys };
+    if (list === 'dismissed') {
+        const stamps = Object.fromEntries(Object.entries({ ...state.dismissedAt, ...(origin ? { [key]: origin } : {}) }).filter(([entry]) => keys.includes(entry)));
+        if (!origin) delete stamps[key];
+        change.dismissedAt = stamps;
+    }
+    return change;
+}
 
 // Whether a reply that was given the hand-off is being generated (set by the interceptor,
 // cleared when a reply arrives or generation ends), so a result is "being narrated" rather
@@ -292,7 +341,10 @@ function handoffNow(ctx = context(), state = chatState(ctx)) {
 function settlePending(ctx = context()) {
     const meta = chatMeta(ctx);
     const raw = meta?.[SETTINGS_KEY] && typeof meta[SETTINGS_KEY] === 'object' ? meta[SETTINGS_KEY] : {};
-    const { pending, fight, plan } = chatState(ctx);
+    const state = chatState(ctx);
+    const { pending, fight, plan } = state;
+    // The reply given the hand-off is in: remembered as a narrating reply, past the hand-off itself.
+    const narrated = noteNarrated(state, ctx?.chat ?? []);
     // A fight, or a result, whose reply is gone (deleted, swiped away) went back with it (0.4.3):
     // chatState reads it as none; here it is cleared and its screens closed. A plan likewise,
     // between its stages too (0.5).
@@ -305,8 +357,8 @@ function settlePending(ctx = context()) {
     }
     const next = settleHandoff(pending, ctx?.chat ?? [], { generating });
     const pendingChanged = resultGone || JSON.stringify(next ?? null) !== JSON.stringify(pending ?? null);
-    if (!fightGone && !planGone && !pendingChanged) return false;
-    saveChatState({ ...(fightGone ? { fight: null } : {}), ...(planGone ? { plan: null } : {}), ...(pendingChanged ? { pending: next } : {}) });
+    if (!fightGone && !planGone && !pendingChanged && !narrated) return false;
+    saveChatState({ ...(fightGone ? { fight: null } : {}), ...(planGone ? { plan: null } : {}), ...(pendingChanged ? { pending: next } : {}), ...(narrated ? { narrated } : {}) });
     return true;
 }
 
@@ -598,7 +650,7 @@ function startingPoint() {
     return {
         // The fight belongs to that reply: deleted or swiped away, the fight and its result go too.
         origin: fightOrigin(ctx?.chat ?? [], latest),
-        foughtAt: sb && latest >= 0 ? { index: latest, text: replyStamp(sb, latest) } : null,
+        foughtAt: sb && latest >= 0 ? { index: latest, text: replyStamp(sb, latest), origin: fightOrigin(ctx?.chat ?? [], latest) } : null,
     };
 }
 
@@ -904,7 +956,7 @@ async function writeResult(result, stakes) {
 
 /** The result is written and waits for the story: the hand-off stored, the result on screen. */
 async function resultReady({ id, result, handoff, origin, report }) {
-    saveChatState({ fight: null, plan: null, pending: { handoff, fightId: id, attachedTo: null, origin }, last: { fightId: id, result, handoff, ...report } });
+    saveChatState({ fight: null, plan: null, pending: { handoff, fightId: id, attachedTo: null, origin }, last: { fightId: id, result, handoff, ...report, origin } });
     await context()?.saveMetadata?.();
     finishing = null;
     ending = null;
@@ -1117,7 +1169,7 @@ async function planAndWriteReply({ messageIndex }) {
     const index = Number(messageIndex);
     if (!isAssistant(chat[index])) return;
     // A reply narrating a fight's hand-off: the fight already put its wounds on the sheets.
-    const narrating = state.pending?.attachedTo === index;
+    const narrating = narratesAt(state, chat, index);
     const { signature } = woundsAt(sb, index);
     // Undone stays undone for the same <Wounds> text (a continue, or the pipeline run again).
     const undone = Boolean(signature && state.story?.index === index && state.story.undone && state.story.signature === signature);
@@ -1302,8 +1354,7 @@ function showBattleTab() {
 
 function dismissEncounter(key) {
     if (!key) return;
-    const dismissed = chatState().dismissed.filter(entry => entry !== key);
-    saveChatState({ dismissed: [...dismissed, key].slice(-DISMISSED_KEPT) });
+    saveChatState(awayChange(chatState(), key));
 }
 
 // ---------------------------------------------------------------------------
@@ -1410,7 +1461,7 @@ function currentOffers(ctx = context(), state = chatState(ctx)) {
     const offers = [];
     const from = (index, opening) => storyOffers({
         index, texts: partyBlocksAt(sb, index), pc, members, persona, rules: r, library: lib, opening,
-        narrating: state.pending?.attachedTo === index, pending: waiting,
+        narrating: narratesAt(state, chat, index), pending: waiting,
     }).map(offer => ({ ...offer, index, ...(opening ? { opening: true } : {}) }));
     if (isAssistant(chat[0]) && latest !== 0) offers.push(...from(0, true));
     if (latest >= 0) {
@@ -1442,7 +1493,7 @@ function putAway(offer) {
         return;
     }
     if (offer.opening) saveChatState({ done: [...state.done.filter(key => key !== offer.key), offer.key].slice(-OPENING_KEPT) });
-    else saveChatState({ dismissed: [...state.dismissed.filter(key => key !== offer.key), offer.key].slice(-DISMISSED_KEPT) });
+    else saveChatState(awayChange(state, offer.key));
 }
 
 function offerByKey(key) {
@@ -1843,6 +1894,9 @@ function setPrompt(text, key = PROMPT_KEY) {
 function handoffFor(chat, kind) {
     // A narrating reply deleted since: the result waits again, for this reply.
     generating = false;
+    // A narration about to be spent is remembered first (its reply stays a narrating one).
+    const narrated = noteNarrated(chatState(), context()?.chat ?? chat);
+    if (narrated) saveChatState({ narrated });
     const pending = settleHandoff(chatState().pending, chat);
     if (!pending) {
         // Also one chatState already reads as none (its fight's reply is gone): cleared for good.

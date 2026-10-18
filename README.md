@@ -342,7 +342,10 @@ reply that narrates it is in, the notice goes (and the story's next fight can be
 that reply and the result waits again. There is no Discard: a fight's result always reaches the
 story, so the sheets and the narration agree. A fight belongs to the reply it started from (since
 0.4.3): delete back past that reply, or swipe it, and the fight and its result are gone with it,
-so replaying the scene can offer a new fight.
+so replaying the scene can offer a new fight. Since 0.5 that holds even when the very same reply
+comes back in its place: the fight is offered again, and a Not now said to the deleted reply does
+not hide it. The reply that narrated a fight never offers XP or a rest for it, however the story
+moves on afterwards.
 
 A plan (fights in stages, below) has one result too: the result screen lists each stage (*Stage 1,
 the gate: victory in 3 rounds*, *Stage 3, the tower: not reached*) above the totals, and the

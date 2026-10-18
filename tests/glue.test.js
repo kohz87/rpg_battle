@@ -558,3 +558,115 @@ test('a plan to the death lost at stage 2 is a fight lost to the death; stage 1\
     assert.match(ctx.chat[2].mes, /^State: dead$/m, 'dead, as after a fight lost to the death');
     assert.deepEqual(findAll(pane, '.rpg-battle-stage-line').map(node => node.textContent.replace(/\d+ rounds?/, 'N')), ['Stage 1, the gate: victory in N', 'Stage 2, the hall: defeated after N', 'Stage 3, the crypt: not reached']);
 }));
+
+// ---------------------------------------------------------------------------
+// 0.5: what a reply carried goes back with it (found live)
+
+const sent = (text, date) => ({ ...reply(text), send_date: date, swipe_id: 0 });
+const partyOffers = () => findAll(drawTab('rpg-party'), '.rpg-battle-offer-text').map(node => node.textContent);
+
+test('a fight rolled back with its reply leaves no trace: the identical reply sent again offers it again, and Not now goes back too', async () => withClock(async () => {
+    const offerText = 'A rat bolts from the sacks.\n<Encounter>giant rat (trivial)</Encounter>\n<XP>minor: found the cellar</XP>';
+    openChat('resend-chat', [reply(`<Party>\n${REN}\n</Party>`), userMessage('Down to the cellar.'), sent(offerText, 'd2')]);
+    hooks.update();
+    await settle();
+    assert.ok(partyOffers().some(text => /found the cellar/.test(text)), 'the reply\'s XP is on offer');
+    find(drawTab('rpg-battle'), '.rpg-battle-encounter-fight').click();
+    find(drawTab('rpg-battle'), '.rpg-battle-begin').click();
+    await settle();
+    assert.equal(modeOf(await fightOut()), 'result');
+    assert.ok(meta().pending);
+    assert.ok(meta().dismissed.includes(`2:${blockAt(2)}`), 'the offer is spent');
+    assert.ok(!partyOffers().some(text => /found the cellar/.test(text)), 'no XP from before the fight');
+    // Delete the user turn and the reply, then send the same turn and get the very same reply.
+    ctx.chat.splice(1);
+    hooks.update();
+    await settle();
+    ctx.chat.push(userMessage('Down to the cellar.'));
+    await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+    ctx.chat.push(sent(offerText, 'd5'));
+    await hooks.reply({ messageIndex: 2 });
+    await settle();
+    assert.equal(meta().pending, null);
+    assert.equal(hooks.tabs['rpg-battle'].isAvailable(), true, 'the Battle tab is back');
+    assert.equal(hooks.tabs['rpg-battle'].badge(), 1);
+    assert.ok(toasts.some(text => /A fight is starting: giant rat/.test(text)), 'toasted again');
+    assert.ok(partyOffers().some(text => /found the cellar/.test(text)), 'the new reply\'s XP is offered: no fight started since it');
+    let pane = drawTab('rpg-battle');
+    find(pane, '.rpg-battle-encounter-fight').click();
+    pane = drawTab('rpg-battle');
+    assert.deepEqual(findAll(pane, '.rpg-battle-enemy-name').map(node => node.textContent), ['Giant Rat']);
+    // Not now on this reply, then the reply replaced by the same text: offered again.
+    find(pane, '.rpg-battle-encounter-dismiss').click();
+    assert.equal(hooks.tabs['rpg-battle'].badge(), 0, 'put away');
+    ctx.chat[2] = sent(offerText, 'd6');
+    hooks.update();
+    await settle();
+    assert.equal(hooks.tabs['rpg-battle'].badge(), 1, 'a Not now went with its reply');
+    find(drawTab('rpg-battle'), '.rpg-battle-encounter-fight').click();
+    find(drawTab('rpg-battle'), '.rpg-battle-begin').click();
+    await settle();
+    assert.ok(meta().fight, 'and it can be fought');
+    // An older chat's key, without a record of its reply, still holds.
+    openChat('legacy-keys', [reply(`<Party>\n${REN}\n</Party>`), userMessage('On.'), sent(offerText, 'd9')], { dismissed: [`2:${'giant rat (trivial)'}`] });
+    hooks.update();
+    await settle();
+    assert.equal(hooks.tabs['rpg-battle'].badge(), 0);
+}));
+
+function blockAt(index) {
+    return globalThis.StoryBlock.blockInText(ctx.chat[index].mes, 'Encounter').text;
+}
+
+test('the reply that narrated a fight never offers its XP or rest, even after a later fight\'s hand-off is spent and rolled back', async () => withClock(async () => {
+    openChat('narrated-chat', [reply(`<Party>\n${REN}\n</Party>`), userMessage('To the weir.'), sent('Wolves at the weir.\n<Encounter>giant rat (trivial)</Encounter>', 'd2')]);
+    hooks.update();
+    await settle();
+    find(drawTab('rpg-battle'), '.rpg-battle-encounter-fight').click();
+    find(drawTab('rpg-battle'), '.rpg-battle-begin').click();
+    await settle();
+    await fightOut();
+    find(drawTab('rpg-battle'), '.rpg-battle-done').click();
+    // Reply 4 narrates fight A and claims XP for it: the fight already gave it.
+    ctx.chat.push(userMessage('We won?'));
+    await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+    assert.equal(meta().pending.attachedTo, 4);
+    const narration = sent('The pack scatters.\n<XP>major: drove off the weir pack</XP>\n<Rest>short: caught their breath</Rest>', 'd4');
+    ctx.chat.push(narration);
+    await hooks.reply({ messageIndex: 4 });
+    await settle();
+    assert.deepEqual(meta().narrated.map(entry => [entry.index, entry.date, entry.swipe]), [[4, 'd4', 0]]);
+    assert.equal(partyOffers().filter(text => /weir pack|caught their breath/.test(text)).length, 0, 'not while it narrates');
+    // A later fight from reply 6, narrated by 8, spent by 10.
+    ctx.chat.push(userMessage('On.'), sent('More rats.\n<Encounter>giant rat (trivial)</Encounter>', 'd6'));
+    await hooks.reply({ messageIndex: 6 });
+    await settle();
+    assert.equal(meta().pending, null, 'fight A\'s hand-off is spent');
+    assert.equal(partyOffers().filter(text => /weir pack/.test(text)).length, 0);
+    find(drawTab('rpg-battle'), '.rpg-battle-encounter-fight').click();
+    find(drawTab('rpg-battle'), '.rpg-battle-begin').click();
+    await settle();
+    await fightOut();
+    find(drawTab('rpg-battle'), '.rpg-battle-done').click();
+    ctx.chat.push(userMessage('And?'));
+    await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+    ctx.chat.push(sent('Done.', 'd8'), userMessage('Rest.'));
+    await hooks.reply({ messageIndex: 8 });
+    await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+    ctx.chat.push(sent('Morning.', 'd10'));
+    await hooks.reply({ messageIndex: 10 });
+    await settle();
+    assert.equal(meta().pending, null, 'fight B\'s hand-off is spent');
+    // Back to reply 4: it is the latest again, and still the reply that narrated fight A.
+    ctx.chat.splice(5);
+    hooks.update();
+    await settle();
+    assert.equal(meta().pending, null);
+    assert.deepEqual(partyOffers().filter(text => /weir pack|caught their breath/.test(text)), [], 'never offered');
+    assert.equal(hooks.tabs['rpg-party'].badge(), 0);
+    // Swiped to a new reply in its place, which was given no hand-off: that one's XP is the story's own.
+    ctx.chat[4] = { ...narration, swipe_id: 1, send_date: 'd11' };
+    hooks.update();
+    await settle();
+    assert.ok(partyOffers().some(text => /weir pack/.test(text)), 'a new reply at that place is no narration');
+}));
