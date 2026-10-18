@@ -211,13 +211,12 @@ stop at the first blow, so the prose does not resolve what the buttons are about
   *trivial* (feeble, puny), *weak* (minor, easy, low, lesser), *even* (fair, matched, equal),
   *strong* (tough, dangerous, high), *deadly* (lethal, overwhelming, elite, calamity). The model
   judges the danger; code sets the level: the Character's level plus `threat.offsets` steps
-  (−2, −1, 0, +1, +2), a step being one tier with tier titles on (§5.7) and `threat.step` (4)
-  levels otherwise, within 1 and the cap (`story.threatLevel`). A rank or level written outright
+  (−2, −1, 0, +1, +2), a step being `threat.step` (4) plain levels, also with tier titles on
+  (0.5.3; before, a step was a tier), within 1 and the cap (`story.threatLevel`). A rank or level written outright
   wins; with neither, the fight is even (the fair rank, as before). **Below level 1 (0.5.2):**
   where the word would put the foe below level 1 (*weak* for a party up to level 4, *trivial* up
   to 8), it stays at level 1 and is scaled down instead: HP and attack ×
-  `threat.perLevelBelowOne` (0.88) per level short (counted in `threat.step` levels when a step is
-  a tier), never below `threat.minScale` (0.35); defence stays; its XP counts from the level the
+  `threat.perLevelBelowOne` (0.88) per level short, never below `threat.minScale` (0.35); defence stays; its XP counts from the level the
   word meant (§8.1), so weak is half an even foe's XP and trivial a quarter. At level 1 a weak
   wolf has 10 HP (even 16) and is worth 5 XP (even 10), a trivial one 6 HP and 3 XP. Only a level
   that came from the word is scaled (`story.threatPower`; the row and the foe carry `scale` and
@@ -490,9 +489,9 @@ alone makes every one of them fight alike.
 
 - **Outcome:** victory, defeat, fled, or parleyed (per enemy).
 - **XP (0.5.2):** each defeated foe is worth, to each member, a tenth (`xp.even`) of the XP that
-  member needs for their next level when it is even, ×2 for each threat step (4 levels, or a
-  tier) it stands above them and ×½ for each below (strong ×2, deadly ×4, weak ×½, trivial ×¼),
-  that factor within `xp.minFactor` 0.1 and `xp.maxFactor` 4; ×3 for a boss, half for a parleyed
+  member needs for their next level when it is even, × the band of the level gap in plain
+  levels (0.5.3, `xp.bands`/`xp.below`): +8 or more deadly ×4, +4 to +7 strong ×2, −3 to +3 even
+  ×1, −4 to −7 weak ×½, −8 or less trivial ×¼; ×3 for a boss, half for a parleyed
   foe; × the reader's XP rate (`xpRate`, 0.25–5, default 1); rounded, at least 1. A foe a threat
   word held at level 1 counts from the level the word meant (§4.2). Every member gets every
   foe's worth against their own level: nothing is split. Level 1 (needing 100): even 10, weak 5,
@@ -690,7 +689,7 @@ Block change, listed in the roadmap). RPG Battle adds no check command of its ow
 | Checks outside combat | Story Block's Dice block, with modifiers from the Character block |
 | Wounds outside combat | Words in a hidden `<Wounds>` block (scratch, wound, severe, grievous); code sets the HP, one blow per person per reply, with Undo |
 | Fights the story starts | Named in a hidden `<Encounter>` block (or planned by Story Director) and offered; the reader presses Fight |
-| Threat in an encounter | A word relative to the party (trivial…deadly); code turns it into a level in steps of 4 levels or one tier; below level 1 the foe is scaled down instead (0.5.2) |
+| Threat in an encounter | A word relative to the party (trivial…deadly); code turns it into a level in steps of 4 plain levels (0.5.3: never a tier); below level 1 the foe is scaled down instead (0.5.2) |
 | Foes nobody wrote up | Made up from a keyword template when the fight starts, flavoured by one words-only model call, kept per chat |
 | Balance | An even fight fought to the end lasts 4 to 6 rounds |
 | Mirage RPG | Retired; its tables and hand-off idea borrowed |

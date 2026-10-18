@@ -280,9 +280,9 @@ test('parley: success withdraws the enemy for half XP and no loot; failure anger
     assert.equal(f.status, 'victory');
     const result = summarize(f, sure);
     assert.deepEqual(result.parleyed, ['Dummy']);
-    // A tenth of level 3's 100, a level-1 foe two levels below (×2^(−2/4)), half for a parley.
-    assert.equal(result.xp.pc, Math.round(xpToNext(3) * 0.1 * 2 ** (-2 / 4) * 0.5));
-    assert.equal(result.xp.pc, 4);
+    // A tenth of level 3's 100, a level-1 foe two levels below (the even band, ×1), half for a parley.
+    assert.equal(result.xp.pc, Math.round(xpToNext(3) * 0.1 * 0.5));
+    assert.equal(result.xp.pc, 5);
     assert.deepEqual(result.loot, { items: [], money: 0 });
     assert.ok(result.keyMoments.some(m => m.includes('talks the Dummy down')));
     const never = tweak({ parley: { min: 0, max: 0 } });
@@ -468,7 +468,7 @@ test('log lines are short and readable', () => {
 // ---------------------------------------------------------------------------
 // Fight XP (0.5.2): a share of each member's next level, by the level gap, boss, parley, rate
 
-test('foeXpWorth: a tenth of the member\'s next level for an even foe, ×2 per threat step above, ½ below', () => {
+test('foeXpWorth: a tenth of the member\'s next level for an even foe, by the level-gap band (0.5.3)', () => {
     const foe = (level, extra = {}) => ({ level, xp: 999, ...extra });
     // Level 1 needs 100 XP (every level does, 0.5.2).
     assert.equal(xpToNext(1), 100);
@@ -486,14 +486,16 @@ test('foeXpWorth: a tenth of the member\'s next level for an even foe, ×2 per t
     assert.equal(xpToNext(5), 100);
     assert.equal(foeXpWorth(foe(5), 5), 10);
     assert.equal(foeXpWorth(foe(1), 5), 5, 'weak: 4 levels below');
-    assert.equal(foeXpWorth(foe(-9), 5), 1, '14 levels below: ×2^−3.5 is under the ×0.1 floor');
+    assert.equal(foeXpWorth(foe(-9), 5), 3, '14 levels below: trivial, ×¼');
+    // Bands, not a curve: +4 to +7 is strong, +8 and up deadly, −3 to +3 even, −4 to −7 weak.
+    assert.deepEqual([3, 4, 7, 8, 12].map(gap => foeXpWorth(foe(5 + gap), 5)), [10, 20, 20, 40, 40]);
+    assert.deepEqual([-3, -4, -7, -8].map(gap => foeXpWorth(foe(5 + gap), 5)), [10, 5, 5, 3]);
     // A curve set in the rules still counts: a tenth of that level's need.
     const curve = makeRules({ character: { xpExponent: 1.5 } });
     assert.equal(xpToNext(5, curve), 1120);
     assert.equal(foeXpWorth(foe(5), 5, curve), 112);
     assert.equal(foeXpWorth(foe(1), 5, curve), 56);
-    assert.equal(foeXpWorth(foe(-9), 5, curve), 11, 'the ×0.1 floor');
-    assert.equal(foeXpWorth(foe(-7), 5, curve), 14, '12 levels below: ×⅛');
+    assert.equal(foeXpWorth(foe(-9), 5, curve), 28, 'trivial: ×¼ of 112');
     assert.equal(foeXpWorth(foe(1, { xpLevel: -50 }), 1, makeRules({ xpRate: 0.25 })), 1, 'at least 1 while anything is left');
     assert.equal(foeXpWorth(foe(1), 1, makeRules({ xp: { even: 0 } })), 0);
 });

@@ -189,9 +189,10 @@ test('Fight? opens the story\'s engagement read-only; Start fights it as written
     assert.equal(find(pane, 'select'), null);
     assert.deepEqual(findAll(pane, '.rpg-battle-enemy-name').map(node => node.textContent), ['Bandit', 'Bandit Captain']);
     assert.deepEqual(findAll(pane, '.rpg-battle-enemy-power').map(node => node.textContent), ['Lv 3', 'Lv 6'], 'the bestiary\'s own ranks, as their levels');
-    // What one is worth to Ren (level 4, needs 100), as the result counts it: a tenth, 10, × 2 per
-    // 4 levels above: a bandit (level 3: ×2^−¼) and the captain (level 6: ×2^½, boss ×3).
-    assert.deepEqual(findAll(pane, '.rpg-battle-enemy-xp').map(node => node.textContent), ['~8 XP each', '~42 XP']);
+    // What one is worth to Ren (level 4, needs 100), as the result counts it: a tenth, 10, × the
+    // level-gap band: a bandit (level 3: even) and the captain (level 6: even, boss ×3).
+    assert.deepEqual(findAll(pane, '.rpg-battle-enemy-xp').map(node => node.textContent), ['~10 XP each', '~30 XP']);
+    assert.deepEqual(findAll(pane, '.rpg-battle-threat').map(node => node.textContent), ['even', 'even'], 'a foe with its own level shows the band its gap is (0.5.3)');
     assert.deepEqual(findAll(pane, '.rpg-battle-enemy-role').map(node => node.textContent), ['skirmisher', 'brute']);
     assert.equal(find(pane, '.rpg-battle-stakes').textContent, 'Stakes: To the death — defeat is death.');
     // A page changed by hand changes nothing: the glue builds the fight from its own offer.

@@ -80,12 +80,20 @@ export const DEFAULT_RULES = Object.freeze({
     },
     boss: { hp: 3, attack: 1.2, defence: 1.2, xp: 3, noParleyAbove: 0.5 },
     variation: 0.1,
-    // (0.5.2) Fight XP (combat.foeXpWorth): a defeated foe is worth `even` (a tenth) of the XP
-    // the member's next level needs, × 2 per threat step (threat.step levels, or one tier with
-    // tier titles on) it stands above the member
-    // (½ per step below: strong ×2, deadly ×4, weak ×½, trivial ×¼), that factor within
-    // minFactor–maxFactor (xpFactor). The rank table's `xp` no longer counts in a fight.
-    xp: { even: 0.10, minFactor: 0.1, maxFactor: 4 },
+    // Fight XP (combat.foeXpWorth): a defeated foe is worth `even` (a tenth) of the XP the
+    // member's next level needs, × its band's factor (0.5.3): the level gap (foe − member), in
+    // plain levels, picks the first band whose `from` it reaches, else `below`. The rank
+    // table's `xp` no longer counts in a fight.
+    xp: {
+        even: 0.10,
+        bands: [
+            { from: 8, threat: 'deadly', factor: 4 },
+            { from: 4, threat: 'strong', factor: 2 },
+            { from: -3, threat: 'even', factor: 1 },
+            { from: -7, threat: 'weak', factor: 0.5 },
+        ],
+        below: { threat: 'trivial', factor: 0.25 },
+    },
     secondsPerRound: 6,
     // XP the story awards outside fights (growth.js): a share of the XP the member needs for
     // their next level, by how big the achievement was, or by the difficulty of a quest Story
@@ -297,29 +305,34 @@ export function mitigate(raw, defence) {
 }
 
 /**
- * The levels one threat step spans (story.threatPower, xpFactor): one tier with tier titles on
- * (rules.terms.tiers.size, 10 when unset, as terms.termsOf reads it), else rules.threat.step.
+ * The levels one threat step spans (story.threatPower): rules.threat.step, 4 by default. Plain
+ * levels always, never tiers (0.5.3): a strong foe is a few levels up, not a tier up.
  */
 export function threatStep(rules = DEFAULT_RULES) {
-    const tiers = rules?.terms?.tiers;
-    if (tiers && typeof tiers === 'object' && tiers.enabled !== false) {
-        const size = Number(tiers.size);
-        return Number.isFinite(size) && size >= 1 ? Math.min(999, Math.round(size)) : 10;
-    }
     return Math.max(1, num(rules?.threat?.step, DEFAULT_RULES.threat.step) || DEFAULT_RULES.threat.step);
 }
 
 /**
- * (0.5.2) The level-gap factor of fight XP for a member of `memberLevel` defeating a foe of
- * `enemyLevel`: 2 ^ ((enemy − member) / threatStep), within xp.minFactor–maxFactor. A foe
- * one threat step (4 levels, or a tier) above is worth twice an even one, one below half. `enemyLevel` may be below
- * 1 (a threat word's level before it was held at 1: story.threatPower's xpLevel).
+ * (0.5.3) The threat a level gap (foe − member) is, in plain levels, by rules.xp.bands:
+ * +8 or more deadly, +4 to +7 strong, −3 to +3 even, −4 to −7 weak, −8 or less trivial.
+ */
+export function threatForGap(gap, rules = DEFAULT_RULES) {
+    const bands = rules?.xp?.bands ?? DEFAULT_RULES.xp.bands;
+    const diff = Math.round(num(gap, 0));
+    const band = bands.find(entry => diff >= entry.from);
+    return band ? band.threat : (rules?.xp?.below?.threat ?? DEFAULT_RULES.xp.below.threat);
+}
+
+/**
+ * (0.5.3) The level-gap factor of fight XP for a member of `memberLevel` defeating a foe of
+ * `enemyLevel`: the band's, a fixed number per band (deadly ×4, strong ×2, even ×1, weak ×½,
+ * trivial ×¼), so an even foe is 10, strong 20, deadly 40, weak 5 and trivial 3 at any level.
  */
 export function xpFactor(memberLevel, enemyLevel, rules = DEFAULT_RULES) {
-    const x = { ...DEFAULT_RULES.xp, ...(rules?.xp ?? {}) };
-    const step = threatStep(rules);
-    const diff = num(enemyLevel, 1) - num(memberLevel, 1);
-    return clamp(2 ** (diff / step), num(x.minFactor, 0), num(x.maxFactor, Infinity));
+    const bands = rules?.xp?.bands ?? DEFAULT_RULES.xp.bands;
+    const diff = Math.round(num(enemyLevel, 1) - num(memberLevel, 1));
+    const band = bands.find(entry => diff >= entry.from);
+    return band ? num(band.factor, 1) : num(rules?.xp?.below?.factor, DEFAULT_RULES.xp.below.factor);
 }
 
 /** The XP rate setting's bounds and step (0.5.2). */

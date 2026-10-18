@@ -1,4 +1,4 @@
-# RPG Battle v0.5.2
+# RPG Battle v0.5.3
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -133,9 +133,18 @@ carried over; companions level the same way.
 
 - **a tenth** of the XP that member needs for their next level for an **even** foe (its level
   is theirs);
-- **×2 per step** the foe stands above them and **×½ per step** below (a step is **4 levels**, or
-  **one tier** with tier titles): *strong* ×2, *deadly* ×4, *weak* ×½, *trivial* ×¼, never below
-  ×0.1 nor above ×4 (`xp` in `rules.json`: `even`, `minFactor`, `maxFactor`);
+- **× the band of the level gap** (foe − member, in plain levels, also with tier titles; 0.5.3):
+
+  | Gap | Threat | Factor | XP |
+  | --- | --- | --- | --- |
+  | +8 or more | deadly | ×4 | 40 |
+  | +4 to +7 | strong | ×2 | 20 |
+  | −3 to +3 | even | ×1 | 10 |
+  | −4 to −7 | weak | ×½ | 5 |
+  | −8 or less | trivial | ×¼ | 3 |
+
+  (`xp` in `rules.json`: `even`, `bands`, `below`). A foe with a level of its own shows the
+  threat its gap is ("Lv 9 · deadly");
 - **×3** for a boss; **half** for a foe won over by **Parley** instead of beaten;
 - **× your XP rate** (below); rounded, at least 1.
 
@@ -451,10 +460,10 @@ The model may also say **how dangerous** a foe is, relative to the party, in one
 | **strong** (tough, dangerous, high) | 1 step above |
 | **deadly** (lethal, overwhelming, elite, calamity) | 2 steps above |
 
-A step is **4 levels**, or **one tier** when your terms have tier titles (`threat` in
-`rules.json`). No foe goes below level 1: where the word would put it there (*weak* up to level
-4, *trivial* up to level 8), it stays at level 1 and is **made smaller** instead, its HP and
-attack ×0.88 for each level it falls short (counted in 4-level steps with tiers), never below
+A step is **4 levels**, also when your terms have tier titles (0.5.3: a strong foe is a few
+levels up, not a tier up; `threat` in `rules.json`). No foe goes below level 1: where the word
+would put it there (*weak* up to level 4, *trivial* up to level 8), it stays at level 1 and is
+**made smaller** instead, its HP and attack ×0.88 for each level it falls short, never below
 ×0.35, its defence as it is; its XP counts from the level the word meant (so *weak* is still
 half an even foe's XP and *trivial* a quarter). At level 1 a *weak* wolf has 10 HP to an even
 one's 16 and is worth 5 XP to 10; a *trivial* one has 6 HP and is worth 3. Only a level that
