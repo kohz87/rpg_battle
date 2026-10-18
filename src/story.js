@@ -326,6 +326,9 @@ function parseGroup(raw, bestiary, rules) {
         });
         return ' ';
     }).replace(/\s+/g, ' ').trim();
+    // A colon never belongs in a name: "inside the den: old dog wolf", "round 3: 2 wolf" (a
+    // place or a note the stage marks did not take) leave only what follows it.
+    text = text.replace(/^.*:\s*/, '').trim();
     text = text.replace(/\brank\s+(sss|ss|s|a|b|c|d|e|f)\b/i, (_, value) => {
         rank = value.toUpperCase();
         return ' ';
@@ -364,16 +367,28 @@ function parseGroup(raw, bestiary, rules) {
     return row;
 }
 
-// A plan (0.5): "then at the yard:" (also "then, at the yard:", "and then at the yard:", any
-// case) starts the next stage, a separate fight somewhere else; "at the gate:" before the
-// first group names stage 1's place. A plain "then:" stays a wave of the same stage.
-const STAGE_MARK = /(?<![^\s,;])(?:and\s+)?then\s*,?\s*at\s+([^:;\n]+?)\s*:/gi;
-const FIRST_PLACE = /^[\s,;]*(?:[-*•]\s*)?at\s+([^:;,\n]+?)\s*:\s*/i;
+// A plan (0.5): a place after "then" and before a colon starts the next stage, a separate
+// fight somewhere else: "then at the yard:", "then inside the den:", "then across the ford:",
+// "then the tower:" (also "then, …" and "and then …", any case). Models write any place phrase,
+// so the rule is the shape, not the preposition: a prefix of one to MAX_PLACE_WORDS words with
+// no digit. A leading "at" is dropped from the name ("the yard"); any other word stays ("inside
+// the den"). The same prefix before the first group names stage 1. A plain "then:" stays a wave
+// of the same stage, and so does a "then …:" whose prefix cannot be a place (a digit, too long).
+const STAGE_MARK = /(?<![^\s,;])(?:and\s+)?then\b\s*,?\s*([^:;,\n()[\]]*?)\s*:/gi;
+const FIRST_PLACE = /^[\s,;]*(?:[-*•]\s*)?([^:;,\n()[\]]+?)\s*:\s*/;
+const MAX_PLACE_WORDS = 6;
 // A plan of more fights than this is cut there: each stage is a whole fight to play.
 const MAX_STAGES = 5;
 const MAX_PLACE = 40;
 
 const tidyPlace = text => clean(text).replace(/^[\s"'“”‘’]+|[\s"'“”‘’:,.;]+$/g, '').slice(0, MAX_PLACE).trim() || null;
+/** Whether a prefix before a colon can be a place: some words, not too many, no digit. */
+function isPlace(prefix) {
+    const words = clean(prefix).split(' ').filter(Boolean);
+    return words.length >= 1 && words.length <= MAX_PLACE_WORDS && !/\d/.test(prefix);
+}
+/** The place a prefix names: "at the gate" → "the gate"; "inside the den" as written. */
+const placeOf = prefix => tidyPlace(clean(prefix).replace(/^at\s+/i, ''));
 // A stage's own words for the reader ("3 guard (even)"): its groups, separators tidied.
 const stageWords = text => clean(String(text ?? '').split(/\r?\n/).map(line => line.trim()).filter(Boolean).join('; '))
     .replace(/^(?:[\s,;]|and\b|&|\+)+|(?:[\s,;]|\band|&|\+)+$/gi, '').trim();
@@ -385,13 +400,15 @@ function stageTexts(text) {
     let start = 0;
     let place = null;
     for (const mark of foes.matchAll(STAGE_MARK)) {
+        // "then:" or "then round 3:": a wave of this stage (the prefix is dropped with the rest).
+        if (!isPlace(mark[1])) continue;
         parts.push({ place, text: foes.slice(start, mark.index) });
-        place = tidyPlace(mark[1]);
+        place = placeOf(mark[1]);
         start = mark.index + mark[0].length;
     }
     parts.push({ place, text: foes.slice(start) });
     const first = parts[0].text.match(FIRST_PLACE);
-    if (first) parts[0] = { place: tidyPlace(first[1]), text: parts[0].text.slice(first[0].length) };
+    if (first && isPlace(first[1])) parts[0] = { place: placeOf(first[1]), text: parts[0].text.slice(first[0].length) };
     return parts;
 }
 

@@ -926,8 +926,12 @@ export function npcRenames(members, profiles, { seen, done, pcName }) → { rena
 ## As built (0.5.0)
 
 - **Plans: fights in stages.** `story.parsePlan(text, bestiary, rules) → [{ place, text, rows }]`
-  cuts the foes-only text at its stage marks (`then at <place>:`, also `then, at`, `and then at`,
-  any case, after a separator or a space; `at <place>:` before the first group names stage 1),
+  cuts the foes-only text at its stage marks (`then <place>:`, also `then, …`, `and then …`, any
+  case, after a separator or a space, where `<place>` is one to `MAX_PLACE_WORDS` (6) words with
+  no digit: `then at the yard:`, `then inside the den:`, `then the tower:`; a leading `at` is
+  dropped from the name, other words kept; the same prefix before the first group names stage 1;
+  `then:` or a `then …:` prefix that is no place is a wave; `parseGroup` drops anything up to a
+  colon from a name, so no foe's name holds one),
   parses each stage as before (`then:` waves counted within the stage, at most 3), drops stages
   without foes, keeps at most 5 (`MAX_STAGES`) and, with two or more, puts `stage` (1…) on every
   row. `parseEncounter` is its rows flattened, so text without marks reads exactly as 0.4.3 (an
@@ -996,3 +1000,6 @@ export function buildPlanHandoff(result, { names, currency, stakes, pcName, rule
 - **Boss loot:** `rollLoot` rolls a boss's table `rules.loot.bossRolls` times as before, but
   material rows only on the first roll (one creature, one set of body parts); equipment and
   consumable rows keep the extra rolls; money as before. A non-boss's draws are unchanged.
+  `enemies.wholePart(name)` (the material's last word, singular or plural: pelt, hide, skin,
+  head, heart, carapace, shell, horn, antler, tail, jaw, skull, eye) caps that material's
+  quantity at 1 per creature; the quantity is still drawn (`rng.int`), so later draws stay put.

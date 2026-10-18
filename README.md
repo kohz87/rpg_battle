@@ -299,7 +299,9 @@ Healing Draught | 2 | heal 30
   *Fang*, *Spider Silk*, *Slime Jelly*, *Old Bone*), and more often than a coin carrier leaves
   its materials. The shipped bestiary marks each creature (`coins: true`, `false` or `'boss'`); a
   made-up one goes by its kind. A boss rolls for gear and consumables more than once, but its
-  body parts only once: one wolf matriarch, one pelt.
+  body parts only once, and a part a creature has one of (a pelt, hide, head, heart, tail, skull,
+  horn…) is never more than one per creature: one wolf, one pelt. Fangs, claws and scales may
+  come several at a time.
 - **Give item** (on a companion's card) moves one equipment row from your Inventory onto their
   gear (the Equipped line of their section; the same slot limits and rarity caps, at their
   level); **Take back** puts a piece back into your Inventory, not equipped.
@@ -416,8 +418,10 @@ to the next somewhere else, a place after `then` starts a new **stage**:
 
 `at the gate:` before the first group names the first stage (optional: without it the stage is
 just *Stage 1*); `then at the yard:` starts the next one (also `then, at the yard:` and `and then
-at the yard:`, any case). A plain `then:` is still more foes joining the same fight, so a stage
-may have its own waves. Up to five stages. The offer reads *A plan in 3 stages: the gate, the
+at the yard:`, any case). Any short place works the same way: `then inside the den:`, `then
+across the ford:`, `then the tower:` (one to six words before the colon, no digits); a leading
+*at* is left out of the place's name, other words stay. A plain `then:` is still more foes
+joining the same fight, so a stage may have its own waves. Up to five stages. The offer reads *A plan in 3 stages: the gate, the
 yard, the tower* (*— to the death* when it is marked: the stakes are the whole plan's). The setup
 lists each stage in order, *Stage 1 of 3: the gate*, with its foes as for any fight, read-only:
 **Start** or **Not now**.

@@ -226,7 +226,9 @@ stop at the first blow, so the prose does not resolve what the buttons are about
 - **Plans (0.5):** a place after `then` starts a new stage, a separate fight somewhere else:
   `<Encounter>at the gate: 2 guard (weak); then at the yard: 3 guard (even); then at the tower:
   guard captain (boss, strong) | to the death</Encounter>`. `at <place>:` before the first group
-  names stage 1 (optional); `then, at` and `and then at` are read too, any case; a plain `then:`
+  names stage 1 (optional); `then, at` and `and then at` are read too, any case, and any short
+  place phrase (`then inside the den:`, `then the tower:`: up to six words, no digit; a leading
+  *at* left out of the name); a plain `then:`
   is still a wave of the same stage (waves: the same fight, foes arriving one after another;
   stages: the next fight, when the party's plan or the story moves it on). At most five stages;
   the stakes are the whole plan's; Story Director's planned text is read the same way. The offer

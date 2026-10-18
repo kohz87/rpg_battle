@@ -267,6 +267,16 @@ function bumpRarity(rarity, steps) {
     return RARITIES[Math.min(RARITIES.length - 1, index + steps)];
 }
 
+// A creature has one of these (0.5): a pelt, a head, a heart. Teeth, fangs, claws, feathers and
+// scales come by the handful and keep their row's quantity.
+const WHOLE_PARTS = new Set(['pelt', 'hide', 'skin', 'head', 'heart', 'carapace', 'shell', 'horn', 'antler', 'tail', 'jaw', 'skull', 'eye']);
+
+/** Whether a material is a part a creature has only one of, by its name's last word ("Young Wolf Pelt", "Rat Tails"). */
+export function wholePart(name) {
+    const last = String(name ?? '').trim().toLowerCase().split(/[\s-]+/).at(-1) ?? '';
+    return WHOLE_PARTS.has(last) || (last.endsWith('s') && WHOLE_PARTS.has(last.slice(0, -1)));
+}
+
 /**
  * What one defeated enemy drops: items from its loot table (its own rows for a made-up
  * creature, else the table its id names, or its rank's default table) and
@@ -277,7 +287,9 @@ function bumpRarity(rarity, steps) {
  * stored before 0.4.2) pays as before. The rolls are the same either way, so a seed's drops
  * stay put. A boss rolls its table rules.loot.bossRolls times, but (0.5) its materials (the
  * body parts: a pelt, fangs, a hide) only the first time: one creature has one pelt. The extra
- * rolls are for its gear and consumables; the first roll is the same draws as before.
+ * rolls are for its gear and consumables; the first roll is the same draws as before. A
+ * whole-body part (wholePart: a pelt, a hide, a head, a tail…) is at most one per creature,
+ * whatever its row's quantity; its quantity is still drawn, so the draws stay the same.
  */
 export function rollLoot(enemy, { rng, luck = null, rules = DEFAULT_RULES, tables = LOOT_TABLES } = {}) {
     const l = rules.loot;
@@ -299,7 +311,10 @@ export function rollLoot(enemy, { rng, luck = null, rules = DEFAULT_RULES, table
             const [lo, hi] = Array.isArray(row.qty) ? row.qty : [1, 1];
             let rarity = row.rarity ?? 'common';
             if (row.kind === 'equipment' && lucky > 0 && rng.chance(lucky * l.luckRarityPerPoint)) rarity = bumpRarity(rarity, 1);
-            const item = { name: row.name, qty: rng.int(lo, hi), rarity, kind: row.kind, stats: { ...(row.stats ?? {}) } };
+            // Drawn either way, so the rolls after it do not move; a whole-body part is one per creature.
+            const drawn = rng.int(lo, hi);
+            const qty = row.kind === 'material' && wholePart(row.name) ? Math.min(1, drawn) : drawn;
+            const item = { name: row.name, qty, rarity, kind: row.kind, stats: { ...(row.stats ?? {}) } };
             if (row.effect) item.effect = row.effect;
             items.push(item);
         }

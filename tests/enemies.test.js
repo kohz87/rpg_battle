@@ -342,3 +342,39 @@ test('a boss drops its body parts once: materials roll once per creature, its ex
     assert.ok(drops.filter(Boolean).length > 140, 'the coinless boost on the first material stands');
     assert.ok(drops.every(n => n <= 1));
 });
+
+// Live, three made-up "young wolf" dropped "Young Wolf Pelt ×4": the row's quantity let one
+// creature give two pelts. A whole-body part is one per creature; fangs and the like are not.
+test('a whole-body part is at most one per creature; fangs, claws and scales keep their quantity', async () => {
+    const { wholePart } = await import('../src/enemies.js');
+    for (const name of ['Young Wolf Pelt', 'Ogre Hide', 'rat tails', 'Beetle Carapace', 'Stag Antlers', 'Troll Skull', 'Bog Eye', 'Drake Heart', 'Goat Horn']) assert.ok(wholePart(name), name);
+    for (const name of ['Wolf Fang', 'Bear Claws', 'Drake Scales', 'Owl Feather', 'Old Bone', 'Spider Silk', 'Teeth']) assert.ok(!wholePart(name), name);
+    const young = generateCreature({ name: 'Young Wolf', level: 3 }, { rules: DEFAULT_RULES, seed: 'chat' });
+    const wolf = { ...projectEnemy({ name: 'Young Wolf' }, { bestiary: [young], library: DEFAULT_SKILLS, rules: DEFAULT_RULES, rng: makeRng('y'), id: 'e1' }), loot: [
+        ...young.loot,
+        // As a model-flavoured or stored row might have it: a pelt row allowing more than one.
+        { name: 'Young Wolf Pelt', chance: 100, qty: [1, 3], kind: 'material' },
+        { name: 'Young Wolf Fang', chance: 100, qty: [1, 2], kind: 'material' },
+    ] };
+    let twoFangs = false;
+    for (let seed = 0; seed < 500; seed++) {
+        const { items } = rollLoot(wolf, { rng: makeRng(`young-${seed}`), luck: 5 });
+        const count = name => items.filter(item => item.name === name).reduce((sum, item) => sum + item.qty, 0);
+        for (const item of items) if (wholePart(item.name)) assert.equal(item.qty, 1, `seed ${seed}: ${item.name} ×${item.qty}`);
+        assert.ok(count('Young Wolf Pelt') <= 2, 'one per row at most');
+        if (items.some(item => item.name === 'Young Wolf Fang' && item.qty === 2)) twoFangs = true;
+    }
+    assert.ok(twoFangs, 'fangs may still come two at a time');
+    // One beast with one pelt row: never more than one pelt, boss or not.
+    for (const boss of [false, true]) {
+        const beast = { name: 'Young Wolf', rank: 'E', boss, coins: false, loot: [{ name: 'Young Wolf Pelt', chance: 90, qty: [1, 3], kind: 'material' }, { name: 'Young Wolf Fang', chance: 60, qty: [1, 2], kind: 'material' }] };
+        for (let seed = 0; seed < 300; seed++) {
+            const { items } = rollLoot(beast, { rng: makeRng(`b-${seed}`), luck: 9 });
+            assert.ok(items.filter(item => item.name === 'Young Wolf Pelt').reduce((sum, item) => sum + item.qty, 0) <= 1, `seed ${seed}`);
+        }
+    }
+    // The quantity is still drawn: what comes after a capped part drops as before.
+    const after = table => rollLoot({ name: 'X', rank: 'E', loot: table }, { rng: makeRng('same'), luck: 5 }).items.at(-1);
+    assert.deepEqual(after([{ name: 'X Pelt', chance: 100, qty: [1, 3], kind: 'material' }, { name: 'X Fang', chance: 100, qty: [1, 5], kind: 'material' }]).qty,
+        after([{ name: 'X Bone', chance: 100, qty: [1, 3], kind: 'material' }, { name: 'X Fang', chance: 100, qty: [1, 5], kind: 'material' }]).qty);
+});

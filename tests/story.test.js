@@ -406,3 +406,34 @@ test('encounterSummary: a plan reads as its stages; storyFight carries them', ()
     assert.notEqual(fight.stages[0].rows[0], rows[0], 'copies');
     assert.equal(storyFight({ rows: parseEncounter('2 wolf; then: ogre') }).stages, undefined, 'no plan without stages');
 });
+
+// Live, a model wrote "then inside the den:", which 0.5.0 read as a wave of a foe called
+// "Inside The Den: Old Dog Wolf". A place is any short prefix before a colon, not only "at".
+test('parsePlan: any place phrase after then starts a stage; "at" is dropped from the name, other words kept', () => {
+    const live = parsePlan('at the reed bank: 3 young wolf (weak); then at the den mouth: 2 wolf (weak); then inside the den: old dog wolf (boss, even)');
+    assert.deepEqual(live.map(stage => [stage.place, stage.rows.map(row => [row.name, row.count, row.boss, row.stage, row.wave ?? 0])]), [
+        ['the reed bank', [['Young Wolf', 3, false, 1, 0]]],
+        ['the den mouth', [['Wolf', 2, false, 2, 0]]],
+        ['inside the den', [['Old Dog Wolf', 1, true, 3, 0]]],
+    ]);
+    const places = text => parsePlan(text).map(stage => stage.place);
+    assert.deepEqual(places('2 wolf; then into the cave: 3 bat'), [null, 'into the cave']);
+    assert.deepEqual(places('2 wolf; then across the ford: bandit'), [null, 'across the ford']);
+    assert.deepEqual(places('2 wolf; then the tower: ogre'), [null, 'the tower'], 'a bare place');
+    assert.deepEqual(places('2 wolf, then, beyond the old north gate: ogre'), [null, 'beyond the old north gate']);
+    // The same rule before the first group.
+    assert.deepEqual(places('the old mill: 2 wolf; then up the stairs: bandit'), ['the old mill', 'up the stairs']);
+    assert.deepEqual(parsePlan('the old mill: 2 wolf').map(stage => [stage.place, stage.rows.map(row => [row.name, row.count])]), [['the old mill', [['Wolf', 2]]]]);
+});
+
+test('parsePlan: a then-prefix that cannot be a place (digits, too long) or no prefix stays a wave; no colon in a name', () => {
+    const rows = text => parseEncounter(text).map(row => [row.name, row.count, row.wave ?? 0, row.stage ?? 0]);
+    assert.deepEqual(rows('2 wolf; then round 3: 2 bandit'), [['Wolf', 2, 0, 0], ['Bandit', 2, 1, 0]], 'a prefix with a digit');
+    assert.deepEqual(rows('2 wolf; then after a long march through the cold grey hills: bandit'), [['Wolf', 2, 0, 0], ['Bandit', 1, 1, 0]], 'too long for a place');
+    assert.deepEqual(rows('3 wolf (weak); then: wolf matriarch (boss, strong)'), [['Wolf', 3, 0, 0], ['Wolf Matriarch', 1, 1, 0]], 'no prefix: a wave, as before');
+    assert.deepEqual(rows('wave 2: 3 goblins'), [['Goblin', 3, 0, 0]], 'a first prefix with a digit is no place, but leaves the name');
+    assert.deepEqual(rows('2 bandit, round 2: bandit captain (boss)'), [['Bandit', 2, 0, 0], ['Bandit Captain', 1, 0, 0]]);
+    for (const text of ['then round 3: 2 bandit', 'the gate: wolf; then: x: y', 'wave 2: 3 goblins; then inside: rat']) {
+        assert.ok(parseEncounter(text).every(row => !row.name.includes(':')), text);
+    }
+});
