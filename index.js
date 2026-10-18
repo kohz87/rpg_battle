@@ -44,7 +44,7 @@ import { applyFlavour, flavourPrompt, parseFlavour, sceneText } from './src/flav
 import { act, availableActions, replay, startFight, summarize } from './src/combat.js';
 import { applyResult, foldUses, formatPartyBlock, learnSkill, newSheet, readSheets, setSkillActive, spendPoints } from './src/sheet.js';
 import { addLoot, consumables, formatGearEntry, formatMoney, gearSummary, parseGearEntry, parseInventory, useItems } from './src/items.js';
-import { buildHandoff, handoffState, settleHandoff } from './src/handoff.js';
+import { buildHandoff, fightOrigin, handoffState, originHolds, settleHandoff } from './src/handoff.js';
 import { combatantFromSheet, editCompanion, enemiesFromRows, engagements, newCompanion, npcRenames, remapIds } from './src/party.js';
 import { recoverOverTime, restAfter, useItemOutside } from './src/recovery.js';
 import { STORY_INSTRUCTION, applyWounds, describeWound, encounterSummary, findTarget, parseEncounter, parseStakes, parseWounds, resolveThreats, storyFight } from './src/story.js';
@@ -59,7 +59,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.4.2';
+const VERSION = '0.4.3';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -239,9 +239,15 @@ function chatState(ctx = context()) {
     const meta = chatMeta(ctx);
     if (!meta) return { fight: null, pending: null, story: null, dismissed: [], bestiary: [], skills: [], npcLinks: {}, done: [], fallen: [], npcNames: {} };
     const state = meta[SETTINGS_KEY] && typeof meta[SETTINGS_KEY] === 'object' ? meta[SETTINGS_KEY] : {};
+    // A fight or result from before 0.4.3 has no origin: the reply it started from is taken
+    // from foughtAt (index only), so deleting back past it still takes them away.
+    // One whose reply is gone (deleted, swiped away) reads as none (settlePending clears it).
+    const legacyOrigin = state.foughtAt && Number.isInteger(state.foughtAt.index) ? { index: state.foughtAt.index } : null;
+    const withOrigin = value => (value && typeof value === 'object' && !value.origin && legacyOrigin ? { ...value, origin: legacyOrigin } : value ?? null);
+    const holding = value => (value && originHolds(value.origin, ctx?.chat ?? []) ? value : null);
     return {
-        fight: state.fight ?? null,
-        pending: state.pending ?? null,
+        fight: holding(withOrigin(state.fight)),
+        pending: holding(withOrigin(state.pending)),
         last: state.last ?? null,
         skills: Array.isArray(state.skills) ? state.skills : [],
         recovered: state.recovered ?? null,
@@ -268,13 +274,25 @@ function handoffNow(ctx = context(), state = chatState(ctx)) {
 
 /**
  * The stored hand-off brought up to date with the chat: spent once a reply after the narrating
- * one exists, waiting again when the narrating reply is gone (deleted). True when it changed.
+ * one exists, waiting again when the narrating reply is gone (deleted), and gone, with a fight
+ * under way, once the reply the fight started from is gone (0.4.3). True when it changed.
  */
 function settlePending(ctx = context()) {
-    const { pending } = chatState(ctx);
+    const meta = chatMeta(ctx);
+    const raw = meta?.[SETTINGS_KEY] && typeof meta[SETTINGS_KEY] === 'object' ? meta[SETTINGS_KEY] : {};
+    const { pending, fight } = chatState(ctx);
+    // A fight, or a result, whose reply is gone (deleted, swiped away) went back with it (0.4.3):
+    // chatState reads it as none; here it is cleared and its screens closed.
+    const fightGone = Boolean(raw.fight) && !fight;
+    const resultGone = Boolean(raw.pending) && !pending;
+    if (fightGone || resultGone) {
+        live = { chatId: null, key: '', fight: null };
+        if (screen.mode === 'fight' || screen.mode === 'result') screen = { chatId: chatIdOf(ctx), mode: null };
+    }
     const next = settleHandoff(pending, ctx?.chat ?? [], { generating });
-    if (JSON.stringify(next ?? null) === JSON.stringify(pending ?? null)) return false;
-    saveChatState({ pending: next });
+    const pendingChanged = resultGone || JSON.stringify(next ?? null) !== JSON.stringify(pending ?? null);
+    if (!fightGone && !pendingChanged) return false;
+    saveChatState({ ...(fightGone ? { fight: null } : {}), ...(pendingChanged ? { pending: next } : {}) });
     return true;
 }
 
@@ -550,7 +568,8 @@ function startNewFight({ rows, stakes }, { fresh = [] } = {}) {
     // The latest reply's offers end here: a rest or an award from before the fight is not taken after it.
     const latest = latestAssistantIndex(ctx?.chat ?? []);
     const sb = storyBlock();
-    saveChatState({ fight: { setup, actions: [] }, foughtAt: sb && latest >= 0 ? { index: latest, text: replyStamp(sb, latest) } : null });
+    // The fight belongs to that reply: deleted or swiped away, the fight and its result go too.
+    saveChatState({ fight: { setup, actions: [], origin: fightOrigin(ctx?.chat ?? [], latest) }, foughtAt: sb && latest >= 0 ? { index: latest, text: replyStamp(sb, latest) } : null });
     screen = { chatId: chatIdOf(ctx), mode: 'fight' };
 }
 
@@ -808,7 +827,8 @@ async function finishFight(fight) {
         pcName: sheet?.name ?? 'You',
         rules: r,
     });
-    saveChatState({ fight: null, pending: { handoff, fightId: fight.id, attachedTo: null }, last: { fightId: fight.id, result, handoff, ...report } });
+    const origin = chatState().fight?.origin ?? null;
+    saveChatState({ fight: null, pending: { handoff, fightId: fight.id, attachedTo: null, origin }, last: { fightId: fight.id, result, handoff, ...report } });
     await context()?.saveMetadata?.();
     finishing = null;
     ending = null;
@@ -1664,7 +1684,8 @@ function handoffFor(chat, kind) {
     generating = false;
     const pending = settleHandoff(chatState().pending, chat);
     if (!pending) {
-        if (chatState().pending) saveChatState({ pending: null });
+        // Also one chatState already reads as none (its fight's reply is gone): cleared for good.
+        if (chatMeta()?.[SETTINGS_KEY]?.pending) saveChatState({ pending: null });
         return '';
     }
     const replacing = (kind.includes('swipe') || kind.includes('regenerate')) && isAssistant(chat.at(-1));
@@ -2397,6 +2418,8 @@ function init() {
     handoffEvent(events.MESSAGE_RECEIVED, { done: true, settles: true });
     handoffEvent(events.GENERATION_STOPPED, { done: true });
     handoffEvent(events.MESSAGE_DELETED, { settles: true });
+    // A swipe of the reply a fight started from takes the fight and its result back (0.4.3).
+    handoffEvent(events.MESSAGE_SWIPED, { settles: true });
     for (const event of [events.CHAT_CHANGED, events.CHAT_LOADED]) {
         if (event) ctx.eventSource?.on?.(event, () => {
             screen = { chatId: chatIdOf(context()), mode: null };
@@ -2404,6 +2427,11 @@ function init() {
             generating = false;
             setPrompt('');
             setPrompt('', RULES_PROMPT_KEY);
+            try {
+                settlePending();
+            } catch (error) {
+                console.warn('[RPG Battle] the hand-off could not be settled', error);
+            }
         });
     }
     console.info(`[RPG Battle] v${VERSION} loaded.`);

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.3
+
+- **A fight goes back with its reply.** A fight's result waited in the chat's metadata, tied to no reply. Delete back to before the fight (or swipe the reply it started from) and replay the scene, and the old result was still handed to the model with every reply: it narrated that fight again (the same loot, every time), and while a result waits RPG Battle asks for no `<Wounds>` or `<Encounter>`, so no new fight could be offered. Now a fight, and its result, belong to the reply that was the latest when the fight started (its place, send date and swipe). Deleted, swiped to another version or replaced, and both are gone: the next reply gets the story instruction again. Editing that reply keeps them, and a swipe of the reply that narrates the result still narrates the same fight.
+- **Older chats:** a result saved before 0.4.3 has no such record; the reply the last fight started from (`foughtAt`) stands in, so deleting back past it clears the result too.
+- The check runs whenever the state is read, and on a deleted or swiped message and on opening a chat.
+
 ## 0.4.2
 
 The engagement and the stakes are the story's: you decide whether to fight, not what the fight is.

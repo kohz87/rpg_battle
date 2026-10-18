@@ -1,4 +1,4 @@
-# RPG Battle v0.4.2
+# RPG Battle v0.4.3
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -337,7 +337,9 @@ summary is given to that one reply only; its swipes narrate the same result. **D
 Battle tab; while the summary waits, the Party tab shows it with **Return to story**. Once the
 reply that narrates it is in, the notice goes (and the story's next fight can be offered); delete
 that reply and the result waits again. There is no Discard: a fight's result always reaches the
-story, so the sheets and the narration agree.
+story, so the sheets and the narration agree. A fight belongs to the reply it started from (since
+0.4.3): delete back past that reply, or swipe it, and the fight and its result are gone with it,
+so replaying the scene can offer a new fight.
 
 ## Fights from the story
 

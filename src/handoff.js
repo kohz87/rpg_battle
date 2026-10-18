@@ -134,6 +134,31 @@ export function buildHandoff(result, { names = {}, currency = DEFAULT_RULES.curr
 const isReply = message => Boolean(message) && !message.is_user && !message.is_system;
 
 /**
+ * Where a fight started (0.4.3): the reply that was the latest when it began, as
+ * { index, date, swipe } (its send date and shown swipe), or null when there was none.
+ */
+export function fightOrigin(chat, index) {
+    const message = Array.isArray(chat) && Number.isInteger(index) && index >= 0 ? chat[index] : null;
+    if (!message) return null;
+    return { index, date: String(message.send_date ?? ''), swipe: Number.isInteger(message.swipe_id) ? message.swipe_id : 0 };
+}
+
+/**
+ * Whether the reply a fight started from is still the one in the chat. False once it is
+ * deleted, swiped to another version or replaced by a new reply in its place: the fight and
+ * its result go back with it, like everything else a reply carries. An origin with only an
+ * index (a chat from before 0.4.3) checks only that a reply is still there. No origin: true.
+ */
+export function originHolds(origin, chat = []) {
+    if (!origin || !Number.isInteger(origin.index)) return true;
+    const message = (Array.isArray(chat) ? chat : [])[origin.index];
+    if (!isReply(message)) return false;
+    if (Number.isInteger(origin.swipe) && (Number.isInteger(message.swipe_id) ? message.swipe_id : 0) !== origin.swipe) return false;
+    if (origin.date && String(message.send_date ?? '') !== origin.date) return false;
+    return true;
+}
+
+/**
  * Where a fight's hand-off (`pending`: { handoff, fightId, attachedTo }) stands against the
  * chat: 'none' (no result to narrate); 'waiting' (not given to a reply yet, or its reply was
  * deleted: the next reply narrates it); 'narrating' (given to the reply being generated, which
@@ -141,7 +166,7 @@ const isReply = message => Boolean(message) && !message.is_user && !message.is_s
  * moved past it). Only 'waiting' asks the reader to return to the story.
  */
 export function handoffState(pending, chat = [], { generating = false } = {}) {
-    if (!pending || !pending.handoff) return 'none';
+    if (!pending || !pending.handoff || !originHolds(pending.origin, chat)) return 'none';
     const at = pending.attachedTo;
     if (at === null || at === undefined || !Number.isInteger(Number(at))) return 'waiting';
     const list = Array.isArray(chat) ? chat : [];
