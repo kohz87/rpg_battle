@@ -1275,7 +1275,7 @@ test('idle: Gear lists what the fight uses, capped stats, and what does not coun
 // ---------------------------------------------------------------------------
 // 0.4: party cards, skills set aside, companions' gear, Start over, offers, party files
 
-test('cards: skills in use and set aside; Set aside and Use send onSetSkillActive, Use waits at the cap', () => {
+test('cards: skills in use and set aside; Set aside and Use send onSetSkillActive, Swap in at the cap', () => {
     reset();
     const { handlers, calls } = recorder();
     const three = { ...rules, character: { ...rules.character, activeSkills: 2 } };
@@ -1287,7 +1287,9 @@ test('cards: skills in use and set aside; Set aside and Use send onSetSkillActiv
     assert.deepEqual(texts(mine, '.rpg-battle-skill:not(.is-aside) .rpg-battle-record-name'), ['Quick Jab', 'Spark']);
     assert.deepEqual(texts(mine, '.rpg-battle-skill.is-aside .rpg-battle-record-name'), ['Mend']);
     assert.equal(mine.querySelector('.rpg-battle-skill-count').textContent, '2/2');
-    assert.equal(mine.querySelector('.rpg-battle-skill-use').disabled, true, 'at the cap: set one aside first');
+    assert.equal(mine.querySelector('.rpg-battle-skill-use'), null, 'at the cap: Swap in instead of Use');
+    assert.ok(mine.querySelector('.rpg-battle-skill-swap'));
+    assert.equal(mine.querySelector('.rpg-battle-aside-fold').open, false, 'the set-aside fold starts closed');
     mine.querySelectorAll('.rpg-battle-skill-aside')[1].click();
     assert.deepEqual(calls.at(-1), { name: 'onSetSkillActive', args: ['pc', 'Spark', false] });
     // A companion's names only (no resolved skills sent): still listed, Use allowed under the cap.
@@ -1295,6 +1297,30 @@ test('cards: skills in use and set aside; Set aside and Use send onSetSkillActiv
     assert.deepEqual(texts(astra, '.rpg-battle-skill .rpg-battle-record-name'), ['Ward', 'Rally']);
     astra.querySelector('.rpg-battle-skill-use').click();
     assert.deepEqual(calls.at(-1), { name: 'onSetSkillActive', args: ['astra', 'Rally', true] });
+});
+
+test('cards: a set-aside skill swapped in for one in use, or forgotten after asking twice (0.5.6)', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    const two = { ...rules, character: { ...rules.character, activeSkills: 2 } };
+    const you = sheet({ skills: [{ name: 'Quick Jab', mastery: 1 }, { name: 'Spark', mastery: 2 }, { name: 'Mend', mastery: 3, aside: true }] });
+    const pane = render({ mode: 'idle', sheet: you, party: [], rules: two }, handlers);
+    const mine = () => $(pane, '.rpg-battle-member-card.is-you');
+    mine().querySelector('.rpg-battle-skill-swap').click();
+    assert.equal(mine().querySelector('.rpg-battle-aside-fold').open, true, 'open while swapping');
+    assert.match(mine().querySelector('.rpg-battle-swap .rpg-battle-hint').textContent, /Use Mend instead of:/);
+    assert.deepEqual(texts(mine(), '.rpg-battle-swap-out'), ['Quick Jab (Lv 1)', 'Spark (Lv 2)']);
+    mine().querySelectorAll('.rpg-battle-swap-out')[1].click();
+    assert.deepEqual(calls.at(-1), { name: 'onSwapSkill', args: ['pc', 'Mend', 'Spark'] });
+
+    const count = calls.length;
+    mine().querySelector('.rpg-battle-skill-forget').click();
+    assert.equal(calls.length, count, 'the first click only asks');
+    assert.equal(mine().querySelector('.rpg-battle-skill-forget').getAttribute('aria-label'), 'Forget Mend? Click again');
+    assert.equal(mine().querySelector('.rpg-battle-skill-forget').textContent.trim(), 'Forget? Click again');
+    mine().querySelector('.rpg-battle-skill-forget').click();
+    assert.deepEqual(calls.at(-1), { name: 'onForgetSkill', args: ['pc', 'Mend'] });
+    assert.equal(mine().querySelectorAll('.rpg-battle-skill:not(.is-aside) .rpg-battle-skill-forget').length, 0, 'skills in use are set aside before they can be forgotten');
 });
 
 test('cards: Spend for you and commanded companions (auto ones only with auto-spend off); Give item and Take back', () => {

@@ -47,7 +47,7 @@ import { DEFAULT_BESTIARY, findCreature } from './src/enemies.js';
 import { TEMPLATES, classify, cleanCreature, combinedBestiary, creaturesToMake, familyOf, familyTitle, findKin, generateCreature, storeCreatures } from './src/templates.js';
 import { applyFlavour, flavourPrompt, parseFlavour, sceneText } from './src/flavour.js';
 import { act, availableActions, foeXpWorth, replay, startFight, summarize } from './src/combat.js';
-import { applyResult, foldUses, formatPartyBlock, learnSkill, newSheet, readSheets, setSkillActive, spendPoints } from './src/sheet.js';
+import { applyResult, foldUses, forgetSkill, formatPartyBlock, learnSkill, newSheet, readSheets, setSkillActive, spendPoints } from './src/sheet.js';
 import { addLoot, consumables, formatGearEntry, formatMoney, gearSummary, parseGearEntry, parseInventory, useItems } from './src/items.js';
 import { NEXT_MOVES_MAX, fallbackMoves, nextMovesPrompt, parseNextMoves } from './src/nextmoves.js';
 import { buildHandoff, buildPlanHandoff, fightOrigin, handoffState, originHolds, settleHandoff } from './src/handoff.js';
@@ -66,7 +66,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.5';
+const VERSION = '0.5.6';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -2382,6 +2382,12 @@ const handlers = {
         partyScreen = { chatId: chatIdOf(context()), mode: null };
     }),
     onSetSkillActive: (memberId, name, active) => void guarded(() => writeMember(memberId, sheet => setSkillActive(sheet, name, active, rules()))),
+    // (0.5.6) A set-aside skill swapped in for one in use, and a skill forgotten.
+    onSwapSkill: (memberId, name, out) => void guarded(() => writeMember(memberId, sheet => setSkillActive(sheet, name, true, rules(), { swapOut: out }))),
+    onForgetSkill: (memberId, name) => void guarded(async () => {
+        await writeMember(memberId, sheet => forgetSkill(sheet, name));
+        notify('info', `${name} is forgotten. Delete or swipe the latest reply to take it back.`);
+    }),
     onConfirmLearn: ({ name, fromLibrary = false, template = null, setAside = null, memberId = 'pc' }) => void guarded(async () => {
         const r = rules();
         const skillName = String(name ?? '').trim();

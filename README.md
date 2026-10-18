@@ -1,4 +1,4 @@
-# RPG Battle v0.5.5
+# RPG Battle v0.5.6
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -105,9 +105,15 @@ Skills: Frost Lance (Lv 1, 2/5) | Mend (Lv 3, 9/22)
   (`Power Strike (Lv 2)`) read as no progress yet; a chat from before 0.4.1, which kept the
   progress out of the block, has it written into the block the first time it is open.
 - **Skills in use:** a member fights with at most **6** skills (*Settings → Party*, 3 to 12).
-  More are kept, **set aside** (a `Set aside:` line in the block), and swapped on the card with
-  **Set aside** and **Use**. Learning one past the cap asks which sits out. An older sheet over
-  the cap keeps its first six in use.
+  More are kept, **set aside** (a `Set aside:` line in the block), in a **Set aside** fold on the
+  card, closed until you open it. **Set aside** moves a skill there; **Use** brings one back
+  while there is room, and at the cap **Swap in** asks which skill in use it takes the place of,
+  in one click. Learning one past the cap asks which sits out. An older sheet over the cap keeps
+  its first six in use.
+- **Forget** (the eraser on a set-aside skill, asks twice) drops a skill for good, its mastery
+  and progress with it; learning it again starts at Lv 1. Skills in use are set aside first. Like
+  every sheet change, it is written into the latest reply, so deleting or swiping that reply
+  brings the skill back.
 - **State:** your HP, MP and conditions in words (*unhurt*, *bruised*, *hurt*, *badly hurt*,
   *barely standing*, *down*; *tired* or *drained of magic*; *poisoned*…), worked out by RPG
   Battle. The model is told to portray you exactly as it says, so a character at a fifth of

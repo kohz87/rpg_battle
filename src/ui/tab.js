@@ -711,10 +711,19 @@ function masteryTag(skill, sheet, rules) {
     });
 }
 
+const withAttr = (node, name, value) => { node.setAttribute(name, value); return node; };
+
+// (0.5.6) The set-aside folds left open, per member; the set-aside skill being swapped in
+// ("member|skill") and the one whose Forget asks again.
+const asideOpen = new Map();
+let swapOpen = null;
+let forgetSkillArmed = null;
+
 /**
- * The skills on a card: the ones in use with "Set aside", the ones set aside with "Use" (not
- * while the member already uses as many as the rules allow). Resolved skills when the glue
- * sends them (type, MP, mastery), else the sheet's names.
+ * The skills on a card: the ones in use with "Set aside"; the ones set aside in a fold (closed
+ * until opened, remembered) with "Use", or at the cap "Swap in" for a skill in use, and
+ * "Forget" (asks twice). Resolved skills when the glue sends them (type, MP, mastery), else
+ * the sheet's names.
  */
 function cardSkills(member, id, view, handlers) {
     const rules = view.rules ?? DEFAULT_RULES;
@@ -724,22 +733,65 @@ function cardSkills(member, id, view, handlers) {
     const asideOf = skill => (skill.aside !== undefined ? Boolean(skill.aside) : named.some(entry => entry.aside && sameName(entry.name, skill.name)));
     const active = resolved.filter(skill => !asideOf(skill));
     const aside = resolved.filter(skill => asideOf(skill));
+    const full = active.length >= cap;
+    const asideControls = skill => {
+        const key = `${id}|${skill.name}`;
+        const armed = forgetSkillArmed === key;
+        return [
+            full
+                ? withAttr(button('Swap in', `rpg-battle-skill-swap${swapOpen === key ? ' is-open' : ''}`, { iconName: 'fa-right-left', title: `Use ${skill.name} instead of a skill in use`, onClick: () => { swapOpen = swapOpen === key ? null : key; forgetSkillArmed = null; rerender(); } }), 'aria-expanded', String(swapOpen === key))
+                : button('Use', 'rpg-battle-skill-use', { iconName: 'fa-arrow-up', title: `Use ${skill.name} in fights`, onClick: () => emit(handlers, 'onSetSkillActive', id, skill.name, true) }),
+            withAttr(button(armed ? 'Forget? Click again' : '', `rpg-battle-skill-forget${armed ? ' is-armed' : ''}`, {
+                iconName: 'fa-eraser',
+                title: `Forget ${skill.name}: its mastery is lost, and learning it again starts at Lv 1`,
+                onClick: () => {
+                    if (!armed) { forgetSkillArmed = key; swapOpen = null; rerender(); return; }
+                    forgetSkillArmed = null;
+                    emit(handlers, 'onForgetSkill', id, skill.name);
+                },
+            }), 'aria-label', armed ? `Forget ${skill.name}? Click again` : `Forget ${skill.name}`),
+        ];
+    };
+    // At the cap, the skills in use that the set-aside one can take the place of.
+    const swapPicker = skill => (swapOpen !== `${id}|${skill.name}` ? null : el('div', { className: 'rpg-battle-swap' }, [
+        el('p', { className: 'rpg-battle-hint', text: `Use ${skill.name} instead of:` }),
+        el('div', { className: 'rpg-battle-actions' }, active.map(other => button(`${str(other.name)} (Lv ${num(other.mastery, 1)})`, 'rpg-battle-swap-out', {
+            iconName: 'fa-arrow-down',
+            title: `Set ${other.name} aside and use ${skill.name}`,
+            onClick: () => { swapOpen = null; emit(handlers, 'onSwapSkill', id, skill.name, other.name); },
+        }))),
+    ]));
     const row = (skill, isAside) => el('li', { className: `rpg-battle-record rpg-battle-skill${isAside ? ' is-aside' : ''}` }, [
         el('div', { className: 'rpg-battle-record-head' }, [
             icon(TYPE_ICONS[skill.type] ?? 'fa-star'),
             el('span', { className: 'rpg-battle-record-name', text: skill.name ?? '' }),
             masteryTag(skill, member.sheet, rules),
-            isAside
-                ? button('Use', 'rpg-battle-skill-use', { iconName: 'fa-arrow-up', disabled: active.length >= cap, title: active.length >= cap ? `Already ${cap} in use: set one aside first` : `Use ${skill.name} in fights`, onClick: () => emit(handlers, 'onSetSkillActive', id, skill.name, true) })
-                : button('Set aside', 'rpg-battle-skill-aside', { iconName: 'fa-arrow-down', title: `Keep ${skill.name} but leave it out of fights`, onClick: () => emit(handlers, 'onSetSkillActive', id, skill.name, false) }),
+            ...(isAside
+                ? asideControls(skill)
+                : [button('Set aside', 'rpg-battle-skill-aside', { iconName: 'fa-arrow-down', title: `Keep ${skill.name} but leave it out of fights`, onClick: () => emit(handlers, 'onSetSkillActive', id, skill.name, false) })]),
         ]),
         skill.type ? el('div', { className: 'rpg-battle-record-meta', text: skillMeta(skill) }) : null,
+        isAside ? swapPicker(skill) : null,
     ]);
+    let asideFold = null;
+    if (aside.length) {
+        asideFold = el('details', { className: 'rpg-battle-aside-fold' }, [
+            el('summary', { className: 'rpg-battle-aside-label' }, [
+                el('span', { text: 'Set aside' }),
+                el('span', { className: 'rpg-battle-count', text: String(aside.length) }),
+                el('span', { className: 'rpg-battle-hint', text: 'kept, not used in fights' }),
+            ]),
+            el('ul', { className: 'rpg-battle-records rpg-battle-aside' }, aside.map(skill => row(skill, true))),
+        ]);
+        // Closed until opened; open while a swap or a forget is under way in it.
+        const pending = [swapOpen, forgetSkillArmed].some(key => typeof key === 'string' && key.startsWith(`${id}|`));
+        asideFold.open = pending || asideOpen.get(id) === true;
+        asideFold.addEventListener('toggle', () => { asideOpen.set(id, Boolean(asideFold.open)); });
+    }
     return el('div', { className: 'rpg-battle-card-skills' }, [
         el('div', { className: 'rpg-battle-sub-row' }, [sub('Skills', 'fa-wand-sparkles'), el('span', { className: 'rpg-battle-count rpg-battle-skill-count', text: `${active.length}/${cap}` })]),
         active.length ? el('ul', { className: 'rpg-battle-records' }, active.map(skill => row(skill, false))) : el('p', { className: 'rpg-battle-hint', text: 'No skills in use.' }),
-        aside.length ? el('p', { className: 'rpg-battle-hint rpg-battle-aside-label', text: 'Set aside (kept, not used in fights):' }) : null,
-        aside.length ? el('ul', { className: 'rpg-battle-records rpg-battle-aside' }, aside.map(skill => row(skill, true))) : null,
+        asideFold,
     ]);
 }
 

@@ -1503,6 +1503,65 @@
     margin: 0.2rem 0 0;
 }
 
+/* (0.5.6) Set-aside skills fold away; Swap in picks the skill in use to trade places with. */
+.rpg-battle-tab .rpg-battle-aside-fold > summary {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    min-height: 1.8rem;
+    list-style: none;
+    cursor: pointer;
+}
+
+.rpg-battle-tab .rpg-battle-aside-fold > summary::-webkit-details-marker {
+    display: none;
+}
+
+/* The same border-drawn chevron as the folds. */
+.rpg-battle-tab .rpg-battle-aside-fold > summary::after {
+    content: "";
+    flex: none;
+    width: 0.45rem;
+    height: 0.45rem;
+    margin: 0 0.3rem 0 auto;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    opacity: 0.5;
+    transform: rotate(-45deg);
+    transition: transform 0.15s ease;
+}
+
+.rpg-battle-tab .rpg-battle-aside-fold[open] > summary::after {
+    transform: rotate(45deg);
+}
+
+.rpg-battle-tab .rpg-battle-aside-fold > summary .rpg-battle-hint {
+    margin: 0;
+}
+
+.rpg-battle-tab .rpg-battle-aside-fold[open] > .rpg-battle-records {
+    margin-top: 0.35rem;
+}
+
+.rpg-battle-tab .rpg-battle-record-head .rpg-battle-skill-forget {
+    margin-left: 0.3rem;
+}
+
+.rpg-battle-tab .rpg-battle-swap {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    margin-top: 0.35rem;
+    padding: 0.4rem 0.5rem;
+    border: 1px dashed var(--rb-border);
+    border-radius: 6px;
+}
+
+.rpg-battle-tab .rpg-battle-swap .rpg-battle-actions {
+    flex-wrap: wrap;
+}
+
 .rpg-battle-tab .rpg-battle-give {
     display: flex;
     flex-direction: column;
@@ -1517,7 +1576,8 @@
 }
 
 .rpg-battle-tab .rpg-battle-start-over.is-armed,
-.rpg-battle-tab .rpg-battle-offer-accept.is-armed {
+.rpg-battle-tab .rpg-battle-offer-accept.is-armed,
+.rpg-battle-tab .rpg-battle-skill-forget.is-armed {
     border-color: var(--rb-bad);
     color: var(--rb-bad);
 }

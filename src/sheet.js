@@ -714,20 +714,41 @@ export function learnSkill(sheet, name, { rules = DEFAULT_RULES, setAside = null
 
 /**
  * A known skill put in use (`active`) or set aside. Setting aside is always allowed; putting
- * one in use at the cap throws (set another aside first). An unknown name throws.
+ * one in use at the cap needs `swapOut`, a skill in use to set aside in its place (0.5.6), and
+ * throws without it. An unknown name throws.
  */
-export function setSkillActive(sheet, name, active, rules = DEFAULT_RULES) {
+export function setSkillActive(sheet, name, active, rules = DEFAULT_RULES, { swapOut = null } = {}) {
     const next = copySheet(sheet);
     const skill = next.skills.find(entry => skillKey(entry.name) === skillKey(name));
     if (!skill) throw new Error(`${sheet.name || 'They'} do not know ${name}.`);
     if (active && skill.aside) {
         const cap = activeCap(rulesOf(rules));
-        if (activeSkills(next).length >= cap) throw new Error(`${sheet.name || 'They'} already use ${cap} skills: set one aside first.`);
+        if (activeSkills(next).length >= cap) {
+            const out = swapOut ? next.skills.find(entry => !entry.aside && skillKey(entry.name) === skillKey(swapOut)) : null;
+            if (!out) throw new Error(`${sheet.name || 'They'} already use ${cap} skills: set one aside first.`);
+            out.aside = true;
+        }
         delete skill.aside;
     } else if (!active) {
         skill.aside = true;
     }
     next.skills = activeWithin(next.skills, rules);
+    return next;
+}
+
+/**
+ * A skill forgotten (0.5.6): gone from the sheet with its mastery and progress. Learning it
+ * again starts at Lv 1. An unknown name throws. The sheet is written into the latest reply, so
+ * deleting or swiping that reply brings it back.
+ */
+export function forgetSkill(sheet, name) {
+    const next = copySheet(sheet);
+    const skill = next.skills.find(entry => skillKey(entry.name) === skillKey(name));
+    if (!skill) throw new Error(`${sheet.name || 'They'} do not know ${name}.`);
+    next.skills = next.skills.filter(entry => entry !== skill);
+    for (const key of Object.keys(next.uses)) {
+        if (skillKey(key) === skillKey(skill.name)) delete next.uses[key];
+    }
     return next;
 }
 
