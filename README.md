@@ -1,4 +1,4 @@
-# RPG Battle v0.5.7
+# RPG Battle v0.5.8
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -420,8 +420,13 @@ battle: the offer, the setup, the fight, and its result until it goes back to th
 Victory in 5 rounds (about 30 seconds).
 Ren: HP 61/98, MP 15/32.
 Key moments: Ren finishes the Goblin A; Critical! Ren's Power Strike hits the Goblin Shaman for 34.
+Foes defeated: Goblin ×3, Goblin Shaman.
 Loot: 1 silver, 3 copper, a goblin ear, a shaman's charm. XP +35.
 ```
+
+The **Foes defeated** line (since 0.5.8) says how many fell of each kind, without the letters
+that tell them apart in the fight, so the story does not count them from the key moments,
+which name only some.
 
 **What next?** (since 0.5.4) Under the result, a few things your character could do next: *Skin
 the wolves and take what is worth keeping*, *Tend to Lyra's wounds before moving on*, *Follow the
@@ -456,6 +461,7 @@ Stage 2, the yard: defeated — the story decides what follows (captured, robbed
 Not reached: the tower. Do not narrate it.
 Ren: down (unconscious or unable to fight).
 Key moments: Ren finishes the Guard A; …
+Foes defeated: Guard ×3.
 Loot: 1 silver, 2 copper. XP +30.
 ```
 

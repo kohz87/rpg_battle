@@ -41,6 +41,7 @@ test('a victory reads as DESIGN §8.2', () => {
         'Astra: HP 44/44, MP 20/38 — unhurt · tired of magic.',
         'Key moments: the shaman\'s hex missed Ren; Ren\'s Rending Strike crit the second goblin; Astra\'s Ember',
         'Lance finished the shaman; one goblin fled toward the weir.',
+        'Foes defeated: Goblin, Goblin Shaman.',
         'Loot: 1 silver, 4 copper, a bone fetish. XP +38 each.',
     ].join('\n'));
     assert.equal(HANDOFF_HEADER, '[Battle resolved by RPG Battle: narrate this outcome, do not change it]');
@@ -71,7 +72,7 @@ test('an escape, down members, conditions, fled and parleyed enemies', () => {
         'Escaped after 1 round.',
         'Ren: HP 5/62, MP 0/30 — barely standing (staggering, could fall at any moment) · drained of magic · poisoned.',
         'Astra the Bright: down (unconscious or unable to fight).',
-        'Stood down after parley: Bandit Captain. Fled: Wolf ×2.',
+        'Foes defeated: Goblin, Goblin Shaman. Stood down after parley: Bandit Captain. Fled: Wolf ×2.',
     ].join('\n'));
 });
 
@@ -219,6 +220,7 @@ test('a plan won: a line per stage, the end state, the loot and XP of every stag
         'Ren: HP 34/62, MP 12/30 — hurt (aching, favouring a wound) · tired of magic.',
         'Astra: HP 44/44, MP 20/38 — unhurt · tired of magic.',
         'Key moments: moment 1; moment 2; moment 3.',
+        'Foes defeated: Goblin ×3, Goblin Shaman ×3.',
         'Loot: 2 silver, 1 copper. XP +114 each.',
     ].join('\n'));
 });
@@ -258,4 +260,16 @@ test('a plan\'s hand-off stays short: about one line more per stage than a fight
     const three = buildPlanHandoff(planResult(planOf(['victory', 'victory', 'defeat']), 'defeat'), { currency: COINS, pcName: 'Ren' });
     assert.ok(three.split('\n').length <= one.split('\n').length + 3, three);
     assert.ok(three.split(/\s+/).length <= 140);
+});
+
+test('how many foes fell is said outright, the fight\'s letters dropped (0.5.8)', () => {
+    const text = buildHandoff(result({
+        defeated: ['Timber Wolf A', 'Timber Wolf B', 'Timber Wolf C', 'Timber Wolf D'],
+        keyMoments: ['Wessel\'s Cane Draw cut down Timber Wolf A', 'Timber Wolf B went down under the cart'],
+        fled: [],
+    }), { currency: COINS, pcName: 'Wessel' });
+    assert.match(text, /^Foes defeated: Timber Wolf ×4\.$/m);
+    const fled = buildHandoff(result({ defeated: ['Timber Wolf A'], fled: ['Timber Wolf B', 'Timber Wolf C'] }), { currency: COINS, pcName: 'Wessel' });
+    assert.match(fled, /^Foes defeated: Timber Wolf\. Fled: Timber Wolf ×2\.$/m);
+    assert.doesNotMatch(buildHandoff(result({ defeated: [] }), { currency: COINS, pcName: 'Wessel' }), /Foes defeated/);
 });

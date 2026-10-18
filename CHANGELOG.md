@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.8
+
+- **How many foes fell, said outright.** The hand-off gave the outcome, everyone's state, up to six key moments, who fled and the loot, but never how many foes were defeated, so the story counted them from the key moments, which name only some ("finishes the Wolf A", "finishes the Wolf B"): four wolves were narrated as two. It now has a **Foes defeated** line (`Foes defeated: Timber Wolf ×4.`), for one fight and for a plan, before who stood down or fled. Same-named foes are grouped without the letters that tell them apart in the fight (*Timber Wolf A–D* → *Timber Wolf ×4*), in the Fled and parley lines too.
+
 ## 0.5.7
 
 - **Quest XP without a click.** A quest Story Director reports finished was an offer (*Quest done: Sheep-killer (normal). Award XP +10?*), but the story had already decided (it reports a quest only once the story closed it, never a failed or abandoned one) and code sets the XP, so Award added nothing. It is now awarded at once and toasted: *Quest done: Sheep-killer (normal) · XP +10*, with any level reached. Written into the latest reply, so deleting or swiping that reply takes it back with the closing. A quest closed after the reply (Story Director's capture call) is awarded on the next refresh; a refresh never awards twice; if writing fails, the offer shows instead. The `<XP>` block's story awards stay offers: those are the model's claims.
