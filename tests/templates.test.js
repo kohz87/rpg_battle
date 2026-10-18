@@ -10,7 +10,12 @@ import { creatureSkill } from '../src/skills.js';
 import {
     TEMPLATES, TEMPLATE_IDS, TRAITS, classify, cleanCreature, cleanTraits, combinedBestiary, creatureSingular,
     creaturesToMake, generateCreature, lookupCreature, storeCreatures, templateFor, traitMods,
+    FAMILIES, familyOf, familyTitle, findKin,
 } from '../src/templates.js';
+import { resolveThreats } from '../src/story.js';
+import { enemiesFromRows } from '../src/party.js';
+import { foeXpWorth } from '../src/combat.js';
+import { flavourPrompt } from '../src/flavour.js';
 
 const rules = DEFAULT_RULES;
 
@@ -258,4 +263,97 @@ test('cleanCreature: an imported or stored entry keeps its words, and its number
     // No loot written: its kind's table.
     assert.ok(cleanCreature({ name: 'Ashen Drake', level: 5 }).loot.some(row => row.name === 'Drake Scale'));
     assert.ok(RANKS.includes(entry.rank));
+});
+
+// ---------------------------------------------------------------------------
+// Kin (0.5.2): a new kind in a family the story already has is made as kin of its relative
+
+test('familyOf: the creature noun and its family; plurals and compounds; a noun of its own', () => {
+    assert.deepEqual(familyOf('Feral Ditch-Dog'), { noun: 'dog', family: 'canine' });
+    assert.deepEqual(familyOf('Hellhound'), { noun: 'hound', family: 'canine' });
+    assert.deepEqual(familyOf('razor dogs'), { noun: 'dog', family: 'canine' });
+    assert.deepEqual(familyOf('Wolfdog'), { noun: 'dog', family: 'canine' }, 'a compound\'s ending');
+    assert.deepEqual(familyOf('Mangy Cur'), { noun: 'cur', family: 'canine' });
+    assert.deepEqual(familyOf('Giant Rats'), { noun: 'rat', family: 'rodent' });
+    assert.deepEqual(familyOf('Cave Bear'), { noun: 'bear', family: 'ursine' });
+    assert.deepEqual(familyOf('Bog Wight'), { noun: 'wight', family: 'wight' });
+    assert.equal(familyTitle('canine'), 'Canines');
+    assert.equal(familyTitle('wight'), 'Wights');
+    assert.equal(familyTitle('golem'), 'Golems');
+    assert.ok(Object.values(FAMILIES).every(list => list.every(noun => /^[a-z]+$/.test(noun))));
+});
+
+const ditchDog = () => cleanCreature(generateCreature({ name: 'Feral Ditch-Dog', level: 1 }, { seed: 'kin' }), rules);
+
+test('kin: with a Feral Ditch-Dog in the story, a Razor Dog and a Hellhound are made as its kin', () => {
+    const dog = { ...ditchDog(), role: 'brute', temperament: 'cunning', traits: ['hulking', 'savage'], talks: true, moves: [...ditchDog().moves, { name: 'Gutter Lunge', type: 'physical', stat: 'AGI', target: 'one', effect: ['stun'], cooldown: 3, description: 'Low and fast.' }] };
+    const story = [cleanCreature(dog, rules)];
+    const made = creaturesToMake([{ name: 'Razor Dog', level: 1 }, { name: 'Hellhound', level: 5, boss: true }], { chatBestiary: story, rules, seed: 'kin' });
+    assert.deepEqual(made.map(entry => [entry.name, entry.kin, entry.family]), [['Razor Dog', 'Feral Ditch-Dog', 'canine'], ['Hellhound', 'Feral Ditch-Dog', 'canine']]);
+    for (const entry of made) {
+        assert.equal(entry.template, story[0].template);
+        assert.equal(entry.role, 'brute', 'the relative\'s role');
+        assert.equal(entry.temperament, 'cunning');
+        assert.deepEqual(entry.traits, ['hulking', 'savage']);
+        assert.equal(entry.talks, true);
+        assert.equal(entry.fleesBelow, story[0].fleesBelow);
+        assert.deepEqual(entry.moves.slice(0, story[0].moves.length).map(move => move.name), story[0].moves.map(move => move.name), 'its moves start from the relative\'s');
+    }
+    assert.equal(made[0].morale, story[0].morale, 'its behaviour: the same morale at the same rank');
+    assert.ok(made[1].morale >= story[0].morale, 'and a little firmer at a higher rank, by its temperament');
+    assert.deepEqual(made[0].loot.filter(row => row.kind === 'material').map(row => row.name), ['Razor Dog Pelt', 'Razor Dog Fang']);
+    assert.deepEqual(made[1].loot.filter(row => row.kind === 'material').map(row => row.name), ['Hellhound Pelt', 'Hellhound Fang']);
+    // Its own numbers: its own level and rank.
+    assert.deepEqual(made.map(entry => [entry.level, entry.rank]), [[1, 'F'], [5, rankRowForLevel(5, rules).rank]]);
+    // Kept in the chat (cleaned) with its kin and family.
+    const kept = cleanCreature(made[0], rules);
+    assert.equal(kept.kin, 'Feral Ditch-Dog');
+    assert.equal(kept.family, 'canine');
+    // A role word in its own name wins over the relative's.
+    assert.equal(creaturesToMake([{ name: 'Dog Archer', level: 1 }], { chatBestiary: story, rules })[0].role, 'skirmisher');
+});
+
+test('kin: its level and XP follow its own threat word, not the relative\'s', () => {
+    const story = [ditchDog()];
+    const rows = resolveThreats([{ name: 'Razor Dog', count: 1, rank: null, threat: 'weak' }, { name: 'Hellhound', count: 1, rank: null, threat: 'strong' }], 1, rules);
+    const made = creaturesToMake(rows, { chatBestiary: story, rules, seed: 'kin' });
+    assert.deepEqual(made.map(entry => entry.kin), ['Feral Ditch-Dog', 'Feral Ditch-Dog']);
+    const foes = enemiesFromRows(rows, { bestiary: combinedBestiary([...story, ...made]), library: [], rules, rng: null });
+    assert.deepEqual(foes.map(foe => [foe.name, foe.level, foe.scale ?? 1, foeXpWorth(foe, 1, rules)]), [['Razor Dog', 1, 0.6, 5], ['Hellhound', 5, 1, 20]]);
+});
+
+test('kin: the same noun before the same family, the story\'s before the shipped, the newest first', () => {
+    const dog = ditchDog();
+    const marshWolf = cleanCreature(generateCreature({ name: 'Marsh Wolf', level: 1 }, { seed: 'kin' }), rules);
+    // A wolf dog is a dog: the story's Feral Ditch-Dog, not its newer Marsh Wolf or the shipped Wolf.
+    assert.equal(findKin('Wolf Dog', { chatBestiary: [dog, marshWolf] }).entry.name, 'Feral Ditch-Dog');
+    assert.equal(findKin('Grey Hound', { chatBestiary: [dog, marshWolf] }).entry.name, 'Marsh Wolf', 'no hound: the newest canine');
+    assert.equal(findKin('Wolf Pup', { chatBestiary: [] }).entry.name, 'Wolf', 'the shipped one when the story has none');
+    assert.deepEqual(findKin('Wolf Pup', { chatBestiary: [] }), { entry: DEFAULT_BESTIARY.find(entry => entry.name === 'Wolf'), source: 'default' });
+    // Kin of a shipped creature: its role, talk and coin, its skills as moves, its table's parts renamed.
+    const pup = creaturesToMake([{ name: 'Wolf Pup', level: 1 }], { chatBestiary: [], rules })[0];
+    assert.equal(pup.kin, 'Wolf');
+    assert.equal(pup.role, 'skirmisher');
+    assert.equal(pup.talks, false);
+    assert.equal(pup.coins, false);
+    assert.equal(pup.moves[0].name, 'Bite');
+    assert.deepEqual(pup.loot.filter(row => row.kind === 'material').map(row => row.name), ['Wolf Pup Pelt', 'Wolf Pup Fang']);
+});
+
+test('kin: no relative, made as before; an exact or close match is never made at all', () => {
+    const golem = creaturesToMake([{ name: 'Glass Golem', level: 3 }], { chatBestiary: [], rules, seed: 'kin' })[0];
+    assert.equal(golem.kin, undefined);
+    assert.equal(golem.family, 'golem');
+    const plain = generateCreature({ name: 'Glass Golem', level: 3 }, { rules, seed: 'kin' });
+    assert.deepEqual({ ...golem }, { ...plain }, 'exactly what it was before');
+    const dog = ditchDog();
+    assert.deepEqual(creaturesToMake([{ name: 'Feral Ditch-Dog', level: 1 }, { name: 'mangy ditch-dogs', level: 1 }, { name: 'young wolf', level: 1 }], { chatBestiary: [dog], rules }), []);
+});
+
+test('kin: the flavour call is told whose relative it is', () => {
+    const razor = creaturesToMake([{ name: 'Razor Dog', level: 1 }], { chatBestiary: [ditchDog()], rules })[0];
+    const [, user] = flavourPrompt(razor, { power: 'Level 1' });
+    assert.match(user.content, /^Creature: Razor Dog \(a relative of the Feral Ditch-Dog: make its look fit that kin\)$/m);
+    const [, plain] = flavourPrompt(ditchDog(), { power: 'Level 1' });
+    assert.match(plain.content, /^Creature: Feral Ditch-Dog$/m);
 });

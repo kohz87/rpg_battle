@@ -569,10 +569,30 @@ Wolf and "wolf matriarch" its Grey Wolf Matriarch, while a word that names a kin
 instruction also lists the last eight creatures this story has met, so the model writes the same
 creature by the same name.
 
-- **Setup:** a name nobody knows is tagged **new** (made up when you press **Start**); in the fight, its card is too (its look is
+**Kin (0.5.2).** A new kind in a family the story already has is made as **kin** of its closest
+relative rather than from the bare template: with a *Feral Ditch-Dog* in the story, a *razor
+dog*, a *wolf dog* or a *hellhound* is its kin. A creature's family comes from its creature noun
+(dog, hound, wolf…; also as a plural or the end of a compound, *ditch-dog*, *hellhound*):
+**canines** (dog, hound, wolf, cur, mutt, jackal, fox, coyote, warg), **felines** (cat, lynx,
+panther, leopard, lion, tiger), **ursines** (bear), **rodents** (rat, mouse), **arachnids**
+(spider, scorpion), **serpents** (snake, serpent, viper, adder, wyrm), **avians** (bird, crow,
+raven, hawk, eagle, vulture), **insects** (beetle, wasp, ant, centipede), **oozes** (slime, ooze,
+jelly); any other noun is a family of its own. The closest relative shares the noun if one does
+(a *wolf dog* is a dog's kin before a wolf's), else the family; the story's own creatures before
+the shipped ones, the newest first. Kin takes the relative's template, role (unless its own name
+says one, *dog archer*), temperament and traits, whether it talks and carries coin, its moves to
+start from (the template may add one), and its loot with the body parts renamed (*Razor Dog
+Pelt*, *Razor Dog Fang*; one pelt per creature as always). Its level, numbers and XP are its
+own row's. A flavour call is told it is a relative of the Feral Ditch-Dog, so its look fits. A
+name that already finds its creature (exactly, or differently worded) is that creature, never
+kin. With no relative, a new kind is made from its template as before.
+
+- **Setup:** a name nobody knows is tagged **new** (made up when you press **Start**; its tooltip
+  says *made up as kin of Feral Ditch-Dog* when it will be); in the fight, its card is too (its look is
   the card's tooltip).
-- **Bestiary** (a fold at the bottom of the Party tab): this story's creatures with their power in your
-  terms, role, traits and look; **Regenerate** makes one again (and flavours it again),
+- **Bestiary** (a fold at the bottom of the Party tab): this story's creatures, grouped by family
+  (*Canines*, *Wights*…), with their power in your terms, role, traits and look, and *kin of
+  Feral Ditch-Dog* on a kin; **Regenerate** makes one again (and flavours it again),
   **Forget** drops it (the name is made up anew next time). **Export** saves the list as JSON,
   **Import** adds one (cleaned like anything stored: known words only, every number worked out
   again).

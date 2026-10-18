@@ -549,7 +549,7 @@ let forgetArmed = null;
  * next time); Export and Import for the list as a JSON file.
  */
 function bestiaryFold(creatures, handlers) {
-    const rows = creatures.map(entry => {
+    const record = entry => {
         const armed = forgetArmed === entry.name;
         const meta = [str(entry.power), str(entry.role), list(entry.traits).map(str).filter(Boolean).join(', ')].filter(Boolean).join(' · ');
         const item = el('li', { className: 'rpg-battle-record rpg-battle-creature' }, [
@@ -559,6 +559,7 @@ function bestiaryFold(creatures, handlers) {
                 entry.flavoured ? null : el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-creature-plain', text: 'template', title: 'Not flavoured by the model: it fights as its template' }),
             ]),
             meta ? el('div', { className: 'rpg-battle-record-meta', text: meta }) : null,
+            str(entry.kin) ? el('div', { className: 'rpg-battle-record-meta rpg-battle-creature-kin', text: `kin of ${str(entry.kin)}` }) : null,
             str(entry.look) ? el('p', { className: 'rpg-battle-hint rpg-battle-creature-look', text: str(entry.look) }) : null,
             el('div', { className: 'rpg-battle-member-actions' }, [
                 button('Regenerate', 'rpg-battle-creature-regenerate', {
@@ -582,7 +583,13 @@ function bestiaryFold(creatures, handlers) {
         ]);
         item.dataset.creature = str(entry.name);
         return item;
-    });
+    };
+    // (0.5.2) By family ("Canines"), in the order each family first appears.
+    const families = [...new Set(creatures.map(entry => str(entry.family)))];
+    const rows = families.flatMap(family => [
+        family ? el('li', { className: 'rpg-battle-hint rpg-battle-bestiary-family', text: family }) : null,
+        ...creatures.filter(entry => str(entry.family) === family).map(record),
+    ]).filter(Boolean);
     // The file picker is hidden behind the Import button; its text goes to the glue as it is.
     const picker = el('input', { className: 'rpg-battle-bestiary-file', attrs: { type: 'file', accept: '.json,application/json', 'aria-label': 'Bestiary file to import' } });
     picker.hidden = true;
@@ -1356,7 +1363,7 @@ function enemyLine(row, rules, isNew) {
     return el('li', { className: 'rpg-battle-enemy-row' }, [
         el('span', { className: 'rpg-battle-enemy-count', text: `${count} ×` }),
         el('span', { className: 'rpg-battle-enemy-name', text: str(row.name) }),
-        isNew(row.name) ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-new', text: 'new', title: 'Not in the bestiary: made up from its name when the fight starts' }) : null,
+        isNew(row.name) ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-new', text: 'new', title: str(row.kin) ? `Not in the bestiary: made up as kin of ${str(row.kin)} when the fight starts` : 'Not in the bestiary: made up from its name when the fight starts' }) : null,
         row.boss ? el('span', { className: 'rpg-battle-tag rpg-battle-boss', text: 'Boss' }) : null,
         power ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-enemy-power', text: power }) : null,
         str(row.threat) ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-threat', text: str(row.threat), title: 'How dangerous the story says it is, beside the power it means for your level' }) : null,

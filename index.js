@@ -44,7 +44,7 @@ import { DEFAULT_RULES, checkModifiers, clampXpRate, makeRules, suggestRank } fr
 import { hashSeed, makeRng } from './src/rng.js';
 import { DEFAULT_SKILLS, findSkill, resolveSkills, skillFromTemplate } from './src/skills.js';
 import { DEFAULT_BESTIARY, findCreature } from './src/enemies.js';
-import { TEMPLATES, classify, cleanCreature, combinedBestiary, creaturesToMake, generateCreature, storeCreatures } from './src/templates.js';
+import { TEMPLATES, classify, cleanCreature, combinedBestiary, creaturesToMake, familyOf, familyTitle, findKin, generateCreature, storeCreatures } from './src/templates.js';
 import { applyFlavour, flavourPrompt, parseFlavour, sceneText } from './src/flavour.js';
 import { act, availableActions, foeXpWorth, replay, startFight, summarize } from './src/combat.js';
 import { applyResult, foldUses, formatPartyBlock, learnSkill, newSheet, readSheets, setSkillActive, spendPoints } from './src/sheet.js';
@@ -602,6 +602,8 @@ function setupRows(rows, sheet, r, bestiary) {
         // (0.5.2) What one of them is worth to you, as the result will count it (a share of your
         // next level by the level gap, boss, the XP rate: combat.foeXpWorth).
         const [foe] = enemiesFromRows([{ ...row, count: 1 }], { bestiary, library: [], rules: r, rng: null });
+        // A name to be made up: the relative it will be made as kin of, for the "new" tag.
+        const kin = creature ? null : findKin(row.name, { chatBestiary: chatState().bestiary, defaults: DEFAULT_BESTIARY })?.entry?.name ?? null;
         return {
             name: row.name,
             count: row.count,
@@ -611,6 +613,7 @@ function setupRows(rows, sheet, r, bestiary) {
             boss: Boolean(row.boss),
             ...(row.threat ? { threat: row.threat } : {}),
             ...(foe ? { xp: foeXpWorth(foe, sheet.level, r) } : {}),
+            ...(kin ? { kin } : {}),
             ...(row.wave ? { wave: row.wave } : {}),
             ...(row.stage ? { stage: row.stage } : {}),
         };
@@ -865,7 +868,10 @@ async function regenerateCreature(name) {
     const state = chatState();
     const old = state.bestiary.find(entry => entry.name === name);
     if (!old) throw new Error(`${name} is not in this story's bestiary.`);
-    let entry = generateCreature({ name: old.name, level: old.level, role: null }, { rules: r, seed: `${chatIdOf(context())}:${Date.now()}` });
+    // (0.5.2) Kin stays kin: of the relative it was made from while that is still there, else its closest one now.
+    const others = state.bestiary.filter(entry => entry.name !== name);
+    const kin = (old.kin ? [...others, ...DEFAULT_BESTIARY].find(entry => entry.name === old.kin) : null) ?? findKin(old.name, { chatBestiary: others, defaults: DEFAULT_BESTIARY })?.entry ?? null;
+    let entry = generateCreature({ name: old.name, level: old.level, role: null }, { rules: r, seed: `${chatIdOf(context())}:${Date.now()}`, kin });
     if (settings().flavour.enabled && sheet) {
         const toast = notify('info', `Preparing ${entry.name}…`, { timeOut: 0, extendedTimeOut: 0 });
         try {
@@ -2137,6 +2143,9 @@ function partyView() {
         // This story's own creatures, for the Bestiary fold.
         bestiary: state.bestiary.map(entry => ({
             name: entry.name,
+            // (0.5.2) Grouped by family in the fold; a kin entry says whose.
+            family: familyTitle(entry.family ?? familyOf(entry.name).family),
+            kin: entry.kin ?? '',
             power: powerText(entry.level, r),
             role: entry.role,
             template: entry.template,

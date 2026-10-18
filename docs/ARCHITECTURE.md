@@ -1073,3 +1073,25 @@ XP counted per level, an XP rate, threat words that work at low levels.
   `label.story-suite-row` *XP rate* with the hint *Multiplies all XP: fights, quests and story
   awards.*; the Party fold's summary adds *· XP ×1.5* when it is not 1. The Story Suite overlay
   shows the same panel. There is no settings export.
+- **Kin** (templates.js): `FAMILIES` (canine, feline, ursine, rodent, arachnid, serpent, avian,
+  insect, ooze → their nouns), `familyOf(name) → { noun, family }` (classify's noun; else the last
+  word, its singular or a compound's ending; an unlisted noun is its own family),
+  `familyTitle(family) → 'Canines' | 'Wights'`, `findKin(name, { chatBestiary, defaults, made }) →
+  { entry, source: 'chat' | 'made' | 'default' } | null` (the same noun, else the same family; the
+  chat's newest first, then those made for this fight, then the shipped ones; never the name
+  itself). `generateCreature(row, { rules, rng, seed, kin })`: with `kin` the relative's
+  template, role (the row's or the name's role word first), talks, coins, temperament, traits
+  (+ the name's own and its leadership), moves (the relative's, a shipped skill name as its
+  library or monster skill; the template fills to the count, at most four) and loot (`kinLoot`:
+  materials renamed, the relative's name or noun replaced by the kin's, a one-word part prefixed;
+  gear valued again at the kin's level and rarity; the kin's rank's potion), `kin` (the
+  relative's name); every made entry has `family`. `creaturesToMake` makes each unknown name as
+  kin of `findKin`'s relative when there is one (lookupCreature's exact or close match first, so
+  such a name is never made). `cleanCreature` keeps `kin` and `coins`, and sets `family` from
+  the name. `flavourPrompt` adds *(a relative of the X: make its look fit that kin)* to the
+  Creature line. index.js: `prepareFoes` as before; `regenerateCreature` passes the relative
+  (`old.kin` while it is still there, else `findKin`); `setupRows` adds `kin` (the name a new row
+  will be kin of); the idle view's bestiary rows carry `family` (`familyTitle`) and `kin`.
+  tab.js: the Bestiary fold lists `.rpg-battle-bestiary-family` headings (in first-seen order)
+  with their creatures under them and `.rpg-battle-creature-kin` *kin of X*; a new setup row's
+  tag title is *Not in the bestiary: made up as kin of X when the fight starts*.

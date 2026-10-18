@@ -1098,6 +1098,35 @@ test('result: gains in the reader\'s terms, with the level reached', () => {
     assert.deepEqual(texts(root(pane), '.rpg-battle-gains dd'), ['+30', '+24']);
 });
 
+test('idle: the Bestiary fold groups creatures by family and says whose kin one is (0.5.2)', () => {
+    reset();
+    const bestiary = [
+        { name: 'Feral Ditch-Dog', family: 'Canines', power: 'Lv 1', role: 'skirmisher', template: 'beast', traits: [], look: '', flavoured: true },
+        { name: 'Bog Wight', family: 'Wights', power: 'Lv 12', role: 'brute', template: 'undead', traits: [], look: '', flavoured: true },
+        { name: 'Razor Dog', family: 'Canines', kin: 'Feral Ditch-Dog', power: 'Lv 1', role: 'skirmisher', template: 'beast', traits: [], look: '', flavoured: false },
+    ];
+    const pane = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules, bestiary });
+    const list = $(pane, '.rpg-battle-fold.is-bestiary .rpg-battle-records');
+    assert.deepEqual([...list.children].map(node => (node.classList.contains('rpg-battle-bestiary-family') ? `# ${node.textContent}` : node.dataset.creature)), ['# Canines', 'Feral Ditch-Dog', 'Razor Dog', '# Wights', 'Bog Wight']);
+    assert.equal($(pane, '.rpg-battle-fold.is-bestiary .rpg-battle-count').textContent, '3', 'the count is of creatures');
+    const razor = $$(pane, '.rpg-battle-creature').find(row => row.dataset.creature === 'Razor Dog');
+    assert.equal(razor.querySelector('.rpg-battle-creature-kin').textContent, 'kin of Feral Ditch-Dog');
+    assert.equal($$(pane, '.rpg-battle-creature-kin').length, 1);
+});
+
+test('setup: a name to be made up as kin says so on its "new" tag (0.5.2)', () => {
+    reset();
+    const rows = [
+        { name: 'Razor Dog', count: 2, level: 1, rank: null, role: 'skirmisher', boss: false, kin: 'Feral Ditch-Dog' },
+        { name: 'Glass Golem', count: 1, level: 1, rank: null, role: 'tank', boss: false },
+    ];
+    const pane = render({ mode: 'setup', rows, stakes: 'normal', known: [], rules });
+    assert.deepEqual($$(pane, '.rpg-battle-new').map(node => node.title), [
+        'Not in the bestiary: made up as kin of Feral Ditch-Dog when the fight starts',
+        'Not in the bestiary: made up from its name when the fight starts',
+    ]);
+});
+
 test('companion: the level picker in the reader\'s terms, up to the cap', () => {
     reset();
     const pane = render({ mode: 'companion', presets: [{ id: 'healer', name: 'Healer', points: { INT: 4 }, skills: [] }], level: 24, maxLevel: 34, rules: { ...SOUL, terms: { ...SOUL.terms, cap: 30 } } });
