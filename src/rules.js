@@ -17,9 +17,11 @@ export const DEFAULT_RULES = Object.freeze({
         starterSkills: 3,
         // Skills a member fights with; more are kept, set aside, and swapped in by hand.
         activeSkills: 6,
-        // XP to reach the next level = round10(xpBase × level ^ xpExponent).
+        // XP to reach the next level = round10(xpBase × level ^ xpExponent). (0.5.2) Every level
+        // needs the same 100 by default (exponent 0); a rules.json may set a curve again (it
+        // was 1.5 before). Every XP gain is a share of this, so a curve keeps working.
         xpBase: 100,
-        xpExponent: 1.5,
+        xpExponent: 0,
         maxLevel: 99,
     },
     derived: {

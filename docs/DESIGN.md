@@ -73,7 +73,7 @@ merges it.
 ```
 <Character>
 Name: Ren
-Level: 4 | XP: 310/400 | Points: 2
+Level: 4 | XP: 31/100 | Points: 2
 HP: 58/62 | MP: 21/30
 STR: 9 | VIT: 7 | AGI: 8 | DEX: 8 | INT: 4 | LUK: 5 | CHA: 6
 Checks: STR +2 | VIT +1 | AGI +1 | DEX +1 | INT -1 | LUK +0 | CHA +0
@@ -274,7 +274,8 @@ All constants below live in `rules.json` and can be edited.
 
 **No classes.** A character is its stats and its skills. A new character starts with every stat
 at 5 and **10 points** to spend, and (0.4) **no skills**: they come from the story (§8.7); each
-level gives **4 points**. XP to next level = 100 × level^1.5 (rounded to 10). There are no presets
+level gives **4 points**. XP to next level = 100 at every level (0.5.2; `xpBase` × level ^
+`xpExponent`, rounded to 10, with `xpExponent` 0; it was 1.5 before). There are no presets
 for the reader any more; the old spreads stay as internal data for the balance simulation.
 A companion is built from up to three **focus stats** in order, weighted 3, 2, 1 (none: evenly),
 over every point they have, largest remainder; generic role words suggest the focus.
@@ -335,13 +336,14 @@ A lorebook names its own progression ("Soul Class", "Rank", "Circle"; "Soul Grow
   "<levelName> I", 11–20 "<levelName> II"… Progress is XP within the level against XP to
   the next one, with tiers as without (0.5.2: "Soul Growth 30/100" beside "Soul Class I (Lv 1)").
   From 0.3 to 0.5.1 it was the share through the current tier, 0.00–99.99 of 100, always
-  written with decimals; such a block is still read as that share (rounding up, stable), so an
-  older chat keeps its XP, and the new text is whole numbers only.
+  written with decimals. The new text is whole numbers only; an odd value (decimals, another
+  denominator) is read as its first number, rounded, within the level (0 to its need − 1), so
+  nothing levels up from being read.
 - `cap` (default `character.maxLevel`, 99): no level past it; XP stops there, shown MAX.
 
 Only words change: the numbers, formulas and the balance are the same. The blocks keep the exact
-level where a tier would hide it (`Soul Class: III (Lv 24) | Soul Growth: 5400/11760 | Points: 2`;
-with names but no tiers `Soul Power: 24 | Power Growth: 5400/11760 | Points: 2`), and the
+level where a tier would hide it (`Soul Class: III (Lv 24) | Soul Growth: 54/100 | Points: 2`;
+with names but no tiers `Soul Power: 24 | Power Growth: 54/100 | Points: 2`), and the
 parsers read the canonical form, any terms form (with or without the colon) and older blocks,
 so changing the terms never loses a sheet. The tab, the result screen and the hand-off's XP line
 ("Soul Growth +38", "Power Growth +38": XP, never a share of the tier since 0.5.2) use them.
@@ -494,8 +496,8 @@ alone makes every one of them fight alike.
   foe; × the reader's XP rate (`xpRate`, 0.25–5, default 1); rounded, at least 1. A foe a threat
   word held at level 1 counts from the level the word meant (§4.2). Every member gets every
   foe's worth against their own level: nothing is split. Level 1 (needing 100): even 10, weak 5,
-  trivial 3, strong 20, deadly 40, an even boss 30, a parley 5; level 5 (needing 1120): even 112,
-  weak 56. The rank table's XP column (§7.1) no longer counts in a fight. (Before 0.5.2: the
+  trivial 3, strong 20, deadly 40, an even boss 30, a parley 5; with every level needing 100
+  (§5), the same at every level. The rank table's XP column (§7.1) no longer counts in a fight. (Before 0.5.2: the
   rank table's XP × ×1.5 above down to ×0.1 below.)
 - **Level-ups:** HP and MP maxima rise; points are added to spend.
 - **Loot:** from the bestiary's tables or the rank's defaults; rarity rolled with LUK; money (8.3).

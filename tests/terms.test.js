@@ -54,12 +54,12 @@ test('labels with tiers and with names of their own', () => {
 });
 
 test('progress: XP to the next level, with tiers too (0.5.2), MAX at the cap', () => {
-    assert.deepEqual(progress({ level: 4, xp: 310 }, R), { cur: 310, max: xpToNext(4, R), text: `310/${xpToNext(4, R)}`, capped: false });
-    assert.equal(progressLabel({ level: 4, xp: 310 }, POWER), `Power Growth 310/${xpToNext(4, R)}`);
+    assert.deepEqual(progress({ level: 4, xp: 31 }, R), { cur: 31, max: xpToNext(4, R), text: `31/${xpToNext(4, R)}`, capped: false });
+    assert.equal(progressLabel({ level: 4, xp: 31 }, POWER), `Power Growth 31/${xpToNext(4, R)}`);
     // With tiers the bar beside "Soul Class I (Lv 1)" is the way to level 2, not through the tier.
     assert.deepEqual(progress({ level: 1, xp: 30 }, SOUL), { cur: 30, max: 100, text: '30/100', capped: false });
     assert.equal(progressLabel({ level: 1, xp: 30 }, SOUL), 'Soul Growth 30/100');
-    assert.equal(progress({ level: 5, xp: 100 }, SOUL).text, `100/${xpToNext(5, R)}`);
+    assert.equal(progress({ level: 5, xp: 60 }, SOUL).text, '60/100', 'every level needs 100 (0.5.2)');
     assert.equal(progress({ level: 10, xp: xpToNext(10, R) - 1 }, SOUL).text, `${xpToNext(10, R) - 1}/${xpToNext(10, R)}`);
     assert.equal(progress({ level: 3, xp: 12.6 }, SOUL).text, `13/${xpToNext(3, R)}`, 'whole numbers only');
     assert.deepEqual(progress({ level: 100, xp: 0 }, SOUL), { cur: 100, max: 100, text: 'MAX', capped: true });
@@ -67,55 +67,30 @@ test('progress: XP to the next level, with tiers too (0.5.2), MAX at the cap', (
     assert.equal(progressLabel({ level: 100 }, SOUL), 'Soul Growth MAX');
 });
 
-// What 0.3–0.5.1 wrote with tiers on: the share through the tier, floored to hundredths.
-function oldTierShare(level, xp, rules) {
-    const size = rules.terms.tiers.size;
-    const first = Math.floor((level - 1) / size) * size + 1;
-    const target = Math.min(first + size, rules.terms.cap);
-    let before = 0;
-    let span = 0;
-    for (let lv = first; lv < target; lv++) {
-        if (lv < level) before += xpToNext(lv, rules);
-        span += xpToNext(lv, rules);
-    }
-    return `${(Math.min(9999, Math.floor((10000 * (before + xp)) / span)) / 100).toFixed(2)}/100`;
-}
-
-test('the new progress text reads back exactly, and never has decimals', () => {
-    for (const rules of [R, SOUL, POWER]) {
+test('the progress text reads back exactly, and never has decimals', () => {
+    const curve = makeRules({ character: { xpExponent: 1.5 } });
+    for (const rules of [R, SOUL, POWER, curve]) {
         for (let level = 1; level < 99; level += 3) {
-            for (const xp of [0, 1, 17, 250, xpToNext(level, rules) - 1].filter(value => value < xpToNext(level, rules))) {
+            for (const xp of [0, 1, 17, 50, xpToNext(level, rules) - 1].filter(value => value < xpToNext(level, rules))) {
                 const shown = progress({ level, xp }, rules).text;
                 assert.doesNotMatch(shown, /\./, `level ${level} xp ${xp}: ${shown}`);
                 assert.equal(xpFromProgress(shown, level, rules), xp, `level ${level} xp ${xp}`);
             }
         }
     }
-    assert.equal(xpFromProgress('310/800', 4, R), 310);
-    assert.equal(xpFromProgress('30/100', 1, SOUL), 30, 'a whole number with tiers is plain XP');
+    assert.equal(xpFromProgress('30/100', 1, SOUL), 30);
     assert.equal(xpFromProgress('MAX', 4, SOUL), 0);
+    assert.equal(xpFromProgress('', 4, R), 0);
 });
 
-test('an older block\'s tier share (with decimals) still reads back to the XP it stood for', () => {
-    // Stable as before: the XP read back gives the same old share again, and no more than was there.
-    for (let level = 1; level < 100; level += 3) {
-        for (const xp of [0, 1, 17, 250, xpToNext(level, R) - 1].filter(value => value < xpToNext(level, R))) {
-            const shown = oldTierShare(level, xp, SOUL);
-            const back = xpFromProgress(shown, level, SOUL);
-            assert.ok(back <= xp && back >= 0, `level ${level} xp ${xp}: ${back}`);
-            assert.equal(oldTierShare(level, back, SOUL), shown, `level ${level} xp ${xp}`);
-        }
-    }
-    // "Soul Growth: 0.21/100" at Soul Class I (Lv 1): 0.21 % of the tier's XP, rounded up.
-    let span = 0;
-    for (let level = 1; level <= 10; level++) span += xpToNext(level, R);
-    assert.equal(xpFromProgress('0.21/100', 1, SOUL), Math.ceil((21 * span) / 10000));
-    assert.equal(xpFromProgress('0.21/100', 1, SOUL), 30);
-    // Written back in the new form, it then reads as the same XP.
-    assert.equal(progress({ level: 1, xp: 30 }, SOUL).text, '30/100');
-    assert.equal(xpFromProgress('30/100', 1, SOUL), 30);
-    // With tiers off a share is that share of the level, as before.
-    assert.equal(xpFromProgress('50.00/100', 4, POWER), xpToNext(4, R) / 2);
+test('an odd progress value is read safely: its first number, rounded, within the level (0.5.2)', () => {
+    assert.equal(xpFromProgress('30', 1, R), 30, 'no denominator: as written');
+    assert.equal(xpFromProgress('45.20/100', 3, SOUL), 45, 'decimals: rounded');
+    assert.equal(xpFromProgress('0.21/100', 1, SOUL), 0);
+    assert.equal(xpFromProgress('140/280', 2, R), 99, 'another denominator: the first number, kept below the level\'s need');
+    assert.equal(xpFromProgress('310/800', 4, R), 99, 'never levels up from being read');
+    assert.equal(xpFromProgress('5000', 4, R), 99);
+    assert.equal(xpFromProgress('310/800', 4, makeRules({ character: { xpExponent: 1.5 } })), 310, 'with that curve set, as written');
 });
 
 test('XP gains: plain numbers, with tiers too (0.5.2)', () => {

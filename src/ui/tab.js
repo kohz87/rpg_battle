@@ -21,7 +21,7 @@
 // files the reader edits, so every node is filled through textContent, never innerHTML.
 //
 // Levels and XP are shown in the reader's terms (terms.js): "Soul Class III (Lv 24)" and
-// "Soul Growth 5400/11760" rather than "Level 24" and "XP 5400/11760", and with terms of their own
+// "Soul Growth 54/100" rather than "Level 24" and "XP 54/100", and with terms of their own
 // the enemy power picker offers their tiers (or levels) instead of F–SSS.
 //
 // A foe neither bestiary knows is made up when the fight starts (templates.js): the setup

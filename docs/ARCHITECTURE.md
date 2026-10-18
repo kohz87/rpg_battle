@@ -157,12 +157,12 @@ export function levelTag(level, rules)   → 'Lv 4' with the plain terms, else l
 export function xpLabel(rules) → 'XP' | 'Soul Growth'
 export function powerOptions(rules) → [{ level, label }]   // each tier's first level up to the cap, or every level
 export function progress(sheet, rules) → { cur, max, text, capped }
-    // (0.5.2) XP within the level against xpToNext, with or without tiers: '310/800', whole
+    // (0.5.2) XP within the level against xpToNext, with or without tiers: '31/100', whole
     // numbers only; at the cap 'MAX' (cur = max = 100)
-export function progressLabel(sheet, rules) → 'Soul Growth 310/800'
+export function progressLabel(sheet, rules) → 'Soul Growth 31/100'
 export function xpFromProgress(value, level, rules) → xp within the level
-    // '310/800' → 310; a share with decimals (what 0.3–0.5.1 wrote with tiers) → XP in the tier
-    // (rounded up: stable round trip), or that share of the level with tiers off; 'MAX' → 0
+    // (0.5.2) the first number, rounded, within 0 … xpToNext − 1 ('31/100' → 31; '45.20/100' → 45,
+    // '140/280' → 99 at a need of 100); 'MAX' or nothing → 0. Nothing levels up from being read.
 export function xpGainText(gain) → '+38'   // (0.5.2) never a share of the tier
 export function parseLevelLabel(text, rules, { strict }) → level | null
     // 'Lv 24' / '(Lv 24)' exact; '<levelName> III' tier → its first level; 'Level 25'; 'III' (tiers on);
@@ -319,7 +319,7 @@ export function setSkillActive(sheet, name, active, rules) → Sheet     // Use 
 
 ```
 Name: Ren
-Level: 4 | XP: 310/400 | Points: 2
+Level: 4 | XP: 31/100 | Points: 2
 HP: 58/62 | MP: 21/30
 STR: 9 | VIT: 7 | AGI: 8 | DEX: 8 | INT: 4 | LUK: 5 | CHA: 6
 Checks: STR +2 | VIT +1 | AGI +1 | DEX +1 | INT -1 | LUK +0 | CHA +0
@@ -332,8 +332,8 @@ The State line is `narrative.stateWords(sheet, rules).text`; the parsers skip an
 `State:` (it is derived, never read back) and do not need it.
 
 The level line follows `rules.terms` (terms.js): `<levelName>: <level> | <xpName>: <progress> |
-Points: n`, with tiers `Soul Class: III (Lv 24) | Soul Growth: 5400/11760 | Points: 2` (0.5.2; an
-older block's tier share `28.10/100` is still read as that share); at the cap
+Points: n`, with tiers `Soul Class: III (Lv 24) | Soul Growth: 54/100 | Points: 2` (0.5.2: XP in
+the level, no more tier share); at the cap
 the progress is `MAX`. The parsers take the term labels as Level and XP (never over another
 field's label), read the level with `parseLevelLabel` (the exact `(Lv N)` first), the XP with
 `xpFromProgress`, accept `Soul Class III (Lv 24)` without the colon, and fall back to the line with
@@ -1051,9 +1051,13 @@ XP counted per level, an XP rate, threat words that work at low levels.
   `index.js rules()`. Applied per foe in `foeXpWorth`, and by `growth.xpAward` (`scaleXp`) to story
   awards and Story Director's quests, so `awardParty`, `storyOffers` and `questOffers` show and
   give the same number.
+- **The curve**: `character.xpExponent` is 0, so `xpToNext` is `xpBase` (100) at every level; the
+  formulas still take shares of `xpToNext`, so a curve set in rules.json works as before. Fight
+  XP per foe is then 10 × the factor (× boss, parley, rate); story awards 10/25/50, quests
+  5/10/15/25.
 - **terms.js**: `progress` is XP within the level against `xpToNext` with tiers too (whole
-  numbers); `xpGainText(gain)` is `+N`; `xpFromProgress` still reads a decimal share as the tier
-  share (blocks from 0.3–0.5.1); `tierSpan` remains for that only.
+  numbers); `xpGainText(gain)` is `+N`; `xpFromProgress` reads the first number, rounded and kept
+  within the level (the tier-share reading, `tierSpan` and `xpBetween` are gone).
 - **story.js** `threatPower` (above); `resolveThreats` adds `scale` and `xpLevel` to a row only
   when its threat word's level fell below 1. `party.enemiesFromRows` passes them to `projectEnemy`
   only for a row with a level (so a rank row or one without a level is never scaled), and copies

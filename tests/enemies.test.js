@@ -433,7 +433,7 @@ test('a level-10 party: weak is level 6 and unscaled, as before; explicit powers
     assert.equal(weak.level, 6);
     assert.equal(weak.scale, undefined);
     assert.equal(weak.hp.max, plain.hp.max);
-    assert.equal(foeXpWorth(weak, 10), 158);
+    assert.equal(foeXpWorth(weak, 10), 5, 'half an even foe');
     // A level, a rank or a power written outright: the row is left alone, whatever its threat word.
     const level = threatened('trivial', 1, DEFAULT_RULES, { level: 1 });
     const rank = threatened('trivial', 1, DEFAULT_RULES, { rank: 'F' });

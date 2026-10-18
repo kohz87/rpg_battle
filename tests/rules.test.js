@@ -33,8 +33,10 @@ test('checks, XP curve and ranks', () => {
     assert.equal(checkModifier(1), -2);
     assert.equal(checkModifier(60), 10);
     assert.deepEqual(Object.keys(checkModifiers({})), STATS);
-    assert.equal(xpToNext(1), 100);
-    assert.equal(xpToNext(4), 800);
+    // (0.5.2) Every level needs 100 by default; a curve can still be set.
+    assert.deepEqual([1, 4, 30, 98].map(level => xpToNext(level)), [100, 100, 100, 100]);
+    assert.equal(xpToNext(4, makeRules({ character: { xpExponent: 1.5 } })), 800);
+    assert.equal(xpToNext(4, makeRules({ character: { xpBase: 50 } })), 50);
     assert.equal(suggestRank(1), 'F');
     assert.equal(suggestRank(5), 'E');
     assert.equal(suggestRank(10), 'C');

@@ -68,7 +68,7 @@ Skills: Power Strike (Lv 2, 3/12) | Sweep (Lv 1, 4/5) | Shadow Step (Lv 1, 0/5)
 Conditions: none
 
 ## Lyra — healer | control: auto
-Level: 3 | XP: 0/520 | Points: 0
+Level: 3 | XP: 0/100 | Points: 0
 HP: 138/138 | MP: 80/80
 State: unhurt
 STR: 5 | VIT: 12 | AGI: 5 | DEX: 5 | INT: 16 | LUK: 5 | CHA: 5
@@ -123,9 +123,11 @@ no longer kept, shown to the model or given a tab.
 ## XP and levels
 
 Every number is code's: the story only says what happened (a fight, how big an achievement was,
-how hard a quest), never how much XP. Each level needs more XP than the last (`100 × level^1.5`,
-rounded to tens: 100 for level 2, 280 for level 3, 1120 from level 5 to 6), and every gain is
-counted against **each member's own next level**, so it means the same at level 2 and level 40.
+how hard a quest), never how much XP. **Every level needs 100 XP** (since 0.5.2; `xpBase` 100 and
+`xpExponent` 0 in `rules.json`'s `character`, so a curve can be set again: before 0.5.2 it was
+100 × level^1.5), and every gain is a share of **each member's own next level**, so with a curve
+it would still mean the same at level 2 and level 40. Each 100 is one level, 4 points, the rest
+carried over; companions level the same way.
 
 **Fights (0.5.2).** Each defeated foe is worth, to each member:
 
@@ -138,14 +140,14 @@ counted against **each member's own next level**, so it means the same at level 
 - **× your XP rate** (below); rounded, at least 1.
 
 Every member gets the full amount for every foe: XP is **not split** across the party, and a
-companion at another level counts it against their own. A level-1 character (needing 100) gets 10
-for an even foe, 5 for a weak one, 3 for a trivial one, 20 strong, 40 deadly, 30 for an even boss;
-at level 5 (needing 1120) an even foe is 112, a weak one 56. Fleeing gives nothing for the foes
-left standing. The setup shows each line's worth for your character (*~10 XP each*).
+companion at another level counts it against their own. With 100 to a level that is, at any
+level, **10** for an even foe, **5** for a weak one, **3** for a trivial one, **20** strong, **40**
+deadly, **30** for an even boss and **5** for an even foe talked down. Fleeing gives nothing for
+the foes left standing. The setup shows each line's worth for your character (*~10 XP each*).
 
 **The story and quests.** An `<XP>` award is a share of each member's next level: **minor** 10 %,
-**major** 25 %, **milestone** 50 %; a quest Story Director closes **easy** 5 %, **normal** 10 %,
-**hard** 15 %, **nightmare** 25 % (*The story's offers*, below).
+**major** 25 %, **milestone** 50 % (10, 25 and 50 XP); a quest Story Director closes **easy** 5 %,
+**normal** 10 %, **hard** 15 %, **nightmare** 25 % (5 to 25 XP) (*The story's offers*, below).
 
 **XP rate** (*Settings → Party*, 1 by default, 0.25 to 5 in steps of 0.05) multiplies all XP:
 fights, parleys, story awards and quests. The offer, the result screen and the hand-off show the
@@ -153,9 +155,9 @@ multiplied amount. A fight already under way when you change it counts at the ne
 
 **Progress** is XP within your level against what the next one needs, `30/100`, also with tier
 titles (*Soul Class I (Lv 1)* beside `Soul Growth 30/100`), and gains read `+30` everywhere. At
-the level cap it shows **MAX**. Blocks written before 0.5.2 with tiers on showed the share
-through the whole tier (`0.21/100`, always with decimals); those are still read as that share,
-so an older chat keeps its XP, and are written back as XP in the level.
+the level cap it shows **MAX**. Progress is written as whole numbers; an odd value in a block
+(`45.20/100`, `140/280`) is read as its first number, rounded and kept below the level's 100, so
+nothing levels up just from being read.
 
 ## Your world's terms
 
@@ -173,10 +175,10 @@ the same):
 With tier titles on, the level line of your section reads
 
 ```
-Soul Class: III (Lv 24) | Soul Growth: 5400/11760 | Points: 2
+Soul Class: III (Lv 24) | Soul Growth: 54/100 | Points: 2
 ```
 
-and with names of your own but no tiers `Soul Power: 24 | Power Growth: 5400/11760 | Points: 2`.
+and with names of your own but no tiers `Soul Power: 24 | Power Growth: 54/100 | Points: 2`.
 The exact level always stays in the block, so changing or turning off the terms never loses a
 sheet. With your own terms, the fight setup and the fight cards show an enemy's power as one of
 your tiers (or levels) instead of F to SSS, a story's `<Encounter>` may name one (`3 wolf (Soul
@@ -384,7 +386,7 @@ battle: the offer, the setup, the fight, and its result until it goes back to th
 Victory in 5 rounds (about 30 seconds).
 Ren: HP 61/98, MP 15/32.
 Key moments: Ren finishes the Goblin A; Critical! Ren's Power Strike hits the Goblin Shaman for 34.
-Loot: 1 silver, 3 copper, a goblin ear, a shaman's charm. XP +72.
+Loot: 1 silver, 3 copper, a goblin ear, a shaman's charm. XP +35.
 ```
 
 **Return to story** sends a short message for you so the narration comes straight away. The

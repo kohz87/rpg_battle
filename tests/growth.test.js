@@ -109,3 +109,17 @@ test('story awards at the XP rate (0.5.2): the offer\'s number is the one given,
     // Quests too, by difficulty.
     assert.equal(xpAward(awardShare({ difficulty: 'nightmare' }, fast), 4, fast), Math.round(0.25 * xpToNext(4, R)) * 2);
 });
+
+test('every level needs 100 (0.5.2): awards are 10/25/50 and quests 5/10/15/25 at any level; a level is 100, the rest carried', () => {
+    for (const level of [1, 7, 40]) {
+        assert.deepEqual(['minor', 'major', 'milestone'].map(kind => xpAward(awardShare({ kind }, R), level, R)), [10, 25, 50], `level ${level}`);
+        assert.deepEqual(['easy', 'normal', 'hard', 'nightmare'].map(difficulty => xpAward(awardShare({ difficulty }, R), level, R)), [5, 10, 15, 25], `level ${level}`);
+    }
+    const pc = { ...newSheet({ name: 'Ren', stats: { STR: 5, VIT: 5 } }, R), xp: 80 };
+    const lyra = newCompanion({ name: 'Lyra', role: 'healer', focus: ['INT'], skills: ['Mend'], level: 6 }, { rules: R });
+    const out = awardParty({ pc, members: [{ ...lyra, sheet: { ...lyra.sheet, xp: 80 } }] }, awardShare({ kind: 'milestone' }, R), { autoSpend: false, rules: R });
+    assert.deepEqual([out.pc.level, out.pc.xp, out.pc.points], [2, 30, R.character.pointsPerLevel]);
+    assert.deepEqual([out.members[0].sheet.level, out.members[0].sheet.xp], [7, 30], 'a companion levels the same way');
+    const big = gainXp({ ...newSheet({ name: 'Ren', stats: { STR: 5, VIT: 5 } }, R) }, 250, R);
+    assert.deepEqual([big.sheet.level, big.sheet.xp, big.levelsGained, big.pointsGained], [3, 50, 2, 2 * R.character.pointsPerLevel]);
+});

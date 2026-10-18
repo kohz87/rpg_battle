@@ -9,7 +9,7 @@ const R = DEFAULT_RULES;
 
 const REN = [
     'Name: Ren',
-    'Level: 4 | XP: 310/800 | Points: 2',
+    'Level: 4 | XP: 31/100 | Points: 2',
     'HP: 58/62 | MP: 21/30',
     'STR: 9 | VIT: 7 | AGI: 8 | DEX: 8 | INT: 4 | LUK: 5 | CHA: 6',
     'Checks: STR +2 | VIT +1 | AGI +1 | DEX +1 | INT -1 | LUK +0 | CHA +0',
@@ -20,7 +20,7 @@ const REN = [
 
 const PARTY = [
     '## Astra — companion | control: auto',
-    'Level: 4 | XP: 120/800 | Points: 0',
+    'Level: 4 | XP: 12/100 | Points: 0',
     'HP: 44/44 | MP: 38/38',
     'State: unhurt',
     'STR: 4 | VIT: 5 | AGI: 7 | DEX: 6 | INT: 10 | LUK: 4 | CHA: 7',
@@ -28,7 +28,7 @@ const PARTY = [
     'Equipped: Ashwood Staff (rare) · MATK +7, INT +1 | Traveller\'s Robe (common) · DEF +2, MDEF +3',
     '',
     '## Merrit — hireling | control: command',
-    'Level: 4 | XP: 120/800 | Points: 0',
+    'Level: 4 | XP: 12/100 | Points: 0',
     'HP: 20/94 | MP: 22/30',
     'State: badly hurt (bleeding, slow to move) · poisoned',
     'STR: 8 | VIT: 8 | AGI: 5 | DEX: 6 | INT: 3 | LUK: 4 | CHA: 4',
@@ -70,7 +70,7 @@ test('the canonical Character text round-trips exactly', () => {
     assert.deepEqual(errors, []);
     assert.equal(sheet.name, 'Ren');
     assert.equal(sheet.level, 4);
-    assert.equal(sheet.xp, 310);
+    assert.equal(sheet.xp, 31);
     assert.equal(sheet.points, 2);
     assert.deepEqual(sheet.hp, { cur: 58, max: 62 });
     assert.deepEqual(sheet.mp, { cur: 21, max: 30 });
@@ -125,7 +125,7 @@ test('parseCharacter is lenient: bold labels, any order, commas, missing fields 
         '- **HP:** 58 / 62, **MP:** 21',
         '**Name:** Ren',
         '**STR:** 9 | **VIT:** 7 | AGI: 8 | DEX: 8 | INT: 4 | LUK: 5',
-        'Level: 4 | XP: 310/400',
+        'Level: 4 | XP: 31/400',
         'Skills: Rending Strike (Lv 2), Guard Break, Second Wind Lv 3',
         'Conditions: poisoned (2), exhausted',
         '</Character>',
@@ -133,7 +133,7 @@ test('parseCharacter is lenient: bold labels, any order, commas, missing fields 
     const { sheet, errors } = parseCharacter(text, R);
     assert.equal(sheet.name, 'Ren');
     assert.equal(sheet.level, 4);
-    assert.equal(sheet.xp, 310, 'the /400 is display only');
+    assert.equal(sheet.xp, 31, 'the /400 is display only: the first number, within the level');
     assert.equal(sheet.points, 0);
     assert.deepEqual(sheet.hp, { cur: 58, max: 62 });
     assert.deepEqual(sheet.mp, { cur: 21, max: maxMp(sheet.stats, 4, R) });
@@ -245,7 +245,7 @@ test('applyResult levels up with carry-over, points and raised HP/MP', () => {
     const { sheet } = parseCharacter(REN, R);
     const need4 = xpToNext(4, R);
     const need5 = xpToNext(5, R);
-    const gained = need4 - 310 + need5 + 7;
+    const gained = need4 - 31 + need5 + 7;
     const out = applyResult(sheet, 'pc', result({ xp: { pc: gained } }), R);
     assert.equal(out.levelsGained, 2);
     assert.equal(out.pointsGained, 2 * R.character.pointsPerLevel);
@@ -256,10 +256,15 @@ test('applyResult levels up with carry-over, points and raised HP/MP', () => {
     const mpGain = 2 * R.derived.mpPerLevel;
     assert.deepEqual(out.sheet.hp, { cur: 30 + hpGain, max: 62 + hpGain });
     assert.deepEqual(out.sheet.mp, { cur: 10 + mpGain, max: 30 + mpGain });
-    const exact = applyResult(sheet, 'pc', result({ xp: { pc: need4 - 310 } }), R);
+    const exact = applyResult(sheet, 'pc', result({ xp: { pc: need4 - 31 } }), R);
     assert.equal(exact.sheet.level, 5);
     assert.equal(exact.sheet.xp, 0);
-    assert.equal(applyResult(sheet, 'pc', result({ xp: { pc: 5 } }), R).sheet.xp, 315);
+    assert.equal(applyResult(sheet, 'pc', result({ xp: { pc: 5 } }), R).sheet.xp, 36);
+    // (0.5.2) Every level needs 100: 250 XP from 31 is two levels and 81 over.
+    assert.equal(need4, 100);
+    assert.equal(need5, 100);
+    const twice = applyResult(sheet, 'pc', result({ xp: { pc: 250 } }), R);
+    assert.deepEqual([twice.sheet.level, twice.sheet.xp, twice.levelsGained, twice.pointsGained], [6, 81, 2, 2 * R.character.pointsPerLevel]);
 });
 
 test('applyResult raises mastery from uses, accumulating across fights', () => {
@@ -290,7 +295,7 @@ test('applyResult on a Party member uses its id', () => {
         xp: { astra: 38 },
     }), R);
     assert.deepEqual(out.sheet.hp, { cur: 0, max: 44 });
-    assert.equal(out.sheet.xp, 158);
+    assert.equal(out.sheet.xp, 50);
 });
 
 test('recompute derives maxima from stats, level and capped gear, clamping current', () => {
@@ -318,40 +323,29 @@ const SOUL = makeRules({ terms: { levelName: 'Soul Class', xpName: 'Soul Growth'
 const POWER = makeRules({ terms: { levelName: 'Soul Power', xpName: 'Power Growth' } });
 
 function veteran() {
-    return { ...parseCharacter(REN, R).sheet, level: 24, xp: 3120, points: 2 };
+    return { ...parseCharacter(REN, R).sheet, level: 24, xp: 62, points: 2 };
 }
 
 test('with tier titles the level line shows the tier, the exact level and XP within the level (0.5.2)', () => {
     const text = formatCharacter(veteran(), SOUL);
     const lines = text.split('\n');
-    assert.equal(lines[1], `Soul Class: III (Lv 24) | Soul Growth: 3120/${xpToNext(24, R)} | Points: 2`);
+    assert.equal(lines[1], `Soul Class: III (Lv 24) | Soul Growth: 62/${xpToNext(24, R)} | Points: 2`);
     // HP, stats, Checks, State and Skills lines are as before.
     assert.deepEqual(lines.slice(2), formatCharacter(veteran(), R).split('\n').slice(2));
     const back = parseCharacter(text, SOUL);
     assert.deepEqual(back.errors, []);
     assert.equal(back.sheet.level, 24);
-    assert.equal(back.sheet.xp, 3120, 'exact');
+    assert.equal(back.sheet.xp, 62, 'exact');
     assert.equal(formatCharacter(back.sheet, SOUL), text, 'written again, it reads the same');
-});
-
-test('an older block\'s tier share (0.3–0.5.1) keeps its XP and is written back as XP', () => {
-    const old = formatCharacter(veteran(), SOUL).replace(/Soul Growth: \S+/, 'Soul Growth: 26.34/100');
-    const back = parseCharacter(old, SOUL);
-    assert.deepEqual(back.errors, []);
-    assert.equal(back.sheet.level, 24);
-    assert.ok(back.sheet.xp <= 3120 && back.sheet.xp > 3100, `a share is precise to a ten-thousandth of the tier (${back.sheet.xp})`);
-    const again = formatCharacter(back.sheet, SOUL);
-    assert.match(again, new RegExp(`Soul Growth: ${back.sheet.xp}/${xpToNext(24, R)} \\|`));
-    assert.equal(parseCharacter(again, SOUL).sheet.xp, back.sheet.xp, 'and then reads back the same');
 });
 
 test('with names of their own the level line keeps plain numbers', () => {
     const text = formatCharacter(veteran(), POWER);
-    assert.equal(text.split('\n')[1], `Soul Power: 24 | Power Growth: 3120/${xpToNext(24, R)} | Points: 2`);
+    assert.equal(text.split('\n')[1], `Soul Power: 24 | Power Growth: 62/${xpToNext(24, R)} | Points: 2`);
     const back = parseCharacter(text, POWER);
     assert.deepEqual(back.errors, []);
     assert.equal(back.sheet.level, 24);
-    assert.equal(back.sheet.xp, 3120);
+    assert.equal(back.sheet.xp, 62);
     assert.equal(formatCharacter(back.sheet, POWER), text);
 });
 
@@ -361,8 +355,8 @@ test('the level reads back from any terms form, old blocks and terms the rules n
     assert.deepEqual(parseCharacter(colonless, SOUL).errors, []);
     // An old block under new terms.
     assert.equal(parseCharacter(REN, SOUL).sheet.level, 4);
-    assert.equal(parseCharacter(REN, SOUL).sheet.xp, 310);
-    assert.equal(parseCharacter(REN, POWER).sheet.xp, 310);
+    assert.equal(parseCharacter(REN, SOUL).sheet.xp, 31);
+    assert.equal(parseCharacter(REN, POWER).sheet.xp, 31);
     // A terms block after the terms were turned off (or changed): the level line is still read.
     for (const [written, read] of [[SOUL, R], [POWER, R], [SOUL, POWER], [POWER, SOUL]]) {
         const back = parseCharacter(formatCharacter(veteran(), written), read);
@@ -370,7 +364,7 @@ test('the level reads back from any terms form, old blocks and terms the rules n
         assert.equal(back.sheet.level, 24);
         assert.equal(back.sheet.points, 2);
     }
-    assert.equal(parseCharacter(formatCharacter(veteran(), POWER), R).sheet.xp, 3120);
+    assert.equal(parseCharacter(formatCharacter(veteran(), POWER), R).sheet.xp, 62);
     // A tier written by hand: its first level.
     assert.equal(parseCharacter(REN.replace('Level: 4', 'Soul Class: III'), SOUL).sheet.level, 21);
     // The default terms write exactly what they always did.
@@ -378,9 +372,9 @@ test('the level reads back from any terms form, old blocks and terms the rules n
 });
 
 test('Party sections speak the terms and read back', () => {
-    const members = parseParty(PARTY, R).members.map(member => ({ ...member, sheet: { ...member.sheet, level: 24, xp: 3120 } }));
+    const members = parseParty(PARTY, R).members.map(member => ({ ...member, sheet: { ...member.sheet, level: 24, xp: 62 } }));
     const text = formatParty(members, SOUL);
-    assert.deepEqual(text.split('\n').slice(0, 2), ['## Astra — companion | control: auto', `Soul Class: III (Lv 24) | Soul Growth: 3120/${xpToNext(24, R)} | Points: 0`]);
+    assert.deepEqual(text.split('\n').slice(0, 2), ['## Astra — companion | control: auto', `Soul Class: III (Lv 24) | Soul Growth: 62/${xpToNext(24, R)} | Points: 0`]);
     const back = parseParty(text, SOUL);
     assert.deepEqual(back.errors, []);
     assert.deepEqual(back.members.map(member => [member.id, member.sheet.level]), [['astra', 24], ['merrit', 24]]);
