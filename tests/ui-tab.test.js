@@ -865,6 +865,8 @@ test('every mode renders and its buttons can be pressed with no handlers at all'
         { mode: 'setup', rules },
         fightView(),
         { mode: 'result', result: result(), handoff: 'x' },
+        { mode: 'between', total: 2, cleared: { number: 1, place: 'the gate', rounds: 2 }, next: { number: 2, place: 'the yard', rows: [{ name: 'Wolf', count: 1 }] }, party: result().party, rules },
+        { mode: 'between' },
         { mode: 'nonsense' },
         { mode: 'idle' },
         { mode: 'fight' },
@@ -1373,4 +1375,91 @@ test('two tabs at once: a click in one pane redraws that pane, not the one drawn
     $(partyPane, '.rpg-battle-remove-companion').click();
     assert.match($(partyPane, '.rpg-battle-remove-companion').textContent, /Click again/, 'the Party pane redrew itself');
     assert.equal(root(battlePane).dataset.mode, 'offer', 'the Battle pane is untouched');
+});
+
+// ---------------------------------------------------------------------------
+// Plans (0.5): fights in stages
+
+test('setup: a plan lists its stages in order, each with its rows and waves, read-only; Start sends nothing', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    const rows = [
+        { name: 'Guard', count: 2, level: 3, rank: null, role: 'brute', boss: false, threat: 'weak', stage: 1 },
+        { name: 'Guard', count: 3, level: 7, rank: null, role: 'brute', boss: false, threat: 'even', stage: 2 },
+        { name: 'Hound', count: 1, level: 7, rank: null, role: 'skirmisher', boss: false, wave: 1, stage: 2 },
+        { name: 'Guard Captain', count: 1, level: 11, rank: null, role: 'brute', boss: true, threat: 'strong', stage: 3 },
+    ];
+    const pane = render({ mode: 'setup', rows, stages: [{ place: 'the gate' }, { place: 'the yard' }, { place: 'the tower' }], stakes: 'death', known: ['Guard'], rules }, handlers);
+    for (const selector of ['input', 'select', 'textarea']) assert.equal($(pane, selector), null, selector);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-stage-title'), ['Stage 1 of 3: the gate', 'Stage 2 of 3: the yard', 'Stage 3 of 3: the tower']);
+    const stages = $$(pane, '.rpg-battle-stage');
+    assert.deepEqual(stages.map(stage => texts(stage, '.rpg-battle-enemy-name')), [['Guard'], ['Guard', 'Hound'], ['Guard Captain']]);
+    assert.deepEqual(texts(stages[1], '.rpg-battle-wave'), ['Engagement 1', 'Then, engagement 2'], 'a stage\'s waves stay under it');
+    assert.deepEqual(texts(stages[2], '.rpg-battle-boss'), ['Boss']);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-enemy-power'), ['Level 3', 'Level 7', 'Level 7', 'Level 11']);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-threat'), ['weak', 'even', 'strong']);
+    assert.deepEqual($$(pane, '.rpg-battle-enemy-row').map(row => Boolean(row.querySelector('.rpg-battle-new'))), [false, false, true, true]);
+    assert.equal($(pane, '.rpg-battle-setup-summary').textContent, '3 stages, 7 enemies. 2 new, made up from their names when the fight starts.');
+    assert.equal($(pane, '.rpg-battle-stakes').textContent, 'Stakes: To the death — defeat is death.');
+    assert.deepEqual($$(pane, 'button').map(node => node.textContent.trim()), ['Not now', 'Start']);
+    $(pane, '.rpg-battle-begin').click();
+    assert.deepEqual(calls.map(call => [call.name, call.args.length]), [['onStart', 0]]);
+    // A stage the story did not name is only numbered.
+    const plain = render({ mode: 'setup', rows: rows.slice(0, 2), stages: [{ place: null }, { place: 'the yard' }], known: [], rules });
+    assert.deepEqual(texts(root(plain), '.rpg-battle-stage-title'), ['Stage 1 of 2', 'Stage 2 of 2: the yard']);
+});
+
+test('between: the stage cleared, the party as it stands, the next stage; exactly Go on and Fall back', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    const view = {
+        mode: 'between', total: 3,
+        cleared: { number: 1, place: 'the gate', rounds: 3 },
+        next: { number: 2, place: 'the yard', text: '3 guard (even)', rows: [{ name: 'Guard', count: 3, level: 7, rank: null, role: 'brute', boss: false, threat: 'even', stage: 2 }] },
+        party: result().party, stakes: 'normal', known: ['Guard'], rules,
+    };
+    const pane = render(view, handlers);
+    assert.equal($(pane, '.rpg-battle-between-cleared').textContent, 'The gate is cleared (3 rounds).');
+    assert.equal($(pane, '.rpg-battle-between-next').textContent, 'Next: the yard — 3 guard (even)');
+    assert.deepEqual(texts(root(pane), '.rpg-battle-record-name'), ['Ren', 'Astra']);
+    assert.ok($$(pane, '.rpg-battle-after')[1].classList.contains('is-down'));
+    assert.deepEqual(texts(root(pane), '.rpg-battle-enemy-name'), ['Guard']);
+    assert.match($(pane, '.rpg-battle-between-hint').textContent, /^Nothing heals between stages/);
+    for (const selector of ['input', 'select', 'textarea']) assert.equal($(pane, selector), null, selector);
+    assert.deepEqual($$(pane, 'button').map(node => node.textContent.trim()), ['Fall back', 'Go on']);
+    $(pane, '.rpg-battle-go-on').click();
+    $(pane, '.rpg-battle-fall-back').click();
+    assert.deepEqual(calls.map(call => [call.name, call.args.length]), [['onGoOn', 0], ['onFallBack', 0]]);
+    // While the plan's end is being written, both wait.
+    const busy = render({ ...view, busy: true }, handlers);
+    assert.ok($$(busy, 'button').every(node => node.disabled));
+    const plain = render({ ...view, cleared: { number: 1, place: null, rounds: 1 }, next: { ...view.next, place: null, text: '' } });
+    assert.equal($(plain, '.rpg-battle-between-cleared').textContent, 'Stage 1 is cleared (1 round).');
+    assert.equal($(plain, '.rpg-battle-between-next').textContent, 'Next: stage 2');
+});
+
+test('result: a plan shows a line per stage, then the totals', () => {
+    reset();
+    const stages = [
+        { number: 1, place: 'the gate', outcome: 'victory', rounds: 3 },
+        { number: 2, place: 'the yard', outcome: 'defeat', rounds: 2 },
+        { number: 3, place: 'the tower', outcome: null, rounds: 0 },
+    ];
+    const pane = render({ mode: 'result', result: result({ outcome: 'defeat', rounds: 5, seconds: 30, plan: true, stages }), handoff: 'x', rules });
+    assert.equal($(pane, '.rpg-battle-outcome').textContent, 'Defeated');
+    assert.equal($(pane, '.is-outcome .rpg-battle-hint').textContent, '5 rounds in 2 stages · about 30 seconds');
+    assert.deepEqual(texts(root(pane), '.rpg-battle-stage-line'), ['Stage 1, the gate: victory in 3 rounds', 'Stage 2, the yard: defeated after 2 rounds', 'Stage 3, the tower: not reached']);
+    assert.ok($(pane, '.is-loot'), 'the cleared stage\'s loot');
+    assert.ok($(pane, '.is-gains'));
+    const back = render({ mode: 'result', result: result({ outcome: 'withdrew', plan: true, withdrew: true, stages: [stages[0], { ...stages[1], outcome: null }, stages[2]] }), rules });
+    assert.equal($(back, '.rpg-battle-outcome').textContent, 'Fell back');
+    assert.deepEqual(texts(root(back), '.rpg-battle-stage-line').slice(1), ['Stage 2, the yard: not attempted', 'Stage 3, the tower: not attempted']);
+});
+
+test('offer: a plan reads as its stages', () => {
+    reset();
+    const pane = render({ mode: 'offer', encounter: { text: 'x', summary: 'A plan in 3 stages: the gate, the yard, the tower', rows: [{ name: 'Guard', stage: 1 }], stages: [{}, {}, {}], stakes: 'death' } });
+    assert.equal($(pane, '.rpg-battle-encounter-text').textContent, 'A plan in 3 stages: the gate, the yard, the tower');
+    assert.match($(pane, '.rpg-battle-encounter-stages').textContent, /^3 fights, one after another/);
+    assert.ok($(pane, '.rpg-battle-encounter-stakes'));
 });

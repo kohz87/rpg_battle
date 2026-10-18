@@ -8,7 +8,7 @@ import { DEFAULT_BESTIARY } from '../src/enemies.js';
 import { PRESETS } from '../src/skills.js';
 import { newSheet } from '../src/sheet.js';
 import { newCompanion } from '../src/party.js';
-import { STORY_INSTRUCTION, THREATS, applyWounds, describeWound, encounterSummary, guessSkill, parseEncounter, parseHints, parseJoins, parseLearned, parseLeaves, parseRest, parseStakes, parseWounds, parseXp, resolveThreats, storyFight, threatLevel } from '../src/story.js';
+import { STORY_INSTRUCTION, THREATS, applyWounds, describeWound, encounterSummary, guessSkill, parseEncounter, parsePlan, parseHints, parseJoins, parseLearned, parseLeaves, parseRest, parseStakes, parseWounds, parseXp, resolveThreats, storyFight, threatLevel } from '../src/story.js';
 
 const rules = makeRules();
 const ren = { ...newSheet({ name: 'Ren Aldane', stats: PRESETS[0].points, skills: PRESETS[0].skills }, rules), hp: { cur: 98, max: 98 } };
@@ -151,13 +151,14 @@ test('encounter: unknown names kept (singular only for a creature word), notes i
 
 // 0.3 added the threat words (about 15 tokens), so the bound moved from 95 to 110; 0.4 makes it
 // one instruction for every hidden block (Joins, Leaves, Learned, XP, Rest, waves): 170.
-// 0.4.2 adds the stakes marker ("| to the death", about 9 tokens) within that bound.
-test('the story instruction is compact (about 170 tokens) and names every tag, the grammar and the threat words', () => {
+// 0.4.2 adds the stakes marker ("| to the death", about 9 tokens) within that bound. 0.5 tells
+// a wave (`then:`) from the next fight of a plan (`then at <place>:`), about 16 tokens: 185.
+test('the story instruction is compact (about 185 tokens) and names every tag, the grammar and the threat words', () => {
     const pieces = STORY_INSTRUCTION.match(/[A-Za-z]+|\d+|[^\sA-Za-z\d]/g).length;
-    assert.ok(STORY_INSTRUCTION.length <= 680, `${STORY_INSTRUCTION.length} characters`);
-    assert.ok(Math.ceil(STORY_INSTRUCTION.length / 4) <= 170, 'about 170 tokens at four characters a token');
-    assert.ok(pieces <= 200, `${pieces} words and marks`);
-    for (const part of ['<Wounds>', '<Encounter>', '<Joins>', '<Leaves>', '<Learned>', '<XP>', '<Rest>', 'scratch|wound|severe|grievous', 'heal', 'poisoned', 'Party sheet', 'not for an RPG Battle fight', 'stop at the first blow', 'trivial|weak|even|strong|deadly', 'minor|major|milestone', 'short|long', 'then:', '| to the death']) {
+    assert.ok(STORY_INSTRUCTION.length <= 740, `${STORY_INSTRUCTION.length} characters`);
+    assert.ok(Math.ceil(STORY_INSTRUCTION.length / 4) <= 185, 'about 185 tokens at four characters a token');
+    assert.ok(pieces <= 215, `${pieces} words and marks`);
+    for (const part of ['<Wounds>', '<Encounter>', '<Joins>', '<Leaves>', '<Learned>', '<XP>', '<Rest>', 'scratch|wound|severe|grievous', 'heal', 'poisoned', 'Party sheet', 'not for an RPG Battle fight', 'stop at the first blow', 'trivial|weak|even|strong|deadly', 'minor|major|milestone', 'short|long', 'then:', 'then at <place>:', 'more foes join', '| to the death']) {
         assert.ok(STORY_INSTRUCTION.includes(part), part);
     }
     // Its own examples read back as the grammar says.
@@ -328,4 +329,80 @@ test('encounterSummary: the fight without its notes, for the offer line', () => 
     assert.equal(encounterSummary('2 bandit (weak) | to the death'), '2 bandit (weak)');
     assert.equal(encounterSummary('3 wolf (weak); then: wolf matriarch (boss)\n| death'), '3 wolf (weak); then: wolf matriarch (boss)');
     assert.equal(encounterSummary(''), '');
+});
+
+// ---------------------------------------------------------------------------
+// Plans (0.5): `then at <place>:` starts the next stage, a separate fight somewhere else
+
+const PLAN = 'at the gate: 2 guard (weak); then at the yard: 3 guard (even); then at the tower: guard captain (boss, strong) | to the death';
+
+test('parsePlan: stages with their places, in order; every row carries its stage', () => {
+    const stages = parsePlan(PLAN);
+    assert.deepEqual(stages.map(stage => [stage.place, stage.text]), [['the gate', '2 guard (weak)'], ['the yard', '3 guard (even)'], ['the tower', 'guard captain (boss, strong)']]);
+    assert.deepEqual(stages.map(stage => stage.rows.map(row => [row.name, row.count, row.threat, row.boss, row.stage])), [
+        [['Guard', 2, 'weak', false, 1]],
+        [['Guard', 3, 'even', false, 2]],
+        [['Guard Captain', 1, 'strong', true, 3]],
+    ]);
+    assert.deepEqual(parseEncounter(PLAN).map(row => [row.name, row.stage]), [['Guard', 1], ['Guard', 2], ['Guard Captain', 3]], 'parseEncounter gives the rows of every stage');
+    assert.equal(parseStakes(PLAN), 'death', 'the stakes are the whole plan\'s');
+    assert.equal(parseStakes(PLAN.replace(' | to the death', '')), 'normal');
+    // Stage 1 without a place: no name, only its number.
+    assert.deepEqual(parsePlan('2 wolf; then at the ford: 3 bandit').map(stage => stage.place), [null, 'the ford']);
+});
+
+test('parsePlan: lenient stage marks (then, at / and then at / any case, new lines)', () => {
+    for (const text of [
+        '2 wolf, then, at the ford: 3 bandit',
+        '2 wolf and then at the ford: 3 bandit',
+        '2 wolf; Then At the ford: 3 bandit',
+        '2 wolf\nTHEN AT the ford: 3 bandit',
+        '- 2 wolf\n- then, at the ford: 3 bandit',
+        'At the bridge: 2 wolf; then at the ford: 3 bandit',
+    ]) {
+        assert.deepEqual(parsePlan(text).map(stage => [stage.place?.toLowerCase() ?? null, stage.rows.map(row => [row.name, row.count, row.stage])]).slice(-1), [['the ford', [['Bandit', 3, 2]]]], text);
+        assert.deepEqual(parsePlan(text)[0].rows.map(row => [row.name, row.count, row.stage]), [['Wolf', 2, 1]], text);
+    }
+});
+
+test('parsePlan: `then:` stays a wave within its stage; waves count per stage', () => {
+    const stages = parsePlan('at the gate: 2 bandit; then: bandit captain (boss); then at the keep: 2 skeleton; then: wraith; then: ogre');
+    assert.deepEqual(stages.map(stage => stage.rows.map(row => [row.name, row.wave ?? 0, row.stage])), [
+        [['Bandit', 0, 1], ['Bandit Captain', 1, 1]],
+        [['Skeleton', 0, 2], ['Wraith', 1, 2], ['Ogre', 2, 2]],
+    ]);
+    assert.equal(stages[1].text, '2 skeleton; then: wraith; then: ogre');
+});
+
+test('parsePlan: no stage marks is one stage, exactly as before; a stage without foes is left out', () => {
+    for (const text of ['3 wolf (weak); then: wolf matriarch (boss, strong)', '3 bandit, bandit captain (boss)', '2 bandit | to the death', 'then: 2 wolves', '']) {
+        const rows = parseEncounter(text);
+        assert.ok(rows.every(row => !('stage' in row)), text);
+        assert.ok(parsePlan(text).length <= 1, text);
+    }
+    assert.deepEqual(parseEncounter('3 wolf (weak); then: wolf matriarch (boss, strong)'), [
+        { name: 'Wolf', count: 3, rank: null, role: null, boss: false, threat: 'weak' },
+        { name: 'Wolf Matriarch', count: 1, rank: null, role: null, boss: true, threat: 'strong', wave: 1 },
+    ]);
+    // "at <place>:" alone names a place but makes no plan: the foes are read, not the place.
+    assert.deepEqual(parseEncounter('at the gate: 2 bandit'), [{ name: 'Bandit', count: 2, rank: null, role: null, boss: false }]);
+    // A stage that names nobody is no stage; one stage left is a single fight.
+    assert.deepEqual(parsePlan('2 wolf; then at the ford: none').map(stage => stage.rows.map(row => row.stage ?? 0)), [[0]]);
+    assert.equal(parsePlan('a: 1 wolf; then at b: 1 wolf; then at c: 1 wolf; then at d: 1 wolf; then at e: 1 wolf; then at f: 1 wolf').length, 5, 'at most five stages');
+});
+
+test('encounterSummary: a plan reads as its stages; storyFight carries them', () => {
+    assert.equal(encounterSummary(PLAN), 'A plan in 3 stages: the gate, the yard, the tower');
+    assert.equal(encounterSummary('2 wolf; then at the ford: 3 bandit'), 'A plan in 2 stages: here, the ford');
+    assert.equal(encounterSummary('3 wolf (weak); then: wolf matriarch (boss)'), '3 wolf (weak); then: wolf matriarch (boss)', 'waves unchanged');
+    const rows = parseEncounter(PLAN);
+    const fight = storyFight({ rows, stakes: 'death', stages: parsePlan(PLAN).map(stage => ({ place: stage.place, text: stage.text })) });
+    assert.equal(fight.stakes, 'death');
+    assert.deepEqual(fight.stages.map(stage => [stage.place, stage.text, stage.rows.map(row => row.name)]), [
+        ['the gate', '2 guard (weak)', ['Guard']],
+        ['the yard', '3 guard (even)', ['Guard']],
+        ['the tower', 'guard captain (boss, strong)', ['Guard Captain']],
+    ]);
+    assert.notEqual(fight.stages[0].rows[0], rows[0], 'copies');
+    assert.equal(storyFight({ rows: parseEncounter('2 wolf; then: ogre') }).stages, undefined, 'no plan without stages');
 });

@@ -165,9 +165,11 @@ Ember Flask | 1 | fire 25, all enemies
 | **Single** | 3 goblins and a goblin shaman | One fight |
 | **Waves** | 3 goblins; 2 more join on round 3 | One continuous fight with reinforcements |
 | **Chain** | Rats in the cellar, then the bandits upstairs | Separate fights in sequence; HP, MP, cooldowns reset, conditions carry over. Between fights: Continue, Use item, or Retreat (ends the chain) |
+| **Plan** (0.5, as built) | At the gate, then the yard, then the tower | Separate fights in stages, each somewhere else; HP, MP, cooldowns, conditions and items left carry over, nothing heals, the fallen stay down. Between stages: **Go on** or **Fall back** (ends the plan, a withdrawal), nothing else |
 
 The hand-off covers the whole shape, once. (Narrating after every fight of a chain can be an
-option; it costs one reply per fight.)
+option; it costs one reply per fight.) The chain was built in 0.5 as the plan (§4.2): the story
+writes it, the reader only goes on or falls back, and there is no Use item between stages.
 
 ### 4.1 Starting a fight
 
@@ -221,6 +223,21 @@ stop at the first blow, so the prose does not resolve what the buttons are about
   bandit captain (boss) | to the death</Encounter>` (also `| death`, `| stakes: death`, any case);
   without it the stakes are normal. A planned fight's text may carry the same mark. What follows a
   bar is the fight's, never a foe. The instruction says so in nine tokens (§8.6).
+- **Plans (0.5):** a place after `then` starts a new stage, a separate fight somewhere else:
+  `<Encounter>at the gate: 2 guard (weak); then at the yard: 3 guard (even); then at the tower:
+  guard captain (boss, strong) | to the death</Encounter>`. `at <place>:` before the first group
+  names stage 1 (optional); `then, at` and `and then at` are read too, any case; a plain `then:`
+  is still a wave of the same stage (waves: the same fight, foes arriving one after another;
+  stages: the next fight, when the party's plan or the story moves it on). At most five stages;
+  the stakes are the whole plan's; Story Director's planned text is read the same way. The offer
+  reads *A plan in 3 stages: the gate, the yard, the tower*; the setup lists *Stage 1 of 3: the
+  gate* and so on, read-only. Each stage is its own fight (new foes, a fresh round count) with
+  the party as the last left it; between stages only **Go on** or **Fall back**. The plan ends in
+  victory (every stage won), defeat or flight at a stage, or a withdrawal (Fall back); the stages
+  after it never happen. Every cleared stage's XP and loot is kept (the stage lost gives what a
+  lost fight gives; to the death, a lost stage is death), written once when the plan ends; the
+  hand-off has a line per stage reached and says which were not reached (*Do not narrate it*) or
+  not attempted. The plan, between stages too, belongs to the reply it started from (§1, 0.4.3).
 - **Read-only (0.4.2):** the setup shows the engagement as code resolved it (bestiary or made-up
   creature, threat words to levels, boss, roles, `then:` engagements); **Fight?** sends nothing
   back, **Start** sends nothing, and without a stored offer there is no fight.
@@ -559,7 +576,7 @@ Astra — poisoned: a dart in the dark
 
 ### 8.7 The party's story (0.4)
 
-The same instruction (§8.6, about 160 tokens now) asks for `<Joins>`, `<Leaves>`, `<Learned>`,
+The same instruction (§8.6, about 185 tokens since 0.5) asks for `<Joins>`, `<Leaves>`, `<Learned>`,
 `<XP>minor|major|milestone: why</XP>` and `<Rest>short|long: why</Rest>`, each only when the
 story makes it true; Story Director 0.8.2 adds quests closed in a reply. Every one is an
 **offer** (Accept / Not now, per reply text, from the latest reply and the opening message),

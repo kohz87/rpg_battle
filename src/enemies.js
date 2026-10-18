@@ -275,7 +275,9 @@ function bumpRarity(rarity, steps) {
  * (`coins: false`, carriesCoin) drops no money but something of itself instead: its first
  * material is at least rules.loot.coinlessMaterial % likely. An enemy without `coins` (a fight
  * stored before 0.4.2) pays as before. The rolls are the same either way, so a seed's drops
- * stay put.
+ * stay put. A boss rolls its table rules.loot.bossRolls times, but (0.5) its materials (the
+ * body parts: a pelt, fangs, a hide) only the first time: one creature has one pelt. The extra
+ * rolls are for its gear and consumables; the first roll is the same draws as before.
  */
 export function rollLoot(enemy, { rng, luck = null, rules = DEFAULT_RULES, tables = LOOT_TABLES } = {}) {
     const l = rules.loot;
@@ -289,6 +291,8 @@ export function rollLoot(enemy, { rng, luck = null, rules = DEFAULT_RULES, table
     const items = [];
     for (let roll = 0; roll < rolls; roll++) {
         for (const [index, row] of table.entries()) {
+            // One creature, one set of body parts: a boss's extra rolls skip its materials.
+            if (roll > 0 && row.kind === 'material') continue;
             const base = index === first ? Math.max(row.chance, Number(l.coinlessMaterial) || 0) : row.chance;
             const chance = base * Math.max(0.5, 1 + lucky * l.luckChancePerPoint);
             if (!rng.chance(chance)) continue;

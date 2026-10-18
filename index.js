@@ -18,6 +18,11 @@
 // only on Accept. The reader gets no free fight, rest, skill or companion: the story brings
 // them. Two tabs: Party, always there, and Battle, only while there is a battle.
 //
+// (0.5) An <Encounter> may be a plan: fights in stages somewhere else each ("then at the
+// yard:"). Each stage is a fight of its own, the party carried from one to the next; between
+// them the reader goes on or falls back; the plan is kept in chat state, tied to the reply it
+// started from like its fights, and its result is written once, when it ends (src/plan.js).
+//
 // Levels and XP wear the reader's own words (settings `terms`, merged into rules as
 // `rules.terms`, see src/terms.js): the blocks, the tab, the hand-off and the enemy power
 // picker all speak them, and the Character block's fields are registered under them.
@@ -44,10 +49,11 @@ import { applyFlavour, flavourPrompt, parseFlavour, sceneText } from './src/flav
 import { act, availableActions, replay, startFight, summarize } from './src/combat.js';
 import { applyResult, foldUses, formatPartyBlock, learnSkill, newSheet, readSheets, setSkillActive, spendPoints } from './src/sheet.js';
 import { addLoot, consumables, formatGearEntry, formatMoney, gearSummary, parseGearEntry, parseInventory, useItems } from './src/items.js';
-import { buildHandoff, fightOrigin, handoffState, originHolds, settleHandoff } from './src/handoff.js';
+import { buildHandoff, buildPlanHandoff, fightOrigin, handoffState, originHolds, settleHandoff } from './src/handoff.js';
+import { cleanPlan, newPlan, nextStage, planResult, stageDone, stageId } from './src/plan.js';
 import { combatantFromSheet, editCompanion, enemiesFromRows, engagements, newCompanion, npcRenames, remapIds } from './src/party.js';
 import { recoverOverTime, restAfter, useItemOutside } from './src/recovery.js';
-import { STORY_INSTRUCTION, applyWounds, describeWound, encounterSummary, findTarget, parseEncounter, parseStakes, parseWounds, resolveThreats, storyFight } from './src/story.js';
+import { STORY_INSTRUCTION, applyWounds, describeWound, encounterSummary, findTarget, parsePlan, parseStakes, parseWounds, resolveThreats, storyFight } from './src/story.js';
 import { liveOffers, questOffers, storyOffers } from './src/offers.js';
 import { awardParty, settleCompanions } from './src/growth.js';
 import { guessFocus } from './src/builds.js';
@@ -59,7 +65,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.4.3';
+const VERSION = '0.5.0';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -222,7 +228,8 @@ function rules() {
     });
 }
 
-// Per-chat state: { fight: { setup, actions } | null, pending: { handoff, fightId, attachedTo } | null,
+// Per-chat state: { fight: { setup, actions, origin } | null, plan: a plan of stages under way (src/plan.js) | null,
+// pending: { handoff, fightId, attachedTo, origin } | null,
 // last: the last result for the tab, skills: skills this story taught (by hand),
 // (mastery progress is on the Skills lines since 0.4.1; an older chat's `uses` is read once, see legacyUses),
 // recovered: { index, text } the last story-time recovery,
@@ -237,7 +244,7 @@ function rules() {
 // npcNames: { [npcId]: name } a linked NPC's name in NPC State Delta when last looked at (a change is followed once) }.
 function chatState(ctx = context()) {
     const meta = chatMeta(ctx);
-    if (!meta) return { fight: null, pending: null, story: null, dismissed: [], bestiary: [], skills: [], npcLinks: {}, done: [], fallen: [], npcNames: {} };
+    if (!meta) return { fight: null, plan: null, pending: null, story: null, dismissed: [], bestiary: [], skills: [], npcLinks: {}, done: [], fallen: [], npcNames: {} };
     const state = meta[SETTINGS_KEY] && typeof meta[SETTINGS_KEY] === 'object' ? meta[SETTINGS_KEY] : {};
     // A fight or result from before 0.4.3 has no origin: the reply it started from is taken
     // from foughtAt (index only), so deleting back past it still takes them away.
@@ -247,6 +254,8 @@ function chatState(ctx = context()) {
     const holding = value => (value && originHolds(value.origin, ctx?.chat ?? []) ? value : null);
     return {
         fight: holding(withOrigin(state.fight)),
+        // (0.5) A plan under way, between stages too: tied to the reply it started from, like its fights.
+        plan: holding(cleanPlan(state.plan)),
         pending: holding(withOrigin(state.pending)),
         last: state.last ?? null,
         skills: Array.isArray(state.skills) ? state.skills : [],
@@ -261,6 +270,9 @@ function chatState(ctx = context()) {
         npcNames: state.npcNames && typeof state.npcNames === 'object' ? state.npcNames : {},
     };
 }
+
+/** A fight being fought, or a plan under way (between its stages too): one battle, which owns the sheets. */
+const underWay = state => Boolean(state?.fight || state?.plan);
 
 // Whether a reply that was given the hand-off is being generated (set by the interceptor,
 // cleared when a reply arrives or generation ends), so a result is "being narrated" rather
@@ -280,19 +292,21 @@ function handoffNow(ctx = context(), state = chatState(ctx)) {
 function settlePending(ctx = context()) {
     const meta = chatMeta(ctx);
     const raw = meta?.[SETTINGS_KEY] && typeof meta[SETTINGS_KEY] === 'object' ? meta[SETTINGS_KEY] : {};
-    const { pending, fight } = chatState(ctx);
+    const { pending, fight, plan } = chatState(ctx);
     // A fight, or a result, whose reply is gone (deleted, swiped away) went back with it (0.4.3):
-    // chatState reads it as none; here it is cleared and its screens closed.
+    // chatState reads it as none; here it is cleared and its screens closed. A plan likewise,
+    // between its stages too (0.5).
     const fightGone = Boolean(raw.fight) && !fight;
+    const planGone = Boolean(raw.plan) && !plan;
     const resultGone = Boolean(raw.pending) && !pending;
-    if (fightGone || resultGone) {
+    if (fightGone || planGone || resultGone) {
         live = { chatId: null, key: '', fight: null };
         if (screen.mode === 'fight' || screen.mode === 'result') screen = { chatId: chatIdOf(ctx), mode: null };
     }
     const next = settleHandoff(pending, ctx?.chat ?? [], { generating });
     const pendingChanged = resultGone || JSON.stringify(next ?? null) !== JSON.stringify(pending ?? null);
-    if (!fightGone && !pendingChanged) return false;
-    saveChatState({ ...(fightGone ? { fight: null } : {}), ...(pendingChanged ? { pending: next } : {}) });
+    if (!fightGone && !planGone && !pendingChanged) return false;
+    saveChatState({ ...(fightGone ? { fight: null } : {}), ...(planGone ? { plan: null } : {}), ...(pendingChanged ? { pending: next } : {}) });
     return true;
 }
 
@@ -415,7 +429,7 @@ async function writeParty(members) {
 // reply yet there is nothing to rewrite.
 async function rewriteSheets() {
     try {
-        if (chatState().fight) return;
+        if (underWay(chatState())) return;
         const { pc, members } = currentSheets();
         if (pc || members.length) await writeSheets(pc, members);
     } catch (error) {
@@ -441,7 +455,7 @@ async function migrateLegacy() {
     try {
         const ctx = context();
         const own = settings(ctx);
-        if (!own.enabled || !storyBlock() || chatState(ctx).fight || latestAssistantIndex(ctx?.chat ?? []) < 0) return;
+        if (!own.enabled || !storyBlock() || underWay(chatState(ctx)) || latestAssistantIndex(ctx?.chat ?? []) < 0) return;
         const { pc, members, legacy, folded } = currentSheets();
         if (!(legacy && pc) && !folded) return;
         const key = `${chatIdOf(ctx)}:${(ctx?.chat ?? []).length}`;
@@ -526,19 +540,15 @@ function setupRows(rows, sheet, r, bestiary) {
             boss: Boolean(row.boss),
             ...(row.threat ? { threat: row.threat } : {}),
             ...(row.wave ? { wave: row.wave } : {}),
+            ...(row.stage ? { stage: row.stage } : {}),
         };
     });
 }
 
-function startNewFight({ rows, stakes }, { fresh = [] } = {}) {
-    const ctx = context();
-    const sheet = currentSheet();
-    if (!sheet) throw new Error('Make your character first.');
-    const r = rules();
-    const id = `fight-${Date.now().toString(36)}`;
-    const seed = `${chatIdOf(ctx)}:${id}`;
+/** The party as the sheets have it, as combatants: you (played) and the companions (auto or commanded). */
+function partyFromSheets(sheet, r) {
     const items = currentItems();
-    const party = [
+    return [
         combatantFromSheet(sheet, { memberId: 'pc', controller: 'player', gear: items.filter(item => item.equipped), items, library: library(), rules: r }),
         ...currentParty().map(member => combatantFromSheet(member.sheet, {
             memberId: member.id,
@@ -549,6 +559,18 @@ function startNewFight({ rows, stakes }, { fresh = [] } = {}) {
             rules: r,
         })),
     ];
+}
+
+/**
+ * A fight's setup from the story's rows: the foes projected with their power settled, the
+ * engagements after the first ("then:") as waves, validated by starting it once. The stored
+ * form is the setup and the actions.
+ */
+function fightSetup(rows, { id, party, stakes, fresh = [] }) {
+    const ctx = context();
+    const sheet = currentSheet();
+    const r = rules();
+    const seed = `${chatIdOf(ctx)}:${id}`;
     // A blank power: a creature either bestiary knows keeps its own power, anything else is a
     // fair fight for the party. A row picked in the reader's terms carries a level instead
     // (interpolated on the rank table by projectEnemy).
@@ -563,14 +585,72 @@ function startNewFight({ rows, stakes }, { fresh = [] } = {}) {
     // HP and MP as they stand, one result.
     const { enemies, waves } = engagements(all);
     const setup = { id, seed, party, enemies, ...(waves.length ? { waves } : {}), stakes: stakes === 'death' ? 'death' : 'normal' };
-    // Validate by starting it once; the stored form is the setup and the actions.
     startFight({ ...setup, rules: r });
+    return setup;
+}
+
+/** Where a fight (or a plan) starts: the latest reply, its origin and its offers' stamp. */
+function startingPoint() {
+    const ctx = context();
     // The latest reply's offers end here: a rest or an award from before the fight is not taken after it.
     const latest = latestAssistantIndex(ctx?.chat ?? []);
     const sb = storyBlock();
-    // The fight belongs to that reply: deleted or swiped away, the fight and its result go too.
-    saveChatState({ fight: { setup, actions: [], origin: fightOrigin(ctx?.chat ?? [], latest) }, foughtAt: sb && latest >= 0 ? { index: latest, text: replyStamp(sb, latest) } : null });
+    return {
+        // The fight belongs to that reply: deleted or swiped away, the fight and its result go too.
+        origin: fightOrigin(ctx?.chat ?? [], latest),
+        foughtAt: sb && latest >= 0 ? { index: latest, text: replyStamp(sb, latest) } : null,
+    };
+}
+
+function startNewFight({ rows, stakes }, { fresh = [] } = {}) {
+    const ctx = context();
+    const sheet = currentSheet();
+    if (!sheet) throw new Error('Make your character first.');
+    const id = `fight-${Date.now().toString(36)}`;
+    const setup = fightSetup(rows, { id, party: partyFromSheets(sheet, rules()), stakes, fresh });
+    const { origin, foughtAt } = startingPoint();
+    saveChatState({ fight: { setup, actions: [], origin }, foughtAt });
     screen = { chatId: chatIdOf(ctx), mode: 'fight' };
+}
+
+// ---------------------------------------------------------------------------
+// Plans: fights in stages (0.5, src/plan.js)
+
+/**
+ * A plan begins: stage 1 is fought with the party as the sheets have it. The plan (its stages
+ * as the story wrote them, the stakes, the creatures made for it) is kept in the chat's state
+ * beside the stage's fight, tied to the same reply, so a reload finds it and a deleted or
+ * swiped reply takes it back.
+ */
+function startPlan({ stages, stakes }, { fresh = [] } = {}) {
+    const ctx = context();
+    const sheet = currentSheet();
+    if (!sheet) throw new Error('Make your character first.');
+    const { origin, foughtAt } = startingPoint();
+    const plan = newPlan({ id: `plan-${Date.now().toString(36)}`, stakes, stages, fresh, origin });
+    const setup = fightSetup(plan.stages[0].rows, { id: stageId(plan.id, 0), party: partyFromSheets(sheet, rules()), stakes: plan.stakes, fresh: plan.fresh });
+    saveChatState({ plan, fight: { setup, actions: [], origin }, foughtAt });
+    screen = { chatId: chatIdOf(ctx), mode: 'fight' };
+}
+
+/** Go on: the next stage, the party as the last one left it (no healing between stages). */
+async function goOnPlan() {
+    const state = chatState();
+    if (state.plan?.status !== 'between' || state.fight) throw new Error('There is no stage to go on to.');
+    const plan = nextStage(state.plan);
+    const setup = fightSetup(plan.stages[plan.at].rows, { id: stageId(plan.id, plan.at), party: plan.carry ?? [], stakes: plan.stakes, fresh: plan.fresh });
+    saveChatState({ plan: { ...plan, carry: null }, fight: { setup, actions: [], origin: plan.origin } });
+    screen = { chatId: chatIdOf(context()), mode: 'fight' };
+    // Nobody left to command (the fallen stay down): the stage is fought out at once.
+    const fight = currentFight();
+    if (fight && fight.status !== 'active') await finishFight(fight);
+}
+
+/** Fall back: the plan ends between stages; what the cleared stages gave is kept. */
+async function fallBackPlan() {
+    const state = chatState();
+    if (state.plan?.status !== 'between' || state.fight) throw new Error('There is no plan to fall back from.');
+    await endPlan(state.plan, 'withdrew');
 }
 
 // ---------------------------------------------------------------------------
@@ -697,7 +777,9 @@ async function prepareAndStart(setup) {
         const fresh = await prepareFoes(setup?.rows ?? []);
         // The reader may have left the setup (or the chat) while the calls ran.
         if (screen.mode !== 'setup' || screen.chatId !== chatIdOf(context())) return false;
-        startNewFight(setup, { fresh });
+        // A plan's foes are all made before its first stage, so Go on never waits on a model call.
+        if (setup.stages?.length > 1) startPlan(setup, { fresh });
+        else startNewFight(setup, { fresh });
         return true;
     } finally {
         preparing = false;
@@ -769,22 +851,17 @@ async function playAction(action) {
 }
 
 // The end of a fight: the result applied to the sheets and the inventory, and the hand-off
-// waiting for the next reply.
+// waiting for the next reply. A plan's stage ends into the plan instead (finishStage).
 let finishing = null;
 
-async function finishFight(fight) {
-    // Once per fight, even if a redraw asks again while the writes are under way.
-    if (finishing === fight.id) return;
-    finishing = fight.id;
+/**
+ * A fight's (or a whole plan's) result written once, into the latest reply: the sheets (XP,
+ * levels, mastery, HP and MP as it ended), companions' points spent by build, death after a
+ * defeat to the death, the fallen, the items used and the loot. The report for the result screen.
+ */
+async function writeResult(result, stakes) {
     const r = rules();
     const own = settings();
-    const result = summarize(fight, r);
-    // Shown in the Battle tab while the result is written, so the tab does not drop out (and the
-    // sidebar jump to another tab) between the fight and its result.
-    ending = { chatId: chatIdOf(context()), fight };
-    // The fight is over before anything is written: the block writes save the chat, and the
-    // saved chat must not hold a fight that is still "active".
-    saveChatState({ fight: null });
     const sheet = currentSheet();
     const report = { levelsGained: 0, pointsGained: 0, levelsReached: 0 };
     try {
@@ -799,27 +876,64 @@ async function finishFight(fight) {
             pc = applied.sheet;
             // Lost to the death: the story of this character ends. The sheet says so (the State
             // line reads "dead"), so a swipe or a deleted reply takes it back with the rest.
-            if (fight.stakes === 'death' && result.outcome === 'defeat') pc = { ...pc, hp: { ...pc.hp, cur: 0 }, conditions: [{ name: DEAD, rounds: null }] };
+            if (stakes === 'death' && result.outcome === 'defeat') pc = { ...pc, hp: { ...pc.hp, cur: 0 }, conditions: [{ name: DEAD, rounds: null }] };
         }
         const raised = currentParty().map(member => ({ ...member, sheet: applyResult(member.sheet, member.id, result, r).sheet }));
         // Companions on auto spend what a level gave them, by build (the setting allowing).
         const members = settleCompanions(raised, { autoSpend: own.autoSpend !== false, rules: r });
         if (pc || members.length) await writeSheets(pc, members);
         // A companion at 0 HP when a fight to the death ends fell: offered for removal afterwards.
-        if (fight.stakes === 'death') {
+        if (stakes === 'death') {
             const fell = result.party.filter(entry => entry.memberId !== 'pc' && (entry.down || entry.hp?.cur <= 0)).map(entry => members.find(member => member.id === entry.memberId)).filter(Boolean);
             if (fell.length) saveChatState({ fallen: [...chatState().fallen.filter(entry => !fell.some(member => member.id === entry.memberId)), ...fell.map(member => ({ memberId: member.id, name: member.name }))] });
         }
         const inventory = blockText(own.inventoryTag);
         if (inventory.trim() || result.loot?.items?.length || result.loot?.money) {
             let next = useItems(inventory, result.itemsUsed?.pc ?? {});
-            if (result.outcome === 'victory') next = addLoot(next, result.loot ?? { items: [], money: 0 }, r.currency);
+            // Loot only from fights won: a single fight's result has none otherwise, and a
+            // plan's holds the loot of the stages it cleared.
+            if (result.loot?.items?.length || result.loot?.money) next = addLoot(next, result.loot, r.currency);
             if (next !== inventory) await writeBlock(own.inventoryTag, next);
         }
     } catch (error) {
         notify('error', `The result could not be written: ${error instanceof Error ? error.message : String(error)}`);
         console.error('[RPG Battle] writing the result failed', error);
     }
+    return report;
+}
+
+/** The result is written and waits for the story: the hand-off stored, the result on screen. */
+async function resultReady({ id, result, handoff, origin, report }) {
+    saveChatState({ fight: null, plan: null, pending: { handoff, fightId: id, attachedTo: null, origin }, last: { fightId: id, result, handoff, ...report } });
+    await context()?.saveMetadata?.();
+    finishing = null;
+    ending = null;
+    live = { chatId: chatIdOf(context()), key: '', fight: null };
+    screen = { chatId: chatIdOf(context()), mode: 'result' };
+    storyBlock()?.refresh?.();
+}
+
+async function finishFight(fight) {
+    // Once per fight, even if a redraw asks again while the writes are under way.
+    if (finishing === fight.id) return;
+    const state = chatState();
+    if (state.plan && state.plan.status === 'fighting' && stageId(state.plan.id, state.plan.at) === fight.id) {
+        await finishStage(fight, state.plan);
+        return;
+    }
+    finishing = fight.id;
+    const r = rules();
+    const result = summarize(fight, r);
+    // The reply the fight started from, before the fight is cleared.
+    const origin = state.fight?.origin ?? null;
+    // Shown in the Battle tab while the result is written, so the tab does not drop out (and the
+    // sidebar jump to another tab) between the fight and its result.
+    ending = { chatId: chatIdOf(context()), fight };
+    // The fight is over before anything is written: the block writes save the chat, and the
+    // saved chat must not hold a fight that is still "active".
+    saveChatState({ fight: null });
+    const sheet = currentSheet();
+    const report = await writeResult(result, fight.stakes);
     const handoff = buildHandoff(result, {
         names: Object.fromEntries(fight.combatants.map(entry => [entry.id, entry.name])),
         currency: r.currency,
@@ -827,14 +941,49 @@ async function finishFight(fight) {
         pcName: sheet?.name ?? 'You',
         rules: r,
     });
-    const origin = chatState().fight?.origin ?? null;
-    saveChatState({ fight: null, pending: { handoff, fightId: fight.id, attachedTo: null, origin }, last: { fightId: fight.id, result, handoff, ...report } });
-    await context()?.saveMetadata?.();
-    finishing = null;
-    ending = null;
+    await resultReady({ id: fight.id, result, handoff, origin, report });
+}
+
+/**
+ * A plan's stage is over: won with a stage to come, the plan waits between stages (Go on or
+ * Fall back; nothing written yet); otherwise the plan ends here.
+ */
+async function finishStage(fight, plan) {
+    if (plan.done.some(entry => entry.fightId === fight.id)) {
+        saveChatState({ fight: null });
+        return;
+    }
+    const { plan: next, ended } = stageDone(plan, fight, summarize(fight, rules()));
     live = { chatId: chatIdOf(context()), key: '', fight: null };
-    screen = { chatId: chatIdOf(context()), mode: 'result' };
-    storyBlock()?.refresh?.();
+    if (!ended) {
+        saveChatState({ fight: null, plan: next });
+        await context()?.saveMetadata?.();
+        screen = { chatId: chatIdOf(context()), mode: null };
+        storyBlock()?.refresh?.();
+        return;
+    }
+    ending = { chatId: chatIdOf(context()), fight, plan: next };
+    await endPlan(next, ended);
+}
+
+/**
+ * The plan ends ('victory' after the last stage, 'defeat' or 'fled' in a stage, 'withdrew' on
+ * Fall back): the stages' results as one (planResult) written once, as a fight's is, and one
+ * hand-off saying what happened at each stage and which were never reached.
+ */
+async function endPlan(plan, outcome) {
+    if (finishing === plan.id) return;
+    finishing = plan.id;
+    const r = rules();
+    const result = planResult(plan, outcome);
+    // Shown meanwhile: the last stage's fight, or after Fall back the plan as it stood.
+    ending = { chatId: chatIdOf(context()), fight: ending?.fight ?? null, plan };
+    saveChatState({ fight: null, plan: null });
+    const sheet = currentSheet();
+    const report = await writeResult(result, plan.stakes);
+    const names = Object.fromEntries(result.party.map(entry => [entry.memberId, entry.name]));
+    const handoff = buildPlanHandoff(result, { names, currency: r.currency, stakes: plan.stakes, pcName: sheet?.name ?? 'You', rules: r });
+    await resultReady({ id: plan.id, result, handoff, origin: plan.origin, report });
 }
 
 // ---------------------------------------------------------------------------
@@ -962,8 +1111,8 @@ async function planAndWriteReply({ messageIndex }) {
     const own = settings(ctx);
     if (!sb || !own.enabled) return;
     const state = chatState(ctx);
-    // A fight in progress owns the sheets; the story waits for its result.
-    if (state.fight) return;
+    // A fight in progress (or a plan, between its stages too) owns the sheets; the story waits for its result.
+    if (underWay(state)) return;
     const chat = ctx?.chat ?? [];
     const index = Number(messageIndex);
     if (!isAssistant(chat[index])) return;
@@ -996,7 +1145,7 @@ async function planAndWriteReply({ messageIndex }) {
 function canUndoStory(ctx = context(), state = chatState(ctx)) {
     const story = state.story;
     const sb = storyBlock();
-    if (!sb || !story || story.undone || !story.applied?.length || state.fight) return false;
+    if (!sb || !story || story.undone || !story.applied?.length || underWay(state)) return false;
     if (story.index !== latestAssistantIndex(ctx?.chat ?? [])) return false;
     if (woundsAt(sb, story.index).signature !== story.signature) return false;
     const hash = story.written?.party;
@@ -1041,21 +1190,33 @@ function toastWounds(applied) {
  * An <Encounter> as setup rows: names looked up in this story's creatures and the shipped
  * ones, and a threat word ("weak", "deadly") turned into a level from the Character's.
  */
-function encounterRows(text) {
+/**
+ * An <Encounter> (or a planned fight's text) as code reads it: { rows, stages }. `stages` is
+ * [{ place, text }] for a plan (0.5: two or more stages, "then at <place>:"; the rows carry
+ * `stage`), else null.
+ */
+function encounterParts(text) {
     const r = rules();
-    const rows = parseEncounter(text, fightBestiary(), r);
-    return resolveThreats(rows, currentSheet()?.level ?? 1, r);
+    const plan = parsePlan(text, fightBestiary(), r);
+    const rows = resolveThreats(plan.flatMap(stage => stage.rows), currentSheet()?.level ?? 1, r);
+    return { rows, stages: plan.length > 1 ? plan.map(stage => ({ place: stage.place, text: stage.text })) : null };
+}
+
+/** The offer line: "A fight is starting: 3 wolf" or, for a plan, "A plan in 3 stages: the gate, …". */
+function offerLine(text) {
+    const summary = encounterSummary(text);
+    return parsePlan(text).length > 1 ? summary : `A fight is starting: ${summary}`;
 }
 
 function toastEncounter(sb, index) {
     if (!currentSheet()) return;
     const text = blockAt(sb, index, ENCOUNTER_TAG) ?? '';
-    const rows = text ? encounterRows(text) : [];
+    const { rows, stages } = text ? encounterParts(text) : { rows: [], stages: null };
     if (!rows.length || chatState().dismissed.includes(`${index}:${text}`)) return;
     const stakes = parseStakes(text) === 'death' ? ' — to the death' : '';
-    const html = `A fight is starting: ${escapeHtml(encounterSummary(text))}${stakes}<div class="rpg-battle-toast-actions"><button type="button" class="menu_button rpg-battle-toast-fight">Fight</button></div>`;
+    const html = `${escapeHtml(offerLine(text))}${stakes}<div class="rpg-battle-toast-actions"><button type="button" class="menu_button rpg-battle-toast-fight">Fight</button></div>`;
     const toast = notify('warning', html, { escapeHtml: false, timeOut: 15000, extendedTimeOut: 6000, closeButton: true });
-    bindToastButton(toast, '.rpg-battle-toast-fight', () => fightEncounter({ rows, stakes: parseStakes(text), key: `${index}:${text}` }));
+    bindToastButton(toast, '.rpg-battle-toast-fight', () => fightEncounter({ rows, stages, stakes: parseStakes(text), key: `${index}:${text}` }));
 }
 
 // ---------------------------------------------------------------------------
@@ -1079,13 +1240,13 @@ function plannedEncounters(index) {
 /**
  * The fight the story offers now, from the latest reply: its <Encounter>, else Story
  * Director's due or soon fight, its stakes from the same text (`| to the death`).
- * { text, label, rows, stakes, key } or null. Nothing is offered during
+ * { text, label, rows, stages, stakes, key } or null (`stages`: a plan's places and words, 0.5). Nothing is offered during
  * a fight or while a result waits to be narrated, nor once dismissed (by reply and text).
  */
 function encounterOffer(ctx = context(), state = chatState(ctx)) {
     const sb = storyBlock();
     // Not while a result is still to be narrated; once it is, the story moves on.
-    if (!sb || state.fight || ['waiting', 'narrating'].includes(handoffNow(ctx, state))) return null;
+    if (!sb || underWay(state) || ['waiting', 'narrating'].includes(handoffNow(ctx, state))) return null;
     // No fight without a living character to fight it.
     const pc = currentSheet();
     if (!pc || isDead(pc)) return null;
@@ -1103,8 +1264,8 @@ function encounterOffer(ctx = context(), state = chatState(ctx)) {
     for (const candidate of candidates) {
         const key = `${index}:${candidate.text}`;
         if (dismissed.has(key)) continue;
-        const rows = encounterRows(candidate.text);
-        if (rows.length) return { ...candidate, rows, stakes: parseStakes(candidate.text), key };
+        const { rows, stages } = encounterParts(candidate.text);
+        if (rows.length) return { ...candidate, rows, stages, stakes: parseStakes(candidate.text), key };
     }
     return null;
 }
@@ -1122,7 +1283,7 @@ function fightEncounter(offer) {
         notify('info', 'Fights come from the story.');
         return;
     }
-    screen = { chatId: chatIdOf(context()), mode: 'setup', prefill: offer.rows, stakes: offer.stakes === 'death' ? 'death' : 'normal', offerKey: offer.key ?? null };
+    screen = { chatId: chatIdOf(context()), mode: 'setup', prefill: offer.rows, stages: offer.stages ?? null, stakes: offer.stakes === 'death' ? 'death' : 'normal', offerKey: offer.key ?? null };
     storyBlock()?.refresh?.();
     showBattleTab();
 }
@@ -1238,7 +1399,7 @@ function watchPersona(ctx, pc) {
 function currentOffers(ctx = context(), state = chatState(ctx)) {
     const sb = storyBlock();
     const own = settings(ctx);
-    if (!sb || !own.enabled || state.fight) return [];
+    if (!sb || !own.enabled || underWay(state)) return [];
     const chat = ctx?.chat ?? [];
     const { pc, members } = currentSheets();
     const r = rules();
@@ -1399,7 +1560,7 @@ async function followNpcRenames() {
     if (following || replying || finishing || migration.running) return;
     const ctx = context();
     const state = chatState(ctx);
-    if (!settings(ctx).enabled || !storyBlock() || state.fight || ending || !Object.keys(state.npcLinks).length) return;
+    if (!settings(ctx).enabled || !storyBlock() || underWay(state) || ending || !Object.keys(state.npcLinks).length) return;
     if (latestAssistantIndex(ctx?.chat ?? []) < 0) return;
     following = true;
     try {
@@ -1582,7 +1743,7 @@ const SUITE_MANAGE = manageApi({
         if (!own.enabled) return tokenEstimate();
         const state = chatState();
         const pc = currentSheet();
-        const asks = Boolean(pc) && !isDead(pc) && !state.fight;
+        const asks = Boolean(pc) && !isDead(pc) && !underWay(state);
         return tokenEstimate({ handoff: handoffNow(context(), state) === 'waiting' ? state.pending.handoff : '', instruction: asks ? STORY_INSTRUCTION : '' });
     },
     enabled: () => settings().enabled,
@@ -1722,7 +1883,7 @@ async function onGenerationInterceptor(chat, _contextSize, _abort, type = 'norma
         // The story instruction, while there is a sheet to keep in step and no fight under way.
         // Not for the reply that narrates a fight: its wounds were dealt in the fight.
         const pc = own.enabled ? currentSheet() : null;
-        const asks = Boolean(pc) && !isDead(pc) && !handoff && !chatState(ctx).fight;
+        const asks = Boolean(pc) && !isDead(pc) && !handoff && !underWay(chatState(ctx));
         setPrompt(asks ? STORY_INSTRUCTION : '', RULES_PROMPT_KEY);
     } catch (error) {
         console.error('[RPG Battle] interceptor failed', error);
@@ -1759,7 +1920,7 @@ const isDead = sheet => Boolean(sheet?.conditions?.some(condition => String(cond
  */
 function battleOn(ctx = context(), state = chatState(ctx)) {
     if (!settings(ctx).enabled) return false;
-    if (state.fight) return true;
+    if (underWay(state)) return true;
     if (ending && ending.chatId === chatIdOf(ctx)) return true;
     if (screen.chatId === chatIdOf(ctx) && (screen.mode === 'setup' || screen.mode === 'result')) return true;
     return Boolean(encounterOffer(ctx, state));
@@ -1780,9 +1941,15 @@ function battleView() {
     } else if (fight) {
         return { mode: 'fight', fight, actions: availableActions(fight, r), rules: r };
     }
-    // The fight just ended and its result is being written: its last state, without actions.
-    if (ending && ending.chatId === chatId) return { mode: 'fight', fight: ending.fight, actions: [], rules: r };
+    // The fight just ended and its result is being written: its last state, without actions
+    // (after Fall back, the plan as it stood, its buttons waiting).
+    if (ending && ending.chatId === chatId) {
+        if (ending.fight || !ending.plan) return { mode: 'fight', fight: ending.fight, actions: [], rules: r };
+        return { ...betweenView(ending.plan, r), busy: true };
+    }
     const state = chatState(ctx);
+    // A plan between its stages: Go on or Fall back, nothing else.
+    if (state.plan?.status === 'between') return betweenView(state.plan, r);
     if (screen.mode === 'result' && state.last) {
         const money = state.last.result?.loot?.money ?? 0;
         return { mode: 'result', result: state.last.result, handoff: state.last.handoff, levelsGained: state.last.levelsGained, pointsGained: state.last.pointsGained, levelsReached: state.last.levelsReached ?? 0, moneyText: money ? formatMoney(money, r.currency) : '', rules: r };
@@ -1795,6 +1962,8 @@ function battleView() {
         return {
             mode: 'setup',
             rows: setupRows(screen.prefill, sheet, r, bestiary),
+            // A plan's stages (0.5): their places, in order; the rows carry `stage`.
+            stages: screen.stages?.length > 1 ? screen.stages.map(stage => ({ place: stage.place ?? null })) : null,
             stakes: screen.stakes === 'death' ? 'death' : 'normal',
             known: bestiary.flatMap(entry => [entry.name, ...(entry.aliases ?? [])]),
             preparing: screen.preparing ?? null,
@@ -1802,7 +1971,28 @@ function battleView() {
         };
     }
     const offer = encounterOffer(ctx, state);
-    return { mode: 'offer', encounter: offer ? { text: offer.text, summary: encounterSummary(offer.text), label: offer.label, rows: offer.rows, stakes: offer.stakes } : null, pending: handoffNow(ctx, state) === 'waiting' ? state.pending.handoff : null, rules: r };
+    return { mode: 'offer', encounter: offer ? { text: offer.text, summary: encounterSummary(offer.text), label: offer.label, rows: offer.rows, stages: offer.stages ?? null, stakes: offer.stakes } : null, pending: handoffNow(ctx, state) === 'waiting' ? state.pending.handoff : null, rules: r };
+}
+
+/**
+ * Between a plan's stages: the stage just cleared, the party as it stands (no healing), the
+ * next stage as it will be fought; Go on or Fall back.
+ */
+function betweenView(plan, r) {
+    const last = plan.done.at(-1);
+    const next = plan.stages[plan.at + 1] ?? null;
+    const sheet = currentSheet();
+    const bestiary = fightBestiary();
+    return {
+        mode: 'between',
+        total: plan.stages.length,
+        cleared: { number: plan.at + 1, place: plan.stages[plan.at]?.place ?? null, rounds: last?.result?.rounds ?? 0 },
+        next: next ? { number: plan.at + 2, place: next.place ?? null, text: next.text ?? '', rows: sheet ? setupRows(next.rows, sheet, r, bestiary) : next.rows } : null,
+        party: last?.result?.party ?? [],
+        stakes: plan.stakes,
+        known: bestiary.flatMap(entry => [entry.name, ...(entry.aliases ?? [])]),
+        rules: r,
+    };
 }
 
 /** A member's card data beyond the sheet: resolved skills, capped gear, the dossier link. */
@@ -2165,7 +2355,7 @@ const handlers = {
     // Whatever the tab sends is ignored: the fight is the offer Fight? opened, as the story
     // wrote it (foes and stakes), so a changed page cannot change it. No offer, no fight.
     onStart: () => void guarded(async () => {
-        const setup = storyFight(screen.mode === 'setup' && screen.chatId === chatIdOf(context()) ? { rows: screen.prefill, stakes: screen.stakes } : null);
+        const setup = storyFight(screen.mode === 'setup' && screen.chatId === chatIdOf(context()) ? { rows: screen.prefill, stages: screen.stages, stakes: screen.stakes } : null);
         const offerKey = screen.offerKey ?? null;
         // New names are made up (and flavoured) first; the fight starts once they are ready.
         const started = await prepareAndStart(setup);
@@ -2180,6 +2370,9 @@ const handlers = {
     onExportBestiary: () => void guarded(async () => exportBestiary()),
     onImportBestiary: text => void guarded(async () => importBestiary(text)),
     onAction: action => void guarded(() => playAction(action)),
+    // Between a plan's stages (0.5): the only two choices.
+    onGoOn: () => void guarded(goOnPlan),
+    onFallBack: () => void guarded(fallBackPlan),
     onAuto: () => void guarded(() => playAction({ type: 'auto' })),
     onReturn: () => returnToStory(),
     onDone: () => go(null),
@@ -2207,7 +2400,8 @@ function baseKey(ctx, state) {
 function battleKey() {
     const ctx = context();
     const state = chatState(ctx);
-    return [...baseKey(ctx, state), screen.mode, JSON.stringify(screen.prefill ?? null), screen.stakes ?? '', fightKey(state.fight), state.dismissed.length,
+    const plan = state.plan ? `${state.plan.id}:${state.plan.at}:${state.plan.status}:${state.plan.done.length}` : '';
+    return [...baseKey(ctx, state), screen.mode, JSON.stringify(screen.prefill ?? null), screen.stakes ?? '', fightKey(state.fight), plan, ending ? 'ending' : '', state.dismissed.length,
         encounterOffer(ctx, state)?.key ?? '', JSON.stringify(screen.preparing ?? null), state.bestiary.length].join('|');
 }
 
@@ -2296,7 +2490,7 @@ function registerWithStoryBlock() {
         order: 80,
         isAvailable: () => battleOn(),
         key: battleKey,
-        badge: () => (currentFight() || encounterOffer() ? 1 : 0),
+        badge: () => (currentFight() || chatState().plan || encounterOffer() ? 1 : 0),
         render: pane => renderBattle(pane),
     });
     sb.onReply?.(payload => void afterReply(payload));

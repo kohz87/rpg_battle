@@ -1,4 +1,4 @@
-# RPG Battle v0.4.3
+# RPG Battle v0.5.0
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -166,7 +166,7 @@ A character at 0 HP cannot start a fight until they recover.
 ## Story wounds
 
 The story hurts people between fights too: a fall, a poisoned cup, a healer's poultice. While
-you have a character, the model is told (in one instruction of about 160 tokens with every hidden
+you have a character, the model is told (in one instruction of about 185 tokens with every hidden
 block below) to add a hidden **Wounds** block when that happens to someone on the Party sheet, one
 line each, in words, never numbers:
 
@@ -298,7 +298,8 @@ Healing Draught | 2 | heal 30
   constructs, spirits and the dead leave something of themselves instead (a *Wolf Pelt*, a
   *Fang*, *Spider Silk*, *Slime Jelly*, *Old Bone*), and more often than a coin carrier leaves
   its materials. The shipped bestiary marks each creature (`coins: true`, `false` or `'boss'`); a
-  made-up one goes by its kind.
+  made-up one goes by its kind. A boss rolls for gear and consumables more than once, but its
+  body parts only once: one wolf matriarch, one pelt.
 - **Give item** (on a companion's card) moves one equipment row from your Inventory onto their
   gear (the Equipped line of their section; the same slot limits and rarity caps, at their
   level); **Take back** puts a piece back into your Inventory, not equipped.
@@ -340,6 +341,24 @@ that reply and the result waits again. There is no Discard: a fight's result alw
 story, so the sheets and the narration agree. A fight belongs to the reply it started from (since
 0.4.3): delete back past that reply, or swipe it, and the fight and its result are gone with it,
 so replaying the scene can offer a new fight.
+
+A plan (fights in stages, below) has one result too: the result screen lists each stage (*Stage 1,
+the gate: victory in 3 rounds*, *Stage 3, the tower: not reached*) above the totals, and the
+hand-off has a line per stage reached and says plainly what never happened:
+
+```
+[Battle resolved by RPG Battle: narrate this outcome, do not change it]
+Stage 1, the gate: victory in 3 rounds.
+Stage 2, the yard: defeated — the story decides what follows (captured, robbed, left for dead).
+Not reached: the tower. Do not narrate it.
+Ren: down (unconscious or unable to fight).
+Key moments: Ren finishes the Guard A; …
+Loot: 1 silver, 2 copper. XP +30.
+```
+
+After **Fall back** the line is *Fell back after the gate; the yard and the tower were not
+attempted.* The member lines are the end state; the loot and XP are what the cleared stages
+gave.
 
 ## Fights from the story
 
@@ -388,6 +407,37 @@ done, with no rest between:
 It is one battle: HP, MP and conditions carry over, and there is one result and one hand-off at
 the end. The setup lists each engagement in order; up to three after the first.
 
+**Plans: fights in stages (0.5).** When the party's plan, or the story, takes it from one fight
+to the next somewhere else, a place after `then` starts a new **stage**:
+
+```
+<Encounter>at the gate: 2 guard (weak); then at the yard: 3 guard (even); then at the tower: guard captain (boss, strong) | to the death</Encounter>
+```
+
+`at the gate:` before the first group names the first stage (optional: without it the stage is
+just *Stage 1*); `then at the yard:` starts the next one (also `then, at the yard:` and `and then
+at the yard:`, any case). A plain `then:` is still more foes joining the same fight, so a stage
+may have its own waves. Up to five stages. The offer reads *A plan in 3 stages: the gate, the
+yard, the tower* (*— to the death* when it is marked: the stakes are the whole plan's). The setup
+lists each stage in order, *Stage 1 of 3: the gate*, with its foes as for any fight, read-only:
+**Start** or **Not now**.
+
+Each stage is its own fight: new foes, the rounds counted from one. The party goes in as the last
+stage left it: HP, MP, cooldowns, conditions and the items left carry over, nothing heals, and
+whoever is down stays down. After a stage is won the Battle tab says *The gate is cleared (3
+rounds). Next: the yard — 3 guard (even)*, with the party as it stands and the next stage's foes,
+and two buttons only: **Go on** (the next stage) or **Fall back** (the plan ends there, a
+withdrawal). The plan ends with victory when the last stage is won, with defeat at the stage lost,
+fled at the stage you escaped from, or withdrawn on Fall back; the stages after it never happen.
+It is kept with the chat (a reload finds it where you left it, between stages too) and belongs to
+the reply it started from: delete or swipe that reply and the plan and its result are gone.
+
+What every cleared stage gave is kept, even when a later one goes wrong: XP for the foes beaten in
+each stage (also in the one lost, as after any lost fight) and the loot of each stage won, by the
+same rules as one fight (levels, companions' auto-spend, items used, the Inventory). Losing any
+stage of a plan to the death is losing a fight to the death. Nothing is written until the plan
+ends; then everything is written once, into the latest reply.
+
 **The stakes:** a fight to the death is marked after a bar, at the end of the block:
 
 ```
@@ -399,7 +449,8 @@ too, in any case; without a mark the stakes are normal (defeat means the story d
 follows a bar is never read as a foe.
 
 With Story Director 0.8, a fight it has planned (a beat with foes, now due or due soon) is
-offered the same way, with its name and place; its text may use `then:` and `| to the death` too.
+offered the same way, with its name and place; its text may use `then:`, `then at <place>:` and
+`| to the death` too.
 
 ## Monsters on the fly
 

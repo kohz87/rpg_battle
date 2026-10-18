@@ -129,6 +129,67 @@ export function buildHandoff(result, { names = {}, currency = DEFAULT_RULES.curr
 }
 
 // ---------------------------------------------------------------------------
+// A plan's hand-off (0.5)
+
+/** "the gate" for a named stage, "stage 2" for one the story did not name. */
+const stageLabel = stage => String(stage?.place ?? '').trim() || `stage ${stage?.number ?? 1}`;
+
+/** "a", "a and b", "a, b and c". */
+function andList(items) {
+    if (items.length < 2) return items.join('');
+    return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
+}
+
+function stageLine(stage, stakes, hero) {
+    const place = String(stage.place ?? '').trim();
+    const head = place ? `Stage ${stage.number}, ${place}` : `Stage ${stage.number}`;
+    const rounds = plural(Math.max(0, Math.round(Number(stage.rounds) || 0)), 'round');
+    if (stage.outcome === 'victory') return `${head}: victory in ${rounds}.`;
+    if (stage.outcome === 'fled') return `${head}: escaped after ${rounds}.`;
+    return stakes === 'death'
+        ? `${head}: defeated — ${hero} is killed. ${hero} is dead and does not come back; narrate the death, not a rescue.`
+        : `${head}: defeated — the story decides what follows (captured, robbed, left for dead).`;
+}
+
+/**
+ * The hand-off for a plan's result (plan.planResult): the header, a line per stage fought,
+ * then the stages never reached ("Not reached: the tower. Do not narrate it.") or, after Fall
+ * back, "Fell back after the gate; the yard and the tower were not attempted."; then, as after
+ * one fight, each member's state at the end, the key moments, who stood down or fled, and the
+ * loot and XP when a stage was won (what the cleared stages gave is kept, whatever came after).
+ */
+export function buildPlanHandoff(result, { names = {}, currency = DEFAULT_RULES.currency, stakes, pcName, rules = DEFAULT_RULES } = {}) {
+    const party = result?.party ?? [];
+    const hero = pcName ?? names?.pc ?? party.find(member => member.memberId === 'pc')?.name ?? party[0]?.name ?? 'the hero';
+    const stages = result?.stages ?? [];
+    const fought = stages.filter(stage => stage.outcome);
+    const missed = stages.filter(stage => !stage.outcome);
+    const lines = [HANDOFF_HEADER, ...fought.map(stage => stageLine(stage, stakes ?? result?.stakes ?? 'normal', hero))];
+    if (missed.length && result?.withdrew) {
+        const after = fought.at(-1);
+        lines.push(`Fell back after ${after ? stageLabel(after) : 'the first stage'}; ${andList(missed.map(stageLabel))} ${missed.length === 1 ? 'was' : 'were'} not attempted.`);
+    } else if (missed.length) {
+        lines.push(`Not reached: ${missed.map(stageLabel).join(', ')}. Do not narrate ${missed.length === 1 ? 'it' : 'them'}.`);
+    }
+    if (party.length) lines.push(statusLines(party, names, rules));
+
+    const moments = (result?.keyMoments ?? []).map(sentence).filter(Boolean).slice(0, 6)
+        .map((moment, index) => (index > 0 ? moment.replace(/^(The|A|An) /, word => word.toLowerCase()) : moment));
+    if (moments.length) lines.push(wrap(`Key moments: ${moments.join('; ')}.`));
+
+    const aside = [];
+    if (result?.parleyed?.length) aside.push(`Stood down after parley: ${grouped(result.parleyed)}.`);
+    if (result?.fled?.length) aside.push(`Fled: ${grouped(result.fled)}.`);
+    if (aside.length) lines.push(aside.join(' '));
+
+    if (fought.some(stage => stage.outcome === 'victory')) {
+        const xp = xpText(result.xp, party, names, rules);
+        lines.push(`Loot: ${lootText(result.loot, currency)}.${xp ? ` ${xp}` : ''}`);
+    }
+    return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
 // Where a waiting hand-off stands (0.4.2)
 
 const isReply = message => Boolean(message) && !message.is_user && !message.is_system;

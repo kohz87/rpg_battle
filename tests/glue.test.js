@@ -324,3 +324,237 @@ test('a fight and its result go back with the reply the fight started from (0.4.
         ctx.setExtensionPrompt = before;
     }
 });
+
+// ---------------------------------------------------------------------------
+// 0.5: plans, fights in stages
+
+const modeOf = pane => pane.firstElementChild?.dataset.mode;
+/** The Battle tab until it leaves the fight: Auto pressed for every turn of yours. */
+async function fightOut() {
+    for (let step = 0; step < 300; step++) {
+        const pane = drawTab('rpg-battle');
+        if (modeOf(pane) !== 'fight') return pane;
+        const auto = find(pane, '.rpg-battle-act.is-auto');
+        if (auto) auto.click();
+        await settle();
+    }
+    throw new Error('the fight did not end');
+}
+/** Seeds come from the chat id and the time a fight starts: fixed here, so every fight is the same each run. */
+async function withClock(run) {
+    const real = Date.now;
+    let now = 1_760_000_000_000;
+    Date.now = () => (now += 1000);
+    try {
+        await run();
+    } finally {
+        Date.now = real;
+    }
+}
+const meta = () => ctx.chatMetadata.rpgBattle;
+const planReply = text => ({ ...reply(text), send_date: 'd2', swipe_id: 0 });
+const PLAN_TEXT = '<Encounter>at the gate: 2 giant rat (trivial); then at the yard: giant rat (trivial); then: giant rat (trivial); then at the tower: giant rat (boss, trivial)</Encounter>';
+
+test('a plan in three stages: Fight?, the stages read-only, Start, each stage fought, Go on between, one result and one hand-off', async () => withClock(async () => {
+    const prompts = {};
+    const before = ctx.setExtensionPrompt;
+    ctx.setExtensionPrompt = (key, value) => { prompts[key] = value; };
+    try {
+        openChat('plan-chat', [reply(`<Party>\n${REN.replace('HP: 58/62', 'HP: 102/102')}\n</Party>`), userMessage('We storm the keep.'), planReply(`They reach the gate.\n${PLAN_TEXT}`)]);
+        hooks.update();
+        await settle();
+        let pane = drawTab('rpg-battle');
+        assert.equal(find(pane, '.rpg-battle-encounter-text').textContent, 'A plan in 3 stages: the gate, the yard, the tower');
+        find(pane, '.rpg-battle-encounter-fight').click();
+        pane = drawTab('rpg-battle');
+        assert.equal(find(pane, 'input'), null);
+        assert.deepEqual(findAll(pane, '.rpg-battle-stage-title').map(node => node.textContent), ['Stage 1 of 3: the gate', 'Stage 2 of 3: the yard', 'Stage 3 of 3: the tower']);
+        assert.deepEqual(findAll(pane, '.rpg-battle-stage')[1].querySelectorAll('.rpg-battle-wave').map(node => node.textContent), ['Engagement 1', 'Then, engagement 2']);
+        assert.deepEqual(findAll(pane, 'button').map(node => node.textContent.trim()), ['Not now', 'Start']);
+        find(pane, '.rpg-battle-begin').click();
+        await settle();
+        assert.equal(meta().plan.at, 0);
+        assert.equal(meta().fight.setup.id, `${meta().plan.id}-1`);
+        assert.deepEqual(meta().fight.setup.enemies.map(enemy => enemy.name), ['Giant Rat A', 'Giant Rat B']);
+        // During the plan no story instruction is asked for.
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        assert.equal(prompts.rpg_battle_rules, '');
+        pane = await fightOut();
+        assert.equal(modeOf(pane), 'between');
+        assert.match(find(pane, '.rpg-battle-between-cleared').textContent, /^The gate is cleared \(\d+ rounds?\)\.$/);
+        assert.equal(find(pane, '.rpg-battle-between-next').textContent, 'Next: the yard — giant rat (trivial); then: giant rat (trivial)');
+        assert.deepEqual(findAll(pane, 'button').map(node => node.textContent.trim()), ['Fall back', 'Go on']);
+        assert.equal(meta().fight, null);
+        assert.doesNotMatch(ctx.chat[2].mes, /<Party>/, 'nothing written between stages');
+        const carried = meta().plan.carry.find(unit => unit.id === 'pc').hp;
+        find(pane, '.rpg-battle-go-on').click();
+        await settle();
+        assert.equal(meta().plan.at, 1);
+        assert.deepEqual(meta().fight.setup.party.find(unit => unit.id === 'pc').hp, carried, 'stage 2 starts as stage 1 ended');
+        assert.equal(meta().fight.setup.waves.length, 1, 'the stage\'s wave');
+        pane = await fightOut();
+        assert.equal(modeOf(pane), 'between');
+        assert.equal(find(pane, '.rpg-battle-between-next').textContent, 'Next: the tower — giant rat (boss, trivial)');
+        find(pane, '.rpg-battle-go-on').click();
+        await settle();
+        pane = await fightOut();
+        assert.equal(modeOf(pane), 'result');
+        assert.equal(find(pane, '.rpg-battle-outcome').textContent, 'Victory');
+        assert.deepEqual(findAll(pane, '.rpg-battle-stage-line').map(node => node.textContent.replace(/\d+ rounds?/, 'N')), ['Stage 1, the gate: victory in N', 'Stage 2, the yard: victory in N', 'Stage 3, the tower: victory in N']);
+        assert.equal(meta().plan, null);
+        const handoff = meta().pending.handoff;
+        assert.match(handoff, /^Stage 1, the gate: victory in \d+ rounds?\.\nStage 2, the yard: victory in \d+ rounds?\.\nStage 3, the tower: victory in \d+ rounds?\.$/m);
+        assert.doesNotMatch(handoff, /Not reached/);
+        assert.equal(meta().pending.origin.index, 2);
+        // Written once, into the latest reply: XP of all three stages, the loot.
+        assert.match(ctx.chat[2].mes, /<Inventory>/);
+        assert.doesNotMatch(ctx.chat[2].mes, /^Level: 4 \| XP: 310\/800/m);
+        // The next reply narrates it, once.
+        ctx.chat.push(userMessage('And then?'));
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        assert.equal(prompts.rpg_battle, handoff);
+        find(pane, '.rpg-battle-done').click();
+        ctx.chat.push(reply('The tower falls silent.'));
+        await hooks.reply({ messageIndex: 4 });
+        await settle();
+        assert.equal(hooks.tabs['rpg-battle'].isAvailable(), false, 'the Battle tab goes with the battle');
+    } finally {
+        ctx.setExtensionPrompt = before;
+    }
+}));
+
+test('a plan survives a reload between stages; Fall back ends it, keeping what the cleared stage gave', async () => withClock(async () => {
+    const chat = [reply(`<Party>\n${REN}\n</Party>`), userMessage('On.'), planReply(PLAN_TEXT)];
+    openChat('fallback-chat', chat);
+    hooks.update();
+    await settle();
+    find(drawTab('rpg-battle'), '.rpg-battle-encounter-fight').click();
+    find(drawTab('rpg-battle'), '.rpg-battle-begin').click();
+    await settle();
+    // A reload mid-fight: the stage is replayed from the stored setup and actions.
+    const saved = JSON.parse(JSON.stringify(ctx.chatMetadata));
+    openChat('elsewhere', [reply('Elsewhere.')]);
+    drawTab('rpg-battle');
+    openChat('fallback-chat', chat, saved.rpgBattle);
+    assert.equal(modeOf(drawTab('rpg-battle')), 'fight');
+    let pane = await fightOut();
+    assert.equal(modeOf(pane), 'between');
+    // A reload between stages: only chat state, nothing in memory.
+    const between = JSON.parse(JSON.stringify(meta()));
+    openChat('elsewhere', [reply('Elsewhere.')]);
+    drawTab('rpg-battle');
+    openChat('fallback-chat', chat, between);
+    pane = drawTab('rpg-battle');
+    assert.equal(modeOf(pane), 'between');
+    assert.equal(hooks.tabs['rpg-battle'].badge(), 1);
+    assert.deepEqual(findAll(pane, 'button').map(node => node.textContent.trim()), ['Fall back', 'Go on']);
+    find(pane, '.rpg-battle-fall-back').click();
+    await settle();
+    pane = drawTab('rpg-battle');
+    assert.equal(modeOf(pane), 'result');
+    assert.equal(find(pane, '.rpg-battle-outcome').textContent, 'Fell back');
+    assert.deepEqual(findAll(pane, '.rpg-battle-stage-line').map(node => node.textContent.replace(/\d+ rounds?/, 'N')), ['Stage 1, the gate: victory in N', 'Stage 2, the yard: not attempted', 'Stage 3, the tower: not attempted']);
+    assert.match(meta().pending.handoff, /^Fell back after the gate; the yard and the tower were not attempted\.$/m);
+    assert.equal(meta().last.result.outcome, 'withdrew');
+    // Stage 1's XP and loot are on the sheets and in the Inventory.
+    const xp = Number(ctx.chat[2].mes.match(/^Level: 4 \| XP: (\d+)\/800/m)?.[1]);
+    assert.ok(xp > 310, `XP ${xp}`);
+    assert.equal(meta().plan, null);
+}));
+
+test('a plan goes back with the reply it started from, between stages and in a stage', async () => withClock(async () => {
+    const prompts = {};
+    const before = ctx.setExtensionPrompt;
+    ctx.setExtensionPrompt = (key, value) => { prompts[key] = value; };
+    try {
+        const start = () => {
+            openChat('rollback-chat', [reply(`<Party>\n${REN}\n</Party>`), userMessage('On.'), planReply(PLAN_TEXT)]);
+            hooks.update();
+        };
+        start();
+        await settle();
+        find(drawTab('rpg-battle'), '.rpg-battle-encounter-fight').click();
+        find(drawTab('rpg-battle'), '.rpg-battle-begin').click();
+        await settle();
+        assert.equal(modeOf(await fightOut()), 'between');
+        // The reply the plan started from is deleted, and the turn sent again.
+        ctx.chat.splice(2);
+        hooks.update();
+        await settle();
+        assert.equal(hooks.tabs['rpg-battle'].badge(), 0);
+        assert.equal(hooks.tabs['rpg-battle'].isAvailable(), false);
+        ctx.chat.push(userMessage('On.'));
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        assert.equal(prompts.rpg_battle, '', 'no result to narrate');
+        assert.match(prompts.rpg_battle_rules, /<Encounter>/, 'the story instruction is back');
+        ctx.chat.push(reply('A quiet road.'));
+        await hooks.reply({ messageIndex: 3 });
+        await settle();
+        assert.equal(meta().plan, null, 'cleared');
+        assert.equal(meta().fight, null);
+        assert.match(ctx.chat.map(message => message.mes).join('\n'), /^HP: 58\/62/m, 'the sheets as they were');
+        // In stage 2, the reply swiped to another version: the plan and its fight go.
+        start();
+        await settle();
+        find(drawTab('rpg-battle'), '.rpg-battle-encounter-fight').click();
+        find(drawTab('rpg-battle'), '.rpg-battle-begin').click();
+        await settle();
+        await fightOut();
+        find(drawTab('rpg-battle'), '.rpg-battle-go-on').click();
+        await settle();
+        assert.equal(meta().plan.at, 1);
+        ctx.chat[2] = { ...ctx.chat[2], swipe_id: 1, send_date: 'd9', mes: 'They turn back.' };
+        await hooks.reply({ messageIndex: 2 });
+        await settle();
+        assert.equal(meta().plan, null);
+        assert.equal(meta().fight, null);
+        assert.equal(meta().pending, null);
+        assert.equal(hooks.tabs['rpg-battle'].badge(), 0);
+    } finally {
+        ctx.setExtensionPrompt = before;
+    }
+}));
+
+test('a Story Director planned fight may be a plan too', async () => withClock(async () => {
+    openChat('director-plan', [reply(`<Party>\n${REN}\n</Party>`), userMessage('To the mill.'), planReply('The mist lifts.')]);
+    globalThis.StoryDirector = { encountersAt: () => [{ key: 'The mill raid', encounter: 'at the ford: 2 wolf (trivial); then at the mill: bandit (trivial) | to the death', status: 'due', place: 'the mill' }] };
+    try {
+        hooks.update();
+        await settle();
+        let pane = drawTab('rpg-battle');
+        assert.equal(find(pane, '.rpg-battle-encounter-text').textContent, 'A plan in 2 stages: the ford, the mill');
+        assert.match(find(pane, '.rpg-battle-encounter-label').textContent, /The mill raid/);
+        assert.match(find(pane, '.rpg-battle-encounter-stakes').textContent, /To the death/);
+        find(pane, '.rpg-battle-encounter-fight').click();
+        pane = drawTab('rpg-battle');
+        assert.deepEqual(findAll(pane, '.rpg-battle-stage-title').map(node => node.textContent), ['Stage 1 of 2: the ford', 'Stage 2 of 2: the mill']);
+        find(pane, '.rpg-battle-begin').click();
+        await settle();
+        assert.equal(meta().plan.stakes, 'death');
+        assert.deepEqual(meta().plan.stages.map(stage => [stage.place, stage.rows.map(row => row.name)]), [['the ford', ['Wolf']], ['the mill', ['Bandit']]]);
+        assert.equal(meta().fight.setup.stakes, 'death');
+        assert.ok(meta().dismissed.some(key => key.includes('then at the mill')), 'the offer is spent');
+    } finally {
+        delete globalThis.StoryDirector;
+    }
+}));
+
+test('a plan to the death lost at stage 2 is a fight lost to the death; stage 1\'s gains are kept, stage 3 never happens', async () => withClock(async () => {
+    openChat('death-plan', [reply(`<Party>\n${REN}\n</Party>`), userMessage('Into the dark.'), planReply('<Encounter>at the gate: giant rat (trivial); then at the hall: ogre (boss, deadly); then at the crypt: wraith | to the death</Encounter>')]);
+    hooks.update();
+    await settle();
+    find(drawTab('rpg-battle'), '.rpg-battle-encounter-fight').click();
+    find(drawTab('rpg-battle'), '.rpg-battle-begin').click();
+    await settle();
+    assert.equal(modeOf(await fightOut()), 'between');
+    find(drawTab('rpg-battle'), '.rpg-battle-go-on').click();
+    await settle();
+    const pane = await fightOut();
+    assert.equal(modeOf(pane), 'result');
+    assert.equal(find(pane, '.rpg-battle-outcome').textContent, 'Defeated');
+    const handoff = meta().pending.handoff;
+    assert.match(handoff, /^Stage 2, the hall: defeated — Ren is killed\. Ren is dead and does not come back; narrate the death, not a rescue\.$/m);
+    assert.match(handoff, /^Not reached: the crypt\. Do not narrate it\.$/m);
+    assert.match(ctx.chat[2].mes, /^State: dead$/m, 'dead, as after a fight lost to the death');
+    assert.deepEqual(findAll(pane, '.rpg-battle-stage-line').map(node => node.textContent.replace(/\d+ rounds?/, 'N')), ['Stage 1, the gate: victory in N', 'Stage 2, the hall: defeated after N', 'Stage 3, the crypt: not reached']);
+}));

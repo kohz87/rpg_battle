@@ -303,3 +303,42 @@ test('a won fight against wolves gives pelts and fangs, not coin, across seeds',
         assert.ok(loot.items.every(item => item.qty >= 1 && item.qty <= 6), `${seed}: modest`);
     }
 });
+
+// 0.5: a boss rolled its whole table twice, so one Grey Wolf Matriarch could drop three pelts.
+test('a boss drops its body parts once: materials roll once per creature, its extra rolls are for gear and consumables', () => {
+    const library = DEFAULT_SKILLS;
+    const wolf = projectEnemy({ name: 'Wolf', boss: true }, { bestiary: DEFAULT_BESTIARY, library, rules: DEFAULT_RULES, rng: makeRng('wolf'), id: 'e1' });
+    const matriarch = generateCreature({ name: 'Grey Wolf Matriarch', level: 6, boss: true }, { rules: DEFAULT_RULES, seed: 'chat' });
+    const madeUp = { ...projectEnemy({ name: 'Grey Wolf Matriarch', boss: true }, { bestiary: [matriarch], library, rules: DEFAULT_RULES, rng: makeRng('m'), id: 'e2' }), boss: true };
+    for (const boss of [wolf, madeUp]) {
+        const rows = Array.isArray(boss.loot) ? boss.loot : LOOT_TABLES[boss.loot];
+        const materials = rows.filter(row => row.kind === 'material');
+        assert.ok(materials.length, boss.name);
+        for (let seed = 0; seed < 400; seed++) {
+            const { items } = rollLoot(boss, { rng: makeRng(`boss-${seed}`), luck: 9 });
+            for (const row of materials) {
+                const got = items.filter(item => item.name === row.name);
+                assert.ok(got.length <= 1, `${boss.name} seed ${seed}: ${row.name} rolled ${got.length} times`);
+                const [, hi] = Array.isArray(row.qty) ? row.qty : [1, 1];
+                assert.ok(got.reduce((sum, item) => sum + item.qty, 0) <= hi, `${row.name} within its own qty`);
+            }
+            if (boss === wolf) assert.ok((items.find(item => item.name === 'Wolf Pelt')?.qty ?? 0) <= 1, 'never more than one pelt');
+        }
+    }
+    // Gear and consumables still get the boss's extra rolls; a creature without coin keeps its likely first material.
+    const table = [
+        { name: 'Matriarch Pelt', chance: 100, qty: [1, 1], kind: 'material' },
+        { name: 'Fang', chance: 100, qty: [1, 2], kind: 'material' },
+        { name: 'Torc', chance: 100, qty: [1, 1], kind: 'equipment', rarity: 'uncommon' },
+        { name: 'Healing Draught', chance: 100, qty: [1, 1], kind: 'consumable' },
+    ];
+    const count = (enemy, name) => rollLoot(enemy, { rng: makeRng('x'), luck: 5 }).items.filter(item => item.name === name).length;
+    const boss = { name: 'M', rank: 'D', boss: true, coins: false, loot: table };
+    const plain = { ...boss, boss: false };
+    assert.deepEqual(['Matriarch Pelt', 'Fang', 'Torc', 'Healing Draught'].map(name => count(boss, name)), [1, 1, DEFAULT_RULES.loot.bossRolls, DEFAULT_RULES.loot.bossRolls]);
+    assert.deepEqual(['Matriarch Pelt', 'Fang', 'Torc', 'Healing Draught'].map(name => count(plain, name)), [1, 1, 1, 1]);
+    const rare = { ...boss, loot: [{ name: 'Pelt', chance: 1, qty: [1, 1], kind: 'material' }] };
+    const drops = Array.from({ length: 200 }, (_, seed) => rollLoot(rare, { rng: makeRng(`c-${seed}`), luck: 5 }).items.length);
+    assert.ok(drops.filter(Boolean).length > 140, 'the coinless boost on the first material stands');
+    assert.ok(drops.every(n => n <= 1));
+});
