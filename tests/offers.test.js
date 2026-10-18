@@ -68,6 +68,8 @@ test('quests done in a reply: XP by difficulty; none without a character', () =>
         ['9:quest:q1', `Quest done: The Lost Caravan (hard). Award XP +${Math.round(0.15 * xpToNext(1, R))}?`, 0.15],
         ['9:quest:q2', `Quest done: Rats (normal). Award XP +${Math.round(0.1 * xpToNext(1, R))}?`, 0.1],
     ]);
+    // (0.5.7) Awarded at once: the toast says what was given.
+    assert.equal(offers[0].data.done, `Quest done: The Lost Caravan (hard) · XP +${Math.round(0.15 * xpToNext(1, R))}`);
     assert.deepEqual(questOffers({ index: 9, quests: [{ name: 'X' }], pc: null }), []);
     assert.deepEqual(questOffers({ index: 9, quests: 'nonsense', pc: ren }), []);
 });

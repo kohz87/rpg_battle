@@ -66,7 +66,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.6';
+const VERSION = '0.5.7';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -1287,7 +1287,9 @@ async function planAndWriteReply({ messageIndex }) {
         if (plan.applied.length) toastWounds(plan.applied);
     }
     if (!narrating) toastEncounter(sb, index);
-    toastOffers(currentOffers().filter(offer => offer.index === index));
+    const fresh = currentOffers().filter(offer => offer.index === index);
+    await awardQuests(fresh);
+    toastOffers(fresh.filter(offer => offer.kind !== 'quest'));
     sb.refresh?.();
 }
 
@@ -1594,6 +1596,54 @@ function putAway(offer) {
     else saveChatState(awayChange(state, offer.key));
 }
 
+/** An XP award written to the sheets and put away: who reached a new level, in words. */
+async function awardOffer(offer, { pc, members, rules: r, autoSpend }) {
+    const out = awardParty({ pc, members }, offer.data.share, { autoSpend, rules: r });
+    await writeSheets(out.pc, out.members);
+    putAway(offer);
+    return out.gains.filter(gain => gain.levelsGained).map(gain => `${gain.name} reaches ${levelText((gain.memberId === 'pc' ? out.pc : out.members.find(member => member.id === gain.memberId)?.sheet)?.level ?? 1, r)}`);
+}
+
+/**
+ * (0.5.7) Quest XP without an Award click: the story closed the quest (Story Director reports
+ * it only then) and code sets the XP, so it is written into the latest reply at once and toasted
+ * ("Quest done: Sheep-killer (normal) · +10 XP"). Deleting or swiping that reply takes it back
+ * with the quest's closing. A key that failed once is not retried, and shows as an offer instead.
+ */
+const questsAwarding = new Set();
+const questsFailed = new Set();
+
+async function awardQuests(offers = currentOffers()) {
+    for (const offer of (offers ?? []).filter(entry => entry.kind === 'quest' && !questsAwarding.has(entry.key) && !questsFailed.has(entry.key))) {
+        questsAwarding.add(offer.key);
+        try {
+            const { pc, members } = currentSheets();
+            const ups = await awardOffer(offer, { pc, members, rules: rules(), autoSpend: settings().autoSpend !== false });
+            notify('success', `${offer.data.done}.${ups.length ? ` ${ups.join('; ')}.` : ''}`);
+        } catch (error) {
+            questsFailed.add(offer.key);
+            console.warn('[RPG Battle] quest XP could not be awarded', error);
+        } finally {
+            questsAwarding.delete(offer.key);
+        }
+    }
+}
+
+// A quest the story closes later (Story Director's capture call writes its lines after the
+// reply) is awarded on the next refresh; the badge asks on every one, so it is scheduled here.
+let questsScheduled = false;
+function scheduleQuestAwards(offers) {
+    if (questsScheduled || !offers.some(offer => offer.kind === 'quest' && !questsFailed.has(offer.key) && !questsAwarding.has(offer.key))) return;
+    questsScheduled = true;
+    setTimeout(() => {
+        questsScheduled = false;
+        void awardQuests().then(() => storyBlock()?.refresh?.());
+    }, 0);
+}
+
+// Offers the reader acts on: quest XP is awarded, not offered (shown only if awarding failed).
+const shownOffers = offers => offers.filter(offer => offer.kind !== 'quest' || questsFailed.has(offer.key));
+
 function offerByKey(key) {
     return currentOffers().find(offer => offer.key === key) ?? null;
 }
@@ -1634,11 +1684,8 @@ async function acceptOffer(key) {
         }
         case 'xp':
         case 'quest': {
-            const out = awardParty({ pc, members }, offer.data.share, { autoSpend: own.autoSpend !== false, rules: r });
-            await writeSheets(out.pc, out.members);
-            putAway(offer);
-            const ups = out.gains.filter(gain => gain.levelsGained).map(gain => `${gain.name} reaches ${levelText((gain.memberId === 'pc' ? out.pc : out.members.find(member => member.id === gain.memberId)?.sheet)?.level ?? 1, r)}`);
-            notify('success', `Awarded.${ups.length ? ` ${ups.join('; ')}.` : ''}`);
+            const ups = await awardOffer(offer, { pc, members, rules: r, autoSpend: own.autoSpend !== false });
+            notify('success', `${offer.kind === 'quest' ? offer.data.done : 'Awarded'}.${ups.length ? ` ${ups.join('; ')}.` : ''}`);
             return;
         }
         case 'rest': {
@@ -2215,7 +2262,7 @@ function partyView() {
         // Only a result still waiting asks to go back to the story; one being narrated says so.
         pending: handoffNow(ctx, state) === 'waiting' ? state.pending.handoff : null,
         narrating: handoffNow(ctx, state) === 'narrating',
-        offers: currentOffers(ctx, state).map(({ key, kind, text, accept, note, confirm }) => ({ key, kind, text, accept, note, confirm })),
+        offers: shownOffers(currentOffers(ctx, state)).map(({ key, kind, text, accept, note, confirm }) => ({ key, kind, text, accept, note, confirm })),
         recovered,
         story,
         sheetConflict: sheetConflict(ctx),
@@ -2648,7 +2695,11 @@ function registerWithStoryBlock() {
         order: 79,
         isAvailable: () => settings().enabled,
         key: partyKey,
-        badge: () => currentOffers().length,
+        badge: () => {
+            const offers = currentOffers();
+            scheduleQuestAwards(offers);
+            return shownOffers(offers).length;
+        },
         render: pane => renderParty(pane),
     });
     // The battle, only while there is one: Story Block asks isAvailable on every refresh, so the

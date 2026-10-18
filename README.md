@@ -1,4 +1,4 @@
-# RPG Battle v0.5.6
+# RPG Battle v0.5.7
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -294,8 +294,14 @@ the story makes it true (Story Block hides them with its other blocks):
 | `<Learned>Lyra — Frost Lance: ice magic, hits all</Learned>` | *Lyra learned Frost Lance. Add it?* | Opens the learn form, filled in |
 | `<XP>major: rescued the caravan</XP>` | *XP +25: rescued the caravan. Award?* | XP for the whole party |
 | `<Rest>long: slept at the inn</Rest>` | *Rest (long): slept at the inn. Recover?* | A rest (see *Recovery*) |
-| A quest Story Director 0.8.2 closes in the reply | *Quest done: The Lost Caravan (hard). Award XP +15?* | XP for the whole party |
+| A quest Story Director 0.8.2 closes in the reply | none: awarded at once (0.5.7), toasted *Quest done: The Lost Caravan (hard) · XP +15* | XP for the whole party |
 
+- **Quest XP is awarded, not offered** (since 0.5.7): the story closed the quest (Story Director
+  reports it only then, never for a failed or abandoned one) and code sets the XP by its
+  difficulty, so a click would add nothing. It is written into the latest reply, so deleting or
+  swiping that reply takes it back with the quest's closing. A quest the story closes a moment
+  later (Story Director's capture call) is awarded on the next refresh. Should writing it fail,
+  it shows as an offer instead.
 - **Offers, never applied on their own:** each shows as a toast with its button and at the top of
   the Party tab with **Accept** and **Not now**. They belong to their moment: a reply's offers
   (and a quest it finished) last only while it is the latest reply and no fight has started since
@@ -702,8 +708,8 @@ source of truth for each area, so the model is not told the same thing twice; se
 - **Story Block 0.9.1** keeps the Party block without a sidebar tab of its own (`tab: false`), so
   RPG Battle's Party tab is the one party tab. With an older Story Block the block keeps its tab
   as before.
-- **Story Director 0.8.2:** a quest it closes in a reply is offered as XP by its difficulty
-  (`questsDoneAt`). Without it, nothing.
+- **Story Director 0.8.2:** a quest it closes in a reply earns XP by its difficulty
+  (`questsDoneAt`), awarded at once since 0.5.7. Without it, nothing.
 - **NPC State Delta 1.2.2:** its NPC profiles fill in a new companion (`npcProfiles`), and a linked
   companion's **Dossier** opens it (`openDossier`). Without it, the form has no NPC picker.
 - **Story Suite's overlay** can show what RPG Battle adds to the next reply (`api.manage.tokens()`,
