@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.1
+
+- **The bestiary's creatures are used, not remade.** A creature was found only by its exact name or an alias, and models word the same animal differently each time ("feral ditch-dog", "mangy ditch-dog", "young wolf"), so every new wording was made up as a new creature with its own numbers. Now a name that is not known exactly is matched by its words without the describing ones (young, old, mangy, feral, grey, alpha, matriarch…): it is the creature whose name or alias has the same remaining words, the one sharing most of the written words, the story's own on a tie. "young wolf" is the Wolf, "mangy ditch-dogs" the story's Feral Ditch-Dog, "wolf matriarch" its Grey Wolf Matriarch. A word that names a kind still counts, so "Dire Wolf", "Bog Wight" and "quill-dog" stay creatures of their own. The fight shows the story's wording; the setup no longer tags such a name *new*.
+- **The model is told which creatures it has met.** The story instruction ends with *Foes this story has met (the same creature keeps its name): …*, the last eight creatures in this story's bestiary (about 5 to 25 tokens; none while the bestiary is empty). A name a model mangled with a colon (from before 0.5.0) is left out.
+
 ## 0.5.0
 
 Plans: fights in stages. The story writes the plan; you choose only whether to start it and, between stages, whether to go on.

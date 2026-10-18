@@ -670,3 +670,22 @@ test('the reply that narrated a fight never offers its XP or rest, even after a 
     await settle();
     assert.ok(partyOffers().some(text => /weir pack/.test(text)), 'a new reply at that place is no narration');
 }));
+
+test('the story instruction names the creatures this story has met (0.5.1)', async () => {
+    const prompts = {};
+    const before = ctx.setExtensionPrompt;
+    ctx.setExtensionPrompt = (key, value) => { prompts[key] = value; };
+    try {
+        openChat('foes-chat', [reply(`Hello.\n<Party>\n${REN}\n</Party>`), userMessage('On.')], {
+            bestiary: [{ name: 'Feral Ditch-Dog', rank: 'F', role: 'skirmisher' }, { name: 'Inside The Den: Old Dog Wolf', rank: 'F', role: 'brute' }, { name: 'Scrub Quill-Dog', rank: 'F', role: 'brute' }],
+        });
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        assert.match(prompts.rpg_battle_rules, /<Encounter>/);
+        assert.match(prompts.rpg_battle_rules, /Foes this story has met \(the same creature keeps its name\): Feral Ditch-Dog, Scrub Quill-Dog\.$/);
+        openChat('no-foes-chat', [reply(`Hello.\n<Party>\n${REN}\n</Party>`), userMessage('On.')], {});
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        assert.doesNotMatch(prompts.rpg_battle_rules, /Foes this story has met/);
+    } finally {
+        ctx.setExtensionPrompt = before;
+    }
+});

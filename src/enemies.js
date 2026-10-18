@@ -121,15 +121,67 @@ const key = name => String(name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ')
 // "Goblin 2", "Goblin #3" and "goblin (b)" are the second and third goblins of a row.
 const baseName = name => key(String(name ?? '').replace(/\s*(#?\d+|\([a-z0-9]\)|\b[a-z]\b)\s*$/i, ''));
 
-/** The bestiary entry for a name or alias (case-insensitive; a trailing row number ignored), or null. */
-export function findCreature(bestiary, name) {
-    const list = bestiary ?? DEFAULT_BESTIARY;
+// Words that say how this one looks or what it is to the pack, not what it is (0.5.1): "young
+// wolf", "mangy ditch-dog" and "grey wolf matriarch" are all the creature the rest names.
+const DESCRIPTORS = new Set([
+    'young', 'old', 'elder', 'adult', 'juvenile', 'mangy', 'feral', 'wild', 'rabid', 'starving', 'hungry',
+    'lean', 'scrawny', 'gaunt', 'huge', 'big', 'large', 'small', 'little', 'fat', 'giant', 'grey', 'gray',
+    'black', 'white', 'brown', 'red', 'pale', 'dark', 'scarred', 'wounded', 'injured', 'lone', 'alpha',
+    'matriarch', 'patriarch', 'leader', 'pack', 'chief', 'boss', 'savage', 'vicious', 'enraged', 'frenzied',
+    'diseased', 'angry', 'mad', 'female', 'male', 'bitch', 'sow', 'bull', 'cow', 'the', 'a', 'an',
+]);
+const singularWord = word => (word.endsWith('ves') ? `${word.slice(0, -3)}f`
+    : word.endsWith('ies') && word.length > 4 ? `${word.slice(0, -3)}y`
+        : word.endsWith('s') && !word.endsWith('ss') && word.length > 3 ? word.slice(0, -1) : word);
+/** A name's words without describing words, singular: "Mangy Ditch-Dogs" → ['ditch', 'dog']. */
+export function coreWords(name) {
+    return baseName(name).split(' ').filter(Boolean).map(singularWord).filter(word => !DESCRIPTORS.has(word));
+}
+
+function exactCreature(list, name) {
     for (const wanted of [key(name), baseName(name)]) {
         if (!wanted) continue;
         const hit = list.find(entry => key(entry.name) === wanted || (entry.aliases ?? []).some(alias => key(alias) === wanted));
         if (hit) return hit;
     }
     return null;
+}
+
+/**
+ * The creature a differently worded name means (0.5.1), or null: the entry whose name or alias
+ * has the same words once describing words are left out (most written words in common, then
+ * the first: the story's own creatures come first): "young wolf" is Wolf, "mangy ditch-dogs" Feral Ditch-Dog. A word that names a kind
+ * still counts, so "Dire Wolf", "Bog Wight" and "quill-dog" stay creatures of their own.
+ */
+export function closeCreature(list, name) {
+    const words = coreWords(name);
+    if (!words.length) return null;
+    const have = new Set(words);
+    const written = new Set(baseName(name).split(' ').filter(Boolean).map(singularWord));
+    let best = null;
+    let shared = -1;
+    for (const entry of list ?? []) {
+        for (const label of [entry.name, ...(entry.aliases ?? [])]) {
+            const own = new Set(coreWords(label));
+            if (own.size !== have.size || ![...own].every(word => have.has(word))) continue;
+            // Of those, the one sharing most of the written words ("mangy young wolf" is the
+            // story's Young Wolf rather than its Grey Wolf Matriarch; then the fewest words more).
+            const labelWords = baseName(label).split(' ').filter(Boolean).map(singularWord);
+            const common = labelWords.filter(word => written.has(word)).length;
+            const count = common * 100 - (labelWords.length - common);
+            if (count > shared) { best = entry; shared = count; }
+        }
+    }
+    return best;
+}
+
+/**
+ * The bestiary entry for a name or alias (case-insensitive; a trailing row number ignored),
+ * else (0.5.1) the one a differently worded name plainly means (closeCreature), or null.
+ */
+export function findCreature(bestiary, name, { close = true } = {}) {
+    const list = bestiary ?? DEFAULT_BESTIARY;
+    return exactCreature(list, name) ?? (close ? closeCreature(list, name) : null);
 }
 
 // The made-up kinds (templates.js) that carry coin: people, their leaders and casters. A

@@ -378,3 +378,28 @@ test('a whole-body part is at most one per creature; fangs, claws and scales kee
     assert.deepEqual(after([{ name: 'X Pelt', chance: 100, qty: [1, 3], kind: 'material' }, { name: 'X Fang', chance: 100, qty: [1, 5], kind: 'material' }]).qty,
         after([{ name: 'X Bone', chance: 100, qty: [1, 3], kind: 'material' }, { name: 'X Fang', chance: 100, qty: [1, 5], kind: 'material' }]).qty);
 });
+
+test('a differently worded name finds the creature it means (0.5.1)', async () => {
+    const { closeCreature, coreWords } = await import('../src/enemies.js');
+    const { creaturesToMake, lookupCreature } = await import('../src/templates.js');
+    assert.deepEqual(coreWords('Mangy Ditch-Dogs'), ['ditch', 'dog']);
+    assert.deepEqual(coreWords('grey wolf matriarch'), ['wolf']);
+    const story = [{ name: 'Feral Ditch-Dog', rank: 'F', role: 'skirmisher' }, { name: 'Grey Wolf Matriarch', rank: 'E', role: 'brute' }];
+    const list = [...story, ...DEFAULT_BESTIARY];
+    assert.equal(findCreature(list, 'wolf matriarch').name, 'Grey Wolf Matriarch', 'close: the same words without describing ones');
+    assert.equal(findCreature(list, 'young wolf').name, 'Wolf', 'most written words in common');
+    assert.equal(findCreature([{ name: 'Young Wolf' }, ...list], 'mangy young wolf').name, 'Young Wolf');
+    assert.equal(lookupCreature('wolf', story).entry.name, 'Wolf', 'an exact name anywhere beats a close one');
+    assert.equal(lookupCreature('young wolf', []).entry.name, 'Wolf');
+    assert.equal(lookupCreature('mangy ditch-dogs', story).entry.name, 'Feral Ditch-Dog');
+    assert.equal(lookupCreature('young dire wolf', []).entry.name, 'Dire Wolf');
+    // A word that names a kind keeps it a creature of its own.
+    assert.equal(findCreature(DEFAULT_BESTIARY, 'Bog Wight'), null);
+    assert.equal(lookupCreature('scrub quill-dog', story), null);
+    assert.equal(closeCreature(list, 'the old'), null, 'nothing but describing words');
+    // Nothing is made up for a reworded creature.
+    assert.deepEqual([lookupCreature('young wolf', story).entry.name, lookupCreature('young wolf', story).source], ['Wolf', 'default'], 'the closest over both');
+    assert.deepEqual([lookupCreature('wolf matriarch', story).entry.name, lookupCreature('wolf matriarch', story).source], ['Grey Wolf Matriarch', 'chat']);
+    const rows = [{ name: 'Young Wolf', level: 1 }, { name: 'Mangy Ditch-Dog', level: 1 }, { name: 'Scrub Quill-Dog', level: 1 }];
+    assert.deepEqual(creaturesToMake(rows, { chatBestiary: story, seed: 's' }).map(entry => entry.name), ['Scrub Quill-Dog']);
+});

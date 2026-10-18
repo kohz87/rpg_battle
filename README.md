@@ -1,4 +1,4 @@
-# RPG Battle v0.5.0
+# RPG Battle v0.5.1
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -515,6 +515,12 @@ The bestiary knows twenty creatures; the story knows many more. A name it does n
 The creature is then **kept in the chat** (its metadata), so the same name is the same creature
 for the rest of the story, with its own level when a later fight names no power. Names are
 looked up in this story's creatures first, then the shipped bestiary, and only then made up.
+A name worded differently still finds its creature (since 0.5.1): describing words (young, old,
+mangy, feral, grey, alpha, matriarch…) are left out, so "mangy young wolf" is the story's Young
+Wolf and "wolf matriarch" its Grey Wolf Matriarch, while a word that names a kind keeps it apart
+("Dire Wolf", "Bog Wight", "quill-dog"). The story's wording is what the fight shows. The story
+instruction also lists the last eight creatures this story has met, so the model writes the same
+creature by the same name.
 
 - **Setup:** a name nobody knows is tagged **new** (made up when you press **Start**); in the fight, its card is too (its look is
   the card's tooltip).
