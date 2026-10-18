@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.5
+
+- **Skill mastery you can see.** Skills grew with use (5 uses to Lv 2, then 12, 22 and 35), but the Party tab showed only "Lv 2" and nothing said when a skill went up. Each skill on a card now shows its uses toward the next level, `Lv 2 · 3/12` (`Lv 5 · max`; the tooltip says "Used 3 of 12 times in fights toward Lv 3"), and the result screen's Gains has a **Mastery** row naming every skill, yours and your companions', that reached a new level in the fight (`Sidestep Cut Lv 2 · Lyra's Mend Lv 3`).
+
 ## 0.5.4
 
 - **What next? after a fight.** The result screen offers a few things your character could do next instead of only *Return to story*: one short model call writes them from the hand-off and the scene when model calls are on (15-second limit, the Generated words model); off, offline, or when the call fails or says too little, code writes them from the result (skin or search the fallen, tend a hurt or downed companion, follow foes that fled, get clear after fleeing, come to after a defeat, another way to a stage not reached). A click puts one in the message box, Shift-click sends it; the reply tells the fight, then your move, and the hand-off is unchanged. *Just continue* sends the usual message. None after your character's death. Setting *Next moves after a fight* (Blocks), on by default.

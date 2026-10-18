@@ -324,7 +324,7 @@ test('idle: the party as cards, yours first and open; header, bars, stats with c
     assert.equal(you.querySelector('.rpg-battle-points-text').textContent, '2 unspent points');
     assert.deepEqual(texts(you, '.rpg-battle-skill .rpg-battle-record-name'), ['Rending Strike', 'Quick Jab']);
     assert.match(you.querySelector('.rpg-battle-skill .rpg-battle-record-meta').textContent, /physical · 6 MP · cooldown 2/);
-    assert.equal(you.querySelector('.rpg-battle-skill .rpg-battle-tag').textContent, 'Lv 2');
+    assert.equal(you.querySelector('.rpg-battle-skill .rpg-battle-tag').textContent, 'Lv 2 · 0/12');
     assert.equal(you.querySelector('.rpg-battle-skill-count').textContent, '2/6');
 
     assert.deepEqual(texts(root(pane), '.rpg-battle-member .rpg-battle-member-name'), ['Astra', 'Merrit']);
@@ -823,6 +823,21 @@ test('result: outcome, time, party after, gains, loot, key moments and the hand-
     assert.deepEqual(texts(root(pane), '.rpg-battle-loot-item'), ['14 copper', 'Bone Fetishuncommon', 'Goblin Ear×3']);
     assert.deepEqual(texts(root(pane), '.rpg-battle-moments li'), ['Ren crit the second goblin.', 'One goblin fled toward the weir.']);
     assert.match($(pane, '.rpg-battle-section.is-handoff .rpg-battle-handoff').textContent, /^\[Battle resolved by RPG Battle/);
+});
+
+test('skill mastery: progress on the card, level-ups in the gains (0.5.5)', () => {
+    reset();
+    const resolved = [{ ...skill('Rending Strike'), mastery: 2 }, { ...skill('Quick Jab'), mastery: 1 }, { ...skill('Mend'), mastery: 5 }];
+    let pane = render({ mode: 'idle', chatId: 'c1', sheet: sheet({ uses: { 'rending strike': 7, 'Quick Jab': 4 } }), skills: resolved, party: [], rules, pending: null });
+    const tags = $$(pane, '.rpg-battle-member-card[data-member-id="pc"] .rpg-battle-mastery');
+    assert.deepEqual(tags.map(tag => tag.textContent), ['Lv 2 · 7/12', 'Lv 1 · 4/5', 'Lv 5 · max']);
+    assert.equal(tags[0].getAttribute('title'), 'Used 7 of 12 times in fights toward Lv 3');
+
+    pane = render({ mode: 'result', result: result(), handoff: '', levelsGained: 0, pointsGained: 0, rules,
+        masteryUps: [{ memberId: 'pc', name: 'Ren', skill: 'Quick Jab', level: 2 }, { memberId: 'astra', name: 'Astra', skill: 'Mend', level: 3 }] });
+    const rows = $$(pane, '.rpg-battle-gains dt').map(node => node.textContent);
+    assert.ok(rows.includes('Mastery'));
+    assert.equal($$(pane, '.rpg-battle-gains dd').at(-1).textContent, "Quick Jab Lv 2 · Astra's Mend Lv 3");
 });
 
 test('result: defeat and escape titles; per-member XP; no loot section without loot', () => {

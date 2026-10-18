@@ -1,4 +1,4 @@
-# RPG Battle v0.5.4
+# RPG Battle v0.5.5
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -95,6 +95,9 @@ Skills: Frost Lance (Lv 1, 2/5) | Mend (Lv 3, 9/22)
   library skill keeps its stat requirements, like INT 9 for Fireball). Using a skill in fights
   raises its mastery (Lv 1 to 5): 5 uses take it to Lv 2, 12 more to Lv 3, then 22 and 35
   (`masteryUses` in `rules.json`).
+- **On the card**, each skill shows its mastery and fight uses toward the next level, `Lv 2 ·
+  3/12` (`Lv 5 · max` at the top; hover for it in words). The result screen's **Gains** names the
+  skills that reached a new level in that fight: `Mastery: Sidestep Cut Lv 2 · Lyra's Mend Lv 3`.
 - **The Skills line** writes each skill's mastery and its uses toward the next level:
   `Power Strike (Lv 2, 3/12)` is mastery 2, 3 of the 12 uses to Lv 3; `(Lv 5, max)` at the top.
   The progress is in the block like everything else, so deleting, swiping or editing the reply
