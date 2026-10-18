@@ -65,7 +65,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.0';
+const VERSION = '0.5.1';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -398,6 +398,20 @@ function library(ctx = context()) {
 }
 
 // The bestiary a name is looked up in: this story's made-up creatures, then the shipped ones.
+// The story instruction, plus (0.5.1) the creatures this story has already met, newest last, so
+// the model writes the same creature by the same name instead of a new one every fight.
+const KNOWN_FOES_SHOWN = 8;
+function storyInstruction(ctx = context()) {
+    const names = [...new Set((chatState(ctx).bestiary ?? []).map(entry => String(entry?.name ?? '').trim()).filter(name => name && !name.includes(':')))].slice(-KNOWN_FOES_SHOWN);
+    return names.length ? `${STORY_INSTRUCTION} Foes this story has met (the same creature keeps its name): ${names.join(', ')}.` : STORY_INSTRUCTION;
+}
+
+// The names the setup does not tag as new: the bestiary's, and (0.5.1) each row's that names a
+// known creature in other words ("Young Wolf" for the Wolf).
+function knownNames(bestiary, rows = []) {
+    return [...bestiary.flatMap(entry => [entry.name, ...(entry.aliases ?? [])]), ...(rows ?? []).map(row => row?.name).filter(name => name && findCreature(bestiary, name))];
+}
+
 function fightBestiary(ctx = context()) {
     return combinedBestiary(chatState(ctx).bestiary, DEFAULT_BESTIARY);
 }
@@ -1795,7 +1809,7 @@ const SUITE_MANAGE = manageApi({
         const state = chatState();
         const pc = currentSheet();
         const asks = Boolean(pc) && !isDead(pc) && !underWay(state);
-        return tokenEstimate({ handoff: handoffNow(context(), state) === 'waiting' ? state.pending.handoff : '', instruction: asks ? STORY_INSTRUCTION : '' });
+        return tokenEstimate({ handoff: handoffNow(context(), state) === 'waiting' ? state.pending.handoff : '', instruction: asks ? storyInstruction() : '' });
     },
     enabled: () => settings().enabled,
     enable: on => {
@@ -1938,7 +1952,7 @@ async function onGenerationInterceptor(chat, _contextSize, _abort, type = 'norma
         // Not for the reply that narrates a fight: its wounds were dealt in the fight.
         const pc = own.enabled ? currentSheet() : null;
         const asks = Boolean(pc) && !isDead(pc) && !handoff && !underWay(chatState(ctx));
-        setPrompt(asks ? STORY_INSTRUCTION : '', RULES_PROMPT_KEY);
+        setPrompt(asks ? storyInstruction(ctx) : '', RULES_PROMPT_KEY);
     } catch (error) {
         console.error('[RPG Battle] interceptor failed', error);
     }
@@ -2019,7 +2033,7 @@ function battleView() {
             // A plan's stages (0.5): their places, in order; the rows carry `stage`.
             stages: screen.stages?.length > 1 ? screen.stages.map(stage => ({ place: stage.place ?? null })) : null,
             stakes: screen.stakes === 'death' ? 'death' : 'normal',
-            known: bestiary.flatMap(entry => [entry.name, ...(entry.aliases ?? [])]),
+            known: knownNames(bestiary, screen.prefill),
             preparing: screen.preparing ?? null,
             rules: r,
         };
@@ -2044,7 +2058,7 @@ function betweenView(plan, r) {
         next: next ? { number: plan.at + 2, place: next.place ?? null, text: next.text ?? '', rows: sheet ? setupRows(next.rows, sheet, r, bestiary) : next.rows } : null,
         party: last?.result?.party ?? [],
         stakes: plan.stakes,
-        known: bestiary.flatMap(entry => [entry.name, ...(entry.aliases ?? [])]),
+        known: knownNames(bestiary, next?.rows ?? []),
         rules: r,
     };
 }

@@ -16,7 +16,7 @@
 // name, level and seed. Pure.
 
 import { DEFAULT_RULES, RANKS, RARITIES, STATS, rarityBudget } from './rules.js';
-import { DEFAULT_BESTIARY, LOOT_TABLES, findCreature, rankRowForLevel } from './enemies.js';
+import { DEFAULT_BESTIARY, LOOT_TABLES, closeCreature, findCreature, rankRowForLevel } from './enemies.js';
 import { HARMFUL_CONDITIONS, HELPFUL_CONDITIONS } from './skills.js';
 import { makeRng } from './rng.js';
 
@@ -523,10 +523,15 @@ export function cleanCreature(raw, rules = DEFAULT_RULES) {
  * null (a name to make up).
  */
 export function lookupCreature(name, chatBestiary = [], defaults = DEFAULT_BESTIARY) {
-    const own = findCreature(chatBestiary ?? [], name);
+    const own = findCreature(chatBestiary ?? [], name, { close: false });
     if (own) return { entry: own, source: 'chat' };
-    const shipped = findCreature(defaults ?? DEFAULT_BESTIARY, name);
-    return shipped ? { entry: shipped, source: 'default' } : null;
+    const shipped = findCreature(defaults ?? DEFAULT_BESTIARY, name, { close: false });
+    if (shipped) return { entry: shipped, source: 'default' };
+    // Then (0.5.1) the closest differently worded one over both, the story's first on a tie:
+    // "young wolf" is the Wolf, "wolf matriarch" the story's Grey Wolf Matriarch.
+    const close = closeCreature(combinedBestiary(chatBestiary, defaults), name);
+    if (!close) return null;
+    return { entry: close, source: (chatBestiary ?? []).includes(close) ? 'chat' : 'default' };
 }
 
 /** The bestiary a fight looks names up in: the chat's creatures before the shipped ones. */

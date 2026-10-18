@@ -288,9 +288,14 @@ const titleCase = text => (text === text.toLowerCase() ? text.replace(/\b[a-z]/g
  * creature made up for it is not called a plural), or the name as written.
  */
 function rowName(name, bestiary) {
-    for (const candidate of [name, ...singulars(name)]) {
-        const creature = findCreature(bestiary, candidate);
+    const candidates = [name, ...singulars(name)];
+    for (const candidate of candidates) {
+        const creature = findCreature(bestiary, candidate, { close: false });
         if (creature) return nameMatch(creature.name, candidate) ? creature.name : titleCase(candidate);
+    }
+    // A differently worded creature ("young wolves" → Wolf) keeps the story's words, singular.
+    for (const candidate of [...candidates].reverse()) {
+        if (findCreature(bestiary, candidate)) return titleCase(candidate);
     }
     const words = name.split(' ');
     const singular = creatureSingular(words.at(-1));
