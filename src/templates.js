@@ -13,11 +13,18 @@
 //
 // The result is an ordinary bestiary entry plus `generated: true`, kept in the chat (index.js)
 // so the same name is the same creature next time. Generation is deterministic for the same
-// name, level and seed. Pure.
+// name, level and seed.
+//
+// Kin (0.5.2): a new kind in a family the story already has (a "razor dog" where the story
+// knows the Feral Ditch-Dog) is made as kin of its closest relative (findKin: the same creature
+// noun first, then the same family, FAMILIES; the story's own before the shipped ones, the
+// newest first): the relative's template, role, temperament and traits, talking and coin, its
+// moves to start from and its loot with the body parts renamed. Its numbers still come from
+// its own row. Pure.
 
 import { DEFAULT_RULES, RANKS, RARITIES, STATS, rarityBudget } from './rules.js';
-import { DEFAULT_BESTIARY, LOOT_TABLES, closeCreature, findCreature, rankRowForLevel } from './enemies.js';
-import { HARMFUL_CONDITIONS, HELPFUL_CONDITIONS } from './skills.js';
+import { DEFAULT_BESTIARY, LOOT_TABLES, MONSTER_SKILLS, closeCreature, findCreature, rankRowForLevel } from './enemies.js';
+import { DEFAULT_SKILLS, HARMFUL_CONDITIONS, HELPFUL_CONDITIONS, findSkill } from './skills.js';
 import { makeRng } from './rng.js';
 
 const ROLES = ['brute', 'skirmisher', 'caster', 'tank', 'support'];
@@ -273,6 +280,70 @@ export function classify(name) {
     return { template, noun: titleCase(nounWord), leader, role, traits };
 }
 
+// ---------------------------------------------------------------------------------------
+// Families (0.5.2): creature nouns grouped, so a new kind finds its relatives. Generic words
+// only; a noun not listed is a family of its own.
+
+export const FAMILIES = Object.freeze({
+    canine: Object.freeze(['dog', 'hound', 'wolf', 'cur', 'mutt', 'jackal', 'fox', 'coyote', 'warg']),
+    feline: Object.freeze(['cat', 'lynx', 'panther', 'leopard', 'lion', 'tiger']),
+    ursine: Object.freeze(['bear']),
+    rodent: Object.freeze(['rat', 'mouse']),
+    arachnid: Object.freeze(['spider', 'scorpion']),
+    serpent: Object.freeze(['snake', 'serpent', 'viper', 'adder', 'wyrm']),
+    avian: Object.freeze(['bird', 'crow', 'raven', 'hawk', 'eagle', 'vulture']),
+    insect: Object.freeze(['beetle', 'wasp', 'ant', 'centipede']),
+    ooze: Object.freeze(['slime', 'ooze', 'jelly']),
+});
+const FAMILY_TITLES = { canine: 'Canines', feline: 'Felines', ursine: 'Ursines', rodent: 'Rodents', arachnid: 'Arachnids', serpent: 'Serpents', avian: 'Avians', insect: 'Insects', ooze: 'Oozes' };
+const FAMILY_INDEX = new Map(Object.entries(FAMILIES).flatMap(([family, nouns]) => nouns.map(noun => [noun, family])));
+
+/**
+ * A name's creature noun and family: { noun: 'dog', family: 'canine' }. The noun is classify's
+ * ("Feral Ditch-Dog" → dog, "Hellhound" → hound); one the table does not list is looked for
+ * in the last word, as a plural or a compound's ending ("wolfdog" → dog). A noun in no family
+ * is its own ({ noun: 'wight', family: 'wight' }).
+ */
+export function familyOf(name) {
+    const noun = classify(name).noun.toLowerCase();
+    if (FAMILY_INDEX.has(noun)) return { noun, family: FAMILY_INDEX.get(noun) };
+    const last = wordsOf(name).at(-1) ?? '';
+    for (const form of forms(last)) {
+        if (FAMILY_INDEX.has(form)) return { noun: form, family: FAMILY_INDEX.get(form) };
+        for (const listed of FAMILY_INDEX.keys()) {
+            if (form.length > listed.length + 1 && form.endsWith(listed)) return { noun: listed, family: FAMILY_INDEX.get(listed) };
+        }
+    }
+    return { noun, family: noun };
+}
+
+/** A family's heading: 'Canines', or for a noun of its own 'Wights'. */
+export function familyTitle(family) {
+    const word = String(family ?? '').trim().toLowerCase();
+    if (!word) return 'Others';
+    if (FAMILY_TITLES[word]) return FAMILY_TITLES[word];
+    const plural = /(?:s|x|ch|sh)$/.test(word) ? `${word}es` : /[^aeiou]y$/.test(word) ? `${word.slice(0, -1)}ies` : `${word}s`;
+    return titleCase(plural);
+}
+
+/**
+ * The closest relative of a name about to be made up: { entry, source: 'chat' | 'made' |
+ * 'default' } or null. The same noun first, then the same family; within each, the story's
+ * bestiary (newest first), then `made` (made for this same fight, newest first), then the
+ * shipped one. Never the name itself.
+ */
+export function findKin(name, { chatBestiary = [], defaults = DEFAULT_BESTIARY, made = [] } = {}) {
+    const mine = familyOf(name);
+    const self = key(name);
+    const pool = [
+        ...[...(chatBestiary ?? [])].reverse().map(entry => ({ entry, source: 'chat' })),
+        ...[...(made ?? [])].reverse().map(entry => ({ entry, source: 'made' })),
+        ...(defaults ?? DEFAULT_BESTIARY).map(entry => ({ entry, source: 'default' })),
+    ].filter(({ entry }) => entry?.name && key(entry.name) !== self).map(hit => ({ ...hit, family: familyOf(hit.entry.name) }));
+    const hit = pool.find(other => other.family.noun === mine.noun) ?? pool.find(other => other.family.family === mine.family);
+    return hit ? { entry: hit.entry, source: hit.source } : null;
+}
+
 /** The template id a name picks: 'beast', 'undead', 'humanoid', 'leader', …, 'generic'. */
 export function templateFor(name) {
     return classify(name).template;
@@ -385,6 +456,50 @@ function lootFor(template, { name, noun, rank, level }, rules) {
     return rows;
 }
 
+// A shipped creature's skill name as a move spec (its library or monster skill), or null.
+function moveFromSkill(name) {
+    if (name && typeof name === 'object') return cleanMove(name);
+    const skill = findSkill(DEFAULT_SKILLS, name) ?? findSkill(MONSTER_SKILLS, name);
+    if (!skill) return null;
+    return cleanMove({ ...skill, effect: Object.keys(skill.effect ?? {}) });
+}
+
+/** A relative's body part named for its kin: "Feral Ditch-Dog Pelt" → "Razor Dog Pelt", "Dog Fang" or "Fang" → "Razor Dog Fang". */
+function kinPart(part, relative, noun, name) {
+    const text = String(part ?? '');
+    const at = text.toLowerCase().indexOf(String(relative ?? '').toLowerCase());
+    if (relative && at >= 0) return `${text.slice(0, at)}${name}${text.slice(at + relative.length)}`.replace(/\s+/g, ' ').trim();
+    const words = text.split(' ');
+    const index = words.findIndex(word => word.toLowerCase() === String(noun ?? '').toLowerCase());
+    if (noun && index >= 0) return [...words.slice(0, index), name, ...words.slice(index + 1)].join(' ');
+    return words.length === 1 ? `${name} ${text}` : text;
+}
+
+/**
+ * Kin's loot: the relative's rows (its table's, for a shipped creature) with its materials
+ * renamed for the kin and its gear valued again at the kin's level and rank; consumables give
+ * way to the kin's rank's potion, as a made-up creature's do.
+ */
+function kinLoot(relative, { name, rank, level }, rules) {
+    const g = rules.generated ?? DEFAULT_RULES.generated;
+    const source = Array.isArray(relative.loot) ? relative.loot : LOOT_TABLES[relative.loot] ?? LOOT_TABLES[`rank-${relative.rank}`] ?? [];
+    const noun = classify(relative.name).noun;
+    const rows = [];
+    for (const raw of source) {
+        if (!raw || raw.kind === 'consumable') continue;
+        const row = structuredClone(raw);
+        if (row.kind === 'material') row.name = kinPart(row.name, relative.name, noun, name);
+        if (row.kind === 'equipment') {
+            row.rarity = gearRarityFor(rank, rules);
+            row.stats = Object.fromEntries(Object.keys(row.stats ?? { ATK: 1 }).slice(0, 1).map(stat => [stat, gearValue(stat, row.rarity, level, rules)]));
+        }
+        rows.push(row);
+    }
+    const potion = (LOOT_TABLES[`rank-${rank}`] ?? []).find(row => row.kind === 'consumable');
+    if (potion) rows.push({ ...structuredClone(potion), chance: g.potionChance });
+    return rows.slice(0, MAX_LOOT);
+}
+
 /**
  * Morale, flee threshold and multipliers for a creature's temperament and traits; a leader
  * stands firmer (rules.generated.leaderMorale, leaderFleesBelow).
@@ -430,14 +545,20 @@ export function finishCreature(entry, rules = DEFAULT_RULES) {
  * boss), its kind's loot table, its traits and temperament. `role` (a row's) wins over the
  * template's. Deterministic: the same name, level and `seed` (or `rng`) give the same creature.
  * { name, generated: true, template, level, rank, role, talks, temperament, traits, morale,
- *   fleesBelow, mods, moves, skills, loot: [rows], look: '', flavoured: false }.
+ *   fleesBelow, mods, moves, skills, loot: [rows], look: '', flavoured: false, family }.
+ * (0.5.2) `kin` (a bestiary entry, findKin's) makes it that creature's kin: its template, role
+ * (unless the name's own words give one, or the row does), talks, coins, temperament and
+ * traits (its own name's traits and leadership added), its moves first (the template fills up
+ * to the count), and its loot renamed (kinLoot); `kin: <relative's name>` on the entry.
  */
-export function generateCreature({ name, level = 1, role = null, boss = false } = {}, { rules = DEFAULT_RULES, rng = null, seed = '' } = {}) {
+export function generateCreature({ name, level = 1, role = null, boss = false } = {}, { rules = DEFAULT_RULES, rng = null, seed = '', kin = null } = {}) {
     const g = rules.generated ?? DEFAULT_RULES.generated;
     const shown = titleCase(String(name ?? '').replace(/[\r\n|<>#]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, MAX_NAME)) || 'Creature';
     const lv = clamp(Math.round(Number(level) || 1), 1, 999);
     const random = rng ?? makeRng(`creature:${key(shown)}:${lv}:${seed}`);
     const info = classify(shown);
+    const { family } = familyOf(shown);
+    if (kin?.name) return kinCreature(kin, { shown, lv, role, boss, info, family, random }, rules);
     const template = TEMPLATES[info.template];
     const count = Math.min(template.skills.length, 2 + (lv >= g.extraSkillLevel || info.leader || boss ? 1 : 0));
     // The signature move always; the rest from the seed, kept in the template's order.
@@ -458,6 +579,40 @@ export function generateCreature({ name, level = 1, role = null, boss = false } 
         loot: lootFor(template, { name: shown, noun: info.noun, rank, level: lv }, rules),
         look: '',
         flavoured: false,
+        family,
+    }, rules);
+}
+
+// generateCreature for kin of `relative` (a made-up entry or a shipped one).
+function kinCreature(relative, { shown, lv, role, boss, info, family, random }, rules) {
+    const g = rules.generated ?? DEFAULT_RULES.generated;
+    const templateId = TEMPLATE_IDS.includes(relative.template) ? relative.template : classify(relative.name).template;
+    const template = TEMPLATES[templateId];
+    const count = Math.min(MAX_SKILLS, 2 + (lv >= g.extraSkillLevel || info.leader || boss ? 1 : 0));
+    const own = (relative.generated && Array.isArray(relative.moves) ? relative.moves : relative.skills ?? []).map(moveFromSkill).filter(Boolean).slice(0, MAX_SKILLS);
+    const names = new Set(own.map(entry => entry.name.toLowerCase()));
+    // The relative's moves first; the template fills up to the count, picked by the seed.
+    const extra = template.skills.filter(entry => !names.has(entry.name.toLowerCase())).map((entry, index) => ({ entry, index, order: random.next() }))
+        .sort((a, b) => a.order - b.order).slice(0, Math.max(0, count - own.length)).sort((a, b) => a.index - b.index).map(({ entry }) => entry);
+    const inherited = relative.generated && Array.isArray(relative.traits) ? relative.traits : template.traits;
+    const rank = rankRowForLevel(lv, rules).rank;
+    return finishCreature({
+        name: shown,
+        generated: true,
+        template: templateId,
+        level: lv,
+        rank,
+        role: ROLES.includes(role) ? role : info.role ?? (ROLES.includes(relative.role) ? relative.role : template.role),
+        talks: typeof relative.talks === 'boolean' ? relative.talks : template.talks,
+        ...(typeof relative.coins === 'boolean' || relative.coins === 'boss' ? { coins: relative.coins } : {}),
+        temperament: TEMPERAMENTS.includes(relative.temperament) ? relative.temperament : template.temperament,
+        traits: [...inherited.filter(trait => trait !== 'leader'), ...info.traits, ...(info.leader ? ['leader'] : [])],
+        moves: [...own, ...extra].slice(0, MAX_SKILLS).map(entry => ({ ...entry, effect: [...entry.effect] })),
+        loot: kinLoot(relative, { name: shown, rank, level: lv }, rules),
+        look: '',
+        flavoured: false,
+        family,
+        kin: String(relative.name).trim().slice(0, MAX_NAME),
     }, rules);
 }
 
@@ -514,6 +669,10 @@ export function cleanCreature(raw, rules = DEFAULT_RULES) {
         loot: loot.length ? loot : lootFor(TEMPLATES[template], { name, noun: classify(name).noun, rank: rankRowForLevel(level, rules).rank, level }, rules),
         look: String(raw.look ?? '').replace(/\s+/g, ' ').trim().slice(0, 300),
         flavoured: Boolean(raw.flavoured),
+        // (0.5.2) Its family (from its name), the relative it was made as kin of, its coin.
+        family: familyOf(name).family,
+        ...(typeof raw.kin === 'string' && raw.kin.replace(/[\r\n|<>#]/g, ' ').trim() ? { kin: raw.kin.replace(/[\r\n|<>#]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, MAX_NAME) } : {}),
+        ...(typeof raw.coins === 'boolean' || raw.coins === 'boss' ? { coins: raw.coins } : {}),
     }, rules);
 }
 
@@ -541,15 +700,18 @@ export function combinedBestiary(chatBestiary = [], defaults = DEFAULT_BESTIARY)
 
 /**
  * The creatures a fight's rows need made up: one per name neither bestiary knows (the first
- * row with that name sets its level and role), generated at the row's `level`. Rows are
- * resolved setup rows ({ name, level, role, boss }, level already a number).
+ * row with that name sets its level and role), generated at the row's `level`, (0.5.2) as kin
+ * of its closest relative when it has one (findKin, also among the ones made here). Rows are
+ * resolved setup rows ({ name, level, role, boss }, level already a number). An exact or close
+ * match (lookupCreature) is never made at all.
  */
 export function creaturesToMake(rows, { chatBestiary = [], defaults = DEFAULT_BESTIARY, rules = DEFAULT_RULES, seed = '' } = {}) {
     const made = [];
     for (const row of rows ?? []) {
         const name = String(row?.name ?? '').trim();
         if (!name || lookupCreature(name, chatBestiary, defaults) || findCreature(made, name)) continue;
-        made.push(generateCreature({ name, level: row.level, role: row.role || null, boss: Boolean(row.boss) }, { rules, seed }));
+        const kin = findKin(name, { chatBestiary, defaults, made })?.entry ?? null;
+        made.push(generateCreature({ name, level: row.level, role: row.role || null, boss: Boolean(row.boss) }, { rules, seed, kin }));
     }
     return made;
 }

@@ -90,10 +90,11 @@ Combatant = {
   items: [Item],                                          // consumables it may use (party only)
   conditions: [ConditionState],
   morale: number, talks: boolean, fleesBelow: number,     // enemies; party: morale 0, talks false, fleesBelow 0
-  xp: number, loot: string | [LootRow] | null,            // enemies: base XP and loot table id (a made-up creature: its rows)
+  xp: number, loot: string | [LootRow] | null,            // enemies: the rank table's XP (for the record; 0.5.2: not fight XP) and loot table id (a made-up creature: its rows)
   gone: null | 'down' | 'fled' | 'parleyed',
   memberId: string | null,                                // party: 'pc' or the Party member id
   generated?: true, look?: string, fresh?: true,          // a made-up creature; `fresh`: made for this fight (the "new" tag)
+  threat?: string, scale?: number, xpLevel?: number,      // (0.5.2) the row's threat word; below level 1 its HP/attack scale and the level its XP counts from
 }
 
 Creature = {                                              // a made-up bestiary entry (templates.js)
@@ -116,15 +117,22 @@ LootRow = { name, chance, qty: [lo, hi], kind, rarity?, stats?, effect? }       
 mdef, crit }`, `checkModifier(stat, rules)`, `checkModifiers(stats, rules)`, `xpToNext(level,
 rules)`, `hitChance(dex, agi, rules)`, `mitigate(raw, defence)`, `xpFactor(memberLevel,
 enemyLevel, rules)`, `suggestRank(level, rules)`, `fleeChance(partyAgi, enemyAgi, { boss }, rules)`,
-`parleyChance(cha, morale, hpShare, rules)`, `rarityBudget(rarity, level, rules)`.
+`parleyChance(cha, morale, hpShare, rules)`, `rarityBudget(rarity, level, rules)`; (0.5.2)
+`threatStep(rules)` (levels per threat step: the tier size with tier titles, else `threat.step`),
+`XP_RATE = { min: 0.25, max: 5, step: 0.05, default: 1 }`, `clampXpRate(value)`,
+`scaleXp(xp, rules)` (× `rules.xpRate`, rounded, ≥ 1 from ≥ 1). `xpFactor` (0.5.2) is
+2 ^ ((enemy − member) / threatStep) within `xp.minFactor`–`xp.maxFactor`; `DEFAULT_RULES.xp =
+{ even: 0.10, minFactor: 0.1, maxFactor: 4 }` (0.5.2; `perLevelAbove`/`perLevelBelow` gone) and
+`DEFAULT_RULES.xpRate = 1`.
 `DEFAULT_RULES.narrative = { hpBands: [[share, word], …], mpBands: [[share, word], …], mpQuietBelow }`
 holds the State line's bands (best first). `DEFAULT_RULES.wounds = { scratch: 0.1, wound: 0.3,
 severe: 0.5, grievous: 0.8 }` is the share of max HP each story-wound word takes or heals.
 
 `DEFAULT_RULES.terms = { levelName: 'Level', xpName: 'XP', tiers: null, cap: null }` (DESIGN §5.7).
 
-`DEFAULT_RULES.threat = { step: 4, offsets: { trivial: -2, weak: -1, even: 0, strong: 1, deadly: 2 } }`
-(encounter threat words, in steps; a step is a tier with tier titles on). `DEFAULT_RULES.generated`
+`DEFAULT_RULES.threat = { step: 4, offsets: { trivial: -2, weak: -1, even: 0, strong: 1, deadly: 2 },
+perLevelBelowOne: 0.88, minScale: 0.35 }` (encounter threat words, in steps; a step is a tier with
+tier titles on; 0.5.2: the scale below level 1, story.threatPower). `DEFAULT_RULES.generated`
 holds every number of a made-up creature (DESIGN §7.4): `traits` (multipliers), `modMin`/`modMax`,
 `temperaments` ({ morale, fleesBelow }), `moralePerRank`, `leaderMorale`, `leaderFleesBelow`,
 `effectRounds`, `skillPower`, `stunCooldown`, `extraSkillLevel`, `materialChance`, `gearChance`,
@@ -149,13 +157,13 @@ export function levelTag(level, rules)   → 'Lv 4' with the plain terms, else l
 export function xpLabel(rules) → 'XP' | 'Soul Growth'
 export function powerOptions(rules) → [{ level, label }]   // each tier's first level up to the cap, or every level
 export function progress(sheet, rules) → { cur, max, text, capped }
-    // tiers: share through the tier, '45.20/100' (hundredths floored, never 100); else '310/800';
-    // at the cap 'MAX' (cur = max = 100)
-export function progressLabel(sheet, rules) → 'Soul Growth 45.20/100'
+    // (0.5.2) XP within the level against xpToNext, with or without tiers: '31/100', whole
+    // numbers only; at the cap 'MAX' (cur = max = 100)
+export function progressLabel(sheet, rules) → 'Soul Growth 31/100'
 export function xpFromProgress(value, level, rules) → xp within the level
-    // '310/800' → 310; a share (always written with decimals) → XP in the tier (rounded up:
-    // stable round trip), or that share of the level with tiers off; 'MAX' → 0
-export function xpGainText(gain, level, rules) → '+38' | '+12%' (share of the member's tier; one decimal under 10 %)
+    // (0.5.2) the first number, rounded, within 0 … xpToNext − 1 ('31/100' → 31; '45.20/100' → 45,
+    // '140/280' → 99 at a need of 100); 'MAX' or nothing → 0. Nothing levels up from being read.
+export function xpGainText(gain) → '+38'   // (0.5.2) never a share of the tier
 export function parseLevelLabel(text, rules, { strict }) → level | null
     // 'Lv 24' / '(Lv 24)' exact; '<levelName> III' tier → its first level; 'Level 25'; 'III' (tiers on);
     // '25'; capped. strict: the level name, 'level' or 'Lv' must be written.
@@ -196,7 +204,10 @@ export function findCreature(bestiary, name) → entry | null      // name or al
 export function rankRowForLevel(level, rules) → { level, hp, attack, defence, xp, rank }
     // the rank table linear between the two ranks bracketing `level` (past the top: the last step's
     // slope); rank = the highest rank at or below the level
-export function projectEnemy({ name, rank, level, role, boss }, { bestiary, library, rules, rng, id }) → Combatant
+export function projectEnemy({ name, rank, level, role, boss, scale, xpLevel }, { bestiary, library, rules, rng, id }) → Combatant
+    // (0.5.2) `scale` in (0, 1) multiplies HP and attack (the trait mods; defence stays) and goes
+    // on the Combatant; `xpLevel` (< 1, with a row level) goes on it too, for combat.foeXpWorth.
+    // Combatant.xp is the rank table's (× boss), kept for the record; it no longer sets fight XP.
     // (0.3) an entry with `level` (a made-up Creature) uses it when the row gives no level or rank;
     // an entry skill that is an object is a Move, built with skills.creatureSkill at the fight's
     // level; an entry `loot` array is copied onto the Combatant; `generated` and `look` go along.
@@ -238,6 +249,9 @@ export function act(fight, action, rules) → Fight            // returns a NEW 
     // An invalid action throws (not enough MP, cooldown, dead target, not their turn).
 export function replay({ setup, actions }, rules) → Fight    // startFight(setup) then act() for each action
 export function summarize(fight, rules) → Result
+export function foeXpWorth(enemy, memberLevel, rules, { parleyed }) → xp   // (0.5.2)
+    // round(xpToNext(memberLevel) × xp.even × xpFactor(memberLevel, enemy.xpLevel ?? enemy.level)
+    //   × (boss ? boss.xp : 1) × (parleyed ? parley.xpFactor : 1) × xpRate), at least 1 when above 0
 ```
 
 ```js
@@ -259,7 +273,7 @@ Result = {
   party: [{ memberId, name, level, hp: { cur, max }, mp: { cur, max }, down: boolean, conditions: [{ name, rounds }] }],
   enemies: [{ id, name, gone, xp, level, rank }],
   defeated: [names], fled: [names], parleyed: [names],
-  xp: { [memberId]: number },                                // per member (not divided), xpFactor per enemy level
+  xp: { [memberId]: number },                                // per member (not divided): Σ foeXpWorth per defeated / parleyed foe (0.5.2)
   loot: { items: [...], money: number },                     // victory only; from rollLoot of defeated (not parleyed) enemies
   keyMoments: [string],                                      // ≤ 6: crits, finishing blows, downs, flights, parleys, near-deaths
   uses: { [memberId]: { [skill]: n } }, itemsUsed: { [memberId]: { [item]: n } },
@@ -305,7 +319,7 @@ export function setSkillActive(sheet, name, active, rules) → Sheet     // Use 
 
 ```
 Name: Ren
-Level: 4 | XP: 310/400 | Points: 2
+Level: 4 | XP: 31/100 | Points: 2
 HP: 58/62 | MP: 21/30
 STR: 9 | VIT: 7 | AGI: 8 | DEX: 8 | INT: 4 | LUK: 5 | CHA: 6
 Checks: STR +2 | VIT +1 | AGI +1 | DEX +1 | INT -1 | LUK +0 | CHA +0
@@ -318,7 +332,8 @@ The State line is `narrative.stateWords(sheet, rules).text`; the parsers skip an
 `State:` (it is derived, never read back) and do not need it.
 
 The level line follows `rules.terms` (terms.js): `<levelName>: <level> | <xpName>: <progress> |
-Points: n`, with tiers `Soul Class: III (Lv 24) | Soul Growth: 28.10/100 | Points: 2`; at the cap
+Points: n`, with tiers `Soul Class: III (Lv 24) | Soul Growth: 54/100 | Points: 2` (0.5.2: XP in
+the level, no more tier share); at the cap
 the progress is `MAX`. The parsers take the term labels as Level and XP (never over another
 field's label), read the level with `parseLevelLabel` (the exact `(Lv N)` first), the XP with
 `xpFromProgress`, accept `Soul Class III (Lv 24)` without the colon, and fall back to the line with
@@ -436,9 +451,13 @@ when the whole name is a creature) and no rank or level is; a plural whose last 
 word is made singular (`templates.creatureSingular`).
 
 ```js
-export function threatLevel(threat, partyLevel, rules) → level | null
-    // partyLevel + rules.threat.offsets[threat] × step (tier size with tiers on, else rules.threat.step), within 1…cap
-export function resolveThreats(rows, partyLevel, rules) → rows   // `level` added from `threat` (threat kept); rows with rank/level untouched
+export function threatPower(threat, partyLevel, rules) → { level, scale, xpLevel } | null   // (0.5.2)
+    // raw = partyLevel + rules.threat.offsets[threat] × threatStep (tier size with tiers on, else threat.step);
+    // level = raw within 1…cap; below 1: scale = max(minScale, perLevelBelowOne ^ ((1 − raw) × threat.step / threatStep)),
+    // rounded to thousandths, xpLevel = raw; else scale 1, xpLevel = level
+export function threatLevel(threat, partyLevel, rules) → level | null   // threatPower's level
+export function resolveThreats(rows, partyLevel, rules) → rows   // `level` added from `threat` (threat kept), and
+    // (0.5.2) below level 1 `scale` and `xpLevel`; rows with rank/level untouched
 ```
 
 ## `src/templates.js` (0.3)
@@ -536,8 +555,8 @@ export function settleHandoff(pending, chat, { generating }) → pending | null
     // null once a reply after attachedTo exists; attachedTo reset to null when its reply is gone
 ```
 
-XP line in the terms: `XP +38 each.`, `Power Growth +38.`, with tiers `Soul Growth +12% each.` (each
-member's share of their tier, from `result.party[].level`); a member at the cap is left out.
+XP line in the terms: `XP +38 each.`, `Power Growth +38.`, with tiers `Soul Growth +38 each.` (0.5.2:
+XP, never a share of the tier); a member at the cap (`result.party[].level`) is left out.
 
 Status: one line per member, `Ren: HP 34/62, MP 12/30 — hurt (aching, favouring a wound) · tired of
 magic.`; a member who is down reads `Astra: down (unconscious or unable to fight).`
@@ -559,7 +578,7 @@ export function buildAllocation(sheet, rules) → allocation          // points 
 export function suggestSkills(stats, focus, library, { role, count }) → [names], lockedReason(stats, skill) → string
 
 // growth.js
-export function awardShare({ kind } | { difficulty }, rules), xpAward(share, level, rules) → xp (0 at the cap)
+export function awardShare({ kind } | { difficulty }, rules), xpAward(share, level, rules) → xp (0 at the cap; 0.5.2: × xpRate, scaleXp)
 export function gainXp(sheet, xp, rules), spendByBuild(sheet, rules), settleCompanions(members, { autoSpend, rules })
 export function awardParty({ pc, members }, share, { autoSpend, rules }) → { pc, members, gains }
 export function questDifficulty(value) → 'easy' | 'normal' | 'hard' | 'nightmare'
@@ -1016,3 +1035,67 @@ export function buildPlanHandoff(result, { names, currency, stakes, pcName, rule
   `enemies.wholePart(name)` (the material's last word, singular or plural: pelt, hide, skin,
   head, heart, carapace, shell, horn, antler, tail, jaw, skull, eye) caps that material's
   quantity at 1 per creature; the quantity is still drawn (`rng.int`), so later draws stay put.
+
+## As built (0.5.2)
+
+XP counted per level, an XP rate, threat words that work at low levels.
+
+- **Fight XP** (`combat.foeXpWorth`, used by `summarize` for every defeated foe and, ×
+  `parley.xpFactor`, every parleyed one; each member against their own level, never split):
+  `round(xpToNext(memberLevel) × xp.even × xpFactor(memberLevel, foe.xpLevel ?? foe.level) ×
+  (boss ? boss.xp : 1) × (parleyed ? parley.xpFactor : 1) × xpRate)`, at least 1 when above 0.
+  `rules.xpFactor` is now 2 ^ (gap / `threatStep`) within `xp.minFactor` 0.1 – `xp.maxFactor` 4.
+  The rank table's `xp` (and `Combatant.xp`) no longer counts. A plan sums its stages' results
+  (`planResult`), each summarized with the rules at its end.
+- **XP rate**: `settings.xpRate` (1; `clampXpRate`: 0.25–5, steps of 0.05) → `rules.xpRate` in
+  `index.js rules()`. Applied per foe in `foeXpWorth`, and by `growth.xpAward` (`scaleXp`) to story
+  awards and Story Director's quests, so `awardParty`, `storyOffers` and `questOffers` show and
+  give the same number.
+- **The curve**: `character.xpExponent` is 0, so `xpToNext` is `xpBase` (100) at every level; the
+  formulas still take shares of `xpToNext`, so a curve set in rules.json works as before. Fight
+  XP per foe is then 10 × the factor (× boss, parley, rate); story awards 10/25/50, quests
+  5/10/15/25.
+- **terms.js**: `progress` is XP within the level against `xpToNext` with tiers too (whole
+  numbers); `xpGainText(gain)` is `+N`; `xpFromProgress` reads the first number, rounded and kept
+  within the level (the tier-share reading, `tierSpan` and `xpBetween` are gone).
+- **story.js** `threatPower` (above); `resolveThreats` adds `scale` and `xpLevel` to a row only
+  when its threat word's level fell below 1. `party.enemiesFromRows` passes them to `projectEnemy`
+  only for a row with a level (so a rank row or one without a level is never scaled), and copies
+  the row's `threat` onto each Combatant. Plans keep rows as written (`newPlan` copies them), so
+  every stage and wave carries them.
+- **enemies.js** `projectEnemy` (above): `scale` multiplies the HP and attack mods; Combatant
+  `scale`, `xpLevel`.
+- **index.js** `setupRows` gives each row `xp`: `foeXpWorth` of the row's foe (projected once
+  with `enemiesFromRows`, no rng) for the PC's level, used by the setup and between views.
+- **tab.js**: a setup line (`enemyLine`) ends with `.rpg-battle-enemy-xp` (*~5 XP each*, *~30 XP*
+  for one; the reader's `xpName`), and `.rpg-battle-enemy-power` is the level for a level or a rank
+  row (`levelTag`, *Lv 3*, with the plain terms; `levelText` with custom terms as before). An
+  enemy card's first badge is `levelTag(level) · threat · role` (*Lv 1 · weak · skirmisher*,
+  *Soul Class I · weak · skirmisher*), the rank letter only for a foe without a level. The card's
+  XP bar shows `progress` (cur/max) with tiers too; the result's gains are `xpGainText`.
+- **settings.js**: `#rpg_battle_xp_rate` (number, 0.25–5, step 0.05) in the Party fold, a
+  `label.story-suite-row` *XP rate* with the hint *Multiplies all XP: fights, quests and story
+  awards.*; the Party fold's summary adds *· XP ×1.5* when it is not 1. The Story Suite overlay
+  shows the same panel. There is no settings export.
+- **Kin** (templates.js): `FAMILIES` (canine, feline, ursine, rodent, arachnid, serpent, avian,
+  insect, ooze → their nouns), `familyOf(name) → { noun, family }` (classify's noun; else the last
+  word, its singular or a compound's ending; an unlisted noun is its own family),
+  `familyTitle(family) → 'Canines' | 'Wights'`, `findKin(name, { chatBestiary, defaults, made }) →
+  { entry, source: 'chat' | 'made' | 'default' } | null` (the same noun, else the same family; the
+  chat's newest first, then those made for this fight, then the shipped ones; never the name
+  itself). `generateCreature(row, { rules, rng, seed, kin })`: with `kin` the relative's
+  template, role (the row's or the name's role word first), talks, coins, temperament, traits
+  (+ the name's own and its leadership), moves (the relative's, a shipped skill name as its
+  library or monster skill; the template fills to the count, at most four) and loot (`kinLoot`:
+  materials renamed, the relative's name or noun replaced by the kin's, a one-word part prefixed;
+  gear valued again at the kin's level and rarity; the kin's rank's potion), `kin` (the
+  relative's name); every made entry has `family`. `creaturesToMake` makes each unknown name as
+  kin of `findKin`'s relative when there is one (lookupCreature's exact or close match first, so
+  such a name is never made). `cleanCreature` keeps `kin` and `coins`, and sets `family` from
+  the name. `flavourPrompt` adds *(a relative of the X: make its look fit that kin)* to the
+  Creature line. index.js: `prepareFoes` as before; `regenerateCreature` passes the relative
+  (`old.kin` while it is still there, else `findKin`); `setupRows` adds `kin` (the name a new row
+  will be kin of); the idle view's bestiary rows carry `family` (`familyTitle`) and `kin`.
+  tab.js: the Bestiary fold lists `.rpg-battle-bestiary-family` headings (in first-seen order)
+  with their creatures under them and `.rpg-battle-creature-kin` *kin of X*; a new setup row's
+  tag title is *Not in the bestiary: made up as kin of X when the fight starts*.

@@ -55,9 +55,10 @@ export function combatantFromSheet(sheet, { memberId = 'pc', controller = 'playe
 }
 
 /**
- * The enemies for setup rows [{ name, count, rank, level, role, boss }], with stable ids e1,
- * e2…. A row's `level` (a power picked in the reader's terms) is interpolated from the rank
- * table; otherwise its rank, or the bestiary's.
+ * The enemies for setup rows [{ name, count, rank, level, role, boss, scale?, xpLevel? }], with stable
+ * ids e1, e2…. A row's `level` (a power picked in the reader's terms) is interpolated from the
+ * rank table; otherwise its rank, or the bestiary's. `scale` and `xpLevel` (0.5.2, a threat
+ * word below level 1) shrink HP and attack, and set the level its XP counts from.
  */
 export function enemiesFromRows(rows, { bestiary, library, rules, rng }) {
     const enemies = [];
@@ -68,11 +69,16 @@ export function enemiesFromRows(rows, { bestiary, library, rules, rng }) {
         for (let n = 1; n <= count; n++) {
             const id = `e${enemies.length + 1}`;
             const level = Number(row.level) >= 1 ? Math.round(Number(row.level)) : null;
-            const enemy = projectEnemy({ name, rank: row.rank || null, level, role: row.role || null, boss: Boolean(row.boss) }, { bestiary, library, rules, rng, id });
+            // A threat word's scale (story.threatPower) only goes with the level it came with.
+            const scale = level && Number(row.scale) > 0 && Number(row.scale) < 1 ? Number(row.scale) : 1;
+            const xpLevel = level && row.xpLevel !== null && row.xpLevel !== undefined && Number(row.xpLevel) < 1 ? Number(row.xpLevel) : null;
+            const enemy = projectEnemy({ name, rank: row.rank || null, level, role: row.role || null, boss: Boolean(row.boss), scale, xpLevel }, { bestiary, library, rules, rng, id });
             // Several of a kind are told apart by letter: "Goblin A", "Goblin B". A row of a later
             // engagement (`wave`, story.parseEncounter's "then:") keeps it, for the setup to split.
             const wave = Math.max(0, Math.round(Number(row.wave) || 0));
-            enemies.push({ ...enemy, id, name: count > 1 ? `${name} ${String.fromCharCode(64 + n)}` : name, ...(wave ? { wave } : {}) });
+            // The story's threat word goes along for the fight card ("Lv 1 · weak · skirmisher").
+            const threat = String(row.threat ?? '').trim();
+            enemies.push({ ...enemy, id, name: count > 1 ? `${name} ${String.fromCharCode(64 + n)}` : name, ...(threat ? { threat } : {}), ...(wave ? { wave } : {}) });
         }
     }
     return enemies;

@@ -16,7 +16,7 @@
 // into a level from the party's own, so the model judges the danger and code sets the number.
 // A power written outright (a rank, a level, a tier in the reader's terms) wins over it. Pure.
 
-import { DEFAULT_RULES, RANKS, STATS } from './rules.js';
+import { DEFAULT_RULES, RANKS, STATS, threatStep } from './rules.js';
 import { DEFAULT_BESTIARY, findCreature } from './enemies.js';
 import { maxLevel, parseLevelLabel, termsOf } from './terms.js';
 import { creatureSingular } from './templates.js';
@@ -523,29 +523,51 @@ export function storyFight(offer) {
 }
 
 /**
- * The level a threat word means for a party of `partyLevel`: the party's level plus the word's
- * offset (rules.threat.offsets) in steps, a step being one tier with tier titles on, else
- * rules.threat.step levels; within 1 and the level cap. Null for an unknown word.
+ * What a threat word means for a party of `partyLevel`: { level, scale, xpLevel }. The level is the
+ * party's plus the word's offset (rules.threat.offsets) in steps, a step being one tier with
+ * tier titles on, else rules.threat.step levels; within 1 and the level cap. (0.5.2) Where it
+ * would fall below 1 (weak or trivial for a low party) it stays 1 and `scale` (< 1) makes the
+ * foe that much smaller instead: perLevelBelowOne per level short, counted in rules.threat.step
+ * levels (a tier step is as far as a plain one), never below minScale; else scale is 1.
+ * `xpLevel` is the level before it was held at 1 (base + offset × step), which fight XP counts
+ * from (combat.foeXpWorth: weak at level 1 is worth half an even foe, trivial a quarter).
+ * Null for an unknown word.
  */
-export function threatLevel(threat, partyLevel, rules = DEFAULT_RULES) {
-    const t = rules?.threat ?? DEFAULT_RULES.threat;
+export function threatPower(threat, partyLevel, rules = DEFAULT_RULES) {
+    const t = { ...DEFAULT_RULES.threat, ...(rules?.threat ?? {}) };
     const offset = Number(t.offsets?.[threat]);
     if (!Number.isFinite(offset)) return null;
     const terms = termsOf(rules);
-    const step = terms.tiers ? terms.tiers.size : Math.max(1, Number(t.step) || DEFAULT_RULES.threat.step);
+    const plainStep = Math.max(1, Number(t.step) || DEFAULT_RULES.threat.step);
+    const step = threatStep(rules);
     const base = Math.max(1, Math.round(Number(partyLevel) || 1));
-    return Math.min(terms.cap, Math.max(1, Math.round(base + offset * step)));
+    const raw = Math.round(base + offset * step);
+    const level = Math.min(terms.cap, Math.max(1, raw));
+    if (raw >= 1) return { level, scale: 1, xpLevel: level };
+    const short = ((1 - raw) * plainStep) / step;
+    const per = Number(t.perLevelBelowOne);
+    const floor = Number(t.minScale);
+    const scale = Math.max(Number.isFinite(floor) ? floor : DEFAULT_RULES.threat.minScale, (Number.isFinite(per) ? per : DEFAULT_RULES.threat.perLevelBelowOne) ** short);
+    return { level, scale: Math.min(1, Math.round(scale * 1000) / 1000), xpLevel: raw };
+}
+
+/** The level a threat word means for a party of `partyLevel` (threatPower's level), or null. */
+export function threatLevel(threat, partyLevel, rules = DEFAULT_RULES) {
+    return threatPower(threat, partyLevel, rules)?.level ?? null;
 }
 
 /**
  * Encounter rows with each threat turned into a level for this party (the row keeps its
- * `threat`, for the reader); rows with a rank or level of their own, or no threat, unchanged.
+ * `threat`, for the reader), and below level 1 a `scale` for HP and attack and the
+ * `xpLevel` its XP counts from (enemies.projectEnemy, combat.foeXpWorth); rows with a rank or
+ * level of their own, or no threat, unchanged.
  */
 export function resolveThreats(rows, partyLevel, rules = DEFAULT_RULES) {
     return (rows ?? []).map(row => {
         if (!row?.threat || Number(row.level) >= 1 || row.rank) return row;
-        const level = threatLevel(row.threat, partyLevel, rules);
-        return level === null ? row : { ...row, level };
+        const power = threatPower(row.threat, partyLevel, rules);
+        if (!power) return row;
+        return power.scale < 1 ? { ...row, level: power.level, scale: power.scale, xpLevel: power.xpLevel } : { ...row, level: power.level };
     });
 }
 

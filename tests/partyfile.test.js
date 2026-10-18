@@ -9,7 +9,7 @@ import { parseGearEntry } from '../src/items.js';
 import { cleanParty, exportParty } from '../src/partyfile.js';
 
 test('a party round-trips through its file', () => {
-    const pc = { ...newSheet({ name: 'Ren', stats: { STR: 10 }, skills: ['Power Strike'] }, R), level: 4, xp: 120, points: 2 };
+    const pc = { ...newSheet({ name: 'Ren', stats: { STR: 10 }, skills: ['Power Strike'] }, R), level: 4, xp: 12, points: 2 };
     const lyra = newCompanion({ name: 'Lyra', role: 'healer', focus: ['INT'], skills: ['Mend'], gearLines: 'Ashwood Staff (rare) · MATK +7' }, { rules: R });
     const custom = skillFromTemplate({ name: 'Frost Lance', type: 'magic', stat: 'INT', target: 'all', element: 'ice' }, 4, R);
     const file = JSON.parse(JSON.stringify(exportParty({ pc: { ...pc, skills: [...pc.skills, { name: 'Frost Lance', mastery: 1 }] }, members: [lyra], yourGear: [parseGearEntry('Iron Sword (uncommon) · ATK +6')], skills: [custom, skillFromTemplate({ name: 'Unknown By Anyone' }, 1, R)] })));
@@ -18,7 +18,7 @@ test('a party round-trips through its file', () => {
     assert.deepEqual(file.skills.map(skill => skill.name), ['Frost Lance'], 'only skills someone knows');
     const back = cleanParty(file, R, DEFAULT_SKILLS);
     assert.equal(back.pc.name, 'Ren');
-    assert.deepEqual([back.pc.level, back.pc.xp, back.pc.points], [4, 120, 2]);
+    assert.deepEqual([back.pc.level, back.pc.xp, back.pc.points], [4, 12, 2]);
     assert.deepEqual(back.members.map(member => [member.name, member.role, member.gear.map(item => item.name)]), [['Lyra', 'healer', ['Ashwood Staff']]]);
     assert.deepEqual(back.yourGear.map(item => item.name), ['Iron Sword']);
     assert.deepEqual(back.skills.map(skill => [skill.name, skill.type, skill.target]), [['Frost Lance', 'magic', 'all']]);

@@ -17,9 +17,11 @@ export const DEFAULT_RULES = Object.freeze({
         starterSkills: 3,
         // Skills a member fights with; more are kept, set aside, and swapped in by hand.
         activeSkills: 6,
-        // XP to reach the next level = round10(xpBase × level ^ xpExponent).
+        // XP to reach the next level = round10(xpBase × level ^ xpExponent). (0.5.2) Every level
+        // needs the same 100 by default (exponent 0); a rules.json may set a curve again (it
+        // was 1.5 before). Every XP gain is a share of this, so a curve keeps working.
         xpBase: 100,
-        xpExponent: 1.5,
+        xpExponent: 0,
         maxLevel: 99,
     },
     derived: {
@@ -78,14 +80,22 @@ export const DEFAULT_RULES = Object.freeze({
     },
     boss: { hp: 3, attack: 1.2, defence: 1.2, xp: 3, noParleyAbove: 0.5 },
     variation: 0.1,
-    // XP factor by (enemy level − member level): ×1.5 when it outranks, down to ×0.1.
-    xp: { perLevelAbove: 0.1, maxFactor: 1.5, perLevelBelow: 0.15, minFactor: 0.1 },
+    // (0.5.2) Fight XP (combat.foeXpWorth): a defeated foe is worth `even` (a tenth) of the XP
+    // the member's next level needs, × 2 per threat step (threat.step levels, or one tier with
+    // tier titles on) it stands above the member
+    // (½ per step below: strong ×2, deadly ×4, weak ×½, trivial ×¼), that factor within
+    // minFactor–maxFactor (xpFactor). The rank table's `xp` no longer counts in a fight.
+    xp: { even: 0.10, minFactor: 0.1, maxFactor: 4 },
     secondsPerRound: 6,
     // XP the story awards outside fights (growth.js): a share of the XP the member needs for
     // their next level, by how big the achievement was, or by the difficulty of a quest Story
     // Director closed. Everyone in the party gets it, each at their own level.
     xpAwards: { minor: 0.10, major: 0.25, milestone: 0.50 },
     questXp: { easy: 0.05, normal: 0.10, hard: 0.15, nightmare: 0.25 },
+    // (0.5.2) The reader's XP rate (the setting): every XP gain, each foe's in a fight or a
+    // parley (combat.foeXpWorth), a story award's and a quest's (scaleXp), is multiplied by
+    // it, within XP_RATE.min–max.
+    xpRate: 1,
     // Out of a fight: a short rest gives back this share of max HP/MP; story time heals
     // `perHour` of max HP/MP per hour, and a gap of `longRestHours` or more is a full rest.
     recovery: { shortRestShare: 0.25, perHour: 0.05, longRestHours: 6 },
@@ -155,7 +165,11 @@ export const DEFAULT_RULES = Object.freeze({
     // or "deadly" sits from the party's level, in steps. A step is one tier when tier titles
     // are on (a world that counts in tiers means "a tier above" when it says strong), else
     // `step` levels, about the distance between two of the rank table's low ranks.
-    threat: { step: 4, offsets: { trivial: -2, weak: -1, even: 0, strong: 1, deadly: 2 } },
+    // (0.5.2) A word that would put the foe below level 1 (weak or trivial for a low party)
+    // keeps level 1 and scales the foe down instead (story.threatPower): HP, attack and XP ×
+    // perLevelBelowOne per level short of 1 (counted in `step` levels, so a tier step is the
+    // same distance), never below minScale. Weak at level 1 (4 short) is ×0.6, trivial ×0.36.
+    threat: { step: 4, offsets: { trivial: -2, weak: -1, even: 0, strong: 1, deadly: 2 }, perLevelBelowOne: 0.88, minScale: 0.35 },
     // Creatures made up on the fly (templates.js, DESIGN §7.4). The template picks the role,
     // skills and loot; these are the only numbers a trait or a temperament may change.
     generated: {
@@ -282,12 +296,51 @@ export function mitigate(raw, defence) {
     return Math.max(1, (r * r) / (r + Math.max(0, num(defence))));
 }
 
-/** XP factor for a member of `memberLevel` defeating an enemy of `enemyLevel`. */
+/**
+ * The levels one threat step spans (story.threatPower, xpFactor): one tier with tier titles on
+ * (rules.terms.tiers.size, 10 when unset, as terms.termsOf reads it), else rules.threat.step.
+ */
+export function threatStep(rules = DEFAULT_RULES) {
+    const tiers = rules?.terms?.tiers;
+    if (tiers && typeof tiers === 'object' && tiers.enabled !== false) {
+        const size = Number(tiers.size);
+        return Number.isFinite(size) && size >= 1 ? Math.min(999, Math.round(size)) : 10;
+    }
+    return Math.max(1, num(rules?.threat?.step, DEFAULT_RULES.threat.step) || DEFAULT_RULES.threat.step);
+}
+
+/**
+ * (0.5.2) The level-gap factor of fight XP for a member of `memberLevel` defeating a foe of
+ * `enemyLevel`: 2 ^ ((enemy − member) / threatStep), within xp.minFactor–maxFactor. A foe
+ * one threat step (4 levels, or a tier) above is worth twice an even one, one below half. `enemyLevel` may be below
+ * 1 (a threat word's level before it was held at 1: story.threatPower's xpLevel).
+ */
 export function xpFactor(memberLevel, enemyLevel, rules = DEFAULT_RULES) {
-    const x = rules.xp;
+    const x = { ...DEFAULT_RULES.xp, ...(rules?.xp ?? {}) };
+    const step = threatStep(rules);
     const diff = num(enemyLevel, 1) - num(memberLevel, 1);
-    if (diff >= 0) return Math.min(x.maxFactor, 1 + diff * x.perLevelAbove);
-    return Math.max(x.minFactor, 1 + diff * x.perLevelBelow);
+    return clamp(2 ** (diff / step), num(x.minFactor, 0), num(x.maxFactor, Infinity));
+}
+
+/** The XP rate setting's bounds and step (0.5.2). */
+export const XP_RATE = Object.freeze({ min: 0.25, max: 5, step: 0.05, default: 1 });
+
+/** An XP rate as the setting allows it: within XP_RATE, on its step; anything unreadable is 1. */
+export function clampXpRate(value) {
+    const rate = Number(value);
+    if (value === null || value === undefined || value === '' || !Number.isFinite(rate)) return XP_RATE.default;
+    const stepped = Math.round(rate / XP_RATE.step) * XP_RATE.step;
+    return Math.round(clamp(stepped, XP_RATE.min, XP_RATE.max) * 100) / 100;
+}
+
+/**
+ * An XP gain at the reader's rate (rules.xpRate): rounded, and at least 1 when the gain before
+ * the rate was at least 1, so a slow rate never turns a gain into nothing.
+ */
+export function scaleXp(xp, rules = DEFAULT_RULES) {
+    const base = Math.max(0, num(xp));
+    const scaled = Math.round(base * clampXpRate(rules?.xpRate));
+    return base >= 1 ? Math.max(1, scaled) : scaled;
 }
 
 /** The rank a fair enemy has for a party of this level. */

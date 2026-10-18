@@ -3,9 +3,10 @@
 // award here, so a level reached either way grows a sheet the same (maxima, points, MAX at the
 // cap). The story only names how big an achievement was (minor, major, milestone) or how hard a
 // quest Story Director closed (easy … nightmare); the award is that share of the XP the member
-// needs for their next level, so it means the same at level 2 and level 40. Pure.
+// needs for their next level, so it means the same at level 2 and level 40, at the reader's XP
+// rate (rules.xpRate, 0.5.2) like every other gain. Pure.
 
-import { DEFAULT_RULES, xpToNext } from './rules.js';
+import { DEFAULT_RULES, scaleXp, xpToNext } from './rules.js';
 import { applyResult, spendPoints } from './sheet.js';
 import { buildAllocation } from './builds.js';
 import { maxLevel } from './terms.js';
@@ -26,11 +27,14 @@ export function awardShare({ kind = null, difficulty = null } = {}, rules = DEFA
     return Number.isFinite(share) && share > 0 ? share : 0;
 }
 
-/** The XP an award of `share` is worth at `level`: that share of xpToNext, rounded; 0 at the cap. */
+/**
+ * The XP an award of `share` is worth at `level`: that share of xpToNext, rounded, at the XP
+ * rate (scaleXp); 0 at the cap. The offers show this number and awardParty gives it.
+ */
 export function xpAward(share, level, rules = DEFAULT_RULES) {
     const lv = Math.max(1, Math.round(Number(level) || 1));
     if (lv >= maxLevel(rules)) return 0;
-    return Math.max(0, Math.round((Number(share) || 0) * xpToNext(lv, rules)));
+    return scaleXp(Math.max(0, Math.round((Number(share) || 0) * xpToNext(lv, rules))), rules);
 }
 
 /** `amount` XP on a sheet, levels and points as a fight's would: applyResult's { sheet, levelsGained, pointsGained }. */

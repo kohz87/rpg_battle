@@ -6,7 +6,10 @@ import { makeRng } from '../src/rng.js';
 import { DEFAULT_SKILLS, findSkill } from '../src/skills.js';
 import { DEFAULT_BESTIARY, LOOT_TABLES, MONSTER_SKILLS, carriesCoin, findCreature, projectEnemy, rollLoot } from '../src/enemies.js';
 import { generateCreature } from '../src/templates.js';
-import { act, startFight, summarize } from '../src/combat.js';
+import { act, foeXpWorth, startFight, summarize } from '../src/combat.js';
+import { resolveThreats } from '../src/story.js';
+import { enemiesFromRows, engagements } from '../src/party.js';
+import { newPlan } from '../src/plan.js';
 
 const ROLES = ['brute', 'skirmisher', 'caster', 'tank', 'support'];
 
@@ -402,4 +405,61 @@ test('a differently worded name finds the creature it means (0.5.1)', async () =
     assert.deepEqual([lookupCreature('wolf matriarch', story).entry.name, lookupCreature('wolf matriarch', story).source], ['Grey Wolf Matriarch', 'chat']);
     const rows = [{ name: 'Young Wolf', level: 1 }, { name: 'Mangy Ditch-Dog', level: 1 }, { name: 'Scrub Quill-Dog', level: 1 }];
     assert.deepEqual(creaturesToMake(rows, { chatBestiary: story, seed: 's' }).map(entry => entry.name), ['Scrub Quill-Dog']);
+});
+
+// ---------------------------------------------------------------------------
+// Threat words at low levels (0.5.2)
+
+const threatened = (threat, partyLevel, rules = DEFAULT_RULES, extra = {}) =>
+    enemiesFromRows(resolveThreats([{ name: 'Wolf', count: 1, rank: null, threat, ...extra }], partyLevel, rules), { bestiary: DEFAULT_BESTIARY, library: DEFAULT_SKILLS, rules, rng: null })[0];
+
+test('a level-1 party: even > weak > trivial in HP, attack and XP; defence the same', () => {
+    const [even, weak, trivial] = ['even', 'weak', 'trivial'].map(threat => threatened(threat, 1));
+    assert.deepEqual([even.level, weak.level, trivial.level], [1, 1, 1]);
+    assert.ok(even.hp.max > weak.hp.max && weak.hp.max > trivial.hp.max, `${even.hp.max} > ${weak.hp.max} > ${trivial.hp.max}`);
+    assert.ok(even.patk > weak.patk && weak.patk > trivial.patk);
+    assert.equal(weak.pdef, even.pdef);
+    assert.equal(trivial.pdef, even.pdef);
+    assert.deepEqual([even.hp.max, weak.hp.max, trivial.hp.max], [16, 10, 6]);
+    assert.deepEqual([even.scale, weak.scale, trivial.scale], [undefined, 0.6, 0.36]);
+    assert.deepEqual([even.xpLevel, weak.xpLevel, trivial.xpLevel], [undefined, -3, -7]);
+    assert.deepEqual([even, weak, trivial].map(foe => foeXpWorth(foe, 1)), [10, 5, 3], 'XP for a level-1 PC');
+    assert.equal(weak.threat, 'weak', 'the word goes along for the card');
+});
+
+test('a level-10 party: weak is level 6 and unscaled, as before; explicit powers are never scaled', () => {
+    const weak = threatened('weak', 10);
+    const plain = projectEnemy({ name: 'Wolf', level: 6 }, { library: DEFAULT_SKILLS });
+    assert.equal(weak.level, 6);
+    assert.equal(weak.scale, undefined);
+    assert.equal(weak.hp.max, plain.hp.max);
+    assert.equal(foeXpWorth(weak, 10), 5, 'half an even foe');
+    // A level, a rank or a power written outright: the row is left alone, whatever its threat word.
+    const level = threatened('trivial', 1, DEFAULT_RULES, { level: 1 });
+    const rank = threatened('trivial', 1, DEFAULT_RULES, { rank: 'F' });
+    const own = projectEnemy({ name: 'Wolf', level: 1 }, { library: DEFAULT_SKILLS });
+    assert.equal(level.scale, undefined);
+    assert.equal(rank.scale, undefined);
+    assert.equal(level.hp.max, own.hp.max);
+    assert.equal(rank.hp.max, own.hp.max);
+    // A scale or xpLevel on a row without a level does nothing.
+    const stray = enemiesFromRows([{ name: 'Wolf', count: 1, rank: 'F', scale: 0.4, xpLevel: -5 }], { bestiary: DEFAULT_BESTIARY, library: DEFAULT_SKILLS, rules: DEFAULT_RULES, rng: null })[0];
+    assert.equal(stray.scale, undefined);
+    assert.equal(stray.xpLevel, undefined);
+});
+
+test('waves and plan stages carry the scale onto their foes', () => {
+    const rows = resolveThreats([
+        { name: 'Wolf', count: 1, rank: null, threat: 'even' },
+        { name: 'Wolf', count: 2, rank: null, threat: 'weak', wave: 1 },
+    ], 1);
+    const { enemies, waves } = engagements(enemiesFromRows(rows, { bestiary: DEFAULT_BESTIARY, library: DEFAULT_SKILLS, rules: DEFAULT_RULES, rng: null }));
+    assert.equal(enemies[0].scale, undefined);
+    assert.deepEqual(waves[0].enemies.map(foe => [foe.scale, foe.xpLevel, foe.hp.max]), [[0.6, -3, 10], [0.6, -3, 10]]);
+    // A plan keeps its stages' rows as written (with their scale) until each stage is fought.
+    const plan = newPlan({ id: 'p', stages: [{ place: 'the gate', rows: [rows[0]] }, { place: 'the yard', rows: [rows[1]] }] });
+    const stage2 = plan.stages[1].rows;
+    assert.deepEqual(stage2.map(row => [row.scale, row.xpLevel]), [[0.6, -3]]);
+    const foes = enemiesFromRows(stage2, { bestiary: DEFAULT_BESTIARY, library: DEFAULT_SKILLS, rules: DEFAULT_RULES, rng: null });
+    assert.deepEqual(foes.map(foe => [foe.scale, foe.hp.max, foeXpWorth(foe, 1)]), [[0.6, 10, 5], [0.6, 10, 5]]);
 });

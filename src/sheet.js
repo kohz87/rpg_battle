@@ -22,7 +22,8 @@
 // conditions, so an edited or missing State line changes nothing.
 //
 // The level line speaks the reader's terms (terms.js): `Soul Class: III (Lv 24) | Soul Growth:
-// 45.20/100 | Points: 2`, or `Level: 4 | XP: 310/800 | Points: 2` with the plain ones. The
+// 54/100 | Points: 2` (0.5.2: XP within the level, never a tier's share), or `Level: 4 | XP:
+// 31/100 | Points: 2` with the plain ones. The
 // exact level is always in it, so the parsers read it back from the canonical form, from any
 // terms form (with or without the colon after the level name) and from older blocks. Pure.
 
@@ -301,7 +302,7 @@ function sheetFromLines(lines, rules, { name: givenName = null, label = 'Charact
         if (value === null) missing(stat, String(rules.character.startStat));
         stats[stat] = value === null ? rules.character.startStat : Math.max(0, value);
     }
-    // XP within the level, or a tier's share ("45.20/100") turned back into XP, or MAX at the cap.
+    // XP within the level (its first number, kept below the level's need), or MAX at the cap.
     const xp = level >= maxLevel(rules) ? 0 : Math.max(0, xpFromProgress(found.xp ?? '', level, rules));
     const points = Math.max(0, int(found.points) ?? 0);
     const pool = (field, max) => {
@@ -549,7 +550,7 @@ function statsLine(sheet) {
     return STATS.map(stat => `${stat}: ${sheet.stats?.[stat] ?? 0}`).join(' | ');
 }
 
-// `Level: 4 | XP: 310/800 | Points: 2`, in the reader's terms. With tiers the level field
+// `Level: 4 | XP: 31/100 | Points: 2`, in the reader's terms. With tiers the level field
 // is the tier and the exact level (`Soul Class: III (Lv 24)`), with a colon so Story Block's
 // Fields display reads it as the level field. XP shows MAX at the cap.
 function levelLine(sheet, rules) {

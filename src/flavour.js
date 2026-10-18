@@ -113,7 +113,8 @@ export function flavourPrompt(entry, { power = '', party = '', scene = '' } = {}
     const template = TEMPLATES[entry?.template] ? entry.template : 'generic';
     const loot = (entry?.loot ?? []).filter(row => row.kind !== 'consumable').map(row => (row.kind === 'equipment' ? `${row.name} (${row.rarity}, ${Object.keys(row.stats ?? {})[0] ?? 'ATK'})` : row.name));
     const lines = [
-        `Creature: ${entry?.name ?? 'Creature'}`,
+        // (0.5.2) Kin of a creature the story has: its look should fit the family.
+        `Creature: ${entry?.name ?? 'Creature'}${entry?.kin ? ` (a relative of the ${entry.kin}: make its look fit that kin)` : ''}`,
         power ? `Power: ${power}${party ? `; the party is ${party}` : ''}` : '',
         `Kind: ${template}, fights as a ${entry?.role ?? 'brute'}${entry?.traits?.length ? `; traits now ${entry.traits.filter(trait => trait !== 'leader').join(', ') || 'none'}` : ''}${entry?.traits?.includes('leader') ? '; it leads others' : ''}; temperament now ${entry?.temperament ?? 'wild'}; talks now ${entry?.talks ? 'yes' : 'no'}`,
         `Skills (${(entry?.moves ?? []).length}): ${(entry?.moves ?? []).map(moveText).join('; ')}`,

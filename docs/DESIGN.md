@@ -73,7 +73,7 @@ merges it.
 ```
 <Character>
 Name: Ren
-Level: 4 | XP: 310/400 | Points: 2
+Level: 4 | XP: 31/100 | Points: 2
 HP: 58/62 | MP: 21/30
 STR: 9 | VIT: 7 | AGI: 8 | DEX: 8 | INT: 4 | LUK: 5 | CHA: 6
 Checks: STR +2 | VIT +1 | AGI +1 | DEX +1 | INT -1 | LUK +0 | CHA +0
@@ -127,7 +127,7 @@ Equipped: Ashwood Staff (rare) · MATK +7, INT +1 | Traveller's Robe (common) ·
 - A companion's gear is listed on its section, because the Inventory block is yours.
 - Joining and leaving follows the story (0.4): a `<Joins>` or `<Leaves>` is offered, and Add
   companion opens only from a Joins, filled in (§8.7); **Edit** (name, role, control; the sheet
-  stays) and **Remove** stay on the card. Companions level with the party (they get the same XP).
+  stays) and **Remove** stay on the card. Companions level with the party (every foe's XP in full, counted against their own level, §8.1).
 
 ### 3.3 Inventory (existing, written by the model; RPG Battle reads equipment and adds loot)
 
@@ -176,8 +176,10 @@ writes it, the reader only goes on or falls back, and there is no Use item betwe
 Since 0.4 a fight starts only from the story (§4.2): its offer opens the setup. Since 0.4.2 the
 setup is the story's engagement and stakes as it gave them, read-only, with **Start** and **Not
 now**: the story drives, the reader decides whether to fight, not what the fight is. Each line
-shows the count, the name (tagged *new* when it will be made up), its power in the reader's
-terms, its role, *Boss*, and the story's threat word; engagements after the first are listed in
+shows the count, the name (tagged *new* when it will be made up), *Boss*, its level in the
+reader's terms (0.5.2: *Lv 3*, never the rank letter), the story's threat word, its role and
+(0.5.2) what one is worth to the reader's character at the XP rate (*~5 XP each*); the fight
+cards show the level and the threat word too (*Lv 1 · weak · skirmisher*); engagements after the first are listed in
 order; the stakes are said, not chosen. The glue builds the fight from the offer it parsed, never
 from what the tab sends, so a changed page changes nothing. The pre-0.4.2 setup, kept for the
 record:
@@ -211,7 +213,15 @@ stop at the first blow, so the prose does not resolve what the buttons are about
   judges the danger; code sets the level: the Character's level plus `threat.offsets` steps
   (−2, −1, 0, +1, +2), a step being one tier with tier titles on (§5.7) and `threat.step` (4)
   levels otherwise, within 1 and the cap (`story.threatLevel`). A rank or level written outright
-  wins; with neither, the fight is even (the fair rank, as before).
+  wins; with neither, the fight is even (the fair rank, as before). **Below level 1 (0.5.2):**
+  where the word would put the foe below level 1 (*weak* for a party up to level 4, *trivial* up
+  to 8), it stays at level 1 and is scaled down instead: HP and attack ×
+  `threat.perLevelBelowOne` (0.88) per level short (counted in `threat.step` levels when a step is
+  a tier), never below `threat.minScale` (0.35); defence stays; its XP counts from the level the
+  word meant (§8.1), so weak is half an even foe's XP and trivial a quarter. At level 1 a weak
+  wolf has 10 HP (even 16) and is worth 5 XP (even 10), a trivial one 6 HP and 3 XP. Only a level
+  that came from the word is scaled (`story.threatPower`; the row and the foe carry `scale` and
+  `xpLevel`, through waves and a plan's stages).
 - **Sources:** the latest reply's `<Encounter>`, else a fight Story Director planned that the story
   has reached (`StoryDirector.encountersAt(index)`, due first, then due soon), when it is there.
 - **Offered, never started:** a toast with **Fight** on the reply, and a notice in the Battle tab,
@@ -264,7 +274,8 @@ All constants below live in `rules.json` and can be edited.
 
 **No classes.** A character is its stats and its skills. A new character starts with every stat
 at 5 and **10 points** to spend, and (0.4) **no skills**: they come from the story (§8.7); each
-level gives **4 points**. XP to next level = 100 × level^1.5 (rounded to 10). There are no presets
+level gives **4 points**. XP to next level = 100 at every level (0.5.2; `xpBase` × level ^
+`xpExponent`, rounded to 10, with `xpExponent` 0; it was 1.5 before). There are no presets
 for the reader any more; the old spreads stay as internal data for the balance simulation.
 A companion is built from up to three **focus stats** in order, weighted 3, 2, 1 (none: evenly),
 over every point they have, largest remainder; generic role words suggest the focus.
@@ -322,26 +333,29 @@ A lorebook names its own progression ("Soul Class", "Rank", "Circle"; "Soul Grow
 
 - `levelName` (default `Level`) and `xpName` (default `XP`).
 - `tiers: { size: 10, numerals: 'roman' | 'arabic' }` (off by default): levels 1–10 are
-  "<levelName> I", 11–20 "<levelName> II"… With tiers, progress is the share through the
-  current tier, 0.00–99.99 of 100 (the XP from the tier's first level to the next tier),
-  floored to hundredths and read back rounding up, which is stable and loses at most a
-  ten-thousandth of the tier's XP once.
+  "<levelName> I", 11–20 "<levelName> II"… Progress is XP within the level against XP to
+  the next one, with tiers as without (0.5.2: "Soul Growth 30/100" beside "Soul Class I (Lv 1)").
+  From 0.3 to 0.5.1 it was the share through the current tier, 0.00–99.99 of 100, always
+  written with decimals. The new text is whole numbers only; an odd value (decimals, another
+  denominator) is read as its first number, rounded, within the level (0 to its need − 1), so
+  nothing levels up from being read.
 - `cap` (default `character.maxLevel`, 99): no level past it; XP stops there, shown MAX.
 
 Only words change: the numbers, formulas and the balance are the same. The blocks keep the exact
-level where a tier would hide it (`Soul Class: III (Lv 24) | Soul Growth: 28.10/100 | Points: 2`;
-with names but no tiers `Soul Power: 24 | Power Growth: 5400/11760 | Points: 2`), and the
+level where a tier would hide it (`Soul Class: III (Lv 24) | Soul Growth: 54/100 | Points: 2`;
+with names but no tiers `Soul Power: 24 | Power Growth: 54/100 | Points: 2`), and the
 parsers read the canonical form, any terms form (with or without the colon) and older blocks,
 so changing the terms never loses a sheet. The tab, the result screen and the hand-off's XP line
-("Soul Growth +12%": the share of the member's tier; "Power Growth +38") use them.
+("Soul Growth +38", "Power Growth +38": XP, never a share of the tier since 0.5.2) use them.
 
 With terms of their own the reader picks an enemy's power as a tier (its first level) or a level,
 up to the cap, instead of F–SSS. A level is placed on the tuned rank table (§7.1) by interpolating
 linearly between the two ranks whose levels bracket it (past SSS the last step's slope goes on);
 the rank at or below it still picks the loot table, money and morale. For a brute without the
 ±10 % variation: Soul Class II (level 11, a fifth of the way from C to B) has HP 72, attack 37,
-defence 11 and 168 XP; Soul Class V (level 41, between S and SS) HP 206, attack 100, defence 29
-and 1862 XP. *Auto* is still the fair rank for your level. With the plain terms nothing changes.
+defence 11 (rank-table XP 168); Soul Class V (level 41, between S and SS) HP 206, attack 100,
+defence 29 (rank-table XP 1862; since 0.5.2 fight XP comes from §8.1, not this table). *Auto* is
+still the fair rank for your level. With the plain terms nothing changes.
 
 ## 6. Skills
 
@@ -475,8 +489,16 @@ alone makes every one of them fight alike.
 ### 8.1 Results, applied by code
 
 - **Outcome:** victory, defeat, fled, or parleyed (per enemy).
-- **XP:** each defeated enemy's XP × a level factor (×1.5 when it outranks you, down to ×0.1 when
-  far below); half for parleyed enemies; split evenly across the party, not divided.
+- **XP (0.5.2):** each defeated foe is worth, to each member, a tenth (`xp.even`) of the XP that
+  member needs for their next level when it is even, ×2 for each threat step (4 levels, or a
+  tier) it stands above them and ×½ for each below (strong ×2, deadly ×4, weak ×½, trivial ×¼),
+  that factor within `xp.minFactor` 0.1 and `xp.maxFactor` 4; ×3 for a boss, half for a parleyed
+  foe; × the reader's XP rate (`xpRate`, 0.25–5, default 1); rounded, at least 1. A foe a threat
+  word held at level 1 counts from the level the word meant (§4.2). Every member gets every
+  foe's worth against their own level: nothing is split. Level 1 (needing 100): even 10, weak 5,
+  trivial 3, strong 20, deadly 40, an even boss 30, a parley 5; with every level needing 100
+  (§5), the same at every level. The rank table's XP column (§7.1) no longer counts in a fight. (Before 0.5.2: the
+  rank table's XP × ×1.5 above down to ×0.1 below.)
 - **Level-ups:** HP and MP maxima rise; points are added to spend.
 - **Loot:** from the bestiary's tables or the rank's defaults; rarity rolled with LUK; money (8.3).
   Written into the Inventory block. Since 0.4.2 only foes that would carry coin drop money:
@@ -583,7 +605,8 @@ The same instruction (§8.6, about 185 tokens since 0.5) asks for `<Joins>`, `<L
 story makes it true; Story Director 0.8.2 adds quests closed in a reply. Every one is an
 **offer** (Accept / Not now, per reply text, from the latest reply and the opening message),
 never applied on its own. XP is a share of the member's next level (10/25/50 %, quests 5–25 % by
-difficulty), each at their own level, through the fight's level-up path; companions on auto spend
+difficulty), each at their own level, × the XP rate (0.5.2; the offer shows that amount), through
+the fight's level-up path; companions on auto spend
 new points by their build. A rest and story time in one reply count once (the larger, not the
 sum). A fight lost to the death leaves `dead` on your sheet: game over until Start over.
 
@@ -667,7 +690,7 @@ Block change, listed in the roadmap). RPG Battle adds no check command of its ow
 | Checks outside combat | Story Block's Dice block, with modifiers from the Character block |
 | Wounds outside combat | Words in a hidden `<Wounds>` block (scratch, wound, severe, grievous); code sets the HP, one blow per person per reply, with Undo |
 | Fights the story starts | Named in a hidden `<Encounter>` block (or planned by Story Director) and offered; the reader presses Fight |
-| Threat in an encounter | A word relative to the party (trivial…deadly); code turns it into a level in steps of 4 levels or one tier |
+| Threat in an encounter | A word relative to the party (trivial…deadly); code turns it into a level in steps of 4 levels or one tier; below level 1 the foe is scaled down instead (0.5.2) |
 | Foes nobody wrote up | Made up from a keyword template when the fight starts, flavoured by one words-only model call, kept per chat |
 | Balance | An even fight fought to the end lasts 4 to 6 rounds |
 | Mirage RPG | Retired; its tables and hand-off idea borrowed |

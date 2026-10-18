@@ -75,7 +75,7 @@ const partyText = (index = ctx.chat.length) => globalThis.StoryBlock.getBlock('P
 
 const REN = [
     '## Ren (you)',
-    'Level: 4 | XP: 310/800 | Points: 2',
+    'Level: 4 | XP: 31/100 | Points: 2',
     'HP: 58/62 | MP: 21/30',
     'STR: 9 | VIT: 7 | AGI: 8 | DEX: 8 | INT: 4 | LUK: 5 | CHA: 6',
     'Checks: STR +2 | VIT +1 | AGI +1 | DEX +1 | INT -1 | LUK +0 | CHA +0',
@@ -85,7 +85,7 @@ const REN = [
 ].join('\n');
 const LYRA = [
     '## Lyra — healer | control: auto',
-    'Level: 4 | XP: 120/800 | Points: 0',
+    'Level: 4 | XP: 12/100 | Points: 0',
     'HP: 44/44 | MP: 38/38',
     'State: unhurt',
     'STR: 4 | VIT: 5 | AGI: 7 | DEX: 6 | INT: 10 | LUK: 4 | CHA: 7',
@@ -188,7 +188,10 @@ test('Fight? opens the story\'s engagement read-only; Start fights it as written
     assert.equal(find(pane, 'input'), null, 'nothing to edit');
     assert.equal(find(pane, 'select'), null);
     assert.deepEqual(findAll(pane, '.rpg-battle-enemy-name').map(node => node.textContent), ['Bandit', 'Bandit Captain']);
-    assert.deepEqual(findAll(pane, '.rpg-battle-enemy-power').map(node => node.textContent), ['Rank E', 'Rank D'], 'the bestiary\'s own ranks');
+    assert.deepEqual(findAll(pane, '.rpg-battle-enemy-power').map(node => node.textContent), ['Lv 3', 'Lv 6'], 'the bestiary\'s own ranks, as their levels');
+    // What one is worth to Ren (level 4, needs 100), as the result counts it: a tenth, 10, × 2 per
+    // 4 levels above: a bandit (level 3: ×2^−¼) and the captain (level 6: ×2^½, boss ×3).
+    assert.deepEqual(findAll(pane, '.rpg-battle-enemy-xp').map(node => node.textContent), ['~8 XP each', '~42 XP']);
     assert.deepEqual(findAll(pane, '.rpg-battle-enemy-role').map(node => node.textContent), ['skirmisher', 'brute']);
     assert.equal(find(pane, '.rpg-battle-stakes').textContent, 'Stakes: To the death — defeat is death.');
     // A page changed by hand changes nothing: the glue builds the fight from its own offer.
@@ -202,6 +205,31 @@ test('Fight? opens the story\'s engagement read-only; Start fights it as written
     assert.deepEqual(fight.setup.enemies.map(enemy => enemy.name), ['Bandit A', 'Bandit B']);
     assert.deepEqual(fight.setup.waves.map(wave => wave.enemies.map(enemy => [enemy.name, enemy.boss])), [[['Bandit Captain', true]]]);
     assert.ok(ctx.chatMetadata.rpgBattle.dismissed.some(key => key.endsWith('| to the death')), 'the offer is spent');
+});
+
+test('0.5.2: the XP rate setting reaches the setup\'s XP per foe; a weak foe below level 1 is scaled and its card says so', async () => {
+    ctx.extensionSettings.rpgBattle = { ...(ctx.extensionSettings.rpgBattle ?? {}), xpRate: 2 };
+    try {
+        openChat('rate-chat', [reply(`<Party>\n${REN}\n</Party>`), userMessage('Into the ditch.'), reply('Dogs snarl.\n<Encounter>2 wolf (weak); then: wolf (trivial)</Encounter>')]);
+        hooks.update();
+        await settle();
+        let pane = drawTab('rpg-battle');
+        find(pane, '.rpg-battle-encounter-fight').click();
+        pane = drawTab('rpg-battle');
+        // Ren is level 4 (needs 100): weak is level 0 before it is held at 1 (×½), trivial −4 (×¼); ×2.
+        assert.deepEqual(findAll(pane, '.rpg-battle-enemy-power').map(node => node.textContent), ['Lv 1', 'Lv 1']);
+        assert.deepEqual(findAll(pane, '.rpg-battle-threat').map(node => node.textContent), ['weak', 'trivial']);
+        assert.deepEqual(findAll(pane, '.rpg-battle-enemy-xp').map(node => node.textContent), ['~10 XP each', '~5 XP']);
+        find(pane, '.rpg-battle-begin').click();
+        await settle();
+        const fight = ctx.chatMetadata.rpgBattle.fight;
+        assert.deepEqual(fight.setup.enemies.map(enemy => [enemy.level, enemy.scale, enemy.xpLevel, enemy.threat]), [[1, 0.88, 0, 'weak'], [1, 0.88, 0, 'weak']]);
+        assert.deepEqual(fight.setup.waves[0].enemies.map(enemy => [enemy.level, enemy.scale, enemy.xpLevel]), [[1, 0.528, -4]]);
+        pane = drawTab('rpg-battle');
+        assert.equal(find(pane, '.rpg-battle-card.is-enemy .rpg-battle-badge').textContent, 'Lv 1 · weak · skirmisher');
+    } finally {
+        ctx.extensionSettings.rpgBattle = { ...ctx.extensionSettings.rpgBattle, xpRate: 1 };
+    }
 });
 
 test('a Story Director fight carries its stakes marker too; without one the stakes are normal', async () => {
@@ -408,7 +436,7 @@ test('a plan in three stages: Fight?, the stages read-only, Start, each stage fo
         assert.equal(meta().pending.origin.index, 2);
         // Written once, into the latest reply: XP of all three stages, the loot.
         assert.match(ctx.chat[2].mes, /<Inventory>/);
-        assert.doesNotMatch(ctx.chat[2].mes, /^Level: 4 \| XP: 310\/800/m);
+        assert.doesNotMatch(ctx.chat[2].mes, /^Level: 4 \| XP: 31\/100/m);
         // The next reply narrates it, once.
         ctx.chat.push(userMessage('And then?'));
         await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
@@ -457,8 +485,8 @@ test('a plan survives a reload between stages; Fall back ends it, keeping what t
     assert.match(meta().pending.handoff, /^Fell back after the gate; the yard and the tower were not attempted\.$/m);
     assert.equal(meta().last.result.outcome, 'withdrew');
     // Stage 1's XP and loot are on the sheets and in the Inventory.
-    const xp = Number(ctx.chat[2].mes.match(/^Level: 4 \| XP: (\d+)\/800/m)?.[1]);
-    assert.ok(xp > 310, `XP ${xp}`);
+    const [, level, xp] = ctx.chat[2].mes.match(/^Level: (\d+) \| XP: (\d+)\/100/m) ?? [];
+    assert.ok(Number(level) * 100 + Number(xp) > 4 * 100 + 31, `Level ${level}, XP ${xp}`);
     assert.equal(meta().plan, null);
 }));
 

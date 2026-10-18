@@ -21,7 +21,7 @@
 // files the reader edits, so every node is filled through textContent, never innerHTML.
 //
 // Levels and XP are shown in the reader's terms (terms.js): "Soul Class III (Lv 24)" and
-// "Soul Growth 45.20/100" rather than "Level 24" and "XP 310/800", and with terms of their own
+// "Soul Growth 54/100" rather than "Level 24" and "XP 54/100", and with terms of their own
 // the enemy power picker offers their tiers (or levels) instead of F–SSS.
 //
 // A foe neither bestiary knows is made up when the fight starts (templates.js): the setup
@@ -32,7 +32,7 @@
 import { STATS, RANKS, DEFAULT_RULES, maxHp, maxMp, derive, checkModifiers } from '../rules.js';
 import { stateWords } from '../narrative.js';
 import { SLOT_NAMES, formatStats } from '../items.js';
-import { levelLabel, levelTag, levelText, progress, termsOf, xpGainText } from '../terms.js';
+import { levelTag, levelText, progress, termsOf, xpGainText } from '../terms.js';
 import { buildStats, cleanFocus, guessFocus } from '../builds.js';
 
 const ROLES = ['brute', 'skirmisher', 'caster', 'tank', 'support'];
@@ -549,7 +549,7 @@ let forgetArmed = null;
  * next time); Export and Import for the list as a JSON file.
  */
 function bestiaryFold(creatures, handlers) {
-    const rows = creatures.map(entry => {
+    const record = entry => {
         const armed = forgetArmed === entry.name;
         const meta = [str(entry.power), str(entry.role), list(entry.traits).map(str).filter(Boolean).join(', ')].filter(Boolean).join(' · ');
         const item = el('li', { className: 'rpg-battle-record rpg-battle-creature' }, [
@@ -559,6 +559,7 @@ function bestiaryFold(creatures, handlers) {
                 entry.flavoured ? null : el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-creature-plain', text: 'template', title: 'Not flavoured by the model: it fights as its template' }),
             ]),
             meta ? el('div', { className: 'rpg-battle-record-meta', text: meta }) : null,
+            str(entry.kin) ? el('div', { className: 'rpg-battle-record-meta rpg-battle-creature-kin', text: `kin of ${str(entry.kin)}` }) : null,
             str(entry.look) ? el('p', { className: 'rpg-battle-hint rpg-battle-creature-look', text: str(entry.look) }) : null,
             el('div', { className: 'rpg-battle-member-actions' }, [
                 button('Regenerate', 'rpg-battle-creature-regenerate', {
@@ -582,7 +583,13 @@ function bestiaryFold(creatures, handlers) {
         ]);
         item.dataset.creature = str(entry.name);
         return item;
-    });
+    };
+    // (0.5.2) By family ("Canines"), in the order each family first appears.
+    const families = [...new Set(creatures.map(entry => str(entry.family)))];
+    const rows = families.flatMap(family => [
+        family ? el('li', { className: 'rpg-battle-hint rpg-battle-bestiary-family', text: family }) : null,
+        ...creatures.filter(entry => str(entry.family) === family).map(record),
+    ]).filter(Boolean);
     // The file picker is hidden behind the Import button; its text goes to the glue as it is.
     const picker = el('input', { className: 'rpg-battle-bestiary-file', attrs: { type: 'file', accept: '.json,application/json', 'aria-label': 'Bestiary file to import' } });
     picker.hidden = true;
@@ -644,7 +651,8 @@ function memberCard(member, view, handlers) {
     ]);
 
     const body = el('div', { className: 'rpg-battle-member-body' }, [
-        bar('xp', growth.cur, growth.max, terms.custom ? terms.xpName : 'XP to next level', { name: terms.xpName, text: growth.capped || terms.tiers ? growth.text : null }),
+        // XP within the level against XP to the next, with tiers too (0.5.2); MAX at the cap.
+        bar('xp', growth.cur, growth.max, terms.custom ? terms.xpName : 'XP to next level', { name: terms.xpName, text: growth.capped ? growth.text : null }),
         chips(sheet.conditions),
         statGrid(sheet, member.you ? member.checks : null),
         pointsRow(member, sheet, view, handlers),
@@ -1316,13 +1324,14 @@ const STAKES = {
 const rankLevel = (rank, rules) => num(rules?.ranks?.[rank]?.level, 1);
 
 /**
- * A row's power in the reader's terms: its level ('Level 12', 'Soul Class II (Lv 11)'), or
- * its rank ('Rank D', or the rank's level with terms of their own); '' when neither is set.
+ * A row's power in the reader's terms, as a level (0.5.2: never the rank letter): 'Lv 12'
+ * with the plain terms, 'Soul Power 12', 'Soul Class II (Lv 11)'; a rank row shows the level
+ * its rank stands for. '' when neither is set.
  */
 function powerText(row, rules) {
-    if (num(row?.level, 0) >= 1) return levelText(Math.round(num(row.level)), rules);
-    if (!RANKS.includes(row?.rank)) return '';
-    return termsOf(rules).custom ? levelText(rankLevel(row.rank, rules), rules) : `Rank ${row.rank}`;
+    const level = num(row?.level, 0) >= 1 ? Math.round(num(row.level)) : RANKS.includes(row?.rank) ? rankLevel(row.rank, rules) : null;
+    if (!level) return '';
+    return termsOf(rules).custom ? levelText(level, rules) : levelTag(level, rules);
 }
 
 /** "Stage 1 of 3: the gate", or "Stage 1 of 3" for a stage the story did not name. */
@@ -1336,19 +1345,30 @@ function placeSubject(number, place) {
     return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-/** One foe line of the setup (and the next stage between stages): count, name, new, Boss, power, threat, role. */
+/**
+ * What one foe of a row is worth to your character, as the glue worked it out (row.xp: the
+ * result's formula at the XP rate): "~15 XP each", "~15 Soul Growth" for one; '' without it.
+ */
+function foeXpText(row, rules, count) {
+    if (row?.xp === null || row?.xp === undefined || row.xp === '' || !Number.isFinite(Number(row.xp))) return '';
+    return `~${Math.max(0, Math.round(num(row.xp)))} ${termsOf(rules).xpName}${count > 1 ? ' each' : ''}`;
+}
+
+/** One foe line of the setup (and the next stage between stages): count, name, new, Boss, power, threat, role, XP. */
 function enemyLine(row, rules, isNew) {
     const count = Math.min(9, Math.max(1, Math.round(num(row.count, 1))));
     const power = powerText(row, rules);
     const role = ROLES.includes(row.role) ? row.role : '';
+    const worth = foeXpText(row, rules, count);
     return el('li', { className: 'rpg-battle-enemy-row' }, [
         el('span', { className: 'rpg-battle-enemy-count', text: `${count} ×` }),
         el('span', { className: 'rpg-battle-enemy-name', text: str(row.name) }),
-        isNew(row.name) ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-new', text: 'new', title: 'Not in the bestiary: made up from its name when the fight starts' }) : null,
+        isNew(row.name) ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-new', text: 'new', title: str(row.kin) ? `Not in the bestiary: made up as kin of ${str(row.kin)} when the fight starts` : 'Not in the bestiary: made up from its name when the fight starts' }) : null,
         row.boss ? el('span', { className: 'rpg-battle-tag rpg-battle-boss', text: 'Boss' }) : null,
         power ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-enemy-power', text: power }) : null,
         str(row.threat) ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-threat', text: str(row.threat), title: 'How dangerous the story says it is, beside the power it means for your level' }) : null,
         role ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-enemy-role', text: role }) : null,
+        worth ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-enemy-xp', text: worth, title: 'What one is worth to your character if defeated, at your XP rate' }) : null,
     ]);
 }
 
@@ -1465,9 +1485,11 @@ function combatantCard(unit, { turnId, pick, onPick, rules = DEFAULT_RULES }) {
     if (pickable) classes.push('is-pickable');
     const badges = [];
     if (isEnemy) {
-        // With the reader's terms an enemy's power is told as theirs ("Soul Class II"), not F–SSS.
-        const power = termsOf(rules).custom && num(unit.level, 0) >= 1 ? levelLabel(unit.level, rules) : unit.rank;
-        const rankRole = [power, unit.role].filter(Boolean).join(' · ');
+        // (0.5.2) Its level in the reader's terms ("Lv 3", "Soul Power 3", "Soul Class I")
+        // rather than the rank letter, and the story's threat word when its row had one: the
+        // level (and, below level 1, the scale) the word set is what makes it easy or hard.
+        const power = num(unit.level, 0) >= 1 ? levelTag(Math.round(num(unit.level)), rules) : unit.rank;
+        const rankRole = [power, str(unit.threat), unit.role].filter(Boolean).join(' · ');
         if (rankRole) badges.push(el('span', { className: 'rpg-battle-badge', text: rankRole }));
         if (unit.boss) badges.push(el('span', { className: 'rpg-battle-badge is-boss' }, [icon('fa-crown'), el('span', { text: 'boss' })]));
         // Made up from its name for this fight (templates.js); its look, when the model gave one.
@@ -1801,13 +1823,12 @@ function renderResult(root, view, handlers) {
     if (party.length) root.append(partyAfter(party, stages.length ? 'After the plan' : 'After the fight'));
 
     // XP, level-ups and points: per member when the glue gives a map, else one line for the PC.
-    // In the reader's terms: "Soul Growth +12%" with tiers (the share of each member's tier).
+    // In the reader's terms: "Soul Growth +30" (0.5.2: XP, with tiers too, at the XP rate).
     const rules = view.rules ?? DEFAULT_RULES;
     const terms = termsOf(rules);
     const xp = result.xp && typeof result.xp === 'object' ? result.xp : {};
     const xpRows = [];
-    const levelOf = memberId => party.find(member => member.memberId === memberId)?.level;
-    const gains = Object.entries(xp).map(([memberId, value]) => [memberId, num(value), xpGainText(value, levelOf(memberId), rules)]);
+    const gains = Object.entries(xp).map(([memberId, value]) => [memberId, num(value), xpGainText(value)]);
     if (gains.length && gains.every(([, value, text]) => value === gains[0][1] && text === gains[0][2])) {
         if (gains[0][1] > 0) xpRows.push([terms.xpName, `${gains[0][2]}${gains.length > 1 ? ' each' : ''}`]);
     } else {

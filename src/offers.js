@@ -19,9 +19,9 @@ import { xpGainText, xpLabel } from './terms.js';
 
 const sameKey = (a, b) => String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
 
-/** "+25 XP", "Soul Growth +3%": what an award of `share` is worth to your character, in the reader's terms. */
+/** "XP +25", "Soul Growth +25": what an award of `share` is worth to your character (at the XP rate), in the reader's terms. */
 function xpText(share, pc, rules) {
-    return `${xpLabel(rules)} ${xpGainText(xpAward(share, pc.level, rules), pc.level, rules)}`;
+    return `${xpLabel(rules)} ${xpGainText(xpAward(share, pc.level, rules))}`;
 }
 
 /**
