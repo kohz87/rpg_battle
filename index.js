@@ -66,7 +66,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.4';
+const VERSION = '0.5.5';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -1000,7 +1000,14 @@ async function writeResult(result, stakes) {
     const r = rules();
     const own = settings();
     const sheet = currentSheet();
-    const report = { levelsGained: 0, pointsGained: 0, levelsReached: 0 };
+    const report = { levelsGained: 0, pointsGained: 0, levelsReached: 0, masteryUps: [] };
+    // Skills that reached a new mastery, for the result screen: { memberId, name, skill, level }.
+    const noteMastery = (memberId, name, applied) => {
+        for (const skill of applied.masteryGained) {
+            const level = applied.sheet.skills.find(entry => entry.name === skill)?.mastery ?? 2;
+            report.masteryUps.push({ memberId, name, skill, level });
+        }
+    };
     try {
         let pc = sheet;
         // Mastery progress is on the sheets (their Skills lines), so it is written with the rest
@@ -1010,12 +1017,17 @@ async function writeResult(result, stakes) {
             report.levelsGained = applied.levelsGained;
             report.pointsGained = applied.pointsGained;
             report.levelsReached = applied.levelsGained ? applied.sheet.level : 0;
+            noteMastery('pc', sheet.name, applied);
             pc = applied.sheet;
             // Lost to the death: the story of this character ends. The sheet says so (the State
             // line reads "dead"), so a swipe or a deleted reply takes it back with the rest.
             if (stakes === 'death' && result.outcome === 'defeat') pc = { ...pc, hp: { ...pc.hp, cur: 0 }, conditions: [{ name: DEAD, rounds: null }] };
         }
-        const raised = currentParty().map(member => ({ ...member, sheet: applyResult(member.sheet, member.id, result, r).sheet }));
+        const raised = currentParty().map(member => {
+            const applied = applyResult(member.sheet, member.id, result, r);
+            noteMastery(member.id, member.name, applied);
+            return { ...member, sheet: applied.sheet };
+        });
         // Companions on auto spend what a level gave them, by build (the setting allowing).
         const members = settleCompanions(raised, { autoSpend: own.autoSpend !== false, rules: r });
         if (pc || members.length) await writeSheets(pc, members);
@@ -2099,7 +2111,7 @@ function battleView() {
     if (state.plan?.status === 'between') return betweenView(state.plan, r);
     if (screen.mode === 'result' && state.last) {
         const money = state.last.result?.loot?.money ?? 0;
-        return { mode: 'result', nextMoves: nextMovesFor(state.last), result: state.last.result, handoff: state.last.handoff, levelsGained: state.last.levelsGained, pointsGained: state.last.pointsGained, levelsReached: state.last.levelsReached ?? 0, moneyText: money ? formatMoney(money, r.currency) : '', rules: r };
+        return { mode: 'result', nextMoves: nextMovesFor(state.last), result: state.last.result, handoff: state.last.handoff, levelsGained: state.last.levelsGained, pointsGained: state.last.pointsGained, levelsReached: state.last.levelsReached ?? 0, masteryUps: state.last.masteryUps ?? [], moneyText: money ? formatMoney(money, r.currency) : '', rules: r };
     }
     const sheet = currentSheet();
     if (screen.mode === 'setup' && sheet) {

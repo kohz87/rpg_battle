@@ -692,6 +692,26 @@ function pointsRow(member, sheet, view, handlers) {
 }
 
 /**
+ * A skill's mastery and its fight uses toward the next (0.5.5), from the sheet's progress:
+ * "Lv 2 · 3/12", "Lv 5 · max". The title says it in words.
+ */
+function masteryTag(skill, sheet, rules) {
+    const max = Math.max(1, num(rules.masteryMax, 5));
+    const level = Math.min(max, Math.max(1, num(skill.mastery, 1)));
+    const needed = num(list(rules.masteryUses)[level], 0);
+    if (level >= max) return el('span', { className: 'rpg-battle-tag rpg-battle-mastery is-max', text: `Lv ${level} · max`, attrs: { title: `${skill.name ?? 'This skill'} is fully mastered` } });
+    const uses = sheet?.uses && typeof sheet.uses === 'object' ? sheet.uses : {};
+    const key = Object.keys(uses).find(name => sameName(name, skill.name));
+    const done = Math.max(0, Math.round(num(key ? uses[key] : 0, 0)));
+    if (!(needed > 0)) return el('span', { className: 'rpg-battle-tag rpg-battle-mastery', text: `Lv ${level}` });
+    return el('span', {
+        className: 'rpg-battle-tag rpg-battle-mastery',
+        text: `Lv ${level} · ${Math.min(done, needed)}/${needed}`,
+        attrs: { title: `Used ${done} of ${needed} times in fights toward Lv ${level + 1}` },
+    });
+}
+
+/**
  * The skills on a card: the ones in use with "Set aside", the ones set aside with "Use" (not
  * while the member already uses as many as the rules allow). Resolved skills when the glue
  * sends them (type, MP, mastery), else the sheet's names.
@@ -708,7 +728,7 @@ function cardSkills(member, id, view, handlers) {
         el('div', { className: 'rpg-battle-record-head' }, [
             icon(TYPE_ICONS[skill.type] ?? 'fa-star'),
             el('span', { className: 'rpg-battle-record-name', text: skill.name ?? '' }),
-            el('span', { className: 'rpg-battle-tag', text: `Lv ${num(skill.mastery, 1)}` }),
+            masteryTag(skill, member.sheet, rules),
             isAside
                 ? button('Use', 'rpg-battle-skill-use', { iconName: 'fa-arrow-up', disabled: active.length >= cap, title: active.length >= cap ? `Already ${cap} in use: set one aside first` : `Use ${skill.name} in fights`, onClick: () => emit(handlers, 'onSetSkillActive', id, skill.name, true) })
                 : button('Set aside', 'rpg-battle-skill-aside', { iconName: 'fa-arrow-down', title: `Keep ${skill.name} but leave it out of fights`, onClick: () => emit(handlers, 'onSetSkillActive', id, skill.name, false) }),
@@ -1850,6 +1870,11 @@ function renderResult(root, view, handlers) {
         const memberLevels = perMember(view.levelsGained, member.memberId);
         const memberPoints = perMember(view.pointsGained, member.memberId);
         if (memberLevels) xpRows.push([`${member.name ?? ''}`, `+${memberLevels} ${memberLevels === 1 ? 'level' : 'levels'}${reached(member.memberId)}${memberPoints ? `, ${memberPoints} points to spend` : ''}`]);
+    }
+    // Skills that reached a new mastery in this fight (0.5.5): "Power Strike Lv 2 · Lyra's Mend Lv 3".
+    const masteryUps = list(view.masteryUps).filter(up => up && str(up.skill));
+    if (masteryUps.length) {
+        xpRows.push(['Mastery', masteryUps.map(up => `${up.memberId && up.memberId !== 'pc' && str(up.name) ? `${str(up.name)}'s ` : ''}${str(up.skill)} Lv ${num(up.level, 2)}`).join(' · ')]);
     }
     const xpFacts = facts(xpRows, 'rpg-battle-gains');
     if (xpFacts) root.append(section('is-gains', [sub('Gains', 'fa-arrow-trend-up'), xpFacts]));
