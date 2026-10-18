@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
     DEFAULT_RULES, RANKS, STATS, checkModifier, checkModifiers, derive, fleeChance, hitChance, makeRules,
     maxHp, maxMp, mitigate, parleyChance, rarityBudget, suggestRank, xpFactor, xpToNext,
-    XP_RATE, clampXpRate, scaleXp, threatStep,
+    XP_RATE, clampXpRate, scaleXp, threatForGap, threatStep,
 } from '../src/rules.js';
 
 test('makeRules merges objects deeply and replaces arrays', () => {
@@ -67,15 +67,18 @@ test('hit, mitigation, flee and parley are bounded', () => {
 });
 
 test('XP factor and rarity budgets', () => {
-    // (0.5.2) ×2 per threat step (4 levels) above, ½ per step below, within 0.1–4.
+    // (0.5.3) A fixed factor per band of the level gap, in plain levels.
     assert.equal(xpFactor(5, 5), 1);
+    assert.equal(xpFactor(5, 8), 1, '+3 is still even');
     assert.equal(xpFactor(1, 5), 2);
+    assert.equal(xpFactor(1, 8), 2, '+7 is still strong');
     assert.equal(xpFactor(1, 9), 4);
     assert.equal(xpFactor(5, 1), 0.5);
     assert.equal(xpFactor(1, -7), 0.25, 'a level below 1 (a threat word\'s, before it was held at 1) counts');
     assert.equal(xpFactor(1, 30), 4);
-    assert.equal(xpFactor(30, 1), 0.1);
-    assert.equal(xpFactor(1, 3, makeRules({ threat: { step: 2 } })), 2, 'the step is rules.threat.step');
+    assert.equal(xpFactor(30, 1), 0.25);
+    assert.deepEqual([8, 4, 0, -4, -8].map(gap => threatForGap(gap)), ['deadly', 'strong', 'even', 'weak', 'trivial']);
+    assert.deepEqual([7, 3, -3, -7].map(gap => threatForGap(gap)), ['strong', 'even', 'even', 'weak']);
     assert.equal(rarityBudget('common', 4), 4);
     assert.equal(rarityBudget('legendary', 5), 22);
     assert.equal(rarityBudget('nonsense', 4), 4);
@@ -93,11 +96,11 @@ test('the XP rate (0.5.2): 1 by default, 0.25 to 5 on steps of 0.05; scaleXp rou
     assert.equal(scaleXp(30), 30);
 });
 
-test('threatStep: rules.threat.step, or one tier with tier titles on', () => {
+test('threatStep: rules.threat.step, plain levels even with tier titles on (0.5.3)', () => {
     assert.equal(threatStep(DEFAULT_RULES), 4);
     assert.equal(threatStep(makeRules({ threat: { step: 2 } })), 2);
-    assert.equal(threatStep(makeRules({ terms: { tiers: { size: 10 } } })), 10);
-    assert.equal(threatStep(makeRules({ terms: { tiers: { size: 10, enabled: false } } })), 4);
+    assert.equal(threatStep(makeRules({ terms: { tiers: { size: 10 } } })), 4);
     const tiers = makeRules({ terms: { tiers: { size: 10 } } });
-    assert.equal(xpFactor(1, 11, tiers), 2, 'with tiers a tier up is ×2');
+    assert.equal(xpFactor(1, 5, tiers), 2, 'with tiers too, +4 levels is strong');
+    assert.equal(xpFactor(1, 11, tiers), 4, 'a tier up is deadly');
 });

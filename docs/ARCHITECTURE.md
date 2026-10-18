@@ -118,7 +118,7 @@ mdef, crit }`, `checkModifier(stat, rules)`, `checkModifiers(stats, rules)`, `xp
 rules)`, `hitChance(dex, agi, rules)`, `mitigate(raw, defence)`, `xpFactor(memberLevel,
 enemyLevel, rules)`, `suggestRank(level, rules)`, `fleeChance(partyAgi, enemyAgi, { boss }, rules)`,
 `parleyChance(cha, morale, hpShare, rules)`, `rarityBudget(rarity, level, rules)`; (0.5.2)
-`threatStep(rules)` (levels per threat step: the tier size with tier titles, else `threat.step`),
+`threatStep(rules)` (levels per threat step: `threat.step`, plain levels also with tier titles, 0.5.3), `threatForGap(gap, rules)` (0.5.3: the band name of a level gap), `xpFactor` by `xp.bands` (0.5.3),
 `XP_RATE = { min: 0.25, max: 5, step: 0.05, default: 1 }`, `clampXpRate(value)`,
 `scaleXp(xp, rules)` (× `rules.xpRate`, rounded, ≥ 1 from ≥ 1). `xpFactor` (0.5.2) is
 2 ^ ((enemy − member) / threatStep) within `xp.minFactor`–`xp.maxFactor`; `DEFAULT_RULES.xp =
@@ -131,8 +131,8 @@ severe: 0.5, grievous: 0.8 }` is the share of max HP each story-wound word takes
 `DEFAULT_RULES.terms = { levelName: 'Level', xpName: 'XP', tiers: null, cap: null }` (DESIGN §5.7).
 
 `DEFAULT_RULES.threat = { step: 4, offsets: { trivial: -2, weak: -1, even: 0, strong: 1, deadly: 2 },
-perLevelBelowOne: 0.88, minScale: 0.35 }` (encounter threat words, in steps; a step is a tier with
-tier titles on; 0.5.2: the scale below level 1, story.threatPower). `DEFAULT_RULES.generated`
+perLevelBelowOne: 0.88, minScale: 0.35 }` (encounter threat words, in steps of plain levels, 0.5.3;
+0.5.2: the scale below level 1, story.threatPower). `DEFAULT_RULES.generated`
 holds every number of a made-up creature (DESIGN §7.4): `traits` (multipliers), `modMin`/`modMax`,
 `temperaments` ({ morale, fleesBelow }), `moralePerRank`, `leaderMorale`, `leaderFleesBelow`,
 `effectRounds`, `skillPower`, `stunCooldown`, `extraSkillLevel`, `materialChance`, `gearChance`,

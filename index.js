@@ -40,7 +40,7 @@
 // reader's source-of-truth choices decide whether Story Block's Character Sheet is pointed out
 // as a second HP; alone, nothing changes.
 
-import { DEFAULT_RULES, checkModifiers, clampXpRate, makeRules, suggestRank } from './src/rules.js';
+import { DEFAULT_RULES, checkModifiers, clampXpRate, makeRules, suggestRank, threatForGap } from './src/rules.js';
 import { hashSeed, makeRng } from './src/rng.js';
 import { DEFAULT_SKILLS, findSkill, resolveSkills, skillFromTemplate } from './src/skills.js';
 import { DEFAULT_BESTIARY, findCreature } from './src/enemies.js';
@@ -65,7 +65,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.2';
+const VERSION = '0.5.3';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -611,7 +611,8 @@ function setupRows(rows, sheet, r, bestiary) {
             rank: level ? null : row.rank ?? creature?.rank ?? null,
             role: row.role || creature?.role || kind?.role || TEMPLATES[kind?.template]?.role || null,
             boss: Boolean(row.boss),
-            ...(row.threat ? { threat: row.threat } : {}),
+            // A foe with a level of its own gets the threat its gap to you is (0.5.3).
+            ...(row.threat ? { threat: row.threat } : Number(foe?.level) >= 1 ? { threat: threatForGap(foe.level - sheet.level, r) } : {}),
             ...(foe ? { xp: foeXpWorth(foe, sheet.level, r) } : {}),
             ...(kin ? { kin } : {}),
             ...(row.wave ? { wave: row.wave } : {}),
@@ -658,7 +659,9 @@ function fightSetup(rows, { id, party, stakes, fresh = [] }) {
     if (!all.length) throw new Error('Name at least one enemy.');
     // Engagements after the first ("then:") join as waves once the field is clear: one battle,
     // HP and MP as they stand, one result.
-    const { enemies, waves } = engagements(all);
+    // A foe without a threat word shows the one its level gap to you is (0.5.3).
+    const graded = all.map(enemy => (enemy.threat || !(Number(enemy.level) >= 1) || !sheet ? enemy : { ...enemy, threat: threatForGap(enemy.level - sheet.level, r) }));
+    const { enemies, waves } = engagements(graded);
     const setup = { id, seed, party, enemies, ...(waves.length ? { waves } : {}), stakes: stakes === 'death' ? 'death' : 'normal' };
     startFight({ ...setup, rules: r });
     return setup;

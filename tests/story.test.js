@@ -221,7 +221,7 @@ test('parseEncounter: a threat word in brackets or before the name, kept only wi
     assert.deepEqual(THREATS, ['trivial', 'weak', 'even', 'strong', 'deadly']);
 });
 
-test('threatLevel: the party\'s level plus steps of rules.threat; a step is a tier with tier titles on', async () => {
+test('threatLevel: the party\'s level plus steps of rules.threat, in plain levels also with tier titles on', async () => {
     const { DEFAULT_RULES, makeRules } = await import('../src/rules.js');
     const step = DEFAULT_RULES.threat.step;
     assert.equal(threatLevel('even', 10), 10);
@@ -232,7 +232,7 @@ test('threatLevel: the party\'s level plus steps of rules.threat; a step is a ti
     assert.equal(threatLevel('trivial', 3), 1, 'never below level 1');
     assert.equal(threatLevel('nonsense', 10), null);
     const soul = makeRules({ terms: { levelName: 'Soul Class', tiers: { size: 10 }, cap: 50 } });
-    assert.equal(threatLevel('strong', 24, soul), 34, 'one tier up');
+    assert.equal(threatLevel('strong', 24, soul), 28, 'four levels up, not a tier (0.5.3)');
     assert.equal(threatLevel('deadly', 45, soul), 50, 'never past the cap');
     assert.equal(threatLevel('strong', 10, makeRules({ threat: { step: 2 } })), 12);
     // Rows: a threat becomes a level, kept beside it; written powers stay as they are.
@@ -451,10 +451,11 @@ test('threatPower: below level 1 the level stays 1, a scale shrinks the foe and 
     assert.deepEqual(threatPower('strong', 1), { level: 5, scale: 1, xpLevel: 5 });
     assert.equal(threatPower('nonsense', 1), null);
     assert.equal(threatPower('trivial', 1, makeRules({ threat: { perLevelBelowOne: 0.5 } })).scale, 0.35, 'never below minScale');
-    // With tier titles a step is a tier, and the shortfall is counted in plain steps: the same scale.
+    // With tier titles a step is still 4 plain levels (0.5.3): the same numbers.
     const soul = makeRules({ terms: { levelName: 'Soul Class', tiers: { size: 10 } } });
-    assert.deepEqual(threatPower('weak', 1, soul), { level: 1, scale: 0.6, xpLevel: -9 });
-    assert.deepEqual(threatPower('trivial', 1, soul), { level: 1, scale: 0.36, xpLevel: -19 });
+    assert.deepEqual(threatPower('weak', 1, soul), { level: 1, scale: 0.6, xpLevel: -3 });
+    assert.deepEqual(threatPower('trivial', 1, soul), { level: 1, scale: 0.36, xpLevel: -7 });
+    assert.deepEqual(threatPower('strong', 1, soul), { level: 5, scale: 1, xpLevel: 5 });
 });
 
 test('resolveThreats: only rows whose level came from a threat word get a scale', () => {

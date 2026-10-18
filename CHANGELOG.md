@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.3
+
+- **Threat in plain levels, never tiers.** With tier titles on, a threat step was a whole tier: a *strong* foe for a Soul Class I (Lv 1) party was Soul Class II (Lv 11), and *deadly* two tiers up. A step is now always 4 plain levels: *strong* is +4, *deadly* +8, *weak* −4, *trivial* −8, with or without tiers.
+- **Fixed bands for XP.** The level gap (foe − member) falls in a band with a fixed factor, instead of a smooth ×2 per 4 levels: +8 or more deadly ×4 (40 XP), +4 to +7 strong ×2 (20), −3 to +3 even ×1 (10), −4 to −7 weak ×½ (5), −8 or less trivial ×¼ (3). `xp.bands` and `xp.below` in rules; `minFactor`/`maxFactor` are gone.
+- **A foe with a level of its own shows its threat.** A bestiary creature, a planned fight or a row with a written level gets the band its gap to your character is, on the setup and its fight card ("Lv 9 · deadly").
+
 ## 0.5.2
 
 XP counted per level, an XP rate setting, threat words that work at low levels, and kin.

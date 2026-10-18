@@ -538,13 +538,12 @@ export function threatPower(threat, partyLevel, rules = DEFAULT_RULES) {
     const offset = Number(t.offsets?.[threat]);
     if (!Number.isFinite(offset)) return null;
     const terms = termsOf(rules);
-    const plainStep = Math.max(1, Number(t.step) || DEFAULT_RULES.threat.step);
     const step = threatStep(rules);
     const base = Math.max(1, Math.round(Number(partyLevel) || 1));
     const raw = Math.round(base + offset * step);
     const level = Math.min(terms.cap, Math.max(1, raw));
     if (raw >= 1) return { level, scale: 1, xpLevel: level };
-    const short = ((1 - raw) * plainStep) / step;
+    const short = 1 - raw;
     const per = Number(t.perLevelBelowOne);
     const floor = Number(t.minScale);
     const scale = Math.max(Number.isFinite(floor) ? floor : DEFAULT_RULES.threat.minScale, (Number.isFinite(per) ? per : DEFAULT_RULES.threat.perLevelBelowOne) ** short);
