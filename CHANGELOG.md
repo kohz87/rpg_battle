@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.6
+
+- **Set-aside skills fold away.** A card's set-aside skills sit in a **Set aside** fold with their count, closed until you open it (remembered per member while you play), so a long list does not crowd the card.
+- **Swap in.** At the cap of skills in use, a set-aside skill's **Use** was greyed out until you set another aside first. It is now **Swap in**: it lists the skills in use (with their mastery) and swaps the one you pick in a single click.
+- **Forget.** A set-aside skill can be forgotten (the eraser; it asks twice): it leaves the sheet with its mastery and progress, and learning it again starts at Lv 1. Written into the latest reply like any sheet change, so deleting or swiping that reply brings it back.
+
 ## 0.5.5
 
 - **Skill mastery you can see.** Skills grew with use (5 uses to Lv 2, then 12, 22 and 35), but the Party tab showed only "Lv 2" and nothing said when a skill went up. Each skill on a card now shows its uses toward the next level, `Lv 2 · 3/12` (`Lv 5 · max`; the tooltip says "Used 3 of 12 times in fights toward Lv 3"), and the result screen's Gains has a **Mastery** row naming every skill, yours and your companions', that reached a new level in the fight (`Sidestep Cut Lv 2 · Lyra's Mend Lv 3`).

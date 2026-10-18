@@ -479,6 +479,25 @@ test('learnSkill at the cap asks which to set aside; setSkillActive swaps within
     assert.equal(learnSkill(sheet, 'mend', { rules: two }).skills.length, 3, 'known: nothing changes');
 });
 
+test('setSkillActive swaps one in for a skill in use at the cap; forgetSkill drops it with its progress (0.5.6)', async () => {
+    const { setSkillActive, forgetSkill } = await import('../src/sheet.js');
+    const two = makeRules({ character: { activeSkills: 2 } });
+    let sheet = newSheet({ name: 'Ren', stats: { STR: 10 }, skills: ['Power Strike', 'Sweep'] }, two);
+    sheet = learnSkill(sheet, 'Mend', { rules: two, setAside: 'mend' });
+    sheet = { ...sheet, uses: { Mend: 3, Sweep: 2 } };
+    const swapped = setSkillActive(sheet, 'Mend', true, two, { swapOut: 'sweep' });
+    assert.deepEqual(swapped.skills.map(skill => [skill.name, Boolean(skill.aside)]), [['Power Strike', false], ['Mend', false], ['Sweep', true]]);
+    assert.throws(() => setSkillActive(sheet, 'Mend', true, two, { swapOut: 'Nope' }), /set one aside first/);
+    assert.throws(() => setSkillActive(sheet, 'Mend', true, two, { swapOut: 'Mend' }), /set one aside first/, 'only a skill in use can make room');
+
+    const forgot = forgetSkill(swapped, 'sweep');
+    assert.deepEqual(forgot.skills.map(skill => skill.name), ['Power Strike', 'Mend']);
+    assert.deepEqual(forgot.uses, { Mend: 3 }, 'its progress goes with it');
+    assert.deepEqual(swapped.uses, { Mend: 3, Sweep: 2 }, 'the old sheet is untouched');
+    assert.throws(() => forgetSkill(forgot, 'Sweep'), /do not know/);
+    assert.equal(learnSkill(forgot, 'Sweep', { rules: two, setAside: 'Sweep' }).skills.find(skill => skill.name === 'Sweep').mastery, 1, 'learned again: Lv 1');
+});
+
 // ---------------------------------------------------------------------------------------
 // Mastery progress in the block (0.4.1): written next to each skill, so it rolls back with
 // the reply that holds the block, like everything else on the sheet.
