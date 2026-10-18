@@ -23,14 +23,14 @@ import { creatureSingular } from './templates.js';
 
 /**
  * What the model is told every reply while you have a character (index.js injects it at
- * depth 1, apart from the fight hand-off). It is paid for on every reply, so it stays near 170
+ * depth 1, apart from the fight hand-off). It is paid for on every reply, so it stays near 185
  * tokens (tests/story.test.js holds it there): the hidden blocks by example, each only when
  * the story makes it true, and the judgement calls (which wound word, which threat word, a fight
  * to the death or not, how big an achievement). "Stop at the first blow" leaves the fight itself to RPG Battle, so the
  * prose does not resolve what the buttons are about to. Every block is only an offer: the
  * reader accepts it or not.
  */
-export const STORY_INSTRUCTION = 'Hidden blocks, only when the story makes them true (not for an RPG Battle fight). Someone on the Party sheet hurt or healed: <Wounds>, a line each, Name — scratch|wound|severe|grievous: cause (or heal wound, or poisoned; mildest fitting word). A fight starts: <Encounter>3 wolf (weak); then: wolf matriarch (boss, strong)</Encounter> (threat vs party: trivial|weak|even|strong|deadly; | to the death if defeat is death), then stop at the first blow. Also: <Joins>Lyra — healer, level 6</Joins>, <Leaves>Lyra: went home</Leaves>, <Learned>Lyra — Frost Lance: ice magic, hits all</Learned>, <XP>minor|major|milestone: why</XP>, <Rest>short|long: why</Rest> when the party rests.';
+export const STORY_INSTRUCTION = 'Hidden blocks, only when the story makes them true (not for an RPG Battle fight). Someone on the Party sheet hurt or healed: <Wounds>, a line each, Name — scratch|wound|severe|grievous: cause (or heal wound, or poisoned; mildest fitting word). A fight starts: <Encounter>3 wolf (weak); then: wolf matriarch (boss, strong)</Encounter> (then: more foes join; then at <place>: next fight, elsewhere; threat vs party: trivial|weak|even|strong|deadly; | to the death if defeat is death), then stop at the first blow. Also: <Joins>Lyra — healer, level 6</Joins>, <Leaves>Lyra: went home</Leaves>, <Learned>Lyra — Frost Lance: ice magic, hits all</Learned>, <XP>minor|major|milestone: why</XP>, <Rest>short|long: why</Rest> when the party rests.';
 
 // Mildest first, so "the worst word mentioned" is the one with the highest index.
 export const SEVERITIES = Object.freeze(['scratch', 'wound', 'severe', 'grievous']);
@@ -326,6 +326,9 @@ function parseGroup(raw, bestiary, rules) {
         });
         return ' ';
     }).replace(/\s+/g, ' ').trim();
+    // A colon never belongs in a name: "inside the den: old dog wolf", "round 3: 2 wolf" (a
+    // place or a note the stage marks did not take) leave only what follows it.
+    text = text.replace(/^.*:\s*/, '').trim();
     text = text.replace(/\brank\s+(sss|ss|s|a|b|c|d|e|f)\b/i, (_, value) => {
         rank = value.toUpperCase();
         return ' ';
@@ -364,24 +367,56 @@ function parseGroup(raw, bestiary, rules) {
     return row;
 }
 
-/**
- * An encounter as setup rows: "3 bandit, bandit captain (boss)" → [{ name: 'Bandit', count: 3,
- * rank: null, role: null, boss: false }, { name: 'Bandit Captain', count: 1, …, boss: true }].
- * Groups are separated by commas, semicolons, new lines or "and"; each is
- * `[N ×|N x|N ]name[ (boss)][ rank X][ role]` (also "a"/"two"… and "name ×3"). A plural is
- * made singular when the singular is a bestiary creature; rank and role only when written.
- * A power written in brackets in the reader's terms ("3 wolf (Soul Class I)", "bandit captain
- * (boss, Soul Class II)", "(level 12)") adds `level` to the row (only then). A threat word in
- * brackets or before the name ("(weak)", "(boss, strong)", "3 deadly wyverns") adds `threat`
- * ('trivial' | 'weak' | 'even' | 'strong' | 'deadly'), only when no rank or level is written.
- * `then:` before a group starts the next engagement ("3 bandit; then: bandit captain (boss)"):
- * its rows and the ones after carry `wave` (1, 2, at most 3), fought back to back. What follows
- * a bar on a line is the fight's, not a foe (parseStakes).
- */
-export function parseEncounter(text, bestiary = DEFAULT_BESTIARY, rules = DEFAULT_RULES) {
+// A plan (0.5): a place after "then" and before a colon starts the next stage, a separate
+// fight somewhere else: "then at the yard:", "then inside the den:", "then across the ford:",
+// "then the tower:" (also "then, …" and "and then …", any case). Models write any place phrase,
+// so the rule is the shape, not the preposition: a prefix of one to MAX_PLACE_WORDS words with
+// no digit. A leading "at" is dropped from the name ("the yard"); any other word stays ("inside
+// the den"). The same prefix before the first group names stage 1. A plain "then:" stays a wave
+// of the same stage, and so does a "then …:" whose prefix cannot be a place (a digit, too long).
+const STAGE_MARK = /(?<![^\s,;])(?:and\s+)?then\b\s*,?\s*([^:;,\n()[\]]*?)\s*:/gi;
+const FIRST_PLACE = /^[\s,;]*(?:[-*•]\s*)?([^:;,\n()[\]]+?)\s*:\s*/;
+const MAX_PLACE_WORDS = 6;
+// A plan of more fights than this is cut there: each stage is a whole fight to play.
+const MAX_STAGES = 5;
+const MAX_PLACE = 40;
+
+const tidyPlace = text => clean(text).replace(/^[\s"'“”‘’]+|[\s"'“”‘’:,.;]+$/g, '').slice(0, MAX_PLACE).trim() || null;
+/** Whether a prefix before a colon can be a place: some words, not too many, no digit. */
+function isPlace(prefix) {
+    const words = clean(prefix).split(' ').filter(Boolean);
+    return words.length >= 1 && words.length <= MAX_PLACE_WORDS && !/\d/.test(prefix);
+}
+/** The place a prefix names: "at the gate" → "the gate"; "inside the den" as written. */
+const placeOf = prefix => tidyPlace(clean(prefix).replace(/^at\s+/i, ''));
+// A stage's own words for the reader ("3 guard (even)"): its groups, separators tidied.
+const stageWords = text => clean(String(text ?? '').split(/\r?\n/).map(line => line.trim()).filter(Boolean).join('; '))
+    .replace(/^(?:[\s,;]|and\b|&|\+)+|(?:[\s,;]|\band|&|\+)+$/gi, '').trim();
+
+/** The foes-only text cut at its stage marks: [{ place, text }], stage 1 first. */
+function stageTexts(text) {
+    const foes = foesOnly(text);
+    const parts = [];
+    let start = 0;
+    let place = null;
+    for (const mark of foes.matchAll(STAGE_MARK)) {
+        // "then:" or "then round 3:": a wave of this stage (the prefix is dropped with the rest).
+        if (!isPlace(mark[1])) continue;
+        parts.push({ place, text: foes.slice(start, mark.index) });
+        place = placeOf(mark[1]);
+        start = mark.index + mark[0].length;
+    }
+    parts.push({ place, text: foes.slice(start) });
+    const first = parts[0].text.match(FIRST_PLACE);
+    if (first && isPlace(first[1])) parts[0] = { place: placeOf(first[1]), text: parts[0].text.slice(first[0].length) };
+    return parts;
+}
+
+/** One stage's groups as rows, `wave` counted within the stage. */
+function stageRows(text, bestiary, rules) {
     const rows = [];
     // "(boss, rank D)" is one group's note, so separators inside brackets are kept for it.
-    const guarded = foesOnly(text).replace(/[([][^)\]]*[)\]]/g, inside => inside.replace(/[,;]/g, '\u0001'));
+    const guarded = String(text ?? '').replace(/[([][^)\]]*[)\]]/g, inside => inside.replace(/[,;]/g, '\u0001'));
     let wave = 0;
     for (const raw of guarded.split(/\r?\n|[,;]|\s+(?:and|&|\+)\s+/i)) {
         // "then:" starts the next engagement, fought straight after this one.
@@ -399,28 +434,87 @@ export function parseEncounter(text, bestiary = DEFAULT_BESTIARY, rules = DEFAUL
 }
 
 /**
- * An encounter's stakes, from the story: 'death' when a line ends with `| to the death` (also
- * `| death`, `| stakes: death`, any case), else 'normal' (defeat means the story decides).
+ * An encounter as its stages (0.5): [{ place, text, rows }], one per stage with foes, in order.
+ * Without stage marks there is one stage (place null unless "at <place>:" opens the text),
+ * its rows exactly as parseEncounter gives them. With two or more, each is a separate fight of
+ * a plan, somewhere else ("at the gate: 2 guard; then at the yard: 3 guard"), and every row
+ * carries `stage` (1, 2, …, at most MAX_STAGES); its `wave` counts within its stage. `text` is
+ * the stage's own words, for the reader. A stage that names no foe is left out.
  */
-/** What the story's fight says, for the offer line: each line without its `| …` notes (the stakes are shown on their own). */
+export function parsePlan(text, bestiary = DEFAULT_BESTIARY, rules = DEFAULT_RULES) {
+    const stages = stageTexts(text)
+        .map(part => ({ place: part.place, text: stageWords(part.text), rows: stageRows(part.text, bestiary, rules) }))
+        .filter(stage => stage.rows.length)
+        .slice(0, MAX_STAGES);
+    if (stages.length > 1) stages.forEach((stage, index) => stage.rows.forEach(row => { row.stage = index + 1; }));
+    return stages;
+}
+
+/**
+ * An encounter as setup rows: "3 bandit, bandit captain (boss)" → [{ name: 'Bandit', count: 3,
+ * rank: null, role: null, boss: false }, { name: 'Bandit Captain', count: 1, …, boss: true }].
+ * Groups are separated by commas, semicolons, new lines or "and"; each is
+ * `[N ×|N x|N ]name[ (boss)][ rank X][ role]` (also "a"/"two"… and "name ×3"). A plural is
+ * made singular when the singular is a bestiary creature; rank and role only when written.
+ * A power written in brackets in the reader's terms ("3 wolf (Soul Class I)", "bandit captain
+ * (boss, Soul Class II)", "(level 12)") adds `level` to the row (only then). A threat word in
+ * brackets or before the name ("(weak)", "(boss, strong)", "3 deadly wyverns") adds `threat`
+ * ('trivial' | 'weak' | 'even' | 'strong' | 'deadly'), only when no rank or level is written.
+ * `then:` before a group starts the next engagement ("3 bandit; then: bandit captain (boss)"):
+ * its rows and the ones after carry `wave` (1, 2, at most 3), fought back to back. What follows
+ * a bar on a line is the fight's, not a foe (parseStakes). (0.5) `then at <place>:` starts the
+ * next stage of a plan: the rows carry `stage` (parsePlan has the places).
+ */
+export function parseEncounter(text, bestiary = DEFAULT_BESTIARY, rules = DEFAULT_RULES) {
+    return parsePlan(text, bestiary, rules).flatMap(stage => stage.rows);
+}
+
+/** A place for a sentence: "the gate", or "here" for a stage the story did not name. */
+export function placeName(place) {
+    return String(place ?? '').trim() || 'here';
+}
+
+/**
+ * What the story's fight says, for the offer line: each line without its `| …` notes (the
+ * stakes are shown on their own); (0.5) a plan as "A plan in 3 stages: the gate, the yard,
+ * the tower".
+ */
 export function encounterSummary(text) {
+    const stages = parsePlan(text);
+    if (stages.length > 1) return `A plan in ${stages.length} stages: ${stages.map(stage => placeName(stage.place)).join(', ')}`;
     return String(text ?? '').split(/\r?\n/).map(line => line.split('|')[0].trim()).filter(Boolean).join('; ');
 }
 
+/**
+ * An encounter's stakes, from the story: 'death' when a line ends with `| to the death` (also
+ * `| death`, `| stakes: death`, any case), else 'normal' (defeat means the story decides). A
+ * plan's stakes are the whole plan's.
+ */
 export function parseStakes(text) {
     const notes = String(text ?? '').split(/\r?\n/).flatMap(line => line.split('|').slice(1));
     return notes.some(note => DEATH_MARK.test(note)) ? 'death' : 'normal';
 }
 
 /**
- * The fight to build, from the offer Fight? opened ({ rows, stakes }, parsed from the story),
- * never from what the Battle tab sends: { rows, stakes } as copies, stakes 'death' or
- * 'normal'. Without a story's rows it refuses, since fights come from the story.
+ * The fight to build, from the offer Fight? opened ({ rows, stakes, stages? }, parsed from the
+ * story), never from what the Battle tab sends: { rows, stakes } as copies, stakes 'death' or
+ * 'normal'. Without a story's rows it refuses, since fights come from the story. (0.5) Rows
+ * of two or more stages (`stage`) are a plan: `stages: [{ place, text, rows }]` in order, the
+ * places and words from the offer's `stages` ([{ place, text }], by stage number).
  */
 export function storyFight(offer) {
     const rows = (Array.isArray(offer?.rows) ? offer.rows : []).filter(row => row && String(row.name ?? '').trim());
     if (!rows.length) throw new Error('Fights come from the story: fight one it offers.');
-    return { rows: rows.map(row => ({ ...row })), stakes: offer.stakes === 'death' ? 'death' : 'normal' };
+    const fight = { rows: rows.map(row => ({ ...row })), stakes: offer.stakes === 'death' ? 'death' : 'normal' };
+    const numbers = [...new Set(fight.rows.map(row => Number(row.stage)).filter(value => Number.isInteger(value) && value >= 1))].sort((a, b) => a - b);
+    if (numbers.length < 2 || fight.rows.some(row => !(Number(row.stage) >= 1))) return fight;
+    const meta = Array.isArray(offer.stages) ? offer.stages : [];
+    fight.stages = numbers.map(number => ({
+        place: tidyPlace(meta[number - 1]?.place ?? '') ?? null,
+        text: String(meta[number - 1]?.text ?? '').trim(),
+        rows: fight.rows.filter(row => Number(row.stage) === number),
+    }));
+    return fight;
 }
 
 /**

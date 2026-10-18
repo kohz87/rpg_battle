@@ -893,6 +893,45 @@
     margin-top: 0.4rem;
 }
 
+/* A plan's stages (0.5): each a fight of its own, its engagements under its title. */
+.rpg-battle-tab .rpg-battle-stage + .rpg-battle-stage {
+    margin-top: 0.6rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--rb-border);
+}
+
+.rpg-battle-tab .rpg-battle-stage-title {
+    margin: 0 0 0.2rem;
+    font-weight: 600;
+    opacity: 0.9;
+}
+
+.rpg-battle-tab .rpg-battle-between-cleared {
+    margin: 0.2rem 0;
+    font-size: 1.05em;
+}
+
+.rpg-battle-tab .rpg-battle-between-next {
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.rpg-battle-tab .rpg-battle-stages {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 0.9em;
+    overflow-wrap: anywhere;
+}
+
+.rpg-battle-tab .rpg-battle-stage-line.is-not-reached,
+.rpg-battle-tab .rpg-battle-stage-line.is-not-attempted {
+    opacity: 0.65;
+}
+
 .rpg-battle-tab .rpg-battle-stakes {
     padding: 0.45rem 0.55rem;
     border: 1px solid var(--rb-border);

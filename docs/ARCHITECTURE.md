@@ -27,6 +27,7 @@ src/builds.js     (0.4) open-ended builds: focus, spreading  tests/builds.test.j
 src/growth.js     (0.4) XP awards, auto-spend                tests/growth.test.js
 src/kit.js        (0.4) a companion's starting skills        tests/kit.test.js
 src/partyfile.js  (0.4) party export / import, cleaned       tests/partyfile.test.js
+src/plan.js       (0.5) plans: fights in stages              tests/plan.test.js
 src/terms.js      display terms: level/XP names, tiers, cap tests/terms.test.js
 src/templates.js  creatures made up from their names        tests/templates.test.js, tests/balance.test.js
 src/flavour.js    the flavour call's prompt, parse, mapping tests/flavour.test.js
@@ -385,7 +386,7 @@ The model's two optional hidden blocks (DESIGN §4.2, §8.6), read leniently (bu
 en or em dash or a spaced hyphen, any case); never throws.
 
 ```js
-export const STORY_INSTRUCTION: string       // the always-on instruction, every hidden block (0.4.2: ≈ 169 tokens with `| to the death`; tests hold it ≤ 170)
+export const STORY_INSTRUCTION: string       // the always-on instruction, every hidden block (0.4.2: ≈ 169 tokens with `| to the death`; 0.5: ≈ 185 with `then at <place>:`, tests hold it ≤ 185)
 export const SEVERITIES = ['scratch', 'wound', 'severe', 'grievous']   // mildest first
 export function parseWounds(text) → [{ name, kind: 'harm' | 'heal' | 'condition' | 'cure', severity?, condition?, cause }]
     // `Name — scratch|wound|severe|grievous: cause` harm (the worst severity word in a short
@@ -605,6 +606,10 @@ other modes, and a pane's events redraw that pane (the other tab may have drawn 
 | `offer` | `{ encounter: { text, label, rows, stakes } \| null, pending }` (0.4.2: *To the death* said as `.rpg-battle-encounter-stakes`) | `onFightEncounter()` (0.4.2: no arguments; the glue opens the offer it parsed), `onDismissEncounter()` |
 | `setup` (0.4.2) | `{ rows: [{ name, count, level \| null, rank \| null, role \| null, boss, threat?, wave? }], stakes: 'normal' \| 'death', known: [names and aliases], preparing: [names] \| null, rules }`: read-only, no inputs; per engagement (`.rpg-battle-engagement`, a `.rpg-battle-wave` heading when more than one) a line per row: `.rpg-battle-enemy-count` (`3 ×`), `-name`, `.rpg-battle-new` (not in `known`), `.rpg-battle-boss`, `-power` (a level as `levelText`; a rank as `Rank D`, or its level's `levelText` with custom terms), `.rpg-battle-threat`, `-role`; the stakes as text (`.rpg-battle-stakes.is-normal\|is-death`); while `preparing`, Start is disabled and the summary reads *Preparing foes: …*; no rows: a notice and Not now only | `onStart()` (no arguments), `onDismissEncounter()` (Not now) |
 | `result` (0.4.2) | as in 0.3 | `onReturn()`, `onDone()` (no Discard: the result always reaches the story) |
+| `setup` (0.5) | also `stages: [{ place }] \| null`: with two or more, rows carry `stage` (1…) and are grouped per stage (`.rpg-battle-stage`, titled `.rpg-battle-stage-title` *Stage 1 of 3: the gate*, or *Stage 1 of 3*), each stage's engagements under it; the summary starts *3 stages, …* | as above |
+| `between` (0.5) | `{ total, cleared: { number, place, rounds }, next: { number, place, text, rows } \| null, party: [Result party entry], stakes, known, busy?, rules }`: `.rpg-battle-between-cleared` *The gate is cleared (3 rounds).*, `.rpg-battle-between-next` *Next: the yard — 3 guard (even)*, the party's bars (*The party now*), the next stage's rows as in the setup, a hint, the death stakes when so; exactly two buttons, `.rpg-battle-fall-back` *Fall back* and `.rpg-battle-go-on` *Go on* (both disabled while `busy`) | `onGoOn()`, `onFallBack()` (no arguments) |
+| `result` (0.5) | a plan's result also has `stages: [{ number, place, outcome \| null, rounds }]` and `withdrew`: a *Stages* section (`.rpg-battle-stage-line`: *Stage 1, the gate: victory in 3 rounds*, *defeated after N rounds*, *escaped after N rounds*, *not reached*, after Fall back *not attempted*) above the totals; the time line reads *8 rounds in 3 stages · about 48 seconds*; outcome `withdrew` is titled *Fell back*; the party section *After the plan* | as above |
+| `offer` (0.5) | `encounter.stages` (a plan's `[{ place, text }]`): the line is the summary itself (*A plan in 3 stages: the gate, the yard, the tower*), with `.rpg-battle-encounter-stages` | as above |
 | `idle` (0.4.2) | also `narrating` (boolean): `pending` is set only while the hand-off is waiting; while it is being narrated a quiet `.rpg-battle-narrating` line | as above |
 
 The 0.3 table below still describes `fight` and `items`; its `setup` and `result` rows are
@@ -917,3 +922,97 @@ export function npcRenames(members, profiles, { seen, done, pcName }) → { rena
   template. A coinless foe drops no money and its first material is at least
   `rules.loot.coinlessMaterial` (85) % likely. `rollLoot` with no `luck` now uses the start stat
   (`Number(null)` was read as luck 0).
+
+## As built (0.5.0)
+
+- **Plans: fights in stages.** `story.parsePlan(text, bestiary, rules) → [{ place, text, rows }]`
+  cuts the foes-only text at its stage marks (`then <place>:`, also `then, …`, `and then …`, any
+  case, after a separator or a space, where `<place>` is one to `MAX_PLACE_WORDS` (6) words with
+  no digit: `then at the yard:`, `then inside the den:`, `then the tower:`; a leading `at` is
+  dropped from the name, other words kept; the same prefix before the first group names stage 1;
+  `then:` or a `then …:` prefix that is no place is a wave; `parseGroup` drops anything up to a
+  colon from a name, so no foe's name holds one),
+  parses each stage as before (`then:` waves counted within the stage, at most 3), drops stages
+  without foes, keeps at most 5 (`MAX_STAGES`) and, with two or more, puts `stage` (1…) on every
+  row. `parseEncounter` is its rows flattened, so text without marks reads exactly as 0.4.3 (an
+  `at <place>:` alone only loses its place). `text` is the stage's own words (`3 guard (even)`).
+  `encounterSummary` gives *A plan in 3 stages: the gate, the yard, the tower* (an unnamed stage
+  is *here*); `placeName(place)`; `parseStakes` is the whole plan's. `storyFight(offer)` adds
+  `stages: [{ place, text, rows }]` when the rows carry two or more stages (places and words from
+  `offer.stages`, by number); without them its result is as before.
+
+```js
+// src/plan.js (pure)
+Plan = { id, stakes, origin, stages: [{ place, text, rows }], fresh: [names], at, status: 'fighting' | 'between',
+         done: [{ fightId, place, result }], carry: [Combatant] | null }
+export function stageId(planId, index) → 'plan-x-1' …
+export function newPlan({ id, stakes, stages, fresh, origin }) → Plan     // at 0, fighting; stages without rows dropped
+export function cleanPlan(value) → Plan | null                            // a stored plan, checked (≥ 2 stages, status, at)
+export function carryParty(fight) → [Combatant]                            // party combatants as the fight ended (HP, MP,
+    // cooldowns, conditions, items left), copied; gone 'down' at 0 HP else null; controller as in fight.setup.party
+    // (an Auto in one stage does not carry over)
+export function stageDone(plan, fight, result) → { plan, ended: null | 'victory' | 'defeat' | 'fled' }
+    // won with a stage to come: status 'between', carry; else ended (the plan's done holds every stage fought)
+export function nextStage(plan) → plan                                     // Go on: at + 1, fighting; throws when none
+export function planResult(plan, outcome) → Result & { plan: true, stages: [{ number, place, outcome | null, rounds }], notReached: [place], withdrew }
+    // outcome 'victory' | 'defeat' | 'fled' | 'withdrew'; xp, uses, itemsUsed summed; loot merged (only won stages have
+    // any); rounds and seconds summed; party, HP/MP/conditions from the last stage fought; enemies, defeated, fled,
+    // parleyed concatenated; keyMoments: up to floor(6 / stages fought) from each, at most 6
+```
+
+```js
+// src/handoff.js
+export function buildPlanHandoff(result, { names, currency, stakes, pcName, rules }) → string
+    // HANDOFF_HEADER; per stage fought 'Stage 1, the gate: victory in 3 rounds.' | 'Stage 2, the yard: escaped after
+    // 2 rounds.' | 'Stage 2, the yard: defeated — the story decides what follows (captured, robbed, left for dead).'
+    // (to the death: '… defeated — Ren is killed. Ren is dead and does not come back; narrate the death, not a rescue.');
+    // unnamed: 'Stage 2: …'. Then 'Not reached: the tower. Do not narrate it.' ('…, … Do not narrate them.') or, when
+    // withdrew, 'Fell back after the gate; the yard and the tower were not attempted.' Then the status lines (end
+    // state), key moments, parley / fled, and 'Loot: … XP …' when any stage was won.
+```
+
+- **index.js.** Chat state gains `plan` (`holding(cleanPlan(…))`: tied to `plan.origin` like a
+  fight; `settlePending` clears it with its fight once that reply is gone). `underWay(state)` (a
+  fight or a plan) replaces `state.fight` wherever a battle holds things back: the story
+  instruction and the token estimate, the after-reply pipeline, Undo, encounter offers, the
+  party's offers, NPC renames, migration and rewriting in new terms, `battleOn`; the Battle tab's
+  badge counts a plan. `encounterParts(text)` → `{ rows, stages }` (`parsePlan` + `resolveThreats`;
+  `stages` the places and words of a plan, else null) for the toast and `encounterOffer` (offers
+  carry `stages`); `offerLine(text)` is the toast's line (a plan's summary as is, else *A fight is
+  starting: …*). `fightEncounter` keeps `screen.stages`; `onStart` passes `{ rows, stages, stakes }`
+  to `storyFight`, and `prepareAndStart` makes and flavours the foes of every stage first, then
+  `startPlan` (two or more stages) or `startNewFight`. `startNewFight` is split into
+  `partyFromSheets`, `fightSetup(rows, { id, party, stakes, fresh })` and `startingPoint()` (origin
+  and `foughtAt`); `startPlan` stores `plan` and stage 1's fight (`stageId`, the plan's origin).
+  `finishFight` sends a plan's stage to `finishStage`: `stageDone` → between (fight cleared, plan
+  saved, nothing written) or `endPlan(plan, ended)`. `goOnPlan` (`onGoOn`) starts the next stage
+  with `plan.carry` as its party (a stage with nobody left to command is fought out at once);
+  `fallBackPlan` (`onFallBack`) is `endPlan(plan, 'withdrew')`. `endPlan` clears the plan,
+  `planResult`, then the same `writeResult(result, stakes)` a fight uses (applyResult per member,
+  auto-spend, `dead` after a defeat to the death, fallen companions, `useItems`, `addLoot` of any
+  loot), `buildPlanHandoff`, and `resultReady` (pending with the plan's origin, `last`, the result
+  screen). While its end is written `ending = { chatId, fight | null, plan }` keeps the tab (after
+  Fall back a `between` view with `busy`). `battleView` gives `between` (`betweenView(plan)`) while
+  `plan.status === 'between'`; the setup view has `stages`; `setupRows` keeps `stage`.
+  `battleKey` adds the plan's id, stage, status and stages done.
+- **A fight's hand-off origin** is read before the fight is cleared (it was read after and fell
+  back to `foughtAt`'s index).
+- **Offers go back with their reply.** Chat state `dismissedAt: { [key]: { index, date, swipe } }`
+  (`fightOrigin` of the reply at the key's leading index) is written beside `dismissed` by
+  `awayChange` (`dismissEncounter`, `putAway`); `chatState` drops a key whose record no longer
+  `originHolds`, so an identical reply sent again in that place is offered again (keys without a
+  record, from older chats, stay). `foughtAt` gains `origin` and reads as null once it no longer
+  holds. `last` gains `origin` and is read through `holding`, so a rolled-back result is not
+  shown. `opening` offers' `done` is unchanged.
+- **Narrating replies are remembered.** Chat state `narrated: [{ index, date, swipe }]` (the last
+  30): `noteNarrated` adds `fightOrigin` of `pending.attachedTo` once that reply is in
+  (`settlePending`, and `handoffFor` before it spends a hand-off). `narratesAt(state, chat,
+  index)` (the pending is attached there, or a record that still `originHolds`) replaces
+  `pending.attachedTo === index` for `storyOffers`' `narrating` and the after-reply pipeline's
+  wounds and encounter toast.
+- **Boss loot:** `rollLoot` rolls a boss's table `rules.loot.bossRolls` times as before, but
+  material rows only on the first roll (one creature, one set of body parts); equipment and
+  consumable rows keep the extra rolls; money as before. A non-boss's draws are unchanged.
+  `enemies.wholePart(name)` (the material's last word, singular or plural: pelt, hide, skin,
+  head, heart, carapace, shell, horn, antler, tail, jaw, skull, eye) caps that material's
+  quantity at 1 per creature; the quantity is still drawn (`rng.int`), so later draws stay put.

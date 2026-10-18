@@ -3,9 +3,9 @@
 //
 // One entry point, `renderBattleTab(pane, view, handlers)`, draws whichever mode the glue
 // asks for: the Party tab's create, idle (the party cards and what the story offers them),
-// spend, learn, companion and items; the Battle tab's offer, setup, fight and result (see
-// docs/ARCHITECTURE.md), and reports what the reader chose through `handlers`. It owns no
-// game state: every number
+// spend, learn, companion and items; the Battle tab's offer, setup, fight, between (a plan's
+// stages, 0.5) and result (see docs/ARCHITECTURE.md), and reports what the reader chose
+// through `handlers`. It owns no game state: every number
 // arrives in `view`, and every decision leaves through a handler. What it does keep is the
 // reader's half-finished input (a character being made, points being placed, the enemy
 // rows of a setup, the action picked but not yet aimed), in module-level drafts, because
@@ -46,7 +46,7 @@ const NEW_ASIDE = '\u0000new';
 const LOG_LINES = 8;
 // Which tab a mode belongs to: the Party tab (always there) or the Battle tab (while there is a battle).
 const PARTY_MODES = ['create', 'idle', 'spend', 'learn', 'companion', 'items'];
-const BATTLE_MODES = ['offer', 'setup', 'fight', 'result'];
+const BATTLE_MODES = ['offer', 'setup', 'fight', 'between', 'result'];
 
 // What each stat does, in a few words, for the reader building a character.
 const STAT_HINTS = {
@@ -85,6 +85,7 @@ const OUTCOME_TITLES = {
     victory: 'Victory',
     defeat: 'Defeated',
     fled: 'Escaped',
+    withdrew: 'Fell back',
 };
 
 // ---------------------------------------------------------------------------
@@ -1324,6 +1325,51 @@ function powerText(row, rules) {
     return termsOf(rules).custom ? levelText(rankLevel(row.rank, rules), rules) : `Rank ${row.rank}`;
 }
 
+/** "Stage 1 of 3: the gate", or "Stage 1 of 3" for a stage the story did not name. */
+function stageTitle(number, total, place) {
+    return `Stage ${number} of ${total}${str(place) ? `: ${str(place)}` : ''}`;
+}
+
+/** A place as a sentence's subject: "The gate", or "Stage 2" for a stage the story did not name. */
+function placeSubject(number, place) {
+    const text = str(place) || `stage ${number}`;
+    return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** One foe line of the setup (and the next stage between stages): count, name, new, Boss, power, threat, role. */
+function enemyLine(row, rules, isNew) {
+    const count = Math.min(9, Math.max(1, Math.round(num(row.count, 1))));
+    const power = powerText(row, rules);
+    const role = ROLES.includes(row.role) ? row.role : '';
+    return el('li', { className: 'rpg-battle-enemy-row' }, [
+        el('span', { className: 'rpg-battle-enemy-count', text: `${count} ×` }),
+        el('span', { className: 'rpg-battle-enemy-name', text: str(row.name) }),
+        isNew(row.name) ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-new', text: 'new', title: 'Not in the bestiary: made up from its name when the fight starts' }) : null,
+        row.boss ? el('span', { className: 'rpg-battle-tag rpg-battle-boss', text: 'Boss' }) : null,
+        power ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-enemy-power', text: power }) : null,
+        str(row.threat) ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-threat', text: str(row.threat), title: 'How dangerous the story says it is, beside the power it means for your level' }) : null,
+        role ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-enemy-role', text: role }) : null,
+    ]);
+}
+
+/** Rows in their engagements, in order ("then:"), each fought once the one before is done. */
+function engagementGroups(rows, rules, isNew) {
+    const waves = [...new Set(rows.map(row => num(row.wave, 0)))].sort((a, b) => a - b);
+    return waves.map((wave, index) => el('div', { className: 'rpg-battle-engagement' }, [
+        waves.length > 1 ? el('p', { className: 'rpg-battle-hint rpg-battle-wave', text: index ? `Then, engagement ${index + 1}` : 'Engagement 1' }) : null,
+        el('ul', { className: 'rpg-battle-enemy-rows' }, rows.filter(row => num(row.wave, 0) === wave).map(row => enemyLine(row, rules, isNew))),
+    ]));
+}
+
+/** Whether a name is new: neither bestiary knows it (`known`: names and aliases), so it is made up. */
+function newChecker(knownNames) {
+    const known = new Set(list(knownNames).map(name => str(name).toLowerCase().replace(/\s+/g, ' ')).filter(Boolean));
+    return name => {
+        const wanted = str(name).toLowerCase().replace(/\s+/g, ' ');
+        return Boolean(wanted) && !known.has(wanted) && !known.has(wanted.replace(/\s*(?:#?\d+|\b[a-z])$/, ''));
+    };
+}
+
 /**
  * The setup is the story's engagement as it will be fought, read-only: per engagement each
  * line's count, name (tagged new when it is made up when the fight starts), power, role, the
@@ -1334,11 +1380,7 @@ function renderSetup(root, view, handlers) {
     const rules = view.rules ?? DEFAULT_RULES;
     const rows = list(view.rows).filter(row => str(row?.name));
     // A name neither bestiary knows will be made up when the fight starts.
-    const known = new Set(list(view.known).map(name => str(name).toLowerCase().replace(/\s+/g, ' ')).filter(Boolean));
-    const isNew = name => {
-        const wanted = str(name).toLowerCase().replace(/\s+/g, ' ');
-        return Boolean(wanted) && !known.has(wanted) && !known.has(wanted.replace(/\s*(?:#?\d+|\b[a-z])$/, ''));
-    };
+    const isNew = newChecker(view.known);
     const preparing = list(view.preparing).map(str).filter(Boolean);
     const dismiss = button('Not now', 'rpg-battle-encounter-dismiss', { iconName: 'fa-xmark', onClick: () => emit(handlers, 'onDismissEncounter') });
     if (!rows.length) {
@@ -1349,26 +1391,16 @@ function renderSetup(root, view, handlers) {
         return;
     }
 
-    const line = row => {
-        const count = Math.min(9, Math.max(1, Math.round(num(row.count, 1))));
-        const power = powerText(row, rules);
-        const role = ROLES.includes(row.role) ? row.role : '';
-        return el('li', { className: 'rpg-battle-enemy-row' }, [
-            el('span', { className: 'rpg-battle-enemy-count', text: `${count} ×` }),
-            el('span', { className: 'rpg-battle-enemy-name', text: str(row.name) }),
-            isNew(row.name) ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-new', text: 'new', title: 'Not in the bestiary: made up from its name when the fight starts' }) : null,
-            row.boss ? el('span', { className: 'rpg-battle-tag rpg-battle-boss', text: 'Boss' }) : null,
-            power ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-enemy-power', text: power }) : null,
-            str(row.threat) ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-threat', text: str(row.threat), title: 'How dangerous the story says it is, beside the power it means for your level' }) : null,
-            role ? el('span', { className: 'rpg-battle-tag is-quiet rpg-battle-enemy-role', text: role }) : null,
-        ]);
-    };
-    // Engagements in order ("then:"), each fought once the one before is done.
-    const waves = [...new Set(rows.map(row => num(row.wave, 0)))].sort((a, b) => a - b);
-    const groups = waves.map((wave, index) => el('div', { className: 'rpg-battle-engagement' }, [
-        waves.length > 1 ? el('p', { className: 'rpg-battle-hint rpg-battle-wave', text: index ? `Then, engagement ${index + 1}` : 'Engagement 1' }) : null,
-        el('ul', { className: 'rpg-battle-enemy-rows' }, rows.filter(row => num(row.wave, 0) === wave).map(line)),
-    ]));
+    // A plan (0.5): its stages in order, each a fight of its own somewhere else, its waves
+    // grouped under it; otherwise the engagements as before.
+    const places = list(view.stages);
+    const numbers = [...new Set(rows.map(row => num(row.stage, 0)))].sort((a, b) => a - b);
+    const groups = places.length > 1 && numbers.every(number => number >= 1)
+        ? numbers.map(number => el('div', { className: 'rpg-battle-stage' }, [
+            el('p', { className: 'rpg-battle-hint rpg-battle-stage-title', text: stageTitle(number, places.length, places[number - 1]?.place) }),
+            ...engagementGroups(rows.filter(row => num(row.stage, 0) === number), rules, isNew),
+        ]))
+        : engagementGroups(rows, rules, isNew);
 
     const total = rows.reduce((sum, row) => sum + Math.min(9, Math.max(1, Math.round(num(row.count, 1)))), 0);
     const fresh = rows.filter(row => isNew(row.name)).length;
@@ -1377,13 +1409,13 @@ function renderSetup(root, view, handlers) {
         attrs: { 'aria-live': 'polite' },
         text: preparing.length
             ? `Preparing foes: ${preparing.join(', ')}…`
-            : `${total} ${total === 1 ? 'enemy' : 'enemies'}.${fresh ? ` ${fresh} new, made up from ${fresh === 1 ? 'its name' : 'their names'} when the fight starts.` : ''}`,
+            : `${places.length > 1 ? `${places.length} stages, ` : ''}${total} ${total === 1 ? 'enemy' : 'enemies'}.${fresh ? ` ${fresh} new, made up from ${fresh === 1 ? 'its name' : 'their names'} when the fight starts.` : ''}`,
     });
     const stakes = view.stakes === 'death' ? 'death' : 'normal';
     root.append(
         section('is-setup', [
             sub('Enemies', 'fa-skull'),
-            el('p', { className: 'rpg-battle-hint rpg-battle-prefill-hint', text: 'As the story gave it: fight it, or put it away.' }),
+            el('p', { className: 'rpg-battle-hint rpg-battle-prefill-hint', text: places.length > 1 ? 'As the story gave it: a fight at each stage, the party carrying its hurts from one to the next. Fight it, or put it away.' : 'As the story gave it: fight it, or put it away.' }),
             ...groups,
         ]),
         el('p', { className: `rpg-battle-section rpg-battle-stakes is-${stakes}`, text: STAKES[stakes] }),
@@ -1705,6 +1737,38 @@ function perMember(value, memberId) {
     return null;
 }
 
+/** The party as a fight (or a stage) left it: HP and MP bars, conditions, who is down. */
+function partyAfter(party, title) {
+    return section('is-after', [
+        sub(title, 'fa-heart-pulse'),
+        el('ul', { className: 'rpg-battle-records' }, party.map(member => {
+            const item = el('li', { className: `rpg-battle-record rpg-battle-after${member.down ? ' is-down' : ''}` }, [
+                el('div', { className: 'rpg-battle-record-head' }, [
+                    el('span', { className: 'rpg-battle-record-name', text: member.name ?? '' }),
+                    member.down ? el('span', { className: 'rpg-battle-badge is-gone', text: 'down' }) : null,
+                ]),
+                bar('hp', member.hp?.cur, member.hp?.max, `${member.name ?? ''} HP`),
+                bar('mp', member.mp?.cur, member.mp?.max, `${member.name ?? ''} MP`),
+                chips(member.conditions),
+            ]);
+            if (member.memberId) item.dataset.memberId = member.memberId;
+            return item;
+        })),
+    ]);
+}
+
+/** "Stage 1, the gate: victory in 3 rounds", "Stage 3, the tower: not reached". */
+function stageLine(stage, withdrew = false) {
+    const place = str(stage?.place);
+    const head = `Stage ${num(stage?.number, 1)}${place ? `, ${place}` : ''}`;
+    const rounds = num(stage?.rounds);
+    const count = `${rounds} ${rounds === 1 ? 'round' : 'rounds'}`;
+    if (stage?.outcome === 'victory') return `${head}: victory in ${count}`;
+    if (stage?.outcome === 'defeat') return `${head}: defeated after ${count}`;
+    if (stage?.outcome === 'fled') return `${head}: escaped after ${count}`;
+    return `${head}: ${withdrew ? 'not attempted' : 'not reached'}`;
+}
+
 function renderResult(root, view, handlers) {
     const result = view.result;
     if (!result) {
@@ -1715,30 +1779,26 @@ function renderResult(root, view, handlers) {
     const rounds = num(result.rounds);
     const seconds = num(result.seconds);
 
+    const fought = list(result.stages).filter(stage => stage?.outcome).length;
     root.append(section(`is-outcome is-${outcome}`, [
         el('h3', { className: `rpg-battle-outcome is-${outcome}`, text: OUTCOME_TITLES[outcome] ?? outcome }),
-        el('p', { className: 'rpg-battle-hint', text: `${rounds} ${rounds === 1 ? 'round' : 'rounds'} · about ${seconds} seconds${result.stakes === 'death' ? ' · to the death' : ''}` }),
+        el('p', { className: 'rpg-battle-hint', text: `${rounds} ${rounds === 1 ? 'round' : 'rounds'}${fought ? ` in ${fought} ${fought === 1 ? 'stage' : 'stages'}` : ''} · about ${seconds} seconds${result.stakes === 'death' ? ' · to the death' : ''}` }),
     ]));
 
-    const party = list(result.party);
-    if (party.length) {
-        root.append(section('is-after', [
-            sub('After the fight', 'fa-heart-pulse'),
-            el('ul', { className: 'rpg-battle-records' }, party.map(member => {
-                const item = el('li', { className: `rpg-battle-record rpg-battle-after${member.down ? ' is-down' : ''}` }, [
-                    el('div', { className: 'rpg-battle-record-head' }, [
-                        el('span', { className: 'rpg-battle-record-name', text: member.name ?? '' }),
-                        member.down ? el('span', { className: 'rpg-battle-badge is-gone', text: 'down' }) : null,
-                    ]),
-                    bar('hp', member.hp?.cur, member.hp?.max, `${member.name ?? ''} HP`),
-                    bar('mp', member.mp?.cur, member.mp?.max, `${member.name ?? ''} MP`),
-                    chips(member.conditions),
-                ]);
-                if (member.memberId) item.dataset.memberId = member.memberId;
-                return item;
-            })),
+    // A plan's stages (0.5), each with how it went; the sections below are the totals.
+    const stages = list(result.stages);
+    if (stages.length) {
+        root.append(section('is-stages', [
+            sub('Stages', 'fa-route', stages.length),
+            el('ul', { className: 'rpg-battle-stages' }, stages.map(stage => el('li', {
+                className: `rpg-battle-stage-line is-${str(stage.outcome) || (result.withdrew ? 'not-attempted' : 'not-reached')}`,
+                text: stageLine(stage, result.withdrew),
+            }))),
         ]));
     }
+
+    const party = list(result.party);
+    if (party.length) root.append(partyAfter(party, stages.length ? 'After the plan' : 'After the fight'));
 
     // XP, level-ups and points: per member when the glue gives a map, else one line for the PC.
     // In the reader's terms: "Soul Growth +12%" with tiers (the share of each member's tier).
@@ -1812,6 +1872,45 @@ function renderResult(root, view, handlers) {
 }
 
 // ---------------------------------------------------------------------------
+// between: a plan's stage cleared, the next one ahead (0.5)
+
+/**
+ * Between a plan's stages: the stage just cleared, the party as it stands (nothing healed
+ * between stages), the next stage as it will be fought, read-only; Go on or Fall back, nothing
+ * else. Both send nothing: the glue goes on with the plan it stored.
+ */
+function renderBetween(root, view, handlers) {
+    const rules = view.rules ?? DEFAULT_RULES;
+    const cleared = view.cleared ?? {};
+    const next = view.next ?? null;
+    const total = Math.max(1, Math.round(num(view.total, 1)));
+    const number = Math.max(1, Math.round(num(cleared.number, 1)));
+    const rounds = num(cleared.rounds);
+    const nextName = next ? str(next.place) || `stage ${num(next.number, number + 1)}` : '';
+    root.append(section('is-between', [
+        sub(`Stage ${number} of ${total}`, 'fa-flag-checkered'),
+        el('h3', { className: 'rpg-battle-between-cleared', text: `${placeSubject(number, cleared.place)} is cleared (${rounds} ${rounds === 1 ? 'round' : 'rounds'}).` }),
+        next ? el('p', { className: 'rpg-battle-between-next', text: `Next: ${nextName}${str(next.text) ? ` — ${str(next.text)}` : ''}` }) : null,
+    ]));
+    const party = list(view.party);
+    if (party.length) root.append(partyAfter(party, 'The party now'));
+    if (next) {
+        const rows = list(next.rows).filter(row => str(row?.name));
+        root.append(section('is-setup is-next', [
+            sub(stageTitle(num(next.number, number + 1), total, next.place), 'fa-skull'),
+            ...engagementGroups(rows, rules, newChecker(view.known)),
+        ]));
+    }
+    root.append(el('p', { className: 'rpg-battle-hint rpg-battle-between-hint', text: 'Nothing heals between stages: HP, MP and conditions carry over, and whoever is down stays down. Fall back ends the plan here, keeping what the cleared stages gave.' }));
+    if (view.stakes === 'death') root.append(el('p', { className: 'rpg-battle-section rpg-battle-stakes is-death', text: STAKES.death }));
+    const busy = Boolean(view.busy);
+    root.append(el('div', { className: 'rpg-battle-actions is-end' }, [
+        button('Fall back', 'rpg-battle-fall-back', { iconName: 'fa-rotate-left', disabled: busy, onClick: () => { if (!busy) emit(handlers, 'onFallBack'); } }),
+        button('Go on', 'rpg-battle-primary rpg-battle-go-on', { iconName: 'fa-forward', disabled: busy, onClick: () => { if (!busy) emit(handlers, 'onGoOn'); } }),
+    ]));
+}
+
+// ---------------------------------------------------------------------------
 // offer: a fight the story starts (the Battle tab's first screen)
 
 /**
@@ -1827,13 +1926,16 @@ function renderOffer(root, view, handlers) {
         return;
     }
     const waves = [...new Set(list(encounter.rows).map(row => num(row.wave, 0)))].sort((a, b) => a - b);
+    // A plan (0.5): its summary is the line ("A plan in 3 stages: the gate, the yard, the tower").
+    const stages = list(encounter.stages).length;
     root.append(el('div', { className: 'rpg-battle-notice is-encounter', attrs: { role: 'status' } }, [
         el('div', { className: 'rpg-battle-notice-text' }, [
             icon('fa-dragon'),
-            el('span', { className: 'rpg-battle-encounter-text', text: `A fight is starting: ${str(encounter.summary) || str(encounter.text)}` }),
+            el('span', { className: 'rpg-battle-encounter-text', text: stages > 1 ? str(encounter.summary) || str(encounter.text) : `A fight is starting: ${str(encounter.summary) || str(encounter.text)}` }),
         ]),
         str(encounter.label) ? el('p', { className: 'rpg-battle-hint rpg-battle-encounter-label', text: str(encounter.label) }) : null,
-        waves.length > 1 ? el('p', { className: 'rpg-battle-hint rpg-battle-encounter-waves', text: `${waves.length} engagements, fought back to back: HP, MP and conditions carry over between them.` }) : null,
+        stages > 1 ? el('p', { className: 'rpg-battle-hint rpg-battle-encounter-stages', text: `${stages} fights, one after another in different places: HP, MP and conditions carry over, and between them you go on or fall back.` }) : null,
+        stages < 2 && waves.length > 1 ? el('p', { className: 'rpg-battle-hint rpg-battle-encounter-waves', text: `${waves.length} engagements, fought back to back: HP, MP and conditions carry over between them.` }) : null,
         encounter.stakes === 'death' ? el('p', { className: 'rpg-battle-hint rpg-battle-encounter-stakes is-death', text: STAKES.death }) : null,
         view.pending ? el('p', { className: 'rpg-battle-hint', text: 'The last fight\'s result is still to be narrated.' }) : null,
         el('div', { className: 'rpg-battle-actions' }, [
@@ -1856,6 +1958,7 @@ const RENDERERS = {
     companion: renderCompanion,
     setup: renderSetup,
     fight: renderFight,
+    between: renderBetween,
     result: renderResult,
 };
 

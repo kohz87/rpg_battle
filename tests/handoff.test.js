@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_RULES, makeRules } from '../src/rules.js';
-import { buildHandoff, HANDOFF_HEADER } from '../src/handoff.js';
+import { buildHandoff, buildPlanHandoff, HANDOFF_HEADER } from '../src/handoff.js';
+import { newPlan, planResult } from '../src/plan.js';
 
 const COINS = DEFAULT_RULES.currency;
 
@@ -197,4 +198,68 @@ test('a result whose fight reply is gone is none and settles to nothing', async 
     assert.equal(handoffState(pending, [{ ...offer, swipe_id: 1, send_date: 'd8' }, user]), 'none', 'the fight reply swiped away');
     assert.equal(settleHandoff(pending, [{ ...offer, swipe_id: 1, send_date: 'd8' }, user]), null);
     assert.equal(settleHandoff(pending, []), null, 'deleted back past the fight');
+});
+
+// ---------------------------------------------------------------------------
+// A plan's hand-off (0.5)
+
+const PLAN_STAGES = [
+    { place: 'the gate', rows: [{ name: 'Guard', count: 2, stage: 1 }] },
+    { place: 'the yard', rows: [{ name: 'Guard', count: 3, stage: 2 }] },
+    { place: 'the tower', rows: [{ name: 'Guard Captain', count: 1, boss: true, stage: 3 }] },
+];
+const planOf = (outcomes, { stakes = 'normal', stages = PLAN_STAGES } = {}) => ({
+    ...newPlan({ id: 'plan-1', stakes, stages }),
+    done: outcomes.map((outcome, index) => ({ place: stages[index].place, result: result({ outcome, rounds: 3 + index, keyMoments: [`moment ${index + 1}`], loot: outcome === 'victory' ? { items: [], money: 7 } : { items: [], money: 0 } }) })),
+});
+
+test('a plan won: a line per stage, the end state, the loot and XP of every stage', () => {
+    const text = buildPlanHandoff(planResult(planOf(['victory', 'victory', 'victory']), 'victory'), { currency: COINS, pcName: 'Ren' });
+    assert.equal(text, [
+        HANDOFF_HEADER,
+        'Stage 1, the gate: victory in 3 rounds.',
+        'Stage 2, the yard: victory in 4 rounds.',
+        'Stage 3, the tower: victory in 5 rounds.',
+        'Ren: HP 34/62, MP 12/30 — hurt (aching, favouring a wound) · tired of magic.',
+        'Astra: HP 44/44, MP 20/38 — unhurt · tired of magic.',
+        'Key moments: moment 1; moment 2; moment 3.',
+        'Loot: 2 silver, 1 copper. XP +114 each.',
+    ].join('\n'));
+});
+
+test('a plan lost at stage 2: defeated there, the stage after not reached and not to be narrated', () => {
+    const text = buildPlanHandoff(planResult(planOf(['victory', 'defeat']), 'defeat'), { currency: COINS, pcName: 'Ren' });
+    const lines = text.split('\n');
+    assert.deepEqual(lines.slice(0, 4), [
+        HANDOFF_HEADER,
+        'Stage 1, the gate: victory in 3 rounds.',
+        'Stage 2, the yard: defeated — the story decides what follows (captured, robbed, left for dead).',
+        'Not reached: the tower. Do not narrate it.',
+    ]);
+    assert.match(text, /^Loot: 7 copper\. XP \+76 each\.$/m, 'what stage 1 gave is kept');
+    // To the death: the same words as a fight lost to the death.
+    const death = buildPlanHandoff(planResult(planOf(['victory', 'defeat'], { stakes: 'death' }), 'defeat'), { currency: COINS, pcName: 'Ren' });
+    assert.equal(death.split('\n')[2], 'Stage 2, the yard: defeated — Ren is killed. Ren is dead and does not come back; narrate the death, not a rescue.');
+});
+
+test('a plan fled at stage 2, and one fallen back from after stage 1', () => {
+    const fled = buildPlanHandoff(planResult(planOf(['victory', 'fled']), 'fled'), { currency: COINS, pcName: 'Ren' }).split('\n');
+    assert.deepEqual(fled.slice(1, 4), ['Stage 1, the gate: victory in 3 rounds.', 'Stage 2, the yard: escaped after 4 rounds.', 'Not reached: the tower. Do not narrate it.']);
+    const back = buildPlanHandoff(planResult(planOf(['victory']), 'withdrew'), { currency: COINS, pcName: 'Ren' });
+    assert.deepEqual(back.split('\n').slice(0, 3), [HANDOFF_HEADER, 'Stage 1, the gate: victory in 3 rounds.', 'Fell back after the gate; the yard and the tower were not attempted.']);
+    assert.doesNotMatch(back, /Not reached/);
+    // Unnamed stages are numbered; two stages not reached are "them".
+    const plain = PLAN_STAGES.map(stage => ({ ...stage, place: null }));
+    const lost = buildPlanHandoff(planResult(planOf(['defeat'], { stages: plain }), 'defeat'), { currency: COINS, pcName: 'Ren' }).split('\n');
+    assert.deepEqual(lost.slice(1, 3), ['Stage 1: defeated — the story decides what follows (captured, robbed, left for dead).', 'Not reached: stage 2, stage 3. Do not narrate them.']);
+    assert.doesNotMatch(lost.join('\n'), /Loot/, 'nothing won, no loot line');
+    const early = buildPlanHandoff(planResult(planOf(['victory'], { stages: plain }), 'withdrew'), { currency: COINS, pcName: 'Ren' }).split('\n');
+    assert.equal(early[2], 'Fell back after stage 1; stage 2 and stage 3 were not attempted.');
+});
+
+test('a plan\'s hand-off stays short: about one line more per stage than a fight\'s', () => {
+    const one = buildHandoff(result(), { currency: COINS, pcName: 'Ren' });
+    const three = buildPlanHandoff(planResult(planOf(['victory', 'victory', 'defeat']), 'defeat'), { currency: COINS, pcName: 'Ren' });
+    assert.ok(three.split('\n').length <= one.split('\n').length + 3, three);
+    assert.ok(three.split(/\s+/).length <= 140);
 });
