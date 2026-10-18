@@ -30,7 +30,13 @@ import { creatureSingular } from './templates.js';
  * prose does not resolve what the buttons are about to. Every block is only an offer: the
  * reader accepts it or not.
  */
-export const STORY_INSTRUCTION = 'Hidden blocks, only when the story makes them true (not for an RPG Battle fight). Someone on the Party sheet hurt or healed: <Wounds>, a line each, Name — scratch|wound|severe|grievous: cause (or heal wound, or poisoned; mildest fitting word). A fight starts: <Encounter>3 wolf (weak); then: wolf matriarch (boss, strong)</Encounter> (then: more foes join; then at <place>: next fight, elsewhere; threat vs party: trivial|weak|even|strong|deadly; | to the death if defeat is death), then stop at the first blow. Also: <Joins>Lyra — healer, level 6</Joins>, <Leaves>Lyra: went home</Leaves>, <Learned>Lyra — Frost Lance: ice magic, hits all</Learned>, <XP>minor|major|milestone: why</XP>, <Rest>short|long: why</Rest> when the party rests.';
+export const STORY_INSTRUCTION = 'Hidden blocks, only when the story makes them true (not for an RPG Battle fight). Someone on the Party sheet hurt or healed: <Wounds>, a line each, Name — scratch|wound|severe|grievous: cause (or heal wound, or poisoned; mildest fitting word). A fight starts: <Encounter>3 wolf (weak); then: wolf matriarch (boss, strong)</Encounter> (then: more foes join; then at <place>: next fight, elsewhere; threat vs party: trivial|weak|even|strong|deadly; | to the death if defeat is death), then stop at the first blow, never narrating it. Also: <Joins>Lyra — healer, level 6</Joins>, <Leaves>Lyra: went home</Leaves>, <Learned>Lyra — Frost Lance: ice magic, hits all</Learned>, <XP>minor|major|milestone: why</XP>, <Rest>short|long: why</Rest> when the party rests.';
+
+// (0.5.9) The reply that tells a fight's result gets this instead of STORY_INSTRUCTION: no
+// <Wounds> for that fight (it dealt them), but a new fight the story goes on into is still
+// RPG Battle's. Without it, a reply that told the wolves' result went on to narrate a rat fight
+// to its end.
+export const NARRATING_INSTRUCTION = 'This reply tells the fight above: write no <Wounds> for it, the fight dealt them. If the story goes on into a new fight, write <Encounter>its foes (threat)</Encounter> and stop at the first blow: never narrate a fight\'s blows or how it ends, RPG Battle resolves it.';
 
 // Mildest first, so "the worst word mentioned" is the one with the highest index.
 export const SEVERITIES = Object.freeze(['scratch', 'wound', 'severe', 'grievous']);

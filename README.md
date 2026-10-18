@@ -1,4 +1,4 @@
-# RPG Battle v0.5.8
+# RPG Battle v0.5.9
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -275,6 +275,10 @@ Astra — cure poison: an antidote
 - **Applied after the reply, into that reply**, after story-time recovery, from the sheets before
   it: a swipe recomputes it and a continue does not add it twice. Not during a fight, and not in
   the reply that narrates one (the fight already dealt its wounds).
+- **The reply that narrates a fight** (since 0.5.9) is asked for no `<Wounds>`, but if the story
+  goes on into a new fight it is still told to write `<Encounter>` and stop at the first blow,
+  never narrating the fight itself; that fight is then offered like any other. Every other reply
+  is told the same: *then stop at the first blow, never narrating it*.
 - **Undo:** a toast says what happened ("Ren: wound (−29 HP), fell down the ravine.") with an
   **Undo** button, and the Party tab shows the same line with **Undo** while that reply's sheets
   are still the ones it wrote (after a rest, an item or a fight, they have moved on). Undo keeps
@@ -738,8 +742,27 @@ on top, then folds: **Money**, **Equipment** (worn pieces and accessories that c
 **Generated words** (model calls for new creatures and a new companion's skills), **Party**
 (skills in use per member, 3 to 12; companions' points spent automatically; the **XP rate**, 0.25
 to 5, multiplying all XP), **Source of truth**
-and **Blocks** (the Party and Inventory tags, the Return to story message, next moves after a
-fight on or off).
+**Diagnostics** and **Blocks** (the Party and Inventory tags, the Return to story message, next
+moves after a fight on or off).
+
+**Diagnostics** (since 0.5.9) is a plain report of what RPG Battle sees in this chat and what it
+sent with the last reply, with **Refresh** and **Copy** (for a bug report):
+
+```
+RPG Battle v0.5.9 · on
+Story Block: yes (v0.9.6) · Story Director: yes (v0.9.6) · NPC State Delta: yes
+Character: Ren, Level 2, HP 67/86
+Latest reply #12: none of RPG Battle's blocks · Party block yes · tells a fight's result
+Last reply sent (2:31 PM, normal): fight hand-off + narrating instruction (a new fight → <Encounter>, no <Wounds>) · about 188 tokens
+Hand-off: narrated (given to reply #12)
+Fight: none
+Fight offer: none (the latest reply has no <Encounter> and nothing is planned)
+Story offers: none
+```
+
+It answers *why was this fight not offered* (no `<Encounter>` written, a result still to be told,
+a fight under way, no character, put away) and *was the model told to hand fights over* (the
+story instruction, the narrating one, or none and why).
 
 ## Development
 
