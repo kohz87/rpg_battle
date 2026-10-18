@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.7
+
+- **Quest XP without a click.** A quest Story Director reports finished was an offer (*Quest done: Sheep-killer (normal). Award XP +10?*), but the story had already decided (it reports a quest only once the story closed it, never a failed or abandoned one) and code sets the XP, so Award added nothing. It is now awarded at once and toasted: *Quest done: Sheep-killer (normal) · XP +10*, with any level reached. Written into the latest reply, so deleting or swiping that reply takes it back with the closing. A quest closed after the reply (Story Director's capture call) is awarded on the next refresh; a refresh never awards twice; if writing fails, the offer shows instead. The `<XP>` block's story awards stay offers: those are the model's claims.
+
 ## 0.5.6
 
 - **Set-aside skills fold away.** A card's set-aside skills sit in a **Set aside** fold with their count, closed until you open it (remembered per member while you play), so a long list does not crowd the card.

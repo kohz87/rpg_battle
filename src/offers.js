@@ -88,8 +88,10 @@ export function storyOffers({ index, texts = {}, pc = null, members = [], person
 }
 
 /**
- * Story Director's quests finished in reply `index` (questsDoneAt) as XP offers:
- * "Quest done: The Lost Caravan (hard). Award +15 XP?". No character, no offer.
+ * Story Director's quests finished in reply `index` (questsDoneAt) as XP awards: "Quest done:
+ * The Lost Caravan (hard). Award +15 XP?". Since 0.5.7 the glue awards them at once (the story
+ * closed the quest, code sets the XP) and toasts `done`: "Quest done: The Lost Caravan (hard) ·
+ * +15 XP". No character, no award.
  */
 export function questOffers({ index, quests = [], pc = null, rules = DEFAULT_RULES } = {}) {
     if (!pc) return [];
@@ -99,7 +101,7 @@ export function questOffers({ index, quests = [], pc = null, rules = DEFAULT_RUL
         return {
             key: `${index}:quest:${quest.id ?? quest.name}`, kind: 'quest',
             text: `Quest done: ${String(quest.name).trim()} (${difficulty}). Award ${xpText(share, pc, rules)}?`, accept: 'Award',
-            data: { share },
+            data: { share, done: `Quest done: ${String(quest.name).trim()} (${difficulty}) · ${xpText(share, pc, rules)}` },
         };
     }).filter(offer => offer.data.share > 0);
 }
