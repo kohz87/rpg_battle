@@ -274,3 +274,53 @@ test('the hand-off: waiting until given to a reply, gone once that reply is in, 
     assert.equal(ctx.chatMetadata.rpgBattle.pending, null);
     assert.equal(notice(), null);
 });
+
+test('a fight and its result go back with the reply the fight started from (0.4.3)', async () => {
+    const prompts = {};
+    const before = ctx.setExtensionPrompt;
+    ctx.setExtensionPrompt = (key, value) => { prompts[key] = value; };
+    try {
+        const handoff = '[Battle resolved by RPG Battle: narrate this outcome, do not change it]\nVictory. Loot: 7 copper.';
+        const offer = { ...reply('A quill-dog bursts from the gorse.'), send_date: 'd2', swipe_id: 0 };
+        const hello = () => reply(`Hello.\n<Party>\n${REN}\n</Party>`);
+        // The result of a fight started from reply 2, narrated in reply 4.
+        openChat('origin-chat', [hello(), userMessage('I hunt it.'), offer, userMessage('Onward.'), reply('The dog lies dead.')], {
+            pending: { handoff, fightId: 'f1', attachedTo: 4, origin: { index: 2, date: 'd2', swipe: 0 } },
+        });
+        // A swipe of the narrating reply narrates the same fight.
+        await globalThis.rpgBattleInterceptor(ctx.chat.slice(0, 4), 0, null, 'swipe');
+        assert.match(prompts.rpg_battle, /7 copper/);
+        // Back to before the fight: everything from the fight's reply on is deleted and the turn sent again.
+        ctx.chat.splice(2);
+        hooks.update();
+        await settle();
+        ctx.chat.push(userMessage('I hunt it.'));
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        assert.equal(prompts.rpg_battle, '', 'no stale result');
+        assert.match(prompts.rpg_battle_rules, /<Encounter>/, 'the story instruction is back, so a new fight can be offered');
+        assert.equal(ctx.chatMetadata.rpgBattle.pending, null);
+        // The same from a chat saved before 0.4.3: no origin, but foughtAt says where the fight started.
+        openChat('legacy-chat', [hello(), userMessage('I hunt it.'), offer, userMessage('Onward.')], {
+            pending: { handoff, fightId: 'f1', attachedTo: null },
+            foughtAt: { index: 2, text: 'x' },
+        });
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        assert.match(prompts.rpg_battle, /7 copper/, 'still waiting while its reply is there');
+        ctx.chat.splice(1);
+        ctx.chat.push(userMessage('I hunt it.'));
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        assert.equal(prompts.rpg_battle, '');
+        assert.equal(ctx.chatMetadata.rpgBattle.pending, null);
+        // A fight under way whose reply was swiped away is gone too.
+        openChat('fight-chat', [hello(), userMessage('I hunt it.'), offer], {
+            fight: { setup: { id: 'f2', seed: 's', party: [], enemies: [] }, actions: [], origin: { index: 2, date: 'd2', swipe: 0 } },
+        });
+        ctx.chat[2] = { ...offer, swipe_id: 1, send_date: 'd7' };
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        hooks.update();
+        await settle();
+        assert.equal(hooks.tabs['rpg-battle'].badge(), 0);
+    } finally {
+        ctx.setExtensionPrompt = before;
+    }
+});

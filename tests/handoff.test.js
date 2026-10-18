@@ -159,3 +159,42 @@ test('settleHandoff: spent once a newer reply exists, waiting again when its rep
     assert.deepEqual(settleHandoff(at(3), [user]), at(null));
     assert.equal(settleHandoff(null, [user]), null);
 });
+
+// ---------------------------------------------------------------------------
+// A fight belongs to the reply it started from (0.4.3)
+
+test('fightOrigin and originHolds: deleted, swiped away or replaced, the origin no longer holds', async () => {
+    const { fightOrigin, originHolds } = await import('../src/handoff.js');
+    const greeting = { mes: 'Hi.', is_user: false, send_date: 'd0', swipe_id: 0 };
+    const user = { mes: 'go', is_user: true, send_date: 'd1' };
+    const offer = { mes: 'Wolves!', is_user: false, send_date: 'd2', swipe_id: 1 };
+    const chat = [greeting, user, offer];
+    const origin = fightOrigin(chat, 2);
+    assert.deepEqual(origin, { index: 2, date: 'd2', swipe: 1 });
+    assert.equal(fightOrigin(chat, -1), null);
+    assert.equal(fightOrigin(chat, 7), null);
+    assert.deepEqual(fightOrigin([{ mes: 'x', is_user: false }], 0), { index: 0, date: '', swipe: 0 });
+    assert.equal(originHolds(origin, chat), true);
+    assert.equal(originHolds(origin, [...chat, user, { mes: 'after', is_user: false, send_date: 'd4' }]), true, 'later messages do not matter');
+    assert.equal(originHolds(origin, [greeting, user, { ...offer, mes: 'Wolves! (edited)' }]), true, 'an edit keeps it');
+    assert.equal(originHolds(origin, [greeting, user]), false, 'deleted');
+    assert.equal(originHolds(origin, [greeting, user, { ...offer, swipe_id: 2, send_date: 'd5' }]), false, 'swiped to another version');
+    assert.equal(originHolds(origin, [greeting, user, { ...offer, swipe_id: 1, send_date: 'd9' }]), false, 'a new reply in its place');
+    assert.equal(originHolds(origin, [greeting, user, user]), false, 'a user message in its place');
+    assert.equal(originHolds({ index: 2 }, [greeting, user, { mes: 'any', is_user: false }]), true, 'an older chat checks only that a reply is there');
+    assert.equal(originHolds({ index: 2 }, [greeting, user]), false);
+    assert.equal(originHolds(null, []), true);
+});
+
+test('a result whose fight reply is gone is none and settles to nothing', async () => {
+    const { handoffState, settleHandoff } = await import('../src/handoff.js');
+    const offer = { mes: 'Wolves!', is_user: false, send_date: 'd2', swipe_id: 0 };
+    const user = { mes: 'go', is_user: true };
+    const reply = { mes: 'They fight.', is_user: false, send_date: 'd4' };
+    const pending = { handoff: 'Victory.', fightId: 'f1', attachedTo: 2, origin: { index: 0, date: 'd2', swipe: 0 } };
+    assert.equal(handoffState(pending, [offer, user, reply]), 'narrated');
+    assert.deepEqual(settleHandoff(pending, [offer, user, reply]), pending, 'a swipe of the narration narrates it again');
+    assert.equal(handoffState(pending, [{ ...offer, swipe_id: 1, send_date: 'd8' }, user]), 'none', 'the fight reply swiped away');
+    assert.equal(settleHandoff(pending, [{ ...offer, swipe_id: 1, send_date: 'd8' }, user]), null);
+    assert.equal(settleHandoff(pending, []), null, 'deleted back past the fight');
+});
