@@ -1,4 +1,4 @@
-# RPG Battle v0.5.9
+# RPG Battle v0.5.10
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -759,6 +759,14 @@ Fight: none
 Fight offer: none (the latest reply has no <Encounter> and nothing is planned)
 Story offers: none
 ```
+
+Below that (since 0.5.10): **Blocks in the latest reply**, each with what came of it (*offered*,
+*taken or put away*, *applied*, *XP awarded*) or why not (*this reply tells a fight's result: XP
+and rest came from the fight*, *no character yet*, *already in the party*, *a fight started since
+this reply*), Story Director's quests finished there; **Last fight**, with its outcome, foes
+defeated and fled, XP, loot, levels and mastery, and the hand-off exactly as it was sent; and
+**Activity this session** (awards, offers taken or put away, fights started and ended, story
+wounds), with times.
 
 It answers *why was this fight not offered* (no `<Encounter>` written, a result still to be told,
 a fight under way, no character, put away) and *was the model told to hand fights over* (the

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.10
+
+- **Diagnostics tell the whole story.** Besides what was sent and why a fight is or is not offered, the report now has: **Blocks in the latest reply**, each `<Wounds>`, `<Encounter>`, `<Joins>`, `<Leaves>`, `<Learned>`, `<XP>` and `<Rest>` with what came of it (offered, taken or put away, applied, waiting) or why not (the reply tells a fight's result, no character, already in the party, a fight started since…), and each quest Story Director finished there with *XP awarded* or why not; **Last fight**: outcome, rounds, foes defeated and fled, XP per member, loot, levels and mastery gained, where its hand-off stands, and the hand-off text exactly as sent; **Activity this session**: awards, offers taken or put away, fights started and ended, story wounds, with times.
+
 ## 0.5.9
 
 - **A new fight after a fight's result is handed over, not narrated.** The reply that narrates a fight's result got the hand-off and nothing else, so as not to write `<Wounds>` for damage the fight already dealt; but that left it with no rule about fights, and when its story went on into the next one (a rat swarm under a granary) the model narrated that fight to its end. It now gets a short narrating instruction (about 65 tokens): no `<Wounds>` for the fight above, and for a new fight `<Encounter>…</Encounter>`, stopping at the first blow, never narrating its blows or how it ends. A new fight written there is offered (and toasted) like any other.
