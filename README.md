@@ -16,6 +16,18 @@ Needs [Story Block](https://github.com/kohz87/Story_block) **0.7** or newer. Wit
 back as story time passes; with **0.8**, the fights it plans are offered when the story reaches
 them.
 
+## Screenshots
+
+A three-stage plan from a demo session with [Story Block](https://github.com/kohz87/Story_block), [Story Director](https://github.com/kohz87/Story_director) and [NPC State Delta](https://github.com/kohz87/npc_state_delta). The story wrote `<Encounter>at the reed bank: 3 young wolf (weak); then at the den mouth: 2 wolf (weak); then inside the den: old dog wolf (boss, even)</Encounter>`.
+
+| The plan, as the story gave it | A fight | Between stages | The result |
+| --- | --- | --- | --- |
+| <img src="docs/images/plan.png" alt="The plan in three stages with its foes and stakes, and only Not now and Start" width="200"> | <img src="docs/images/fight.png" alt="Round 3: three young wolves, Ren and Lyra, the log and the action buttons" width="200"> | <img src="docs/images/between.png" alt="Stage 1 of 3 cleared: the party now, the next stage, Fall back and Go on" width="200"> | <img src="docs/images/result.png" alt="Victory in three stages: per-stage lines, the party after the plan, XP, a level, loot and key moments" width="200"> |
+
+| The party (Ren and Lyra) | The offer in the Battle tab |
+| --- | --- |
+| <img src="docs/images/party.png" alt="Ren's card: level, HP and MP, stats with checks, unspent points, skills, gear; the waiting hand-off notice above" width="200"> | <img src="docs/images/offer.png" alt="A plan in 3 stages offered: Fight? or Not now" width="200"> |
+
 ## Install
 
 1. Install Story Block 0.7+ and enable it.
