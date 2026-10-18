@@ -433,7 +433,7 @@ function renderIdle(root, view, handlers) {
     // The party as cards: yours first and open, each companion folded to one glance.
     const party = list(view.party).filter(member => member && member.sheet);
     const cards = [
-        memberCard({ id: 'pc', you: true, name: sheet.name, sheet, skills: view.skills, gear: view.gear, checks: view.checks ?? checkModifiers(sheet.stats, rules) }, view, handlers),
+        memberCard({ id: 'pc', you: true, name: sheet.name, sheet, skills: view.skills, gear: view.gear, combat: view.combat ?? null, checks: view.checks ?? checkModifiers(sheet.stats, rules) }, view, handlers),
         ...party.map(member => memberCard({ ...member, you: false, skills: member.skills, gear: member.gearSummary ?? null }, view, handlers)),
     ];
     root.append(section('is-party', [
@@ -655,6 +655,7 @@ function memberCard(member, view, handlers) {
         bar('xp', growth.cur, growth.max, terms.custom ? terms.xpName : 'XP to next level', { name: terms.xpName, text: growth.capped ? growth.text : null }),
         chips(sheet.conditions),
         statGrid(sheet, member.you ? member.checks : null),
+        combatLine(member.combat, rules),
         pointsRow(member, sheet, view, handlers),
         cardSkills(member, id, view, handlers),
         member.you ? yourGear(member.gear) : companionGear(member, id, view, handlers),
@@ -677,6 +678,36 @@ function statGrid(sheet, checks) {
         item.dataset.stat = stat;
         return item;
     }));
+}
+
+/**
+ * (0.5.13) The numbers a fight uses, with gear: "Attack 14 · Magic 12 · Defence 6 · M.Def 6 ·
+ * Hit 81% · Dodge 37% · Crit 12%". Hit and dodge are against a typical foe of the member's
+ * level; each title says where its number comes from.
+ */
+function combatLine(combat, rules) {
+    if (!combat) return null;
+    const d = rules.derived ?? DEFAULT_RULES.derived;
+    const a = rules.attack ?? DEFAULT_RULES.attack;
+    const s = combat.stats ?? {};
+    const gearPart = (total, fromStats) => {
+        const extra = Math.round(num(total) - fromStats);
+        return extra ? `, ${signed(extra)} from gear` : '';
+    };
+    const foe = num(combat.foe);
+    const parts = [
+        ['attack', 'Attack', combat.attack, `Physical attack: STR ${num(s.STR)} × ${d.atkPerStr}${gearPart(combat.attack, num(s.STR) * d.atkPerStr)}`],
+        ['magic', 'Magic', combat.magic, `Magic attack: INT ${num(s.INT)} × ${d.matkPerInt}${gearPart(combat.magic, num(s.INT) * d.matkPerInt)}`],
+        ['defence', 'Defence', combat.defence, `Cuts physical damage: VIT ${num(s.VIT)}${gearPart(combat.defence, num(s.VIT))}`],
+        ['mdef', 'M.Def', combat.mdef, `Cuts magic damage: (INT + VIT) ÷ 2${gearPart(combat.mdef, Math.round((num(s.INT) + num(s.VIT)) / 2))}`],
+        ['hit', 'Hit', `${tidy(combat.hit)}%`, `Chance a physical attack lands on a typical foe of this level (AGI ${foe}): ${a.hitBase}% + ${a.hitPerPoint}% per point of your DEX (${num(s.DEX)}) over its AGI`],
+        ['dodge', 'Dodge', `${tidy(combat.dodge)}%`, `Chance to dodge a physical attack from a typical foe of this level (DEX ${foe}): ${100 - a.hitBase}% + ${a.hitPerPoint}% per point of your AGI (${num(s.AGI)}) over its DEX. Spells never miss`],
+        ['crit', 'Crit', `${tidy(combat.crit)}%`, `Chance of a ×${a.critMultiplier} hit: ${a.critBase}% + ${a.critPerDex}% per DEX + ${a.critPerLuk}% per LUK`],
+    ];
+    return el('ul', { className: 'rpg-battle-combat', attrs: { 'aria-label': 'Combat numbers' } }, parts.map(([key, label, value, title]) => el('li', { className: `rpg-battle-combat-part is-${key}`, attrs: { title } }, [
+        el('span', { className: 'rpg-battle-combat-name', text: label }),
+        el('span', { className: 'rpg-battle-combat-value', text: String(value) }),
+    ])));
 }
 
 // Spend shows for you, for a companion you command, and for one on auto while the setting

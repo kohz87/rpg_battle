@@ -5,7 +5,7 @@
 // their sheet, mastery progress included, goes along in the block itself), by hand or because
 // the NPC State Delta NPC they were added from has another name now (npcRenames). Pure.
 
-import { STATS, derive, maxHp, maxMp } from './rules.js';
+import { DEFAULT_RULES, STATS, derive, hitChance, maxHp, maxMp } from './rules.js';
 import { findSkill, resolveSkills } from './skills.js';
 import { focusWeights, lockedReason, spreadByWeights } from './builds.js';
 import { projectEnemy } from './enemies.js';
@@ -51,6 +51,25 @@ export function combatantFromSheet(sheet, { memberId = 'pc', controller = 'playe
         loot: null,
         gone: null,
         capped: bonus.capped ?? [],
+    };
+}
+
+/**
+ * (0.5.13) The numbers a fight uses for a member, for the Party card: attack, magic, defence,
+ * magic defence and crit with their gear, and hit and dodge against a typical foe of their
+ * level (DEX and AGI rules.enemy.statBase + level × statPerLevel, before a creature's role and
+ * kind), since the real chances depend on who they face. `stats` are with gear.
+ */
+export function combatNumbers(sheet, { gear = [], rules = DEFAULT_RULES } = {}) {
+    const c = combatantFromSheet({ ...sheet, skills: [] }, { gear, rules });
+    const e = rules.enemy ?? DEFAULT_RULES.enemy;
+    const foe = Math.round(e.statBase + Math.max(1, Number(sheet?.level) || 1) * e.statPerLevel);
+    return {
+        attack: c.patk, magic: c.matk, defence: c.pdef, mdef: c.mdef, crit: c.crit,
+        hit: hitChance(c.stats.DEX, foe, rules),
+        dodge: 100 - hitChance(foe, c.stats.AGI, rules),
+        foe,
+        stats: c.stats,
     };
 }
 

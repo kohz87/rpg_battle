@@ -1578,3 +1578,14 @@ test('offer: a plan reads as its stages', () => {
     assert.match($(pane, '.rpg-battle-encounter-stages').textContent, /^3 fights, one after another/);
     assert.ok($(pane, '.rpg-battle-encounter-stakes'));
 });
+
+test('a member card shows the combat line, each number with where it comes from (0.5.13)', () => {
+    const combat = { attack: 14, magic: 12, defence: 6, mdef: 6, crit: 12, hit: 81, dodge: 37, foe: 6, stats: { STR: 6, VIT: 5, AGI: 10, DEX: 8, INT: 6, LUK: 5, CHA: 5 } };
+    const pane = render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules, combat });
+    const parts = pane.querySelectorAll('.rpg-battle-combat-part');
+    assert.deepEqual(parts.map(part => part.textContent), ['Attack14', 'Magic12', 'Defence6', 'M.Def6', 'Hit81%', 'Dodge37%', 'Crit12%']);
+    assert.match(parts[0].getAttribute('title'), /STR 6 × 2, \+2 from gear/);
+    assert.match(parts[2].getAttribute('title'), /VIT 5, \+1 from gear/);
+    assert.match(parts[5].getAttribute('title'), /typical foe of this level \(DEX 6\).*AGI \(10\)/);
+    assert.equal(render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules }).querySelector('.rpg-battle-combat'), null, 'none without numbers');
+});

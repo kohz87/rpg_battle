@@ -150,3 +150,21 @@ test('npcRenames: a linked companion follows their NPC\'s name when it changes, 
     assert.deepEqual(npcRenames(members, [{ id: 'n1', name: 'Lyra (healer)' }], { seen }).renames, [], 'what the heading would keep is the same name');
     assert.deepEqual(npcRenames(members, null), { renames: [], seen: {} });
 });
+
+test('combatNumbers: attack, defence, crit with capped gear; hit and dodge against a typical foe of the level (0.5.13)', async () => {
+    const { combatNumbers } = await import('../src/party.js');
+    const wessel = { name: 'Wessel', level: 1, stats: { STR: 6, VIT: 5, AGI: 10, DEX: 8, INT: 6, LUK: 5, CHA: 5 }, hp: { cur: 74, max: 74 }, mp: { cur: 36, max: 36 }, skills: [] };
+    const gear = parseInventory('[Equipment > Weapons]\nCane-Blade | 1 | Equipped · Common · ATK +4\n[Equipment > Armour]\nPatched Oilcloth Coat | 1 | Equipped · Common · DEF +1').items.filter(item => item.equipped);
+    const n = combatNumbers(wessel, { gear, rules });
+    // A common weapon at level 1 is capped to its budget: +2 of the +4 counts.
+    assert.equal(n.attack, 6 * 2 + 2);
+    assert.equal(n.defence, 5 + 1);
+    assert.equal(n.magic, 12);
+    assert.equal(n.mdef, 6);
+    assert.equal(n.crit, 3 + 8 * 0.5 + 5);
+    // A level-1 foe has DEX and AGI 6: 75% + 3% per point of difference.
+    assert.equal(n.foe, 6);
+    assert.equal(n.hit, 75 + (8 - 6) * 3);
+    assert.equal(n.dodge, 100 - (75 + (6 - 10) * 3));
+    assert.equal(combatNumbers({ ...wessel, stats: { ...wessel.stats, AGI: 12 } }, { gear, rules }).dodge, n.dodge + 6);
+});
