@@ -246,9 +246,11 @@ function lookupSkill(name, library, level, rules) {
  * rankRowForLevel, and its `rank` is the one at or below that level. A creature made up on the
  * fly (templates.js) has a `level` of its own instead of a rank, used when the row gives no
  * power, skill specs instead of names, and its loot table inline; `generated` and `look` go
- * along onto the Combatant for the Battle tab.
+ * along onto the Combatant for the Battle tab. (0.5.2) A row `scale` below 1 (a threat word
+ * that would have gone below level 1) multiplies its HP and attack, and its `xpLevel` (that
+ * word's level before it was held at 1) is what its XP counts from; both go on the Combatant.
  */
-export function projectEnemy({ name, rank = null, level: rowLevel = null, role = null, boss = false } = {}, { bestiary = DEFAULT_BESTIARY, library = [], rules = DEFAULT_RULES, rng = null, id = 'e1' } = {}) {
+export function projectEnemy({ name, rank = null, level: rowLevel = null, role = null, boss = false, scale = 1, xpLevel = null } = {}, { bestiary = DEFAULT_BESTIARY, library = [], rules = DEFAULT_RULES, rng = null, id = 'e1' } = {}) {
     const entry = findCreature(bestiary, name);
     const ownLevel = !RANKS.includes(rank) && Number(entry?.level) >= 1 ? entry.level : null;
     const byLevel = Number(rowLevel) >= 1 ? rankRowForLevel(rowLevel, rules) : ownLevel ? rankRowForLevel(ownLevel, rules) : null;
@@ -258,7 +260,13 @@ export function projectEnemy({ name, rank = null, level: rowLevel = null, role =
     const w = rules.roles[useRole];
     const e = rules.enemy;
     const b = boss ? rules.boss : { hp: 1, attack: 1, defence: 1, xp: 1 };
-    const mods = { hp: 1, attack: 1, defence: 1, agi: 1, ...(entry?.mods ?? {}) };
+    // (0.5.2) A threat word below level 1 (story.threatPower) shrinks the foe: its HP and
+    // attack, on top of a made-up creature's trait multipliers; defence stays. Its XP follows
+    // from `xpLevel`, the level the word meant before it was held at 1 (combat.foeXpWorth).
+    const shrink = Number(scale) > 0 && Number(scale) < 1 ? Number(scale) : 1;
+    const belowOne = xpLevel !== null && Number(rowLevel) >= 1 && Number(xpLevel) < 1 ? Number(xpLevel) : null;
+    const own = { hp: 1, attack: 1, defence: 1, agi: 1, ...(entry?.mods ?? {}) };
+    const mods = { ...own, hp: own.hp * shrink, attack: own.attack * shrink };
     const v = rules.variation;
     const level = r.level;
 
@@ -305,12 +313,15 @@ export function projectEnemy({ name, rank = null, level: rowLevel = null, role =
         morale: Number.isFinite(entry?.morale) ? entry.morale : e.moraleBase + rankIndex,
         talks: typeof entry?.talks === 'boolean' ? entry.talks : useRole === 'caster' || useRole === 'support',
         fleesBelow: boss ? 0 : Number.isFinite(entry?.fleesBelow) ? entry.fleesBelow : e.fleesBelow,
+        // The rank table's XP, kept for the record; fight XP is combat.foeXpWorth's (0.5.2).
         xp: round(r.xp * b.xp),
         loot: Array.isArray(entry?.loot) ? structuredClone(entry.loot) : entry?.loot ?? `rank-${useRank}`,
         coins: carriesCoin(entry, { boss }),
         gone: null,
         memberId: null,
         ...(entry?.generated ? { generated: true, look: String(entry.look ?? '') } : {}),
+        ...(shrink < 1 ? { scale: shrink } : {}),
+        ...(belowOne !== null ? { xpLevel: belowOne } : {}),
     };
 }
 

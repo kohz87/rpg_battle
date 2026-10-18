@@ -4,7 +4,7 @@
 // it rides along with a normal prompt. Each member's numbers end in the same state words as
 // the sheets' State line, so the narration of the fight and the next reply's sheet agree on
 // how hurt everyone is. XP is told in the reader's terms (terms.js): "XP +38", "Power Growth
-// +38", or with tier titles the share of the tier it is worth, "Soul Growth +12%". Pure.
+// +38", with tier titles too ("Soul Growth +38"), at the reader's XP rate. Pure.
 
 import { DEFAULT_RULES } from './rules.js';
 import { formatMoney } from './items.js';
@@ -94,7 +94,7 @@ function xpText(xp, party, names, rules) {
     const ids = party.map(member => member.memberId).filter(id => id in (xp ?? {}) && !(Number(levelOf(id)) >= cap));
     if (!ids.length) return '';
     const name = xpLabel(rules);
-    const values = ids.map(id => xpGainText(xp[id], levelOf(id), rules));
+    const values = ids.map(id => xpGainText(xp[id]));
     if (values.every(value => value === values[0])) return ids.length === 1 ? `${name} ${values[0]}.` : `${name} ${values[0]} each.`;
     const label = id => names?.[id] ?? party.find(member => member.memberId === id)?.name ?? id;
     return `${name}: ${ids.map((id, i) => `${label(id)} ${values[i]}`).join(', ')}.`;

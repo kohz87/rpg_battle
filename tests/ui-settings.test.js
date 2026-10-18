@@ -311,6 +311,27 @@ test('Party: active skills 3 to 12, companions\' points spent automatically', ()
     assert.equal($('#rpg_battle_party_tab'), null, 'RPG Battle\'s Party tab shows the party: the block has none of its own');
 });
 
+test('Party: the XP rate, 1 by default, 0.25 to 5 on steps of 0.05, in a Story Suite row (0.5.2)', () => {
+    const { $, changes } = mount();
+    const rate = $('.story-suite-fold[data-fold="party"] #rpg_battle_xp_rate');
+    assert.ok(rate, 'in the Party fold');
+    assert.equal(rate.value, '1');
+    assert.deepEqual([rate.getAttribute('type'), rate.getAttribute('min'), rate.getAttribute('max'), rate.getAttribute('step')], ['number', '0.25', '5', '0.05']);
+    const label = $('label.story-suite-row[for="rpg_battle_xp_rate"]');
+    assert.equal(label.querySelector('b').textContent, 'XP rate');
+    assert.equal(label.querySelector('.rpg-battle-settings-hint').textContent, 'Multiplies all XP: fights, quests and story awards.');
+    for (const [typed, kept] of [['2', 2], ['9', 5], ['0.1', 0.25], ['1.33', 1.35], ['', 1], ['fast', 1]]) {
+        rate.value = typed;
+        rate.dispatch('change');
+        assert.equal(changes.at(-1).xpRate, kept, typed);
+        assert.equal(rate.value, String(kept));
+    }
+    rate.value = '1.5';
+    rate.dispatch('change');
+    assert.equal($('.story-suite-fold[data-fold="party"] > summary small').textContent, '6 active skills · auto-spend · XP ×1.5');
+    assert.equal(mount({ ...SETTINGS, xpRate: 3 }).$('#rpg_battle_xp_rate').value, '3');
+});
+
 test('the panel wears the Story Suite look: quickbar switches, folds of rows, the notice, the Manage line', () => {
     const container = doc.createElement('div');
     doc.body.appendChild(container);

@@ -1,4 +1,4 @@
-# RPG Battle v0.5.1
+# RPG Battle v0.5.2
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -79,8 +79,8 @@ Skills: Frost Lance (Lv 1, 2/5) | Mend (Lv 3, 9/22)
   name, level, HP and MP and State. Open, a card has the stats (with checks for you), the
   skills in use and set aside, the gear, and its controls. Which cards are open is kept while
   you play.
-- **Levels:** XP from fights and from the story (*XP awards* below); each level gives **4 points**
-  you spend yourself (**Spend** on your card).
+- **Levels:** XP from fights and from the story (*XP and levels* below); each level gives **4
+  points** you spend yourself (**Spend** on your card).
 - **Skills:** learned from the story (a `<Learned>` offer opens the learn form, prefilled; a
   library skill keeps its stat requirements, like INT 9 for Fireball). Using a skill in fights
   raises its mastery (Lv 1 to 5): 5 uses take it to Lv 2, 12 more to Lv 3, then 22 and 35
@@ -120,6 +120,43 @@ Older chats kept your sheet in a separate **Character** block. RPG Battle still 
 writes it into the Party block as your section the first time the chat is open; the old block is
 no longer kept, shown to the model or given a tab.
 
+## XP and levels
+
+Every number is code's: the story only says what happened (a fight, how big an achievement was,
+how hard a quest), never how much XP. Each level needs more XP than the last (`100 × level^1.5`,
+rounded to tens: 100 for level 2, 280 for level 3, 1120 from level 5 to 6), and every gain is
+counted against **each member's own next level**, so it means the same at level 2 and level 40.
+
+**Fights (0.5.2).** Each defeated foe is worth, to each member:
+
+- **a tenth** of the XP that member needs for their next level for an **even** foe (its level
+  is theirs);
+- **×2 per step** the foe stands above them and **×½ per step** below (a step is **4 levels**, or
+  **one tier** with tier titles): *strong* ×2, *deadly* ×4, *weak* ×½, *trivial* ×¼, never below
+  ×0.1 nor above ×4 (`xp` in `rules.json`: `even`, `minFactor`, `maxFactor`);
+- **×3** for a boss; **half** for a foe won over by **Parley** instead of beaten;
+- **× your XP rate** (below); rounded, at least 1.
+
+Every member gets the full amount for every foe: XP is **not split** across the party, and a
+companion at another level counts it against their own. A level-1 character (needing 100) gets 10
+for an even foe, 5 for a weak one, 3 for a trivial one, 20 strong, 40 deadly, 30 for an even boss;
+at level 5 (needing 1120) an even foe is 112, a weak one 56. Fleeing gives nothing for the foes
+left standing. The setup shows each line's worth for your character (*~10 XP each*).
+
+**The story and quests.** An `<XP>` award is a share of each member's next level: **minor** 10 %,
+**major** 25 %, **milestone** 50 %; a quest Story Director closes **easy** 5 %, **normal** 10 %,
+**hard** 15 %, **nightmare** 25 % (*The story's offers*, below).
+
+**XP rate** (*Settings → Party*, 1 by default, 0.25 to 5 in steps of 0.05) multiplies all XP:
+fights, parleys, story awards and quests. The offer, the result screen and the hand-off show the
+multiplied amount. A fight already under way when you change it counts at the new rate.
+
+**Progress** is XP within your level against what the next one needs, `30/100`, also with tier
+titles (*Soul Class I (Lv 1)* beside `Soul Growth 30/100`), and gains read `+30` everywhere. At
+the level cap it shows **MAX**. Blocks written before 0.5.2 with tiers on showed the share
+through the whole tier (`0.21/100`, always with decimals); those are still read as that share,
+so an older chat keeps its XP, and are written back as XP in the level.
+
 ## Your world's terms
 
 Your lorebook may not say "Level" and "XP". Under **Extensions → RPG Battle → Terms** you name
@@ -129,21 +166,21 @@ the same):
 - **Level name** (`Level` by default): *Rank*, *Circle*, *Soul Power*, *Soul Class*…
 - **XP name** (`XP` by default): *Experience*, *Power Growth*, *Soul Growth*…
 - **Tier titles** (off by default): levels 1–10 are *Soul Class I*, 11–20 *Soul Class II*… (the
-  tier size and Roman or Arabic numerals are yours). Progress is then shown as how far you are
-  through the tier, out of 100.
+  tier size and Roman or Arabic numerals are yours). Progress is still XP within the level
+  (since 0.5.2; it was the share through the tier before).
 - **Level cap** (99 by default): no level past it; XP stops there and shows **MAX**.
 
 With tier titles on, the level line of your section reads
 
 ```
-Soul Class: III (Lv 24) | Soul Growth: 28.10/100 | Points: 2
+Soul Class: III (Lv 24) | Soul Growth: 5400/11760 | Points: 2
 ```
 
 and with names of your own but no tiers `Soul Power: 24 | Power Growth: 5400/11760 | Points: 2`.
 The exact level always stays in the block, so changing or turning off the terms never loses a
-sheet. With your own terms, the fight setup shows an enemy's power as one of your tiers (or
-levels) instead of F to SSS, a story's `<Encounter>` may name one (`3 wolf (Soul Class I)`), and
-a won fight says `Soul Growth +12%` (or `Power Growth +38`).
+sheet. With your own terms, the fight setup and the fight cards show an enemy's power as one of
+your tiers (or levels) instead of F to SSS, a story's `<Encounter>` may name one (`3 wolf (Soul
+Class I)`), and a won fight says `Soul Growth +38` (or `Power Growth +38`).
 
 **Story Block's own Character Sheet block** (a template with an HP meter the model writes) does
 the same job by guesswork. With both on, the story reads two HP values that disagree, so the
@@ -244,8 +281,9 @@ the story makes it true (Story Block hides them with its other blocks):
 - **XP awards** are a share of the XP the member needs for their next level, each at their own
   level, so they mean the same at level 2 and level 40: **minor** 10 %, **major** 25 %,
   **milestone** 50 %; a quest **easy** 5 %, **normal** 10 %, **hard** 15 %, **nightmare** 25 % (by
-  Story Director's quest difficulty; none given is normal). Nothing at the level cap. They level
-  up exactly as fight XP does. `xpAwards` and `questXp` in `rules.json`.
+  Story Director's quest difficulty; none given is normal), times your XP rate; the offer shows
+  that amount. Nothing at the level cap. They level up exactly as fight XP does. `xpAwards` and
+  `questXp` in `rules.json`.
 - **Not from the reply that narrates a fight** (XP and rests: the fight gave its own), and no rest
   while a result waits to be narrated. Nothing at all during a fight.
 - **Also offered:** a companion who fell in a fight to the death (*Lyra fell. Remove from the
@@ -328,12 +366,14 @@ battle: the offer, the setup, the fight, and its result until it goes back to th
    (also as a toast). **Fight?** opens the setup.
 2. **Setup**: the engagement as the story gave it, to fight or not, never to change. Each line
    shows how many, the name (tagged **new** when nobody knows it: it is made up when the fight
-   starts, see *Monsters on the fly*), its power in your terms (the bestiary's own, the story's
-   threat word turned into a level, or a fair one for your level), its role and **Boss**; later
-   engagements are listed in order. The stakes are said, not chosen: *Stakes: Normal* (defeat
+   starts, see *Monsters on the fly*), **Boss**, its level in your terms (the bestiary's own, the
+   story's threat word turned into a level, or a fair one for your level), the threat word, its
+   role and what one is worth to you (*2 × Feral Ditch-Dog · Lv 1 · weak · skirmisher · ~5 XP
+   each*); later engagements are listed in order. The stakes are said, not chosen: *Stakes: Normal* (defeat
    means the story decides: captured, robbed, left for dead) or *Stakes: To the death* (defeat
    is death: game over), as the story marked it. **Start** or **Not now**.
-3. **Fight**: on your turn pick an action and tap a target. Enemies (and companions on *auto*)
+3. **Fight**: each foe's card shows its level, the story's threat word and its role (*Lv 1 · weak
+   · skirmisher*). On your turn pick an action and tap a target. Enemies (and companions on *auto*)
    act on their own, by simple predictable rules. **Auto** plays the rest of the fight for you.
 4. **The result**: outcome, HP and MP left, XP, loot and the key moments are applied to the
    sheets and inventory (companions on auto spend new points by their build), and a short
@@ -410,7 +450,14 @@ The model may also say **how dangerous** a foe is, relative to the party, in one
 | **deadly** (lethal, overwhelming, elite, calamity) | 2 steps above |
 
 A step is **4 levels**, or **one tier** when your terms have tier titles (`threat` in
-`rules.json`). The word goes in brackets, or before the name for the unmistakable ones
+`rules.json`). No foe goes below level 1: where the word would put it there (*weak* up to level
+4, *trivial* up to level 8), it stays at level 1 and is **made smaller** instead, its HP and
+attack ×0.88 for each level it falls short (counted in 4-level steps with tiers), never below
+×0.35, its defence as it is; its XP counts from the level the word meant (so *weak* is still
+half an even foe's XP and *trivial* a quarter). At level 1 a *weak* wolf has 10 HP to an even
+one's 16 and is worth 5 XP to 10; a *trivial* one has 6 HP and is worth 3. Only a level that
+came from the word is treated so. The word goes in brackets, or before the name for the
+unmistakable ones
 (`3 weak marsh wolves`; "Lesser Demon" and "High Priest" stay names). A power written outright
 (`rank D`, `level 12`, `Soul Class II`) wins over it; with neither, the fight is even.
 
@@ -617,7 +664,8 @@ source of truth for each area, so the model is not told the same thing twice; se
 Under **Extensions → RPG Battle**: the on/off switch and *Recover HP and MP as story time passes*
 on top, then folds: **Money**, **Equipment** (worn pieces and accessories that count), **Terms**,
 **Generated words** (model calls for new creatures and a new companion's skills), **Party**
-(skills in use per member, 3 to 12; companions' points spent automatically), **Source of truth**
+(skills in use per member, 3 to 12; companions' points spent automatically; the **XP rate**, 0.25
+to 5, multiplying all XP), **Source of truth**
 and **Blocks** (the Party and Inventory tags, the Return to story message).
 
 ## Development

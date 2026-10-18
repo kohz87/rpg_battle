@@ -94,3 +94,18 @@ test('a character with no skills fights: attack, defend, flee and parley are the
     while (fight.status === 'active' && guard++ < 100) fight = act(fight, { type: 'attack', target: availableActions(fight, R).targets.enemies[0] }, R);
     assert.notEqual(fight.status, 'active');
 });
+
+test('story awards at the XP rate (0.5.2): the offer\'s number is the one given, at least 1', () => {
+    const fast = makeRules({ xpRate: 2 });
+    assert.equal(xpAward(0.25, 1, fast), 50);
+    assert.equal(xpAward(0.25, 1, makeRules({ xpRate: 0.5 })), 13);
+    assert.equal(xpAward(0.05, 1, makeRules({ xpRate: 0.25 })), 1, '5 × 0.25 is 1.25: 1');
+    assert.equal(xpAward(0.25, 1, makeRules({ xpRate: 99 })), 125, 'the rate is clamped to 5');
+    assert.equal(xpAward(0.25, 99, fast), 0, 'nothing at the cap');
+    const pc = newSheet({ name: 'Ren', stats: { STR: 5, VIT: 5 } }, fast);
+    const out = awardParty({ pc, members: [] }, awardShare({ kind: 'major' }, fast), { rules: fast });
+    assert.deepEqual(out.gains.map(gain => gain.xp), [50]);
+    assert.equal(out.pc.xp, 50);
+    // Quests too, by difficulty.
+    assert.equal(xpAward(awardShare({ difficulty: 'nightmare' }, fast), 4, fast), Math.round(0.25 * xpToNext(4, R)) * 2);
+});

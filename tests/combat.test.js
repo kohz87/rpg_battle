@@ -2,11 +2,11 @@
 // variance, no criticals, a fixed initiative die) so damage can be checked to the point.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_RULES, makeRules, mitigate, xpFactor } from '../src/rules.js';
+import { DEFAULT_RULES, makeRules, mitigate, xpToNext } from '../src/rules.js';
 import { makeRng } from '../src/rng.js';
 import { DEFAULT_SKILLS, resolveSkills } from '../src/skills.js';
 import { MONSTER_SKILLS, projectEnemy } from '../src/enemies.js';
-import { act, availableActions, replay, startFight, summarize } from '../src/combat.js';
+import { act, availableActions, foeXpWorth, replay, startFight, summarize } from '../src/combat.js';
 
 const EXACT = makeRules({
     attack: { hitMin: 100, hitMax: 100, varianceLow: 1, varianceHigh: 1, critBase: 0, critPerDex: 0, critPerLuk: 0 },
@@ -280,7 +280,9 @@ test('parley: success withdraws the enemy for half XP and no loot; failure anger
     assert.equal(f.status, 'victory');
     const result = summarize(f, sure);
     assert.deepEqual(result.parleyed, ['Dummy']);
-    assert.equal(result.xp.pc, Math.round(20 * xpFactor(3, 1, sure) * sure.parley.xpFactor));
+    // A tenth of level 3's 520, a level-1 foe two levels below (×2^(−2/4)), half for a parley.
+    assert.equal(result.xp.pc, Math.round(xpToNext(3) * 0.1 * 2 ** (-2 / 4) * 0.5));
+    assert.equal(result.xp.pc, 18);
     assert.deepEqual(result.loot, { items: [], money: 0 });
     assert.ok(result.keyMoments.some(m => m.includes('talks the Dummy down')));
     const never = tweak({ parley: { min: 0, max: 0 } });
@@ -442,7 +444,7 @@ test('summarize: outcome, time, party, XP per member, loot and key moments', () 
     assert.deepEqual(Object.keys(r.enemies[0]).sort(), ['gone', 'id', 'level', 'name', 'rank', 'xp']);
     const defeated = f.combatants.filter(c => c.side === 'enemy' && c.gone === 'down');
     assert.deepEqual(r.defeated, defeated.map(c => c.name));
-    const expected = Math.round(defeated.reduce((sum, e) => sum + e.xp * xpFactor(3, e.level), 0));
+    const expected = defeated.reduce((sum, e) => sum + foeXpWorth(e, 3, DEFAULT_RULES), 0);
     assert.equal(r.xp.pc, expected);
     assert.equal(r.xp.astra, expected, 'every member gets the full amount');
     assert.ok(r.loot.money > 0);
@@ -461,4 +463,54 @@ test('log lines are short and readable', () => {
         assert.ok(['hit', 'miss', 'crit', 'skill', 'heal', 'condition', 'down', 'flee', 'parley', 'item', 'defend', 'info'].includes(entry.kind));
         assert.equal(typeof entry.round, 'number');
     }
+});
+
+// ---------------------------------------------------------------------------
+// Fight XP (0.5.2): a share of each member's next level, by the level gap, boss, parley, rate
+
+test('foeXpWorth: a tenth of the member\'s next level for an even foe, ×2 per threat step above, ½ below', () => {
+    const foe = (level, extra = {}) => ({ level, xp: 999, ...extra });
+    // Level 1 needs 100 XP.
+    assert.equal(xpToNext(1), 100);
+    assert.equal(foeXpWorth(foe(1), 1), 10, 'even');
+    assert.equal(foeXpWorth(foe(1, { xpLevel: -3 }), 1), 5, 'weak at level 1: its level before it was held at 1');
+    assert.equal(foeXpWorth(foe(1, { xpLevel: -7 }), 1), 3, 'trivial: 2.5, rounded');
+    assert.equal(foeXpWorth(foe(5), 1), 20, 'strong');
+    assert.equal(foeXpWorth(foe(9), 1), 40, 'deadly');
+    assert.equal(foeXpWorth(foe(30), 1), 40, 'never above ×4');
+    assert.equal(foeXpWorth(foe(1, { boss: true }), 1), 30, 'a boss ×3');
+    assert.equal(foeXpWorth(foe(1), 1, DEFAULT_RULES, { parleyed: true }), 5, 'a parley half');
+    assert.equal(foeXpWorth(foe(1), 1, makeRules({ xpRate: 2 })), 20, 'XP rate ×2');
+    assert.equal(foeXpWorth(foe(1), 1, makeRules({ xpRate: 0.5 })), 5, 'XP rate ×0.5');
+    // Level 5 needs 1120.
+    assert.equal(xpToNext(5), 1120);
+    assert.equal(foeXpWorth(foe(5), 5), 112);
+    assert.equal(foeXpWorth(foe(1), 5), 56, 'weak: 4 levels below');
+    assert.equal(foeXpWorth(foe(-9), 5), 11, '14 levels below: ×2^−3.5 is under the ×0.1 floor');
+    assert.equal(foeXpWorth(foe(-7), 5), 14, '12 levels below: ×⅛');
+    assert.equal(foeXpWorth(foe(1, { xpLevel: -50 }), 1, makeRules({ xpRate: 0.25 })), 1, 'at least 1 while anything is left');
+    assert.equal(foeXpWorth(foe(1), 1, makeRules({ xp: { even: 0 } })), 0);
+});
+
+test('summarize: fight XP at the XP rate, each member against their own level, no splitting', () => {
+    let f = startFight({ ...realSetup('rate'), rules: DEFAULT_RULES });
+    f = act(f, { type: 'auto' }, DEFAULT_RULES);
+    assert.equal(f.status, 'victory');
+    const defeated = f.combatants.filter(c => c.side === 'enemy' && c.gone === 'down');
+    const at = rules => defeated.reduce((sum, e) => sum + foeXpWorth(e, 3, rules), 0);
+    const base = summarize(f, DEFAULT_RULES).xp.pc;
+    assert.equal(base, at(DEFAULT_RULES));
+    const double = makeRules({ xpRate: 2 });
+    const half = makeRules({ xpRate: 0.5 });
+    assert.equal(summarize(f, double).xp.pc, at(double));
+    assert.ok(Math.abs(summarize(f, double).xp.pc - 2 * base) <= defeated.length, 'about twice');
+    assert.equal(summarize(f, half).xp.astra, at(half));
+    assert.ok(Math.abs(summarize(f, half).xp.pc - base / 2) <= defeated.length, 'about half');
+    // The rank table's XP plays no part any more.
+    const richer = { ...f, combatants: f.combatants.map(c => (c.side === 'enemy' ? { ...c, xp: c.xp * 100 } : c)) };
+    assert.equal(summarize(richer, DEFAULT_RULES).xp.pc, base);
+    // A member at another level is counted against their own.
+    const higher = { ...f, combatants: f.combatants.map(c => (c.memberId === 'astra' ? { ...c, level: 9 } : c)) };
+    assert.equal(summarize(higher, DEFAULT_RULES).xp.astra, defeated.reduce((sum, e) => sum + foeXpWorth(e, 9), 0));
+    assert.equal(summarize(higher, DEFAULT_RULES).xp.pc, base);
 });

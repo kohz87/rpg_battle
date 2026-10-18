@@ -7,7 +7,7 @@
 // the same actions over the same setup reproduces the fight exactly (reload, rollback).
 // act() never mutates its argument: it works on a deep copy. Pure.
 
-import { DEFAULT_RULES, fleeChance, hitChance, mitigate, parleyChance, xpFactor } from './rules.js';
+import { DEFAULT_RULES, clampXpRate, fleeChance, hitChance, mitigate, parleyChance, xpFactor, xpToNext } from './rules.js';
 import { makeRng } from './rng.js';
 import { effectivePower } from './skills.js';
 import { LOOT_TABLES, rollLoot } from './enemies.js';
@@ -739,6 +739,24 @@ function momentWeight(entry, f) {
     return 2.5;
 }
 
+/**
+ * (0.5.2) What one foe is worth to a member of `memberLevel`, as summarize counts it: a
+ * tenth (rules.xp.even) of the XP the member's next level needs, × the level-gap factor
+ * (xpFactor, against the foe's `xpLevel` when a threat word put it below level 1, else its
+ * level), × rules.boss.xp for a boss, × rules.parley.xpFactor when `parleyed`, × the XP rate;
+ * rounded, at least 1 when anything is left. The rank table's XP plays no part.
+ */
+export function foeXpWorth(enemy, memberLevel, rules = DEFAULT_RULES, { parleyed = false } = {}) {
+    const even = Number(rules?.xp?.even ?? DEFAULT_RULES.xp.even);
+    const foeLevel = Number.isFinite(Number(enemy?.xpLevel)) ? Number(enemy.xpLevel) : enemy?.level;
+    const raw = xpToNext(memberLevel, rules) * (Number.isFinite(even) ? even : DEFAULT_RULES.xp.even)
+        * xpFactor(memberLevel, foeLevel, rules)
+        * (enemy?.boss ? Number(rules.boss?.xp ?? 1) : 1)
+        * (parleyed ? Number(rules.parley?.xpFactor ?? 1) : 1)
+        * clampXpRate(rules?.xpRate);
+    return raw > 0 ? Math.max(1, Math.round(raw)) : 0;
+}
+
 /** The finished fight as a Result (see docs/ARCHITECTURE.md). */
 export function summarize(fight, rules = DEFAULT_RULES) {
     const f = fight;
@@ -748,12 +766,14 @@ export function summarize(fight, rules = DEFAULT_RULES) {
     const defeated = gone('down');
     const parleyed = gone('parleyed');
 
+    // (0.5.2) Each member against their own level, every foe in full (no splitting): a share of
+    // the member's next level by the level gap, boss and parley, at the XP rate (foeXpWorth).
     const xp = {};
     for (const member of party) {
         let total = 0;
-        for (const e of defeated) total += e.xp * xpFactor(member.level, e.level, rules);
-        for (const e of parleyed) total += e.xp * xpFactor(member.level, e.level, rules) * rules.parley.xpFactor;
-        xp[member.memberId ?? member.id] = Math.round(total);
+        for (const e of defeated) total += foeXpWorth(e, member.level, rules);
+        for (const e of parleyed) total += foeXpWorth(e, member.level, rules, { parleyed: true });
+        xp[member.memberId ?? member.id] = total;
     }
 
     const loot = { items: [], money: 0 };

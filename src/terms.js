@@ -8,12 +8,12 @@
 // every block keeps the exact level in a form the parsers read back ("(Lv 24)"), so turning
 // the terms on or off, or changing them, never loses a sheet.
 //
-// With tiers on, progress is shown as the share of the way through the current tier
-// ("Soul Growth 45.20/100") rather than XP within one level: a world with tiers talks about
-// how far through the tier you are, and the share fits the meter Story Block draws. The
-// share is floored to hundredths and read back by rounding up, which is stable (a sheet
-// written, read and written again shows the same share) and loses at most a ten-thousandth
-// of the tier's XP once. Pure.
+// Progress is XP within the current level against XP to the next level ("Soul Growth
+// 30/100"), with tiers too (0.5.2): the bar beside "Soul Class I (Lv 1)" is read as the way to
+// the next level, and a gain reads "+30" everywhere. Before 0.5.2 a world with tiers was shown
+// the share through the whole tier, always written with decimals ("0.21/100"); those blocks
+// are still read back as that share (xpFromProgress), so a chat keeps its XP, and the new
+// text is whole numbers only, so the two never mix up. Pure.
 
 import { DEFAULT_RULES, xpToNext } from './rules.js';
 
@@ -184,6 +184,7 @@ function xpBetween(from, to, rules) {
 /**
  * The XP of a tier: { before, span } where `before` is the XP from the tier's first level to
  * the start of `level`, and `span` the XP from its first level to the next tier (or the cap).
+ * Only for reading an older block's tier share back (xpFromProgress).
  */
 function tierSpan(level, rules, terms) {
     const lv = clampLevel(level, terms);
@@ -194,34 +195,29 @@ function tierSpan(level, rules, terms) {
 }
 
 /**
- * How far a sheet is towards its next step: { cur, max, text, capped }.
- * With tiers: the share through the current tier, 0.00–99.99 of 100 ("45.20/100"); else XP
- * against XP to the next level ("310/800"). At the cap: "MAX" (cur = max).
+ * How far a sheet is towards its next level: { cur, max, text, capped }, XP within the level
+ * against XP to the next one ("310/800"), with or without tiers; whole numbers only, so the
+ * text never reads as an older block's tier share. At the cap: "MAX" (cur = max).
  */
 export function progress(sheet, rules = DEFAULT_RULES) {
     const terms = termsOf(rules);
     const level = clampLevel(num(sheet?.level) ?? 1, terms);
     const xp = Math.max(0, Math.round(num(sheet?.xp) ?? 0));
     if (level >= terms.cap) return { cur: 100, max: 100, text: 'MAX', capped: true };
-    if (!terms.tiers) {
-        const next = xpToNext(level, rules);
-        return { cur: xp, max: next, text: `${xp}/${next}`, capped: false };
-    }
-    const { before, span } = tierSpan(level, rules, terms);
-    // Hundredths as an integer, so the text and the read-back agree exactly.
-    const hundredths = span > 0 ? Math.min(9999, Math.floor((10000 * (before + xp)) / span)) : 0;
-    return { cur: hundredths / 100, max: 100, text: `${(hundredths / 100).toFixed(2)}/100`, capped: false };
+    const next = xpToNext(level, rules);
+    return { cur: xp, max: next, text: `${xp}/${next}`, capped: false };
 }
 
-/** "Soul Growth 45.20/100", "XP 310/800", "Soul Growth MAX". */
+/** "Soul Growth 30/100", "XP 310/800", "Soul Growth MAX". */
 export function progressLabel(sheet, rules = DEFAULT_RULES) {
     return `${xpLabel(rules)} ${progress(sheet, rules).text}`;
 }
 
 /**
- * XP within `level` from a written progress value: "310/800" or "310" → 310; a share
- * ("45.20/100", only ever written with decimals) → the XP it stands for in the level's tier
- * (with tiers off, that share of the level); "MAX" → 0. Clamped to the level's own XP range.
+ * XP within `level` from a written progress value: "310/800" or "310" → 310; "MAX" → 0. A
+ * share with decimals ("45.20/100") is what blocks before 0.5.2 wrote with tiers on: the XP it
+ * stands for in the level's tier (rounded up, as it was written floored), or with tiers off
+ * that share of the level; clamped to the level's own XP range.
  */
 export function xpFromProgress(value, level, rules = DEFAULT_RULES) {
     const terms = termsOf(rules);
@@ -241,21 +237,9 @@ export function xpFromProgress(value, level, rules = DEFAULT_RULES) {
     return plain ? Number(plain[0]) : 0;
 }
 
-/**
- * An XP gain as the reader reads it: '+38' with tiers off; with tiers, the share of the
- * member's tier it is worth ('+12%', '+0.4%'). Without a level, the plain number.
- */
-export function xpGainText(gain, level, rules = DEFAULT_RULES) {
-    const terms = termsOf(rules);
-    const xp = Math.max(0, Math.round(num(gain) ?? 0));
-    const lv = num(level);
-    if (!terms.tiers || lv === null) return `+${xp}`;
-    const { span } = tierSpan(lv, rules, terms);
-    if (!(span > 0)) return `+${xp}`;
-    const pct = (100 * xp) / span;
-    // Whole percents read best; a small gain keeps one decimal so it is not shown as +0%.
-    const shown = pct >= 10 ? String(Math.round(pct)) : String(Math.round(pct * 10) / 10);
-    return `+${shown}%`;
+/** An XP gain as the reader reads it: '+38', with or without tiers (0.5.2: never a share of the tier). */
+export function xpGainText(gain) {
+    return `+${Math.max(0, Math.round(num(gain) ?? 0))}`;
 }
 
 // ---------------------------------------------------------------------------------------

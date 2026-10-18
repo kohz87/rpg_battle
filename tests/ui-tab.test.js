@@ -608,7 +608,7 @@ test('setup: the story\'s engagement, read-only: counts, names, power, role, Bos
     for (const selector of ['input', 'select', 'textarea', 'datalist', '.rpg-battle-add-row', '.rpg-battle-remove-row', '.rpg-battle-back']) assert.equal($(pane, selector), null, selector);
     assert.deepEqual(texts(root(pane), '.rpg-battle-enemy-name'), ['Bandit', 'Bandit Captain', 'Bog Wight']);
     assert.deepEqual(texts(root(pane), '.rpg-battle-enemy-count'), ['3 ×', '1 ×', '9 ×']);
-    assert.deepEqual(texts(root(pane), '.rpg-battle-enemy-power'), ['Rank E', 'Rank D', 'Level 12']);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-enemy-power'), [`Lv ${rules.ranks.E.level}`, `Lv ${rules.ranks.D.level}`, 'Lv 12'], '0.5.2: the level, never the rank letter');
     assert.deepEqual(texts(root(pane), '.rpg-battle-enemy-role'), ['skirmisher', 'brute', 'caster']);
     assert.deepEqual(texts(root(pane), '.rpg-battle-boss'), ['Boss']);
     assert.deepEqual(texts(root(pane), '.rpg-battle-threat'), ['strong']);
@@ -646,7 +646,7 @@ test('fight: enemy and party cards, gone ones greyed, the turn highlighted, the 
     const pane = render(fightView());
     const goblin = card(pane, 'e1');
     assert.ok(goblin.classList.contains('is-enemy'));
-    assert.deepEqual(texts(goblin, '.rpg-battle-badge'), ['E · brute']);
+    assert.deepEqual(texts(goblin, '.rpg-battle-badge'), ['Lv 3 · brute'], '0.5.2: the level, not the rank letter');
     assert.deepEqual(texts(goblin, '.rpg-battle-chip'), ['poison 2']);
     assert.equal(goblin.querySelector('[role="progressbar"]').getAttribute('aria-valuenow'), '40');
     const wolf = card(pane, 'e3');
@@ -963,14 +963,15 @@ test('the story notices render and can be pressed with no handlers at all', () =
 const SOUL = { ...rules, terms: { levelName: 'Soul Class', xpName: 'Soul Growth', tiers: { size: 10, numerals: 'roman' }, cap: 100 } };
 const POWER = { ...rules, terms: { levelName: 'Soul Power', xpName: 'Power Growth', tiers: null, cap: null } };
 
-test('idle: the level and XP in the reader\'s terms; party rows show the tier', () => {
+test('idle: the level and XP in the reader\'s terms; party rows show the tier; the XP bar is per level', () => {
     const party = [{ id: 'astra', name: 'Astra', role: 'companion', control: 'auto', sheet: sheet({ name: 'Astra', level: 12 }), gear: [] }];
     let pane = render({ mode: 'idle', sheet: sheet({ level: 24, xp: 3120 }), skills: [], party, rules: SOUL });
     assert.equal($(pane, '.rpg-battle-level').textContent, 'Soul Class III (Lv 24)');
     const xpBar = $(pane, '.rpg-battle-member-card.is-you .rpg-battle-bar.is-xp');
     assert.equal(xpBar.getAttribute('aria-label'), 'Soul Growth');
     assert.equal(xpBar.querySelector('.rpg-battle-bar-name').textContent, 'Soul Growth');
-    assert.equal(xpBar.querySelector('.rpg-battle-bar-value').textContent, '26.34/100');
+    assert.equal(xpBar.querySelector('.rpg-battle-bar-value').textContent, `3120/${xpToNext(24, rules)}`, '0.5.2: XP within the level, with tiers too');
+    assert.equal(xpBar.getAttribute('aria-valuemax'), String(xpToNext(24, rules)));
     assert.ok(xpBar.classList.contains('is-named'));
     assert.equal($(pane, '.rpg-battle-member .rpg-battle-member-level').textContent, 'Soul Class II');
     pane = render({ mode: 'idle', sheet: sheet({ level: 100, xp: 0 }), skills: [], party: [], rules: SOUL });
@@ -1052,12 +1053,36 @@ test('setup: power in the reader\'s terms: a level as their tier, a rank as the 
     assert.deepEqual(texts(root(plain), '.rpg-battle-enemy-power'), ['Soul Power 1', 'Soul Power 24', `Soul Power ${rules.ranks.E.level}`]);
 });
 
-test('fight: an enemy\'s power badge in the reader\'s terms', () => {
+test('fight: an enemy\'s level and threat word on its card, in the reader\'s terms (0.5.2)', () => {
     reset();
     let pane = render({ ...fightView(), rules: SOUL });
-    assert.match(card(pane, 'e1').querySelector('.rpg-battle-badge').textContent, /^Soul Class I · brute$/);
+    assert.equal(card(pane, 'e1').querySelector('.rpg-battle-badge').textContent, 'Soul Class I · brute', 'with tiers the tag form');
+    pane = render({ ...fightView(), rules: POWER });
+    assert.equal(card(pane, 'e1').querySelector('.rpg-battle-badge').textContent, 'Soul Power 3 · brute');
     pane = render(fightView());
-    assert.match(card(pane, 'e1').querySelector('.rpg-battle-badge').textContent, /^E · brute$/);
+    assert.equal(card(pane, 'e1').querySelector('.rpg-battle-badge').textContent, 'Lv 3 · brute');
+    // A foe whose row had a threat word shows it between its level and its role; Boss stays its own badge.
+    const view = fightView();
+    view.fight.combatants = view.fight.combatants.map(unit => (unit.id === 'e1' ? { ...unit, level: 1, role: 'skirmisher', threat: 'weak', boss: true } : unit));
+    pane = render(view);
+    assert.deepEqual(texts(card(pane, 'e1'), '.rpg-battle-badge'), ['Lv 1 · weak · skirmisher', 'boss']);
+    pane = render({ ...view, rules: SOUL });
+    assert.equal(card(pane, 'e1').querySelector('.rpg-battle-badge').textContent, 'Soul Class I · weak · skirmisher');
+});
+
+test('setup: each row\'s XP per foe for your character, as the glue worked it out (0.5.2)', () => {
+    reset();
+    const rows = [
+        { name: 'Feral Ditch-Dog', count: 2, level: 1, rank: null, role: 'skirmisher', boss: false, threat: 'weak', xp: 9 },
+        { name: 'Wolf Matriarch', count: 1, level: 1, rank: null, role: 'brute', boss: true, threat: 'even', xp: 45 },
+        { name: 'Bandit', count: 1, level: null, rank: 'E', role: 'skirmisher', boss: false },
+    ];
+    let pane = render({ mode: 'setup', rows, stakes: 'normal', known: ['Wolf Matriarch', 'Bandit'], rules });
+    const line = $$(pane, '.rpg-battle-enemy-row')[0];
+    assert.deepEqual([...line.children].map(node => node.textContent), ['2 ×', 'Feral Ditch-Dog', 'new', 'Lv 1', 'weak', 'skirmisher', '~9 XP each']);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-enemy-xp'), ['~9 XP each', '~45 XP'], 'a boss row its own (×3) value; one foe without "each"; none without a number');
+    pane = render({ mode: 'setup', rows, stakes: 'normal', known: [], rules: SOUL });
+    assert.deepEqual(texts(root(pane), '.rpg-battle-enemy-xp'), ['~9 Soul Growth each', '~45 Soul Growth']);
 });
 
 test('result: gains in the reader\'s terms, with the level reached', () => {
@@ -1065,14 +1090,12 @@ test('result: gains in the reader\'s terms, with the level reached', () => {
     let pane = render({ mode: 'result', result: result(), handoff: '', levelsGained: 1, pointsGained: 4, levelsReached: 5, rules: POWER });
     assert.deepEqual(texts(root(pane), '.rpg-battle-gains dt'), ['Power Growth', 'Soul Power', 'Points']);
     assert.deepEqual(texts(root(pane), '.rpg-battle-gains dd'), ['+38 each', '+1 level (Soul Power 5)', '4 to spend']);
-    let span = 0;
-    for (let level = 1; level <= 10; level++) span += xpToNext(level, rules);
-    const gain = Math.round(span * 0.12);
     const party = result().party.map(member => ({ ...member, level: 4 }));
-    pane = render({ mode: 'result', result: result({ party, xp: { pc: gain, astra: gain } }), handoff: '', levelsGained: 0, pointsGained: 0, rules: SOUL });
-    assert.deepEqual(texts(root(pane), '.rpg-battle-gains dd'), ['+12% each']);
-    pane = render({ mode: 'result', result: result({ party: [{ ...party[0] }, { ...party[1], level: 14 }], xp: { pc: gain, astra: gain } }), handoff: '', rules: SOUL });
-    assert.deepEqual(texts(root(pane), '.rpg-battle-gains dt'), ['Ren Soul Growth', 'Astra Soul Growth'], 'different tiers, different shares');
+    pane = render({ mode: 'result', result: result({ party, xp: { pc: 30, astra: 30 } }), handoff: '', levelsGained: 0, pointsGained: 0, rules: SOUL });
+    assert.deepEqual(texts(root(pane), '.rpg-battle-gains dd'), ['+30 each'], '0.5.2: XP with tiers too, not a share of the tier');
+    pane = render({ mode: 'result', result: result({ party: [{ ...party[0] }, { ...party[1], level: 14 }], xp: { pc: 30, astra: 24 } }), handoff: '', rules: SOUL });
+    assert.deepEqual(texts(root(pane), '.rpg-battle-gains dt'), ['Ren Soul Growth', 'Astra Soul Growth']);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-gains dd'), ['+30', '+24']);
 });
 
 test('companion: the level picker in the reader\'s terms, up to the cap', () => {
@@ -1396,7 +1419,7 @@ test('setup: a plan lists its stages in order, each with its rows and waves, rea
     assert.deepEqual(stages.map(stage => texts(stage, '.rpg-battle-enemy-name')), [['Guard'], ['Guard', 'Hound'], ['Guard Captain']]);
     assert.deepEqual(texts(stages[1], '.rpg-battle-wave'), ['Engagement 1', 'Then, engagement 2'], 'a stage\'s waves stay under it');
     assert.deepEqual(texts(stages[2], '.rpg-battle-boss'), ['Boss']);
-    assert.deepEqual(texts(root(pane), '.rpg-battle-enemy-power'), ['Level 3', 'Level 7', 'Level 7', 'Level 11']);
+    assert.deepEqual(texts(root(pane), '.rpg-battle-enemy-power'), ['Lv 3', 'Lv 7', 'Lv 7', 'Lv 11']);
     assert.deepEqual(texts(root(pane), '.rpg-battle-threat'), ['weak', 'even', 'strong']);
     assert.deepEqual($$(pane, '.rpg-battle-enemy-row').map(row => Boolean(row.querySelector('.rpg-battle-new'))), [false, false, true, true]);
     assert.equal($(pane, '.rpg-battle-setup-summary').textContent, '3 stages, 7 enemies. 2 new, made up from their names when the fight starts.');

@@ -2,7 +2,7 @@
 // full or first name, your character's waiting for one to exist, quests from Story Director.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_RULES as R, xpToNext } from '../src/rules.js';
+import { DEFAULT_RULES as R, makeRules, xpToNext } from '../src/rules.js';
 import { DEFAULT_SKILLS } from '../src/skills.js';
 import { newSheet } from '../src/sheet.js';
 import { newCompanion } from '../src/party.js';
@@ -87,4 +87,18 @@ test('offers last while their reply is the latest and no fight has started since
     assert.deepEqual(liveOffers(all, { latest: 7 }).map(offer => offer.key), [openingSkill, openingJoin, fallen].map(offer => offer.key), 'a newer reply ends them');
     assert.deepEqual(liveOffers([openingRest, openingSkill], { latest: 0 }).map(offer => offer.key), [openingRest.key, openingSkill.key], 'the opening message\'s rest only while it is the latest');
     assert.deepEqual(liveOffers([openingRest, openingSkill], { latest: 0, foughtSince: true }).map(offer => offer.key), [openingSkill.key]);
+});
+
+test('story and quest XP offers show the award at the XP rate (0.5.2), with tiers as plain XP', () => {
+    const fast = makeRules({ xpRate: 2 });
+    const slow = makeRules({ xpRate: 0.5 });
+    const xpText = rules => storyOffers({ index: 4, texts: { xp: 'major: rescued the caravan' }, pc: ren, rules }).find(offer => offer.kind === 'xp').text;
+    assert.equal(xpText(fast), 'XP +50: rescued the caravan. Award?', 'a quarter of 100, ×2');
+    assert.equal(xpText(slow), 'XP +13: rescued the caravan. Award?', '25 × 0.5, rounded');
+    const soul = makeRules({ terms: { levelName: 'Soul Class', xpName: 'Soul Growth', tiers: { size: 10 } } });
+    assert.equal(xpText(soul), 'Soul Growth +25: rescued the caravan. Award?', 'never a share of the tier');
+    const quest = rules => questOffers({ index: 9, quests: [{ id: 'q1', name: 'The Lost Caravan', difficulty: 'hard' }], pc: ren, rules })[0].text;
+    assert.equal(quest(R), 'Quest done: The Lost Caravan (hard). Award XP +15?');
+    assert.equal(quest(fast), 'Quest done: The Lost Caravan (hard). Award XP +30?');
+    assert.equal(quest(makeRules({ xpRate: 0.25 })), 'Quest done: The Lost Caravan (hard). Award XP +4?');
 });

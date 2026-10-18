@@ -106,22 +106,18 @@ test('the status lines use the state-word bands from the rules', () => {
     assert.equal(buildHandoff(result({ party }), { currency: COINS, rules: grim }).split('\n')[2], 'Ren: HP 50/62, MP 30/30 — wounded · exhausted.');
 });
 
-test('the XP line speaks the reader\'s terms: a name of their own, or the share of the tier', async () => {
-    const { xpToNext } = await import('../src/rules.js');
+test('the XP line speaks the reader\'s terms: a name of their own, XP with tiers too (0.5.2)', () => {
     const power = makeRules({ terms: { levelName: 'Soul Power', xpName: 'Power Growth' } });
     assert.match(buildHandoff(result(), { currency: COINS, rules: power }), /Loot: .*\. Power Growth \+38 each\.$/m);
     const soul = makeRules({ terms: { levelName: 'Soul Class', xpName: 'Soul Growth', tiers: { size: 10, numerals: 'roman' } } });
-    let span = 0;
-    for (let level = 1; level <= 10; level++) span += xpToNext(level, DEFAULT_RULES);
-    const gain = Math.round(span * 0.12);
     const leveled = result({
-        xp: { pc: gain, astra: gain },
+        xp: { pc: 30, astra: 30 },
         party: result().party.map(member => ({ ...member, level: 4 })),
     });
-    assert.match(buildHandoff(leveled, { currency: COINS, rules: soul }), /Soul Growth \+12% each\.$/m);
-    // Different tiers make different shares; someone at the cap gains nothing and is left out.
-    const mixed = result({ xp: { pc: gain, astra: gain }, party: [{ ...result().party[0], level: 4 }, { ...result().party[1], level: 99 }] });
-    assert.match(buildHandoff(mixed, { currency: COINS, rules: soul }), /Soul Growth \+12%\.$/m);
+    assert.match(buildHandoff(leveled, { currency: COINS, rules: soul }), /Soul Growth \+30 each\.$/m);
+    // Someone at the cap gains nothing and is left out.
+    const mixed = result({ xp: { pc: 30, astra: 30 }, party: [{ ...result().party[0], level: 4 }, { ...result().party[1], level: 99 }] });
+    assert.match(buildHandoff(mixed, { currency: COINS, rules: soul }), /Soul Growth \+30\.$/m);
     assert.match(buildHandoff(result(), { currency: COINS }), /XP \+38 each\.$/m, 'plain terms as before');
 });
 

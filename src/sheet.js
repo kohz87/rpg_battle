@@ -22,7 +22,8 @@
 // conditions, so an edited or missing State line changes nothing.
 //
 // The level line speaks the reader's terms (terms.js): `Soul Class: III (Lv 24) | Soul Growth:
-// 45.20/100 | Points: 2`, or `Level: 4 | XP: 310/800 | Points: 2` with the plain ones. The
+// 5400/11760 | Points: 2` (0.5.2: XP within the level; an older block's tier share such as
+// `45.20/100` is still read), or `Level: 4 | XP: 310/800 | Points: 2` with the plain ones. The
 // exact level is always in it, so the parsers read it back from the canonical form, from any
 // terms form (with or without the colon after the level name) and from older blocks. Pure.
 

@@ -8,7 +8,7 @@ import { DEFAULT_BESTIARY } from '../src/enemies.js';
 import { PRESETS } from '../src/skills.js';
 import { newSheet } from '../src/sheet.js';
 import { newCompanion } from '../src/party.js';
-import { STORY_INSTRUCTION, THREATS, applyWounds, describeWound, encounterSummary, guessSkill, parseEncounter, parsePlan, parseHints, parseJoins, parseLearned, parseLeaves, parseRest, parseStakes, parseWounds, parseXp, resolveThreats, storyFight, threatLevel } from '../src/story.js';
+import { STORY_INSTRUCTION, THREATS, applyWounds, describeWound, encounterSummary, guessSkill, parseEncounter, parsePlan, parseHints, parseJoins, parseLearned, parseLeaves, parseRest, parseStakes, parseWounds, parseXp, resolveThreats, storyFight, threatLevel, threatPower } from '../src/story.js';
 
 const rules = makeRules();
 const ren = { ...newSheet({ name: 'Ren Aldane', stats: PRESETS[0].points, skills: PRESETS[0].skills }, rules), hp: { cur: 98, max: 98 } };
@@ -436,4 +436,42 @@ test('parsePlan: a then-prefix that cannot be a place (digits, too long) or no p
     for (const text of ['then round 3: 2 bandit', 'the gate: wolf; then: x: y', 'wave 2: 3 goblins; then inside: rat']) {
         assert.ok(parseEncounter(text).every(row => !row.name.includes(':')), text);
     }
+});
+
+// ---------------------------------------------------------------------------
+// Threat words at low levels (0.5.2): held at level 1, the foe is scaled down instead
+
+test('threatPower: below level 1 the level stays 1, a scale shrinks the foe and xpLevel keeps the distance', () => {
+    assert.deepEqual(threatPower('even', 1), { level: 1, scale: 1, xpLevel: 1 });
+    assert.deepEqual(threatPower('weak', 1), { level: 1, scale: 0.6, xpLevel: -3 }, '4 levels short: 0.88^4');
+    assert.deepEqual(threatPower('trivial', 1), { level: 1, scale: 0.36, xpLevel: -7 }, '8 short: 0.88^8');
+    assert.deepEqual(threatPower('trivial', 3), { level: 1, scale: 0.464, xpLevel: -5 }, '6 short');
+    assert.deepEqual(threatPower('weak', 5), { level: 1, scale: 1, xpLevel: 1 }, 'exactly 1: nothing to scale');
+    assert.deepEqual(threatPower('weak', 10), { level: 6, scale: 1, xpLevel: 6 }, 'level 10: weak is level 6, unscaled, as before');
+    assert.deepEqual(threatPower('strong', 1), { level: 5, scale: 1, xpLevel: 5 });
+    assert.equal(threatPower('nonsense', 1), null);
+    assert.equal(threatPower('trivial', 1, makeRules({ threat: { perLevelBelowOne: 0.5 } })).scale, 0.35, 'never below minScale');
+    // With tier titles a step is a tier, and the shortfall is counted in plain steps: the same scale.
+    const soul = makeRules({ terms: { levelName: 'Soul Class', tiers: { size: 10 } } });
+    assert.deepEqual(threatPower('weak', 1, soul), { level: 1, scale: 0.6, xpLevel: -9 });
+    assert.deepEqual(threatPower('trivial', 1, soul), { level: 1, scale: 0.36, xpLevel: -19 });
+});
+
+test('resolveThreats: only rows whose level came from a threat word get a scale', () => {
+    assert.deepEqual(resolveThreats([
+        { name: 'Wolf', count: 2, rank: null, threat: 'weak' },
+        { name: 'Wolf', count: 1, rank: null, threat: 'even' },
+        { name: 'Ogre', count: 1, rank: null, level: 1, threat: 'trivial' },
+        { name: 'Bandit', count: 1, rank: 'F', threat: 'trivial' },
+        { name: 'Goblin', count: 1, rank: null },
+    ], 1), [
+        { name: 'Wolf', count: 2, rank: null, threat: 'weak', level: 1, scale: 0.6, xpLevel: -3 },
+        { name: 'Wolf', count: 1, rank: null, threat: 'even', level: 1 },
+        { name: 'Ogre', count: 1, rank: null, level: 1, threat: 'trivial' },
+        { name: 'Bandit', count: 1, rank: 'F', threat: 'trivial' },
+        { name: 'Goblin', count: 1, rank: null },
+    ]);
+    // A plan's stages and an encounter's waves keep it on their rows.
+    const rows = resolveThreats(parsePlan('at the gate: 2 guard (weak); then: 1 guard (trivial); then at the yard: 3 guard (trivial)').flatMap(stage => stage.rows), 1);
+    assert.deepEqual(rows.map(row => [row.stage, row.wave ?? 0, row.level, row.scale, row.xpLevel]), [[1, 0, 1, 0.6, -3], [1, 1, 1, 0.36, -7], [2, 0, 1, 0.36, -7]]);
 });

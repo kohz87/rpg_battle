@@ -321,17 +321,28 @@ function veteran() {
     return { ...parseCharacter(REN, R).sheet, level: 24, xp: 3120, points: 2 };
 }
 
-test('with tier titles the level line shows the tier, the exact level and the share of the tier', () => {
+test('with tier titles the level line shows the tier, the exact level and XP within the level (0.5.2)', () => {
     const text = formatCharacter(veteran(), SOUL);
     const lines = text.split('\n');
-    assert.equal(lines[1], 'Soul Class: III (Lv 24) | Soul Growth: 26.34/100 | Points: 2');
+    assert.equal(lines[1], `Soul Class: III (Lv 24) | Soul Growth: 3120/${xpToNext(24, R)} | Points: 2`);
     // HP, stats, Checks, State and Skills lines are as before.
     assert.deepEqual(lines.slice(2), formatCharacter(veteran(), R).split('\n').slice(2));
     const back = parseCharacter(text, SOUL);
     assert.deepEqual(back.errors, []);
     assert.equal(back.sheet.level, 24);
-    assert.ok(back.sheet.xp <= 3120 && back.sheet.xp > 3100, `a share is precise to a ten-thousandth of the tier (${back.sheet.xp})`);
+    assert.equal(back.sheet.xp, 3120, 'exact');
     assert.equal(formatCharacter(back.sheet, SOUL), text, 'written again, it reads the same');
+});
+
+test('an older block\'s tier share (0.3–0.5.1) keeps its XP and is written back as XP', () => {
+    const old = formatCharacter(veteran(), SOUL).replace(/Soul Growth: \S+/, 'Soul Growth: 26.34/100');
+    const back = parseCharacter(old, SOUL);
+    assert.deepEqual(back.errors, []);
+    assert.equal(back.sheet.level, 24);
+    assert.ok(back.sheet.xp <= 3120 && back.sheet.xp > 3100, `a share is precise to a ten-thousandth of the tier (${back.sheet.xp})`);
+    const again = formatCharacter(back.sheet, SOUL);
+    assert.match(again, new RegExp(`Soul Growth: ${back.sheet.xp}/${xpToNext(24, R)} \\|`));
+    assert.equal(parseCharacter(again, SOUL).sheet.xp, back.sheet.xp, 'and then reads back the same');
 });
 
 test('with names of their own the level line keeps plain numbers', () => {
@@ -369,7 +380,7 @@ test('the level reads back from any terms form, old blocks and terms the rules n
 test('Party sections speak the terms and read back', () => {
     const members = parseParty(PARTY, R).members.map(member => ({ ...member, sheet: { ...member.sheet, level: 24, xp: 3120 } }));
     const text = formatParty(members, SOUL);
-    assert.deepEqual(text.split('\n').slice(0, 2), ['## Astra — companion | control: auto', 'Soul Class: III (Lv 24) | Soul Growth: 26.34/100 | Points: 0']);
+    assert.deepEqual(text.split('\n').slice(0, 2), ['## Astra — companion | control: auto', `Soul Class: III (Lv 24) | Soul Growth: 3120/${xpToNext(24, R)} | Points: 0`]);
     const back = parseParty(text, SOUL);
     assert.deepEqual(back.errors, []);
     assert.deepEqual(back.members.map(member => [member.id, member.sheet.level]), [['astra', 24], ['merrit', 24]]);

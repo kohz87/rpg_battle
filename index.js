@@ -40,13 +40,13 @@
 // reader's source-of-truth choices decide whether Story Block's Character Sheet is pointed out
 // as a second HP; alone, nothing changes.
 
-import { DEFAULT_RULES, checkModifiers, makeRules, suggestRank } from './src/rules.js';
+import { DEFAULT_RULES, checkModifiers, clampXpRate, makeRules, suggestRank } from './src/rules.js';
 import { hashSeed, makeRng } from './src/rng.js';
 import { DEFAULT_SKILLS, findSkill, resolveSkills, skillFromTemplate } from './src/skills.js';
 import { DEFAULT_BESTIARY, findCreature } from './src/enemies.js';
 import { TEMPLATES, classify, cleanCreature, combinedBestiary, creaturesToMake, generateCreature, storeCreatures } from './src/templates.js';
 import { applyFlavour, flavourPrompt, parseFlavour, sceneText } from './src/flavour.js';
-import { act, availableActions, replay, startFight, summarize } from './src/combat.js';
+import { act, availableActions, foeXpWorth, replay, startFight, summarize } from './src/combat.js';
 import { applyResult, foldUses, formatPartyBlock, learnSkill, newSheet, readSheets, setSkillActive, spendPoints } from './src/sheet.js';
 import { addLoot, consumables, formatGearEntry, formatMoney, gearSummary, parseGearEntry, parseInventory, useItems } from './src/items.js';
 import { buildHandoff, buildPlanHandoff, fightOrigin, handoffState, originHolds, settleHandoff } from './src/handoff.js';
@@ -65,7 +65,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.1';
+const VERSION = '0.5.2';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -119,6 +119,8 @@ const DEFAULT_SETTINGS = Object.freeze({
     activeSkills: DEFAULT_RULES.character.activeSkills,
     // Companions on auto spend the points a level gives them in their build's proportions.
     autoSpend: true,
+    // (0.5.2) Multiplies all XP: fights, parleys, story awards and quests (rules.xpRate, 0.25–5).
+    xpRate: DEFAULT_RULES.xpRate,
     // Sent for you by "Return to story", so the narration comes straight away.
     returnMessage: '*(The fight is over.)*',
     currency: DEFAULT_RULES.currency,
@@ -224,7 +226,7 @@ function rules() {
     return makeRules({
         ...custom,
         character: { ...(custom.character ?? {}), activeSkills: activeSkillsSetting(own.activeSkills) },
-        currency: own.currency, terms: own.terms, gear: own.gear,
+        currency: own.currency, terms: own.terms, gear: own.gear, xpRate: clampXpRate(own.xpRate),
     });
 }
 
@@ -589,14 +591,17 @@ function rankedRows(rows, sheet, r, bestiary) {
 /**
  * The setup's rows as they will be fought, for the read-only summary: each with its power
  * settled as rankedRows does (a level, or a rank; a creature either bestiary knows without
- * one shows its own), and its role (written, the creature's, or the one its template gives a
- * name made up for the fight).
+ * one shows its own), its role (written, the creature's, or the one its template gives a
+ * name made up for the fight), and (0.5.2) `xp`, one foe's worth to your character.
  */
 function setupRows(rows, sheet, r, bestiary) {
     return rankedRows(rows, sheet, r, bestiary).map(row => {
         const creature = findCreature(bestiary, row.name);
         const kind = creature ? null : classify(row.name);
         const level = row.level ?? (row.rank ? null : Number(creature?.level) >= 1 ? Math.round(Number(creature.level)) : null);
+        // (0.5.2) What one of them is worth to you, as the result will count it (a share of your
+        // next level by the level gap, boss, the XP rate: combat.foeXpWorth).
+        const [foe] = enemiesFromRows([{ ...row, count: 1 }], { bestiary, library: [], rules: r, rng: null });
         return {
             name: row.name,
             count: row.count,
@@ -605,6 +610,7 @@ function setupRows(rows, sheet, r, bestiary) {
             role: row.role || creature?.role || kind?.role || TEMPLATES[kind?.template]?.role || null,
             boss: Boolean(row.boss),
             ...(row.threat ? { threat: row.threat } : {}),
+            ...(foe ? { xp: foeXpWorth(foe, sheet.level, r) } : {}),
             ...(row.wave ? { wave: row.wave } : {}),
             ...(row.stage ? { stage: row.stage } : {}),
         };

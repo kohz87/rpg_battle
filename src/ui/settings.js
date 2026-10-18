@@ -1,4 +1,5 @@
-// RPG Battle's panel under Extensions: the on/off switch, the money, the terms, the party, and the block tags.
+// RPG Battle's panel under Extensions: the on/off switch, the money, the terms, the party (with
+// the XP rate, 0.5.2), and the block tags.
 //
 // Small on purpose: everything about a character happens in the Battle tab. Money follows the
 // reader's world (DESIGN §8.3): copper/silver/gold, one coin, or their own names and rates.
@@ -15,6 +16,8 @@
 // other extensions, Automatic, This extension or The other one, with who the story follows now.
 // With two or more of them installed, a "Manage all in Story Suite" link at the top opens Story
 // Block's overlay on RPG Battle's tab (the glue says when it shows and what it opens).
+
+import { XP_RATE, clampXpRate } from '../rules.js';
 
 const CURRENCY_MODES = [
     { value: 'tiers', label: 'Copper / silver / gold, or your own coins' },
@@ -73,8 +76,8 @@ const NUMERAL_CHOICES = [
     { value: 'arabic', label: '1, 2, 3' },
 ];
 
-function numberInput(id, value, { min = 1, max = 999, placeholder = '' } = {}) {
-    const node = el('input', { className: 'text_pole', attrs: { id, type: 'number', min: String(min), max: String(max), step: '1' } });
+function numberInput(id, value, { min = 1, max = 999, step = 1, placeholder = '' } = {}) {
+    const node = el('input', { className: 'text_pole', attrs: { id, type: 'number', min: String(min), max: String(max), step: String(step) } });
     node.value = value === null || value === undefined ? '' : String(value);
     if (placeholder) node.placeholder = placeholder;
     return node;
@@ -84,6 +87,9 @@ const wholeOrNull = (text, min, max) => {
     const value = Math.round(Number(String(text ?? '').trim()));
     return String(text ?? '').trim() && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : null;
 };
+
+// (0.5.2) The XP rate as typed, within XP_RATE on its step (rules.clampXpRate); empty is 1.
+const xpRateValue = text => clampXpRate(String(text ?? '').trim());
 
 const CONFLICT_TEXT = 'Story Block\'s Character Sheet is also on: two HP values will disagree.';
 
@@ -134,7 +140,7 @@ export function foldHints(settings) {
         equipment: `${gear.worn} worn · ${gear.accessories} ${Number(gear.accessories) === 1 ? 'accessory' : 'accessories'}`,
         terms: [terms.levelName || 'Level', terms.xpName || 'XP', terms.tiers ? 'tiers' : '', terms.cap ? `cap ${terms.cap}` : ''].filter(Boolean).join(' · '),
         monsters: current.flavour?.enabled === false ? 'Model calls off' : 'Model calls on',
-        party: `${Number(current.activeSkills) || 6} active skills · ${current.autoSpend === false ? 'points by hand' : 'auto-spend'}`,
+        party: `${Number(current.activeSkills) || 6} active skills · ${current.autoSpend === false ? 'points by hand' : 'auto-spend'}${xpRateValue(current.xpRate) !== 1 ? ` · XP ×${xpRateValue(current.xpRate)}` : ''}`,
         truth: chosen ? `${chosen} chosen by hand` : 'Automatic',
         blocks: [current.partyTag || 'Party', current.inventoryTag || 'Inventory'].join(' · '),
     };
@@ -264,6 +270,13 @@ export function renderSettings(container, { settings, version = '', status = '',
         const value = wholeOrNull(activeSkills.value, 3, 12) ?? 6;
         activeSkills.value = String(value);
         commit(next => { next.activeSkills = value; });
+    });
+    // (0.5.2) XP rate: multiplies every XP gain (rules.xpRate).
+    const xpRate = numberInput('rpg_battle_xp_rate', xpRateValue(current.xpRate), XP_RATE);
+    xpRate.addEventListener('change', () => {
+        const value = xpRateValue(xpRate.value);
+        xpRate.value = String(value);
+        commit(next => { next.xpRate = value; });
     });
     const autoSpend = el('input', { attrs: { id: 'rpg_battle_auto_spend', type: 'checkbox' } });
     autoSpend.checked = current.autoSpend !== false;
@@ -404,6 +417,7 @@ export function renderSettings(container, { settings, version = '', status = '',
                     fold('party', 'Party', [
                         row('Active skills', 'Skills each member fights with (3 to 12). More are kept, set aside, and swapped in on their card.', withUnit(activeSkills, 'skills'), 'rpg_battle_active_skills'),
                         row('Spend companions\' points automatically', 'Companions on auto, in their build\'s proportions; off: every companion keeps points for Spend.', autoSpend, 'rpg_battle_auto_spend'),
+                        row('XP rate', 'Multiplies all XP: fights, quests and story awards.', withUnit(xpRate, '×'), 'rpg_battle_xp_rate'),
                     ]),
                     fold('truth', 'Source of truth', [
                         muted('With Story Block, Story Director or NPC State Delta beside RPG Battle, who the story follows for each area they share. Automatic: the specialist for it. Alone, every choice works like Automatic.'),
