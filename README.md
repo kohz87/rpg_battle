@@ -28,6 +28,12 @@ A three-stage plan from a demo session with [Story Block](https://github.com/koh
 | --- | --- |
 | <img src="docs/images/party.png" alt="Ren's card: level, HP and MP, stats with checks, unspent points, skills, gear; the waiting hand-off notice above" width="200"> | <img src="docs/images/offer.png" alt="A plan in 3 stages offered: Fight? or Not now" width="200"> |
 
+| Monster families: the Bestiary | Levels, threat and XP per foe |
+| --- | --- |
+| <img src="docs/images/bestiary.png" alt="The Bestiary grouped under Canines: wolves, a Razor Dog made up as kin of the Old Dog Wolf, a Feral Ditch-Dog as kin of the Razor Dog" width="220"> | <img src="docs/images/setup-xp.png" alt="Setup: 2 Ditch-Dog, Lv 1, weak, about 5 XP each; then a Razor Dog, Lv 5, strong, about 20 XP" width="220"> |
+
+A new kind in a family the story already knows (a razor dog after the wolves) is made up as **kin** of its relative: same behaviour, moves and kind of loot, its own level and XP.
+
 ## Install
 
 1. Install Story Block 0.7+ and enable it.
