@@ -64,10 +64,16 @@ function sentence(text) {
     return String(text ?? '').trim().replace(/[.;,\s]+$/, '');
 }
 
-/** "Goblin, Goblin, Wolf" → "Goblin ×2, Wolf": the story already knows how many there were. */
+/**
+ * "Goblin A, Goblin B, Wolf" → "Goblin ×2, Wolf". The letters that tell same-named foes apart in
+ * the fight ("Timber Wolf C") are dropped, so each kind is counted once.
+ */
 function grouped(names) {
     const counts = new Map();
-    for (const name of names ?? []) counts.set(name, (counts.get(name) ?? 0) + 1);
+    for (const raw of names ?? []) {
+        const name = String(raw ?? '').trim().replace(/\s+[A-Z]$/, '');
+        if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
     return [...counts].map(([name, count]) => (count > 1 ? `${name} ×${count}` : name)).join(', ');
 }
 
@@ -116,7 +122,10 @@ export function buildHandoff(result, { names = {}, currency = DEFAULT_RULES.curr
         .map((moment, index) => (index > 0 ? moment.replace(/^(The|A|An) /, word => word.toLowerCase()) : moment));
     if (moments.length) lines.push(wrap(`Key moments: ${moments.join('; ')}.`));
 
+    // (0.5.8) How many fell, said outright: the key moments name only some of them, and a story
+    // left to count from those narrated two of four wolves.
     const aside = [];
+    if (result?.defeated?.length) aside.push(`Foes defeated: ${grouped(result.defeated)}.`);
     if (result?.parleyed?.length) aside.push(`Stood down after parley: ${grouped(result.parleyed)}.`);
     if (result?.fled?.length) aside.push(`Fled: ${grouped(result.fled)}.`);
     if (aside.length) lines.push(aside.join(' '));
@@ -177,7 +186,10 @@ export function buildPlanHandoff(result, { names = {}, currency = DEFAULT_RULES.
         .map((moment, index) => (index > 0 ? moment.replace(/^(The|A|An) /, word => word.toLowerCase()) : moment));
     if (moments.length) lines.push(wrap(`Key moments: ${moments.join('; ')}.`));
 
+    // (0.5.8) How many fell, said outright: the key moments name only some of them, and a story
+    // left to count from those narrated two of four wolves.
     const aside = [];
+    if (result?.defeated?.length) aside.push(`Foes defeated: ${grouped(result.defeated)}.`);
     if (result?.parleyed?.length) aside.push(`Stood down after parley: ${grouped(result.parleyed)}.`);
     if (result?.fled?.length) aside.push(`Fled: ${grouped(result.fled)}.`);
     if (aside.length) lines.push(aside.join(' '));
