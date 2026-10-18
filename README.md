@@ -1,4 +1,4 @@
-# RPG Battle v0.5.11
+# RPG Battle v0.5.12
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -775,6 +775,12 @@ this chat's stored state (the hand-off waiting, the last result, what was put aw
 that narrated a fight), what the last reply was sent, the sheets, the offers, the quests Story
 Director finished in the latest reply, that reply's RPG Battle blocks as written, and the
 activity. Long lists are cut. **Copy**, **Copy JSON** and **Copy both** put it on the clipboard.
+
+**Next reply will get** (since 0.5.12) is worked out from the saved chat the way the next reply
+would be: the hand-off waiting and the instruction, both quoted. It shows right after a restart,
+while *Last reply sent* and *Activity* are this session's only. After a fight, before your next
+message, it reads *fight hand-off + narrating instruction*; once a reply has told the fight, the
+hand-off is spent (*only a swipe of that reply gets it again*).
 
 It answers *why was this fight not offered* (no `<Encounter>` written, a result still to be told,
 a fight under way, no character, put away) and *was the model told to hand fights over* (the
