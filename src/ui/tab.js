@@ -1885,9 +1885,25 @@ function renderResult(root, view, handlers) {
         ]));
     }
 
+    // (0.5.4) What the reader's character could do next: each one their message, put in the
+    // message box (a click) or sent (Shift-click); the reply narrates the fight, then that move.
+    const next = view.nextMoves;
+    const moves = list(next?.moves).filter(move => str(move));
+    if (next && (next.status === 'loading' || moves.length)) {
+        root.append(section('is-next', [
+            sub('What next?', 'fa-route'),
+            next.status === 'loading'
+                ? el('p', { className: 'rpg-battle-hint rpg-battle-next-loading', attrs: { role: 'status' }, text: 'Thinking of what could come next…' })
+                : el('ul', { className: 'rpg-battle-next-moves' }, moves.map(move => el('li', {}, [
+                    button(move, 'rpg-battle-next-move', { title: 'Click puts it in the message box · Shift-click sends it', onClick: event => emit(handlers, 'onMove', move, Boolean(event?.shiftKey)) }),
+                ]))),
+            next.status === 'loading' ? null : el('p', { className: 'rpg-battle-hint', text: 'Click puts it in the message box · Shift-click sends it. The reply tells the fight, then your move.' }),
+        ]));
+    }
+
     // The result always reaches the story: Return to story now, or Done and the next reply.
     root.append(el('div', { className: 'rpg-battle-actions' }, [
-        button('Return to story', 'rpg-battle-primary rpg-battle-return', { iconName: 'fa-book-open', onClick: () => emit(handlers, 'onReturn') }),
+        button(moves.length ? 'Just continue' : 'Return to story', 'rpg-battle-primary rpg-battle-return', { iconName: 'fa-book-open', onClick: () => emit(handlers, 'onReturn') }),
         button('Done', 'rpg-battle-done', { iconName: 'fa-check', onClick: () => emit(handlers, 'onDone') }),
     ]));
 }

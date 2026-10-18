@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.4
+
+- **What next? after a fight.** The result screen offers a few things your character could do next instead of only *Return to story*: one short model call writes them from the hand-off and the scene when model calls are on (15-second limit, the Generated words model); off, offline, or when the call fails or says too little, code writes them from the result (skin or search the fallen, tend a hurt or downed companion, follow foes that fled, get clear after fleeing, come to after a defeat, another way to a stage not reached). A click puts one in the message box, Shift-click sends it; the reply tells the fight, then your move, and the hand-off is unchanged. *Just continue* sends the usual message. None after your character's death. Setting *Next moves after a fight* (Blocks), on by default.
+
 ## 0.5.3
 
 - **Threat in plain levels, never tiers.** With tier titles on, a threat step was a whole tier: a *strong* foe for a Soul Class I (Lv 1) party was Soul Class II (Lv 11), and *deadly* two tiers up. A step is now always 4 plain levels: *strong* is +4, *deadly* +8, *weak* −4, *trivial* −8, with or without tiers.

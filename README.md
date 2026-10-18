@@ -1,4 +1,4 @@
-# RPG Battle v0.5.3
+# RPG Battle v0.5.4
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -33,6 +33,10 @@ A three-stage plan from a demo session with [Story Block](https://github.com/koh
 | <img src="docs/images/bestiary.png" alt="The Bestiary grouped under Canines: wolves, a Razor Dog made up as kin of the Old Dog Wolf, a Feral Ditch-Dog as kin of the Razor Dog" width="220"> | <img src="docs/images/setup-xp.png" alt="Setup: 2 Ditch-Dog, Lv 1, weak, about 5 XP each; then a Razor Dog, Lv 5, strong, about 20 XP" width="220"> |
 
 A new kind in a family the story already knows (a razor dog after the wolves) is made up as **kin** of its relative: same behaviour, moves and kind of loot, its own level and XP.
+
+<img src="docs/images/next-moves.png" alt="After a victory, What next?: skin the wolves, follow the wolf that got away, look around, press on; Just continue and Done" width="220">
+
+**What next?** after a fight: a click puts a move in the message box, Shift-click sends it. Optional (*Next moves after a fight*).
 
 ## Install
 
@@ -404,6 +408,16 @@ Key moments: Ren finishes the Goblin A; Critical! Ren's Power Strike hits the Go
 Loot: 1 silver, 3 copper, a goblin ear, a shaman's charm. XP +35.
 ```
 
+**What next?** (since 0.5.4) Under the result, a few things your character could do next: *Skin
+the wolves and take what is worth keeping*, *Tend to Lyra's wounds before moving on*, *Follow the
+ones that got away*. With model calls on (Generated words), one short call writes them from the
+hand-off and the scene (a 15-second limit, on the same model as new creatures); off, offline or when
+the call fails, they are written from the result itself (loot, someone hurt, foes that fled, a lost
+or abandoned fight, stages not reached). A click puts one in the message box to edit and send,
+Shift-click sends it at once; the reply then tells the fight and your move. **Just continue** sends
+the usual message. Never after your character's death. Off under **Blocks → Next moves after a
+fight**.
+
 **Return to story** sends a short message for you so the narration comes straight away. The
 summary is given to that one reply only; its swipes narrate the same result. **Done** closes the
 Battle tab; while the summary waits, the Party tab shows it with **Return to story**. Once the
@@ -703,7 +717,8 @@ on top, then folds: **Money**, **Equipment** (worn pieces and accessories that c
 **Generated words** (model calls for new creatures and a new companion's skills), **Party**
 (skills in use per member, 3 to 12; companions' points spent automatically; the **XP rate**, 0.25
 to 5, multiplying all XP), **Source of truth**
-and **Blocks** (the Party and Inventory tags, the Return to story message).
+and **Blocks** (the Party and Inventory tags, the Return to story message, next moves after a
+fight on or off).
 
 ## Development
 

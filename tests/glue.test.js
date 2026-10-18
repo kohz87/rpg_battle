@@ -718,3 +718,49 @@ test('the story instruction names the creatures this story has met (0.5.1)', asy
         ctx.setExtensionPrompt = before;
     }
 });
+
+test('after a fight (0.5.4): next moves from the model, else written from the result; a move goes to the message box', async () => withClock(async () => {
+    const fight = async (id, text) => {
+        openChat(id, [reply(`<Party>\n${REN}\n</Party>`), userMessage('Down to the cellar.'), sent(`A rat bolts from the sacks.\n<Encounter>${text}</Encounter>`, 'd2')]);
+        hooks.update();
+        await settle();
+        find(drawTab('rpg-battle'), '.rpg-battle-encounter-fight').click();
+        find(drawTab('rpg-battle'), '.rpg-battle-begin').click();
+        await settle();
+        const pane = await fightOut();
+        assert.equal(modeOf(pane), 'result');
+        for (let i = 0; i < 5; i++) await settle();
+        return drawTab('rpg-battle');
+    };
+    // No model here (no generateRaw): the moves are written from the result.
+    let pane = await fight('moves-code', 'giant rat (trivial)');
+    let moves = findAll(pane, '.rpg-battle-next-move').map(node => node.textContent.trim());
+    assert.ok(moves.length >= 2 && moves.length <= 4, moves.join(' | '));
+    assert.ok(moves.includes('Press on before anything else arrives.'));
+    assert.equal(find(pane, '.rpg-battle-return').textContent.trim(), 'Just continue');
+    // With a model: its moves.
+    const before = ctx.generateRaw;
+    ctx.generateRaw = async ({ systemPrompt, prompt }) => {
+        assert.match(systemPrompt, /outcome is settled/);
+        assert.match(prompt, /How the fight ended:/);
+        return '1. Wipe the blade on a sack.\n2. Check the cellar for more rats.\n3. Call up the stairs that it is done.';
+    };
+    try {
+        pane = await fight('moves-model', 'giant rat (trivial)');
+        moves = findAll(pane, '.rpg-battle-next-move').map(node => node.textContent.trim());
+        assert.deepEqual(moves, ['Wipe the blade on a sack.', 'Check the cellar for more rats.', 'Call up the stairs that it is done.']);
+        // A move: the result screen closes for the story (the message box is SillyTavern's).
+        findAll(pane, '.rpg-battle-next-move')[1].click();
+        await settle();
+        assert.notEqual(modeOf(drawTab('rpg-battle')), 'result');
+        assert.ok(meta().pending, 'the hand-off still waits for the reply');
+        // Off: no moves, Return to story as before.
+        ctx.extensionSettings.rpgBattle.nextMoves = false;
+        pane = await fight('moves-off', 'giant rat (trivial)');
+        assert.equal(findAll(pane, '.rpg-battle-next-move').length, 0);
+        assert.equal(find(pane, '.rpg-battle-return').textContent.trim(), 'Return to story');
+    } finally {
+        ctx.generateRaw = before;
+        ctx.extensionSettings.rpgBattle.nextMoves = true;
+    }
+}));

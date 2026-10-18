@@ -851,6 +851,28 @@ test('result: Return to story and Done; no Discard, the result always reaches th
     assert.deepEqual(calls.map(call => call.name), ['onReturn', 'onDone']);
 });
 
+test('result (0.5.4): What next? moves fill the message box on a click, send on Shift-click; Just continue', () => {
+    reset();
+    const { handlers, calls } = recorder();
+    const moves = ['Skin the wolves for their pelts.', 'Bind Lyra\'s arm.', 'Search the den.'];
+    let pane = render({ mode: 'result', result: result(), handoff: 'text', levelsGained: 0, pointsGained: 0, nextMoves: { status: 'ready', moves, source: 'model' } }, handlers);
+    assert.deepEqual($$(pane, '.rpg-battle-next-move').map(node => node.textContent.trim()), moves);
+    $$(pane, '.rpg-battle-next-move')[0].click();
+    $$(pane, '.rpg-battle-next-move')[2].dispatch('click', { shiftKey: true });
+    assert.deepEqual(calls.filter(call => call.name === 'onMove').map(call => call.args), [[moves[0], false], [moves[2], true]]);
+    assert.deepEqual($$(pane, '.rpg-battle-actions').at(-1).querySelectorAll('button').map(node => node.textContent.trim()), ['Just continue', 'Done']);
+    buttonByText(pane, 'Just continue').click();
+    assert.equal(calls.at(-1).name, 'onReturn');
+    // While the model thinks: a quiet line, no moves yet.
+    pane = render({ mode: 'result', result: result(), handoff: 'text', nextMoves: { status: 'loading', moves: [] } }, handlers);
+    assert.match($(pane, '.rpg-battle-next-loading').textContent, /Thinking of what could come next/);
+    assert.equal($$(pane, '.rpg-battle-next-move').length, 0);
+    // Off (or a death): no section, Return to story as before.
+    pane = render({ mode: 'result', result: result(), handoff: 'text', nextMoves: null }, handlers);
+    assert.equal($(pane, '.is-next'), null);
+    assert.ok(buttonByText(pane, 'Return to story'));
+});
+
 // ---------------------------------------------------------------------------
 // robustness
 
