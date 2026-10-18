@@ -50,7 +50,7 @@ import { act, availableActions, foeXpWorth, replay, startFight, summarize } from
 import { applyResult, foldUses, forgetSkill, formatPartyBlock, learnSkill, newSheet, readSheets, setSkillActive, spendPoints } from './src/sheet.js';
 import { addLoot, consumables, formatGearEntry, formatMoney, gearSummary, parseGearEntry, parseInventory, useItems } from './src/items.js';
 import { NEXT_MOVES_MAX, fallbackMoves, nextMovesPrompt, parseNextMoves } from './src/nextmoves.js';
-import { buildHandoff, buildPlanHandoff, fightOrigin, handoffState, originHolds, settleHandoff } from './src/handoff.js';
+import { buildHandoff, buildPlanHandoff, fightOrigin, grouped, handoffState, originHolds, settleHandoff } from './src/handoff.js';
 import { cleanPlan, newPlan, nextStage, planResult, stageDone, stageId } from './src/plan.js';
 import { combatantFromSheet, editCompanion, enemiesFromRows, engagements, newCompanion, npcRenames, remapIds } from './src/party.js';
 import { recoverOverTime, restAfter, useItemOutside } from './src/recovery.js';
@@ -66,7 +66,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.9';
+const VERSION = '0.5.10';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -1053,6 +1053,7 @@ async function writeResult(result, stakes) {
 
 /** The result is written and waits for the story: the hand-off stored, the result on screen. */
 async function resultReady({ id, result, handoff, origin, report }) {
+    logActivity(`Fight ended: ${result?.outcome ?? '?'}${result?.defeated?.length ? ` · foes defeated ${grouped(result.defeated)}` : ''}${result?.fled?.length ? ` · fled ${grouped(result.fled)}` : ''}`);
     saveChatState({ fight: null, plan: null, pending: { handoff, fightId: id, attachedTo: null, origin }, last: { fightId: id, result, handoff, ...report, origin } });
     await context()?.saveMetadata?.();
     finishing = null;
@@ -1284,7 +1285,10 @@ async function planAndWriteReply({ messageIndex }) {
             recovered: plan.note ? { index, text: plan.note, gains: plan.gains } : state.recovered?.index === index ? null : state.recovered,
             story: { index, signature, applied: undone ? state.story.applied : plan.applied, undone, written: result.written },
         });
-        if (plan.applied.length) toastWounds(plan.applied);
+        if (plan.applied.length) {
+            toastWounds(plan.applied);
+            logActivity(`Story wounds from reply #${index}: ${plan.applied.map(describeWound).join('; ')}`);
+        }
     }
     // (0.5.9) The narrating reply may go on into a new fight, offered when encounterOffer says so.
     if (!narrating || encounterOffer()) toastEncounter(sb, index);
@@ -1621,8 +1625,10 @@ async function awardQuests(offers = currentOffers()) {
             const { pc, members } = currentSheets();
             const ups = await awardOffer(offer, { pc, members, rules: rules(), autoSpend: settings().autoSpend !== false });
             notify('success', `${offer.data.done}.${ups.length ? ` ${ups.join('; ')}.` : ''}`);
+            logActivity(`Awarded: ${offer.data.done}${ups.length ? ` · ${ups.join('; ')}` : ''}`);
         } catch (error) {
             questsFailed.add(offer.key);
+            logActivity(`Quest XP could not be written (${error instanceof Error ? error.message : String(error)}): shown as an offer`);
             console.warn('[RPG Battle] quest XP could not be awarded', error);
         } finally {
             questsAwarding.delete(offer.key);
@@ -1653,6 +1659,7 @@ function offerByKey(key) {
 async function acceptOffer(key) {
     const offer = offerByKey(key);
     if (!offer) throw new Error('That offer is no longer there.');
+    logActivity(`Accepted: ${offer.text}`);
     const r = rules();
     const own = settings();
     const chatId = chatIdOf(context());
@@ -2101,6 +2108,96 @@ globalThis.rpgBattleInterceptor = onGenerationInterceptor;
 // What the last story reply was sent: { at, type, handoff, instruction: 'story'|'narrating'|'none', why, chars }.
 let lastSent = null;
 
+// What happened this session, newest last (awards, offers taken or put away, fights, story wounds).
+const activity = [];
+const ACTIVITY_KEPT = 12;
+function logActivity(text) {
+    activity.push({ at: Date.now(), chatId: chatIdOf(context()), text: String(text ?? '') });
+    if (activity.length > ACTIVITY_KEPT) activity.splice(0, activity.length - ACTIVITY_KEPT);
+}
+
+const indent = text => String(text ?? '').split('\n').map(line => `  ${line}`).join('\n');
+
+/** The last fight's result as plain lines: outcome, foes, XP, loot, levels, mastery, and its hand-off text. */
+function lastFightLines(ctx, state) {
+    const last = state.last;
+    if (!last?.result) return ['Last fight: none in this chat yet'];
+    const result = last.result;
+    const party = Array.isArray(result.party) ? result.party : [];
+    const nameOf = id => party.find(member => member.memberId === id)?.name ?? id;
+    const xp = Object.entries(result.xp ?? {}).map(([id, value]) => `${nameOf(id)} +${Math.round(Number(value) || 0)}`).join(', ');
+    const items = (result.loot?.items ?? []).map(item => `${item.name}${Number(item.qty) > 1 ? ` ×${item.qty}` : ''}`);
+    const money = Number(result.loot?.money) > 0 ? formatMoney(result.loot.money, rules().currency) : '';
+    const stages = Array.isArray(result.stages) ? result.stages.filter(stage => stage.outcome).length : 0;
+    const lines = [
+        `Last fight: ${result.outcome ?? '?'}${stages ? ` (a plan, ${stages} ${stages === 1 ? 'stage' : 'stages'} fought)` : ''}${Number(result.rounds) ? ` in ${result.rounds} rounds` : ''}`,
+        `  Foes defeated: ${result.defeated?.length ? grouped(result.defeated) : 'none'}${result.fled?.length ? ` · fled: ${grouped(result.fled)}` : ''}${result.parleyed?.length ? ` · stood down: ${grouped(result.parleyed)}` : ''}`,
+        `  XP: ${xp || 'none'} · loot: ${[money, ...items].filter(Boolean).join(', ') || 'none'}`,
+    ];
+    const ups = [];
+    if (Number(last.levelsGained) > 0) ups.push(`your character +${last.levelsGained} level${last.levelsGained === 1 ? '' : 's'}`);
+    for (const up of last.masteryUps ?? []) ups.push(`${up.skill} Lv ${up.level}`);
+    if (ups.length) lines.push(`  Gains: ${ups.join(', ')}`);
+    const narrated = state.narrated?.filter(entry => entry.index !== undefined).map(entry => `#${entry.index}`) ?? [];
+    lines.push(`  Its hand-off: ${handoffNow(ctx, state)}${narrated.length ? ` · narrated by reply ${narrated.at(-1)}` : ''}. Sent as:`);
+    lines.push(indent(last.handoff ?? '(none kept)'));
+    return lines;
+}
+
+/**
+ * Each RPG Battle block in the latest reply, and what came of it: offered, put away, applied,
+ * awarded, or why not. Story Director's finished quests too.
+ */
+function latestReplyLines(ctx, state, sb, latest, pc) {
+    if (!sb || latest < 0) return [];
+    const chat = ctx?.chat ?? [];
+    const narrating = narratesAt(state, chat, latest);
+    const waiting = handoffNow(ctx, state) === 'waiting';
+    const fought = Boolean(state.foughtAt && state.foughtAt.index === latest && state.foughtAt.text === replyStamp(sb, latest));
+    const live = new Set(currentOffers(ctx, state).map(offer => offer.key));
+    const away = new Set([...state.dismissed, ...state.done]);
+    const texts = partyBlocksAt(sb, latest);
+    const { members } = currentSheets();
+    const made = storyOffers({ index: latest, texts, pc, members, persona: personaName(ctx), rules: rules(), library: library(ctx), narrating, pending: waiting });
+    const status = offer => (live.has(offer.key) ? 'offered' : away.has(offer.key) ? 'taken or put away' : fought ? 'gone: a fight started since this reply' : underWay(state) ? 'waiting: a fight is under way' : 'not shown');
+    const lines = [`Blocks in reply #${latest}:`];
+    const wounds = blockAt(sb, latest, WOUNDS_TAG);
+    if (wounds) {
+        const story = state.story?.index === latest ? state.story : null;
+        lines.push(`  <Wounds>: ${narrating ? 'not applied: this reply tells a fight\'s result (the fight dealt its wounds)' : story?.undone ? 'applied, then undone' : story?.applied?.length ? `applied: ${story.applied.map(describeWound).join('; ')}` : 'read, nothing applied (no name on the Party sheet, or unreadable)'}`);
+    }
+    const encounter = blockAt(sb, latest, ENCOUNTER_TAG);
+    if (encounter) {
+        const offer = encounterOffer(ctx, state);
+        lines.push(`  <Encounter>: ${offer ? 'offered (Battle tab)' : state.dismissed.includes(`${latest}:${encounter}`) ? 'fought or put away' : underWay(state) ? 'waiting: a fight is under way' : ['waiting', 'narrating'].includes(handoffNow(ctx, state)) ? 'waiting: a result is still to be told' : !pc ? 'no character' : 'could not be read as foes'}`);
+    }
+    const kinds = [['joins', JOINS_TAG], ['leaves', LEAVES_TAG], ['learned', LEARNED_TAG], ['xp', XP_TAG], ['rest', REST_TAG]];
+    for (const [kind, tag] of kinds) {
+        if (!texts[kind]) continue;
+        const offers = made.filter(offer => offer.kind === kind);
+        let why = '';
+        if (!offers.length) {
+            if (!pc && ['xp', 'rest', 'learned'].includes(kind)) why = 'no character yet';
+            else if (narrating && ['xp', 'rest'].includes(kind)) why = 'this reply tells a fight\'s result: XP and rest came from the fight';
+            else if (waiting && kind === 'rest') why = 'a fight result still waits to be told';
+            else if (kind === 'joins') why = 'already in the party, or the line could not be read';
+            else if (kind === 'leaves') why = 'no companion by that name';
+            else if (kind === 'learned') why = 'already known, or not someone in the party';
+            else why = 'the line could not be read';
+        }
+        lines.push(`  <${tag}>: ${offers.length ? offers.map(offer => `${offer.text} → ${status(offer)}`).join(' | ') : `no offer (${why})`}`);
+    }
+    const quests = questsDoneAt(latest);
+    if (quests.length) {
+        for (const quest of quests) {
+            const key = `${latest}:quest:${quest.id ?? quest.name}`;
+            lines.push(`  Quest done (Story Director): ${quest.name} (${quest.difficulty || 'normal'}) → ${!pc ? 'no XP: no character' : away.has(key) ? 'XP awarded' : questsFailed.has(key) ? 'XP not written: shown as an offer' : fought ? 'no XP: a fight started since' : 'XP pending'}`);
+        }
+    } else if (globalThis.StoryDirector) lines.push('  Quests finished in this reply (Story Director): none (a failed or abandoned quest gives no XP)');
+    if (lines.length === 1) lines.push('  none of RPG Battle\'s blocks');
+    return lines;
+}
+
 const yesNo = value => (value ? 'yes' : 'no');
 
 /** One plain report, a line each: the links, the character, the latest reply's blocks, what was sent, the fight and its offer. */
@@ -2118,9 +2215,7 @@ function diagnosticsText() {
         lines.push(pc ? `Character: ${pc.name}, ${levelText(pc.level, rules())}, HP ${pc.hp.cur}/${pc.hp.max}${isDead(pc) ? ' · dead' : ''}` : 'Character: none yet (Party tab → create one)');
         const latest = latestAssistantIndex(chat);
         if (sb && latest >= 0) {
-            const tags = [WOUNDS_TAG, ENCOUNTER_TAG, JOINS_TAG, LEAVES_TAG, LEARNED_TAG, XP_TAG, REST_TAG];
-            const found = tags.filter(tag => blockAt(sb, latest, tag));
-            lines.push(`Latest reply #${latest}: ${found.length ? `blocks ${found.map(tag => `<${tag}>`).join(', ')}` : 'none of RPG Battle\'s blocks'} · Party block ${yesNo(blockAt(sb, latest, settings(ctx).partyTag))}${narratesAt(state, chat, latest) ? ' · tells a fight\'s result' : ''}`);
+            lines.push(`Latest reply #${latest}: Party block ${yesNo(blockAt(sb, latest, settings(ctx).partyTag))}${narratesAt(state, chat, latest) ? ' · tells a fight\'s result' : ''}`);
         } else lines.push('Latest reply: none yet');
         if (lastSent) {
             const what = lastSent.instruction === 'story' ? 'story instruction (<Wounds>, <Encounter>, …)' : lastSent.instruction === 'narrating' ? 'narrating instruction (a new fight → <Encounter>, no <Wounds>)' : `no instruction (${lastSent.why})`;
@@ -2140,8 +2235,11 @@ function diagnosticsText() {
                             : 'the latest reply has no <Encounter> and nothing is planned';
         }
         lines.push(`Fight offer: ${offer ? `yes — ${offer.text.replace(/\s+/g, ' ').slice(0, 120)}` : `none (${why})`}`);
-        const offers = currentOffers(ctx, state);
-        lines.push(`Story offers: ${offers.length ? offers.map(entry => entry.kind).join(', ') : 'none'}`);
+        lines.push('', ...latestReplyLines(ctx, state, sb, latest, pc));
+        lines.push('', ...lastFightLines(ctx, state));
+        const mine = activity.filter(entry => entry.chatId === chatIdOf(ctx));
+        lines.push('', `Activity this session: ${mine.length ? '' : 'nothing yet'}`);
+        for (const entry of mine) lines.push(`  ${new Date(entry.at).toLocaleTimeString()} ${entry.text}`);
     } catch (error) {
         lines.push(`Diagnostics failed: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -2616,7 +2714,9 @@ const handlers = {
     },
     onAcceptOffer: key => void guarded(() => acceptOffer(key)),
     onDismissOffer: key => {
-        putAway(offerByKey(key));
+        const offer = offerByKey(key);
+        if (offer) logActivity(`Put away: ${offer.text}`);
+        putAway(offer);
         storyBlock()?.refresh?.();
     },
     onBack: () => {
@@ -2632,7 +2732,10 @@ const handlers = {
         // New names are made up (and flavoured) first; the fight starts once they are ready.
         const started = await prepareAndStart(setup);
         // A fight the story offered is now being fought: the offer is spent.
-        if (started) dismissEncounter(offerKey);
+        if (started) {
+            dismissEncounter(offerKey);
+            logActivity(`Fight started${offerKey ? ` from ${String(offerKey).split(':')[0] === 'undefined' ? 'the story' : `reply #${String(offerKey).split(':')[0]}`}` : ''}`);
+        }
     }),
     onRegenerateCreature: name => void guarded(() => regenerateCreature(name)),
     onForgetCreature: name => void guarded(async () => {

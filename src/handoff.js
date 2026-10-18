@@ -68,7 +68,7 @@ function sentence(text) {
  * "Goblin A, Goblin B, Wolf" → "Goblin ×2, Wolf". The letters that tell same-named foes apart in
  * the fight ("Timber Wolf C") are dropped, so each kind is counted once.
  */
-function grouped(names) {
+export function grouped(names) {
     const counts = new Map();
     for (const raw of names ?? []) {
         const name = String(raw ?? '').trim().replace(/\s+[A-Z]$/, '');
