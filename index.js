@@ -66,7 +66,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.10';
+const VERSION = '0.5.11';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -2094,7 +2094,7 @@ async function onGenerationInterceptor(chat, _contextSize, _abort, type = 'norma
         const why = !own.enabled ? 'RPG Battle is off' : !pc ? 'no character yet' : isDead(pc) ? 'your character is dead' : underWay(chatState(ctx)) ? 'a fight is under way' : '';
         const instruction = why ? '' : handoff ? NARRATING_INSTRUCTION : storyInstruction(ctx);
         setPrompt(instruction, RULES_PROMPT_KEY);
-        lastSent = { at: Date.now(), type: kind, handoff: Boolean(handoff), instruction: why ? 'none' : handoff ? 'narrating' : 'story', why, chars: handoff.length + instruction.length };
+        lastSent = { at: Date.now(), type: kind, handoff: Boolean(handoff), instruction: why ? 'none' : handoff ? 'narrating' : 'story', why, chars: handoff.length + instruction.length, handoffText: handoff, instructionText: instruction };
     } catch (error) {
         console.error('[RPG Battle] interceptor failed', error);
     }
@@ -2200,6 +2200,53 @@ function latestReplyLines(ctx, state, sb, latest, pc) {
 
 const yesNo = value => (value ? 'yes' : 'no');
 
+// Long arrays (a fight's log, use counts) are cut in the JSON; the report is for reading.
+function trimmed(value, depth = 0) {
+    if (Array.isArray(value)) {
+        const head = value.slice(0, 40).map(item => trimmed(item, depth + 1));
+        return value.length > 40 ? [...head, `… ${value.length - 40} more`] : head;
+    }
+    if (value && typeof value === 'object') {
+        if (depth > 6) return '…';
+        return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, trimmed(item, depth + 1)]));
+    }
+    if (typeof value === 'string' && value.length > 4000) return `${value.slice(0, 4000)}… (${value.length} characters)`;
+    return value;
+}
+
+/**
+ * (0.5.11) The data behind the report, as JSON: this chat's stored state (the hand-off, the last
+ * result, what was put away), what the last reply was sent, the sheets, the offers, and the
+ * latest reply's RPG Battle blocks as written. Long arrays are cut.
+ */
+function diagnosticsJson() {
+    const ctx = context();
+    try {
+        const sb = storyBlock();
+        const chat = ctx?.chat ?? [];
+        const latest = latestAssistantIndex(chat);
+        const tags = [WOUNDS_TAG, ENCOUNTER_TAG, JOINS_TAG, LEAVES_TAG, LEARNED_TAG, XP_TAG, REST_TAG, settings(ctx).partyTag];
+        const blocks = sb && latest >= 0 ? Object.fromEntries(tags.map(tag => [tag, blockAt(sb, latest, tag) ?? null]).filter(([, text]) => text !== null)) : {};
+        const { pc, members } = currentSheets();
+        const data = {
+            version: VERSION,
+            chatId: chatIdOf(ctx),
+            latestReply: latest,
+            lastSent,
+            chatState: chatState(ctx),
+            sheets: { pc, members },
+            offers: currentOffers(ctx),
+            encounterOffer: encounterOffer(ctx),
+            questsDoneInLatest: latest >= 0 ? questsDoneAt(latest) : [],
+            latestReplyBlocks: blocks,
+            activity: activity.filter(entry => entry.chatId === chatIdOf(ctx)),
+        };
+        return JSON.stringify(trimmed(data), null, 2);
+    } catch (error) {
+        return JSON.stringify({ error: error instanceof Error ? error.message : String(error) });
+    }
+}
+
 /** One plain report, a line each: the links, the character, the latest reply's blocks, what was sent, the fight and its offer. */
 function diagnosticsText() {
     const ctx = context();
@@ -2221,6 +2268,11 @@ function diagnosticsText() {
             const what = lastSent.instruction === 'story' ? 'story instruction (<Wounds>, <Encounter>, …)' : lastSent.instruction === 'narrating' ? 'narrating instruction (a new fight → <Encounter>, no <Wounds>)' : `no instruction (${lastSent.why})`;
             lines.push(`Last reply sent (${new Date(lastSent.at).toLocaleTimeString()}, ${lastSent.type}): ${lastSent.handoff ? 'fight hand-off + ' : ''}${what} · about ${Math.round(lastSent.chars / 4)} tokens`);
         } else lines.push('Last reply sent: nothing yet this session');
+        if (lastSent && (lastSent.handoffText || lastSent.instructionText)) {
+            lines.push(`Injected with it (each a system message at chat depth 1; ${PROMPT_KEY} then ${RULES_PROMPT_KEY}):`);
+            if (lastSent.handoffText) lines.push(`  [${PROMPT_KEY}] the hand-off:`, indent(indent(lastSent.handoffText)));
+            if (lastSent.instructionText) lines.push(`  [${RULES_PROMPT_KEY}] the ${lastSent.instruction} instruction:`, indent(indent(lastSent.instructionText)));
+        }
         const pending = state.pending;
         lines.push(`Hand-off: ${handoffNow(ctx, state)}${Number.isInteger(pending?.attachedTo) ? ` (given to reply #${pending.attachedTo})` : ''}`);
         lines.push(`Fight: ${state.plan ? 'a plan under way' : currentFight() ? 'under way' : 'none'}`);
@@ -2949,7 +3001,7 @@ function addSettingsPanel(documentRef) {
         onOpenSuite: () => openStorySuite(),
         onDisableSheet: () => disableStorySheet(),
         onChange: next => applySettings(next),
-        onDiagnostics: () => diagnosticsText(),
+        onDiagnostics: () => ({ text: diagnosticsText(), json: diagnosticsJson() }),
     });
     return Boolean(settingsPanel);
 }

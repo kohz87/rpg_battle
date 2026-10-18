@@ -380,33 +380,50 @@ export function renderSettings(container, { settings, version = '', status = '',
 
     const muted = text => el('p', { className: 'story-suite-muted', text });
     const diagnosticsFold = () => fold('diagnostics', 'Diagnostics', [
-        muted('What RPG Battle sees in this chat and what it sent with the last reply: the blocks the latest reply wrote, whether the model was told to hand fights over, where a fight\'s result stands, and why a fight is or is not offered. Copy it into a bug report.'),
+        muted('What RPG Battle sees in this chat and what it sent with the last reply: the exact text it injected, the blocks the latest reply wrote and what came of each, the last fight and its hand-off, and why a fight is or is not offered. The raw data is below as JSON. Copy it into a bug report.'),
         report,
-        el('div', { className: 'rpg-battle-diagnostics-actions' }, [refreshReport, copyReport]),
+        rawFold,
+        el('div', { className: 'rpg-battle-diagnostics-actions' }, [refreshReport, copyReport, copyRaw, copyAll]),
     ]);
 
-    // (0.5.9) Diagnostics: the glue's plain report, read when the fold opens and on Refresh.
+    // (0.5.9) Diagnostics: the glue's plain report, read when the fold opens and on Refresh;
+    // (0.5.11) with the raw data as JSON in a fold of its own. onDiagnostics gives a string, or
+    // { text, json }.
     const report = el('pre', { className: 'rpg-battle-diagnostics', attrs: { 'aria-live': 'polite' } });
+    const raw = el('pre', { className: 'rpg-battle-diagnostics rpg-battle-diagnostics-json' });
     const readReport = () => {
         try {
-            report.textContent = typeof onDiagnostics === 'function' ? String(onDiagnostics() ?? '') : 'Not available.';
+            const got = typeof onDiagnostics === 'function' ? onDiagnostics() : 'Not available.';
+            report.textContent = typeof got === 'string' ? got : String(got?.text ?? '');
+            raw.textContent = typeof got === 'string' ? '' : String(got?.json ?? '');
         } catch (error) {
             report.textContent = `Diagnostics failed: ${error instanceof Error ? error.message : String(error)}`;
+            raw.textContent = '';
         }
+    };
+    const copyButton = (className, label, text) => {
+        const button = el('button', { className: `menu_button ${className}`, attrs: { type: 'button' } }, [el('i', { className: 'fa-solid fa-copy' }), el('span', { text: label })]);
+        button.addEventListener('click', async () => {
+            readReport();
+            try {
+                await globalThis.navigator?.clipboard?.writeText?.(text());
+                button.lastChild.textContent = 'Copied';
+                setTimeout(() => { button.lastChild.textContent = label; }, 1500);
+            } catch {
+                button.lastChild.textContent = 'Select and copy';
+            }
+        });
+        return button;
     };
     const refreshReport = el('button', { className: 'menu_button rpg-battle-diagnostics-refresh', attrs: { type: 'button' } }, [el('i', { className: 'fa-solid fa-rotate' }), el('span', { text: 'Refresh' })]);
     refreshReport.addEventListener('click', readReport);
-    const copyReport = el('button', { className: 'menu_button rpg-battle-diagnostics-copy', attrs: { type: 'button' } }, [el('i', { className: 'fa-solid fa-copy' }), el('span', { text: 'Copy' })]);
-    copyReport.addEventListener('click', async () => {
-        readReport();
-        try {
-            await globalThis.navigator?.clipboard?.writeText?.(report.textContent);
-            copyReport.lastChild.textContent = 'Copied';
-            setTimeout(() => { copyReport.lastChild.textContent = 'Copy'; }, 1500);
-        } catch {
-            copyReport.lastChild.textContent = 'Select and copy';
-        }
-    });
+    const copyReport = copyButton('rpg-battle-diagnostics-copy', 'Copy', () => report.textContent);
+    const copyRaw = copyButton('rpg-battle-diagnostics-copy-json', 'Copy JSON', () => raw.textContent);
+    const copyAll = copyButton('rpg-battle-diagnostics-copy-all', 'Copy both', () => `${report.textContent}\n\n--- JSON ---\n${raw.textContent}`);
+    const rawFold = el('details', { className: 'rpg-battle-diagnostics-raw' }, [
+        el('summary', { text: 'Raw data (JSON)' }),
+        raw,
+    ]);
     const root = el('div', { className: 'rpg-battle-settings' }, [
         el('div', { className: 'inline-drawer' }, [
             el('div', { className: 'inline-drawer-toggle inline-drawer-header' }, [

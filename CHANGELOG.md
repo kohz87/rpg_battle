@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.11
+
+- **Diagnostics show what was injected, and the raw data.** The report quotes, word for word, what the last reply was sent: the hand-off and the story or narrating instruction, each a system message at chat depth 1 under its key. Under it, a **Raw data (JSON)** fold holds the data behind the lines: this chat's stored state (the waiting hand-off, the last result, what was put away, the narrated replies, the bestiary…), what the last reply was sent, the sheets, the offers and the fight offer, the quests Story Director finished in the latest reply, that reply's RPG Battle blocks as written, and the session's activity (long lists cut). **Copy JSON** and **Copy both** join **Copy**.
+
 ## 0.5.10
 
 - **Diagnostics tell the whole story.** Besides what was sent and why a fight is or is not offered, the report now has: **Blocks in the latest reply**, each `<Wounds>`, `<Encounter>`, `<Joins>`, `<Leaves>`, `<Learned>`, `<XP>` and `<Rest>` with what came of it (offered, taken or put away, applied, waiting) or why not (the reply tells a fight's result, no character, already in the party, a fight started since…), and each quest Story Director finished there with *XP awarded* or why not; **Last fight**: outcome, rounds, foes defeated and fled, XP per member, loot, levels and mastery gained, where its hand-off stands, and the hand-off text exactly as sent; **Activity this session**: awards, offers taken or put away, fights started and ended, story wounds, with times.

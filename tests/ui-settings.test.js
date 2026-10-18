@@ -379,3 +379,16 @@ test('Diagnostics: the glue\'s report, read when the fold opens and on Refresh (
     other.dispatch('toggle');
     assert.equal(other.querySelector('.rpg-battle-diagnostics').textContent, 'Diagnostics failed: boom');
 });
+
+test('Diagnostics: the raw data as JSON in its own fold, with Copy JSON and Copy both (0.5.11)', () => {
+    const container = doc.createElement('div');
+    doc.body.appendChild(container);
+    renderSettings(container, { settings: SETTINGS, onChange: () => {}, onDiagnostics: () => ({ text: 'Report', json: '{"version":"0.5.11"}' }) });
+    const fold = container.querySelector('.story-suite-fold[data-fold="diagnostics"]');
+    fold.open = true;
+    fold.dispatch('toggle');
+    assert.equal(fold.querySelector('.rpg-battle-diagnostics').textContent, 'Report');
+    assert.equal(fold.querySelector('.rpg-battle-diagnostics-raw > summary').textContent, 'Raw data (JSON)');
+    assert.equal(fold.querySelector('.rpg-battle-diagnostics-json').textContent, '{"version":"0.5.11"}');
+    assert.deepEqual(fold.querySelectorAll('.rpg-battle-diagnostics-actions .menu_button').map(node => node.textContent.trim()), ['Refresh', 'Copy', 'Copy JSON', 'Copy both']);
+});

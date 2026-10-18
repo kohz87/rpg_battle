@@ -1,4 +1,4 @@
-# RPG Battle v0.5.10
+# RPG Battle v0.5.11
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -767,6 +767,14 @@ this reply*), Story Director's quests finished there; **Last fight**, with its o
 defeated and fled, XP, loot, levels and mastery, and the hand-off exactly as it was sent; and
 **Activity this session** (awards, offers taken or put away, fights started and ended, story
 wounds), with times.
+
+Since 0.5.11 it also quotes **what was injected** with the last reply, word for word: the hand-off
+and the instruction, each a system message at chat depth 1 under its key (`rpg_battle`,
+`rpg_battle_rules`). Under the report, **Raw data (JSON)** holds what the lines are made from:
+this chat's stored state (the hand-off waiting, the last result, what was put away, the replies
+that narrated a fight), what the last reply was sent, the sheets, the offers, the quests Story
+Director finished in the latest reply, that reply's RPG Battle blocks as written, and the
+activity. Long lists are cut. **Copy**, **Copy JSON** and **Copy both** put it on the clipboard.
 
 It answers *why was this fight not offered* (no `<Encounter>` written, a result still to be told,
 a fight under way, no character, put away) and *was the model told to hand fights over* (the

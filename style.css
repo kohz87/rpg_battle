@@ -1632,3 +1632,15 @@
     flex-wrap: wrap;
     gap: 0.4rem;
 }
+
+/* (0.5.11) The raw data fold under the report. */
+.rpg-battle-settings .rpg-battle-diagnostics-raw > summary {
+    cursor: pointer;
+    font-size: 0.85em;
+    opacity: 0.85;
+}
+
+.rpg-battle-settings .rpg-battle-diagnostics-json {
+    max-height: 24rem;
+    font-family: var(--monoFontFamily, monospace);
+}
