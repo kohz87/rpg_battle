@@ -660,9 +660,9 @@ SillyTavern's theme variables (`--SmartThemeBodyColor`, `--SmartThemeBorderColor
 
 ```js
 export function combatantFromSheet(sheet, { memberId, controller, gear, items, library, rules }) → Combatant
-export function combatNumbers(sheet, { gear, rules }) → { attack, magic, defence, mdef, crit, hit, dodge, foe, stats }   // the Party card's combat line (0.5.13)
     // stats + gear (capped by items.gearBonuses), max HP/MP with gear, current HP/MP from the sheet,
     // skills resolved, consumables from `items`, `capped` (the items scaled down).
+export function combatNumbers(sheet, { gear, rules }) → { attack, magic, defence, mdef, crit, hit, dodge, foe, stats }   // the Party card's combat line (0.5.13)
 export function enemiesFromRows(rows, { bestiary, library, rules, rng }) → Combatant[]
     // ids e1, e2…; several of a kind lettered "Goblin A", "Goblin B".
 ```
