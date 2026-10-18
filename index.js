@@ -54,7 +54,7 @@ import { buildHandoff, buildPlanHandoff, fightOrigin, handoffState, originHolds,
 import { cleanPlan, newPlan, nextStage, planResult, stageDone, stageId } from './src/plan.js';
 import { combatantFromSheet, editCompanion, enemiesFromRows, engagements, newCompanion, npcRenames, remapIds } from './src/party.js';
 import { recoverOverTime, restAfter, useItemOutside } from './src/recovery.js';
-import { STORY_INSTRUCTION, applyWounds, describeWound, encounterSummary, findTarget, parsePlan, parseStakes, parseWounds, resolveThreats, storyFight } from './src/story.js';
+import { NARRATING_INSTRUCTION, STORY_INSTRUCTION, applyWounds, describeWound, encounterSummary, findTarget, parsePlan, parseStakes, parseWounds, resolveThreats, storyFight } from './src/story.js';
 import { liveOffers, questOffers, storyOffers } from './src/offers.js';
 import { awardParty, settleCompanions } from './src/growth.js';
 import { guessFocus } from './src/builds.js';
@@ -66,7 +66,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.8';
+const VERSION = '0.5.9';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -1286,7 +1286,8 @@ async function planAndWriteReply({ messageIndex }) {
         });
         if (plan.applied.length) toastWounds(plan.applied);
     }
-    if (!narrating) toastEncounter(sb, index);
+    // (0.5.9) The narrating reply may go on into a new fight, offered when encounterOffer says so.
+    if (!narrating || encounterOffer()) toastEncounter(sb, index);
     const fresh = currentOffers().filter(offer => offer.index === index);
     await awardQuests(fresh);
     toastOffers(fresh.filter(offer => offer.kind !== 'quest'));
@@ -2080,16 +2081,72 @@ async function onGenerationInterceptor(chat, _contextSize, _abort, type = 'norma
         const handoff = own.enabled ? handoffFor(chat, kind) : '';
         setPrompt(handoff);
         // The story instruction, while there is a sheet to keep in step and no fight under way.
-        // Not for the reply that narrates a fight: its wounds were dealt in the fight.
+        // The reply that narrates a fight gets the narrating one (0.5.9): no <Wounds> for that
+        // fight, but a new fight after it is still handed over.
         const pc = own.enabled ? currentSheet() : null;
-        const asks = Boolean(pc) && !isDead(pc) && !handoff && !underWay(chatState(ctx));
-        setPrompt(asks ? storyInstruction(ctx) : '', RULES_PROMPT_KEY);
+        const why = !own.enabled ? 'RPG Battle is off' : !pc ? 'no character yet' : isDead(pc) ? 'your character is dead' : underWay(chatState(ctx)) ? 'a fight is under way' : '';
+        const instruction = why ? '' : handoff ? NARRATING_INSTRUCTION : storyInstruction(ctx);
+        setPrompt(instruction, RULES_PROMPT_KEY);
+        lastSent = { at: Date.now(), type: kind, handoff: Boolean(handoff), instruction: why ? 'none' : handoff ? 'narrating' : 'story', why, chars: handoff.length + instruction.length };
     } catch (error) {
         console.error('[RPG Battle] interceptor failed', error);
     }
 }
 
 globalThis.rpgBattleInterceptor = onGenerationInterceptor;
+
+// ---------------------------------------------------------------------------
+// Diagnostics (0.5.9): what RPG Battle sees and sent, in plain lines, for Settings → Diagnostics
+
+// What the last story reply was sent: { at, type, handoff, instruction: 'story'|'narrating'|'none', why, chars }.
+let lastSent = null;
+
+const yesNo = value => (value ? 'yes' : 'no');
+
+/** One plain report, a line each: the links, the character, the latest reply's blocks, what was sent, the fight and its offer. */
+function diagnosticsText() {
+    const ctx = context();
+    const lines = [`RPG Battle v${VERSION} · ${settings(ctx).enabled !== false ? 'on' : 'off'}`];
+    try {
+        const sb = storyBlock();
+        const sd = globalThis.StoryDirector;
+        lines.push(`Story Block: ${sb ? `yes${sb.version ? ` (v${sb.version})` : ''}` : 'no (needed)'} · Story Director: ${sd ? `yes${sd.version ? ` (v${sd.version})` : ''}` : 'no'} · NPC State Delta: ${yesNo(npcApi())}`);
+        const chat = ctx?.chat ?? [];
+        if (!chatIdOf(ctx)) return [...lines, 'No chat open.'].join('\n');
+        const state = chatState(ctx);
+        const pc = currentSheet();
+        lines.push(pc ? `Character: ${pc.name}, ${levelText(pc.level, rules())}, HP ${pc.hp.cur}/${pc.hp.max}${isDead(pc) ? ' · dead' : ''}` : 'Character: none yet (Party tab → create one)');
+        const latest = latestAssistantIndex(chat);
+        if (sb && latest >= 0) {
+            const tags = [WOUNDS_TAG, ENCOUNTER_TAG, JOINS_TAG, LEAVES_TAG, LEARNED_TAG, XP_TAG, REST_TAG];
+            const found = tags.filter(tag => blockAt(sb, latest, tag));
+            lines.push(`Latest reply #${latest}: ${found.length ? `blocks ${found.map(tag => `<${tag}>`).join(', ')}` : 'none of RPG Battle\'s blocks'} · Party block ${yesNo(blockAt(sb, latest, settings(ctx).partyTag))}${narratesAt(state, chat, latest) ? ' · tells a fight\'s result' : ''}`);
+        } else lines.push('Latest reply: none yet');
+        if (lastSent) {
+            const what = lastSent.instruction === 'story' ? 'story instruction (<Wounds>, <Encounter>, …)' : lastSent.instruction === 'narrating' ? 'narrating instruction (a new fight → <Encounter>, no <Wounds>)' : `no instruction (${lastSent.why})`;
+            lines.push(`Last reply sent (${new Date(lastSent.at).toLocaleTimeString()}, ${lastSent.type}): ${lastSent.handoff ? 'fight hand-off + ' : ''}${what} · about ${Math.round(lastSent.chars / 4)} tokens`);
+        } else lines.push('Last reply sent: nothing yet this session');
+        const pending = state.pending;
+        lines.push(`Hand-off: ${handoffNow(ctx, state)}${Number.isInteger(pending?.attachedTo) ? ` (given to reply #${pending.attachedTo})` : ''}`);
+        lines.push(`Fight: ${state.plan ? 'a plan under way' : currentFight() ? 'under way' : 'none'}`);
+        const offer = encounterOffer(ctx, state);
+        let why = '';
+        if (!offer) {
+            const written = sb && latest >= 0 ? blockAt(sb, latest, ENCOUNTER_TAG) : '';
+            why = underWay(state) ? 'a fight is under way'
+                : ['waiting', 'narrating'].includes(handoffNow(ctx, state)) ? 'a result waits to be told'
+                    : !pc ? 'no character' : isDead(pc) ? 'your character is dead'
+                        : written ? 'the latest reply\'s <Encounter> was put away or could not be read'
+                            : 'the latest reply has no <Encounter> and nothing is planned';
+        }
+        lines.push(`Fight offer: ${offer ? `yes — ${offer.text.replace(/\s+/g, ' ').slice(0, 120)}` : `none (${why})`}`);
+        const offers = currentOffers(ctx, state);
+        lines.push(`Story offers: ${offers.length ? offers.map(entry => entry.kind).join(', ') : 'none'}`);
+    } catch (error) {
+        lines.push(`Diagnostics failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    return lines.join('\n');
+}
 
 /**
  * Back to the story: `text` (a next move, or the setting's message) is sent as the reader's
@@ -2789,6 +2846,7 @@ function addSettingsPanel(documentRef) {
         onOpenSuite: () => openStorySuite(),
         onDisableSheet: () => disableStorySheet(),
         onChange: next => applySettings(next),
+        onDiagnostics: () => diagnosticsText(),
     });
     return Boolean(settingsPanel);
 }

@@ -143,10 +143,11 @@ export function foldHints(settings) {
         party: `${Number(current.activeSkills) || 6} active skills · ${current.autoSpend === false ? 'points by hand' : 'auto-spend'}${xpRateValue(current.xpRate) !== 1 ? ` · XP ×${xpRateValue(current.xpRate)}` : ''}`,
         truth: chosen ? `${chosen} chosen by hand` : 'Automatic',
         blocks: [current.partyTag || 'Party', current.inventoryTag || 'Inventory'].join(' · '),
+        diagnostics: 'What RPG Battle sees and sent',
     };
 }
 
-export function renderSettings(container, { settings, version = '', status = '', sheetConflict = false, sources = null, profiles = null, suiteLink = false, onOpenSuite, onDisableSheet, onChange } = {}) {
+export function renderSettings(container, { settings, version = '', status = '', sheetConflict = false, sources = null, profiles = null, suiteLink = false, onOpenSuite, onDisableSheet, onChange, onDiagnostics = null } = {}) {
     let current = structuredClone(settings ?? {});
     const hintNodes = {};
     const refreshHints = () => {
@@ -378,6 +379,34 @@ export function renderSettings(container, { settings, version = '', status = '',
     suite.hidden = !suiteLink;
 
     const muted = text => el('p', { className: 'story-suite-muted', text });
+    const diagnosticsFold = () => fold('diagnostics', 'Diagnostics', [
+        muted('What RPG Battle sees in this chat and what it sent with the last reply: the blocks the latest reply wrote, whether the model was told to hand fights over, where a fight\'s result stands, and why a fight is or is not offered. Copy it into a bug report.'),
+        report,
+        el('div', { className: 'rpg-battle-diagnostics-actions' }, [refreshReport, copyReport]),
+    ]);
+
+    // (0.5.9) Diagnostics: the glue's plain report, read when the fold opens and on Refresh.
+    const report = el('pre', { className: 'rpg-battle-diagnostics', attrs: { 'aria-live': 'polite' } });
+    const readReport = () => {
+        try {
+            report.textContent = typeof onDiagnostics === 'function' ? String(onDiagnostics() ?? '') : 'Not available.';
+        } catch (error) {
+            report.textContent = `Diagnostics failed: ${error instanceof Error ? error.message : String(error)}`;
+        }
+    };
+    const refreshReport = el('button', { className: 'menu_button rpg-battle-diagnostics-refresh', attrs: { type: 'button' } }, [el('i', { className: 'fa-solid fa-rotate' }), el('span', { text: 'Refresh' })]);
+    refreshReport.addEventListener('click', readReport);
+    const copyReport = el('button', { className: 'menu_button rpg-battle-diagnostics-copy', attrs: { type: 'button' } }, [el('i', { className: 'fa-solid fa-copy' }), el('span', { text: 'Copy' })]);
+    copyReport.addEventListener('click', async () => {
+        readReport();
+        try {
+            await globalThis.navigator?.clipboard?.writeText?.(report.textContent);
+            copyReport.lastChild.textContent = 'Copied';
+            setTimeout(() => { copyReport.lastChild.textContent = 'Copy'; }, 1500);
+        } catch {
+            copyReport.lastChild.textContent = 'Select and copy';
+        }
+    });
     const root = el('div', { className: 'rpg-battle-settings' }, [
         el('div', { className: 'inline-drawer' }, [
             el('div', { className: 'inline-drawer-toggle inline-drawer-header' }, [
@@ -427,6 +456,7 @@ export function renderSettings(container, { settings, version = '', status = '',
                         muted('With Story Block, Story Director or NPC State Delta beside RPG Battle, who the story follows for each area they share. Automatic: the specialist for it. Alone, every choice works like Automatic.'),
                         ...truthRows,
                     ]),
+                    diagnosticsFold(),
                     fold('blocks', 'Blocks', [
                         tag('rpg_battle_party_tag', 'partyTag', 'Party tag', 'The kept block with your character and companions.'),
                         tag('rpg_battle_inventory_tag', 'inventoryTag', 'Inventory tag', 'Your Story Block inventory (equipment, consumables, loot).'),
@@ -439,6 +469,11 @@ export function renderSettings(container, { settings, version = '', status = '',
     ]);
     sync();
     syncTerms();
+    const diagnostics = root.querySelector('details[data-fold="diagnostics"]');
+    if (diagnostics) {
+        diagnostics.addEventListener('toggle', () => { if (diagnostics.open) readReport(); });
+        if (diagnostics.open) readReport();
+    }
     syncFlavour();
     refreshHints();
     container.replaceChildren(root);

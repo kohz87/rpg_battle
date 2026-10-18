@@ -153,11 +153,13 @@ test('encounter: unknown names kept (singular only for a creature word), notes i
 // one instruction for every hidden block (Joins, Leaves, Learned, XP, Rest, waves): 170.
 // 0.4.2 adds the stakes marker ("| to the death", about 9 tokens) within that bound. 0.5 tells
 // a wave (`then:`) from the next fight of a plan (`then at <place>:`), about 16 tokens: 185.
-test('the story instruction is compact (about 185 tokens) and names every tag, the grammar and the threat words', () => {
+test('the story instruction is compact (about 190 tokens) and names every tag, the grammar and the threat words', () => {
+    // 0.5.9: "never narrating it" after the first blow (a model narrated a rat fight to its end).
     const pieces = STORY_INSTRUCTION.match(/[A-Za-z]+|\d+|[^\sA-Za-z\d]/g).length;
-    assert.ok(STORY_INSTRUCTION.length <= 740, `${STORY_INSTRUCTION.length} characters`);
-    assert.ok(Math.ceil(STORY_INSTRUCTION.length / 4) <= 185, 'about 185 tokens at four characters a token');
-    assert.ok(pieces <= 215, `${pieces} words and marks`);
+    assert.ok(STORY_INSTRUCTION.length <= 760, `${STORY_INSTRUCTION.length} characters`);
+    assert.ok(Math.ceil(STORY_INSTRUCTION.length / 4) <= 190, 'about 190 tokens at four characters a token');
+    assert.ok(pieces <= 220, `${pieces} words and marks`);
+    assert.ok(STORY_INSTRUCTION.includes('never narrating it'));
     for (const part of ['<Wounds>', '<Encounter>', '<Joins>', '<Leaves>', '<Learned>', '<XP>', '<Rest>', 'scratch|wound|severe|grievous', 'heal', 'poisoned', 'Party sheet', 'not for an RPG Battle fight', 'stop at the first blow', 'trivial|weak|even|strong|deadly', 'minor|major|milestone', 'short|long', 'then:', 'then at <place>:', 'more foes join', '| to the death']) {
         assert.ok(STORY_INSTRUCTION.includes(part), part);
     }
@@ -475,4 +477,10 @@ test('resolveThreats: only rows whose level came from a threat word get a scale'
     // A plan's stages and an encounter's waves keep it on their rows.
     const rows = resolveThreats(parsePlan('at the gate: 2 guard (weak); then: 1 guard (trivial); then at the yard: 3 guard (trivial)').flatMap(stage => stage.rows), 1);
     assert.deepEqual(rows.map(row => [row.stage, row.wave ?? 0, row.level, row.scale, row.xpLevel]), [[1, 0, 1, 0.6, -3], [1, 1, 1, 0.36, -7], [2, 0, 1, 0.36, -7]]);
+});
+
+test('the reply that tells a fight\'s result still hands a new fight over (0.5.9)', async () => {
+    const { NARRATING_INSTRUCTION } = await import('../src/story.js');
+    for (const part of ['no <Wounds>', '<Encounter>', 'stop at the first blow', 'never narrate a fight']) assert.ok(NARRATING_INSTRUCTION.includes(part), part);
+    assert.ok(NARRATING_INSTRUCTION.length <= 300, `${NARRATING_INSTRUCTION.length} characters`);
 });

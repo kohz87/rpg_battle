@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.9
+
+- **A new fight after a fight's result is handed over, not narrated.** The reply that narrates a fight's result got the hand-off and nothing else, so as not to write `<Wounds>` for damage the fight already dealt; but that left it with no rule about fights, and when its story went on into the next one (a rat swarm under a granary) the model narrated that fight to its end. It now gets a short narrating instruction (about 65 tokens): no `<Wounds>` for the fight above, and for a new fight `<Encounter>…</Encounter>`, stopping at the first blow, never narrating its blows or how it ends. A new fight written there is offered (and toasted) like any other.
+- **Firmer everywhere:** the story instruction's fight rule now ends "then stop at the first blow, never narrating it" (about 5 tokens).
+- **Settings → Diagnostics:** a plain report of what RPG Battle sees and sent: Story Block, Story Director and NPC State Delta; your character; the latest reply's blocks and whether it tells a fight's result; what the last reply was sent (the hand-off, the story or narrating instruction, or none and why) and its size; where the hand-off stands; any fight under way; whether a fight is offered and, if not, why; the story offers waiting. Read when the section opens, with **Refresh** and **Copy**.
+
 ## 0.5.8
 
 - **How many foes fell, said outright.** The hand-off gave the outcome, everyone's state, up to six key moments, who fled and the loot, but never how many foes were defeated, so the story counted them from the key moments, which name only some ("finishes the Wolf A", "finishes the Wolf B"): four wolves were narrated as two. It now has a **Foes defeated** line (`Foes defeated: Timber Wolf ×4.`), for one fight and for a plan, before who stood down or fled. Same-named foes are grouped without the letters that tell them apart in the fight (*Timber Wolf A–D* → *Timber Wolf ×4*), in the Fled and parley lines too.

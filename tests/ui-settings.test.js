@@ -214,7 +214,7 @@ test('the sections fold, closed, each with a one-line summary that follows the s
     doc.body.appendChild(container);
     renderSettings(container, { settings: { ...SETTINGS, gear: { worn: 1, accessories: 2 }, terms: { levelName: 'Soul Class', xpName: 'Soul Growth', tiers: { size: 10, numerals: 'roman' }, cap: null } }, onChange: () => {} });
     const folds = container.querySelectorAll('.story-suite-fold');
-    assert.deepEqual(folds.map(node => node.dataset.fold), ['money', 'equipment', 'terms', 'monsters', 'party', 'truth', 'blocks']);
+    assert.deepEqual(folds.map(node => node.dataset.fold), ['money', 'equipment', 'terms', 'monsters', 'party', 'truth', 'diagnostics', 'blocks']);
     assert.ok(folds.every(node => node.open === false), 'all start closed');
     const hint = key => container.querySelector(`.story-suite-fold[data-fold="${key}"] > summary small`).textContent;
     assert.equal(hint('money'), 'copper / silver / gold');
@@ -346,7 +346,7 @@ test('the panel wears the Story Suite look: quickbar switches, folds of rows, th
         ['rpg_battle_enabled', 'Battles on', 'rpg_battle_enabled'],
         ['rpg_battle_recover', 'Recover over time', 'rpg_battle_recover'],
     ]);
-    assert.equal(container.querySelectorAll('.story-suite-folds > details.story-suite-fold').length, 7);
+    assert.equal(container.querySelectorAll('.story-suite-folds > details.story-suite-fold').length, 8);
     for (const fold of container.querySelectorAll('details.story-suite-fold')) {
         assert.ok(fold.querySelector(':scope > summary > b') && fold.querySelector(':scope > summary > small'), fold.dataset.fold);
         assert.ok(fold.querySelector(':scope > .story-suite-fold-body'), fold.dataset.fold);
@@ -356,4 +356,26 @@ test('the panel wears the Story Suite look: quickbar switches, folds of rows, th
     assert.equal(currency.querySelector('span > small').textContent, 'Loot is written in it.');
     assert.ok(container.querySelector('label.story-suite-row[for="rpg_battle_gear_worn"] .story-suite-number #rpg_battle_gear_worn'), 'a number with its unit');
     assert.equal(container.querySelector('.rpg-battle-settings-fold'), null, 'no panel classes of its own for what the suite styles');
+});
+
+test('Diagnostics: the glue\'s report, read when the fold opens and on Refresh (0.5.9)', () => {
+    const container = doc.createElement('div');
+    doc.body.appendChild(container);
+    let calls = 0;
+    renderSettings(container, { settings: SETTINGS, onChange: () => {}, onDiagnostics: () => `RPG Battle v0.5.9 · on\nCall ${++calls}` });
+    const fold = container.querySelector('.story-suite-fold[data-fold="diagnostics"]');
+    assert.equal(fold.querySelector('summary small').textContent, 'What RPG Battle sees and sent');
+    assert.equal(calls, 0, 'nothing read while closed');
+    fold.open = true;
+    fold.dispatch('toggle');
+    assert.equal(fold.querySelector('.rpg-battle-diagnostics').textContent, 'RPG Battle v0.5.9 · on\nCall 1');
+    fold.querySelector('.rpg-battle-diagnostics-refresh').click();
+    assert.match(fold.querySelector('.rpg-battle-diagnostics').textContent, /Call 2$/);
+    const broken = doc.createElement('div');
+    doc.body.appendChild(broken);
+    renderSettings(broken, { settings: SETTINGS, onChange: () => {}, onDiagnostics: () => { throw new Error('boom'); } });
+    const other = broken.querySelector('.story-suite-fold[data-fold="diagnostics"]');
+    other.open = true;
+    other.dispatch('toggle');
+    assert.equal(other.querySelector('.rpg-battle-diagnostics').textContent, 'Diagnostics failed: boom');
 });
