@@ -1036,6 +1036,32 @@ export function buildPlanHandoff(result, { names, currency, stakes, pcName, rule
   head, heart, carapace, shell, horn, antler, tail, jaw, skull, eye) caps that material's
   quantity at 1 per creature; the quantity is still drawn (`rng.int`), so later draws stay put.
 
+## As built (0.5.4)
+
+Next moves after a fight (`src/nextmoves.js`, pure; the call in index.js).
+
+- `nextMovesPrompt({ handoff, scene, quest, pcName })` → `[system, user]`: `NEXT_MOVES_SYSTEM`
+  asks for exactly `NEXT_MOVES_MAX` (4) numbered one-sentence moves for the player's character,
+  never undoing the settled outcome; the user message holds the hand-off (its header left out)
+  and the scene (`recentScene`). `parseNextMoves(text)` keeps numbered/bulleted/plain lines,
+  drops preambles, quotes and duplicates, cuts each to 120 characters, at most 4.
+  `fallbackMoves(result)` writes moves from the result: victory (skin or search when there is
+  loot, a downed or hurt companion, the PC badly hurt, foes that fled, look around, press on),
+  fled/withdrew (get clear, help the hurt, hide, another way to a stage not reached), defeat
+  (come to, listen, call for help, look for a companion).
+- Glue: `resultReady` starts `prepareNextMoves(id, result, handoff)`. In memory
+  `nextMoves = { fightId, status: 'loading' | 'ready', moves, source: 'model' | 'code' }`; the
+  model call (`sendToModel` on `settings().flavour.model`, 200 tokens, 15 s) runs only with model
+  calls on and the connection online (`ctx.onlineStatus`, a profile always tries); fewer than two
+  moves, a failure or a timeout → `fallbackMoves`. A newer result's call wins. `nextMovesFor(last)`
+  gives the result view its `nextMoves` (the code's moves after a reload); none with the
+  `nextMoves` setting off or after a death to the death.
+- View/handlers: `result.nextMoves` → the "What next?" section (`.rpg-battle-next-move`
+  buttons; "Thinking of what could come next…" while loading); `onMove(text, send)` →
+  `returnToStory(text, { send })`, which fills `#send_textarea` and sends only when asked;
+  the primary button reads **Just continue** when moves are shown. Setting `nextMoves` (default
+  true), a row in the Blocks fold.
+
 ## As built (0.5.2)
 
 XP counted per level, an XP rate, threat words that work at low levels.

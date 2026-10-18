@@ -49,6 +49,7 @@ import { applyFlavour, flavourPrompt, parseFlavour, sceneText } from './src/flav
 import { act, availableActions, foeXpWorth, replay, startFight, summarize } from './src/combat.js';
 import { applyResult, foldUses, formatPartyBlock, learnSkill, newSheet, readSheets, setSkillActive, spendPoints } from './src/sheet.js';
 import { addLoot, consumables, formatGearEntry, formatMoney, gearSummary, parseGearEntry, parseInventory, useItems } from './src/items.js';
+import { NEXT_MOVES_MAX, fallbackMoves, nextMovesPrompt, parseNextMoves } from './src/nextmoves.js';
 import { buildHandoff, buildPlanHandoff, fightOrigin, handoffState, originHolds, settleHandoff } from './src/handoff.js';
 import { cleanPlan, newPlan, nextStage, planResult, stageDone, stageId } from './src/plan.js';
 import { combatantFromSheet, editCompanion, enemiesFromRows, engagements, newCompanion, npcRenames, remapIds } from './src/party.js';
@@ -65,7 +66,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.3';
+const VERSION = '0.5.4';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -123,6 +124,9 @@ const DEFAULT_SETTINGS = Object.freeze({
     xpRate: DEFAULT_RULES.xpRate,
     // Sent for you by "Return to story", so the narration comes straight away.
     returnMessage: '*(The fight is over.)*',
+    // (0.5.4) After a fight, a few next moves on the result screen (a model call when model
+    // calls are on, else written by code); off: only Return to story.
+    nextMoves: true,
     currency: DEFAULT_RULES.currency,
     // HP and MP come back as story time passes (needs Story Director's clock).
     recoverWithTime: true,
@@ -815,6 +819,58 @@ async function flavourAll(entries, { sheet, r }) {
 
 let preparing = false;
 
+// (0.5.4) The next moves for the result on screen: { fightId, status: 'loading' | 'ready', moves,
+// source: 'model' | 'code' }. In memory only; after a reload the code's moves stand in.
+let nextMoves = { fightId: null, status: 'idle', moves: [], source: '' };
+const NEXT_MOVES_SECONDS = 15;
+const NEXT_MOVES_TOKENS = 200;
+
+/** Whether a result gets next moves: the setting on, and not a character's death. */
+function wantsNextMoves(result) {
+    if (settings().nextMoves === false) return false;
+    return !(result?.stakes === 'death' && result?.outcome === 'defeat');
+}
+
+/**
+ * The next moves for a result just written: the model's when model calls are on and its answer
+ * has at least two, else the code's (src/nextmoves.js). The screen shows "loading" meanwhile;
+ * a newer result replaces an older one's call, whose answer is then ignored.
+ */
+async function prepareNextMoves(id, result, handoff) {
+    if (!wantsNextMoves(result)) {
+        nextMoves = { fightId: id, status: 'ready', moves: [], source: '' };
+        return;
+    }
+    const fallback = fallbackMoves(result);
+    const own = settings();
+    // The chat's own connection offline: no call to wait for.
+    const offline = own.flavour?.model?.source !== 'profile' && context()?.onlineStatus === 'no_connection';
+    if (!own.flavour?.enabled || offline) {
+        nextMoves = { fightId: id, status: 'ready', moves: fallback, source: 'code' };
+        return;
+    }
+    nextMoves = { fightId: id, status: 'loading', moves: [], source: '' };
+    storyBlock()?.refresh?.();
+    let moves = [];
+    try {
+        const messages = nextMovesPrompt({ handoff, scene: recentScene(), pcName: currentSheet()?.name ?? '' });
+        moves = parseNextMoves(await withTimeout(sendToModel(messages, own.flavour.model, NEXT_MOVES_TOKENS), NEXT_MOVES_SECONDS * 1000));
+        if (moves.length < 2) console.info('[RPG Battle] the next-moves answer had too little to use; the written ones stand in.');
+    } catch (error) {
+        console.info(`[RPG Battle] the next-moves call failed (${error instanceof Error ? error.message : String(error)}); the written ones stand in.`);
+    }
+    if (nextMoves.fightId !== id) return;
+    nextMoves = moves.length >= 2 ? { fightId: id, status: 'ready', moves: moves.slice(0, NEXT_MOVES_MAX), source: 'model' } : { fightId: id, status: 'ready', moves: fallback, source: 'code' };
+    storyBlock()?.refresh?.();
+}
+
+/** The next moves the result screen shows for the stored result `last`. */
+function nextMovesFor(last) {
+    if (!last || !wantsNextMoves(last.result)) return null;
+    if (nextMoves.fightId === last.fightId) return { status: nextMoves.status, moves: nextMoves.moves, source: nextMoves.source };
+    return { status: 'ready', moves: fallbackMoves(last.result), source: 'code' };
+}
+
 /**
  * Before a fight: every name neither bestiary knows is made up from its template, flavoured
  * (the first FLAVOUR_PER_FIGHT, with the setting on) and kept in the chat's bestiary. The
@@ -992,6 +1048,7 @@ async function resultReady({ id, result, handoff, origin, report }) {
     live = { chatId: chatIdOf(context()), key: '', fight: null };
     screen = { chatId: chatIdOf(context()), mode: 'result' };
     storyBlock()?.refresh?.();
+    void prepareNextMoves(id, result, handoff);
 }
 
 async function finishFight(fight) {
@@ -1975,16 +2032,23 @@ async function onGenerationInterceptor(chat, _contextSize, _abort, type = 'norma
 
 globalThis.rpgBattleInterceptor = onGenerationInterceptor;
 
-function returnToStory() {
-    const text = settings().returnMessage;
-    const box = document.getElementById('send_textarea');
-    const send = document.getElementById('send_but');
+/**
+ * Back to the story: `text` (a next move, or the setting's message) is sent as the reader's
+ * message, or with `send` false only put in the message box to edit and send.
+ */
+function returnToStory(text = settings().returnMessage, { send = true } = {}) {
+    const box = globalThis.document?.getElementById?.('send_textarea') ?? null;
+    const sendButton = globalThis.document?.getElementById?.('send_but') ?? null;
     screen = { chatId: chatIdOf(context()), mode: null };
     storyBlock()?.refresh?.();
-    if (!box || !send || !text) return;
+    if (!box || !sendButton || !text) return;
     box.value = text;
     box.dispatchEvent(new Event('input', { bubbles: true }));
-    send.click();
+    if (send === false) {
+        box.focus?.();
+        return;
+    }
+    sendButton.click();
 }
 
 // ---------------------------------------------------------------------------
@@ -2035,7 +2099,7 @@ function battleView() {
     if (state.plan?.status === 'between') return betweenView(state.plan, r);
     if (screen.mode === 'result' && state.last) {
         const money = state.last.result?.loot?.money ?? 0;
-        return { mode: 'result', result: state.last.result, handoff: state.last.handoff, levelsGained: state.last.levelsGained, pointsGained: state.last.pointsGained, levelsReached: state.last.levelsReached ?? 0, moneyText: money ? formatMoney(money, r.currency) : '', rules: r };
+        return { mode: 'result', nextMoves: nextMovesFor(state.last), result: state.last.result, handoff: state.last.handoff, levelsGained: state.last.levelsGained, pointsGained: state.last.pointsGained, levelsReached: state.last.levelsReached ?? 0, moneyText: money ? formatMoney(money, r.currency) : '', rules: r };
     }
     const sheet = currentSheet();
     if (screen.mode === 'setup' && sheet) {
@@ -2461,6 +2525,8 @@ const handlers = {
     onFallBack: () => void guarded(fallBackPlan),
     onAuto: () => void guarded(() => playAction({ type: 'auto' })),
     onReturn: () => returnToStory(),
+    // (0.5.4) A next move: in the message box, or sent at once (Shift-click).
+    onMove: (text, send = false) => { if (String(text ?? '').trim()) returnToStory(String(text).trim(), { send }); },
     onDone: () => go(null),
     onUndoStory: () => void guarded(undoStory),
     // The offer as code parsed it, not the rows the tab sends back.

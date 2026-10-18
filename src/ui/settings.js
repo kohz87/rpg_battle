@@ -355,6 +355,10 @@ export function renderSettings(container, { settings, version = '', status = '',
     };
     const returnMessage = input('rpg_battle_return', current.returnMessage);
     returnMessage.addEventListener('change', () => commit(next => { next.returnMessage = returnMessage.value; }));
+    // (0.5.4) Next moves on the result screen.
+    const nextMovesOn = el('input', { attrs: { id: 'rpg_battle_next_moves', type: 'checkbox' } });
+    nextMovesOn.checked = current.nextMoves !== false;
+    nextMovesOn.addEventListener('change', () => commit(next => { next.nextMoves = nextMovesOn.checked; }));
 
     const turnOff = el('button', { className: 'menu_button rpg-battle-settings-sheet-off', text: 'Turn it off', attrs: { type: 'button' } });
     turnOff.addEventListener('click', () => onDisableSheet?.());
@@ -427,6 +431,7 @@ export function renderSettings(container, { settings, version = '', status = '',
                         tag('rpg_battle_party_tag', 'partyTag', 'Party tag', 'The kept block with your character and companions.'),
                         tag('rpg_battle_inventory_tag', 'inventoryTag', 'Inventory tag', 'Your Story Block inventory (equipment, consumables, loot).'),
                         row('Return to story', 'Sent for you after a fight so the narration comes straight away. Empty: send nothing.', returnMessage, 'rpg_battle_return'),
+                        row('Next moves after a fight', 'A few things your character could do next, on the result screen: written by the model when model calls are on, else from the result. A click puts one in the message box.', nextMovesOn, 'rpg_battle_next_moves'),
                     ]),
                 ]),
             ]),

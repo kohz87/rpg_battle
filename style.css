@@ -1321,6 +1321,27 @@
     background: var(--rb-accent);
 }
 
+/* (0.5.4) What next? after a fight: each move a full-width button that reads as a sentence. */
+.rpg-battle-tab .rpg-battle-next-moves {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.rpg-battle-tab .rpg-battle-next-move.menu_button {
+    display: block;
+    width: 100%;
+    margin: 0;
+    padding: 0.45rem 0.6rem;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.3;
+}
+
 /* ------------------------------------------------------------------------- */
 /* Touch, motion, forced colours                                               */
 
