@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.12
+
+- **Diagnostics: what the next reply will get.** "Last reply sent" and what was injected with it are kept for the session only, so after a fight and a browser restart they were empty, and nothing showed what the waiting hand-off would send. A **Next reply will get** line is now worked out from the saved chat as the interceptor would (without changing anything): the hand-off and the story or narrating instruction, both quoted, with their size; or that the hand-off went to an earlier reply and only a swipe of it gets it again. In the JSON too (`nextReply`). "Last reply sent" says it is filled in when a reply is generated.
+
 ## 0.5.11
 
 - **Diagnostics show what was injected, and the raw data.** The report quotes, word for word, what the last reply was sent: the hand-off and the story or narrating instruction, each a system message at chat depth 1 under its key. Under it, a **Raw data (JSON)** fold holds the data behind the lines: this chat's stored state (the waiting hand-off, the last result, what was put away, the narrated replies, the bestiary…), what the last reply was sent, the sheets, the offers and the fight offer, the quests Story Director finished in the latest reply, that reply's RPG Battle blocks as written, and the session's activity (long lists cut). **Copy JSON** and **Copy both** join **Copy**.

@@ -66,7 +66,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.11';
+const VERSION = '0.5.12';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -2233,6 +2233,7 @@ function diagnosticsJson() {
             chatId: chatIdOf(ctx),
             latestReply: latest,
             lastSent,
+            nextReply: nextReplyPreview(ctx),
             chatState: chatState(ctx),
             sheets: { pc, members },
             offers: currentOffers(ctx),
@@ -2245,6 +2246,27 @@ function diagnosticsJson() {
     } catch (error) {
         return JSON.stringify({ error: error instanceof Error ? error.message : String(error) });
     }
+}
+
+/**
+ * (0.5.12) What the next new reply will be sent, worked out from the saved chat as the
+ * interceptor would (no side effects), so it shows right after a restart too: { handoff,
+ * instruction: 'story'|'narrating'|'none', why, instructionText, swipeOnly }. `swipeOnly`: the
+ * hand-off belongs to the latest reply, so only a swipe of it gets it again.
+ */
+function nextReplyPreview(ctx = context()) {
+    const own = settings(ctx);
+    const chat = ctx?.chat ?? [];
+    const state = chatState(ctx);
+    const pending = own.enabled ? settleHandoff(state.pending, chat) : null;
+    const replyIndex = chat.length;
+    const attached = pending?.attachedTo;
+    const handoff = pending && (attached === null || attached === undefined || attached === replyIndex) ? pending.handoff : '';
+    const swipeOnly = Boolean(pending && !handoff && Number.isInteger(attached));
+    const pc = own.enabled ? currentSheet() : null;
+    const why = !own.enabled ? 'RPG Battle is off' : !pc ? 'no character yet' : isDead(pc) ? 'your character is dead' : underWay(state) ? 'a fight is under way' : '';
+    const instructionText = why ? '' : handoff ? NARRATING_INSTRUCTION : storyInstruction(ctx);
+    return { handoff, instruction: why ? 'none' : handoff ? 'narrating' : 'story', why, instructionText, swipeOnly, swipeOf: swipeOnly ? attached : null };
 }
 
 /** One plain report, a line each: the links, the character, the latest reply's blocks, what was sent, the fight and its offer. */
@@ -2267,12 +2289,17 @@ function diagnosticsText() {
         if (lastSent) {
             const what = lastSent.instruction === 'story' ? 'story instruction (<Wounds>, <Encounter>, …)' : lastSent.instruction === 'narrating' ? 'narrating instruction (a new fight → <Encounter>, no <Wounds>)' : `no instruction (${lastSent.why})`;
             lines.push(`Last reply sent (${new Date(lastSent.at).toLocaleTimeString()}, ${lastSent.type}): ${lastSent.handoff ? 'fight hand-off + ' : ''}${what} · about ${Math.round(lastSent.chars / 4)} tokens`);
-        } else lines.push('Last reply sent: nothing yet this session');
+        } else lines.push('Last reply sent: nothing yet this session (it is filled in when a reply is generated; see "Next reply will get" below)');
         if (lastSent && (lastSent.handoffText || lastSent.instructionText)) {
             lines.push(`Injected with it (each a system message at chat depth 1; ${PROMPT_KEY} then ${RULES_PROMPT_KEY}):`);
             if (lastSent.handoffText) lines.push(`  [${PROMPT_KEY}] the hand-off:`, indent(indent(lastSent.handoffText)));
             if (lastSent.instructionText) lines.push(`  [${RULES_PROMPT_KEY}] the ${lastSent.instruction} instruction:`, indent(indent(lastSent.instructionText)));
         }
+        const next = nextReplyPreview(ctx);
+        const nextWhat = next.instruction === 'story' ? 'story instruction' : next.instruction === 'narrating' ? 'narrating instruction' : `no instruction (${next.why})`;
+        lines.push(`Next reply will get: ${next.handoff ? 'fight hand-off + ' : ''}${nextWhat}${next.swipeOnly ? ` (the fight's hand-off went to reply #${next.swipeOf}; only a swipe of it gets it again)` : ''} · about ${Math.round((next.handoff.length + next.instructionText.length) / 4)} tokens`);
+        if (next.handoff) lines.push(`  [${PROMPT_KEY}] the hand-off:`, indent(indent(next.handoff)));
+        if (next.instructionText) lines.push(`  [${RULES_PROMPT_KEY}] the ${next.instruction} instruction:`, indent(indent(next.instructionText)));
         const pending = state.pending;
         lines.push(`Hand-off: ${handoffNow(ctx, state)}${Number.isInteger(pending?.attachedTo) ? ` (given to reply #${pending.attachedTo})` : ''}`);
         lines.push(`Fight: ${state.plan ? 'a plan under way' : currentFight() ? 'under way' : 'none'}`);
