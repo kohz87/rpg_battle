@@ -1,4 +1,4 @@
-# RPG Battle v0.5.19
+# RPG Battle v0.5.20
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
