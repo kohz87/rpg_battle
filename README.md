@@ -1,4 +1,4 @@
-# RPG Battle v0.5.16
+# RPG Battle v0.5.17
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -36,7 +36,7 @@ A new kind in a family the story already knows (a razor dog after the wolves) is
 
 <img src="docs/images/next-moves.png" alt="After a victory, What next?: skin the wolves, follow the wolf that got away, look around, press on; Just continue and Done" width="220">
 
-**What next?** after a fight: a click puts a move in the message box, Shift-click sends it. Optional (*Next moves after a fight*).
+**What next?** after a fight: a click puts a move in the message box, Shift-click sends it. Optional, with its own model (Settings → **After a fight**, since 0.5.17).
 
 ## Install
 
@@ -764,8 +764,10 @@ cap**, 99 by default, the highest a stat goes with points, 0 for none, gear addi
 hit chance, 75% between equal DEX and AGI and 3% per point of difference; these win over a
 `rules.json`), **Party** (*Points per level*, 4 by default, 1 to 20; skills in use per member, 3 to 12; companions' points spent automatically; the **XP rate**, 0.25
 to 5, multiplying all XP), **Source of truth**
-**Diagnostics** and **Blocks** (the Party and Inventory tags, the Return to story message, next
-moves after a fight on or off).
+**After a fight** (since 0.5.17: *What next?* choices on or off, and who writes them: the
+Generated words model, the chat's model, a connection profile of their own, or no model, from
+the result), **Diagnostics** and **Blocks** (the Party and Inventory tags, the Return to story
+message).
 
 **Diagnostics** (since 0.5.9) is a plain report of what RPG Battle sees in this chat and what it
 sent with the last reply, with **Refresh** and **Copy** (for a bug report):

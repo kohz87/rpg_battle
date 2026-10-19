@@ -214,7 +214,7 @@ test('the sections fold, closed, each with a one-line summary that follows the s
     doc.body.appendChild(container);
     renderSettings(container, { settings: { ...SETTINGS, gear: { worn: 1, accessories: 2 }, terms: { levelName: 'Soul Class', xpName: 'Soul Growth', tiers: { size: 10, numerals: 'roman' }, cap: null } }, onChange: () => {} });
     const folds = container.querySelectorAll('.story-suite-fold');
-    assert.deepEqual(folds.map(node => node.dataset.fold), ['money', 'equipment', 'terms', 'monsters', 'combat', 'party', 'truth', 'diagnostics', 'blocks']);
+    assert.deepEqual(folds.map(node => node.dataset.fold), ['money', 'equipment', 'terms', 'monsters', 'combat', 'after', 'party', 'truth', 'diagnostics', 'blocks']);
     assert.ok(folds.every(node => node.open === false), 'all start closed');
     const hint = key => container.querySelector(`.story-suite-fold[data-fold="${key}"] > summary small`).textContent;
     assert.equal(hint('money'), 'copper / silver / gold');
@@ -347,7 +347,7 @@ test('the panel wears the Story Suite look: quickbar switches, folds of rows, th
         ['rpg_battle_enabled', 'Battles on', 'rpg_battle_enabled'],
         ['rpg_battle_recover', 'Recover over time', 'rpg_battle_recover'],
     ]);
-    assert.equal(container.querySelectorAll('.story-suite-folds > details.story-suite-fold').length, 9);
+    assert.equal(container.querySelectorAll('.story-suite-folds > details.story-suite-fold').length, 10);
     for (const fold of container.querySelectorAll('details.story-suite-fold')) {
         assert.ok(fold.querySelector(':scope > summary > b') && fold.querySelector(':scope > summary > small'), fold.dataset.fold);
         assert.ok(fold.querySelector(':scope > .story-suite-fold-body'), fold.dataset.fold);
@@ -427,4 +427,28 @@ test('Combat (0.5.14): turn order, speed, stat cap and hit chance, each bounded;
     assert.equal(changes.at(-1).turnOrder, 'rounds');
     assert.equal(speedRow.hidden, true);
     assert.match(hint(), /^Rounds · /);
+});
+
+test('After a fight (0.5.17): What next? on or off, and who writes it', () => {
+    const container = doc.createElement('div');
+    doc.body.appendChild(container);
+    const changes = [];
+    renderSettings(container, { settings: SETTINGS, profiles: [{ id: 'p1', name: 'Fast Haiku' }], onChange: next => changes.push(next) });
+    const fold = container.querySelector('.story-suite-fold[data-fold="after"]');
+    const hint = () => fold.querySelector(':scope > summary small').textContent;
+    assert.equal(hint(), 'What next? by the Generated words model');
+    const model = fold.querySelector('#rpg_battle_next_moves_model');
+    assert.deepEqual([...model.querySelectorAll('option')].map(node => node.value), ['flavour', 'chat', 'profile:p1', 'code']);
+    model.value = 'profile:p1';
+    model.dispatch('change');
+    assert.equal(changes.at(-1).nextMovesModel, 'profile:p1');
+    assert.equal(hint(), 'What next? by Fast Haiku');
+    const on = fold.querySelector('#rpg_battle_next_moves');
+    on.checked = false;
+    on.dispatch('change');
+    assert.equal(changes.at(-1).nextMoves, false);
+    assert.equal(model.closest('label').hidden, true, 'no model to pick while it is off');
+    assert.equal(hint(), 'What next? off');
+    // No longer in Blocks.
+    assert.equal(container.querySelector('.story-suite-fold[data-fold="blocks"] #rpg_battle_next_moves'), null);
 });
