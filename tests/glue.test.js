@@ -879,3 +879,19 @@ test('a rest the story tells is applied at once, with a toast, and goes with its
     await settle();
     assert.match(partyText(2), /HP: 20\/62/);
 }));
+
+test('the story is told the purse in one sum, so it cannot sell what the party cannot pay for (0.5.25)', async () => {
+    const prompts = {};
+    const before = ctx.setExtensionPrompt;
+    ctx.setExtensionPrompt = (key, value) => { prompts[key] = value; };
+    try {
+        openChat('purse-chat', [reply(`<Party>\n${REN}\n</Party>\n<Inventory>\nCoin Pouch | 1 | 1 Gold, 35 Silver, 14 Copper\n</Inventory>`), userMessage('I buy the jerkin.')]);
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        assert.match(prompts.rpg_battle_rules, /Purse: 4 gold, 6 silver, 4 copper in all; nothing dearer can be paid for/);
+        openChat('purse-none', [reply(`<Party>\n${REN}\n</Party>`), userMessage('On.')]);
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        assert.doesNotMatch(prompts.rpg_battle_rules, /Purse:/, 'no purse, no line');
+    } finally {
+        ctx.setExtensionPrompt = before;
+    }
+});

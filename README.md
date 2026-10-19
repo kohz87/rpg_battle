@@ -1,4 +1,4 @@
-# RPG Battle v0.5.24
+# RPG Battle v0.5.25
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -692,7 +692,14 @@ kin. With no relative, a new kind is made from its template as before.
 Your lorebook names the money, so the currency is a setting: **copper / silver / gold** (rates
 editable), **one coin** named as you like, or **your own** names and rates (for example
 `bits=1, marks=12, crowns=20`). Loot is added to the inventory row named in the setting
-(`Coins` by default).
+(`Coins` by default), or (since 0.5.25) to a purse the story keeps under its own name, such as
+`Coin Pouch | 1 | 1 Gold, 35 Silver, 14 Copper`, so there is never a second money row.
+
+**The purse in one sum** (since 0.5.25). Before each reply the story is told what the party can
+spend in all, every purse row added up: *Purse: 4 gold, 6 silver, 4 copper in all; nothing dearer
+can be paid for (the seller refuses, haggles or takes goods in trade).* A purse written in three
+coins is hard to add up mid-scene, and without the sum a model would let a shopkeeper take six gold
+from a purse that held four.
 
 ## Companions
 

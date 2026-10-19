@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_RULES, rarityBudget } from '../src/rules.js';
 import {
-    addLoot, capItem, consumables, equipped, formatGearEntry, formatMoney, gearBonuses, gearLimits, gearSummary, parseGearEntry, parseInventory, parseMoney,
+    addLoot, capItem, consumables, equipped, formatGearEntry, formatMoney, gearBonuses, gearLimits, gearSummary, parseGearEntry, parseInventory, parseMoney, purseOf,
     useItems,
 } from '../src/items.js';
 
@@ -379,4 +379,16 @@ test('useItems takes used consumables out and removes empty rows', () => {
     assert.equal(useItems('Tonic | x3 | sweet', { Tonic: 1 }), 'Tonic | x2 | sweet');
     assert.equal(useItems('Tonic |  | sweet\nRope | 1', { Tonic: 1 }), 'Rope | 1');
     assert.equal(useItems(INVENTORY, {}), INVENTORY);
+});
+
+test('a purse kept under its own name is the party\'s money, and loot coins go into it (0.5.25)', () => {
+    const inventory = 'Coin Pouch | 1 | 1 Gold, 35 Silver, 14 Copper\nGuild Badge (F-Rank) | 1 | Stamped lead token\nWolf Bounty Voucher | 1 | Stamped council slip for 1 gold\n\n[Gear]\nKnife | 1 | Work knife';
+    const purse = purseOf(inventory);
+    assert.equal(purse.total, 464);
+    assert.equal(formatMoney(purse.total), '4 gold, 6 silver, 4 copper');
+    assert.deepEqual(purse.rows, [{ name: 'Coin Pouch', cell: 'note' }], 'a voucher worth gold is not money in hand');
+    assert.equal(addLoot(inventory, { money: 250 }).split('\n')[0], 'Coin Pouch | 1 | 7 gold, 1 silver, 4 copper', 'no second "Coins" row');
+    assert.equal(purseOf('Coins | 3 gold, 2 silver\nPurse | 1 | 5 silver').total, 370, 'every purse counts');
+    assert.equal(purseOf('Rope | 1 | coiled'), null);
+    assert.equal(purseOf('Coin Pouch | 1 | empty'), null, 'a purse with no coins written is not read as money');
 });
