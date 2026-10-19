@@ -66,7 +66,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.17';
+const VERSION = '0.5.18';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -1428,8 +1428,12 @@ function plannedEncounters(index) {
     if (!api || typeof api.encountersAt !== 'function') return [];
     try {
         const list = api.encountersAt(index);
+        // (0.5.18) Only a fight the story reached in this reply (Story Director 0.9.18 says so in
+        // `reached`: the reply fired it). A due fight the scene never got to happens off-screen,
+        // and comes in as news, not as a fight. An older Story Director: due or soon, as before.
         return Array.isArray(list)
-            ? list.filter(entry => entry && typeof entry.encounter === 'string' && entry.encounter.trim() && (entry.status === 'due' || entry.status === 'soon'))
+            ? list.filter(entry => entry && typeof entry.encounter === 'string' && entry.encounter.trim()
+                && (typeof entry.reached === 'boolean' ? entry.reached : (entry.status === 'due' || entry.status === 'soon')))
             : [];
     } catch (error) {
         console.warn('[RPG Battle] Story Director\'s encounters could not be read', error);
@@ -1457,7 +1461,7 @@ function encounterOffer(ctx = context(), state = chatState(ctx)) {
     if (written) candidates.push({ text: written, label: '' });
     for (const entry of plannedEncounters(index)) {
         const where = entry.place ? ` at ${entry.place}` : '';
-        const when = entry.status === 'soon' ? (entry.on ? `, due ${entry.on}` : ', due soon') : '';
+        const when = entry.reached === true ? '' : entry.status === 'soon' ? (entry.on ? `, due ${entry.on}` : ', due soon') : '';
         candidates.push({ text: entry.encounter.trim(), label: `Planned by Story Director: ${entry.key ?? entry.id ?? 'a fight'}${where}${when}.` });
     }
     const dismissed = new Set(state.dismissed);

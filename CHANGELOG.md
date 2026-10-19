@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.18
+
+- **A planned fight waits for the story to reach it.** A fight Story Director planned was offered as soon as it was due, or even due soon, wherever your character was: *Drunken convoy guards sack the Stray Oar* came up while you never set foot in the Stray Oar. With Story Director 0.9.18 it is offered only in the reply that fires it, when the scene is there. One that comes due elsewhere becomes news in the story, not a fight. With an older Story Director, the old behaviour stays.
+
 ## 0.5.17
 
 - **What next? has its own section and model.** The *What next?* choices after a fight could only be turned off from the Blocks section, and they always used the Generated words model (turning model calls off there quietly gave code-written ones). A new **After a fight** section turns them on or off and picks who writes them: the Generated words model (as before), the chat's model, a connection profile of their own, or no model (written from the result).
