@@ -66,7 +66,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.22';
+const VERSION = '0.5.23';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -2129,11 +2129,16 @@ function narratesFight(type = 'normal') {
 }
 
 /** The hand-off for the reply being generated ('' when there is none), attaching it once. */
-function handoffFor(chat, kind) {
+function handoffFor(interceptorChat, kind) {
+    // (0.5.23) Indices are the chat's own. SillyTavern hands interceptors the chat without its
+    // hidden messages (and, for a swipe, without the reply being swiped), so its length is not
+    // the reply's place: with a hidden greeting the hand-off was tied to an earlier reply, read
+    // as narrated at once and dropped when the real narration came.
+    const chat = context()?.chat ?? interceptorChat;
     // A narrating reply deleted since: the result waits again, for this reply.
     generating = false;
     // A narration about to be spent is remembered first (its reply stays a narrating one).
-    const narrated = noteNarrated(chatState(), context()?.chat ?? chat);
+    const narrated = noteNarrated(chatState(), chat);
     if (narrated) saveChatState({ narrated });
     const pending = settleHandoff(chatState().pending, chat);
     if (!pending) {
