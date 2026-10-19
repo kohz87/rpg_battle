@@ -607,6 +607,11 @@ function setCell(raw, index, value) {
 }
 
 // Only the quantity cell changes; the name's bold, the padding and the note stay as written.
+function rewriteCell(line, row, index, value) {
+    const cells = setCell(row.raw, index, value);
+    return cells.join('|').replace(/\s+$/, '') + (line.match(/\s*$/)?.[0] ?? '');
+}
+
 function rewriteQty(line, row, value) {
     const cells = setCell(row.raw, row.qtyCell, value);
     return cells.join('|').replace(/\s+$/, '') + (line.match(/\s*$/)?.[0] ?? '');
@@ -697,6 +702,39 @@ function lootNote(item, kind) {
  * [Money] when missing), items stacked onto a same-named row or added under a matching
  * category or [Loot]. Every other line is left exactly as it was.
  */
+// (0.5.25) A purse kept under its own name ("Coin Pouch | 1 | 1 Gold, 35 Silver, 14 Copper"):
+// a row named for money whose quantity or note is written in the currency's coins.
+const PURSE_NAME = /\b(?:coins?|purse|pouch|money|wallet|funds|coffer|strongbox)\b/i;
+
+function hasCoins(text, c) {
+    const tiers = tierValues(c);
+    return [...String(text ?? '').matchAll(/(\d[\d,]*(?:\.\d+)?)\s*([A-Za-z]+)/g)].some(([, , word]) => matchTier(word, tiers));
+}
+
+// Which cell of `row` holds its money: 'qty' or 'note', or null for a row that is no purse.
+function moneyCellOf(row, c) {
+    if (row.key === nameKey(c.row)) return 'qty';
+    if (!PURSE_NAME.test(row.name) || c.mode === 'single') return null;
+    if (hasCoins(row.note, c)) return 'note';
+    if (hasCoins(row.qty, c)) return 'qty';
+    return null;
+}
+
+/**
+ * (0.5.25) The party's money as the inventory holds it: { total } in the smallest coin, over
+ * every purse row (the currency's own "Coins" row and any "Coin Pouch", "Purse"… written in
+ * coins), with `rows` naming them; null when the inventory has none.
+ */
+export function purseOf(inventoryText, currency = DEFAULT_RULES.currency) {
+    const c = currencyOf(currency);
+    const rows = scan(String(inventoryText ?? '').split(/\r?\n/)).rows
+        .map(row => ({ row, cell: moneyCellOf(row, c) }))
+        .filter(entry => entry.cell);
+    if (!rows.length) return null;
+    const total = rows.reduce((sum, { row, cell }) => sum + parseMoney(cell === 'note' ? row.note : row.qty, c), 0);
+    return { total, rows: rows.map(({ row, cell }) => ({ name: row.name, cell })) };
+}
+
 export function addLoot(inventoryText, { items = [], money = 0 } = {}, currency = DEFAULT_RULES.currency) {
     const text = String(inventoryText ?? '');
     const eol = eolOf(text);
@@ -705,8 +743,13 @@ export function addLoot(inventoryText, { items = [], money = 0 } = {}, currency 
     const amount = Math.max(0, Math.round(Number(money) || 0));
     if (amount > 0) {
         const scanned = scan(lines);
-        const row = scanned.rows.find(entry => entry.key === nameKey(c.row));
-        if (row) {
+        // The currency's own row first, else (0.5.25) the purse the story keeps under its own name.
+        const row = scanned.rows.find(entry => entry.key === nameKey(c.row)) ?? scanned.rows.find(entry => moneyCellOf(entry, c));
+        const cell = row ? moneyCellOf(row, c) : null;
+        if (row && cell === 'note') {
+            const total = parseMoney(row.note, c) + amount;
+            lines[row.index] = rewriteCell(lines[row.index], row, row.qtyCell + 1, formatMoney(total, c));
+        } else if (row) {
             const total = parseMoney(row.qty, c) + amount;
             // A one-coin purse written as a bare number stays a bare number.
             const value = c.mode === 'single' && /^\s*[\d,]*\s*$/.test(row.qty) ? String(total) : formatMoney(total, c);

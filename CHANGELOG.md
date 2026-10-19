@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.25
+
+- **The story knows what the party can pay.** A purse written as "1 Gold, 35 Silver, 14 Copper" is hard to add up mid-scene, so a model let a tanner take six gold four silver from a purse holding about four and a half gold. Before each reply the story is now told the purse in one sum: *Purse: 4 gold, 6 silver, 4 copper in all; nothing dearer can be paid for (the seller refuses, haggles or takes goods in trade).*
+- **A purse under its own name is the party's money.** A row such as *Coin Pouch*, *Purse* or *Wallet*, with its coins in the quantity or the note, is now read as money, and loot coins go into it. Before, they went into a separate *Coins* row. A voucher or token worth gold is not counted as money in hand.
+
 ## 0.5.24
 
 - **A rest the story tells is applied without asking.** A reply's `<Rest>` line ("short: rested in Mother Karr's garret after cleaning blade and dressing wounds") no longer waits for a *Recover?* click. The rest goes straight onto the sheets, with a toast saying what each member got back: *Rested (short): … Ren HP +20, MP +8; Lyra HP +20, MP +15.* This matches how fights, quests and story XP already work. The rest is written into that reply, so deleting or swiping it undoes it. As before, a reply that tells a fight's result, or one while a result still waits to be told, rests nobody. The opening message's rest still waits for a click.

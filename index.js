@@ -48,7 +48,7 @@ import { TEMPLATES, classify, cleanCreature, combinedBestiary, creaturesToMake, 
 import { applyFlavour, flavourPrompt, parseFlavour, sceneText } from './src/flavour.js';
 import { act, availableActions, foeXpWorth, replay, startFight, summarize } from './src/combat.js';
 import { applyResult, foldUses, forgetSkill, formatPartyBlock, learnSkill, newSheet, readSheets, setSkillActive, spendPoints } from './src/sheet.js';
-import { addLoot, consumables, formatGearEntry, formatMoney, gearSummary, parseGearEntry, parseInventory, useItems } from './src/items.js';
+import { addLoot, consumables, formatGearEntry, formatMoney, gearSummary, parseGearEntry, parseInventory, purseOf, useItems } from './src/items.js';
 import { NEXT_MOVES_MAX, fallbackMoves, nextMovesPrompt, parseNextMoves } from './src/nextmoves.js';
 import { buildHandoff, buildPlanHandoff, fightOrigin, grouped, handoffState, originHolds, settleHandoff } from './src/handoff.js';
 import { cleanPlan, newPlan, nextStage, planResult, stageDone, stageId } from './src/plan.js';
@@ -66,7 +66,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.24';
+const VERSION = '0.5.25';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -437,6 +437,21 @@ function library(ctx = context()) {
 // The story instruction, plus (0.5.1) the creatures this story has already met, newest last, so
 // the model writes the same creature by the same name instead of a new one every fight.
 const KNOWN_FOES_SHOWN = 8;
+/**
+ * (0.5.25) What the party can spend, in one sum, after the story instruction: a purse kept as
+ * "1 Gold, 35 Silver, 14 Copper" is hard to add up mid-scene, and a seller paid more than it
+ * holds is a sale that never happened. '' without a purse in the inventory.
+ */
+function purseLine() {
+    try {
+        const currency = rules().currency;
+        const purse = purseOf(blockText(settings().inventoryTag), currency);
+        return purse ? ` Purse: ${formatMoney(purse.total, currency)} in all; nothing dearer can be paid for (the seller refuses, haggles or takes goods in trade).` : '';
+    } catch {
+        return '';
+    }
+}
+
 function storyInstruction(ctx = context()) {
     const names = [...new Set((chatState(ctx).bestiary ?? []).map(entry => String(entry?.name ?? '').trim()).filter(name => name && !name.includes(':')))].slice(-KNOWN_FOES_SHOWN);
     return names.length ? `${STORY_INSTRUCTION} Foes this story has met (the same creature keeps its name): ${names.join(', ')}.` : STORY_INSTRUCTION;
@@ -2209,7 +2224,7 @@ async function onGenerationInterceptor(chat, _contextSize, _abort, type = 'norma
         // fight, but a new fight after it is still handed over.
         const pc = own.enabled ? currentSheet() : null;
         const why = !own.enabled ? 'RPG Battle is off' : !pc ? 'no character yet' : isDead(pc) ? 'your character is dead' : underWay(chatState(ctx)) ? 'a fight is under way' : '';
-        const instruction = why ? '' : handoff ? NARRATING_INSTRUCTION : storyInstruction(ctx);
+        const instruction = why ? '' : `${handoff ? NARRATING_INSTRUCTION : storyInstruction(ctx)}${purseLine()}`;
         setPrompt(instruction, RULES_PROMPT_KEY);
         lastSent = { at: Date.now(), type: kind, handoff: Boolean(handoff), instruction: why ? 'none' : handoff ? 'narrating' : 'story', why, chars: handoff.length + instruction.length, handoffText: handoff, instructionText: instruction };
     } catch (error) {
@@ -2382,7 +2397,7 @@ function nextReplyPreview(ctx = context()) {
     const swipeOnly = Boolean(pending && !handoff && Number.isInteger(attached));
     const pc = own.enabled ? currentSheet() : null;
     const why = !own.enabled ? 'RPG Battle is off' : !pc ? 'no character yet' : isDead(pc) ? 'your character is dead' : underWay(state) ? 'a fight is under way' : '';
-    const instructionText = why ? '' : handoff ? NARRATING_INSTRUCTION : storyInstruction(ctx);
+    const instructionText = why ? '' : `${handoff ? NARRATING_INSTRUCTION : storyInstruction(ctx)}${purseLine()}`;
     return { handoff, instruction: why ? 'none' : handoff ? 'narrating' : 'story', why, instructionText, swipeOnly, swipeOf: swipeOnly ? attached : null };
 }
 
