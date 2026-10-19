@@ -66,7 +66,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.25';
+const VERSION = '0.5.26';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -444,6 +444,9 @@ const KNOWN_FOES_SHOWN = 8;
  */
 function purseLine() {
     try {
+        // (0.5.26) One purse line: Story Block (0.9.12) writes it beside the Inventory while it
+        // keeps the items, in RPG Battle's coins; this one is for when it does not.
+        if (storySuite().api('story-block')?.printsPurse?.() === true) return '';
         const currency = rules().currency;
         const purse = purseOf(blockText(settings().inventoryTag), currency);
         return purse ? ` Purse: ${formatMoney(purse.total, currency)} in all; nothing dearer can be paid for (the seller refuses, haggles or takes goods in trade).` : '';
@@ -2063,7 +2066,8 @@ const SUITE_MANAGE = manageApi({
 });
 
 // (0.5.22) narratesFight: Story Block leaves its dice out of the reply that tells a fight's result.
-const SUITE_API = Object.freeze({ version: VERSION, members: () => suiteMembers(), manage: SUITE_MANAGE, narratesFight: type => narratesFight(type) });
+// (0.5.26) currency: Story Block counts the Inventory's purse in RPG Battle's coins while it is here.
+const SUITE_API = Object.freeze({ version: VERSION, members: () => suiteMembers(), manage: SUITE_MANAGE, narratesFight: type => narratesFight(type), currency: () => structuredClone(rules().currency) });
 
 /** Announced on load and again whenever the switch changes: switched off, with enabled: false. */
 function announceToSuite() {

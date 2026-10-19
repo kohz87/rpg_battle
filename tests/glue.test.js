@@ -895,3 +895,23 @@ test('the story is told the purse in one sum, so it cannot sell what the party c
         ctx.setExtensionPrompt = before;
     }
 });
+
+test('one purse line: Story Block writes it while it keeps the items, in RPG Battle\'s coins (0.5.26)', async () => {
+    const prompts = {};
+    const before = ctx.setExtensionPrompt;
+    ctx.setExtensionPrompt = (key, value) => { prompts[key] = value; };
+    const suite = storySuite();
+    try {
+        assert.deepEqual(suite.api('rpg-battle').currency().tiers.map(tier => tier.name), ['copper', 'silver', 'gold'], 'the currency is shared');
+        openChat('purse-shared', [reply(`<Party>\n${REN}\n</Party>\n<Inventory>\nCoin Pouch | 1 | 1 Gold, 35 Silver, 14 Copper\n</Inventory>`), userMessage('I buy the jerkin.')]);
+        suite.announce({ id: 'story-block', name: 'Story Block', version: '0.9.12', owns: ['items'], enabled: true, api: { printsPurse: () => true } });
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        assert.doesNotMatch(prompts.rpg_battle_rules, /Purse:/, 'Story Block writes it');
+        suite.announce({ id: 'story-block', name: 'Story Block', version: '0.9.12', owns: ['items'], enabled: true, api: { printsPurse: () => false } });
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        assert.match(prompts.rpg_battle_rules, /Purse: 4 gold, 6 silver, 4 copper in all/, 'otherwise RPG Battle does');
+    } finally {
+        suite.withdraw('story-block');
+        ctx.setExtensionPrompt = before;
+    }
+});

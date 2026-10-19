@@ -1,4 +1,4 @@
-# RPG Battle v0.5.25
+# RPG Battle v0.5.26
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -696,7 +696,9 @@ editable), **one coin** named as you like, or **your own** names and rates (for 
 `Coin Pouch | 1 | 1 Gold, 35 Silver, 14 Copper`, so there is never a second money row.
 
 **The purse in one sum** (since 0.5.25). Before each reply the story is told what the party can
-spend in all, every purse row added up: *Purse: 4 gold, 6 silver, 4 copper in all; nothing dearer
+spend in all, every purse row added up. With Story Block 0.9.12 or later keeping the items (its
+default), Story Block writes that line beside the Inventory, counted in RPG Battle's currency, and
+RPG Battle leaves its own out (0.5.26), so there is only ever one: *Purse: 4 gold, 6 silver, 4 copper in all; nothing dearer
 can be paid for (the seller refuses, haggles or takes goods in trade).* A purse written in three
 coins is hard to add up mid-scene, and without the sum a model would let a shopkeeper take six gold
 from a purse that held four.
