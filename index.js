@@ -66,7 +66,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.21';
+const VERSION = '0.5.22';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -2020,7 +2020,8 @@ const SUITE_MANAGE = manageApi({
     },
 });
 
-const SUITE_API = Object.freeze({ version: VERSION, members: () => suiteMembers(), manage: SUITE_MANAGE });
+// (0.5.22) narratesFight: Story Block leaves its dice out of the reply that tells a fight's result.
+const SUITE_API = Object.freeze({ version: VERSION, members: () => suiteMembers(), manage: SUITE_MANAGE, narratesFight: type => narratesFight(type) });
 
 /** Announced on load and again whenever the switch changes: switched off, with enabled: false. */
 function announceToSuite() {
@@ -2103,6 +2104,28 @@ function setPrompt(text, key = PROMPT_KEY) {
     const ctx = context();
     if (typeof ctx?.setExtensionPrompt !== 'function') return;
     ctx.setExtensionPrompt(key, text, EXTENSION_PROMPT_IN_CHAT, 1, false, EXTENSION_PROMPT_ROLE_SYSTEM);
+}
+
+/**
+ * (0.5.22) Whether the reply a generation of `type` writes is the one that tells a fight's
+ * result (it gets the hand-off), worked out as handoffFor would, with no side effects. Story
+ * Block asks so the reply rolls no dice: the fight's numbers are settled.
+ */
+function narratesFight(type = 'normal') {
+    try {
+        const kind = String(type ?? 'normal').toLowerCase();
+        if (kind === 'quiet' || kind === 'impersonate') return false;
+        const ctx = context();
+        if (!settings(ctx).enabled) return false;
+        const chat = ctx?.chat ?? [];
+        const pending = settleHandoff(chatState(ctx).pending, chat);
+        if (!pending) return false;
+        const replacing = (kind.includes('swipe') || kind.includes('regenerate')) && isAssistant(chat.at(-1));
+        const at = pending.attachedTo;
+        return at === null || at === undefined || at === (replacing ? chat.length - 1 : chat.length);
+    } catch {
+        return false;
+    }
 }
 
 /** The hand-off for the reply being generated ('' when there is none), attaching it once. */

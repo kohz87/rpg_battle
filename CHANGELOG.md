@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.22
+
+- **The reply that tells a fight rolls no dice.** RPG Battle now tells Story Block (0.9.11 and later) which reply narrates a fight's result, so that reply gets no dice. The model can no longer roll for blows RPG Battle has already decided. A swipe of that reply gets no dice either; the reply after it does.
+
 ## 0.5.21
 
 - **Story XP is awarded without asking.** When a reply carries an `<XP>` line ("minor: defeated Brecht's gang in the alley"), the XP now goes straight onto the sheets with a toast: *Story XP awarded: XP +10 (defeated Brecht's gang in the alley)*. No more *Award?* button. The story says what was earned and code sets the amount, as with quest XP. The XP is written into that reply, so deleting or swiping it takes the XP back. A reply that tells a fight's result still gives none, since the fight already did. The opening message's XP still waits for a click.
