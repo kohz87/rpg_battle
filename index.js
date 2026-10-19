@@ -66,7 +66,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.15';
+const VERSION = '0.5.16';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -2418,6 +2418,9 @@ function battleView() {
     const state = chatState(ctx);
     // A plan between its stages: Go on or Fall back, nothing else.
     if (state.plan?.status === 'between') return betweenView(state.plan, r);
+    // (0.5.16) The story has moved on to a new fight (the narrating reply, or a later one, wrote
+    // an <Encounter>): the last result's screen gives way to its offer, Done or not.
+    if (screen.mode === 'result' && state.last && encounterOffer(ctx, state)) screen = { chatId, mode: null };
     if (screen.mode === 'result' && state.last) {
         const money = state.last.result?.loot?.money ?? 0;
         return { mode: 'result', nextMoves: nextMovesFor(state.last), result: state.last.result, handoff: state.last.handoff, levelsGained: state.last.levelsGained, pointsGained: state.last.pointsGained, levelsReached: state.last.levelsReached ?? 0, masteryUps: state.last.masteryUps ?? [], moneyText: money ? formatMoney(money, r.currency) : '', rules: r };

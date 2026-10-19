@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.16
+
+- **A new fight replaces the last result's screen.** When the reply that narrated a fight also started the next one (wolves done, rats spilling out of the barley), the Battle tab stayed on the old result's *What next?* screen until Done was pressed, hiding the new fight's offer. A new encounter now takes the result screen's place: the offer shows at once, Done or not.
+
 ## 0.5.15
 
 - **Target preview.** While you aim Attack or a damaging skill, each enemy card shows what it would do to that target, *Hit 63% · 8–10 dmg · Crit 12%*. The numbers use the same sums the fight rolls: hit from DEX against AGI (spells always hit), damage after its defence across the usual variance (half against a guarding target), and your crit chance.
