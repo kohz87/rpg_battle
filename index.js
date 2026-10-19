@@ -66,7 +66,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.23';
+const VERSION = '0.5.24';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -1667,9 +1667,36 @@ async function awardOffer(offer, { pc, members, rules: r, autoSpend }) {
     return out.gains.filter(gain => gain.levelsGained).map(gain => `${gain.name} reaches ${levelText((gain.memberId === 'pc' ? out.pc : out.members.find(member => member.id === gain.memberId)?.sheet)?.level ?? 1, r)}`);
 }
 
-// (0.5.21) Offers awarded without a click: quest XP, and story XP from a reply's <XP> line.
-// Not the opening message's, which waits for the reader like the rest of its offers.
-const autoAwarded = offer => (offer.kind === 'quest' || offer.kind === 'xp') && !offer.opening;
+// (0.5.21) Offers awarded without a click: quest XP, and story XP from a reply's <XP> line;
+// (0.5.24) a rest the story told too. Not the opening message's, which waits for the reader
+// like the rest of its offers.
+const autoAwarded = offer => (offer.kind === 'quest' || offer.kind === 'xp' || offer.kind === 'rest') && !offer.opening;
+
+/**
+ * A rest written to the sheets and put away, as the Recover button did: what each member got
+ * back, in words (" Astra HP +18, MP +8."), or '' when nobody needed anything. Story-time
+ * recovery already given for that reply counts against it.
+ */
+async function applyRest(offer, { pc, members, rules: r }) {
+    const state = chatState();
+    const gains = state.recovered?.index === offer.index ? state.recovered.gains ?? {} : {};
+    const gear = currentItems().filter(item => item.equipped);
+    const rested = pc ? restAfter(pc, offer.data.kind, { gear, rules: r, already: gains.pc }) : null;
+    const party = members.map(member => ({ ...member, sheet: restAfter(member.sheet, offer.data.kind, { gear: member.gear ?? [], rules: r, already: gains[member.id] }) }));
+    await writeSheets(rested, party);
+    putAway(offer);
+    const back = (name, before, after) => {
+        const hp = Math.max(0, (after?.hp?.cur ?? 0) - (before?.hp?.cur ?? 0));
+        const mp = Math.max(0, (after?.mp?.cur ?? 0) - (before?.mp?.cur ?? 0));
+        const parts = [hp ? `HP +${hp}` : '', mp ? `MP +${mp}` : ''].filter(Boolean);
+        return parts.length ? `${name} ${parts.join(', ')}` : '';
+    };
+    const lines = [
+        pc ? back(pc.name, pc, rested) : '',
+        ...members.map((member, index) => back(member.name, member.sheet, party[index].sheet)),
+    ].filter(Boolean);
+    return lines.length ? ` ${lines.join('; ')}.` : ' Nobody needed it.';
+}
 
 /**
  * (0.5.7) Quest XP without an Award click: the story closed the quest (Story Director reports
@@ -1685,6 +1712,12 @@ async function awardQuests(offers = currentOffers()) {
         questsAwarding.add(offer.key);
         try {
             const { pc, members } = currentSheets();
+            if (offer.kind === 'rest') {
+                const back = await applyRest(offer, { pc, members, rules: rules() });
+                notify('success', `${offer.data.done}.${back}`);
+                logActivity(`Rested: ${offer.data.done}${back}`);
+                continue;
+            }
             const ups = await awardOffer(offer, { pc, members, rules: rules(), autoSpend: settings().autoSpend !== false });
             notify('success', `${offer.data.done}.${ups.length ? ` ${ups.join('; ')}.` : ''}`);
             logActivity(`Awarded: ${offer.data.done}${ups.length ? ` · ${ups.join('; ')}` : ''}`);
@@ -1759,13 +1792,7 @@ async function acceptOffer(key) {
             return;
         }
         case 'rest': {
-            const state = chatState();
-            const gains = state.recovered?.index === offer.index ? state.recovered.gains ?? {} : {};
-            const gear = currentItems().filter(item => item.equipped);
-            const rested = pc ? restAfter(pc, offer.data.kind, { gear, rules: r, already: gains.pc }) : null;
-            await writeSheets(rested, members.map(member => ({ ...member, sheet: restAfter(member.sheet, offer.data.kind, { gear: member.gear ?? [], rules: r, already: gains[member.id] }) })));
-            putAway(offer);
-            notify('success', offer.data.kind === 'long' ? 'The party is fully rested.' : 'The party catches its breath.');
+            notify('success', `${offer.data.done ?? 'Rested'}.${await applyRest(offer, { pc, members, rules: r })}`);
             return;
         }
         case 'rename': {

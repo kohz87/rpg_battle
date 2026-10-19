@@ -85,7 +85,11 @@ export function storyOffers({ index, texts = {}, pc = null, members = [], person
     }
     if (pc && !narrating && !pending) {
         for (const rest of parseRest(texts.rest)) {
-            offers.push({ key: key('rest', rest.line), kind: 'rest', text: `Rest (${rest.kind})${rest.reason ? `: ${rest.reason}` : ''}. Recover?`, accept: 'Recover', data: { kind: rest.kind } });
+            // (0.5.24) Applied at once by the glue, as XP is; `done` starts its toast.
+            offers.push({
+                key: key('rest', rest.line), kind: 'rest', text: `Rest (${rest.kind})${rest.reason ? `: ${rest.reason}` : ''}. Recover?`, accept: 'Recover',
+                data: { kind: rest.kind, done: `Rested (${rest.kind})${rest.reason ? `: ${rest.reason}` : ''}` },
+            });
         }
     }
     return offers;

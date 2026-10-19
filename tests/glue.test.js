@@ -853,3 +853,29 @@ test('a chat with hidden messages: the hand-off goes to the reply that tells the
         ctx.setExtensionPrompt = before;
     }
 }));
+
+test('a rest the story tells is applied at once, with a toast, and goes with its reply (0.5.24)', async () => withClock(async () => {
+    const hurt = REN.replace('HP: 58/62 | MP: 21/30', 'HP: 20/62 | MP: 5/30');
+    openChat('rest-chat', [reply(`<Party>\n${hurt}\n</Party>`), userMessage('I rest in the garret.')]);
+    hooks.update();
+    await settle();
+    toasts.length = 0;
+    ctx.chat.push(sent('You sleep a little.\n<Rest>short: rested in Mother Karr\'s garret</Rest>', 'd2'));
+    await hooks.reply({ messageIndex: 2 });
+    await settle();
+    assert.ok(toasts.some(text => /^Rested \(short\): rested in Mother Karr's garret\. Ren HP \+\d+, MP \+\d+\.$/.test(text)), toasts.join(' / '));
+    assert.ok(!partyOffers().some(text => /Recover\?/.test(text)), 'not offered');
+    const after = partyText(3);
+    const hp = Number(after.match(/HP: (\d+)\//)[1]);
+    assert.ok(hp > 20, `HP back up (${hp})`);
+    // Refreshing does not rest twice.
+    hooks.tabs['rpg-party'].badge();
+    await settle();
+    assert.equal(toasts.filter(text => /^Rested/.test(text)).length, 1);
+    assert.equal(Number(partyText(3).match(/HP: (\d+)\//)[1]), hp);
+    // The reply deleted: the sheets are as they were.
+    ctx.chat.splice(2);
+    hooks.update();
+    await settle();
+    assert.match(partyText(2), /HP: 20\/62/);
+}));
