@@ -788,3 +788,26 @@ test('after a fight (0.5.4): next moves from the model, else written from the re
         ctx.extensionSettings.rpgBattle.nextMoves = true;
     }
 }));
+
+test('Story Suite is told which reply tells a fight, so Story Block rolls no dice for it (0.5.22)', async () => withClock(async () => {
+    const api = () => storySuite().api('rpg-battle');
+    openChat('narrates-chat', [reply(`<Party>\n${REN}\n</Party>`), userMessage('To the weir.'), sent('Rats.\n<Encounter>giant rat (trivial)</Encounter>', 'd2')]);
+    hooks.update();
+    await settle();
+    assert.equal(api().narratesFight('normal'), false, 'no fight fought yet');
+    find(drawTab('rpg-battle'), '.rpg-battle-encounter-fight').click();
+    find(drawTab('rpg-battle'), '.rpg-battle-begin').click();
+    await settle();
+    await fightOut();
+    find(drawTab('rpg-battle'), '.rpg-battle-done').click();
+    assert.equal(api().narratesFight('normal'), true, 'the next reply tells it');
+    assert.equal(api().narratesFight('quiet'), false, 'a summary is no reply');
+    ctx.chat.push(userMessage('We won?'));
+    await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+    assert.equal(api().narratesFight('normal'), true, 'still, once the hand-off is given to it');
+    ctx.chat.push(sent('The rats scatter.', 'd4'));
+    await hooks.reply({ messageIndex: 4 });
+    await settle();
+    assert.equal(api().narratesFight('swipe'), true, 'a swipe of the narration tells it again');
+    assert.equal(api().narratesFight('normal'), false, 'the reply after it does not');
+}));
