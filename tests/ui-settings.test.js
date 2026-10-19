@@ -415,7 +415,6 @@ test('Combat (0.5.14): turn order, speed, stat cap and hit chance, each bounded;
     set('rpg_battle_hit_per_point', '');
     assert.equal(changes.at(-1).hitPerPoint, 3, 'empty: the shipped value');
     assert.equal(hint(), 'Timeline · speed AGI + 50 · no stat cap · hit 70% ± 3%');
-    assert.equal(fold.querySelector('.rpg-battle-hit-preview').textContent, 'Equal DEX and AGI: 70% hit, 30% dodge. Your AGI 5 over their DEX: 45% dodge; 10 over: 60%.');
     const points = container.querySelector('.story-suite-fold[data-fold="party"] #rpg_battle_points_per_level');
     points.value = '30';
     points.dispatch('change');

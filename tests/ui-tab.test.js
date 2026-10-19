@@ -1612,3 +1612,17 @@ test('fight: each standing enemy shows how it stacks up against whoever acts; th
     assert.match(timeline.querySelector('.rpg-battle-section.is-order').textContent, /Next turns/);
     assert.equal(timeline.querySelectorAll('.rpg-battle-order-item').length, 5);
 });
+
+test('fight: aiming shows what the attack would do on each target, as tactics games do (0.5.15)', () => {
+    const previews = {
+        attack: { e1: { hit: 63, low: 8, high: 10, crit: 12 }, e2: { hit: 90, low: 12, high: 12, crit: 12 } },
+        skills: { 'Power Strike': { e1: { hit: 63, low: 14, high: 17, crit: 12 }, e2: { hit: 90, low: 20, high: 24, crit: 12 } } },
+    };
+    const pane = render({ ...fightView({}, { previews }), rules });
+    assert.equal(pane.querySelector('.rpg-battle-preview-strike'), null, 'nothing before aiming');
+    pane.querySelector('.rpg-battle-act.is-attack').click();
+    const line = id => pane.querySelector(`.rpg-battle-card[data-combatant-id="${id}"] .rpg-battle-preview-strike`)?.textContent;
+    assert.equal(line('e1'), 'Hit 63%8–10 dmgCrit 12%');
+    assert.equal(line('e2'), 'Hit 90%12 dmgCrit 12%');
+    assert.equal(pane.querySelector('.rpg-battle-card.is-party .rpg-battle-preview-strike'), null);
+});

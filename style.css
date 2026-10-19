@@ -1014,6 +1014,24 @@
     font-weight: 700;
 }
 
+/* (0.5.15) While aiming: what the attack would do to this target, before you commit. */
+.rpg-battle-tab .rpg-battle-preview-strike {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.15rem 0.6rem;
+    margin: 0.35rem 0 0;
+    padding: 0.25rem 0.45rem;
+    border-radius: 5px;
+    background: color-mix(in srgb, var(--rb-accent) 16%, transparent);
+    font-size: 0.85em;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.rpg-battle-tab .rpg-battle-preview-part.is-damage {
+    color: var(--rb-accent);
+}
+
 /* (0.5.14) An enemy against the member whose turn it is: its numbers, then both hit chances. */
 .rpg-battle-tab .rpg-battle-matchup {
     margin: 0.3rem 0 0;
