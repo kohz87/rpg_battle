@@ -29,8 +29,9 @@ export const DEFAULT_RULES = Object.freeze({
     derived: {
         hpBase: 30, hpPerVit: 8, hpPerLevel: 4,
         mpBase: 10, mpPerInt: 4, mpPerLevel: 2,
-        // (0.5.29) Stamina, what physical skills cost: from VIT and STR, as MP is from INT.
-        spBase: 10, spPerVit: 2, spPerStr: 1, spPerLevel: 2,
+        // (0.5.29) Stamina, what physical skills cost: from VIT and STR, as MP is from INT;
+        // (0.5.30) and AGI, a little (running and footwork tire too): VIT most, then STR, then AGI.
+        spBase: 10, spPerVit: 2, spPerStr: 1, spPerAgi: 0.5, spPerLevel: 2,
         atkPerStr: 2, matkPerInt: 2,
     },
     checks: { pivot: 5, divisor: 2, min: -3, max: 10 },
@@ -271,10 +272,10 @@ export function maxMp(stats, level, rules = DEFAULT_RULES, bonus = 0) {
     return Math.max(0, Math.round(d.mpBase + num(stats?.INT) * d.mpPerInt + num(level, 1) * d.mpPerLevel + num(bonus)));
 }
 
-/** (0.5.29) Max stamina (SP): what physical skills cost, from VIT and STR and the level. */
+/** (0.5.29) Max stamina (SP): what physical skills cost, from VIT, STR and (0.5.30) AGI, and the level. */
 export function maxSp(stats, level, rules = DEFAULT_RULES, bonus = 0) {
     const d = { ...DEFAULT_RULES.derived, ...(rules?.derived ?? {}) };
-    return Math.max(0, Math.round(d.spBase + num(stats?.VIT) * d.spPerVit + num(stats?.STR) * d.spPerStr + num(level, 1) * d.spPerLevel + num(bonus)));
+    return Math.max(0, Math.round(d.spBase + num(stats?.VIT) * d.spPerVit + num(stats?.STR) * d.spPerStr + num(stats?.AGI) * (d.spPerAgi ?? 0) + num(level, 1) * d.spPerLevel + num(bonus)));
 }
 
 /** (0.5.29) The pool a skill's cost comes from: stamina for a physical skill, MP for the rest. */

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.30
+
+- **AGI adds to stamina too.** Running and footwork tire you out, so Max SP now counts AGI as well, at the smallest weight: VIT most, then STR, then AGI. The formula is 10 + VIT × 2 + STR + AGI ÷ 2 + level × 2. Ren, with AGI 6, gets 3 more SP. An existing sheet's max SP rises by the same amount the next time it is worked out (a rest, a level-up, a fight).
+
 ## 0.5.29
 
 - **Physical skills run on stamina.** Physical skills cost MP, and MP comes from INT, so how often a fighter could use Power Strike depended on how clever they were. There is now a third pool, **Stamina (SP)**, and physical skills cost SP while magic, heals, buffs and debuffs keep costing MP. Max SP is 10 + VIT × 2 + STR + level × 2. A little comes back at the start of each of your turns (5 % of max, at least 1), Defend gives back 15 % more, any rest fills it, and story time brings it back within an hour. The Party sheet gets an `SP: 31/37` line beside HP and MP, cards and fight screens show a stamina bar, a physical skill reads *4 SP*, and the State line says *breathing hard* or *winded* when it runs low. An older sheet has no SP line and simply starts fresh. Foes are unchanged: their physical skills already cost nothing. The balance tests still land fights in the same 4–6 rounds.

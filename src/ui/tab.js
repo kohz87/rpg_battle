@@ -52,7 +52,7 @@ const BATTLE_MODES = ['offer', 'setup', 'fight', 'between', 'result'];
 const STAT_HINTS = {
     STR: 'physical attack, stamina',
     VIT: 'HP, defence, stamina',
-    AGI: 'turn order, dodge, flee',
+    AGI: 'turn order, dodge, flee, stamina',
     DEX: 'accuracy, crits',
     INT: 'MP, magic',
     LUK: 'crits, loot',
