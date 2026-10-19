@@ -811,3 +811,45 @@ test('Story Suite is told which reply tells a fight, so Story Block rolls no dic
     assert.equal(api().narratesFight('swipe'), true, 'a swipe of the narration tells it again');
     assert.equal(api().narratesFight('normal'), false, 'the reply after it does not');
 }));
+
+test('a chat with hidden messages: the hand-off goes to the reply that tells the fight, and again after it is deleted and re-run (0.5.23)', async () => withClock(async () => {
+    const prompts = {};
+    const before = ctx.setExtensionPrompt;
+    ctx.setExtensionPrompt = (key, value) => { prompts[key] = value; };
+    // SillyTavern hands interceptors the chat without its hidden (is_system) messages.
+    const intercept = () => globalThis.rpgBattleInterceptor(ctx.chat.filter(message => !message.is_system), 0, null, 'normal');
+    try {
+        const hidden = { ...reply('A note kept out of the prompt.'), is_system: true };
+        openChat('hidden-chat', [hidden, { ...hidden }, reply(`<Party>\n${REN}\n</Party>`), userMessage('To the weir.'), sent('Rats.\n<Encounter>giant rat (trivial)</Encounter>', 'd4')]);
+        hooks.update();
+        await settle();
+        find(drawTab('rpg-battle'), '.rpg-battle-encounter-fight').click();
+        find(drawTab('rpg-battle'), '.rpg-battle-begin').click();
+        await settle();
+        await fightOut();
+        find(drawTab('rpg-battle'), '.rpg-battle-done').click();
+        ctx.chat.push(userMessage('I take their purses.'));
+        await intercept();
+        assert.match(prompts.rpg_battle ?? '', /Battle resolved by RPG Battle/);
+        assert.equal(meta().pending.attachedTo, 6, 'the reply about to be written, counted in the whole chat');
+        ctx.chat.push(sent('The rats lie still.', 'd6'));
+        await hooks.reply({ messageIndex: 6 });
+        await settle();
+        assert.ok(meta().pending, 'still the narration\'s: a swipe of it tells the fight again');
+        // The narration deleted, the turn sent again: the result is told again.
+        ctx.chat.splice(6);
+        hooks.update();
+        await settle();
+        await intercept();
+        assert.match(prompts.rpg_battle ?? '', /Battle resolved by RPG Battle/, 'the re-run reply is given the result');
+        ctx.chat.push(sent('The rats lie still, again.', 'd7'));
+        await hooks.reply({ messageIndex: 6 });
+        await settle();
+        // The story moves on: the reply after the narration gets nothing.
+        ctx.chat.push(userMessage('On to the village.'));
+        await intercept();
+        assert.equal(prompts.rpg_battle ?? '', '', 'spent once the story moves past it');
+    } finally {
+        ctx.setExtensionPrompt = before;
+    }
+}));

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.23
+
+- **A fight's result reaches the story in chats with hidden messages.** SillyTavern gives extensions the chat without its hidden messages, such as a hidden greeting or note. RPG Battle counted reply positions in that shorter list, so it tied the fight's result to an earlier reply and treated it as already told. The first reply after the fight still got the result. But once that reply arrived, the result was dropped, so a reply deleted and re-run, or regenerated, never got it. The model then saw only the fight starting and fought it again with dice, a new `<Encounter>` and story XP. Positions now come from the whole chat, so the reply that tells the fight is the one that gets the result, every time it is re-run.
+
 ## 0.5.22
 
 - **The reply that tells a fight rolls no dice.** RPG Battle now tells Story Block (0.9.11 and later) which reply narrates a fight's result, so that reply gets no dice. The model can no longer roll for blows RPG Battle has already decided. A swipe of that reply gets no dice either; the reply after it does.
