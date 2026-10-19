@@ -1,4 +1,4 @@
-# RPG Battle v0.5.29
+# RPG Battle v0.5.30
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -57,7 +57,7 @@ authors* below); without any, a character still attacks, defends, uses items, pa
 |---|---|
 | **STR** | Physical attack, some stamina |
 | **VIT** | Max HP, defence and stamina |
-| **AGI** | Speed (how often you act), dodging, fleeing |
+| **AGI** | Speed (how often you act), dodging, fleeing, a little stamina |
 | **DEX** | Accuracy and critical hits |
 | **INT** | Max MP, magic attack and resistance |
 | **LUK** | Critical hits and loot |
@@ -70,7 +70,7 @@ it. Your companions follow in the same block.
 ```
 ## Ren (you)
 Level: 1 | XP: 72/100 | Points: 0
-HP: 61/98 | MP: 15/32 | SP: 31/37
+HP: 61/98 | MP: 15/32 | SP: 31/40
 STR: 9 | VIT: 8 | AGI: 6 | DEX: 7 | INT: 5 | LUK: 5 | CHA: 5
 Checks: STR +2 | VIT +1 | AGI +0 | DEX +1 | INT +0 | LUK +0 | CHA +0
 State: hurt (aching, favouring a wound) · tired of magic
@@ -79,7 +79,7 @@ Conditions: none
 
 ## Lyra — healer | control: auto
 Level: 3 | XP: 0/100 | Points: 0
-HP: 138/138 | MP: 80/80 | SP: 45/45
+HP: 138/138 | MP: 80/80 | SP: 48/48
 State: unhurt
 STR: 5 | VIT: 12 | AGI: 5 | DEX: 5 | INT: 16 | LUK: 5 | CHA: 5
 Skills: Frost Lance (Lv 1, 2/5) | Mend (Lv 3, 9/22)
@@ -99,7 +99,7 @@ Skills: Frost Lance (Lv 1, 2/5) | Mend (Lv 3, 9/22)
   points** you spend yourself (**Spend** on your card; Settings → Party → *Points per level*
   changes the 4, 1 to 20, since 0.5.14).
 - **Stamina (SP)** (since 0.5.29) is what **physical skills** cost; magic, heals, buffs and
-  debuffs cost **MP**. Max SP is 10 + VIT × 2 + STR + level × 2 (`derived.sp…` in `rules.json`),
+  debuffs cost **MP**. Max SP is 10 + VIT × 2 + STR + AGI ÷ 2 + level × 2 (`derived.sp…` in `rules.json`; AGI since 0.5.30),
   so a fighter's skills no longer depend on INT. In a fight a little comes back at the start of
   each of your turns (5 % of max, at least 1) and Defend gives back 15 % more; out of one, any rest
   fills it and story time brings it back fast (all of it in an hour). Running low shows in the
