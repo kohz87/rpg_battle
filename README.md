@@ -1,4 +1,4 @@
-# RPG Battle v0.5.26
+# RPG Battle v0.5.27
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -275,6 +275,11 @@ Astra — cure poison: an antidote
 - **Harm** can take someone to 0 HP (down); **heal** (or *healed*, *treated*) gives the same share
   back, never above max. Any other word (*poisoned*, *exhausted*, *bleeding*) adds a condition;
   **cure** removes one. The shares are `wounds` in `rules.json`.
+- **Conditions the party carries are named to the story** (since 0.5.27). While anyone has one,
+  the story instruction adds *Lasting conditions: Astra poisoned. When the story ends one:
+  <Wounds>Astra — cure poisoned: how</Wounds>.*, so an antidote, a healer or a nettle broth in the
+  story lifts it from the sheet. Without that line a model told the cure and the sheet stayed
+  poisoned.
 - **One blow per person per reply:** the first harm or heal line for someone counts, the rest are
   ignored; conditions may come alongside.
 - **Names** are yours or a companion's, in any case, also by first name ("Ren" is Ren Aldane).

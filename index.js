@@ -66,7 +66,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.26';
+const VERSION = '0.5.27';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -457,7 +457,27 @@ function purseLine() {
 
 function storyInstruction(ctx = context()) {
     const names = [...new Set((chatState(ctx).bestiary ?? []).map(entry => String(entry?.name ?? '').trim()).filter(name => name && !name.includes(':')))].slice(-KNOWN_FOES_SHOWN);
-    return names.length ? `${STORY_INSTRUCTION} Foes this story has met (the same creature keeps its name): ${names.join(', ')}.` : STORY_INSTRUCTION;
+    const base = names.length ? `${STORY_INSTRUCTION} Foes this story has met (the same creature keeps its name): ${names.join(', ')}.` : STORY_INSTRUCTION;
+    return `${base}${lastingConditionsLine()}`;
+}
+
+/**
+ * (0.5.27) The conditions the party carries out of a fight or from the story ("Astra poisoned"),
+ * and how the story ends one: without it a model tells the cure (a nettle broth, a healer) and the
+ * sheet stays poisoned. '' while nobody carries one.
+ */
+function lastingConditionsLine() {
+    try {
+        const { pc, members } = currentSheets();
+        const people = [pc, ...members.map(member => member.sheet)].filter(Boolean);
+        const carried = people.flatMap(sheet => (Array.isArray(sheet.conditions) ? sheet.conditions : [])
+            .map(condition => String(condition?.name ?? '').trim()).filter(Boolean).map(condition => ({ who: sheet.name, condition })));
+        if (!carried.length) return '';
+        const [first] = carried;
+        return ` Lasting conditions: ${carried.slice(0, 6).map(entry => `${entry.who} ${entry.condition}`).join(', ')}. When the story ends one: <Wounds>${first.who} — cure ${first.condition}: how</Wounds>.`;
+    } catch {
+        return '';
+    }
 }
 
 // The names the setup does not tag as new: the bestiary's, and (0.5.1) each row's that names a

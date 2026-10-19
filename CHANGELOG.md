@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.27
+
+- **A cure in the story lifts the condition.** RPG Battle always understood `<Wounds>Astra — cure poison: …</Wounds>`, but the story was never told it could write one. So when Astra drank Mother Greta's nettle broth and sweated the venom out, the Party sheet still read *poisoned*. The instruction now names the cure (*heal wound, poisoned, cure poison*). While anyone carries a condition, it also adds *Lasting conditions: Astra poisoned. When the story ends one: <Wounds>Astra — cure poisoned: how</Wounds>.* The line goes once the sheet is clear.
+
 ## 0.5.26
 
 - **One purse line, beside the Inventory.** Story Block 0.9.12 now adds the purse up itself. While it keeps the items, its default, it writes the line right after the Inventory, counted in RPG Battle's currency (shared with it as `currency()`), and RPG Battle leaves its own copy out. With an older Story Block, or with RPG Battle chosen to keep the items, RPG Battle still sends it as in 0.5.25.
