@@ -1610,9 +1610,23 @@ function matchup(enemy, versus, rules) {
     ]);
 }
 
-function combatantCard(unit, { turnId, pick, onPick, versus = null, rules = DEFAULT_RULES }) {
+/**
+ * (0.5.15) While aiming at an enemy: what this attack would do to it, as tactics games show it
+ * before you commit. "Hit 63% · 8–10 dmg · Crit 12%".
+ */
+function previewLine(preview) {
+    const damage = preview.low === preview.high ? `${preview.low}` : `${preview.low}–${preview.high}`;
+    return el('div', { className: 'rpg-battle-preview-strike', attrs: { role: 'note' } }, [
+        el('span', { className: 'rpg-battle-preview-part is-hit', text: `Hit ${tidy(preview.hit)}%` }),
+        el('span', { className: 'rpg-battle-preview-part is-damage', text: `${damage} dmg` }),
+        el('span', { className: 'rpg-battle-preview-part is-crit', text: `Crit ${tidy(preview.crit)}%` }),
+    ]);
+}
+
+function combatantCard(unit, { turnId, pick, onPick, versus = null, previews = null, rules = DEFAULT_RULES }) {
     const isEnemy = unit.side === 'enemy';
     const pickable = Boolean(pick && pick.ids.includes(unit.id) && !unit.gone);
+    const preview = isEnemy && pickable ? previews?.[unit.id] ?? null : null;
     const classes = ['rpg-battle-card', isEnemy ? 'is-enemy' : 'is-party'];
     if (unit.gone) classes.push('is-gone', `is-${unit.gone}`);
     if (unit.id === turnId) classes.push('is-turn');
@@ -1641,6 +1655,7 @@ function combatantCard(unit, { turnId, pick, onPick, versus = null, rules = DEFA
         ]),
         bar('hp', unit.hp?.cur, unit.hp?.max, `${unit.name ?? ''} HP`),
         !isEnemy ? bar('mp', unit.mp?.cur, unit.mp?.max, `${unit.name ?? ''} MP`) : null,
+        pickable && preview ? previewLine(preview) : null,
         isEnemy && !unit.gone ? matchup(unit, versus, rules) : null,
         chips(unit.conditions),
     ]);
@@ -1713,7 +1728,9 @@ function renderFight(root, view, handlers) {
     // The member the matchups are against: whoever's turn it is, else you (or the first standing).
     const party0 = units.filter(unit => unit.side !== 'enemy');
     const versus = (actor ? byId.get(actor.id) ?? actor : null) ?? party0.find(unit => unit.memberId === 'pc' && !unit.gone) ?? party0.find(unit => !unit.gone) ?? null;
-    const cardOptions = { turnId, pick, onPick: pickTarget, versus, rules: view.rules ?? DEFAULT_RULES };
+    // While aiming Attack or a damaging skill at an enemy, each target shows what it would do.
+    const aimed = pick?.side === 'enemy' ? (pick.type === 'attack' ? actions?.previews?.attack : pick.type === 'skill' ? actions?.previews?.skills?.[pick.skill] : null) : null;
+    const cardOptions = { turnId, pick, onPick: pickTarget, versus, previews: aimed ?? null, rules: view.rules ?? DEFAULT_RULES };
     const enemies = units.filter(unit => unit.side === 'enemy');
     const party = units.filter(unit => unit.side !== 'enemy');
 

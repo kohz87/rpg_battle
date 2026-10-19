@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.15
+
+- **Target preview.** While you aim Attack or a damaging skill, each enemy card shows what it would do to that target, *Hit 63% · 8–10 dmg · Crit 12%*. The numbers use the same sums the fight rolls: hit from DEX against AGI (spells always hit), damage after its defence across the usual variance (half against a guarding target), and your crit chance.
+- **The Combat settings lose their worked-example line.** The settings keep just the two hit numbers with their hints; the chances are shown where they matter, on the Party card, on each enemy and in the new target preview.
+
 ## 0.5.14
 
 - **Turn timeline.** Fights no longer give everyone one turn a round. Each fighter's next turn comes 100 ÷ speed after their last, where speed is AGI + 10 (halved while slowed), and whoever's turn comes up first acts. A fighter twice as fast acts twice as often, with no limit on turns in a row, and fast enemies get the same advantage. The Turn order strip is now **Next turns**, showing the coming eight. Rounds are still counted, for reinforcement waves, the log and the summary's length. The balance targets (an even solo fight lasts 4–6 rounds and costs about half your HP) hold at levels 1, 5 and 10.

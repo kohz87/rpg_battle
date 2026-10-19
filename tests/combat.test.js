@@ -572,3 +572,28 @@ test('timeline: replays exactly, rounds still pass for waves, and a fight withou
     assert.ok(f.round >= 1);
     assert.equal(startFight({ ...realSetup('timeline'), rules: DEFAULT_RULES }).turns, 'rounds');
 });
+
+test('previewStrike and availableActions.previews: hit, damage range and crit by the strike\'s own sums (0.5.15)', async () => {
+    const { previewStrike } = await import('../src/combat.js');
+    const rules = DEFAULT_RULES;
+    const ren = hero({ crit: 12 });
+    const foe = dummy('e1', { pdef: 8, mdef: 2 });
+    const plain = previewStrike(ren, foe, null, rules);
+    const expected = mitigate(ren.patk, 8);
+    assert.equal(plain.hit, 75 + (ren.stats.DEX - foe.stats.AGI) * 3);
+    assert.equal(plain.low, Math.round(expected * 0.9));
+    assert.equal(plain.high, Math.round(expected * 1.1));
+    assert.equal(plain.crit, 12);
+    // Spells never miss and meet magic defence; guard halves; heals preview nothing.
+    const firebolt = ren.skills.find(s => s.name === 'Firebolt');
+    assert.equal(previewStrike(ren, foe, firebolt, rules).hit, 100);
+    const guarded = previewStrike(ren, { ...foe, conditions: [{ name: 'guard', rounds: 1, power: 0 }] }, null, rules);
+    assert.ok(guarded.high <= Math.round(plain.high / 2) + 1);
+    assert.equal(previewStrike(ren, foe, ren.skills.find(s => s.name === 'Ward'), rules), null);
+    // The fight offers them per target while aiming.
+    const f = start({ party: [ren], enemies: [foe, dummy('e2')] }, rules);
+    const a = availableActions(f, rules);
+    assert.deepEqual(Object.keys(a.previews.attack).sort(), ['e1', 'e2']);
+    assert.ok(a.previews.skills['Power Strike'].e1.high > a.previews.attack.e1.high, 'a stronger skill shows more damage');
+    assert.equal(a.previews.skills.Ward, undefined);
+});

@@ -240,7 +240,9 @@ export function availableActions(fight, rules) → {
     items: [{ name, qty, target }],
     canParley: boolean, parleyChance: number | null,         // best target's chance
     canFlee: boolean, fleeChance: number,
+    previews: { attack: { [enemyId]: Preview }, skills: { [skill]: { [enemyId]: Preview } } },   // (0.5.15) damaging skills only
 }
+export function previewStrike(actor, target, skill, rules) → Preview | null   // { hit, low, high, crit }: a strike's sums without the dice (0.5.15)
 export function act(fight, action, rules) → Fight            // returns a NEW fight; never mutates the argument
     // action: { type: 'attack', target } | { type: 'skill', skill, target } | { type: 'item', item, target }
     //       | { type: 'defend' } | { type: 'parley', target } | { type: 'flee' } | { type: 'auto' }

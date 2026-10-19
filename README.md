@@ -1,4 +1,4 @@
-# RPG Battle v0.5.14
+# RPG Battle v0.5.15
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -422,7 +422,9 @@ battle: the offer, the setup, the fight, and its result until it goes back to th
 3. **Fight**: each foe's card shows its level, the story's threat word and its role (*Lv 1 · weak
    · skirmisher*), and how it stacks up against whoever's turn it is (since 0.5.14): *Atk 9 · Def
    4 · AGI 4 · DEX 5 · You hit 87% · You dodge 40%*, your chance to land a physical attack on
-   it and to dodge one of its (hover for the sums). On your turn pick an action and tap a target. Enemies (and companions on *auto*)
+   it and to dodge one of its (hover for the sums). On your turn pick an action and tap a target:
+   while you aim, each target shows what that attack or skill would do to it (since 0.5.15),
+   *Hit 63% · 8–10 dmg · Crit 12%*, by the same sums the fight rolls (spells: Hit 100%). Enemies (and companions on *auto*)
    act on their own, by simple predictable rules. **Auto** plays the rest of the fight for you.
    **Turns** (since 0.5.14) run on a **timeline**: each fighter's next turn comes 100 ÷ speed
    after their last, speed being **AGI + 10** (halved while slowed), and whoever's turn comes up
@@ -760,8 +762,7 @@ on top, then folds: **Money**, **Equipment** (worn pieces and accessories that c
 (since 0.5.14: turn order, *Timeline* or *Rounds*; speed, AGI + 10 by default; the **stat
 cap**, 99 by default, the highest a stat goes with points, 0 for none, gear adding on top; the
 hit chance, 75% between equal DEX and AGI and 3% per point of difference; these win over a
-`rules.json`; and a live line of what they make of it: *Equal DEX and AGI: 75% hit, 25%
-dodge…*), **Party** (*Points per level*, 4 by default, 1 to 20; skills in use per member, 3 to 12; companions' points spent automatically; the **XP rate**, 0.25
+`rules.json`), **Party** (*Points per level*, 4 by default, 1 to 20; skills in use per member, 3 to 12; companions' points spent automatically; the **XP rate**, 0.25
 to 5, multiplying all XP), **Source of truth**
 **Diagnostics** and **Blocks** (the Party and Inventory tags, the Return to story message, next
 moves after a fight on or off).
