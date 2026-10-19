@@ -27,7 +27,7 @@
 // exact level is always in it, so the parsers read it back from the canonical form, from any
 // terms form (with or without the colon after the level name) and from older blocks. Pure.
 
-import { DEFAULT_RULES, STATS, checkModifiers, maxHp, maxMp, xpToNext } from './rules.js';
+import { DEFAULT_RULES, STATS, checkModifiers, maxHp, maxMp, statCap, xpToNext } from './rules.js';
 import { formatGearEntry, gearBonuses, parseGearEntry } from './items.js';
 import { stateWords } from './narrative.js';
 import { maxLevel, numeral as numeralFor, parseLevelLabel, progress, termsOf, xpFromProgress } from './terms.js';
@@ -654,6 +654,8 @@ export function newSheet({ name, stats, skills } = {}, rules = DEFAULT_RULES) {
     const trimmed = String(name ?? '').trim();
     if (!trimmed) throw new Error('New character: a name is needed.');
     const base = Object.fromEntries(STATS.map(stat => [stat, r.character.startStat + (allocation[stat] ?? 0)]));
+    const over = STATS.find(stat => base[stat] > statCap(r));
+    if (over) throw new Error(`New character: ${over} can go no higher than ${statCap(r)}.`);
     const hp = maxHp(base, 1, r);
     const mp = maxMp(base, 1, r);
     let sheet = {
@@ -680,6 +682,10 @@ export function spendPoints(sheet, allocation, rules = DEFAULT_RULES) {
     const clean = validAllocation(allocation, 'Spend points');
     const total = spent(clean);
     if (total > sheet.points) throw new Error(`Spend points: ${total} points asked, ${sheet.points} unspent.`);
+    const cap = statCap(r);
+    for (const [stat, value] of Object.entries(clean)) {
+        if ((Number(sheet.stats?.[stat]) || 0) + value > cap) throw new Error(`Spend points: ${stat} can go no higher than ${cap}.`);
+    }
     const next = copySheet(sheet);
     for (const [stat, value] of Object.entries(clean)) next.stats[stat] += value;
     next.points -= total;

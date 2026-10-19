@@ -1014,6 +1014,32 @@
     font-weight: 700;
 }
 
+/* (0.5.14) An enemy against the member whose turn it is: its numbers, then both hit chances. */
+.rpg-battle-tab .rpg-battle-matchup {
+    margin: 0.3rem 0 0;
+    font-size: 0.8em;
+    font-variant-numeric: tabular-nums;
+    opacity: 0.75;
+}
+
+.rpg-battle-tab .rpg-battle-matchup-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.1rem 0.6rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.rpg-battle-tab .rpg-battle-matchup-part {
+    cursor: help;
+}
+
+.rpg-battle-tab .rpg-battle-matchup-part.is-hit,
+.rpg-battle-tab .rpg-battle-matchup-part.is-dodge {
+    font-weight: 600;
+}
+
 .rpg-battle-tab .rpg-battle-order {
     display: flex;
     flex-wrap: wrap;

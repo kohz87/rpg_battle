@@ -128,6 +128,30 @@ function rememberFold(key, open) {
     try { globalThis.localStorage?.setItem(FOLDS_STORAGE, JSON.stringify({ ...foldsOpen(), [key]: open })); } catch { /* private window */ }
 }
 
+// (0.5.14) The Combat fold's numbers, each bounded, with the shipped value when unreadable.
+export const COMBAT_LIMITS = Object.freeze({
+    speedOffset: { min: 0, max: 50, fallback: 10 },
+    statCap: { min: 0, max: 999, fallback: 99 },
+    hitBase: { min: 5, max: 95, fallback: 75 },
+    hitPerPoint: { min: 0, max: 10, fallback: 3 },
+    pointsPerLevel: { min: 1, max: 20, fallback: 4 },
+});
+
+/** A Combat setting as stored: a whole number within its limits. */
+export function combatValue(key, value) {
+    const { min, max, fallback } = COMBAT_LIMITS[key];
+    return wholeOrNull(value, min, max) ?? fallback;
+}
+
+function combatHint(current) {
+    const cap = combatValue('statCap', current.statCap);
+    return [
+        current.turnOrder === 'rounds' ? 'Rounds' : `Timeline · speed AGI + ${combatValue('speedOffset', current.speedOffset)}`,
+        cap ? `stats ≤ ${cap}` : 'no stat cap',
+        `hit ${combatValue('hitBase', current.hitBase)}% ± ${combatValue('hitPerPoint', current.hitPerPoint)}%`,
+    ].join(' · ');
+}
+
 /** One line per section, from the settings as they are now. */
 export function foldHints(settings) {
     const current = settings ?? {};
@@ -140,7 +164,8 @@ export function foldHints(settings) {
         equipment: `${gear.worn} worn · ${gear.accessories} ${Number(gear.accessories) === 1 ? 'accessory' : 'accessories'}`,
         terms: [terms.levelName || 'Level', terms.xpName || 'XP', terms.tiers ? 'tiers' : '', terms.cap ? `cap ${terms.cap}` : ''].filter(Boolean).join(' · '),
         monsters: current.flavour?.enabled === false ? 'Model calls off' : 'Model calls on',
-        party: `${Number(current.activeSkills) || 6} active skills · ${current.autoSpend === false ? 'points by hand' : 'auto-spend'}${xpRateValue(current.xpRate) !== 1 ? ` · XP ×${xpRateValue(current.xpRate)}` : ''}`,
+        combat: combatHint(current),
+        party: `${combatValue('pointsPerLevel', current.pointsPerLevel) !== COMBAT_LIMITS.pointsPerLevel.fallback ? `${combatValue('pointsPerLevel', current.pointsPerLevel)} points a level · ` : ''}${Number(current.activeSkills) || 6} active skills · ${current.autoSpend === false ? 'points by hand' : 'auto-spend'}${xpRateValue(current.xpRate) !== 1 ? ` · XP ×${xpRateValue(current.xpRate)}` : ''}`,
         truth: chosen ? `${chosen} chosen by hand` : 'Automatic',
         blocks: [current.partyTag || 'Party', current.inventoryTag || 'Inventory'].join(' · '),
         diagnostics: 'What RPG Battle sees and sent',
@@ -263,6 +288,45 @@ export function renderSettings(container, { settings, version = '', status = '',
     };
     const wornCount = gearInput('rpg_battle_gear_worn', 'worn', 1);
     const accessoryCount = gearInput('rpg_battle_gear_accessories', 'accessories', 2);
+
+    // Combat (0.5.14): the turn system, speed, the stat cap and the hit chance.
+    const turnOrder = el('select', { className: 'text_pole', attrs: { id: 'rpg_battle_turn_order' } },
+        [{ value: 'timeline', label: 'Timeline: faster fighters act more often' }, { value: 'rounds', label: 'Rounds: everyone once a round' }].map(option => {
+            const node = el('option', { text: option.label });
+            node.value = option.value;
+            return node;
+        }));
+    turnOrder.value = current.turnOrder === 'rounds' ? 'rounds' : 'timeline';
+    const combatNumber = (id, key, unit) => {
+        const { min, max } = COMBAT_LIMITS[key];
+        const node = numberInput(id, combatValue(key, current[key]), { min, max });
+        node.addEventListener('change', () => {
+            const value = combatValue(key, node.value);
+            node.value = String(value);
+            commit(next => { next[key] = value; });
+            if (key === 'hitBase' || key === 'hitPerPoint') syncHit();
+        });
+        return withUnit(node, unit);
+    };
+    const speedOffset = combatNumber('rpg_battle_speed_offset', 'speedOffset', 'AGI +');
+    const statCapInput = combatNumber('rpg_battle_stat_cap', 'statCap', 'max');
+    const hitBase = combatNumber('rpg_battle_hit_base', 'hitBase', '%');
+    const hitPerPoint = combatNumber('rpg_battle_hit_per_point', 'hitPerPoint', '% per point');
+    const pointsPerLevel = combatNumber('rpg_battle_points_per_level', 'pointsPerLevel', 'points');
+    // What the hit settings make of a fight, in hit and dodge chances, kept up to date.
+    const hitPreview = el('span', { className: 'rpg-battle-settings-hint rpg-battle-hit-preview', attrs: { 'aria-live': 'polite' } });
+    const syncHit = () => {
+        const base = combatValue('hitBase', current.hitBase);
+        const per = combatValue('hitPerPoint', current.hitPerPoint);
+        const at = gap => Math.min(95, Math.max(5, base + gap * per));
+        hitPreview.textContent = `Equal DEX and AGI: ${at(0)}% hit, ${100 - at(0)}% dodge. Your AGI 5 over their DEX: ${100 - at(-5)}% dodge; 10 over: ${100 - at(-10)}%.`;
+    };
+    const speedRow = row('Speed', 'Speed is AGI plus this; a fighter acts as often as its speed allows, with no limit. Lower: AGI counts for more (0: twice the AGI, twice the turns).', speedOffset, 'rpg_battle_speed_offset');
+    const syncTurns = () => { speedRow.hidden = turnOrder.value === 'rounds'; };
+    turnOrder.addEventListener('change', () => {
+        syncTurns();
+        commit(next => { next.turnOrder = turnOrder.value === 'rounds' ? 'rounds' : 'timeline'; });
+    });
 
     // Party (0.4): how many skills a member fights with, and whether companions on auto spend
     // the points a level gives them.
@@ -464,7 +528,17 @@ export function renderSettings(container, { settings, version = '', status = '',
                         row('Model', profiles === null ? 'Connection Manager is off, so the chat\'s own connection is used.' : 'A connection profile has its own API and model; a small, fast one is enough.', flavourModel, 'rpg_battle_flavour_model'),
                         row('Answer length', 'Most tokens one answer may use.', withUnit(flavourTokens, 'tokens'), 'rpg_battle_flavour_tokens'),
                     ]),
+                    fold('combat', 'Combat', [
+                        muted('How fights run. Changes apply to fights started after them; one under way keeps the rules it began with.'),
+                        row('Turn order', 'Timeline: each fighter\'s next turn comes sooner the faster they are, so a quick one can act several times before a slow one. Rounds: everyone acts once a round, the fastest first.', turnOrder, 'rpg_battle_turn_order'),
+                        speedRow,
+                        row('Stat cap', 'The highest a stat can be raised with points (gear adds on top). 0: no cap.', statCapInput, 'rpg_battle_stat_cap'),
+                        row('Hit chance', 'A physical attack between equal DEX and AGI lands this often. Spells never miss.', hitBase, 'rpg_battle_hit_base'),
+                        row('Per point', 'Added for each point of the attacker\'s DEX over the defender\'s AGI, taken away for each point under (5% to 95% in all).', hitPerPoint, 'rpg_battle_hit_per_point'),
+                        el('p', { className: 'story-suite-muted' }, [hitPreview]),
+                    ]),
                     fold('party', 'Party', [
+                        row('Points per level', 'Stat points each level gives (1 to 20); 4 is what fights are balanced for. Levels already reached keep what they gave; a companion who joins later is built with this.', pointsPerLevel, 'rpg_battle_points_per_level'),
                         row('Active skills', 'Skills each member fights with (3 to 12). More are kept, set aside, and swapped in on their card.', withUnit(activeSkills, 'skills'), 'rpg_battle_active_skills'),
                         row('Spend companions\' points automatically', 'Companions on auto, in their build\'s proportions; off: every companion keeps points for Spend.', autoSpend, 'rpg_battle_auto_spend'),
                         row('XP rate', 'Multiplies all XP: fights, quests and story awards.', withUnit(xpRate, '×'), 'rpg_battle_xp_rate'),
@@ -492,6 +566,8 @@ export function renderSettings(container, { settings, version = '', status = '',
         if (diagnostics.open) readReport();
     }
     syncFlavour();
+    syncTurns();
+    syncHit();
     refreshHints();
     container.replaceChildren(root);
     return {

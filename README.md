@@ -1,4 +1,4 @@
-# RPG Battle v0.5.13
+# RPG Battle v0.5.14
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -57,7 +57,7 @@ authors* below); without any, a character still attacks, defends, uses items, pa
 |---|---|
 | **STR** | Physical attack |
 | **VIT** | Max HP and defence |
-| **AGI** | Turn order, dodging, fleeing |
+| **AGI** | Speed (how often you act), dodging, fleeing |
 | **DEX** | Accuracy and critical hits |
 | **INT** | Max MP, magic attack and resistance |
 | **LUK** | Critical hits and loot |
@@ -96,7 +96,8 @@ Skills: Frost Lance (Lv 1, 2/5) | Mend (Lv 3, 9/22)
   AGI (5% to 95%); spells never miss. Hit and Dodge are against a typical foe of the member's
   level, since the real chance depends on who they face. Hover a number for where it comes from.
 - **Levels:** XP from fights and from the story (*XP and levels* below); each level gives **4
-  points** you spend yourself (**Spend** on your card).
+  points** you spend yourself (**Spend** on your card; Settings → Party → *Points per level*
+  changes the 4, 1 to 20, since 0.5.14).
 - **Skills:** learned from the story (a `<Learned>` offer opens the learn form, prefilled; a
   library skill keeps its stat requirements, like INT 9 for Fireball). Using a skill in fights
   raises its mastery (Lv 1 to 5): 5 uses take it to Lv 2, 12 more to Lv 3, then 22 and 35
@@ -419,8 +420,18 @@ battle: the offer, the setup, the fight, and its result until it goes back to th
    means the story decides: captured, robbed, left for dead) or *Stakes: To the death* (defeat
    is death: game over), as the story marked it. **Start** or **Not now**.
 3. **Fight**: each foe's card shows its level, the story's threat word and its role (*Lv 1 · weak
-   · skirmisher*). On your turn pick an action and tap a target. Enemies (and companions on *auto*)
+   · skirmisher*), and how it stacks up against whoever's turn it is (since 0.5.14): *Atk 9 · Def
+   4 · AGI 4 · DEX 5 · You hit 87% · You dodge 40%*, your chance to land a physical attack on
+   it and to dodge one of its (hover for the sums). On your turn pick an action and tap a target. Enemies (and companions on *auto*)
    act on their own, by simple predictable rules. **Auto** plays the rest of the fight for you.
+   **Turns** (since 0.5.14) run on a **timeline**: each fighter's next turn comes 100 ÷ speed
+   after their last, speed being **AGI + 10** (halved while slowed), and whoever's turn comes up
+   first acts. Twice the speed is twice the turns, with no limit: AGI 30 against AGI 10 acts
+   twice as often (speed 40 against 20), AGI 90 five times (100 against 20). The **Next turns** strip shows
+   the coming eight, a fast fighter more than once. A *round* is still counted (the wait of a
+   fighter at the starting 5), for reinforcements, the log and the summary's length. Settings →
+   **Combat** switches back to **Rounds** (everyone once a round, by AGI × 2 + DEX + a d6) or
+   changes the 10. A fight keeps the turn order, speed and hit chance it began with.
 4. **The result**: outcome, HP and MP left, XP, loot and the key moments are applied to the
    sheets and inventory (companions on auto spend new points by their build), and a short
    summary waits for the next reply:
@@ -745,8 +756,12 @@ source of truth for each area, so the model is not told the same thing twice; se
 
 Under **Extensions → RPG Battle**: the on/off switch and *Recover HP and MP as story time passes*
 on top, then folds: **Money**, **Equipment** (worn pieces and accessories that count), **Terms**,
-**Generated words** (model calls for new creatures and a new companion's skills), **Party**
-(skills in use per member, 3 to 12; companions' points spent automatically; the **XP rate**, 0.25
+**Generated words** (model calls for new creatures and a new companion's skills), **Combat**
+(since 0.5.14: turn order, *Timeline* or *Rounds*; speed, AGI + 10 by default; the **stat
+cap**, 99 by default, the highest a stat goes with points, 0 for none, gear adding on top; the
+hit chance, 75% between equal DEX and AGI and 3% per point of difference; these win over a
+`rules.json`; and a live line of what they make of it: *Equal DEX and AGI: 75% hit, 25%
+dodge…*), **Party** (*Points per level*, 4 by default, 1 to 20; skills in use per member, 3 to 12; companions' points spent automatically; the **XP rate**, 0.25
 to 5, multiplying all XP), **Source of truth**
 **Diagnostics** and **Blocks** (the Party and Inventory tags, the Return to story message, next
 moves after a fight on or off).

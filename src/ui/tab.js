@@ -29,7 +29,7 @@
 // card in the fight is tagged "new", and the idle screen's Bestiary fold lists this story's
 // creatures with Regenerate and Forget, and Export and Import for the whole list.
 
-import { STATS, RANKS, DEFAULT_RULES, maxHp, maxMp, derive, checkModifiers } from '../rules.js';
+import { STATS, RANKS, DEFAULT_RULES, maxHp, maxMp, derive, checkModifiers, hitChance, statCap } from '../rules.js';
 import { stateWords } from '../narrative.js';
 import { SLOT_NAMES, formatStats } from '../items.js';
 import { levelTag, levelText, progress, termsOf, xpGainText } from '../terms.js';
@@ -316,7 +316,7 @@ function renderCreate(root, view, handlers) {
     const steppers = STATS.map(stat => stepper(stat, {
         hint: STAT_HINTS[stat],
         onMinus: () => { if (draft.stats[stat] > startStat) { draft.stats[stat] -= 1; refresh(); } },
-        onPlus: () => { if (remaining() > 0) { draft.stats[stat] += 1; refresh(); } },
+        onPlus: () => { if (remaining() > 0 && draft.stats[stat] < statCap(rules)) { draft.stats[stat] += 1; refresh(); } },
     }));
 
     const preview = previewList();
@@ -341,7 +341,7 @@ function renderCreate(root, view, handlers) {
             const stat = step.row.dataset.stat;
             step.value.textContent = String(draft.stats[stat]);
             step.minus.disabled = draft.stats[stat] <= startStat;
-            step.plus.disabled = left <= 0;
+            step.plus.disabled = left <= 0 || draft.stats[stat] >= statCap(rules);
             step.extra.textContent = `check ${signed(checkModifiers(draft.stats, rules)[stat])}`;
         }
         fillPreview(preview, previewRows(numbersFor(draft.stats, 1, rules), numbersFor(draft.stats, 1, rules)), false);
@@ -1206,7 +1206,7 @@ function renderSpend(root, view, handlers) {
     const steppers = STATS.map(stat => stepper(stat, {
         hint: STAT_HINTS[stat],
         onMinus: () => { if (alloc[stat] > 0) { alloc[stat] -= 1; refresh(); } },
-        onPlus: () => { if (used() < budget) { alloc[stat] += 1; refresh(); } },
+        onPlus: () => { if (used() < budget && base[stat] + alloc[stat] < statCap(rules)) { alloc[stat] += 1; refresh(); } },
     }));
     const preview = previewList();
     const confirm = button('Confirm', 'rpg-battle-primary rpg-battle-confirm', {
@@ -1222,9 +1222,10 @@ function renderSpend(root, view, handlers) {
             const stat = step.row.dataset.stat;
             const added = alloc[stat];
             step.value.textContent = String(base[stat] + added);
+            const full = base[stat] + added >= statCap(rules);
             step.minus.disabled = added <= 0;
-            step.plus.disabled = left <= 0;
-            step.extra.textContent = added ? `+${added}` : '';
+            step.plus.disabled = left <= 0 || full;
+            step.extra.textContent = [added ? `+${added}` : '', full ? 'max' : ''].filter(Boolean).join(' · ');
             step.row.classList.toggle('is-changed', added > 0);
         }
         const after = Object.fromEntries(STATS.map(stat => [stat, base[stat] + alloc[stat]]));
@@ -1578,7 +1579,38 @@ function aimOf(target, { type = null, damages = false } = {}) {
     }
 }
 
-function combatantCard(unit, { turnId, pick, onPick, rules = DEFAULT_RULES }) {
+/**
+ * (0.5.14) How an enemy stacks up against `versus` (the member whose turn it is, else you):
+ * its attack, defence, AGI and DEX, then the two hit chances the fight rolls for physical
+ * attacks. Each part's title says where it comes from.
+ */
+function matchup(enemy, versus, rules) {
+    const s = enemy.stats ?? {};
+    const a = rules.attack ?? DEFAULT_RULES.attack;
+    const parts = [
+        ['atk', `Atk ${num(enemy.patk)}`, `Its physical attack (magic ${num(enemy.matk)})`],
+        ['def', `Def ${num(enemy.pdef)}`, `Cuts your physical damage (magic defence ${num(enemy.mdef)})`],
+        ['agi', `AGI ${num(s.AGI)}`, 'Speed on the turn timeline, and how hard it is to hit'],
+        ['dex', `DEX ${num(s.DEX)}`, 'How well it hits'],
+    ];
+    if (versus) {
+        const name = versus.memberId === 'pc' || versus.id === 'pc' ? null : str(versus.name);
+        const yours = hitChance(versus.stats?.DEX, s.AGI, rules);
+        const theirs = hitChance(s.DEX, versus.stats?.AGI, rules);
+        parts.push(
+            ['hit', `${name ? `${name} hits` : 'You hit'} ${tidy(yours)}%`, `A physical attack lands ${tidy(yours)}% of the time: ${a.hitBase}% + ${a.hitPerPoint}% per point of ${name ?? 'your'} DEX (${num(versus.stats?.DEX)}) over its AGI (${num(s.AGI)}). Spells never miss`],
+            ['dodge', `${name ? `${name} dodges` : 'You dodge'} ${tidy(100 - theirs)}%`, `${name ?? 'You'} dodge${name ? 's' : ''} its physical attacks ${tidy(100 - theirs)}% of the time: they land ${a.hitBase}% + ${a.hitPerPoint}% per point of its DEX (${num(s.DEX)}) over ${name ?? 'your'} AGI (${num(versus.stats?.AGI)}). Its spells never miss`],
+        );
+    }
+    // Its numbers on one line, the two chances on the next, so a narrow card wraps cleanly.
+    const line = list => el('ul', { className: 'rpg-battle-matchup-line' }, list.map(([key, text, title]) => el('li', { className: `rpg-battle-matchup-part is-${key}`, text, attrs: { title } })));
+    return el('div', { className: 'rpg-battle-matchup', attrs: { 'aria-label': `${str(enemy.name)} against ${versus ? str(versus.name) : 'the party'}` } }, [
+        line(parts.slice(0, 4)),
+        parts.length > 4 ? line(parts.slice(4)) : null,
+    ]);
+}
+
+function combatantCard(unit, { turnId, pick, onPick, versus = null, rules = DEFAULT_RULES }) {
     const isEnemy = unit.side === 'enemy';
     const pickable = Boolean(pick && pick.ids.includes(unit.id) && !unit.gone);
     const classes = ['rpg-battle-card', isEnemy ? 'is-enemy' : 'is-party'];
@@ -1609,6 +1641,7 @@ function combatantCard(unit, { turnId, pick, onPick, rules = DEFAULT_RULES }) {
         ]),
         bar('hp', unit.hp?.cur, unit.hp?.max, `${unit.name ?? ''} HP`),
         !isEnemy ? bar('mp', unit.mp?.cur, unit.mp?.max, `${unit.name ?? ''} MP`) : null,
+        isEnemy && !unit.gone ? matchup(unit, versus, rules) : null,
         chips(unit.conditions),
     ]);
     card.dataset.combatantId = unit.id;
@@ -1677,13 +1710,19 @@ function renderFight(root, view, handlers) {
     };
 
     const pick = ui.pick;
-    const cardOptions = { turnId, pick, onPick: pickTarget, rules: view.rules ?? DEFAULT_RULES };
+    // The member the matchups are against: whoever's turn it is, else you (or the first standing).
+    const party0 = units.filter(unit => unit.side !== 'enemy');
+    const versus = (actor ? byId.get(actor.id) ?? actor : null) ?? party0.find(unit => unit.memberId === 'pc' && !unit.gone) ?? party0.find(unit => !unit.gone) ?? null;
+    const cardOptions = { turnId, pick, onPick: pickTarget, versus, rules: view.rules ?? DEFAULT_RULES };
     const enemies = units.filter(unit => unit.side === 'enemy');
     const party = units.filter(unit => unit.side !== 'enemy');
 
     // Turn order: who acts this round, the current one marked.
     const order = list(fight.order).filter(id => byId.has(id));
-    const strip = order.length ? el('ol', { className: 'rpg-battle-order', attrs: { 'aria-label': `Turn order, round ${num(fight.round, 1)}` } }, order.map((id, index) => {
+    // (0.5.14) On the turn timeline the strip is the turns ahead, the current one first: a
+    // faster fighter shows up more than once.
+    const ahead = fight.turns === 'timeline';
+    const strip = order.length ? el('ol', { className: `rpg-battle-order${ahead ? ' is-timeline' : ''}`, attrs: { 'aria-label': ahead ? 'Next turns' : `Turn order, round ${num(fight.round, 1)}` } }, order.map((id, index) => {
         const unit = byId.get(id);
         const classes = ['rpg-battle-order-item', unit.side === 'enemy' ? 'is-enemy' : 'is-party'];
         if (index === fight.turn && active) classes.push('is-current');
@@ -1698,7 +1737,7 @@ function renderFight(root, view, handlers) {
         el('span', { className: 'rpg-battle-round', text: `Round ${num(fight.round, 1)}` }),
         fight.stakes === 'death' ? el('span', { className: 'rpg-battle-badge is-death', text: 'to the death' }) : null,
     ]));
-    if (strip) root.append(section('is-order', [sub('Turn order', 'fa-list-ol'), strip]));
+    if (strip) root.append(section('is-order', [sub(ahead ? 'Next turns' : 'Turn order', 'fa-list-ol'), strip]));
     root.append(section(`is-enemies${pick?.side === 'enemy' ? ' is-picking' : ''}`, [
         sub('Enemies', 'fa-skull', enemies.filter(unit => !unit.gone).length),
         el('ul', { className: 'rpg-battle-cards' }, enemies.map(unit => combatantCard(unit, cardOptions))),

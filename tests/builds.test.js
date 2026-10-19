@@ -84,3 +84,30 @@ test('newCompanion: open-ended, focus and skills from the library, refused with 
     assert.throws(() => newCompanion({ name: 'Tor', skills: ['Nope'] }, { rules: R, library }), /not in the skill library/);
     assert.throws(() => newCompanion({ name: 'Tor', skills: ['Mend', 'Sweep', 'Rally', 'Ward'] }, { rules: R, library }), /3 skills at most/);
 });
+
+test('the stat cap (0.5.14): points never raise a stat past it; a full stat passes its share on', async () => {
+    const { spreadWithin, withinCap, buildStats, buildAllocation } = await import('../src/builds.js');
+    const { spendPoints } = await import('../src/sheet.js');
+    const capped = makeRules({ character: { statCap: 20 } });
+    // Room caps a stat; what it cannot take goes to the others by weight.
+    assert.deepEqual(spreadWithin(10, { STR: 3, DEX: 1 }, { STR: 2 }), { STR: 2, VIT: 0, AGI: 0, DEX: 8, INT: 0, LUK: 0, CHA: 0 });
+    assert.deepEqual(spreadWithin(5, { STR: 1 }, Object.fromEntries(STATS.map(stat => [stat, 0]))), Object.fromEntries(STATS.map(stat => [stat, 0])), 'no room: unspent');
+    // Under the cap, nothing changes.
+    assert.deepEqual(spreadWithin(7, { STR: 3, VIT: 2 }), { STR: 4, VIT: 3, AGI: 0, DEX: 0, INT: 0, LUK: 0, CHA: 0 });
+    // A level-30 STR companion: STR stops at 20, the rest goes to VIT and AGI.
+    const built = buildStats(['STR', 'VIT', 'AGI'], 30, capped);
+    assert.equal(built.STR, 20);
+    assert.ok(STATS.every(stat => built[stat] <= 20));
+    const total = STATS.reduce((sum, stat) => sum + built[stat], 0);
+    assert.ok(total <= 7 * 5 + 10 + 29 * 4);
+    assert.equal(withinCap({ STR: 25, VIT: 5, AGI: 5, DEX: 5, INT: 5, LUK: 5, CHA: 5 }, { STR: 1 }, capped).STR, 20);
+    // Auto-spend skips a full stat.
+    const sheet = { stats: { STR: 20, VIT: 6, AGI: 5, DEX: 5, INT: 5, LUK: 5, CHA: 5 }, points: 4 };
+    assert.equal(buildAllocation(sheet, capped).STR, undefined);
+    // Spending by hand past it throws, saying so.
+    const pc = { name: 'Ren', level: 9, points: 4, stats: { STR: 19, VIT: 5, AGI: 5, DEX: 5, INT: 5, LUK: 5, CHA: 5 }, hp: { cur: 10, max: 10 }, mp: { cur: 5, max: 5 }, skills: [], conditions: [] };
+    assert.throws(() => spendPoints(pc, { STR: 2 }, capped), /STR can go no higher than 20/);
+    assert.equal(spendPoints(pc, { STR: 1 }, capped).stats.STR, 20);
+    // 0: no cap.
+    assert.equal(spendPoints({ ...pc, stats: { ...pc.stats, STR: 400 } }, { STR: 4 }, makeRules({ character: { statCap: 0 } })).stats.STR, 404);
+});

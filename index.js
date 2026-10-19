@@ -61,12 +61,12 @@ import { guessFocus } from './src/builds.js';
 import { fallbackKit, kitPrompt, kitTemplate, namedKit, parseKit, usableKit } from './src/kit.js';
 import { cleanParty, exportParty } from './src/partyfile.js';
 import { renderBattleTab } from './src/ui/tab.js';
-import { renderSettings } from './src/ui/settings.js';
+import { combatValue, renderSettings } from './src/ui/settings.js';
 import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.13';
+const VERSION = '0.5.14';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -122,6 +122,16 @@ const DEFAULT_SETTINGS = Object.freeze({
     autoSpend: true,
     // (0.5.2) Multiplies all XP: fights, parleys, story awards and quests (rules.xpRate, 0.25–5).
     xpRate: DEFAULT_RULES.xpRate,
+    // (0.5.14) Combat: 'timeline' (speed = AGI + speedOffset decides how often each fighter
+    // acts) or 'rounds'; the highest a stat goes with points (0: none); the hit chance between
+    // equal DEX and AGI and what each point of difference adds.
+    turnOrder: DEFAULT_RULES.turns.mode,
+    speedOffset: DEFAULT_RULES.turns.speedOffset,
+    statCap: DEFAULT_RULES.character.statCap,
+    hitBase: DEFAULT_RULES.attack.hitBase,
+    hitPerPoint: DEFAULT_RULES.attack.hitPerPoint,
+    // Stat points each level gives (rules.character.pointsPerLevel, 1–20).
+    pointsPerLevel: DEFAULT_RULES.character.pointsPerLevel,
     // Sent for you by "Return to story", so the narration comes straight away.
     returnMessage: '*(The fight is over.)*',
     // (0.5.4) After a fight, a few next moves on the result screen (a model call when model
@@ -229,9 +239,24 @@ function rules() {
     const custom = own.rules ?? {};
     return makeRules({
         ...custom,
-        character: { ...(custom.character ?? {}), activeSkills: activeSkillsSetting(own.activeSkills) },
+        character: { ...(custom.character ?? {}), activeSkills: activeSkillsSetting(own.activeSkills), statCap: combatValue('statCap', own.statCap), pointsPerLevel: combatValue('pointsPerLevel', own.pointsPerLevel) },
+        // (0.5.14) The Combat settings win over a rules.json: the panel is what the reader sees.
+        turns: { ...(custom.turns ?? {}), mode: own.turnOrder === 'rounds' ? 'rounds' : 'timeline', speedOffset: combatValue('speedOffset', own.speedOffset) },
+        attack: { ...(custom.attack ?? {}), hitBase: combatValue('hitBase', own.hitBase), hitPerPoint: combatValue('hitPerPoint', own.hitPerPoint) },
         currency: own.currency, terms: own.terms, gear: own.gear, xpRate: clampXpRate(own.xpRate),
     });
+}
+
+/**
+ * (0.5.14) The rules a fight runs on: the current ones with the hit chance its setup began
+ * with, so changing the Combat settings mid-fight never changes how it replays. A fight saved
+ * before keeps today's numbers, as it always did.
+ */
+function fightRules(setup) {
+    const r = rules();
+    const hit = setup?.hit;
+    if (!hit || !Number.isFinite(Number(hit.base)) || !Number.isFinite(Number(hit.perPoint))) return r;
+    return makeRules({ ...r, attack: { ...r.attack, hitBase: Number(hit.base), hitPerPoint: Number(hit.perPoint) } });
 }
 
 // Per-chat state: { fight: { setup, actions, origin } | null, plan: a plan of stages under way (src/plan.js) | null,
@@ -567,7 +592,7 @@ function currentFight() {
     const key = fightKey(saved);
     if (live.chatId !== chatId || live.key !== key) {
         try {
-            live = { chatId, key, fight: replay({ setup: saved.setup, actions: saved.actions ?? [] }, rules()) };
+            live = { chatId, key, fight: replay({ setup: saved.setup, actions: saved.actions ?? [] }, fightRules(saved.setup)) };
         } catch (error) {
             console.error('[RPG Battle] could not replay the fight', error);
             saveChatState({ fight: null });
@@ -666,7 +691,9 @@ function fightSetup(rows, { id, party, stakes, fresh = [] }) {
     // A foe without a threat word shows the one its level gap to you is (0.5.3).
     const graded = all.map(enemy => (enemy.threat || !(Number(enemy.level) >= 1) || !sheet ? enemy : { ...enemy, threat: threatForGap(enemy.level - sheet.level, r) }));
     const { enemies, waves } = engagements(graded);
-    const setup = { id, seed, party, enemies, ...(waves.length ? { waves } : {}), stakes: stakes === 'death' ? 'death' : 'normal' };
+    // (0.5.14) The turn system and speed go into the setup, so a fight replays with the ones it
+    // began with whatever the settings say later.
+    const setup = { id, seed, party, enemies, ...(waves.length ? { waves } : {}), stakes: stakes === 'death' ? 'death' : 'normal', turns: r.turns.mode, speedOffset: r.turns.speedOffset, hit: { base: r.attack.hitBase, perPoint: r.attack.hitPerPoint } };
     startFight({ ...setup, rules: r });
     return setup;
 }
@@ -981,7 +1008,7 @@ async function playAction(action) {
     const fight = currentFight();
     if (!fight) return;
     const saved = chatState().fight;
-    const next = act(fight, action, rules());
+    const next = act(fight, action, fightRules(saved.setup));
     saveChatState({ fight: { ...saved, actions: [...(saved.actions ?? []), action] } });
     live = { chatId: chatIdOf(context()), key: fightKey({ setup: saved.setup, actions: [...(saved.actions ?? []), action] }), fight: next };
     if (next.status !== 'active') await finishFight(next);
@@ -1074,7 +1101,7 @@ async function finishFight(fight) {
     }
     finishing = fight.id;
     const r = rules();
-    const result = summarize(fight, r);
+    const result = summarize(fight, fightRules(fight.setup));
     // The reply the fight started from, before the fight is cleared.
     const origin = state.fight?.origin ?? null;
     // Shown in the Battle tab while the result is written, so the tab does not drop out (and the
@@ -1104,7 +1131,7 @@ async function finishStage(fight, plan) {
         saveChatState({ fight: null });
         return;
     }
-    const { plan: next, ended } = stageDone(plan, fight, summarize(fight, rules()));
+    const { plan: next, ended } = stageDone(plan, fight, summarize(fight, fightRules(fight.setup)));
     live = { chatId: chatIdOf(context()), key: '', fight: null };
     if (!ended) {
         saveChatState({ fight: null, plan: next });
@@ -2379,7 +2406,8 @@ function battleView() {
         if (chatState(ctx).last?.fightId === fight.id) saveChatState({ fight: null });
         else void finishFight(fight).then(() => storyBlock()?.refresh?.());
     } else if (fight) {
-        return { mode: 'fight', fight, actions: availableActions(fight, r), rules: r };
+        const fr = fightRules(fight.setup);
+        return { mode: 'fight', fight, actions: availableActions(fight, fr), rules: fr };
     }
     // The fight just ended and its result is being written: its last state, without actions
     // (after Fall back, the plan as it stood, its buttons waiting).
