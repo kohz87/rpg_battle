@@ -1,4 +1,4 @@
-# RPG Battle v0.5.28
+# RPG Battle v0.5.29
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -55,8 +55,8 @@ authors* below); without any, a character still attacks, defends, uses items, pa
 
 | Stat | Does |
 |---|---|
-| **STR** | Physical attack |
-| **VIT** | Max HP and defence |
+| **STR** | Physical attack, some stamina |
+| **VIT** | Max HP, defence and stamina |
 | **AGI** | Speed (how often you act), dodging, fleeing |
 | **DEX** | Accuracy and critical hits |
 | **INT** | Max MP, magic attack and resistance |
@@ -70,7 +70,7 @@ it. Your companions follow in the same block.
 ```
 ## Ren (you)
 Level: 1 | XP: 72/100 | Points: 0
-HP: 61/98 | MP: 15/32
+HP: 61/98 | MP: 15/32 | SP: 31/37
 STR: 9 | VIT: 8 | AGI: 6 | DEX: 7 | INT: 5 | LUK: 5 | CHA: 5
 Checks: STR +2 | VIT +1 | AGI +0 | DEX +1 | INT +0 | LUK +0 | CHA +0
 State: hurt (aching, favouring a wound) · tired of magic
@@ -79,7 +79,7 @@ Conditions: none
 
 ## Lyra — healer | control: auto
 Level: 3 | XP: 0/100 | Points: 0
-HP: 138/138 | MP: 80/80
+HP: 138/138 | MP: 80/80 | SP: 45/45
 State: unhurt
 STR: 5 | VIT: 12 | AGI: 5 | DEX: 5 | INT: 16 | LUK: 5 | CHA: 5
 Skills: Frost Lance (Lv 1, 2/5) | Mend (Lv 3, 9/22)
@@ -98,8 +98,16 @@ Skills: Frost Lance (Lv 1, 2/5) | Mend (Lv 3, 9/22)
 - **Levels:** XP from fights and from the story (*XP and levels* below); each level gives **4
   points** you spend yourself (**Spend** on your card; Settings → Party → *Points per level*
   changes the 4, 1 to 20, since 0.5.14).
+- **Stamina (SP)** (since 0.5.29) is what **physical skills** cost; magic, heals, buffs and
+  debuffs cost **MP**. Max SP is 10 + VIT × 2 + STR + level × 2 (`derived.sp…` in `rules.json`),
+  so a fighter's skills no longer depend on INT. In a fight a little comes back at the start of
+  each of your turns (5 % of max, at least 1) and Defend gives back 15 % more; out of one, any rest
+  fills it and story time brings it back fast (all of it in an hour). Running low shows in the
+  State line as *breathing hard*, then *winded*. A sheet from before 0.5.29 has no SP line and
+  starts fresh; foes have no stamina (their physical skills cost nothing, as before).
 - **Skills:** learned from the story (a `<Learned>` offer opens the learn form, prefilled; a
-  library skill keeps its stat requirements, like INT 9 for Fireball). Using a skill in fights
+  library skill keeps its stat requirements, like INT 9 for Fireball). Each skill runs on one
+  stat, shown on its card (*physical · AGI · 4 SP · cooldown 1 · one enemy*). Using a skill in fights
   raises its mastery (Lv 1 to 5): 5 uses take it to Lv 2, 12 more to Lv 3, then 22 and 35
   (`masteryUses` in `rules.json`).
 - **On the card**, each skill shows its mastery and fight uses toward the next level, `Lv 2 ·
@@ -238,7 +246,7 @@ would be a cheat:
 - **A rest in the story:** when the party rests, the model adds `<Rest>short: an hour by the
   fire</Rest>` or `<Rest>long: slept at the inn</Rest>`, offered as *Rest (long): slept at the inn.
   Recover?* **Recover** gives your character and every companion a **short rest** (a quarter of
-  max HP and MP) or a **long rest** (full; fight conditions end). Not offered during a fight, while
+  max HP and MP, and all stamina) or a **long rest** (full; fight conditions end). Not offered during a fight, while
   a fight result waits to be narrated, or for the reply that narrates one.
 - **No double counting:** a rest and story time in the same reply are one stretch of time. A short
   rest adds only what its quarter gives beyond what the clock already gave that reply (the result
@@ -335,8 +343,11 @@ the story makes it true (Story Block hides them with its other blocks):
   exception: they wait until taken or put away.
 - **Names** match by full or first name, as story wounds do; `You` (or your character's or
   persona's name) is you. A name nobody in the party has is ignored, except in `<Joins>`.
-- **Learned:** the type, stat, target and effect (fire, ice, lightning, poison) are guessed from
-  the words and can be changed; code sets power, MP and cooldown for the learner's level. A
+- **Learned:** the story is asked to name the skill's stat (`| stat: INT`, since 0.5.29); the
+  type, a stat it left out, the target and the effect (fire, ice, lightning, poison) are guessed
+  from the words, and all can be changed in the form. The guess: hands and aim are DEX (*shot*,
+  *throw*, *dagger*, *quick draw*), footwork is AGI (*sidestep*, *lunge*, *dash*, *tumble*, *dodge*),
+  the rest STR; magic and heals INT. Code sets power, cost and cooldown for the learner's level. A
   library skill's name is the library skill, with its stat requirements (the form says why one is
   out of reach). At the cap of skills in use, it asks which to set aside.
 - **XP awards** are a share of the XP the member needs for their next level, each at their own

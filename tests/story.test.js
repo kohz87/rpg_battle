@@ -157,9 +157,10 @@ test('the story instruction is compact (about 190 tokens) and names every tag, t
     // 0.5.9: "never narrating it" after the first blow (a model narrated a rat fight to its end).
     const pieces = STORY_INSTRUCTION.match(/[A-Za-z]+|\d+|[^\sA-Za-z\d]/g).length;
     // 0.5.27: "cure poison" (a condition lifted), about 3 tokens.
-    assert.ok(STORY_INSTRUCTION.length <= 775, `${STORY_INSTRUCTION.length} characters`);
-    assert.ok(Math.ceil(STORY_INSTRUCTION.length / 4) <= 194, 'about 194 tokens at four characters a token');
-    assert.ok(pieces <= 220, `${pieces} words and marks`);
+    // 0.5.29: the Learned example names its stat ("| stat: INT"), about 3 tokens.
+    assert.ok(STORY_INSTRUCTION.length <= 790, `${STORY_INSTRUCTION.length} characters`);
+    assert.ok(Math.ceil(STORY_INSTRUCTION.length / 4) <= 198, 'about 198 tokens at four characters a token');
+    assert.ok(pieces <= 224, `${pieces} words and marks`);
     assert.ok(STORY_INSTRUCTION.includes('never narrating it'));
     for (const part of ['<Wounds>', '<Encounter>', '<Joins>', '<Leaves>', '<Learned>', '<XP>', '<Rest>', 'scratch|wound|severe|grievous', 'heal', 'poisoned', 'cure poison', 'Party sheet', 'not for an RPG Battle fight', 'stop at the first blow', 'trivial|weak|even|strong|deadly', 'minor|major|milestone', 'short|long', 'then:', 'then at <place>:', 'more foes join', '| to the death']) {
         assert.ok(STORY_INSTRUCTION.includes(part), part);
@@ -291,6 +292,12 @@ test('Learned: who, the skill and its words; hints validated; a template guessed
     assert.deepEqual(guessSkill('a quick shot that poisons'), { type: 'physical', stat: 'DEX', target: 'one', element: 'poison' });
     assert.deepEqual(guessSkill('a protective ward'), { type: 'buff', stat: 'INT', target: 'self', element: 'none' });
     assert.deepEqual(guessSkill('a heavy swing'), { type: 'physical', stat: 'STR', target: 'one', element: 'none' });
+    // 0.5.29: footwork is AGI, hands and aim stay DEX.
+    assert.equal(guessSkill('Sidestep Cut').stat, 'AGI');
+    assert.equal(guessSkill('a lunging thrust').stat, 'AGI');
+    assert.equal(guessSkill('Quick Draw: the blade is out before they move').stat, 'DEX');
+    assert.equal(guessSkill('a swift shot').stat, 'DEX', 'aim wins over speed');
+    assert.equal(guessSkill('Backstab: slip behind and strike').stat, 'AGI', 'as the library\'s Backstab');
     assert.deepEqual(parseLearned('Lyra learned a lot\nLyra — : nothing'), []);
 });
 

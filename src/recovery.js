@@ -11,12 +11,16 @@ const FIGHT_CONDITIONS = ['poison', 'burn', 'bleed', 'stun', 'slow', 'weaken', '
 const rulesOf = rules => (rules?.recovery ? rules : makeRules(rules ?? null));
 const isFightCondition = name => FIGHT_CONDITIONS.some(base => String(name ?? '').toLowerCase().startsWith(base));
 
-function healBy(sheet, hp, mp) {
+function healBy(sheet, hp, mp, sp = 0) {
     const next = structuredClone(sheet);
     next.hp.cur = Math.min(next.hp.max, Math.max(0, next.hp.cur + Math.max(0, Math.floor(hp))));
     next.mp.cur = Math.min(next.mp.max, Math.max(0, next.mp.cur + Math.max(0, Math.floor(mp))));
+    if (next.sp) next.sp.cur = Math.min(next.sp.max, Math.max(0, next.sp.cur + Math.max(0, Math.floor(sp))));
     return next;
 }
+
+// (0.5.29) Stamina is breath: any rest fills it.
+const fullSp = sheet => sheet.sp?.max ?? 0;
 
 /**
  * A rest: 'short' gives back shortRestShare of max HP and MP; 'long' fills both and ends fight
@@ -26,12 +30,12 @@ export function rest(sheet, kind, { gear = null, rules = DEFAULT_RULES } = {}) {
     const r = rulesOf(rules);
     const base = gear ? recompute(sheet, gear, r) : structuredClone(sheet);
     if (kind === 'long') {
-        const next = healBy(base, base.hp.max, base.mp.max);
+        const next = healBy(base, base.hp.max, base.mp.max, fullSp(base));
         next.conditions = (next.conditions ?? []).filter(entry => !isFightCondition(entry.name));
         return next;
     }
     const share = r.recovery.shortRestShare;
-    return healBy(base, base.hp.max * share, base.mp.max * share);
+    return healBy(base, base.hp.max * share, base.mp.max * share, fullSp(base));
 }
 
 /**
@@ -42,20 +46,21 @@ export function rest(sheet, kind, { gear = null, rules = DEFAULT_RULES } = {}) {
 export function recoverOverTime(sheet, hours, { gear = null, rules = DEFAULT_RULES } = {}) {
     const r = rulesOf(rules);
     const h = Number(hours);
-    if (!(h > 0)) return { sheet, kind: null, hp: 0, mp: 0 };
+    if (!(h > 0)) return { sheet, kind: null, hp: 0, mp: 0, sp: 0 };
     let next;
     let kind;
     if (h >= r.recovery.longRestHours) {
         next = rest(sheet, 'long', { gear, rules: r });
         kind = 'long';
     } else {
-        next = healBy(sheet, sheet.hp.max * r.recovery.perHour * h, sheet.mp.max * r.recovery.perHour * h);
+        next = healBy(sheet, sheet.hp.max * r.recovery.perHour * h, sheet.mp.max * r.recovery.perHour * h, (sheet.sp?.max ?? 0) * (r.recovery.spPerHour ?? 1) * h);
         kind = 'regen';
     }
     const hp = next.hp.cur - sheet.hp.cur;
     const mp = next.mp.cur - sheet.mp.cur;
-    const changed = hp || mp || (next.conditions?.length ?? 0) !== (sheet.conditions?.length ?? 0);
-    return changed ? { sheet: next, kind, hp, mp } : { sheet, kind: null, hp: 0, mp: 0 };
+    const sp = (next.sp?.cur ?? 0) - (sheet.sp?.cur ?? 0);
+    const changed = hp || mp || sp || (next.conditions?.length ?? 0) !== (sheet.conditions?.length ?? 0);
+    return changed ? { sheet: next, kind, hp, mp, sp } : { sheet, kind: null, hp: 0, mp: 0, sp: 0 };
 }
 
 /**
@@ -99,5 +104,5 @@ export function restAfter(sheet, kind, { gear = null, rules = DEFAULT_RULES, alr
     const share = r.recovery.shortRestShare;
     const hp = Math.max(0, Math.floor(base.hp.max * share) - Math.max(0, Number(already?.hp) || 0));
     const mp = Math.max(0, Math.floor(base.mp.max * share) - Math.max(0, Number(already?.mp) || 0));
-    return healBy(base, hp, mp);
+    return healBy(base, hp, mp, fullSp(base));
 }

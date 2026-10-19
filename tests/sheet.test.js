@@ -10,7 +10,7 @@ const R = DEFAULT_RULES;
 const REN = [
     'Name: Ren',
     'Level: 4 | XP: 31/100 | Points: 2',
-    'HP: 58/62 | MP: 21/30',
+    'HP: 58/62 | MP: 21/30 | SP: 41/41',
     'STR: 9 | VIT: 7 | AGI: 8 | DEX: 8 | INT: 4 | LUK: 5 | CHA: 6',
     'Checks: STR +2 | VIT +1 | AGI +1 | DEX +1 | INT -1 | LUK +0 | CHA +0',
     'State: unhurt',
@@ -21,7 +21,7 @@ const REN = [
 const PARTY = [
     '## Astra — companion | control: auto',
     'Level: 4 | XP: 12/100 | Points: 0',
-    'HP: 44/44 | MP: 38/38',
+    'HP: 44/44 | MP: 38/38 | SP: 32/32',
     'State: unhurt',
     'STR: 4 | VIT: 5 | AGI: 7 | DEX: 6 | INT: 10 | LUK: 4 | CHA: 7',
     'Skills: Ember Lance (Lv 1, 2/5) | Mend (Lv 1, 0/5) | Ward (Lv 1, 0/5)',
@@ -29,7 +29,7 @@ const PARTY = [
     '',
     '## Merrit — hireling | control: command',
     'Level: 4 | XP: 12/100 | Points: 0',
-    'HP: 20/94 | MP: 22/30',
+    'HP: 20/94 | MP: 22/30 | SP: 42/42',
     'State: badly hurt (bleeding, slow to move) · poisoned',
     'STR: 8 | VIT: 8 | AGI: 5 | DEX: 6 | INT: 3 | LUK: 4 | CHA: 4',
     'Skills: Shield Bash (Lv 3, 7/22)',
@@ -116,7 +116,7 @@ test('formatParty puts each State line under its HP/MP line', () => {
     const members = parseParty(PARTY, R).members;
     const down = { ...members[0], sheet: { ...members[0].sheet, hp: { cur: 0, max: 44 } } };
     const lines = formatParty([down], R).split('\n');
-    assert.deepEqual(lines.slice(2, 4), ['HP: 0/44 | MP: 38/38', 'State: down (unconscious or unable to fight)']);
+    assert.deepEqual(lines.slice(2, 4), ['HP: 0/44 | MP: 38/38 | SP: 32/32', 'State: down (unconscious or unable to fight)']);
 });
 
 test('parseCharacter is lenient: bold labels, any order, commas, missing fields defaulted', () => {
@@ -576,4 +576,22 @@ test('foldUses: an older chat\'s metadata progress fills in skills whose line gi
     assert.equal(again.pc.uses['Rending Strike'], 6, 'the line wins over the metadata');
     assert.equal(foldUses(read, {}, R).folded, false);
     assert.equal(foldUses({ pc: null, members: [] }, meta, R).pc, null);
+});
+
+test('stamina (0.5.29): from VIT, STR and level; a sheet from before it starts fresh, quietly', async () => {
+    const { maxSp } = await import('../src/rules.js');
+    assert.equal(maxSp({ VIT: 7, STR: 9 }, 4, R), 10 + 7 * 2 + 9 + 4 * 2);
+    const old = REN.replace(' | SP: 41/41', '');
+    const read = parseCharacter(old, R);
+    assert.deepEqual(read.errors, [], 'no complaint about a missing SP');
+    assert.deepEqual(read.sheet.sp, { cur: 41, max: 41 });
+    assert.equal(formatCharacter(read.sheet, R), REN, 'written back with its SP line');
+    const spent = parseCharacter(REN.replace('SP: 41/41', 'SP: 12/41'), R).sheet;
+    assert.deepEqual(spent.sp, { cur: 12, max: 41 });
+    // A level-up raises max and current stamina together.
+    const { sheet: up } = applyResult(spent, 'pc', { party: [], xp: { pc: 1000 } }, R);
+    assert.ok(up.sp.max > 41 && up.sp.max - up.sp.cur === 41 - 12);
+    // A fight's result carries the stamina it left.
+    const { sheet: after } = applyResult(spent, 'pc', { party: [{ memberId: 'pc', hp: { cur: 58, max: 62 }, mp: { cur: 21, max: 30 }, sp: { cur: 5, max: 41 }, conditions: [] }] }, R);
+    assert.deepEqual(after.sp, { cur: 5, max: 41 });
 });

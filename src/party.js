@@ -5,7 +5,7 @@
 // their sheet, mastery progress included, goes along in the block itself), by hand or because
 // the NPC State Delta NPC they were added from has another name now (npcRenames). Pure.
 
-import { DEFAULT_RULES, STATS, derive, hitChance, maxHp, maxMp } from './rules.js';
+import { DEFAULT_RULES, STATS, derive, hitChance, maxHp, maxMp, maxSp } from './rules.js';
 import { findSkill, resolveSkills } from './skills.js';
 import { focusWeights, lockedReason, spreadByWeights, withinCap } from './builds.js';
 import { projectEnemy } from './enemies.js';
@@ -16,7 +16,7 @@ import { maxLevel } from './terms.js';
 const clampInt = (value, min, max) => Math.min(max, Math.max(min, Math.round(Number(value) || 0)));
 
 /**
- * A party Combatant from a sheet: stats plus gear, max HP/MP with gear bonuses, current HP/MP
+ * A party Combatant from a sheet: stats plus gear, max HP/MP/SP with gear bonuses, current HP/MP/SP
  * from the sheet (clamped), the skills in use (not set aside) resolved against the library,
  * consumables from `items`.
  */
@@ -26,6 +26,7 @@ export function combatantFromSheet(sheet, { memberId = 'pc', controller = 'playe
     const withGear = Object.fromEntries(Object.entries(stats).map(([name, value]) => [name, value + (Number(bonus[name]) || 0)]));
     const hpMax = maxHp(withGear, sheet.level, rules, bonus.HP);
     const mpMax = maxMp(withGear, sheet.level, rules, bonus.MP);
+    const spMax = maxSp(withGear, sheet.level, rules, bonus.SP);
     const numbers = derive(stats, bonus, rules);
     return {
         id: memberId,
@@ -40,6 +41,8 @@ export function combatantFromSheet(sheet, { memberId = 'pc', controller = 'playe
         stats: withGear,
         hp: { cur: clampInt(sheet.hp?.cur ?? hpMax, 0, hpMax), max: hpMax },
         mp: { cur: clampInt(sheet.mp?.cur ?? mpMax, 0, mpMax), max: mpMax },
+        // (0.5.29) Stamina, what physical skills cost; a sheet from before it is fresh.
+        sp: { cur: clampInt(sheet.sp?.cur ?? spMax, 0, spMax), max: spMax },
         ...numbers,
         skills: resolveSkills(activeSkills(sheet), library, sheet.level, rules).map(skill => ({ ...skill, cooldownLeft: 0 })),
         items: consumables(items),
@@ -150,7 +153,7 @@ export function newCompanion({ name, role = 'companion', control = 'auto', level
     let sheet = newSheet({ name: trimmed, stats: Object.fromEntries(STATS.map(stat => [stat, Number(start[stat]) || 0])), skills: names }, rules);
     sheet = { ...sheet, level: target, stats };
     const gear = String(gearLines ?? '').split(/\n|\s+\|\s+/).map(line => line.trim()).filter(Boolean).map(parseGearEntry);
-    sheet = recompute({ ...sheet, hp: { cur: Infinity, max: 0 }, mp: { cur: Infinity, max: 0 } }, gear, rules);
+    sheet = recompute({ ...sheet, hp: { cur: Infinity, max: 0 }, mp: { cur: Infinity, max: 0 }, sp: { cur: Infinity, max: 0 } }, gear, rules);
     const taken = new Set(['pc', ...existing.map(member => member.id)]);
     let id = slug(trimmed) || 'companion';
     for (let n = 2; taken.has(id); n++) id = `${slug(trimmed) || 'companion'}-${n}`;

@@ -66,7 +66,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.28';
+const VERSION = '0.5.29';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -164,7 +164,7 @@ const DEFAULT_SETTINGS = Object.freeze({
 // Visible Condition the model writes itself; State is the source, so the note ties the two
 // together rather than let them disagree. Story Block does not fill in placeholders here,
 // hence "(you)" rather than a name.
-const PARTY_NOTE = 'Your character ("(you)") and companions as the game knows them. Portray each exactly as their State line says (badly hurt: bleeding, slow; down: unconscious or unable to fight), never contradicting it; the scene\'s Visible Condition must agree. HP, MP and conditions change only through RPG Battle.';
+const PARTY_NOTE = 'Your character ("(you)") and companions as the game knows them. Portray each exactly as their State line says (badly hurt: bleeding, slow; down: unconscious or unable to fight), never contradicting it; the scene\'s Visible Condition must agree. HP, MP, SP, conditions change only through RPG Battle.';
 
 let registered = false;
 let uiRetry = null;
@@ -1285,7 +1285,7 @@ function planReply(sb, index, { withWounds = true } = {}) {
                 const span = hours >= 1 ? `${Math.round(hours * 10) / 10} hours` : `${Math.round(hours * 60)} minutes`;
                 note = mine.kind === 'long'
                     ? `${span} passed: ${before.name} is fully rested.`
-                    : mine.kind ? `${span} passed: ${before.name} recovers ${mine.hp} HP and ${mine.mp} MP.` : `${span} passed: the party recovers.`;
+                    : mine.kind ? `${span} passed: ${before.name} recovers ${[mine.hp ? `${mine.hp} HP` : '', mine.mp ? `${mine.mp} MP` : '', mine.sp ? `${mine.sp} SP` : ''].filter(Boolean).join(', ') || 'a little'}.` : `${span} passed: the party recovers.`;
             }
         }
     }
@@ -1732,7 +1732,8 @@ async function applyRest(offer, { pc, members, rules: r }) {
     const back = (name, before, after) => {
         const hp = Math.max(0, (after?.hp?.cur ?? 0) - (before?.hp?.cur ?? 0));
         const mp = Math.max(0, (after?.mp?.cur ?? 0) - (before?.mp?.cur ?? 0));
-        const parts = [hp ? `HP +${hp}` : '', mp ? `MP +${mp}` : ''].filter(Boolean);
+        const sp = Math.max(0, (after?.sp?.cur ?? 0) - (before?.sp?.cur ?? 0));
+        const parts = [hp ? `HP +${hp}` : '', mp ? `MP +${mp}` : '', sp ? `SP +${sp}` : ''].filter(Boolean);
         return parts.length ? `${name} ${parts.join(', ')}` : '';
     };
     const lines = [

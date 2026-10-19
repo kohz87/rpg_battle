@@ -26,7 +26,7 @@ const whole = (value, min, max, fallback = min) => {
 function sheetData(sheet) {
     return {
         name: sheet.name, level: sheet.level, xp: sheet.xp, points: sheet.points,
-        hp: { ...sheet.hp }, mp: { ...sheet.mp }, stats: { ...sheet.stats },
+        hp: { ...sheet.hp }, mp: { ...sheet.mp }, ...(sheet.sp ? { sp: { ...sheet.sp } } : {}), stats: { ...sheet.stats },
         skills: (sheet.skills ?? []).map(skill => ({ name: skill.name, mastery: skill.mastery ?? 1, ...(skill.aside ? { aside: true } : {}) })),
         conditions: (sheet.conditions ?? []).map(condition => ({ name: condition.name, rounds: condition.rounds ?? null })),
     };
@@ -67,6 +67,7 @@ function cleanSheet(raw, name, rules, gear) {
         points: whole(raw?.points, 0, 999, 0),
         hp: { cur: whole(raw?.hp?.cur, 0, 1e6, Infinity), max: 0 },
         mp: { cur: whole(raw?.mp?.cur, 0, 1e6, Infinity), max: 0 },
+        sp: { cur: whole(raw?.sp?.cur, 0, 1e6, Infinity), max: 0 },
         stats, skills, conditions, uses: {},
     };
     return recompute(sheet, gear, r);

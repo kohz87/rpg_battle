@@ -135,12 +135,12 @@ test('members: the Character then each companion, frozen plain copies in the rea
     const members = parseParty(formatParty([astra], r), r).members;
     const list = partyMembers(sheet, members, r);
     assert.deepEqual(list.map(member => Object.keys(member)), [
-        ['id', 'name', 'role', 'level', 'levelLabel', 'hp', 'mp', 'state'],
-        ['id', 'name', 'role', 'level', 'levelLabel', 'hp', 'mp', 'state'],
+        ['id', 'name', 'role', 'level', 'levelLabel', 'hp', 'mp', 'sp', 'state'],
+        ['id', 'name', 'role', 'level', 'levelLabel', 'hp', 'mp', 'sp', 'state'],
     ]);
     assert.deepEqual(list[0], {
         id: 'pc', name: 'Ren', role: null, level: 1, levelLabel: 'Soul Class I (Lv 1)',
-        hp: { cur: pc.hp.cur, max: pc.hp.max }, mp: { cur: pc.mp.cur, max: pc.mp.max },
+        hp: { cur: pc.hp.cur, max: pc.hp.max }, mp: { cur: pc.mp.cur, max: pc.mp.max }, sp: { cur: pc.sp.cur, max: pc.sp.max },
         state: 'badly hurt (bleeding, slow to move)',
     });
     assert.equal(list[1].id, 'astra');

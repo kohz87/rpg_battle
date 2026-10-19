@@ -30,7 +30,7 @@ import { creatureSingular } from './templates.js';
  * prose does not resolve what the buttons are about to. Every block is only an offer: the
  * reader accepts it or not.
  */
-export const STORY_INSTRUCTION = 'Hidden blocks, only when the story makes them true (not for an RPG Battle fight). Someone on the Party sheet hurt or healed: <Wounds>, a line each, Name — scratch|wound|severe|grievous: cause (or heal wound, poisoned, cure poison; mildest fitting word). A fight starts: <Encounter>3 wolf (weak); then: wolf matriarch (boss, strong)</Encounter> (then: more foes join; then at <place>: next fight, elsewhere; threat vs party: trivial|weak|even|strong|deadly; | to the death if defeat is death), then stop at the first blow, never narrating it. Also: <Joins>Lyra — healer, level 6</Joins>, <Leaves>Lyra: went home</Leaves>, <Learned>Lyra — Frost Lance: ice magic, hits all</Learned>, <XP>minor|major|milestone: why</XP>, <Rest>short|long: why</Rest> when the party rests.';
+export const STORY_INSTRUCTION = 'Hidden blocks, only when the story makes them true (not for an RPG Battle fight). Someone on the Party sheet hurt or healed: <Wounds>, a line each, Name — scratch|wound|severe|grievous: cause (or heal wound, poisoned, cure poison; mildest fitting word). A fight starts: <Encounter>3 wolf (weak); then: wolf matriarch (boss, strong)</Encounter> (then: more foes join; then at <place>: next fight, elsewhere; threat vs party: trivial|weak|even|strong|deadly; | to the death if defeat is death), then stop at the first blow, never narrating it. Also: <Joins>Lyra — healer, level 6</Joins>, <Leaves>Lyra: went home</Leaves>, <Learned>Lyra — Frost Lance: ice magic, hits all | stat: INT</Learned>, <XP>minor|major|milestone: why</XP>, <Rest>short|long: why</Rest> when the party rests.';
 
 // (0.5.9) The reply that tells a fight's result gets this instead of STORY_INSTRUCTION: no
 // <Wounds> for that fight (it dealt them), but a new fight the story goes on into is still
@@ -769,8 +769,13 @@ export function guessSkill(words, hints = {}) {
     }
     let stat = hints.stat;
     if (!stat) {
-        if (type === 'physical') stat = has(/\b(?:arrow\w*|shot|shoot\w*|bow|throw\w*|dagger\w*|knife|knives|quick|dash\w*|precise|aim\w*|stealth\w*|backstab)\b/) ? 'DEX' : 'STR';
-        else stat = 'INT';
+        // Hands and aim are DEX; (0.5.29) footwork is AGI (a sidestep, a lunge, a tumble); the
+        // rest is strength.
+        if (type === 'physical') {
+            if (has(/\b(?:arrow\w*|shot|shoot\w*|bow|throw\w*|dagger\w*|knife|knives|quick|draw|precise|aim\w*|stealth\w*)\b/)) stat = 'DEX';
+            else if (has(/\b(?:dash\w*|lunge\w*|lunging|leap\w*|side-?step\w*|dodg\w*|evad\w*|evasi\w*|tumbl\w*|nimble|acrobat\w*|whirl\w*|swift\w*|blur\w*|vault\w*|flip\w*|backstab\w*|footwork)\b/)) stat = 'AGI';
+            else stat = 'STR';
+        } else stat = 'INT';
     }
     return { type, stat, target, element };
 }

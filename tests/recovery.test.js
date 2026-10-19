@@ -44,3 +44,17 @@ test('an item at camp: heal, MP and cures apply; fight-only or needless items ar
     assert.equal(useItemOutside(hurt, { name: 'Ember Flask', qty: 1, effect: { damage: { amount: 25 } } }).used, false);
     assert.equal(useItemOutside(fresh, potion).used, false, 'already at full HP');
 });
+
+test('stamina (0.5.29): any rest fills it; story time brings it back fast', async () => {
+    const { rest, recoverOverTime } = await import('../src/recovery.js');
+    const sheet = { name: 'Ren', level: 1, hp: { cur: 50, max: 100 }, mp: { cur: 10, max: 40 }, sp: { cur: 4, max: 40 }, stats: {}, conditions: [] };
+    assert.equal(rest(sheet, 'short').sp.cur, 40);
+    assert.equal(rest(sheet, 'long').sp.cur, 40);
+    const half = recoverOverTime(sheet, 0.5);
+    assert.equal(half.sp, 20, 'half an hour, half the stamina');
+    assert.equal(half.sheet.sp.cur, 24);
+    assert.equal(recoverOverTime(sheet, 1).sheet.sp.cur, 40);
+    // An older sheet without stamina is left as it was.
+    const { sp: _sp, ...old } = sheet;
+    assert.equal(rest(old, 'short').sp, undefined);
+});

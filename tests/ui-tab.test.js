@@ -323,7 +323,7 @@ test('idle: the party as cards, yours first and open; header, bars, stats with c
 
     assert.equal(you.querySelector('.rpg-battle-points-text').textContent, '2 unspent points');
     assert.deepEqual(texts(you, '.rpg-battle-skill .rpg-battle-record-name'), ['Rending Strike', 'Quick Jab']);
-    assert.match(you.querySelector('.rpg-battle-skill .rpg-battle-record-meta').textContent, /physical · 6 MP · cooldown 2/);
+    assert.match(you.querySelector('.rpg-battle-skill .rpg-battle-record-meta').textContent, /physical · STR · 6 SP · cooldown 2/);
     assert.equal(you.querySelector('.rpg-battle-skill .rpg-battle-tag').textContent, 'Lv 2 · 0/12');
     assert.equal(you.querySelector('.rpg-battle-skill-count').textContent, '2/6');
 
@@ -720,7 +720,7 @@ test('fight: the Skill list shows MP, cooldowns and why a skill is unusable; hea
     skillButton.click();
     assert.equal(buttonByText(pane, 'Skill').getAttribute('aria-expanded'), 'true');
     const entry = name => $$(pane, '.rpg-battle-menu-entry').find(node => node.dataset.skill === name);
-    assert.match(entry('Power Strike').textContent, /5 MP · cooldown 1 · one enemy/);
+    assert.match(entry('Power Strike').textContent, /5 SP · cooldown 1 · one enemy/);
     assert.match(entry('Power Strike').textContent, /Lv 2/);
     assert.equal(entry('Rending Strike').disabled, true);
     assert.equal(entry('Rending Strike').querySelector('.rpg-battle-pick-reason').textContent, 'Cooldown: 2 rounds');

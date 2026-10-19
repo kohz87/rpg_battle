@@ -29,6 +29,8 @@ export const DEFAULT_RULES = Object.freeze({
     derived: {
         hpBase: 30, hpPerVit: 8, hpPerLevel: 4,
         mpBase: 10, mpPerInt: 4, mpPerLevel: 2,
+        // (0.5.29) Stamina, what physical skills cost: from VIT and STR, as MP is from INT.
+        spBase: 10, spPerVit: 2, spPerStr: 1, spPerLevel: 2,
         atkPerStr: 2, matkPerInt: 2,
     },
     checks: { pivot: 5, divisor: 2, min: -3, max: 10 },
@@ -40,6 +42,8 @@ export const DEFAULT_RULES = Object.freeze({
         critBase: 3, critPerDex: 0.5, critPerLuk: 1, critMax: 50, critMultiplier: 1.5,
         varianceLow: 0.9, varianceHigh: 1.1,
         defendTaken: 0.5, defendMpBack: 0.05,
+        // (0.5.29) Defending is also catching one's breath: this share of max stamina back.
+        defendSpBack: 0.15,
     },
     initiative: { perAgi: 2, perDex: 1, die: 6 },
     // (0.5.14) Turns: 'timeline' (each fighter acts every 100 ÷ (AGI + speedOffset) of fight
@@ -111,7 +115,9 @@ export const DEFAULT_RULES = Object.freeze({
     xpRate: 1,
     // Out of a fight: a short rest gives back this share of max HP/MP; story time heals
     // `perHour` of max HP/MP per hour, and a gap of `longRestHours` or more is a full rest.
-    recovery: { shortRestShare: 0.25, perHour: 0.05, longRestHours: 6 },
+    // (0.5.29) Stamina comes back faster: `spPerHour` of max per hour of story time (a whole hour
+    // fills it), and any rest fills it.
+    recovery: { shortRestShare: 0.25, perHour: 0.05, longRestHours: 6, spPerHour: 1 },
     // Story wounds (story.applyWounds): the share of max HP each word of a <Wounds> line takes
     // (or gives back, for a heal). The model only picks the word, never a number; a grievous
     // blow leaves someone at full HP with a fifth, so only an already hurt person goes down.
@@ -124,6 +130,8 @@ export const DEFAULT_RULES = Object.freeze({
         hpBands: [[0.9, 'unhurt'], [0.7, 'bruised'], [0.45, 'hurt'], [0.2, 'badly hurt'], [0.01, 'barely standing']],
         mpBands: [[0.6, 'fresh'], [0.25, 'tired']],
         mpQuietBelow: 10,
+        // (0.5.29) Stamina in words, below the first band only: "breathing hard", then "winded".
+        spBands: [[0.5, 'fresh'], [0.2, 'breathing hard']],
     },
     // How the fight resolves the things §5 leaves open (conditions, AI thresholds, safety stop).
     combat: {
@@ -132,6 +140,7 @@ export const DEFAULT_RULES = Object.freeze({
         // A condition carried in from the sheet has no source; it ticks for this share of max HP.
         dotMaxHpShare: 0.05,
         regen: 0.3,        // heal per tick, × the caster's skill value × power
+        spPerTurn: 0.05,   // (0.5.29) stamina back at the start of each of one's turns, × max (at least 1)
         shield: 1,         // absorbed damage, × the caster's skill value × power
         weaken: 0.75,      // attack × this while weakened
         healBelow: 0.4,    // AI heals an ally under this HP share
@@ -260,6 +269,17 @@ export function maxHp(stats, level, rules = DEFAULT_RULES, bonus = 0) {
 export function maxMp(stats, level, rules = DEFAULT_RULES, bonus = 0) {
     const d = rules.derived;
     return Math.max(0, Math.round(d.mpBase + num(stats?.INT) * d.mpPerInt + num(level, 1) * d.mpPerLevel + num(bonus)));
+}
+
+/** (0.5.29) Max stamina (SP): what physical skills cost, from VIT and STR and the level. */
+export function maxSp(stats, level, rules = DEFAULT_RULES, bonus = 0) {
+    const d = { ...DEFAULT_RULES.derived, ...(rules?.derived ?? {}) };
+    return Math.max(0, Math.round(d.spBase + num(stats?.VIT) * d.spPerVit + num(stats?.STR) * d.spPerStr + num(level, 1) * d.spPerLevel + num(bonus)));
+}
+
+/** (0.5.29) The pool a skill's cost comes from: stamina for a physical skill, MP for the rest. */
+export function costPool(skill) {
+    return skill?.type === 'physical' ? 'sp' : 'mp';
 }
 
 /**

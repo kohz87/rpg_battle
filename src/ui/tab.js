@@ -29,7 +29,7 @@
 // card in the fight is tagged "new", and the idle screen's Bestiary fold lists this story's
 // creatures with Regenerate and Forget, and Export and Import for the whole list.
 
-import { STATS, RANKS, DEFAULT_RULES, maxHp, maxMp, derive, checkModifiers, hitChance, statCap } from '../rules.js';
+import { STATS, RANKS, DEFAULT_RULES, costPool, maxHp, maxMp, maxSp, derive, checkModifiers, hitChance, statCap } from '../rules.js';
 import { stateWords } from '../narrative.js';
 import { SLOT_NAMES, formatStats } from '../items.js';
 import { levelTag, levelText, progress, termsOf, xpGainText } from '../terms.js';
@@ -50,8 +50,8 @@ const BATTLE_MODES = ['offer', 'setup', 'fight', 'between', 'result'];
 
 // What each stat does, in a few words, for the reader building a character.
 const STAT_HINTS = {
-    STR: 'physical attack',
-    VIT: 'HP, defence',
+    STR: 'physical attack, stamina',
+    VIT: 'HP, defence, stamina',
     AGI: 'turn order, dodge, flee',
     DEX: 'accuracy, crits',
     INT: 'MP, magic',
@@ -77,6 +77,7 @@ const TARGET_LABELS = {
 
 const REASON_LABELS = {
     mp: 'Not enough MP',
+    sp: 'Not enough SP',
     cooldown: 'On cooldown',
     stunned: 'Stunned',
 };
@@ -213,10 +214,17 @@ function facts(rows, className = '') {
     return node.children.length ? node : null;
 }
 
+// (0.5.29) "4 SP" for a physical skill (stamina), "5 MP" for the rest.
+function costText(skill) {
+    return `${num(skill.mp)} ${costPool(skill) === 'sp' ? 'SP' : 'MP'}`;
+}
+
 function skillMeta(skill) {
     const parts = [];
     if (skill.type) parts.push(skill.type);
-    parts.push(`${num(skill.mp)} MP`);
+    // (0.5.29) The stat it runs on, so a skill's build is never a guess.
+    if (skill.stat) parts.push(skill.stat);
+    parts.push(costText(skill));
     if (num(skill.cooldown) > 0) parts.push(`cooldown ${num(skill.cooldown)}`);
     if (skill.target && TARGET_LABELS[skill.target]) parts.push(TARGET_LABELS[skill.target]);
     return parts.join(' · ');
@@ -263,6 +271,7 @@ function previewRows(before, after) {
     return [
         ['Max HP', before.hp, after.hp],
         ['Max MP', before.mp, after.mp],
+        ['Max SP', before.sp, after.sp],
         ['Attack', before.patk, after.patk],
         ['Magic', before.matk, after.matk],
         ['Crit', `${tidy(before.crit)}%`, `${tidy(after.crit)}%`],
@@ -283,9 +292,9 @@ function fillPreview(node, rows, showBefore) {
     }
 }
 
-function numbersFor(stats, level, rules, { hpBonus = 0, mpBonus = 0 } = {}) {
+function numbersFor(stats, level, rules, { hpBonus = 0, mpBonus = 0, spBonus = 0 } = {}) {
     const d = derive(stats, {}, rules);
-    return { hp: maxHp(stats, level, rules, hpBonus), mp: maxMp(stats, level, rules, mpBonus), ...d };
+    return { hp: maxHp(stats, level, rules, hpBonus), mp: maxMp(stats, level, rules, mpBonus), sp: maxSp(stats, level, rules, spBonus), ...d };
 }
 
 // ---------------------------------------------------------------------------
@@ -646,6 +655,7 @@ function memberCard(member, view, handlers) {
         ]),
         bar('hp', sheet.hp?.cur, sheet.hp?.max, member.you ? 'HP' : `${name} HP`),
         bar('mp', sheet.mp?.cur, sheet.mp?.max, member.you ? 'MP' : `${name} MP`),
+        sheet.sp ? bar('sp', sheet.sp.cur, sheet.sp.max, member.you ? 'SP' : `${name} SP`) : null,
         // The words the model is told to portray, so the reader sees what the story will say.
         el('p', { className: 'rpg-battle-hint rpg-battle-state', text: stateWords(sheet, rules).text }),
     ]);
@@ -1201,6 +1211,7 @@ function renderSpend(root, view, handlers) {
     // Gear adds to the sheet's maxima; keep that part as it is so the preview matches the sheet.
     const hpBonus = num(sheet.hp?.max, maxHp(base, level, rules)) - maxHp(base, level, rules);
     const mpBonus = num(sheet.mp?.max, maxMp(base, level, rules)) - maxMp(base, level, rules);
+    const spBonus = num(sheet.sp?.max, maxSp(base, level, rules)) - maxSp(base, level, rules);
 
     const remainingNode = el('span', { className: 'rpg-battle-remaining', attrs: { 'aria-live': 'polite' } });
     const steppers = STATS.map(stat => stepper(stat, {
@@ -1229,7 +1240,7 @@ function renderSpend(root, view, handlers) {
             step.row.classList.toggle('is-changed', added > 0);
         }
         const after = Object.fromEntries(STATS.map(stat => [stat, base[stat] + alloc[stat]]));
-        fillPreview(preview, previewRows(numbersFor(base, level, rules, { hpBonus, mpBonus }), numbersFor(after, level, rules, { hpBonus, mpBonus })), true);
+        fillPreview(preview, previewRows(numbersFor(base, level, rules, { hpBonus, mpBonus, spBonus }), numbersFor(after, level, rules, { hpBonus, mpBonus, spBonus })), true);
         confirm.disabled = used() === 0;
     }
 
@@ -1374,7 +1385,7 @@ function renderLearn(root, view, handlers) {
         learnTemplate.disabled = !name || known(name) || Boolean(inLibrary) || blocked;
         templateHint.textContent = name && known(name) ? `${name} is already known.`
             : inLibrary ? `${inLibrary.name} is in the library: learn it there${Object.keys(inLibrary.requires ?? {}).length && !(prefill?.free && sameName(prefill.name, inLibrary.name)) ? ` (it needs ${Object.entries(inLibrary.requires).map(([stat, need]) => `${stat} ${need}`).join(', ')})` : ''}.`
-                : 'Its power, MP and cooldown are set by code for this level.';
+                : 'Its power, cost (SP for a physical skill, MP for the rest) and cooldown are set by code for this level.';
     };
     nameInput.addEventListener('input', () => { draft.name = nameInput.value; refresh(); });
     typeSelect.addEventListener('change', () => {
@@ -1655,6 +1666,7 @@ function combatantCard(unit, { turnId, pick, onPick, versus = null, previews = n
         ]),
         bar('hp', unit.hp?.cur, unit.hp?.max, `${unit.name ?? ''} HP`),
         !isEnemy ? bar('mp', unit.mp?.cur, unit.mp?.max, `${unit.name ?? ''} MP`) : null,
+        !isEnemy && unit.sp ? bar('sp', unit.sp.cur, unit.sp.max, `${unit.name ?? ''} SP`) : null,
         pickable && preview ? previewLine(preview) : null,
         isEnemy && !unit.gone ? matchup(unit, versus, rules) : null,
         chips(unit.conditions),
@@ -1808,7 +1820,7 @@ function renderFight(root, view, handlers) {
                 let meta;
                 if (isSkill) {
                     const parts = [];
-                    if (full) parts.push(`${num(full.mp)} MP`);
+                    if (full) parts.push(costText(full));
                     if (full && num(full.cooldown) > 0) parts.push(`cooldown ${num(full.cooldown)}`);
                     if (TARGET_LABELS[entry.target ?? full?.target]) parts.push(TARGET_LABELS[entry.target ?? full?.target]);
                     meta = parts.join(' · ');
@@ -1930,6 +1942,7 @@ function partyAfter(party, title) {
                 ]),
                 bar('hp', member.hp?.cur, member.hp?.max, `${member.name ?? ''} HP`),
                 bar('mp', member.mp?.cur, member.mp?.max, `${member.name ?? ''} MP`),
+                member.sp ? bar('sp', member.sp.cur, member.sp.max, `${member.name ?? ''} SP`) : null,
                 chips(member.conditions),
             ]);
             if (member.memberId) item.dataset.memberId = member.memberId;
