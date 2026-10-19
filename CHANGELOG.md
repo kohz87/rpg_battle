@@ -3,9 +3,10 @@
 ## 0.5.14
 
 - **Turn timeline.** Fights no longer give everyone one turn a round. Each fighter's next turn comes 100 ÷ speed after their last, where speed is AGI + 10 (halved while slowed), and whoever's turn comes up first acts. A fighter twice as fast acts twice as often, with no limit on turns in a row, and fast enemies get the same advantage. The Turn order strip is now **Next turns**, showing the coming eight. Rounds are still counted, for reinforcement waves, the log and the summary's length. The balance targets (an even solo fight lasts 4–6 rounds and costs about half your HP) hold at levels 1, 5 and 10.
-- **Enemy matchup line.** Each standing enemy's card shows *Atk · Def · AGI · DEX · You hit % · It hits you %* against whoever's turn it is (a companion by name). Hovering shows the sums.
+- **Enemy matchup line.** Each standing enemy's card shows *Atk · Def · AGI · DEX · You hit % · You dodge %* against whoever's turn it is (a companion by name). Hovering shows the sums.
 - **Stat cap.** No stat goes above 99 with points. The Spend and new-character forms stop at it and show *max*. A companion's automatic spending and a new companion's build pass the extra to their other focus stats. Gear still adds on top.
-- **Combat settings.** A new **Combat** section in RPG Battle's settings sets the turn order (*Timeline* or *Rounds*), the speed offset (AGI + 10), the stat cap (0 for none), and the hit chance (75% between equal DEX and AGI, 3% per point of difference). These override a `rules.json`. A fight keeps the turn order, speed and hit chance it began with, and fights saved before this version keep rounds.
+- **Points per level.** Settings → Party sets the stat points each level gives (4 by default, 1 to 20). Levels already reached keep what they gave; companions who join later are built with the new number.
+- **Combat settings.** A new **Combat** section in RPG Battle's settings sets the turn order (*Timeline* or *Rounds*), the speed offset (AGI + 10), the stat cap (0 for none), and the hit chance (75% between equal DEX and AGI, 3% per point of difference), with a line showing the hit and dodge chances those make. These override a `rules.json`. A fight keeps the turn order, speed and hit chance it began with, and fights saved before this version keep rounds.
 
 ## 0.5.13
 

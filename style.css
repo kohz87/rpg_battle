@@ -1036,7 +1036,7 @@
 }
 
 .rpg-battle-tab .rpg-battle-matchup-part.is-hit,
-.rpg-battle-tab .rpg-battle-matchup-part.is-hits {
+.rpg-battle-tab .rpg-battle-matchup-part.is-dodge {
     font-weight: 600;
 }
 

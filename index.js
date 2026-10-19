@@ -130,6 +130,8 @@ const DEFAULT_SETTINGS = Object.freeze({
     statCap: DEFAULT_RULES.character.statCap,
     hitBase: DEFAULT_RULES.attack.hitBase,
     hitPerPoint: DEFAULT_RULES.attack.hitPerPoint,
+    // Stat points each level gives (rules.character.pointsPerLevel, 1–20).
+    pointsPerLevel: DEFAULT_RULES.character.pointsPerLevel,
     // Sent for you by "Return to story", so the narration comes straight away.
     returnMessage: '*(The fight is over.)*',
     // (0.5.4) After a fight, a few next moves on the result screen (a model call when model
@@ -237,7 +239,7 @@ function rules() {
     const custom = own.rules ?? {};
     return makeRules({
         ...custom,
-        character: { ...(custom.character ?? {}), activeSkills: activeSkillsSetting(own.activeSkills), statCap: combatValue('statCap', own.statCap) },
+        character: { ...(custom.character ?? {}), activeSkills: activeSkillsSetting(own.activeSkills), statCap: combatValue('statCap', own.statCap), pointsPerLevel: combatValue('pointsPerLevel', own.pointsPerLevel) },
         // (0.5.14) The Combat settings win over a rules.json: the panel is what the reader sees.
         turns: { ...(custom.turns ?? {}), mode: own.turnOrder === 'rounds' ? 'rounds' : 'timeline', speedOffset: combatValue('speedOffset', own.speedOffset) },
         attack: { ...(custom.attack ?? {}), hitBase: combatValue('hitBase', own.hitBase), hitPerPoint: combatValue('hitPerPoint', own.hitPerPoint) },

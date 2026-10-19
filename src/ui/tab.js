@@ -1599,7 +1599,7 @@ function matchup(enemy, versus, rules) {
         const theirs = hitChance(s.DEX, versus.stats?.AGI, rules);
         parts.push(
             ['hit', `${name ? `${name} hits` : 'You hit'} ${tidy(yours)}%`, `A physical attack lands ${tidy(yours)}% of the time: ${a.hitBase}% + ${a.hitPerPoint}% per point of ${name ?? 'your'} DEX (${num(versus.stats?.DEX)}) over its AGI (${num(s.AGI)}). Spells never miss`],
-            ['hits', `It hits ${name ?? 'you'} ${tidy(theirs)}%`, `Its physical attacks land ${tidy(theirs)}% of the time: ${a.hitBase}% + ${a.hitPerPoint}% per point of its DEX (${num(s.DEX)}) over ${name ?? 'your'} AGI (${num(versus.stats?.AGI)}). Its spells never miss`],
+            ['dodge', `${name ? `${name} dodges` : 'You dodge'} ${tidy(100 - theirs)}%`, `${name ?? 'You'} dodge${name ? 's' : ''} its physical attacks ${tidy(100 - theirs)}% of the time: they land ${a.hitBase}% + ${a.hitPerPoint}% per point of its DEX (${num(s.DEX)}) over ${name ?? 'your'} AGI (${num(versus.stats?.AGI)}). Its spells never miss`],
         );
     }
     // Its numbers on one line, the two chances on the next, so a narrow card wraps cleanly.
