@@ -617,7 +617,11 @@ test('a fight rolled back with its reply leaves no trace: the identical reply se
     openChat('resend-chat', [reply(`<Party>\n${REN}\n</Party>`), userMessage('Down to the cellar.'), sent(offerText, 'd2')]);
     hooks.update();
     await settle();
-    assert.ok(partyOffers().some(text => /found the cellar/.test(text)), 'the reply\'s XP is on offer');
+    // (0.5.21) Story XP is awarded at once, with a toast, not offered.
+    hooks.tabs['rpg-party'].badge();
+    await settle();
+    assert.ok(toasts.some(text => /Story XP awarded: .*\(found the cellar\)/.test(text)), 'the reply\'s XP is awarded');
+    assert.ok(!partyOffers().some(text => /found the cellar/.test(text)), 'and not offered');
     find(drawTab('rpg-battle'), '.rpg-battle-encounter-fight').click();
     find(drawTab('rpg-battle'), '.rpg-battle-begin').click();
     await settle();
@@ -638,7 +642,7 @@ test('a fight rolled back with its reply leaves no trace: the identical reply se
     assert.equal(hooks.tabs['rpg-battle'].isAvailable(), true, 'the Battle tab is back');
     assert.equal(hooks.tabs['rpg-battle'].badge(), 1);
     assert.ok(toasts.some(text => /A fight is starting: giant rat/.test(text)), 'toasted again');
-    assert.ok(partyOffers().some(text => /found the cellar/.test(text)), 'the new reply\'s XP is offered: no fight started since it');
+    assert.equal(toasts.filter(text => /Story XP awarded: .*\(found the cellar\)/.test(text)).length, 2, 'the new reply\'s XP is awarded: the first went with its reply');
     let pane = drawTab('rpg-battle');
     find(pane, '.rpg-battle-encounter-fight').click();
     pane = drawTab('rpg-battle');
@@ -715,7 +719,9 @@ test('the reply that narrated a fight never offers its XP or rest, even after a 
     ctx.chat[4] = { ...narration, swipe_id: 1, send_date: 'd11' };
     hooks.update();
     await settle();
-    assert.ok(partyOffers().some(text => /weir pack/.test(text)), 'a new reply at that place is no narration');
+    hooks.tabs['rpg-party'].badge();
+    await settle();
+    assert.ok(toasts.some(text => /Story XP awarded: .*\(drove off the weir pack\)/.test(text)), 'a new reply at that place is no narration');
 }));
 
 test('the story instruction names the creatures this story has met (0.5.1)', async () => {

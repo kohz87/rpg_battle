@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.21
+
+- **Story XP is awarded without asking.** When a reply carries an `<XP>` line ("minor: defeated Brecht's gang in the alley"), the XP now goes straight onto the sheets with a toast: *Story XP awarded: XP +10 (defeated Brecht's gang in the alley)*. No more *Award?* button. The story says what was earned and code sets the amount, as with quest XP. The XP is written into that reply, so deleting or swiping it takes the XP back. A reply that tells a fight's result still gives none, since the fight already did. The opening message's XP still waits for a click.
+
 ## 0.5.20
 
 - **A fight the story already finished is not offered again.** Sometimes a reply tells a whole fight, for example when your message already does the fighting ("I kill Brecht, then run off…"), and still ends with an `<Encounter>` block for those foes. RPG Battle then offered that fight while your character was somewhere else entirely. Now, when the same reply's `<XP>` line or a Story Director closing line names those foes as beaten, killed or fled ("minor: defeated Brecht's gang"; "- Dock shakedown — Brecht dead in the alley, Lefty fled"), the fight is taken as the story's record of what happened. No fight is offered, and the reply's XP still is. A reply that only names the foes ("talked Brecht into a duel") still starts the fight.

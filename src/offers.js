@@ -76,7 +76,11 @@ export function storyOffers({ index, texts = {}, pc = null, members = [], person
         for (const award of parseXp(texts.xp)) {
             const share = awardShare({ kind: award.kind }, rules);
             if (!share) continue;
-            offers.push({ key: key('xp', award.line), kind: 'xp', text: `${xpText(share, pc, rules)}${award.reason ? `: ${award.reason}` : ''}. Award?`, accept: 'Award', data: { share } });
+            // (0.5.21) Awarded at once by the glue, as quest XP is; `done` is its toast.
+            offers.push({
+                key: key('xp', award.line), kind: 'xp', text: `${xpText(share, pc, rules)}${award.reason ? `: ${award.reason}` : ''}. Award?`, accept: 'Award',
+                data: { share, done: `Story XP awarded: ${xpText(share, pc, rules)}${award.reason ? ` (${award.reason})` : ''}` },
+            });
         }
     }
     if (pc && !narrating && !pending) {

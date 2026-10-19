@@ -66,7 +66,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.20';
+const VERSION = '0.5.21';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -1339,7 +1339,7 @@ async function planAndWriteReply({ messageIndex }) {
     if (!narrating || encounterOffer()) toastEncounter(sb, index);
     const fresh = currentOffers().filter(offer => offer.index === index);
     await awardQuests(fresh);
-    toastOffers(fresh.filter(offer => offer.kind !== 'quest'));
+    toastOffers(fresh.filter(offer => !autoAwarded(offer)));
     sb.refresh?.();
 }
 
@@ -1667,6 +1667,10 @@ async function awardOffer(offer, { pc, members, rules: r, autoSpend }) {
     return out.gains.filter(gain => gain.levelsGained).map(gain => `${gain.name} reaches ${levelText((gain.memberId === 'pc' ? out.pc : out.members.find(member => member.id === gain.memberId)?.sheet)?.level ?? 1, r)}`);
 }
 
+// (0.5.21) Offers awarded without a click: quest XP, and story XP from a reply's <XP> line.
+// Not the opening message's, which waits for the reader like the rest of its offers.
+const autoAwarded = offer => (offer.kind === 'quest' || offer.kind === 'xp') && !offer.opening;
+
 /**
  * (0.5.7) Quest XP without an Award click: the story closed the quest (Story Director reports
  * it only then) and code sets the XP, so it is written into the latest reply at once and toasted
@@ -1677,7 +1681,7 @@ const questsAwarding = new Set();
 const questsFailed = new Set();
 
 async function awardQuests(offers = currentOffers()) {
-    for (const offer of (offers ?? []).filter(entry => entry.kind === 'quest' && !questsAwarding.has(entry.key) && !questsFailed.has(entry.key))) {
+    for (const offer of (offers ?? []).filter(entry => autoAwarded(entry) && !questsAwarding.has(entry.key) && !questsFailed.has(entry.key))) {
         questsAwarding.add(offer.key);
         try {
             const { pc, members } = currentSheets();
@@ -1698,7 +1702,7 @@ async function awardQuests(offers = currentOffers()) {
 // reply) is awarded on the next refresh; the badge asks on every one, so it is scheduled here.
 let questsScheduled = false;
 function scheduleQuestAwards(offers) {
-    if (questsScheduled || !offers.some(offer => offer.kind === 'quest' && !questsFailed.has(offer.key) && !questsAwarding.has(offer.key))) return;
+    if (questsScheduled || !offers.some(offer => autoAwarded(offer) && !questsFailed.has(offer.key) && !questsAwarding.has(offer.key))) return;
     questsScheduled = true;
     setTimeout(() => {
         questsScheduled = false;
@@ -1706,8 +1710,8 @@ function scheduleQuestAwards(offers) {
     }, 0);
 }
 
-// Offers the reader acts on: quest XP is awarded, not offered (shown only if awarding failed).
-const shownOffers = offers => offers.filter(offer => offer.kind !== 'quest' || questsFailed.has(offer.key));
+// Offers the reader acts on: quest and story XP are awarded, not offered (shown only if awarding failed).
+const shownOffers = offers => offers.filter(offer => !autoAwarded(offer) || questsFailed.has(offer.key));
 
 function offerByKey(key) {
     return currentOffers().find(offer => offer.key === key) ?? null;
@@ -1751,7 +1755,7 @@ async function acceptOffer(key) {
         case 'xp':
         case 'quest': {
             const ups = await awardOffer(offer, { pc, members, rules: r, autoSpend: own.autoSpend !== false });
-            notify('success', `${offer.kind === 'quest' ? offer.data.done : 'Awarded'}.${ups.length ? ` ${ups.join('; ')}.` : ''}`);
+            notify('success', `${offer.data.done ?? 'Awarded'}.${ups.length ? ` ${ups.join('; ')}.` : ''}`);
             return;
         }
         case 'rest': {
