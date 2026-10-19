@@ -278,6 +278,92 @@ function startRound(f, rng, rules) {
     f.turnStarted = false;
 }
 
+// --- the turn timeline (0.5.14) -------------------------------------------------------------
+// A fight started with `turns: 'timeline'` has no rounds of one turn each: every fighter waits
+// TICK ÷ speed between turns, speed being AGI + the speed offset (halved while slowed), and
+// whoever's turn comes up first acts. A fighter twice as fast acts twice as often, with no
+// limit. A "round" is the wait of a fighter at the starting stat, kept for waves, the log, the
+// fight's length and its seconds. A fight saved before 0.5.14 has no `turns` and keeps rounds.
+
+const TICK = 100;
+const PREVIEW_TURNS = 8;
+
+const timeline = f => f.turns === 'timeline';
+const speedOf = (f, c) => Math.max(1, (Number(c.stats?.AGI) || 0) + f.speedOffset) * (has(c, 'slow') ? 0.5 : 1);
+const waitOf = (f, c) => TICK / speedOf(f, c);
+const roundLength = (f, rules) => TICK / Math.max(1, rules.character.startStat + f.speedOffset);
+
+/** Who acts first among `pool` ({ c, next, index }): the soonest, ties to the party, then setup order. */
+function soonest(pool) {
+    return [...pool].sort((x, y) => (x.next - y.next)
+        || ((x.c.side === 'party' ? 0 : 1) - (y.c.side === 'party' ? 0 : 1)) || (x.index - y.index))[0] ?? null;
+}
+
+/** A fighter entering the timeline: its first turn after most of one wait (the jitter is the old d6). */
+function enterTimeline(f, c, rng) {
+    c.next = f.time + waitOf(f, c) * rng.between(0.8, 1);
+}
+
+/**
+ * The turns ahead, the current fighter first: each fighter's next turn and the ones after it at
+ * its present speed, for the turn-order strip (a fighter can appear more than once).
+ */
+function previewOrder(f, actorId) {
+    const pool = f.combatants.map((c, index) => ({ c, index })).filter(({ c }) => isActive(c))
+        .map(({ c, index }) => ({ c, index, next: c.id === actorId ? f.time : c.next }));
+    const order = [];
+    while (order.length < PREVIEW_TURNS && pool.length) {
+        const up = soonest(pool);
+        order.push(up.c.id);
+        up.next += waitOf(f, up.c);
+    }
+    return order;
+}
+
+/**
+ * The next fighter on the timeline: time moves to their turn, rounds passed on the way bring
+ * their waves (and, with nobody left to fight, the next wave comes at once). Sets f.order with
+ * them first, or ends the fight when it has dragged on too long.
+ */
+function nextOnTimeline(f, rng, rules) {
+    const length = roundLength(f, rules);
+    const enemiesLeft = f.combatants.some(c => c.side === 'enemy' && isActive(c));
+    if (!enemiesLeft && pendingWaves(f).length) {
+        // The field is clear: the next round starts now, so the wave can join.
+        f.time = Math.max(f.time, f.round * length);
+        if (!passRounds(f, f.round + 1, rng, rules)) return;
+    }
+    const pool = f.combatants.map((c, index) => ({ c, index })).filter(({ c }) => isActive(c))
+        .map(({ c, index }) => {
+            if (!Number.isFinite(c.next)) enterTimeline(f, c, rng);
+            return { c, index, next: c.next };
+        });
+    const up = soonest(pool);
+    if (!up) return;
+    f.time = Math.max(f.time, up.next);
+    if (!passRounds(f, Math.floor(f.time / length) + 1, rng, rules)) return;
+    f.order = previewOrder(f, up.c.id);
+    f.turn = 0;
+    f.turnStarted = false;
+}
+
+/** Counts rounds up to `round`, joining the waves due; false once the fight is broken off. */
+function passRounds(f, round, rng, rules) {
+    while (f.round < round) {
+        f.round += 1;
+        if (f.round > rules.combat.maxRounds) {
+            f.round -= 1;
+            f.status = 'fled';
+            log(f, null, 'The fight drags on until both sides break off.', 'flee', true);
+            return false;
+        }
+        const before = new Set(f.combatants.map(c => c.id));
+        joinWaves(f);
+        for (const c of f.combatants) if (!before.has(c.id)) enterTimeline(f, c, rng);
+    }
+    return true;
+}
+
 /**
  * The start of a combatant's turn: damage and healing over time, guard from the last Defend
  * wears off, every duration counts down. Returns whether the combatant may act.
@@ -313,8 +399,15 @@ function beginTurn(f, actor, rng, rules) {
 function endTurn(f, actor, usedSkill) {
     for (const s of actor.skills) if (s.name !== usedSkill && s.cooldownLeft > 0) s.cooldownLeft -= 1;
     actor.conditions = actor.conditions.filter(cond => cond.rounds > 0);
-    f.turn += 1;
     f.turnStarted = false;
+    if (timeline(f)) {
+        // Their next turn after one wait at the speed they have now (slowed or not).
+        actor.next = f.time + waitOf(f, actor);
+        f.order = [];
+        f.turn = 0;
+        return;
+    }
+    f.turn += 1;
 }
 
 function checkEnd(f) {
@@ -590,15 +683,22 @@ function advance(f, rng, rules) {
     while (f.status === 'active') {
         if (++steps > 100000) throw new Error('Fight did not settle.');
         const enemiesLeft = f.combatants.some(c => c.side === 'enemy' && isActive(c));
-        // Nobody left to fight but reinforcements due: close the round so the wave can join.
-        if (f.turn >= f.order.length || (!enemiesLeft && !f.turnStarted)) {
+        if (timeline(f)) {
+            if (!f.order.length || (!enemiesLeft && !f.turnStarted)) {
+                nextOnTimeline(f, rng, rules);
+                checkEnd(f);
+                continue;
+            }
+        } else if (f.turn >= f.order.length || (!enemiesLeft && !f.turnStarted)) {
+            // Nobody left to fight but reinforcements due: close the round so the wave can join.
             startRound(f, rng, rules);
             checkEnd(f);
             continue;
         }
         const actor = byId(f, f.order[f.turn]);
         if (!isActive(actor)) {
-            f.turn += 1;
+            if (timeline(f)) f.order = [];
+            else f.turn += 1;
             f.turnStarted = false;
             continue;
         }
@@ -649,6 +749,10 @@ export function startFight({ rules = DEFAULT_RULES, ...setup } = {}) {
         stakes: setup.stakes === 'death' ? 'death' : 'normal',
         round: 0,
         status: 'active',
+        // (0.5.14) 'timeline' only when the setup asks for it: a fight saved before keeps rounds.
+        turns: setup.turns === 'timeline' ? 'timeline' : 'rounds',
+        speedOffset: Number.isFinite(Number(setup.speedOffset)) ? Math.max(0, Number(setup.speedOffset)) : rules.turns.speedOffset,
+        time: 0,
         order: [],
         turn: 0,
         turnStarted: false,

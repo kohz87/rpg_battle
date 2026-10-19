@@ -522,3 +522,53 @@ test('summarize: fight XP at the XP rate, each member against their own level, n
     assert.equal(summarize(higher, DEFAULT_RULES).xp.astra, defeated.reduce((sum, e) => sum + foeXpWorth(e, 9), 0));
     assert.equal(summarize(higher, DEFAULT_RULES).xp.pc, base);
 });
+
+// ---- the turn timeline (0.5.14) -------------------------------------------------------------
+
+test('timeline: a fighter twice as fast acts twice as often, with no limit on turns in a row (0.5.14)', () => {
+    // Ren AGI 30 + 10 = speed 40; the dummy AGI 10 + 10 = speed 20.
+    let f = start({ turns: 'timeline', party: [hero({ stats: { ...hero().stats, AGI: 30 } })], enemies: [dummy('e1', { stats: { ...dummy().stats, AGI: 10 } })] });
+    assert.equal(f.turns, 'timeline');
+    assert.equal(f.order[0], 'pc');
+    const turns = [];
+    for (let i = 0; i < 12 && f.status === 'active'; i++) {
+        const before = f.log.length;
+        f = act(f, { type: 'defend' }, EXACT);
+        turns.push('pc', ...f.log.slice(before).filter(e => e.actor === 'e1' && /hits|misses|uses|casts/.test(e.text)).map(() => 'e1'));
+    }
+    const pc = turns.filter(id => id === 'pc').length;
+    const foe = turns.filter(id => id === 'e1').length;
+    assert.ok(pc >= foe * 2 - 1 && pc <= foe * 2 + 1, `${pc} turns to ${foe}`);
+    // Faster still: four times the speed, four turns in a row.
+    let g = start({ turns: 'timeline', party: [hero({ stats: { ...hero().stats, AGI: 70 } })], enemies: [dummy('e1', { stats: { ...dummy().stats, AGI: 10 } })] });
+    const run = g.order.indexOf('e1');
+    assert.ok(run >= 3, `${run} turns before the foe's`);
+});
+
+test('timeline: the strip shows the turns ahead, the current fighter first; slowed halves speed (0.5.14)', () => {
+    const f = start({ turns: 'timeline', speedOffset: 0, party: [hero({ stats: { ...hero().stats, AGI: 20 } })], enemies: [dummy('e1', { stats: { ...dummy().stats, AGI: 10 } })] });
+    assert.equal(f.order.length, 8);
+    assert.equal(f.order[0], 'pc');
+    const tally = order => order.reduce((acc, id) => ({ ...acc, [id]: (acc[id] ?? 0) + 1 }), {});
+    // Twice the speed: two turns to each of the foe's, whatever the opening jitter.
+    const twice = tally(f.order.slice(0, 6));
+    assert.deepEqual([twice.pc, twice.e1], [4, 2]);
+    // Slowed: the same speed as the foe.
+    const slowed = start({ turns: 'timeline', speedOffset: 0, party: [hero({ stats: { ...hero().stats, AGI: 20 }, conditions: [{ name: 'slow', rounds: 9, power: 0 }] })], enemies: [dummy('e1', { stats: { ...dummy().stats, AGI: 10 } })] });
+    const counts = tally(slowed.order);
+    assert.equal(counts.pc, counts.e1);
+});
+
+test('timeline: replays exactly, rounds still pass for waves, and a fight without the flag keeps rounds (0.5.14)', () => {
+    const real = { ...realSetup('timeline'), turns: 'timeline' };
+    let f = startFight({ ...real, rules: DEFAULT_RULES });
+    for (let i = 0; i < 40 && f.status === 'active'; i++) {
+        const a = availableActions(f, DEFAULT_RULES);
+        f = act(f, { type: 'attack', target: a.targets.enemies[0] }, DEFAULT_RULES);
+    }
+    assert.notEqual(f.status, 'active');
+    assert.deepEqual(replay({ setup: real, actions: f.actions }, DEFAULT_RULES).log, f.log);
+    assert.ok(f.log.some(e => /Reinforcements arrive/.test(e.text)), 'the wave joined');
+    assert.ok(f.round >= 1);
+    assert.equal(startFight({ ...realSetup('timeline'), rules: DEFAULT_RULES }).turns, 'rounds');
+});

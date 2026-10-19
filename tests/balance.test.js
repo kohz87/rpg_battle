@@ -65,7 +65,7 @@ function foesFor(kind, rank, rng, seed) {
     });
 }
 
-function simulate(level, kind = 'projected') {
+function simulate(level, kind = 'projected', turns = 'rounds') {
     const rank = suggestRank(level, rules);
     const rounds = [];
     const lost = [];
@@ -75,7 +75,7 @@ function simulate(level, kind = 'projected') {
         const seed = `balance:${level}:${i}`;
         const rng = makeRng(seed);
         const enemies = foesFor(kind, rank, rng, seed);
-        const fight = startFight({ id: seed, seed, party: [character(preset, level)], enemies, stakes: 'normal', rules });
+        const fight = startFight({ id: seed, seed, turns, party: [character(preset, level)], enemies, stakes: 'normal', rules });
         const result = summarize(fight, rules);
         if (result.outcome !== 'victory' && result.outcome !== 'defeat') continue;
         if (result.outcome === 'victory') wins += 1;
@@ -109,5 +109,20 @@ for (const level of [1, 5, 10]) {
         assert.ok(r.rounds >= 4 && r.rounds <= 7, summary);
         assert.ok(r.lost >= 0.3 && r.lost <= 0.7, summary);
         assert.ok(r.wins >= r.fought * 0.6, summary);
+    });
+}
+
+// (0.5.14) The turn timeline (the default for new fights) holds the same targets: speed is
+// AGI + 10, so the gaps at even levels are small and fights keep their length and cost.
+for (const level of [1, 5, 10]) {
+    test(`balance at level ${level} on the turn timeline: even fights stay fair, projected and made up`, () => {
+        for (const [kind, most, low, high] of [['projected', 6, 0.35, 0.65], ['generated', 7, 0.3, 0.7]]) {
+            const r = simulate(level, kind, 'timeline');
+            const summary = `timeline, level ${level} vs ${kind} rank ${r.rank}: median ${r.rounds} rounds, ${Math.round(r.lost * 100)}% HP lost, ${r.wins}/${r.fought} won`;
+            assert.ok(r.fought >= FIGHTS * 0.9, summary);
+            assert.ok(r.rounds >= 4 && r.rounds <= most, summary);
+            assert.ok(r.lost >= low && r.lost <= high, summary);
+            assert.ok(r.wins >= r.fought * 0.6, summary);
+        }
     });
 }

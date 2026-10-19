@@ -257,7 +257,8 @@ export function foeXpWorth(enemy, memberLevel, rules, { parleyed }) → xp   // 
 ```js
 Fight = {
   id, seed, stakes, round, status: 'active' | 'victory' | 'defeat' | 'fled',
-  order: [ids], turn: index into order,
+  turns: 'timeline' | 'rounds', speedOffset, time,           // (0.5.14) from setup.turns / setup.speedOffset; a setup without turns: 'rounds'
+  order: [ids], turn: index into order,                      // rounds: this round's order; timeline: the next 8 turns, the current one at 0 (turn stays 0)
   combatants: Combatant[],
   log: [{ round, actor, text, kind: 'hit' | 'miss' | 'crit' | 'skill' | 'heal' | 'condition' | 'down' | 'flee' | 'parley' | 'item' | 'defend' | 'info', important: boolean }],
   actions: [action],                                         // player actions so far (for replay)
@@ -280,6 +281,13 @@ Result = {
 }
 ```
 
+Turns (0.5.14): on the **timeline** each combatant carries `next`, the fight time of its next
+turn; it acts when that is the soonest (party wins ties), then waits 100 ÷ speed, speed =
+max(1, AGI + speedOffset), halved while slowed; a newcomer enters after 0.8–1 of a wait. A round
+is the wait at speed startStat + speedOffset; rounds passed bring their waves, and with the
+field clear the next round starts at once. The setup also carries `hit: { base, perPoint }`,
+which the glue lays over the rules for that fight (fightRules), so settings changed mid-fight
+never change a replay. In **rounds**:
 Rules of the fight (DESIGN §5): initiative each round (AGI × 2 + DEX + d6, party wins ties);
 hit/crit/damage/variance; spells (magic, heal) never miss; defend halves damage taken until the
 actor's next turn and restores 5 % max MP; conditions tick at the start of the affected actor's

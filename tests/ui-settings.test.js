@@ -214,7 +214,7 @@ test('the sections fold, closed, each with a one-line summary that follows the s
     doc.body.appendChild(container);
     renderSettings(container, { settings: { ...SETTINGS, gear: { worn: 1, accessories: 2 }, terms: { levelName: 'Soul Class', xpName: 'Soul Growth', tiers: { size: 10, numerals: 'roman' }, cap: null } }, onChange: () => {} });
     const folds = container.querySelectorAll('.story-suite-fold');
-    assert.deepEqual(folds.map(node => node.dataset.fold), ['money', 'equipment', 'terms', 'monsters', 'party', 'truth', 'diagnostics', 'blocks']);
+    assert.deepEqual(folds.map(node => node.dataset.fold), ['money', 'equipment', 'terms', 'monsters', 'combat', 'party', 'truth', 'diagnostics', 'blocks']);
     assert.ok(folds.every(node => node.open === false), 'all start closed');
     const hint = key => container.querySelector(`.story-suite-fold[data-fold="${key}"] > summary small`).textContent;
     assert.equal(hint('money'), 'copper / silver / gold');
@@ -225,6 +225,7 @@ test('the sections fold, closed, each with a one-line summary that follows the s
     assert.equal(hint('truth'), 'Automatic');
     assert.equal(hint('blocks'), 'Party · Inventory');
     assert.equal(hint('party'), '6 active skills · auto-spend');
+    assert.equal(hint('combat'), 'Timeline · speed AGI + 10 · stats ≤ 99 · hit 75% ± 3%');
     // The controls live inside their fold, and a change updates its summary.
     const accessories = container.querySelector('.story-suite-fold[data-fold="equipment"] #rpg_battle_gear_accessories');
     accessories.value = '1';
@@ -346,7 +347,7 @@ test('the panel wears the Story Suite look: quickbar switches, folds of rows, th
         ['rpg_battle_enabled', 'Battles on', 'rpg_battle_enabled'],
         ['rpg_battle_recover', 'Recover over time', 'rpg_battle_recover'],
     ]);
-    assert.equal(container.querySelectorAll('.story-suite-folds > details.story-suite-fold').length, 8);
+    assert.equal(container.querySelectorAll('.story-suite-folds > details.story-suite-fold').length, 9);
     for (const fold of container.querySelectorAll('details.story-suite-fold')) {
         assert.ok(fold.querySelector(':scope > summary > b') && fold.querySelector(':scope > summary > small'), fold.dataset.fold);
         assert.ok(fold.querySelector(':scope > .story-suite-fold-body'), fold.dataset.fold);
@@ -391,4 +392,33 @@ test('Diagnostics: the raw data as JSON in its own fold, with Copy JSON and Copy
     assert.equal(fold.querySelector('.rpg-battle-diagnostics-raw > summary').textContent, 'Raw data (JSON)');
     assert.equal(fold.querySelector('.rpg-battle-diagnostics-json').textContent, '{"version":"0.5.11"}');
     assert.deepEqual(fold.querySelectorAll('.rpg-battle-diagnostics-actions .menu_button').map(node => node.textContent.trim()), ['Refresh', 'Copy', 'Copy JSON', 'Copy both']);
+});
+
+test('Combat (0.5.14): turn order, speed, stat cap and hit chance, each bounded; speed hides with rounds', () => {
+    const container = doc.createElement('div');
+    doc.body.appendChild(container);
+    const changes = [];
+    renderSettings(container, { settings: SETTINGS, onChange: next => changes.push(next) });
+    const fold = container.querySelector('.story-suite-fold[data-fold="combat"]');
+    const hint = () => fold.querySelector(':scope > summary small').textContent;
+    const set = (id, value) => {
+        const node = fold.querySelector(`#${id}`);
+        node.value = value;
+        node.dispatch('change');
+        return node;
+    };
+    assert.equal(set('rpg_battle_speed_offset', '80').value, '50', 'bounded');
+    assert.equal(changes.at(-1).speedOffset, 50);
+    set('rpg_battle_stat_cap', '0');
+    assert.equal(changes.at(-1).statCap, 0);
+    set('rpg_battle_hit_base', '70');
+    set('rpg_battle_hit_per_point', '');
+    assert.equal(changes.at(-1).hitPerPoint, 3, 'empty: the shipped value');
+    assert.equal(hint(), 'Timeline · speed AGI + 50 · no stat cap · hit 70% ± 3%');
+    const speedRow = fold.querySelector('#rpg_battle_speed_offset').closest('label');
+    assert.equal(speedRow.hidden, false);
+    set('rpg_battle_turn_order', 'rounds');
+    assert.equal(changes.at(-1).turnOrder, 'rounds');
+    assert.equal(speedRow.hidden, true);
+    assert.match(hint(), /^Rounds · /);
 });

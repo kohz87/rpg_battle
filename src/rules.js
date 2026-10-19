@@ -14,6 +14,8 @@ export const DEFAULT_RULES = Object.freeze({
         startStat: 5,
         startPoints: 10,
         pointsPerLevel: 4,
+        // (0.5.14) The highest a stat can be raised with points (0: no cap). Gear adds on top.
+        statCap: 99,
         starterSkills: 3,
         // Skills a member fights with; more are kept, set aside, and swapped in by hand.
         activeSkills: 6,
@@ -40,6 +42,9 @@ export const DEFAULT_RULES = Object.freeze({
         defendTaken: 0.5, defendMpBack: 0.05,
     },
     initiative: { perAgi: 2, perDex: 1, die: 6 },
+    // (0.5.14) Turns: 'timeline' (each fighter acts every 100 ÷ (AGI + speedOffset) of fight
+    // time, so the faster act more often) or 'rounds' (everyone once a round, by initiative).
+    turns: { mode: 'timeline', speedOffset: 10 },
     flee: { base: 50, perAgi: 4, min: 10, max: 90, bossPenalty: 30 },
     parley: { base: 30, perPoint: 5, woundedBonus: 20, woundedBelow: 0.5, min: 5, max: 85, xpFactor: 0.5 },
     masteryMax: 5,
@@ -272,6 +277,12 @@ export function derive(stats, gear = {}, rules = DEFAULT_RULES) {
         mdef: Math.round((s('INT') + s('VIT')) / 2 + num(gear.MDEF)),
         crit: clamp(a.critBase + s('DEX') * a.critPerDex + s('LUK') * a.critPerLuk + num(gear.crit), 0, a.critMax),
     };
+}
+
+/** (0.5.14) The highest a stat can be raised with points: rules.character.statCap, Infinity at 0. */
+export function statCap(rules = DEFAULT_RULES) {
+    const cap = Math.round(num(rules?.character?.statCap, DEFAULT_RULES.character.statCap));
+    return cap > 0 ? cap : Infinity;
 }
 
 /** The bonus a stat gives to a roll outside combat: floor((stat − pivot) / divisor), bounded. */

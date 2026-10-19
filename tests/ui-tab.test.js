@@ -1589,3 +1589,26 @@ test('a member card shows the combat line, each number with where it comes from 
     assert.match(parts[5].getAttribute('title'), /typical foe of this level \(DEX 6\).*AGI \(10\)/);
     assert.equal(render({ mode: 'idle', sheet: sheet(), skills: [], party: [], rules }).querySelector('.rpg-battle-combat'), null, 'none without numbers');
 });
+
+test('fight: each standing enemy shows how it stacks up against whoever acts; the timeline strip is the next turns (0.5.14)', () => {
+    const view = fightView();
+    const goblin = view.fight.combatants.find(entry => entry.id === 'e1');
+    goblin.stats = { ...goblin.stats, AGI: 4, DEX: 5 };
+    const ren = view.fight.combatants.find(entry => entry.id === 'pc');
+    ren.stats = { ...ren.stats, AGI: 10, DEX: 8 };
+    const pane = render({ ...view, rules });
+    const card = pane.querySelector('.rpg-battle-card[data-combatant-id="e1"]');
+    const parts = card.querySelectorAll('.rpg-battle-matchup-part').map(part => part.textContent);
+    assert.deepEqual(parts, ['Atk 18', 'Def 7', 'AGI 4', 'DEX 5', 'You hit 87%', 'It hits you 60%']);
+    assert.match(card.querySelector('.rpg-battle-matchup-part.is-hits').getAttribute('title'), /75% \+ 3% per point of its DEX \(5\) over your AGI \(10\)/);
+    // Gone enemies show none.
+    assert.equal(pane.querySelector('.rpg-battle-card[data-combatant-id="e3"] .rpg-battle-matchup'), null);
+    // On a companion's turn, against them by name.
+    const astraTurn = fightView({}, { actor: view.fight.combatants.find(entry => entry.id === 'astra') });
+    const astraPane = render({ ...astraTurn, rules });
+    assert.match(astraPane.querySelector('.rpg-battle-card[data-combatant-id="e1"] .rpg-battle-matchup').textContent, /Astra hits .*It hits Astra/);
+    // The timeline's strip: "Next turns", a fighter may appear twice.
+    const timeline = render({ ...fightView({ turns: 'timeline', order: ['pc', 'pc', 'e1', 'astra', 'pc'] }), rules });
+    assert.match(timeline.querySelector('.rpg-battle-section.is-order').textContent, /Next turns/);
+    assert.equal(timeline.querySelectorAll('.rpg-battle-order-item').length, 5);
+});

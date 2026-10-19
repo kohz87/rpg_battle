@@ -9,7 +9,7 @@
 // starts with come from the library, only ones their built stats allow, and suggestSkills
 // offers three that fit the focus. Pure.
 
-import { DEFAULT_RULES, STATS } from './rules.js';
+import { DEFAULT_RULES, STATS, statCap } from './rules.js';
 import { canLearn } from './skills.js';
 import { maxLevel } from './terms.js';
 
@@ -90,6 +90,39 @@ export function spreadByWeights(total, weights = {}) {
     return Object.fromEntries(shares.map(entry => [entry.stat, entry.whole]));
 }
 
+/**
+ * (0.5.14) Like spreadByWeights, with `room` the most each stat may take ({ STR: n, … };
+ * missing: no limit): a stat that is full passes its share to the others by their weights
+ * (evenly when none of those left has one); points nobody has room for stay unspent.
+ */
+export function spreadWithin(total, weights = {}, room = {}) {
+    const out = Object.fromEntries(STATS.map(stat => [stat, 0]));
+    const space = stat => (Number.isFinite(Number(room?.[stat])) ? Math.max(0, Number(room[stat])) : Infinity) - out[stat];
+    let left = Math.max(0, Math.round(Number(total) || 0));
+    for (let guard = 0; left > 0 && guard < STATS.length + 1; guard++) {
+        const open = STATS.filter(stat => space(stat) > 0);
+        if (!open.length) break;
+        const own = Object.fromEntries(open.map(stat => [stat, Math.max(0, Number(weights?.[stat]) || 0)]));
+        const spread = spreadByWeights(left, Object.values(own).some(Boolean) ? own : Object.fromEntries(open.map(stat => [stat, 1])));
+        for (const stat of STATS) {
+            const take = Math.min(spread[stat] ?? 0, space(stat));
+            out[stat] += take;
+            left -= take;
+        }
+    }
+    return out;
+}
+
+/** (0.5.14) Stats with what lies past the stat cap moved to the stats still below it, by `weights`. */
+export function withinCap(stats, weights = {}, rules = DEFAULT_RULES) {
+    const cap = statCap(rules);
+    const excess = STATS.reduce((sum, stat) => sum + Math.max(0, (Number(stats[stat]) || 0) - cap), 0);
+    if (!excess) return stats;
+    const capped = Object.fromEntries(STATS.map(stat => [stat, Math.min(Number(stats[stat]) || 0, cap)]));
+    const more = spreadWithin(excess, weights, Object.fromEntries(STATS.map(stat => [stat, cap - capped[stat]])));
+    return Object.fromEntries(STATS.map(stat => [stat, capped[stat] + more[stat]]));
+}
+
 /** The focus as weights: first ×3, second ×2, third ×1 ({} with no focus: an even spread). */
 export function focusWeights(focus) {
     return Object.fromEntries(cleanFocus(focus).map((stat, index) => [stat, FOCUS_WEIGHTS[index]]));
@@ -106,7 +139,7 @@ export function buildStats(focus, level = 1, rules = DEFAULT_RULES) {
     const weights = focusWeights(focus);
     const start = spreadByWeights(c.startPoints, weights);
     const extra = spreadByWeights((lv - 1) * c.pointsPerLevel, weights);
-    return Object.fromEntries(STATS.map(stat => [stat, c.startStat + start[stat] + extra[stat]]));
+    return withinCap(Object.fromEntries(STATS.map(stat => [stat, c.startStat + start[stat] + extra[stat]])), weights, rules);
 }
 
 /**
@@ -117,7 +150,10 @@ export function buildStats(focus, level = 1, rules = DEFAULT_RULES) {
 export function buildAllocation(sheet, rules = DEFAULT_RULES) {
     const start = rules.character.startStat;
     const weights = Object.fromEntries(STATS.map(stat => [stat, Math.max(0, (Number(sheet?.stats?.[stat]) || 0) - start)]));
-    const spread = spreadByWeights(Math.max(0, Math.round(Number(sheet?.points) || 0)), weights);
+    // (0.5.14) Never past the stat cap: a full stat's share goes to the others.
+    const cap = statCap(rules);
+    const room = Object.fromEntries(STATS.map(stat => [stat, cap - (Number(sheet?.stats?.[stat]) || 0)]));
+    const spread = spreadWithin(Math.max(0, Math.round(Number(sheet?.points) || 0)), weights, room);
     return Object.fromEntries(Object.entries(spread).filter(([, value]) => value > 0));
 }
 

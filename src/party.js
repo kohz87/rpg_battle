@@ -7,7 +7,7 @@
 
 import { DEFAULT_RULES, STATS, derive, hitChance, maxHp, maxMp } from './rules.js';
 import { findSkill, resolveSkills } from './skills.js';
-import { focusWeights, lockedReason, spreadByWeights } from './builds.js';
+import { focusWeights, lockedReason, spreadByWeights, withinCap } from './builds.js';
 import { projectEnemy } from './enemies.js';
 import { consumables, gearBonuses, parseGearEntry } from './items.js';
 import { activeSkills, memberIds, newSheet, recompute, slug } from './sheet.js';
@@ -136,7 +136,7 @@ export function newCompanion({ name, role = 'companion', control = 'auto', level
     const weights = preset ? preset.points ?? {} : focusWeights(focus);
     const start = preset ? preset.points ?? {} : spreadByWeights(rules.character.startPoints, weights);
     const extra = spreadByWeights((target - 1) * rules.character.pointsPerLevel, weights);
-    const stats = Object.fromEntries(STATS.map(stat => [stat, rules.character.startStat + (Number(start[stat]) || 0) + extra[stat]]));
+    const stats = withinCap(Object.fromEntries(STATS.map(stat => [stat, rules.character.startStat + (Number(start[stat]) || 0) + extra[stat]])), weights, rules);
     const names = [...new Set((preset ? preset.skills : skills ?? []).map(entry => String(entry ?? '').trim()).filter(Boolean))];
     if (names.length > rules.character.starterSkills) throw new Error(`A new companion starts with ${rules.character.starterSkills} skills at most.`);
     if (library) {
