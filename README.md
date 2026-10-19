@@ -1,4 +1,4 @@
-# RPG Battle v0.5.20
+# RPG Battle v0.5.21
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -303,10 +303,14 @@ the story makes it true (Story Block hides them with its other blocks):
 | `<Joins>Lyra — healer, level 6</Joins>` | *Lyra joined. Add as companion?* | Opens **Add companion**, filled in (see *Companions*) |
 | `<Leaves>Lyra: returned to her village</Leaves>` | *Lyra left the party. Remove?* | Removes her |
 | `<Learned>Lyra — Frost Lance: ice magic, hits all</Learned>` | *Lyra learned Frost Lance. Add it?* | Opens the learn form, filled in |
-| `<XP>major: rescued the caravan</XP>` | *XP +25: rescued the caravan. Award?* | XP for the whole party |
+| `<XP>major: rescued the caravan</XP>` | none: awarded at once (0.5.21), toasted *Story XP awarded: XP +25 (rescued the caravan)* | XP for the whole party |
 | `<Rest>long: slept at the inn</Rest>` | *Rest (long): slept at the inn. Recover?* | A rest (see *Recovery*) |
 | A quest Story Director 0.8.2 closes in the reply | none: awarded at once (0.5.7), toasted *Quest done: The Lost Caravan (hard) · XP +15* | XP for the whole party |
 
+- **Story XP is awarded, not offered** (since 0.5.21): the story says what was earned and code
+  sets the amount, just as for quests. It is written into the latest reply, so deleting or swiping
+  that reply takes it back. A reply that tells a fight's result gives none, since the fight
+  already did. The opening message's XP still waits for a click.
 - **Quest XP is awarded, not offered** (since 0.5.7): the story closed the quest (Story Director
   reports it only then, never for a failed or abandoned one) and code sets the XP by its
   difficulty, so a click would add nothing. It is written into the latest reply, so deleting or

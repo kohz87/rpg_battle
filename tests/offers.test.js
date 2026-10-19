@@ -34,7 +34,7 @@ test('one reply: joins, leaves, learned, xp and rest offers, keyed by message, k
     assert.deepEqual(offers[1].data, { memberId: 'lyra-vance' });
     assert.deepEqual(offers[2].data, { memberId: 'lyra-vance', prefill: { name: 'Frost Lance', words: 'ice magic, hits all', type: 'magic', stat: 'INT', target: 'all', element: 'ice', free: false } });
     assert.deepEqual(offers[3].data.prefill, { name: 'Shadow Step', words: 'dash behind a foe', type: 'physical', stat: 'AGI', target: 'one', element: 'lightning', free: false });
-    assert.deepEqual(offers[4].data, { share: 0.25 });
+    assert.deepEqual(offers[4].data, { share: 0.25, done: `Story XP awarded: XP +${Math.round(0.25 * xpToNext(1, R))} (rescued the caravan)` });
 });
 
 test('the narrating reply gives no XP or rest; a result waiting gives no rest; a library skill keeps its own shape', () => {
