@@ -8,7 +8,7 @@ import { DEFAULT_BESTIARY } from '../src/enemies.js';
 import { PRESETS } from '../src/skills.js';
 import { newSheet } from '../src/sheet.js';
 import { newCompanion } from '../src/party.js';
-import { STORY_INSTRUCTION, THREATS, applyWounds, describeWound, encounterSummary, guessSkill, parseEncounter, parsePlan, parseHints, parseJoins, parseLearned, parseLeaves, parseRest, parseStakes, parseWounds, parseXp, resolveThreats, storyFight, threatLevel, threatPower } from '../src/story.js';
+import { STORY_INSTRUCTION, THREATS, applyWounds, describeWound, encounterSummary, foughtAlready, guessSkill, parseEncounter, parsePlan, parseHints, parseJoins, parseLearned, parseLeaves, parseRest, parseStakes, parseWounds, parseXp, resolveThreats, storyFight, threatLevel, threatPower } from '../src/story.js';
 
 const rules = makeRules();
 const ren = { ...newSheet({ name: 'Ren Aldane', stats: PRESETS[0].points, skills: PRESETS[0].skills }, rules), hp: { cur: 98, max: 98 } };
@@ -483,4 +483,19 @@ test('the reply that tells a fight\'s result still hands a new fight over (0.5.9
     const { NARRATING_INSTRUCTION } = await import('../src/story.js');
     for (const part of ['no <Wounds>', '<Encounter>', 'stop at the first blow', 'never narrate a fight']) assert.ok(NARRATING_INSTRUCTION.includes(part), part);
     assert.ok(NARRATING_INSTRUCTION.length <= 300, `${NARRATING_INSTRUCTION.length} characters`);
+});
+
+test('an <Encounter> in a reply that already told the fight to its end is not a fight to start (0.5.20)', () => {
+    const gang = parseEncounter('Brecht (weak), Lefty (weak), Jor (weak) | threat vs party: even | to the death');
+    // The story's own XP for beating them, or the Director closing the beat over their bodies.
+    assert.equal(foughtAlready(gang, { xp: "minor: defeated Brecht's gang in the alley" }), true);
+    assert.equal(foughtAlready(gang, { director: '- Dock shakedown — Brecht dead in the alley, Lefty fled, Jor crippled\n+ hook Marsh-trolls — hunt them' }), true);
+    // Naming them is not enough: a fight can begin after a word with them.
+    assert.equal(foughtAlready(gang, { xp: 'minor: talked Brecht into a duel' }), false);
+    assert.equal(foughtAlready(gang, { director: '~ Brecht — now: waits with a tiller\n! Dock shakedown — the gang steps out' }), false);
+    assert.equal(foughtAlready(gang, {}), false);
+    // Plain kinds, plural as the story writes them; other foes are not these.
+    const pack = parseEncounter('3 wolf (weak); then: wolf matriarch (boss, strong)');
+    assert.equal(foughtAlready(pack, { xp: 'major: drove off the wolves' }), true);
+    assert.equal(foughtAlready(pack, { xp: 'minor: killed the bailiff' }), false);
 });

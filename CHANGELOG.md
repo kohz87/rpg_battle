@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.20
+
+- **A fight the story already finished is not offered again.** Sometimes a reply tells a whole fight, for example when your message already does the fighting ("I kill Brecht, then run off…"), and still ends with an `<Encounter>` block for those foes. RPG Battle then offered that fight while your character was somewhere else entirely. Now, when the same reply's `<XP>` line or a Story Director closing line names those foes as beaten, killed or fled ("minor: defeated Brecht's gang"; "- Dock shakedown — Brecht dead in the alley, Lefty fled"), the fight is taken as the story's record of what happened. No fight is offered, and the reply's XP still is. A reply that only names the foes ("talked Brecht into a duel") still starts the fight.
+
 ## 0.5.19
 
 - **"(empty)" is not an item.** A line such as `(empty)` or `*(None)*` under an inventory header (`[Loot]`) was read as an item called "(empty)". It is skipped now, and when loot lands in that section the placeholder line goes. A section that is still empty keeps it.

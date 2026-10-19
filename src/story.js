@@ -506,6 +506,34 @@ export function parseStakes(text) {
     return notes.some(note => DEATH_MARK.test(note)) ? 'death' : 'normal';
 }
 
+// (0.5.20) Words that say a fight is over: beaten, killed, fled, won.
+const FOE_OVER = /\b(?:defeat(?:s|ed|ing)?|beat|beaten|bested|kill(?:s|ed)?|slain|slew|dead|died|executed|cut down|fled|routed|drove (?:off|away)|driven (?:off|away)|ran off|won|victory|crippled|subdued)\b/i;
+
+const escapeRegex = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// A foe's name as the story may write it: "Brecht", "Brecht's", "wolves" for Wolf.
+function namePattern(word) {
+    const forms = [`${escapeRegex(word)}(?:s|es|'s|’s)?`];
+    if (/fe?$/i.test(word)) forms.push(`${escapeRegex(word.replace(/fe?$/i, ''))}ves`);
+    return new RegExp(`\\b(?:${forms.join('|')})\\b`, 'i');
+}
+
+/**
+ * Whether a reply already tells the fight against `rows` as finished: a line of its <XP> block,
+ * or a closing (`-`) line of its Director block, names one of the foes and says they were
+ * beaten, killed or fled ("minor: defeated Brecht's gang"; "- Dock shakedown — Brecht dead").
+ * An <Encounter> in that reply records a fight the story told to its end, not one starting.
+ */
+export function foughtAlready(rows, { xp = '', director = '' } = {}) {
+    const words = [...new Set((rows ?? []).flatMap(row => String(row?.name ?? '').replace(/\s+[A-Z]$/, '').split(/\s+/))
+        .map(word => word.replace(/[^\p{L}\p{N}'-]/gu, '')).filter(word => word.length >= 3))];
+    if (!words.length) return false;
+    const patterns = words.map(namePattern);
+    const closings = String(director).split(/\r?\n/).map(line => line.trim()).filter(line => /^-\s/.test(line));
+    const lines = [...String(xp).split(/\r?\n/), ...closings].map(line => line.trim()).filter(Boolean);
+    return lines.some(line => FOE_OVER.test(line) && patterns.some(pattern => pattern.test(line)));
+}
+
 /**
  * The fight to build, from the offer Fight? opened ({ rows, stakes, stages? }, parsed from the
  * story), never from what the Battle tab sends: { rows, stakes } as copies, stakes 'death' or

@@ -54,7 +54,7 @@ import { buildHandoff, buildPlanHandoff, fightOrigin, grouped, handoffState, ori
 import { cleanPlan, newPlan, nextStage, planResult, stageDone, stageId } from './src/plan.js';
 import { combatantFromSheet, combatNumbers, editCompanion, enemiesFromRows, engagements, newCompanion, npcRenames, remapIds } from './src/party.js';
 import { recoverOverTime, restAfter, useItemOutside } from './src/recovery.js';
-import { NARRATING_INSTRUCTION, STORY_INSTRUCTION, applyWounds, describeWound, encounterSummary, findTarget, parsePlan, parseStakes, parseWounds, resolveThreats, storyFight } from './src/story.js';
+import { NARRATING_INSTRUCTION, STORY_INSTRUCTION, applyWounds, describeWound, encounterSummary, findTarget, foughtAlready, parsePlan, parseStakes, parseWounds, resolveThreats, storyFight } from './src/story.js';
 import { liveOffers, questOffers, storyOffers } from './src/offers.js';
 import { awardParty, settleCompanions } from './src/growth.js';
 import { guessFocus } from './src/builds.js';
@@ -66,7 +66,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.19';
+const VERSION = '0.5.20';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -83,6 +83,8 @@ const JOINS_TAG = 'Joins';
 const LEAVES_TAG = 'Leaves';
 const LEARNED_TAG = 'Learned';
 const XP_TAG = 'XP';
+// Story Director's change lines (its default tag): read only for what a reply closes.
+const DIRECTOR_TAG = 'Director';
 const REST_TAG = 'Rest';
 const TRANSPORT_TAGS = [
     ['rpg-wounds', WOUNDS_TAG], ['rpg-encounter', ENCOUNTER_TAG], ['rpg-joins', JOINS_TAG],
@@ -1408,11 +1410,16 @@ function offerLine(text) {
     return parsePlan(text).length > 1 ? summary : `A fight is starting: ${summary}`;
 }
 
+// (0.5.20) What reply `index` says is over: its <XP> and Story Director's closing lines.
+function finishedIn(sb, index) {
+    return { xp: blockAt(sb, index, XP_TAG) ?? '', director: blockAt(sb, index, DIRECTOR_TAG) ?? '' };
+}
+
 function toastEncounter(sb, index) {
     if (!currentSheet()) return;
     const text = blockAt(sb, index, ENCOUNTER_TAG) ?? '';
     const { rows, stages } = text ? encounterParts(text) : { rows: [], stages: null };
-    if (!rows.length || chatState().dismissed.includes(`${index}:${text}`)) return;
+    if (!rows.length || chatState().dismissed.includes(`${index}:${text}`) || foughtAlready(rows, finishedIn(sb, index))) return;
     const stakes = parseStakes(text) === 'death' ? ' — to the death' : '';
     const html = `${escapeHtml(offerLine(text))}${stakes}<div class="rpg-battle-toast-actions"><button type="button" class="menu_button rpg-battle-toast-fight">Fight</button></div>`;
     const toast = notify('warning', html, { escapeHtml: false, timeOut: 15000, extendedTimeOut: 6000, closeButton: true });
@@ -1465,10 +1472,14 @@ function encounterOffer(ctx = context(), state = chatState(ctx)) {
         candidates.push({ text: entry.encounter.trim(), label: `Planned by Story Director: ${entry.key ?? entry.id ?? 'a fight'}${where}${when}.` });
     }
     const dismissed = new Set(state.dismissed);
+    const finished = finishedIn(sb, index);
     for (const candidate of candidates) {
         const key = `${index}:${candidate.text}`;
         if (dismissed.has(key)) continue;
         const { rows, stages } = encounterParts(candidate.text);
+        // (0.5.20) A fight the reply already told to its end (its XP or the Director's closing
+        // line names the foes beaten or fled) is the story's record of it, not a fight to start.
+        if (rows.length && foughtAlready(rows, finished)) continue;
         if (rows.length) return { ...candidate, rows, stages, stakes: parseStakes(candidate.text), key };
     }
     return null;
