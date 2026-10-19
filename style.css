@@ -21,6 +21,7 @@
     --rb-hp: #c95454;
     --rb-hp-low: #e0703a;
     --rb-mp: #4f8fd8;
+    --rb-sp: #3fa89a;
     --rb-xp: var(--rb-accent);
     --rb-good: #4fa36b;
     --rb-bad: #d46a6a;
@@ -456,6 +457,10 @@
 
 .rpg-battle-tab .rpg-battle-bar.is-mp {
     --rb-fill: var(--rb-mp);
+}
+
+.rpg-battle-tab .rpg-battle-bar.is-sp {
+    --rb-fill: var(--rb-sp);
 }
 
 .rpg-battle-tab .rpg-battle-bar.is-xp {

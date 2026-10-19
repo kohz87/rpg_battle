@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.29
+
+- **Physical skills run on stamina.** Physical skills cost MP, and MP comes from INT, so how often a fighter could use Power Strike depended on how clever they were. There is now a third pool, **Stamina (SP)**, and physical skills cost SP while magic, heals, buffs and debuffs keep costing MP. Max SP is 10 + VIT × 2 + STR + level × 2. A little comes back at the start of each of your turns (5 % of max, at least 1), Defend gives back 15 % more, any rest fills it, and story time brings it back within an hour. The Party sheet gets an `SP: 31/37` line beside HP and MP, cards and fight screens show a stamina bar, a physical skill reads *4 SP*, and the State line says *breathing hard* or *winded* when it runs low. An older sheet has no SP line and simply starts fresh. Foes are unchanged: their physical skills already cost nothing. The balance tests still land fights in the same 4–6 rounds.
+- **A learned skill names its stat.** The story's `<Learned>` example now writes the stat (`| stat: INT`), so a taught skill no longer depends on a guess. When the story leaves it out, the guess has learned a third group: footwork words (*sidestep*, *lunge*, *dash*, *tumble*, *dodge*, *evade*) now run on **AGI**, while hands and aim (*shot*, *throw*, *dagger*, *quick draw*) stay **DEX**. Before, a move like *Sidestep Cut* ran on STR. Each skill's card now shows its stat: *physical · AGI · 4 SP · cooldown 1 · one enemy*.
+
 ## 0.5.28
 
 - **Hiding a reply never drops a fight.** A fight's result waits for the story to tell it, tied to the reply the fight started from. If a memory extension (Summarybook and the like) hid that reply, RPG Battle read it as deleted and dropped the result. The same happened to the record of which replies already narrated a fight, and to the opening's party. A hidden reply is now still the reply; only deleting or swiping it takes the fight back.

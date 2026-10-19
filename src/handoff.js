@@ -39,7 +39,9 @@ function statusLines(party, names, rules) {
         const mp = member.mp ?? { cur: 0, max: 0 };
         const state = stateWords({ ...member, hp: member.down ? { ...hp, cur: 0 } : hp, mp }, rules).text;
         if (member.down) return `${name}: ${state}.`;
-        return `${name}: HP ${hp.cur}/${hp.max}, MP ${mp.cur}/${mp.max} — ${state}.`;
+        // (0.5.29) Stamina beside them, when the fight kept it.
+        const sp = member.sp ? `, SP ${member.sp.cur}/${member.sp.max}` : '';
+        return `${name}: HP ${hp.cur}/${hp.max}, MP ${mp.cur}/${mp.max}${sp} — ${state}.`;
     }).join('\n');
 }
 

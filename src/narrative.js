@@ -61,6 +61,15 @@ function mpWord(mp, n) {
     return band(num(mp?.cur) / max, n.mpBands, DRAINED);
 }
 
+// (0.5.29) Stamina in words: nothing while fresh, then "breathing hard", then "winded".
+function spWord(sp, n) {
+    const max = num(sp?.max);
+    if (max <= 0) return '';
+    const bands = n.spBands ?? DEFAULT_RULES.narrative.spBands;
+    const word = band(num(sp?.cur) / max, bands, 'winded');
+    return word === bands?.[0]?.[1] ? '' : word;
+}
+
 function conditionWords(conditions) {
     const words = [];
     for (const condition of conditions ?? []) {
@@ -90,6 +99,8 @@ export function stateWords(sheet, rules = DEFAULT_RULES) {
     const parts = [HP_HINTS[hp] ? `${hp} (${HP_HINTS[hp]})` : hp];
     const caster = num(sheet?.mp?.max) >= num(n.mpQuietBelow);
     if (caster && hp !== DOWN && mp !== n.mpBands?.[0]?.[1]) parts.push(`${mp} of magic`);
+    const sp = hp === DOWN ? '' : spWord(sheet?.sp, n);
+    if (sp) parts.push(sp);
     parts.push(...conditions);
-    return { hp, mp, conditions, text: parts.join(' · ') };
+    return { hp, mp, ...(sp ? { sp } : {}), conditions, text: parts.join(' · ') };
 }

@@ -7,7 +7,7 @@
 // the same actions over the same setup reproduces the fight exactly (reload, rollback).
 // act() never mutates its argument: it works on a deep copy. Pure.
 
-import { DEFAULT_RULES, clampXpRate, fleeChance, hitChance, mitigate, parleyChance, xpFactor, xpToNext } from './rules.js';
+import { DEFAULT_RULES, clampXpRate, costPool, fleeChance, hitChance, mitigate, parleyChance, xpFactor, xpToNext } from './rules.js';
 import { makeRng } from './rng.js';
 import { effectivePower } from './skills.js';
 import { LOOT_TABLES, rollLoot } from './enemies.js';
@@ -73,11 +73,17 @@ function findItemOf(actor, name) {
     return (actor.items ?? []).find(i => norm(i.name) === norm(name) && i.effect && (Number(i.qty) || 0) > 0) ?? null;
 }
 
+/** The pool a skill's cost comes out of for this actor: stamina for a physical skill, else MP. */
+function costOf(actor, skill) {
+    return actor[costPool(skill)] ?? actor.mp;
+}
+
 /** Why a skill cannot be used now, or null. */
 function blockReason(actor, skill) {
     if (has(actor, 'stun')) return 'stunned';
     if ((skill.cooldownLeft ?? 0) > 0) return 'cooldown';
-    if ((skill.mp ?? 0) > actor.mp.cur) return 'mp';
+    // (0.5.29) A physical skill costs stamina (a monster, with no stamina, pays from MP as before).
+    if ((skill.mp ?? 0) > costOf(actor, skill).cur) return costPool(skill) === 'sp' && actor.sp ? 'sp' : 'mp';
     return null;
 }
 
@@ -389,6 +395,10 @@ function beginTurn(f, actor, rng, rules) {
     // Guard is "until your next turn", so it goes now; everything else lasts through this turn.
     actor.conditions = actor.conditions.filter(cond => cond.name !== 'guard' || cond.rounds > 0);
     if (!isActive(actor)) return false;
+    // (0.5.29) A little stamina comes back each turn, as breath does.
+    if (actor.sp && actor.sp.cur < actor.sp.max) {
+        actor.sp.cur = Math.min(actor.sp.max, actor.sp.cur + Math.max(1, Math.round(actor.sp.max * (rules.combat.spPerTurn ?? 0))));
+    }
     if (stunned) {
         log(f, actor, `${label(actor)} is stunned and loses the turn.`, 'condition');
         return false;
@@ -475,7 +485,7 @@ function resolve(f, actor, action, rules) {
 }
 
 function useSkill(f, actor, skill, targets, rng, rules) {
-    actor.mp.cur -= skill.mp ?? 0;
+    costOf(actor, skill).cur -= skill.mp ?? 0;
     skill.cooldownLeft = skill.cooldown ?? 0;
     if (actor.side === 'party') bump(f.stats.uses, actor.memberId, skill.name);
     const verb = skill.type === 'magic' || (skill.type !== 'physical' && skill.stat === 'INT') ? 'casts' : 'uses';
@@ -603,7 +613,11 @@ function perform(f, actor, plan, rng, rules) {
             addCondition(actor, 'guard', 1, 0);
             const back = Math.min(actor.mp.max - actor.mp.cur, Math.max(actor.mp.max > 0 ? 1 : 0, Math.round(actor.mp.max * a.defendMpBack)));
             actor.mp.cur += back;
-            log(f, actor, `${label(actor)} defends${back ? ` (+${back} MP)` : ''}.`, 'defend');
+            // (0.5.29) And a breath caught: stamina back too.
+            const breath = actor.sp ? Math.min(actor.sp.max - actor.sp.cur, Math.max(actor.sp.max > 0 ? 1 : 0, Math.round(actor.sp.max * (a.defendSpBack ?? 0)))) : 0;
+            if (breath) actor.sp.cur += breath;
+            const gained = [back ? `+${back} MP` : '', breath ? `+${breath} SP` : ''].filter(Boolean).join(', ');
+            log(f, actor, `${label(actor)} defends${gained ? ` (${gained})` : ''}.`, 'defend');
             break;
         }
         case 'flee': flee(f, actor, rng, rules); break;
@@ -942,6 +956,7 @@ export function summarize(fight, rules = DEFAULT_RULES) {
             level: c.level,
             hp: { ...c.hp },
             mp: { ...c.mp },
+            ...(c.sp ? { sp: { ...c.sp } } : {}),
             down: c.gone === 'down' || c.hp.cur <= 0,
             conditions: c.conditions.filter(cond => !FIGHT_ONLY.has(cond.name)).map(cond => ({ name: cond.name, rounds: cond.rounds })),
         })),

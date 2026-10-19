@@ -111,3 +111,12 @@ test('the Party prompt note points at the State lines and fits Story Block', asy
 test('a character killed in a fight to the death reads "dead" and nothing else', () => {
     assert.deepEqual(stateWords({ hp: { cur: 0, max: 50 }, mp: { cur: 3, max: 30 }, conditions: [{ name: 'Dead', rounds: null }, { name: 'poison', rounds: 2 }] }, R), { hp: 'dead', mp: '', conditions: [], text: 'dead' });
 });
+
+test('stamina in words (0.5.29): nothing while fresh, then breathing hard, then winded; never for someone down', () => {
+    const at = (cur, hp = [90, 100]) => stateWords({ hp: { cur: hp[0], max: hp[1] }, mp: { cur: 30, max: 30 }, sp: { cur, max: 40 } }, R);
+    assert.equal(at(40).text, 'unhurt');
+    assert.equal(at(12).text, 'unhurt · breathing hard');
+    assert.equal(at(4).text, 'unhurt · winded');
+    assert.equal(at(4).sp, 'winded');
+    assert.equal(at(0, [0, 100]).text, 'down (unconscious or unable to fight)');
+});

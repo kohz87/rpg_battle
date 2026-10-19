@@ -111,6 +111,7 @@ function memberCopy(id, name, role, sheet, rules) {
         levelLabel: levelText(whole(sheet.level), rules),
         hp: Object.freeze({ cur: whole(sheet.hp?.cur), max: whole(sheet.hp?.max) }),
         mp: Object.freeze({ cur: whole(sheet.mp?.cur), max: whole(sheet.mp?.max) }),
+        sp: Object.freeze({ cur: whole(sheet.sp?.cur), max: whole(sheet.sp?.max) }),
         state: stateWords(sheet, rules).text,
     });
 }

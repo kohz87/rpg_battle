@@ -27,7 +27,7 @@
 // exact level is always in it, so the parsers read it back from the canonical form, from any
 // terms form (with or without the colon after the level name) and from older blocks. Pure.
 
-import { DEFAULT_RULES, STATS, checkModifiers, maxHp, maxMp, statCap, xpToNext } from './rules.js';
+import { DEFAULT_RULES, STATS, checkModifiers, maxHp, maxMp, maxSp, statCap, xpToNext } from './rules.js';
 import { formatGearEntry, gearBonuses, parseGearEntry } from './items.js';
 import { stateWords } from './narrative.js';
 import { maxLevel, numeral as numeralFor, parseLevelLabel, progress, termsOf, xpFromProgress } from './terms.js';
@@ -43,6 +43,7 @@ const LABELS = {
     points: 'points', 'unspent points': 'points', 'stat points': 'points',
     hp: 'hp', health: 'hp',
     mp: 'mp', mana: 'mp',
+    sp: 'sp', stamina: 'sp',
     checks: 'checks',
     skills: 'skills',
     'set aside': 'aside', aside: 'aside',
@@ -93,6 +94,7 @@ function copySheet(sheet) {
         ...sheet,
         hp: { ...sheet.hp },
         mp: { ...sheet.mp },
+        ...(sheet.sp ? { sp: { ...sheet.sp } } : {}),
         stats: { ...sheet.stats },
         skills: (sheet.skills ?? []).map(skill => ({ ...skill })),
         conditions: (sheet.conditions ?? []).map(condition => ({ ...condition })),
@@ -322,6 +324,8 @@ function sheetFromLines(lines, rules, { name: givenName = null, label = 'Charact
         points,
         hp: pool('hp', maxHp(stats, level, rules)),
         mp: pool('mp', maxMp(stats, level, rules)),
+        // (0.5.29) Stamina: a sheet from before it has none written and starts fresh, quietly.
+        sp: 'sp' in found ? pool('sp', maxSp(stats, level, rules)) : { cur: maxSp(stats, level, rules), max: maxSp(stats, level, rules) },
         stats,
         skills: activeWithin(written.map(({ progress: _, ...skill }) => skill), rules),
         conditions: parseConditions(found.conditions),
@@ -426,11 +430,13 @@ function membersFrom(sections, r, errors) {
         const { sheet, errors: sheetErrors, found } = sheetFromLines(section.lines, r, { name: heading.name, label });
         errors.push(...sheetErrors);
         const gear = isNone(found.equipped) ? [] : String(found.equipped).split(/\s*\|\s*/).filter(Boolean).map(parseGearEntry);
-        // A section written without HP/MP maxima gets them with its gear counted.
-        if (!/\d\s*(?:\/|of)\s*\d/.test(found.hp ?? '') || !/\d\s*(?:\/|of)\s*\d/.test(found.mp ?? '')) {
+        // A section written without HP/MP/SP maxima gets them with its gear counted.
+        const paired = field => /\d\s*(?:\/|of)\s*\d/.test(found[field] ?? '');
+        if (!paired('hp') || !paired('mp') || !paired('sp')) {
             const full = recompute(sheet, gear, r);
-            if (!/\d\s*(?:\/|of)\s*\d/.test(found.hp ?? '')) sheet.hp = { cur: Math.min(int(found.hp) ?? full.hp.max, full.hp.max), max: full.hp.max };
-            if (!/\d\s*(?:\/|of)\s*\d/.test(found.mp ?? '')) sheet.mp = { cur: Math.min(int(found.mp) ?? full.mp.max, full.mp.max), max: full.mp.max };
+            if (!paired('hp')) sheet.hp = { cur: Math.min(int(found.hp) ?? full.hp.max, full.hp.max), max: full.hp.max };
+            if (!paired('mp')) sheet.mp = { cur: Math.min(int(found.mp) ?? full.mp.max, full.mp.max), max: full.mp.max };
+            if (!paired('sp')) sheet.sp = { cur: Math.min(int(found.sp) ?? full.sp.max, full.sp.max), max: full.sp.max };
         }
         members.push({ id: null, name: heading.name, role: heading.role || 'companion', control, sheet, gear });
     }
@@ -566,7 +572,7 @@ function levelLabelValue(level, rules) {
 }
 
 function poolsLine(sheet) {
-    return `HP: ${sheet.hp.cur}/${sheet.hp.max} | MP: ${sheet.mp.cur}/${sheet.mp.max}`;
+    return `HP: ${sheet.hp.cur}/${sheet.hp.max} | MP: ${sheet.mp.cur}/${sheet.mp.max}${sheet.sp ? ` | SP: ${sheet.sp.cur}/${sheet.sp.max}` : ''}`;
 }
 
 function stateLine(sheet, rules) {
@@ -658,9 +664,10 @@ export function newSheet({ name, stats, skills } = {}, rules = DEFAULT_RULES) {
     if (over) throw new Error(`New character: ${over} can go no higher than ${statCap(r)}.`);
     const hp = maxHp(base, 1, r);
     const mp = maxMp(base, 1, r);
+    const sp = maxSp(base, 1, r);
     let sheet = {
         name: trimmed, level: 1, xp: 0, points: 0,
-        hp: { cur: hp, max: hp }, mp: { cur: mp, max: mp },
+        hp: { cur: hp, max: hp }, mp: { cur: mp, max: mp }, sp: { cur: sp, max: sp },
         stats: base, skills: [], conditions: [], uses: {},
     };
     for (const skill of skills ?? []) sheet = learnSkill(sheet, typeof skill === 'string' ? skill : skill?.name, { rules: r });
@@ -674,6 +681,10 @@ function growPools(sheet, before, rules) {
     const mpGain = maxMp(sheet.stats, sheet.level, rules) - maxMp(before.stats, before.level, rules);
     sheet.hp = { max: Math.max(1, sheet.hp.max + hpGain), cur: clamp(sheet.hp.cur + hpGain, 0, Math.max(1, sheet.hp.max + hpGain)) };
     sheet.mp = { max: Math.max(0, sheet.mp.max + mpGain), cur: clamp(sheet.mp.cur + mpGain, 0, Math.max(0, sheet.mp.max + mpGain)) };
+    if (sheet.sp) {
+        const spGain = maxSp(sheet.stats, sheet.level, rules) - maxSp(before.stats, before.level, rules);
+        sheet.sp = { max: Math.max(0, sheet.sp.max + spGain), cur: clamp(sheet.sp.cur + spGain, 0, Math.max(0, sheet.sp.max + spGain)) };
+    }
 }
 
 /** Unspent points into stats; throws when over budget or not whole non-negative numbers. */
@@ -778,6 +789,10 @@ export function applyResult(sheet, memberId, result, rules = DEFAULT_RULES) {
         const mpMax = Number.isFinite(entry.mp?.max) ? entry.mp.max : next.mp.max;
         next.hp = { max: hpMax, cur: clamp(Math.round(entry.hp?.cur ?? next.hp.cur), 0, hpMax) };
         next.mp = { max: mpMax, cur: clamp(Math.round(entry.mp?.cur ?? next.mp.cur), 0, mpMax) };
+        if (entry.sp) {
+            const spMax = Number.isFinite(entry.sp.max) ? entry.sp.max : next.sp?.max ?? entry.sp.max;
+            next.sp = { max: spMax, cur: clamp(Math.round(entry.sp.cur ?? next.sp?.cur ?? spMax), 0, spMax) };
+        }
         const lasting = (entry.conditions ?? []).map(condition => ({ name: condition.name, rounds: condition.rounds ?? null }));
         const story = next.conditions.filter(condition => !isCombatCondition(condition.name)
             && !lasting.some(other => skillKey(other.name) === skillKey(condition.name)));
@@ -832,7 +847,9 @@ export function recompute(sheet, gear, rules = DEFAULT_RULES) {
     const next = copySheet(sheet);
     const hp = maxHp(stats, sheet.level, r, Number(bonus.HP) || 0);
     const mp = maxMp(stats, sheet.level, r, Number(bonus.MP) || 0);
+    const sp = maxSp(stats, sheet.level, r, Number(bonus.SP) || 0);
     next.hp = { max: hp, cur: clamp(sheet.hp?.cur ?? hp, 0, hp) };
     next.mp = { max: mp, cur: clamp(sheet.mp?.cur ?? mp, 0, mp) };
+    next.sp = { max: sp, cur: clamp(sheet.sp?.cur ?? sp, 0, sp) };
     return next;
 }

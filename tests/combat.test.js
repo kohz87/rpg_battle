@@ -597,3 +597,30 @@ test('previewStrike and availableActions.previews: hit, damage range and crit by
     assert.ok(a.previews.skills['Power Strike'].e1.high > a.previews.attack.e1.high, 'a stronger skill shows more damage');
     assert.equal(a.previews.skills.Ward, undefined);
 });
+
+test('stamina (0.5.29): a physical skill costs SP, the rest MP; breath comes back each turn, more on defend', () => {
+    const strike = DEFAULT_SKILLS.find(s => s.name === 'Power Strike');
+    const fire = DEFAULT_SKILLS.find(s => s.name === 'Firebolt');
+    const breath = Math.max(1, Math.round(40 * EXACT.combat.spPerTurn));
+    const fresh = start({ party: [hero({ sp: { cur: 40, max: 40 } })] });
+    let f = act(fresh, { type: 'skill', skill: 'Power Strike', target: 'e1' }, EXACT);
+    assert.equal(get(f, 'pc').mp.cur, 50, 'no MP for a physical skill');
+    assert.equal(get(f, 'pc').sp.cur, 40 - strike.mp + breath, 'its cost in stamina, a breath back at the next turn');
+    f = act(f, { type: 'skill', skill: 'Firebolt', target: 'e1' }, EXACT);
+    assert.equal(get(f, 'pc').mp.cur, 50 - fire.mp, 'magic still costs MP');
+    // Out of breath: the physical skill waits, magic does not.
+    const winded = start({ party: [hero({ sp: { cur: 0, max: 40 } })] });
+    const list = availableActions(winded, EXACT).skills;
+    assert.equal(list.find(s => s.name === 'Power Strike').reason, 'sp');
+    assert.equal(list.find(s => s.name === 'Firebolt').usable, true);
+    // Defending catches one's breath.
+    const low = start({ party: [hero({ sp: { cur: 10, max: 40 } })] });
+    const before = get(low, 'pc').sp.cur;
+    const defended = act(low, { type: 'defend' }, EXACT);
+    const back = Math.round(40 * EXACT.attack.defendSpBack);
+    assert.equal(get(defended, 'pc').sp.cur, before + back + breath);
+    assert.equal(defended.log.find(e => e.kind === 'defend').text, `Ren defends (+${back} SP).`);
+    // A combatant without stamina (a monster, an older fight) pays from MP as before.
+    const old = act(start(), { type: 'skill', skill: 'Power Strike', target: 'e1' }, EXACT);
+    assert.equal(get(old, 'pc').mp.cur, 50 - strike.mp);
+});
