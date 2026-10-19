@@ -66,7 +66,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.16';
+const VERSION = '0.5.17';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -137,6 +137,9 @@ const DEFAULT_SETTINGS = Object.freeze({
     // (0.5.4) After a fight, a few next moves on the result screen (a model call when model
     // calls are on, else written by code); off: only Return to story.
     nextMoves: true,
+    // (0.5.17) Who writes them: 'flavour' (the Generated-words model and its switch), 'chat',
+    // 'profile:<id>' or 'code'.
+    nextMovesModel: 'flavour',
     currency: DEFAULT_RULES.currency,
     // HP and MP come back as story time passes (needs Story Director's clock).
     recoverWithTime: true,
@@ -852,6 +855,18 @@ let nextMoves = { fightId: null, status: 'idle', moves: [], source: '' };
 const NEXT_MOVES_SECONDS = 15;
 const NEXT_MOVES_TOKENS = 200;
 
+/**
+ * (0.5.17) The model the next moves are asked of, or null for code only: the Generated-words
+ * model while its calls are on ('flavour'), the chat's, or a connection profile of their own.
+ */
+function nextMovesModelOf(own) {
+    const choice = String(own.nextMovesModel ?? 'flavour');
+    if (choice === 'code') return null;
+    if (choice === 'chat') return { source: 'chat' };
+    if (choice.startsWith('profile:')) return { source: 'profile', profileId: choice.slice('profile:'.length) };
+    return own.flavour?.enabled ? own.flavour.model ?? { source: 'chat' } : null;
+}
+
 /** Whether a result gets next moves: the setting on, and not a character's death. */
 function wantsNextMoves(result) {
     if (settings().nextMoves === false) return false;
@@ -870,9 +885,10 @@ async function prepareNextMoves(id, result, handoff) {
     }
     const fallback = fallbackMoves(result);
     const own = settings();
+    const model = nextMovesModelOf(own);
     // The chat's own connection offline: no call to wait for.
-    const offline = own.flavour?.model?.source !== 'profile' && context()?.onlineStatus === 'no_connection';
-    if (!own.flavour?.enabled || offline) {
+    const offline = model && model.source !== 'profile' && context()?.onlineStatus === 'no_connection';
+    if (!model || offline) {
         nextMoves = { fightId: id, status: 'ready', moves: fallback, source: 'code' };
         return;
     }
@@ -881,7 +897,7 @@ async function prepareNextMoves(id, result, handoff) {
     let moves = [];
     try {
         const messages = nextMovesPrompt({ handoff, scene: recentScene(), pcName: currentSheet()?.name ?? '' });
-        moves = parseNextMoves(await withTimeout(sendToModel(messages, own.flavour.model, NEXT_MOVES_TOKENS), NEXT_MOVES_SECONDS * 1000));
+        moves = parseNextMoves(await withTimeout(sendToModel(messages, model, NEXT_MOVES_TOKENS), NEXT_MOVES_SECONDS * 1000));
         if (moves.length < 2) console.info('[RPG Battle] the next-moves answer had too little to use; the written ones stand in.');
     } catch (error) {
         console.info(`[RPG Battle] the next-moves call failed (${error instanceof Error ? error.message : String(error)}); the written ones stand in.`);

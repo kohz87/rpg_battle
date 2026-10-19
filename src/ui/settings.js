@@ -143,6 +143,18 @@ export function combatValue(key, value) {
     return wholeOrNull(value, min, max) ?? fallback;
 }
 
+function afterHint(current, profiles) {
+    if (current.nextMoves === false) return 'What next? off';
+    const model = String(current.nextMovesModel ?? 'flavour');
+    if (model === 'code') return 'What next? from the result';
+    if (model === 'chat') return 'What next? by the chat\'s model';
+    if (model.startsWith('profile:')) {
+        const id = model.slice('profile:'.length);
+        return `What next? by ${(profiles ?? []).find(profile => String(profile.id) === id)?.name ?? 'a profile'}`;
+    }
+    return current.flavour?.enabled === false ? 'What next? from the result' : 'What next? by the Generated words model';
+}
+
 function combatHint(current) {
     const cap = combatValue('statCap', current.statCap);
     return [
@@ -153,7 +165,7 @@ function combatHint(current) {
 }
 
 /** One line per section, from the settings as they are now. */
-export function foldHints(settings) {
+export function foldHints(settings, profiles = null) {
     const current = settings ?? {};
     const currency = current.currency ?? {};
     const terms = current.terms ?? {};
@@ -165,6 +177,7 @@ export function foldHints(settings) {
         terms: [terms.levelName || 'Level', terms.xpName || 'XP', terms.tiers ? 'tiers' : '', terms.cap ? `cap ${terms.cap}` : ''].filter(Boolean).join(' · '),
         monsters: current.flavour?.enabled === false ? 'Model calls off' : 'Model calls on',
         combat: combatHint(current),
+        after: afterHint(current, profiles),
         party: `${combatValue('pointsPerLevel', current.pointsPerLevel) !== COMBAT_LIMITS.pointsPerLevel.fallback ? `${combatValue('pointsPerLevel', current.pointsPerLevel)} points a level · ` : ''}${Number(current.activeSkills) || 6} active skills · ${current.autoSpend === false ? 'points by hand' : 'auto-spend'}${xpRateValue(current.xpRate) !== 1 ? ` · XP ×${xpRateValue(current.xpRate)}` : ''}`,
         truth: chosen ? `${chosen} chosen by hand` : 'Automatic',
         blocks: [current.partyTag || 'Party', current.inventoryTag || 'Inventory'].join(' · '),
@@ -176,7 +189,7 @@ export function renderSettings(container, { settings, version = '', status = '',
     let current = structuredClone(settings ?? {});
     const hintNodes = {};
     const refreshHints = () => {
-        const hints = foldHints(current);
+        const hints = foldHints(current, profiles);
         for (const [key, node] of Object.entries(hintNodes)) if (node.textContent !== hints[key]) node.textContent = hints[key];
     };
     const commit = change => {
@@ -414,7 +427,30 @@ export function renderSettings(container, { settings, version = '', status = '',
     // (0.5.4) Next moves on the result screen.
     const nextMovesOn = el('input', { attrs: { id: 'rpg_battle_next_moves', type: 'checkbox' } });
     nextMovesOn.checked = current.nextMoves !== false;
-    nextMovesOn.addEventListener('change', () => commit(next => { next.nextMoves = nextMovesOn.checked; }));
+    // (0.5.17) Who writes them: the Generated-words model (and its switch), the chat's model, a
+    // connection profile of their own, or code only.
+    const movesChoices = [
+        { value: 'flavour', label: 'Same as Generated words' },
+        { value: 'chat', label: 'Same as chat' },
+        ...(profiles ?? []).map(profile => ({ value: `profile:${profile.id}`, label: String(profile.name ?? profile.id) })),
+        { value: 'code', label: 'No model: written from the result' },
+    ];
+    const movesChosen = String(current.nextMovesModel ?? 'flavour');
+    if (!movesChoices.some(choice => choice.value === movesChosen)) movesChoices.push({ value: movesChosen, label: '(missing profile)' });
+    const nextMovesModel = el('select', { className: 'text_pole', attrs: { id: 'rpg_battle_next_moves_model' } },
+        movesChoices.map(choice => {
+            const node = el('option', { text: choice.label });
+            node.value = choice.value;
+            return node;
+        }));
+    nextMovesModel.value = movesChosen;
+    const movesModelRow = row('Written by', 'A small, fast model is enough. "Same as Generated words" follows that section\'s model and its Model calls switch.', nextMovesModel, 'rpg_battle_next_moves_model');
+    const syncMoves = () => { movesModelRow.hidden = !nextMovesOn.checked; };
+    nextMovesOn.addEventListener('change', () => {
+        syncMoves();
+        commit(next => { next.nextMoves = nextMovesOn.checked; });
+    });
+    nextMovesModel.addEventListener('change', () => commit(next => { next.nextMovesModel = nextMovesModel.value; }));
 
     const turnOff = el('button', { className: 'menu_button rpg-battle-settings-sheet-off', text: 'Turn it off', attrs: { type: 'button' } });
     turnOff.addEventListener('click', () => onDisableSheet?.());
@@ -527,6 +563,10 @@ export function renderSettings(container, { settings, version = '', status = '',
                         row('Hit chance', 'A physical attack between equal DEX and AGI lands this often. Spells never miss.', hitBase, 'rpg_battle_hit_base'),
                         row('Per point', 'Added for each point of the attacker\'s DEX over the defender\'s AGI, taken away for each point under (5% to 95% in all).', hitPerPoint, 'rpg_battle_hit_per_point'),
                     ]),
+                    fold('after', 'After a fight', [
+                        row('What next? choices', 'A few things your character could do next, on the result screen. A click puts one in the message box. Off: only Just continue and Done.', nextMovesOn, 'rpg_battle_next_moves'),
+                        movesModelRow,
+                    ]),
                     fold('party', 'Party', [
                         row('Points per level', 'Stat points each level gives (1 to 20); 4 is what fights are balanced for. Levels already reached keep what they gave; a companion who joins later is built with this.', pointsPerLevel, 'rpg_battle_points_per_level'),
                         row('Active skills', 'Skills each member fights with (3 to 12). More are kept, set aside, and swapped in on their card.', withUnit(activeSkills, 'skills'), 'rpg_battle_active_skills'),
@@ -542,7 +582,6 @@ export function renderSettings(container, { settings, version = '', status = '',
                         tag('rpg_battle_party_tag', 'partyTag', 'Party tag', 'The kept block with your character and companions.'),
                         tag('rpg_battle_inventory_tag', 'inventoryTag', 'Inventory tag', 'Your Story Block inventory (equipment, consumables, loot).'),
                         row('Return to story', 'Sent for you after a fight so the narration comes straight away. Empty: send nothing.', returnMessage, 'rpg_battle_return'),
-                        row('Next moves after a fight', 'A few things your character could do next, on the result screen: written by the model when model calls are on, else from the result. A click puts one in the message box.', nextMovesOn, 'rpg_battle_next_moves'),
                     ]),
                 ]),
             ]),
@@ -556,6 +595,7 @@ export function renderSettings(container, { settings, version = '', status = '',
         if (diagnostics.open) readReport();
     }
     syncFlavour();
+    syncMoves();
     syncTurns();
     refreshHints();
     container.replaceChildren(root);

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.17
+
+- **What next? has its own section and model.** The *What next?* choices after a fight could only be turned off from the Blocks section, and they always used the Generated words model (turning model calls off there quietly gave code-written ones). A new **After a fight** section turns them on or off and picks who writes them: the Generated words model (as before), the chat's model, a connection profile of their own, or no model (written from the result).
+
 ## 0.5.16
 
 - **A new fight replaces the last result's screen.** When the reply that narrated a fight also started the next one (wolves done, rats spilling out of the barley), the Battle tab stayed on the old result's *What next?* screen until Done was pressed, hiding the new fight's offer. A new encounter now takes the result screen's place: the offer shows at once, Done or not.
