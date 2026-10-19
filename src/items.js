@@ -58,6 +58,8 @@ const clean = value => String(value ?? '').replace(/\r?\n/g, ' ').trim();
 const stripBold = value => String(value ?? '').replace(/\*\*|__/g, '').trim();
 const nameKey = value => stripBold(value).normalize('NFKC').replace(/\s+/g, ' ').toLowerCase();
 const LIST_MARKER = /^(?:[-*•]|\d+[.)])\s+/;
+// (0.5.19) A line that only says a section is empty ("(empty)", "*(None)*", "—") is no item.
+const EMPTY_LINE = /^[\s*_([{]*(?:empty|none|nothing|nothing yet|n\/a|-+|—|–)[\s*_)\]}.]*$/i;
 const TABLE_RULE = /^\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?$/;
 const TAG_LINE = /^<\/?[A-Za-z][\w-]*>$/;
 
@@ -132,6 +134,7 @@ function scan(lines) {
             return;
         }
         const body = trimmed.replace(LIST_MARKER, '').replace(/^\[(.*)\]$/, '$1');
+        if (EMPTY_LINE.test(body)) return;
         const raw = splitRaw(line);
         const table = body.startsWith('|');
         const cells = splitRaw(body).map(cell => clean(unescape(cell)));
@@ -729,7 +732,20 @@ export function addLoot(inventoryText, { items = [], money = 0 } = {}, currency 
         const note = lootNote(item, kind);
         insertRow(lines, category, `${escapeName(name)} | ${qty}${note ? ` | ${escapeCell(note)}` : ''}`);
     }
-    return lines.join(eol);
+    return dropEmptyMarks(lines).join(eol);
+}
+
+// A section's "(empty)" line goes once the section holds a row.
+function dropEmptyMarks(lines) {
+    const { rows } = scan(lines);
+    const filled = new Set(rows.map(row => row.category));
+    let category = '';
+    return lines.filter(line => {
+        const trimmed = line.trim();
+        const header = headerName(trimmed);
+        if (header !== null) category = header;
+        return !(header === null && trimmed && EMPTY_LINE.test(trimmed.replace(LIST_MARKER, '')) && filled.has(category));
+    });
 }
 
 /** Consumables used in a fight taken out: { name: count } down, a row at 0 removed. */

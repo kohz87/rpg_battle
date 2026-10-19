@@ -35,6 +35,16 @@ const INVENTORY = [
 
 const byName = (items, name) => items.find(item => item.name === name);
 
+test('a section marked "(empty)" holds no item, and loads its loot without the mark (0.5.19)', () => {
+    const text = 'Rope | 1 | coiled\n\n[Loot]\n(empty)\n\n[Spare]\n*(None)*\n\n[Gear]\n- none\nKnife | 1 | work';
+    assert.deepEqual(parseInventory(text).items.map(item => [item.name, item.category]), [['Rope', ''], ['Knife', 'Gear']]);
+    const looted = addLoot(text, { items: [{ name: 'Wolf Pelt', qty: 2, category: 'Loot' }] });
+    assert.match(looted, /\[Loot\]\nWolf Pelt \| 2/);
+    assert.doesNotMatch(looted, /\(empty\)/);
+    assert.match(looted, /\[Spare\]\n\*\(None\)\*/, 'a section still empty keeps its mark');
+    assert.doesNotMatch(looted, /- none/);
+});
+
 test('parseInventory reads every row with its category and raw text', () => {
     const { items } = parseInventory(INVENTORY);
     assert.equal(items.length, 11);

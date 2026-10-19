@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.19
+
+- **"(empty)" is not an item.** A line such as `(empty)` or `*(None)*` under an inventory header (`[Loot]`) was read as an item called "(empty)". It is skipped now, and when loot lands in that section the placeholder line goes. A section that is still empty keeps it.
+
 ## 0.5.18
 
 - **A planned fight waits for the story to reach it.** A fight Story Director planned was offered as soon as it was due, or even due soon, wherever your character was: *Drunken convoy guards sack the Stray Oar* came up while you never set foot in the Stray Oar. With Story Director 0.9.18 it is offered only in the reply that fires it, when the scene is there. One that comes due elsewhere becomes news in the story, not a fight. With an older Story Director, the old behaviour stays.
