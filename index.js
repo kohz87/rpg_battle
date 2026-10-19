@@ -66,7 +66,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.27';
+const VERSION = '0.5.28';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -216,6 +216,12 @@ function isAssistant(message) {
     return Boolean(message) && !message.is_user && !message.is_system;
 }
 
+// (0.5.28) A reply, hidden from the model or not: what it carries (a narrated fight, the
+// opening's party) is still the story's.
+function isStoryMessage(message) {
+    return Boolean(message) && !message.is_user;
+}
+
 function latestAssistantIndex(chat) {
     for (let index = chat.length - 1; index >= 0; index--) if (isAssistant(chat[index])) return index;
     return -1;
@@ -339,7 +345,7 @@ function narratesAt(state, chat, index) {
 /** The narrated record with the hand-off's reply added once it is in the chat; null when unchanged. */
 function noteNarrated(state, chat) {
     const at = state.pending?.attachedTo;
-    if (!Number.isInteger(at) || !isAssistant(chat?.[at])) return null;
+    if (!Number.isInteger(at) || !isStoryMessage(chat?.[at])) return null;
     const origin = fightOrigin(chat, at);
     if (state.narrated.some(entry => entry.index === origin.index && entry.date === origin.date && entry.swipe === origin.swipe)) return null;
     return [...state.narrated, origin].slice(-NARRATED_KEPT);
@@ -1664,7 +1670,7 @@ function currentOffers(ctx = context(), state = chatState(ctx)) {
         index, texts: partyBlocksAt(sb, index), pc, members, persona, rules: r, library: lib, opening,
         narrating: narratesAt(state, chat, index), pending: waiting,
     }).map(offer => ({ ...offer, index, ...(opening ? { opening: true } : {}) }));
-    if (isAssistant(chat[0]) && latest !== 0) offers.push(...from(0, true));
+    if (isStoryMessage(chat[0]) && latest !== 0) offers.push(...from(0, true));
     if (latest >= 0) {
         offers.push(...from(latest, latest === 0));
         offers.push(...questOffers({ index: latest, quests: questsDoneAt(latest), pc, rules: r }).map(offer => ({ ...offer, index: latest })));

@@ -204,7 +204,9 @@ export function buildPlanHandoff(result, { names = {}, currency = DEFAULT_RULES.
 // ---------------------------------------------------------------------------
 // Where a waiting hand-off stands (0.4.2)
 
-const isReply = message => Boolean(message) && !message.is_user && !message.is_system;
+// (0.5.28) A reply hidden from the model (SillyTavern's hide, or a memory extension hiding old
+// messages) is still the reply a fight started from: hiding it never drops the fight's result.
+const isReply = message => Boolean(message) && !message.is_user;
 
 /**
  * Where a fight started (0.4.3): the reply that was the latest when it began, as

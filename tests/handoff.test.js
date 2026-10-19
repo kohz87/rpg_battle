@@ -179,6 +179,7 @@ test('fightOrigin and originHolds: deleted, swiped away or replaced, the origin 
     assert.equal(originHolds(origin, [greeting, user, { ...offer, swipe_id: 2, send_date: 'd5' }]), false, 'swiped to another version');
     assert.equal(originHolds(origin, [greeting, user, { ...offer, swipe_id: 1, send_date: 'd9' }]), false, 'a new reply in its place');
     assert.equal(originHolds(origin, [greeting, user, user]), false, 'a user message in its place');
+    assert.equal(originHolds(origin, [greeting, user, { ...offer, is_system: true }]), true, 'hidden from the model, it is still the reply (0.5.28)');
     assert.equal(originHolds({ index: 2 }, [greeting, user, { mes: 'any', is_user: false }]), true, 'an older chat checks only that a reply is there');
     assert.equal(originHolds({ index: 2 }, [greeting, user]), false);
     assert.equal(originHolds(null, []), true);

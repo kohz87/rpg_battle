@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.28
+
+- **Hiding a reply never drops a fight.** A fight's result waits for the story to tell it, tied to the reply the fight started from. If a memory extension (Summarybook and the like) hid that reply, RPG Battle read it as deleted and dropped the result. The same happened to the record of which replies already narrated a fight, and to the opening's party. A hidden reply is now still the reply; only deleting or swiping it takes the fight back.
+
 ## 0.5.27
 
 - **A cure in the story lifts the condition.** RPG Battle always understood `<Wounds>Astra — cure poison: …</Wounds>`, but the story was never told it could write one. So when Astra drank Mother Greta's nettle broth and sweated the venom out, the Party sheet still read *poisoned*. The instruction now names the cure (*heal wound, poisoned, cure poison*). While anyone carries a condition, it also adds *Lasting conditions: Astra poisoned. When the story ends one: <Wounds>Astra — cure poisoned: how</Wounds>.* The line goes once the sheet is clear.
