@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.26
+
+- **One purse line, beside the Inventory.** Story Block 0.9.12 now adds the purse up itself. While it keeps the items, its default, it writes the line right after the Inventory, counted in RPG Battle's currency (shared with it as `currency()`), and RPG Battle leaves its own copy out. With an older Story Block, or with RPG Battle chosen to keep the items, RPG Battle still sends it as in 0.5.25.
+
 ## 0.5.25
 
 - **The story knows what the party can pay.** A purse written as "1 Gold, 35 Silver, 14 Copper" is hard to add up mid-scene, so a model let a tanner take six gold four silver from a purse holding about four and a half gold. Before each reply the story is now told the purse in one sum: *Purse: 4 gold, 6 silver, 4 copper in all; nothing dearer can be paid for (the seller refuses, haggles or takes goods in trade).*
