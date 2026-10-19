@@ -915,3 +915,27 @@ test('one purse line: Story Block writes it while it keeps the items, in RPG Bat
         ctx.setExtensionPrompt = before;
     }
 });
+
+test('the story is told the conditions the party carries and how to end one, and the cure lifts it (0.5.27)', async () => withClock(async () => {
+    const prompts = {};
+    const before = ctx.setExtensionPrompt;
+    ctx.setExtensionPrompt = (key, value) => { prompts[key] = value; };
+    try {
+        const poisoned = REN.replace('Conditions: none', 'Conditions: poisoned');
+        openChat('poison-chat', [reply(`<Party>\n${poisoned}\n</Party>`), userMessage('I drink the nettle broth.')]);
+        hooks.update();
+        await settle();
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        assert.match(prompts.rpg_battle_rules, /Lasting conditions: Ren poisoned\. When the story ends one: <Wounds>Ren — cure poisoned: how<\/Wounds>\./);
+        assert.match(prompts.rpg_battle_rules, /cure poison;/, 'the instruction names the cure');
+        ctx.chat.push(sent('The broth burns its way down; the venom sweats out.\n<Wounds>\nRen — cure poisoned: Mother Greta\'s nettle broth\n</Wounds>', 'd2'));
+        await hooks.reply({ messageIndex: 2 });
+        await settle();
+        assert.match(partyText(3), /Conditions: none/, 'the sheet is clear');
+        ctx.chat.push(userMessage('On.'));
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        assert.doesNotMatch(prompts.rpg_battle_rules, /Lasting conditions/, 'nothing carried, nothing said');
+    } finally {
+        ctx.setExtensionPrompt = before;
+    }
+}));

@@ -156,15 +156,17 @@ test('encounter: unknown names kept (singular only for a creature word), notes i
 test('the story instruction is compact (about 190 tokens) and names every tag, the grammar and the threat words', () => {
     // 0.5.9: "never narrating it" after the first blow (a model narrated a rat fight to its end).
     const pieces = STORY_INSTRUCTION.match(/[A-Za-z]+|\d+|[^\sA-Za-z\d]/g).length;
-    assert.ok(STORY_INSTRUCTION.length <= 760, `${STORY_INSTRUCTION.length} characters`);
-    assert.ok(Math.ceil(STORY_INSTRUCTION.length / 4) <= 190, 'about 190 tokens at four characters a token');
+    // 0.5.27: "cure poison" (a condition lifted), about 3 tokens.
+    assert.ok(STORY_INSTRUCTION.length <= 775, `${STORY_INSTRUCTION.length} characters`);
+    assert.ok(Math.ceil(STORY_INSTRUCTION.length / 4) <= 194, 'about 194 tokens at four characters a token');
     assert.ok(pieces <= 220, `${pieces} words and marks`);
     assert.ok(STORY_INSTRUCTION.includes('never narrating it'));
-    for (const part of ['<Wounds>', '<Encounter>', '<Joins>', '<Leaves>', '<Learned>', '<XP>', '<Rest>', 'scratch|wound|severe|grievous', 'heal', 'poisoned', 'Party sheet', 'not for an RPG Battle fight', 'stop at the first blow', 'trivial|weak|even|strong|deadly', 'minor|major|milestone', 'short|long', 'then:', 'then at <place>:', 'more foes join', '| to the death']) {
+    for (const part of ['<Wounds>', '<Encounter>', '<Joins>', '<Leaves>', '<Learned>', '<XP>', '<Rest>', 'scratch|wound|severe|grievous', 'heal', 'poisoned', 'cure poison', 'Party sheet', 'not for an RPG Battle fight', 'stop at the first blow', 'trivial|weak|even|strong|deadly', 'minor|major|milestone', 'short|long', 'then:', 'then at <place>:', 'more foes join', '| to the death']) {
         assert.ok(STORY_INSTRUCTION.includes(part), part);
     }
     // Its own examples read back as the grammar says.
     assert.deepEqual(parseWounds('Ren — heal wound: x').map(entry => entry.kind), ['heal']);
+    assert.deepEqual(parseWounds('Ren — cure poison: x').map(entry => [entry.kind, entry.condition]), [['cure', 'poison']]);
     assert.deepEqual(parseEncounter(STORY_INSTRUCTION.match(/<Encounter>(.*?)<\/Encounter>/)[1]).map(row => [row.name, row.boss, row.threat, row.wave ?? 0]), [['Wolf', false, 'weak', 0], ['Wolf Matriarch', true, 'strong', 1]]);
     const example = tag => STORY_INSTRUCTION.match(new RegExp(`<${tag}>(.*?)</${tag}>`))[1];
     assert.deepEqual(parseJoins(example('Joins'), rules).map(entry => [entry.name, entry.role, entry.level]), [['Lyra', 'healer', 6]]);
