@@ -1,4 +1,4 @@
-# RPG Battle v0.5.17
+# RPG Battle v0.5.18
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -589,9 +589,12 @@ Defeat is then death (game over, and the hand-off says so). `| death` and `| sta
 too, in any case; without a mark the stakes are normal (defeat means the story decides). What
 follows a bar is never read as a foe.
 
-With Story Director 0.8, a fight it has planned (a beat with foes, now due or due soon) is
-offered the same way, with its name and place; its text may use `then:`, `then at <place>:` and
-`| to the death` too.
+With Story Director 0.8, a fight it has planned (a beat with foes) is offered the same way, with
+its name and place; its text may use `then:`, `then at <place>:` and `| to the death` too. Since
+0.5.18 (with Story Director 0.9.18) only once the story **reaches** it: the reply fires the beat
+(`! Key — …`), so the scene is where the fight is. A planned fight that comes due while your
+character is elsewhere is never offered; the story tells it as news. With an older Story
+Director, a due or due-soon fight is offered as before.
 
 ## Monsters on the fly
 

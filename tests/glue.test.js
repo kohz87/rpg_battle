@@ -259,6 +259,24 @@ test('a Story Director fight carries its stakes marker too; without one the stak
     }
 });
 
+test('a Story Director fight is offered only when the story reached it in this reply (0.5.18)', async () => {
+    openChat('director-reached', [reply(`<Party>\n${REN}\n</Party>`), userMessage('I stay at the guild.'), reply('The clerk files the ledgers.')]);
+    // Due across the village, the scene elsewhere: nothing to fight.
+    globalThis.StoryDirector = { encountersAt: () => [{ key: 'Guards sack the Stray Oar', encounter: '3 desperate drover, mercenary veteran (boss)', status: 'due', place: 'Bluewatch Village', on: 'Goldwane 13, 10:30 pm', reached: false }] };
+    try {
+        hooks.update();
+        await settle();
+        assert.equal(hooks.tabs['rpg-battle'].badge(), 0);
+        assert.equal(drawTab('rpg-battle').querySelector('.rpg-battle-encounter-label'), null);
+        // The reply fired it: the scene got there.
+        globalThis.StoryDirector = { encountersAt: () => [{ key: 'Guards sack the Stray Oar', encounter: '3 desperate drover, mercenary veteran (boss)', status: 'due', place: 'Bluewatch Village', on: 'Goldwane 13, 10:30 pm', reached: true }] };
+        const label = find(drawTab('rpg-battle'), '.rpg-battle-encounter-label').textContent;
+        assert.equal(label, 'Planned by Story Director: Guards sack the Stray Oar at Bluewatch Village.');
+    } finally {
+        delete globalThis.StoryDirector;
+    }
+});
+
 test('the hand-off: waiting until given to a reply, gone once that reply is in, waiting again if it is deleted, spent after a newer one', async () => {
     const handoff = '[Battle resolved by RPG Battle: narrate this outcome, do not change it]\nVictory in 3 rounds.';
     openChat('handoff-chat', [reply(`<Party>\n${REN}\n</Party>`), userMessage('Onward.'), reply('The bandits fall back.')], {
