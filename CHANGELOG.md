@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.24
+
+- **A rest the story tells is applied without asking.** A reply's `<Rest>` line ("short: rested in Mother Karr's garret after cleaning blade and dressing wounds") no longer waits for a *Recover?* click. The rest goes straight onto the sheets, with a toast saying what each member got back: *Rested (short): … Ren HP +20, MP +8; Lyra HP +20, MP +15.* This matches how fights, quests and story XP already work. The rest is written into that reply, so deleting or swiping it undoes it. As before, a reply that tells a fight's result, or one while a result still waits to be told, rests nobody. The opening message's rest still waits for a click.
+
 ## 0.5.23
 
 - **A fight's result reaches the story in chats with hidden messages.** SillyTavern gives extensions the chat without its hidden messages, such as a hidden greeting or note. RPG Battle counted reply positions in that shorter list, so it tied the fight's result to an earlier reply and treated it as already told. The first reply after the fight still got the result. But once that reply arrived, the result was dropped, so a reply deleted and re-run, or regenerated, never got it. The model then saw only the fight starting and fought it again with dice, a new `<Encounter>` and story XP. Positions now come from the whole chat, so the reply that tells the fight is the one that gets the result, every time it is re-run.
