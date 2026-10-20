@@ -746,11 +746,26 @@ export function creaturesToMake(rows, { chatBestiary = [], defaults = DEFAULT_BE
     const made = [];
     for (const row of rows ?? []) {
         const name = String(row?.name ?? '').trim();
-        if (!name || lookupCreature(name, chatBestiary, defaults) || findCreature(made, name)) continue;
+        if (!name || isNoteName(name) || lookupCreature(name, chatBestiary, defaults) || findCreature(made, name)) continue;
         const kin = findKin(name, { chatBestiary, defaults, made })?.entry ?? null;
         made.push(generateCreature({ name, level: row.level, role: row.role || null, boss: Boolean(row.boss) }, { rules, seed, kin }));
     }
     return made;
+}
+
+// (0.5.46) Words that say something about a fight, never who is in it: a threat ("even",
+// "deadly"), "boss", the stakes. A foe named only with them ("Even", "Deadly") came from a
+// note the story wrote apart from the name ("2 cellar rats, even") and is no creature.
+const NOTE_WORDS = new Set([
+    'trivial', 'feeble', 'puny', 'weak', 'minor', 'easy', 'low', 'lesser', 'even', 'fair', 'matched', 'equal',
+    'strong', 'tough', 'dangerous', 'high', 'deadly', 'lethal', 'overwhelming', 'elite', 'calamity',
+    'threat', 'boss', 'stakes', 'death', 'to', 'the', 'foe', 'foes', 'enemy', 'enemies',
+]);
+
+/** Whether `name` is only fight-note words ("Even", "deadly", "to the death"): no creature. */
+export function isNoteName(name) {
+    const words = String(name ?? '').toLowerCase().split(/[^a-z]+/).filter(Boolean);
+    return words.length > 0 && words.every(word => NOTE_WORDS.has(word));
 }
 
 /** The chat's bestiary with `entries` put in (replacing any of the same name), newest last, at most `max`. */

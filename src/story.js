@@ -19,7 +19,7 @@
 import { DEFAULT_RULES, RANKS, STATS, threatStep } from './rules.js';
 import { DEFAULT_BESTIARY, findCreature } from './enemies.js';
 import { maxLevel, parseLevelLabel, termsOf } from './terms.js';
-import { creatureSingular } from './templates.js';
+import { creatureSingular, isNoteName } from './templates.js';
 
 /**
  * What the model is told every reply while you have a character (index.js injects it at
@@ -348,6 +348,15 @@ function parseGroup(raw, bestiary, rules) {
     // A colon never belongs in a name: "inside the den: old dog wolf", "round 3: 2 wolf" (a
     // place or a note the stage marks did not take) leave only what follows it.
     text = text.replace(/^.*:\s*/, '').trim();
+    // (0.5.46) "3 cellar rat — even": notes after a spaced dash are the row's, not its name.
+    const dashed = text.match(/^(.+?)\s+[—–-]+\s+(.+)$/);
+    if (dashed && isNoteName(dashed[2])) {
+        for (const word of dashed[2].toLowerCase().split(/[^a-z]+/)) {
+            if (word === 'boss') boss = true;
+            else if (THREAT_WORDS[word] && !threat) threat = THREAT_WORDS[word];
+        }
+        text = dashed[1].trim();
+    }
     text = text.replace(/\brank\s+(sss|ss|s|a|b|c|d|e|f)\b/i, (_, value) => {
         rank = value.toUpperCase();
         return ' ';
@@ -388,6 +397,15 @@ function parseGroup(raw, bestiary, rules) {
         text = words.slice(0, -1).join(' ');
     }
     if (!text || NOTHING.test(text.toLowerCase())) return null;
+    // (0.5.46) A group of only notes ("2 cellar rats, even"; "deadly"; "threat: strong") is the
+    // row before it's threat, never a foe called Even.
+    if (isNoteName(text)) {
+        for (const word of text.toLowerCase().split(/[^a-z]+/)) {
+            if (word === 'boss') boss = true;
+            else if (THREAT_WORDS[word] && !threat) threat = THREAT_WORDS[word];
+        }
+        return { notes: true, threat, boss, level };
+    }
     // (0.5.31) How many when the story gave no number: a pack (or a plural name) is several,
     // a swarm is one swarm.
     const plural = Boolean(creatureSingular(text.split(' ').at(-1)));
@@ -466,6 +484,14 @@ function stageRows(text, bestiary, rules) {
             group = group.slice(then[0].length);
         }
         const row = parseGroup(group.replace(/\u0001/g, ','), bestiary ?? DEFAULT_BESTIARY, rules ?? DEFAULT_RULES);
+        if (row?.notes) {
+            // Notes written apart from a name belong to the foe before them.
+            const last = rows.at(-1);
+            if (last && row.boss) last.boss = true;
+            if (last && row.level !== null && last.level === undefined) last.level = row.level;
+            else if (last && row.threat && !last.threat && !last.rank && last.level === undefined) last.threat = row.threat;
+            continue;
+        }
         if (row && wave) row.wave = wave;
         if (row) rows.push(row);
     }

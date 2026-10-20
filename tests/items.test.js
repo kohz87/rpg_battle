@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { DEFAULT_RULES, rarityBudget } from '../src/rules.js';
 import {
     addLoot, capItem, consumables, equipped, formatGearEntry, formatMoney, gearBonuses, gearLimits, gearSummary, parseGearEntry, parseInventory, parseMoney, purseOf,
-    effectByName, keepNotes, restoreLoot, useItems,
+    effectByName, keepNotes, restoreLoot, spendMoney, useItems,
 } from '../src/items.js';
 
 const R = DEFAULT_RULES;
@@ -527,4 +527,53 @@ test('the short price follows the chat\'s coins: shortest unique letters, a tier
     assert.equal(formatMoneyShort(12, { mode: 'single', single: 'shells', singleShort: 'sh' }), '12 sh');
     // The words stay formatMoney's.
     assert.equal(formatMoney(134), '1 gold, 3 silver, 4 copper');
+});
+
+// (0.5.46) The Trade page showed "Purse: 0 copper" with coins in the Inventory: the story had
+// kept them under rows the purse did not read as money.
+test('purse: a realistic Inventory with the money under the names a story gives it', () => {
+    const inventory = [
+        'Coin Pouch | 1 | 4 Silver, 4 Copper',
+        'Guild Badge (F-Rank) | 1 | Stamped lead token',
+        'Wolf Bounty Voucher | 1 | Stamped council slip for 1 gold',
+        '[Equipment > Weapons]',
+        'Cane-Blade | 1 | Equipped · Common · ATK +2',
+        '[Money]',
+        'Silver Coins | 3',
+        'Copper | 36',
+        '[Lyra]',
+        'Herb Pouch | 1 | Lyra\'s, mint and yarrow',
+        'Lyra\'s Purse | 1 | 2 silver',
+        '[Loot]',
+        'Even Trophy | 2',
+        'Cellar Rat Tail | 6 | material · AGI, poison',
+    ].join('\n');
+    const members = { members: ['Lyra'], owner: null };
+    // Yours: the pouch (44), the silver coins (30) and the loose copper (36); the voucher is no money.
+    assert.equal(purseOf(inventory, DEFAULT_RULES.currency, members).total, 110);
+    assert.deepEqual(purseOf(inventory, DEFAULT_RULES.currency, members).rows.map(row => row.cell), ['note', 'tier', 'tier']);
+    // The whole Inventory's, as a trade pays from it: Lyra's purse too.
+    assert.equal(purseOf(inventory).total, 130);
+    // Spelled out, and a coin's own row with a word for its count.
+    assert.equal(purseOf('Coin Pouch | 1 | eight silver, thirty-six copper').total, 116);
+    assert.equal(purseOf('Gold Pieces | two').total, 200);
+    // A silver ring or a gold ingot is no coin; a row with no money at all is no purse.
+    assert.equal(purseOf('Silver Ring | 1 | accessory\nGold Ingot | 2'), null);
+    assert.equal(purseOf('Whetstone | 1 | Worn thin'), null);
+});
+
+test('purse: paying from rows named for one coin, smallest first, the change put back', () => {
+    const inventory = '[Money]\nSilver | 4\nCopper | 4\nGold Coins | 1';
+    const paid = spendMoney(inventory, 15);
+    assert.ok(paid.ok);
+    assert.equal(paid.text, '[Money]\nSilver | 2\nCopper | 9\nGold Coins | 1');
+    assert.equal(purseOf(paid.text).total, 144 - 15);
+    // No copper row for the change: it goes to the currency's own row.
+    const silver = spendMoney('Silver Coins | 4', 15);
+    assert.equal(purseOf(silver.text).total, 25);
+    assert.match(silver.text, /^Silver Coins \| 2$/m);
+    // Too little: nothing changes.
+    assert.deepEqual(spendMoney(inventory, 999), { text: inventory, ok: false });
+    // Loot onto the copper row.
+    assert.equal(addLoot('Silver | 4\nCopper | 2', { money: 13 }), 'Silver | 4\nCopper | 15');
 });

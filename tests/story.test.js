@@ -537,3 +537,19 @@ test('a swarm drops what its creatures drop, named for the creature (0.5.31)', a
         assert.equal(creature.name, name, 'the swarm keeps its name');
     }
 });
+
+// (0.5.46) "Even Trophy", "Deadly Trophy": a threat word the story wrote apart from the name was
+// read as a foe of its own ("Even"), made a creature and dropped its trophy.
+test('parseEncounter: a threat or "boss" written apart from the name is the row\'s note, never a foe', () => {
+    const rat = (count, more = {}) => ({ name: 'Cellar Rat', count, rank: null, role: null, boss: false, ...more });
+    assert.deepEqual(parseEncounter('2 cellar rats, even'), [rat(2, { threat: 'even' })]);
+    assert.deepEqual(parseEncounter('3 Cellar Rat — even'), [rat(3, { threat: 'even' })]);
+    assert.deepEqual(parseEncounter('3 cellar rats, deadly'), [rat(3, { threat: 'deadly' })]);
+    assert.deepEqual(parseEncounter('Brood-Mother - boss, deadly'), [{ name: 'Brood-Mother', count: 1, rank: null, role: null, boss: true, threat: 'deadly' }]);
+    // A note alone is no fight; a threat the row already has is kept.
+    assert.deepEqual(parseEncounter('deadly'), []);
+    assert.deepEqual(parseEncounter('2 cellar rats (weak), deadly'), [rat(2, { threat: 'weak' })]);
+    // Unchanged: notes after a bar are the stakes; a real name with a threat word in it stays a name.
+    assert.deepEqual(parseEncounter('Cellar Rats (swarm) | even'), [{ name: 'Cellar Rat Swarm', count: 1, rank: null, role: null, boss: false }]);
+    assert.deepEqual(parseEncounter('2 wolf, elite guard').map(row => row.name), ['Wolf', 'Elite Guard']);
+});

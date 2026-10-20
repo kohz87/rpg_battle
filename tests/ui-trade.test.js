@@ -259,3 +259,44 @@ test('the trader\'s name on its own line, its hint short and whole (0.5.43)', ()
     assert.equal(name.getAttribute('placeholder'), 'their name (optional)');
     assert.match(name.getAttribute('aria-label'), /else the general store/);
 });
+
+// (0.5.46) The user's report: prices a player could set, "Purse: 0 copper" with coins in the
+// Inventory, and trade open in a cellar.
+test('the prices here are shown, never chosen on the page', () => {
+    resetTradeDraft();
+    const pane = doc.createElement('div');
+    renderTradeTab(pane, view());
+    assert.equal(pane.querySelector('.rpg-trade-level'), null, 'no "Prices here" choice');
+    assert.equal(texts(pane, '.rpg-trade-place')[0], 'Bluewatch Village | Guild Post · village prices: goods ×0.9, offers ×0.85');
+    renderTradeTab(pane, view({ level: 'dear', prices: { tier: 'village', buy: 1.125, sell: 1.0625 } }));
+    assert.equal(texts(pane, '.rpg-trade-place')[0], 'Bluewatch Village | Guild Post · dear prices (set in the settings): goods ×1.13, offers ×1.06');
+});
+
+test('no purse row at all is said so, never "0 copper"', () => {
+    resetTradeDraft();
+    const pane = doc.createElement('div');
+    renderTradeTab(pane, view({ purse: 0, purseText: '' }));
+    assert.match(texts(pane, '.rpg-trade-purse')[0], /^Purse: none in the Inventory\. Money is a row like "Coin Pouch \| 1 \| 4 silver, 2 copper"/);
+    renderTradeTab(pane, view({ purse: 0, purseText: '0 copper' }));
+    assert.equal(texts(pane, '.rpg-trade-purse')[0], 'Purse: 0 copper');
+});
+
+test('no market here: no Buy, Sell or commission; orders read-only with their ready time', () => {
+    resetTradeDraft();
+    const pane = doc.createElement('div');
+    const collected = [];
+    const orders = [
+        { name: 'Skull Charm', note: 'on order with the bone-carver', with: 'the bone-carver', due: true, ready: 'Goldwane 14' },
+        { name: 'Wolf Cloak', note: 'on order', with: 'Elke', due: false, ready: 'Goldwane 16' },
+    ];
+    renderTradeTab(pane, view({ market: false, noMarket: 'No market here (Granary cellar). Trade in a settlement, or with a trader on the road.', place: 'Granary cellar', orders }), { onCollect: item => collected.push(item) });
+    assert.deepEqual(texts(pane, '.rpg-trade-closed'), ['No market here (Granary cellar). Trade in a settlement, or with a trader on the road.']);
+    for (const selector of ['.rpg-trade-who', '.rpg-trade-person', '.rpg-trade-sell-list', '.rpg-trade-sell', '.rpg-trade-buy-list', '.rpg-trade-make', '.rpg-trade-collect']) assert.equal(pane.querySelector(selector), null, selector);
+    assert.equal(texts(pane, '.rpg-trade-purse')[0], 'Purse: 6 silver, 5 copper');
+    assert.deepEqual(texts(pane, '.rpg-trade-ready'), ['ready since Goldwane 14', 'ready Goldwane 16']);
+    assert.deepEqual(collected, []);
+    // Back in a market: Collect again.
+    renderTradeTab(pane, view({ orders }), { onCollect: item => collected.push(item) });
+    pane.querySelector('.rpg-trade-collect').click();
+    assert.deepEqual(collected.map(item => item.name), ['Skull Charm']);
+});

@@ -115,18 +115,20 @@ function whoSection(view, handlers) {
     const kind = kindPick ? null : select('rpg-trade-kind', 'Their trade', Object.entries(KIND_LABELS), draft.kind || guessed);
     kind?.addEventListener('change', () => { draft.kind = kind.value; redraw(); });
     const prices = view.prices ?? { tier: 'town', buy: 1, sell: 1 };
-    const level = select('rpg-trade-level', 'Prices here', [['', `as the place reads (${prices.tier})`], ['cheap', 'cheap'], ['fair', 'fair'], ['dear', 'dear']], view.level ?? '');
-    level.addEventListener('change', () => handlers.onLevel?.(level.value || null));
+    // (0.5.46) The prices here, read-only: the place's own, or the reader's word for it from the
+    // settings (Trade). No longer a choice on this page: a player could pick their own prices.
+    const priced = view.level ? `${view.level} prices (set in the settings)` : `${prices.tier} prices`;
     return section('rpg-trade-who', [
         sub('Trading with', 'fa-handshake'),
         // (0.5.43) The name on its own line under the trader, so its hint is never cut.
         el('div', { className: 'rpg-trade-row' }, [trader, kind]),
         nameBox ? el('div', { className: 'rpg-trade-row rpg-trade-name-row' }, [nameBox]) : null,
         kind && !draft.kind && tradingWith() ? el('p', { className: 'rpg-battle-hint rpg-trade-guess', text: `Their trade, by the name: ${KIND_LABELS[guessed] ?? guessed}.` }) : null,
-        el('p', { className: 'rpg-battle-hint rpg-trade-place', text: `${view.place || 'Somewhere'} · ${prices.tier} prices: goods ×${round(prices.buy)}, offers ×${round(prices.sell)}` }),
-        el('div', { className: 'rpg-trade-row' }, [el('span', { className: 'rpg-battle-label', text: 'Prices here' }), level]),
+        el('p', { className: 'rpg-battle-hint rpg-trade-place', text: `${view.place || 'Somewhere'} · ${priced}: goods ×${round(prices.buy)}, offers ×${round(prices.sell)}` }),
     ]);
 }
+
+const NO_PURSE = 'Purse: none in the Inventory. Money is a row like "Coin Pouch | 1 | 4 silver, 2 copper" or "Coins | 42".';
 
 const round = value => String(Math.round(Number(value) * 100) / 100);
 
@@ -251,13 +253,17 @@ function commissionSection(view, handlers) {
 function ordersSection(view, handlers) {
     const orders = view.orders ?? [];
     if (!orders.length) return null;
+    const open = view.market !== false;
     return section('rpg-trade-orders', [
         sub('On order', 'fa-clock', orders.length),
         // (0.5.44) Collect once the story clock has reached the ready time; until then, when.
+        // (0.5.46) Away from a market, read-only: ready, to collect where there is one.
         el('ul', { className: 'rpg-trade-list is-rows' }, orders.map(item => tradeRow(item, {
             note: item.note ?? '',
             action: item.due === false
                 ? el('span', { className: 'rpg-trade-ready', text: `ready ${item.ready || 'later'}`, attrs: { title: `${item.with || 'The crafter'} is still at it: ready ${item.ready || 'later'}.` } })
+                : !open
+                ? el('span', { className: 'rpg-trade-ready', text: item.ready ? `ready since ${item.ready}` : 'ready', attrs: { title: `Ready: collect ${item.name} where there is a market.` } })
                 : button('Collect', 'rpg-trade-price-button rpg-trade-collect', { iconName: 'fa-box-open', title: `Collect ${item.name}: your next reply tells it.`, onClick: () => handlers.onCollect?.({ name: item.name, who: item.with || tradingWith() }) }),
         }))),
     ]);
@@ -294,14 +300,15 @@ function fitWidth(pane, root) {
 }
 
 /**
- * Draws the Trade tab. `view`: { chatId, ready, reason, place, prices, level, people,
+ * Draws the Trade tab. `view`: { chatId, ready, reason, place, prices, level, (0.5.46) market
+ * (false: no market here, with `noMarket` saying so), people,
  * purse, purseText, sellable, materials, orders ({ name, note, rarity, with, due, ready }), pending,
  * crafters (the trader kinds that take commissions), money(amount),
  * sellPrice(name, kind), preview({ name, materials, slot, kind }) → { name, note, fee, ready,
  * when, span } | null, buyerKind(name), stock(kind) → [{ name, note, price, rarity }] (0.5.38) }.
  * (0.5.40) owners: [{ id, name }] and owner (whose items Sell lists).
  * (0.5.43) moneyShort(amount) for the rows' buttons; pending: [{ text, undo }].
- * `handlers`: onBuy, onSell, onCraft, onCollect, onLevel, onOwner, (0.5.43) onUndo(index).
+ * `handlers`: onBuy, onSell, onCraft, onCollect, onOwner, (0.5.43) onUndo(index).
  */
 export function renderTradeTab(pane, view = {}, handlers = {}) {
     if (!pane) return;
@@ -315,9 +322,17 @@ export function renderTradeTab(pane, view = {}, handlers = {}) {
         pane.replaceChildren(root);
         return;
     }
-    // The purse first, and kept in view while the lists scroll.
-    root.append(el('p', { className: 'rpg-trade-purse', text: `Purse: ${view.purseText || 'nothing'}` }));
-    root.append(...[whoSection(view, handlers), pendingSection(view, handlers), buySection(view, handlers), sellSection(view, handlers), commissionSection(view, handlers), ordersSection(view, handlers)].filter(Boolean));
+    // The purse first, and kept in view while the lists scroll. (0.5.46) No purse row at all is
+    // said so, never "0 copper" (the coins are somewhere the Inventory does not name as money).
+    root.append(el('p', { className: 'rpg-trade-purse', text: view.purseText ? `Purse: ${view.purseText}` : NO_PURSE }));
+    // (0.5.46) No market here (the wilds, a cellar, no trader present): no Buy, Sell or
+    // commission; orders stay in view, read-only.
+    if (view.market === false) {
+        root.append(el('p', { className: 'rpg-battle-empty rpg-trade-closed', text: view.noMarket || 'No market here.' }));
+        root.append(...[pendingSection(view, handlers), ordersSection(view, handlers)].filter(Boolean));
+    } else {
+        root.append(...[whoSection(view, handlers), pendingSection(view, handlers), buySection(view, handlers), sellSection(view, handlers), commissionSection(view, handlers), ordersSection(view, handlers)].filter(Boolean));
+    }
     pane.replaceChildren(root);
     fitWidth(pane, root);
 }

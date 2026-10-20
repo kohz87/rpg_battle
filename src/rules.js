@@ -269,8 +269,17 @@ export const DEFAULT_RULES = Object.freeze({
             city: { craft: 0.9, buy: 1.2, sell: 1.15, words: ['city', 'metropolis', 'citadel'] },
             capital: { craft: 0.85, buy: 1.35, sell: 1.25, words: ['capital', 'royal', 'imperial', 'throne'] },
         },
-        // The reader's word for a place (the Trade tab): × both.
+        // The reader's word for a place (RPG Battle's settings, by place): × both.
         levels: { cheap: 0.8, fair: 1, dear: 1.25 },
+        // (0.5.46) Where trade is open: a place with one of these words (a settlement, or somewhere
+        // goods change hands), or someone present who trades (one of `traders` in their name or
+        // trade: a peddler on the road). The wilds, a camp, ruins: no market.
+        markets: ['hamlet', 'outpost', 'waystation', 'steading', 'homestead', 'farmstead', 'village', 'manor', 'landing', 'town', 'market', 'marketplace',
+            'port', 'harbour', 'harbor', 'docks', 'quay', 'wharf', 'fort', 'keep', 'city', 'metropolis', 'citadel', 'capital', 'inn', 'tavern', 'guild',
+            'bazaar', 'shop', 'store', 'square', 'emporium', 'caravanserai', 'trading post'],
+        traders: ['merchant', 'trader', 'peddler', 'pedlar', 'hawker', 'vendor', 'tinker', 'caravan', 'shopkeeper', 'innkeeper', 'quartermaster', 'fence',
+            'smuggler', 'broker', 'apothecary', 'alchemist', 'herbalist', 'smith', 'blacksmith', 'armourer', 'armorer', 'weaponsmith', 'fletcher', 'bowyer',
+            'carver', 'bone-carver', 'tanner', 'leatherworker', 'jeweller', 'jeweler', 'tailor', 'artisan', 'crafter', 'cobbler', 'enchanter'],
         // Who trades, by the words of their name or trade: × what they pay, by the kind of thing.
         buyers: {
             general: { equipment: 1, consumable: 1, material: 1, goods: 1, words: ['merchant', 'trader', 'peddler', 'pedlar', 'shop', 'store', 'innkeeper', 'quartermaster'] },

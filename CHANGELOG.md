@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.46
+
+- **Prices are set in the settings, not on the Trade page.** The Trade page had a **Prices here** choice, so a player could make any place cheap. It is gone; the page now only says the prices (*village prices: goods ×0.9, offers ×0.85*, or *dear prices (set in the settings)*). Your own word for a place is in **Settings → RPG Battle → Trade**: a list of places, each cheap, fair or dear, with Add and a remove button. A chat's choices from the old **Prices here** are moved into that list when the chat is opened (a place already listed keeps what you set).
+- **Trade's purse finds your coins.** The page could say *Purse: 0 copper* with coins in the Inventory. It now reads:
+  - rows named for one coin (`Silver | 4`, `Copper Coins | 36`, `Gold Pieces | 2`); a *Silver Ring* is still a ring;
+  - amounts written out (*eight silver, thirty-six copper*);
+  - a purse in a companion's section, as a trade already paid from it.
+
+  Paying from coin rows takes the smallest coins first, whole coins, and puts the change back. With no money row at all the page says *Purse: none in the Inventory* and how a money row looks, not *0 copper*.
+- **Trade only where there is a market.** Trade was open anywhere, a cellar included. It is now open in a place whose name says a settlement or somewhere goods change hands (*village, town, port, docks, inn, guild, market, trading post…*), in a place you priced in the settings, or with a trader present (a *peddler*, *merchant*, *smith*… by their name or trade, so one met on the road counts). Elsewhere the page says *No market here (Granary cellar). Trade in a settlement, or with a trader on the road.* and shows no Buy, Sell or Commission. Orders still show with their ready time, and Collect waits for a market. The words are `trade.markets` and `trade.traders` in `rules.json`.
+- **A threat word is no creature.** `2 cellar rats, even` made a foe called *Even*, and its loot an *Even Trophy* (and *Deadly Trophy*). A threat, *boss* or the like written after a comma or a spaced dash now belongs to the row before it, and a note alone is no fight. A creature already kept under such a name is dropped from the chat's bestiary when it is read.
+
 ## 0.5.45
 
 - **Commission offers only materials.** The list of things a piece could be made from showed everything that wasn't a potion, Rope and a Waterskin included. It now shows rows noted `material`, rows under a loot, trophy or material section, and creature parts by their name, so a *Wolf Fang* or the *Wolf Cores* kept under [Gear] still count. A *core* also reads as a material now (it lends MATK, like an essence).

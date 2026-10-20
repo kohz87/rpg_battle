@@ -44,7 +44,7 @@ import { DEFAULT_RULES, checkModifiers, clampXpRate, makeRules, suggestRank, thr
 import { hashSeed, makeRng } from './src/rng.js';
 import { DEFAULT_SKILLS, findSkill, resolveSkills, skillFromTemplate } from './src/skills.js';
 import { DEFAULT_BESTIARY, findCreature } from './src/enemies.js';
-import { TEMPLATES, classify, cleanCreature, combinedBestiary, creaturesToMake, familyOf, familyTitle, findKin, generateCreature, storeCreatures, upgradePerson } from './src/templates.js';
+import { TEMPLATES, classify, cleanCreature, combinedBestiary, creaturesToMake, familyOf, familyTitle, findKin, generateCreature, storeCreatures, upgradePerson, isNoteName } from './src/templates.js';
 import { applyFlavour, flavourPrompt, parseFlavour, sceneText } from './src/flavour.js';
 import { act, availableActions, foeXpWorth, replay, startFight, summarize } from './src/combat.js';
 import { applyResult, foldUses, forgetSkill, formatPartyBlock, learnSkill, newSheet, readSheets, setSkillActive, spendPoints } from './src/sheet.js';
@@ -64,13 +64,13 @@ import { OLD_PROMPT_KEYS, STATIC_PROMPT_KEY, TAIL_PROMPT_KEY, promptLayout, with
 import { craftPlan, parseCrafted } from './src/craft.js';
 import { renderBattleTab } from './src/ui/tab.js';
 import { renderTradeTab } from './src/ui/trade.js';
-import { COMMISSIONERS, buyIn, buyerKind, collectIn, commissionHours, craftFee, craftIn, craftSpan, isMaterial, orderDue, ordersIn, placePrices, readyAt, readyDateText, readyWords, rememberStock, sellIn, sellPrice, sellable, shopStock, tradeHandoff, tradeLine } from './src/trade.js';
+import { COMMISSIONERS, PRICE_LEVELS, buyIn, buyerKind, collectIn, commissionHours, craftFee, craftIn, craftSpan, isMaterial, marketHere, orderDue, ordersIn, placePriceList, placePrices, pricedLevel, readyAt, readyDateText, readyWords, rememberStock, sellIn, sellPrice, sellable, shopStock, tradeHandoff, tradeLine } from './src/trade.js';
 import { combatValue, renderSettings } from './src/ui/settings.js';
 import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.45';
+const VERSION = '0.5.46';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -165,6 +165,9 @@ const DEFAULT_SETTINGS = Object.freeze({
     rules: null,
     // Story Suite: who the story follows per shared area, 'auto' | 'mine' | 'theirs' (src/handshake.js).
     sourceOfTruth: truthChoices(null),
+    // (0.5.46) The reader's prices by place, [{ place, level: 'cheap' | 'fair' | 'dear' }]: the
+    // Trade fold; a place not listed goes by the words of its name (src/trade.js placePrices).
+    placePrices: [],
 });
 
 // What the model is told about the kept Party block, under Story Block's 300-character limit.
@@ -248,6 +251,7 @@ function settings(ctx = context()) {
         flavour: { ...DEFAULT_SETTINGS.flavour, ...(saved.flavour && typeof saved.flavour === 'object' ? saved.flavour : {}) },
         gear: { ...DEFAULT_SETTINGS.gear, ...(saved.gear && typeof saved.gear === 'object' ? saved.gear : {}) },
         sourceOfTruth: truthChoices(saved.sourceOfTruth),
+        placePrices: placePriceList(saved.placePrices),
     };
     return store[SETTINGS_KEY];
 }
@@ -328,7 +332,8 @@ function chatState(ctx = context()) {
         // (0.5) The replies that narrated a fight ({ index, date, swipe }): no XP or rest offered from them.
         narrated: Array.isArray(state.narrated) ? state.narrated.filter(entry => entry && Number.isInteger(entry.index)) : [],
         // (0.5.35) A person kept as the catch-all before its name was known as one: a person now.
-        bestiary: Array.isArray(state.bestiary) ? state.bestiary.filter(entry => entry && typeof entry === 'object' && entry.name).map(entry => upgradePerson(entry)) : [],
+        // (0.5.46) A "creature" named only for a note ("Even", "Deadly") from before the fix is dropped.
+        bestiary: Array.isArray(state.bestiary) ? state.bestiary.filter(entry => entry && typeof entry === 'object' && entry.name && !isNoteName(entry.name)).map(entry => upgradePerson(entry)) : [],
         npcLinks: state.npcLinks && typeof state.npcLinks === 'object' ? state.npcLinks : {},
         done: Array.isArray(state.done) ? state.done : [],
         fallen: Array.isArray(state.fallen) ? state.fallen.filter(entry => entry && entry.memberId) : [],
@@ -3520,11 +3525,43 @@ function tradeContext() {
     const own = settings();
     const state = chatState();
     const inventory = blockText(own.inventoryTag);
-    const { place, people } = worldScene();
-    const level = (state.tradePrices ?? {})[placeKey(place)] ?? null;
+    const { place } = worldScene();
+    // (0.5.38) Who is here, as extra choices beside the trader kinds; never your own party.
+    const people = presentPeople();
+    // (0.5.46) The reader's word for this place, from the settings (never the Trade page's).
+    const level = pricedLevel(place, own.placePrices);
     const prices = placePrices(place, { level, rules: r });
+    // (0.5.46) Trade only where there is a market: a settlement, or a trader here.
+    const market = marketHere(place, people, { rules: r, priced: Boolean(level) });
     const pc = currentSheet();
-    return { r, own, state, inventory, place, people, level, prices, pc, plevel: pc?.level ?? 1 };
+    return { r, own, state, inventory, place, people, level, prices, market, pc, plevel: pc?.level ?? 1 };
+}
+
+const NO_MARKET = place => `No market here${place ? ` (${place})` : ''}. Trade in a settlement, or with a trader on the road.`;
+
+// (0.5.46) A Buy, Sell or commission away from a market is refused (the page hides them there).
+function marketOrThrow(t) {
+    if (!t.market.open) throw new Error(NO_MARKET(t.place));
+    return t;
+}
+
+/**
+ * (0.5.46) The Trade page's "Prices here" (chat state `tradePrices`, by place) moved to the
+ * settings' Trade fold: an old chat's choices are added there (a place listed already keeps
+ * the reader's word) and cleared from the chat.
+ */
+function migrateTradePrices(ctx = context()) {
+    const old = chatState(ctx).tradePrices ?? {};
+    if (!chatMeta(ctx) || !Object.keys(old).length) return;
+    const own = settings(ctx);
+    const known = new Set(own.placePrices.map(entry => entry.place.toLowerCase()));
+    const title = key => key.replace(/(^|[\s-])(\p{L})/gu, (all, lead, letter) => lead + letter.toUpperCase());
+    const added = Object.entries(old).filter(([key, level]) => key && PRICE_LEVELS.includes(level) && !known.has(key)).map(([key, level]) => ({ place: title(key), level }));
+    if (added.length) {
+        applySettings({ placePrices: placePriceList([...own.placePrices, ...added]) });
+        settingsPanel?.update?.(settings(ctx));
+    }
+    saveChatState({ tradePrices: {} });
 }
 
 // (0.5.38) The story day (Story Director's clock at the latest reply), or '' without one.
@@ -3599,10 +3636,11 @@ function tradeView() {
     if (!storyBlock()) return { ready: false, reason: 'Trading needs Story Block (its Inventory).' };
     const t = tradeContext();
     if (!t.pc) return { ready: false, reason: 'Make your character first (Party tab).' };
-    // (0.5.38) Who is here, as extra choices beside the trader kinds; never your own party.
-    t.people = presentPeople();
     const c = t.r.currency;
-    const purse = purseOf(t.inventory, c, itemScope())?.total ?? 0;
+    // (0.5.46) The purse a trade pays from and is paid into: the whole Inventory's (buyIn,
+    // craftIn), so one a companion's section holds counts here too. null: no purse row at all.
+    const found = purseOf(t.inventory, c);
+    const purse = found?.total ?? 0;
     // (0.5.40) Whose items are sold: yours, or a party member's (their Inventory section).
     const members = currentParty();
     const owners = [{ id: 'pc', name: t.pc.name }, ...members.filter(member => memberItems(member, members).length).map(member => ({ id: member.id, name: member.name }))];
@@ -3620,9 +3658,11 @@ function tradeView() {
         place: t.place,
         prices: t.prices,
         level: t.level,
+        market: t.market.open,
+        noMarket: t.market.open ? '' : NO_MARKET(t.place),
         people: t.people,
         purse,
-        purseText: formatMoney(purse, c),
+        purseText: found ? formatMoney(purse, c) : '',
         owners,
         owner: owner.id,
         sellable: items.map(item => ({ name: item.name, qty: item.qty, note: item.note, rarity: item.rarity })),
@@ -3715,7 +3755,7 @@ function canUndoTrades(trade, inventory) {
 const tradeHandlers = {
     onBuy: async ({ name, who, kind }) => {
         try {
-            const t = tradeContext();
+            const t = marketOrThrow(tradeContext());
             const stock = stockFor(t, kind);
             const item = stock.items.find(entry => entry.name === name);
             if (!item) throw new Error(`${who} has no ${name} left`);
@@ -3741,7 +3781,7 @@ const tradeHandlers = {
     },
     onSell: async ({ name, qty, each, who }) => {
         try {
-            const t = tradeContext();
+            const t = marketOrThrow(tradeContext());
             const members = currentParty();
             const owner = members.find(member => member.id === tradeOwner) ?? null;
             const { text, total } = sellIn(t.inventory, { name, qty, each }, t.r.currency, itemScope(owner?.name ?? null, members), itemScope(null, members));
@@ -3755,7 +3795,7 @@ const tradeHandlers = {
     onCraft: async ({ name, materials, slot, who, kind }) => {
         try {
             if (!COMMISSIONERS.includes(kind)) throw new Error('only a smith, a crafter or an apothecary takes commissions');
-            const t = tradeContext();
+            const t = marketOrThrow(tradeContext());
             const made = craftPreview(t, { name, materials, slot, kind });
             if (!made) throw new Error('nothing to make it from');
             const plan = { ...made.plan, order: made.ready };
@@ -3770,7 +3810,7 @@ const tradeHandlers = {
     },
     onCollect: async ({ name, who }) => {
         try {
-            const t = tradeContext();
+            const t = marketOrThrow(tradeContext());
             const { text } = collectIn(t.inventory, name, t.r.currency);
             if (text === t.inventory) throw new Error(`${name} is not on order`);
             await recordTrade(text, { kind: 'collect', name, who }, t.inventory);
@@ -3814,21 +3854,13 @@ const tradeHandlers = {
             notify('error', `It could not be taken back: ${error instanceof Error ? error.message : String(error)}`);
         }
     },
-    onLevel: level => {
-        const { place } = worldScene();
-        const prices = { ...(chatState().tradePrices ?? {}) };
-        if (level) prices[placeKey(place)] = level;
-        else delete prices[placeKey(place)];
-        saveChatState({ tradePrices: prices });
-        storyBlock()?.refresh?.();
-    },
 };
 
 function tradeKey() {
     const ctx = context();
     const state = chatState(ctx);
     const own = settings(ctx);
-    return [...baseKey(ctx, state), blockText(own.inventoryTag), storyBlock()?.getBlock?.(WORLD_TAG)?.text?.length ?? 0, JSON.stringify(state.trade ?? null), JSON.stringify(state.tradePrices ?? {}), currentSheet()?.level ?? 0, JSON.stringify(state.shops ?? {}), storyDay(), presentPeople().join(','), tradeOwner].join('|');
+    return [...baseKey(ctx, state), blockText(own.inventoryTag), storyBlock()?.getBlock?.(WORLD_TAG)?.text?.length ?? 0, JSON.stringify(state.trade ?? null), JSON.stringify(own.placePrices ?? []), currentSheet()?.level ?? 0, JSON.stringify(state.shops ?? {}), storyDay(), presentPeople().join(','), tradeOwner].join('|');
 }
 
 
@@ -4030,6 +4062,11 @@ function init() {
             live = { chatId: null, key: '', fight: null };
             generating = false;
             clearPrompts();
+            try {
+                migrateTradePrices();
+            } catch (error) {
+                console.warn('[RPG Battle] the old trade prices could not be moved', error);
+            }
             try {
                 settlePending();
             } catch (error) {
