@@ -353,15 +353,15 @@ test('a fight and its result go back with the reply the fight started from (0.4.
         });
         // A swipe of the narrating reply narrates the same fight.
         await globalThis.rpgBattleInterceptor(ctx.chat.slice(0, 4), 0, null, 'swipe');
-        assert.match(prompts.rpg_battle, /7 copper/);
+        assert.match(prompts.story_suite_tail_3_rpg_battle, /7 copper/);
         // Back to before the fight: everything from the fight's reply on is deleted and the turn sent again.
         ctx.chat.splice(2);
         hooks.update();
         await settle();
         ctx.chat.push(userMessage('I hunt it.'));
         await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
-        assert.equal(prompts.rpg_battle, '', 'no stale result');
-        assert.match(prompts.rpg_battle_rules, /<Encounter>/, 'the story instruction is back, so a new fight can be offered');
+        assert.doesNotMatch(prompts.story_suite_tail_3_rpg_battle, /7 copper/, 'no stale result');
+        assert.match(prompts.story_suite_static_rpg_battle, /<Encounter>/, 'the story instruction is there, so a new fight can be offered');
         assert.equal(ctx.chatMetadata.rpgBattle.pending, null);
         // The same from a chat saved before 0.4.3: no origin, but foughtAt says where the fight started.
         openChat('legacy-chat', [hello(), userMessage('I hunt it.'), offer, userMessage('Onward.')], {
@@ -369,11 +369,11 @@ test('a fight and its result go back with the reply the fight started from (0.4.
             foughtAt: { index: 2, text: 'x' },
         });
         await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
-        assert.match(prompts.rpg_battle, /7 copper/, 'still waiting while its reply is there');
+        assert.match(prompts.story_suite_tail_3_rpg_battle, /7 copper/, 'still waiting while its reply is there');
         ctx.chat.splice(1);
         ctx.chat.push(userMessage('I hunt it.'));
         await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
-        assert.equal(prompts.rpg_battle, '');
+        assert.doesNotMatch(prompts.story_suite_tail_3_rpg_battle, /7 copper/);
         assert.equal(ctx.chatMetadata.rpgBattle.pending, null);
         // A fight under way whose reply was swiped away is gone too.
         openChat('fight-chat', [hello(), userMessage('I hunt it.'), offer], {
@@ -440,9 +440,10 @@ test('a plan in three stages: Fight?, the stages read-only, Start, each stage fo
         assert.equal(meta().plan.at, 0);
         assert.equal(meta().fight.setup.id, `${meta().plan.id}-1`);
         assert.deepEqual(meta().fight.setup.enemies.map(enemy => enemy.name), ['Giant Rat A', 'Giant Rat B']);
-        // During the plan no story instruction is asked for.
+        // During the plan the story is told no <Wounds> or <Encounter> (0.5.41: the instruction
+        // itself stays, unchanged, so the prompt's start is the same reply after reply).
         await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
-        assert.equal(prompts.rpg_battle_rules, '');
+        assert.match(prompts.story_suite_tail_3_rpg_battle, /A fight is under way in RPG Battle: write no <Wounds> and no <Encounter>/);
         pane = await fightOut();
         assert.equal(modeOf(pane), 'between');
         assert.match(find(pane, '.rpg-battle-between-cleared').textContent, /^The gate is cleared \(\d+ rounds?\)\.$/);
@@ -476,7 +477,7 @@ test('a plan in three stages: Fight?, the stages read-only, Start, each stage fo
         // The next reply narrates it, once.
         ctx.chat.push(userMessage('And then?'));
         await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
-        assert.equal(prompts.rpg_battle, handoff);
+        assert.ok(prompts.story_suite_tail_3_rpg_battle.startsWith(handoff));
         find(pane, '.rpg-battle-done').click();
         ctx.chat.push(reply('The tower falls silent.'));
         await hooks.reply({ messageIndex: 4 });
@@ -549,8 +550,8 @@ test('a plan goes back with the reply it started from, between stages and in a s
         assert.equal(hooks.tabs['rpg-battle'].isAvailable(), false);
         ctx.chat.push(userMessage('On.'));
         await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
-        assert.equal(prompts.rpg_battle, '', 'no result to narrate');
-        assert.match(prompts.rpg_battle_rules, /<Encounter>/, 'the story instruction is back');
+        assert.doesNotMatch(prompts.story_suite_tail_3_rpg_battle, /Battle resolved by RPG Battle/, 'no result to narrate');
+        assert.match(prompts.story_suite_static_rpg_battle, /<Encounter>/, 'the story instruction is back');
         ctx.chat.push(reply('A quiet road.'));
         await hooks.reply({ messageIndex: 3 });
         await settle();
@@ -750,11 +751,11 @@ test('the story instruction names the creatures this story has met (0.5.1)', asy
             bestiary: [{ name: 'Feral Ditch-Dog', rank: 'F', role: 'skirmisher' }, { name: 'Inside The Den: Old Dog Wolf', rank: 'F', role: 'brute' }, { name: 'Scrub Quill-Dog', rank: 'F', role: 'brute' }],
         });
         await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
-        assert.match(prompts.rpg_battle_rules, /<Encounter>/);
-        assert.match(prompts.rpg_battle_rules, /Foes this story has met \(the same creature keeps its name\): Feral Ditch-Dog, Scrub Quill-Dog\.$/);
+        assert.match(prompts.story_suite_static_rpg_battle, /<Encounter>/);
+        assert.match(prompts.story_suite_tail_3_rpg_battle, /Foes this story has met \(the same creature keeps its name\): Feral Ditch-Dog, Scrub Quill-Dog\./);
         openChat('no-foes-chat', [reply(`Hello.\n<Party>\n${REN}\n</Party>`), userMessage('On.')], {});
         await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
-        assert.doesNotMatch(prompts.rpg_battle_rules, /Foes this story has met/);
+        assert.doesNotMatch(prompts.story_suite_tail_3_rpg_battle, /Foes this story has met/);
     } finally {
         ctx.setExtensionPrompt = before;
     }
@@ -847,7 +848,7 @@ test('a chat with hidden messages: the hand-off goes to the reply that tells the
         find(drawTab('rpg-battle'), '.rpg-battle-done').click();
         ctx.chat.push(userMessage('I take their purses.'));
         await intercept();
-        assert.match(prompts.rpg_battle ?? '', /Battle resolved by RPG Battle/);
+        assert.match(prompts.story_suite_tail_3_rpg_battle ?? '', /Battle resolved by RPG Battle/);
         assert.equal(meta().pending.attachedTo, 6, 'the reply about to be written, counted in the whole chat');
         ctx.chat.push(sent('The rats lie still.', 'd6'));
         await hooks.reply({ messageIndex: 6 });
@@ -858,14 +859,14 @@ test('a chat with hidden messages: the hand-off goes to the reply that tells the
         hooks.update();
         await settle();
         await intercept();
-        assert.match(prompts.rpg_battle ?? '', /Battle resolved by RPG Battle/, 'the re-run reply is given the result');
+        assert.match(prompts.story_suite_tail_3_rpg_battle ?? '', /Battle resolved by RPG Battle/, 'the re-run reply is given the result');
         ctx.chat.push(sent('The rats lie still, again.', 'd7'));
         await hooks.reply({ messageIndex: 6 });
         await settle();
         // The story moves on: the reply after the narration gets nothing.
         ctx.chat.push(userMessage('On to the village.'));
         await intercept();
-        assert.equal(prompts.rpg_battle ?? '', '', 'spent once the story moves past it');
+        assert.doesNotMatch(prompts.story_suite_tail_3_rpg_battle ?? '', /Battle resolved by RPG Battle/, 'spent once the story moves past it');
     } finally {
         ctx.setExtensionPrompt = before;
     }
@@ -904,10 +905,10 @@ test('the story is told the purse in one sum, so it cannot sell what the party c
     try {
         openChat('purse-chat', [reply(`<Party>\n${REN}\n</Party>\n<Inventory>\nCoin Pouch | 1 | 1 Gold, 35 Silver, 14 Copper\n</Inventory>`), userMessage('I buy the jerkin.')]);
         await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
-        assert.match(prompts.rpg_battle_rules, /Purse: 4 gold, 6 silver, 4 copper in all; nothing dearer can be paid for/);
+        assert.match(prompts.story_suite_tail_3_rpg_battle, /Purse: 4 gold, 6 silver, 4 copper in all; nothing dearer can be paid for/);
         openChat('purse-none', [reply(`<Party>\n${REN}\n</Party>`), userMessage('On.')]);
         await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
-        assert.doesNotMatch(prompts.rpg_battle_rules, /Purse:/, 'no purse, no line');
+        assert.doesNotMatch(prompts.story_suite_tail_3_rpg_battle, /Purse:/, 'no purse, no line');
     } finally {
         ctx.setExtensionPrompt = before;
     }
@@ -923,10 +924,10 @@ test('one purse line: Story Block writes it while it keeps the items, in RPG Bat
         openChat('purse-shared', [reply(`<Party>\n${REN}\n</Party>\n<Inventory>\nCoin Pouch | 1 | 1 Gold, 35 Silver, 14 Copper\n</Inventory>`), userMessage('I buy the jerkin.')]);
         suite.announce({ id: 'story-block', name: 'Story Block', version: '0.9.12', owns: ['items'], enabled: true, api: { printsPurse: () => true } });
         await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
-        assert.doesNotMatch(prompts.rpg_battle_rules, /Purse:/, 'Story Block writes it');
+        assert.doesNotMatch(prompts.story_suite_tail_3_rpg_battle, /Purse:/, 'Story Block writes it');
         suite.announce({ id: 'story-block', name: 'Story Block', version: '0.9.12', owns: ['items'], enabled: true, api: { printsPurse: () => false } });
         await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
-        assert.match(prompts.rpg_battle_rules, /Purse: 4 gold, 6 silver, 4 copper in all/, 'otherwise RPG Battle does');
+        assert.match(prompts.story_suite_tail_3_rpg_battle, /Purse: 4 gold, 6 silver, 4 copper in all/, 'otherwise RPG Battle does');
     } finally {
         suite.withdraw('story-block');
         ctx.setExtensionPrompt = before;
@@ -943,15 +944,15 @@ test('the story is told the conditions the party carries and how to end one, and
         hooks.update();
         await settle();
         await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
-        assert.match(prompts.rpg_battle_rules, /Lasting conditions: Ren poisoned\. When the story ends one: <Wounds>Ren — cure poisoned: how<\/Wounds>\./);
-        assert.match(prompts.rpg_battle_rules, /cure poison;/, 'the instruction names the cure');
+        assert.match(prompts.story_suite_tail_3_rpg_battle, /Lasting conditions: Ren poisoned\. When the story ends one: <Wounds>Ren — cure poisoned: how<\/Wounds>\./);
+        assert.match(prompts.story_suite_static_rpg_battle, /cure poison;/, 'the instruction names the cure');
         ctx.chat.push(sent('The broth burns its way down; the venom sweats out.\n<Wounds>\nRen — cure poisoned: Mother Greta\'s nettle broth\n</Wounds>', 'd2'));
         await hooks.reply({ messageIndex: 2 });
         await settle();
         assert.match(partyText(3), /Conditions: none/, 'the sheet is clear');
         ctx.chat.push(userMessage('On.'));
         await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
-        assert.doesNotMatch(prompts.rpg_battle_rules, /Lasting conditions/, 'nothing carried, nothing said');
+        assert.doesNotMatch(prompts.story_suite_tail_3_rpg_battle, /Lasting conditions/, 'nothing carried, nothing said');
     } finally {
         ctx.setExtensionPrompt = before;
     }
@@ -982,16 +983,16 @@ test('a trade in the Trade tab: written into the latest reply, told once at dept
         // The next reply is told, at depth 0; a swipe of it is told again.
         ctx.chat.push(userMessage('Thanks.'));
         await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
-        assert.match(prompts.rpg_battle_trade.value, /^\[Trade\] Since the last reply, Ren sold Rat Tail to Elke/);
-        assert.equal(prompts.rpg_battle_trade.depth, 0);
+        assert.match(prompts.story_suite_tail_3_rpg_battle.value, /^\[Trade\] Since the last reply, Ren sold Rat Tail to Elke/m);
+        assert.equal(prompts.story_suite_tail_3_rpg_battle.depth, 0);
         ctx.chat.push(reply('Elke counts the tails.'));
         await hooks.reply({ messageIndex: 4 });
         await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'swipe');
-        assert.match(prompts.rpg_battle_trade.value, /sold Rat Tail/);
+        assert.match(prompts.story_suite_tail_3_rpg_battle.value, /sold Rat Tail/);
         // A newer reply: spent, and cleared from the prompt.
         ctx.chat.push(userMessage('Onward.'));
         await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
-        assert.equal(prompts.rpg_battle_trade.value, '');
+        assert.doesNotMatch(prompts.story_suite_tail_3_rpg_battle.value, /\[Trade\]/);
         assert.equal(ctx.chatMetadata.rpgBattle.trade, null);
         // A trade whose reply is deleted goes with it: nothing is told.
         openChat('trade-chat-2', [reply(`<Party>\n${REN}\n</Party>`), userMessage('To the guild.'), { ...reply(`Elke waits.\n${world}\n${inventory}`), send_date: 'first' }]);
@@ -1004,7 +1005,7 @@ test('a trade in the Trade tab: written into the latest reply, told once at dept
         hooks.update();
         await settle();
         await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
-        assert.equal(prompts.rpg_battle_trade.value, '');
+        assert.doesNotMatch(prompts.story_suite_tail_3_rpg_battle.value, /\[Trade\]/);
     } finally {
         ctx.setExtensionPrompt = before;
     }
@@ -1036,9 +1037,9 @@ test('an item used outside a fight: a marker in the message, the effect with the
         // Sent: the reply is told, at depth 0, and gets the effect.
         ctx.chat.push(userMessage(box.value));
         await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
-        assert.match(prompts.rpg_battle_item.value, /^\[Item\] Ren uses the Minor Healing Draught: \+20 HP \(now 50\/62 HP\)\./);
-        assert.equal(prompts.rpg_battle_item.depth, 0);
-        assert.equal(prompts.rpg_battle.depth, 0, 'the fight hand-off goes at depth 0 too');
+        assert.match(prompts.story_suite_tail_3_rpg_battle.value, /^\[Item\] Ren uses the Minor Healing Draught: \+20 HP \(now 50\/62 HP\)\./m);
+        assert.equal(prompts.story_suite_tail_3_rpg_battle.depth, 0);
+        assert.equal(prompts.story_suite_tail_3_rpg_battle.depth, 0, 'the fight hand-off goes at depth 0 too');
         ctx.chat.push({ ...reply('Ren drinks.'), send_date: 'one' });
         await hooks.reply({ messageIndex: 2 });
         await settle();
@@ -1051,7 +1052,7 @@ test('an item used outside a fight: a marker in the message, the effect with the
         // A newer reply: the note is spent.
         ctx.chat.push(userMessage('On.'));
         await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
-        assert.equal(prompts.rpg_battle_item.value, '');
+        assert.doesNotMatch(prompts.story_suite_tail_3_rpg_battle.value, /\[Item\]/);
         // The marker taken out before sending: nothing is used.
         box.value = '';
         pane = drawParty();
@@ -1061,7 +1062,7 @@ test('an item used outside a fight: a marker in the message, the effect with the
         await settle();
         ctx.chat.push(userMessage('Never mind.'));
         await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
-        assert.equal(prompts.rpg_battle_item.value, '');
+        assert.doesNotMatch(prompts.story_suite_tail_3_rpg_battle.value, /\[Item\]/);
         assert.equal(ctx.chatMetadata.rpgBattle.itemUse, null);
     } finally {
         ctx.setExtensionPrompt = before;
@@ -1092,7 +1093,7 @@ test('buying: each kind of trader at the place has stock, nobody need be present
         assert.equal(findAll(pane, '.rpg-trade-buy').length, buy.length - 1, 'bought: gone from the stock');
         ctx.chat.push(userMessage('What else?'));
         await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
-        assert.match(prompts.rpg_battle_trade.value, /bought .+ from the apothecary/);
+        assert.match(prompts.story_suite_tail_3_rpg_battle.value, /bought .+ from the apothecary/);
         assert.ok(!Object.keys(prompts).some(key => /shop/.test(key)), 'no stock in the prompt');
     } finally {
         ctx.setExtensionPrompt = before;
@@ -1134,3 +1135,32 @@ test('a companion\'s items: their Inventory section is their gear and potions in
     const ren = ctx.chatMetadata.rpgBattle.fight.setup.party.find(unit => unit.memberId === 'pc');
     assert.deepEqual(ren.items.map(item => item.name), [], 'her potions are not yours');
 });
+
+test('laid out for prompt caching: the instruction after the main prompt, the rest at the very end, old keys emptied (0.5.41)', async () => withClock(async () => {
+    const prompts = {};
+    const before = ctx.setExtensionPrompt;
+    ctx.setExtensionPrompt = (key, value, position, depth) => { prompts[key] = { value, position, depth }; };
+    try {
+        openChat('cache-chat', [reply(`<Party>\n${REN}\n</Party>`), userMessage('On.')]);
+        hooks.update();
+        await settle();
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        const first = prompts.story_suite_static_rpg_battle;
+        assert.equal(first.position, 0, 'IN_PROMPT: right after the main prompt');
+        assert.match(first.value, /<Encounter>/);
+        assert.equal(prompts.story_suite_tail_3_rpg_battle.position, 1);
+        assert.equal(prompts.story_suite_tail_3_rpg_battle.depth, 0);
+        for (const key of ['rpg_battle', 'rpg_battle_rules', 'rpg_battle_trade', 'rpg_battle_item']) assert.equal(prompts[key]?.value, '', `${key} emptied`);
+        // The next reply, with the story moved on: the instruction is the same text.
+        ctx.chat.push(sent('The road bends.', 'd2'));
+        ctx.chat.push(userMessage('Onward.'));
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        assert.equal(prompts.story_suite_static_rpg_battle.value, first.value);
+        // A quiet generation (a summary) gets neither.
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'quiet');
+        assert.equal(prompts.story_suite_static_rpg_battle.value, '');
+        assert.equal(prompts.story_suite_tail_3_rpg_battle.value, '');
+    } finally {
+        ctx.setExtensionPrompt = before;
+    }
+}));

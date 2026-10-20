@@ -54,12 +54,13 @@ import { buildHandoff, buildPlanHandoff, fightOrigin, grouped, handoffState, ori
 import { cleanPlan, newPlan, nextStage, planResult, stageDone, stageId } from './src/plan.js';
 import { combatantFromSheet, combatNumbers, editCompanion, enemiesFromRows, engagements, newCompanion, npcRenames, remapIds } from './src/party.js';
 import { recoverOverTime, restAfter, useItemOutside } from './src/recovery.js';
-import { NARRATING_INSTRUCTION, STORY_INSTRUCTION, applyWounds, describeWound, encounterSummary, findTarget, foughtAlready, parsePlan, parseStakes, parseWounds, resolveThreats, storyFight } from './src/story.js';
+import { applyWounds, describeWound, encounterSummary, findTarget, foughtAlready, parsePlan, parseStakes, parseWounds, resolveThreats, storyFight } from './src/story.js';
 import { liveOffers, questOffers, storyOffers } from './src/offers.js';
 import { awardParty, settleCompanions } from './src/growth.js';
 import { guessFocus } from './src/builds.js';
 import { fallbackKit, kitPrompt, kitTemplate, namedKit, parseKit, usableKit } from './src/kit.js';
 import { cleanParty, exportParty } from './src/partyfile.js';
+import { OLD_PROMPT_KEYS, STATIC_PROMPT_KEY, TAIL_PROMPT_KEY, promptLayout } from './src/injection.js';
 import { craftPlan, parseCrafted } from './src/craft.js';
 import { renderBattleTab } from './src/ui/tab.js';
 import { renderTradeTab } from './src/ui/trade.js';
@@ -69,21 +70,15 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.40';
+const VERSION = '0.5.41';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
 const PARTY_TAB_ID = 'rpg-party';
 
 const NPC_SUITE_ID = 'npc-state-delta';
-const PROMPT_KEY = 'rpg_battle';
-// The story instruction (<Wounds>, <Encounter>) has its own key: the hand-off comes and goes
-// with one reply, the instruction stays on.
-const RULES_PROMPT_KEY = 'rpg_battle_rules';
-// (0.5.37) The trade note: only for the reply after trades in the Trade tab, at depth 0.
-const TRADE_PROMPT_KEY = 'rpg_battle_trade';
-// (0.5.38) An item used outside a fight, told to the reply sent with its marker.
-const ITEM_PROMPT_KEY = 'rpg_battle_item';
+// (0.5.41) Two prompt slots, laid out for prompt caching (src/injection.js): the story
+// instruction early and the same every reply, everything that changes in one note at the end.
 // Story Block's World State (its default tag): read for the place and who is present.
 const WORLD_TAG = 'World_State';
 // Transport-only tags: Story Block moves them into its hidden envelope, out of the narration.
@@ -109,6 +104,7 @@ const STORY_SHEET_TEMPLATE = 'character-sheet';
 // are kept apart, so a long story never offers its start again.
 const DISMISSED_KEPT = 60;
 const OPENING_KEPT = 60;
+const EXTENSION_PROMPT_IN_PROMPT = 0;
 const EXTENSION_PROMPT_IN_CHAT = 1;
 const EXTENSION_PROMPT_ROLE_SYSTEM = 0;
 const MIN_STORY_BLOCK_VERSION = [0, 7, 0];
@@ -483,16 +479,34 @@ function purseLine() {
         if (storySuite().api('story-block')?.printsPurse?.() === true) return '';
         const currency = rules().currency;
         const purse = purseOf(blockText(settings().inventoryTag), currency);
-        return purse ? ` Purse: ${formatMoney(purse.total, currency)} in all; nothing dearer can be paid for (the seller refuses, haggles or takes goods in trade).` : '';
+        return purse ? `Purse: ${formatMoney(purse.total, currency)} in all; nothing dearer can be paid for (the seller refuses, haggles or takes goods in trade).` : '';
     } catch {
         return '';
     }
 }
 
-function storyInstruction(ctx = context()) {
+/** The foes this story has met, so the same creature keeps its name ('' before any). */
+function foesLine(ctx = context()) {
     const names = [...new Set((chatState(ctx).bestiary ?? []).map(entry => String(entry?.name ?? '').trim()).filter(name => name && !name.includes(':')))].slice(-KNOWN_FOES_SHOWN);
-    const base = names.length ? `${STORY_INSTRUCTION} Foes this story has met (the same creature keeps its name): ${names.join(', ')}.` : STORY_INSTRUCTION;
-    return `${base}${lastingConditionsLine()}`;
+    return names.length ? `Foes this story has met (the same creature keeps its name): ${names.join(', ')}.` : '';
+}
+
+/**
+ * (0.5.41) The next reply's prompt, laid out for caching: { staticText, tail, tailText }.
+ * `handoff`, `trade`, `item`: the notes going with it (worked out by the caller).
+ */
+function layoutFor(ctx = context(), { handoff = '', trade = '', item = '' } = {}) {
+    const own = settings(ctx);
+    const pc = own.enabled ? currentSheet() : null;
+    const story = Boolean(own.enabled && pc && !isDead(pc));
+    return promptLayout({
+        story,
+        underWay: story && underWay(chatState(ctx)),
+        handoff, trade, item,
+        foes: story ? foesLine(ctx) : '',
+        lasting: story ? lastingConditionsLine() : '',
+        purse: story ? purseLine() : '',
+    });
 }
 
 /**
@@ -508,7 +522,7 @@ function lastingConditionsLine() {
             .map(condition => String(condition?.name ?? '').trim()).filter(Boolean).map(condition => ({ who: sheet.name, condition })));
         if (!carried.length) return '';
         const [first] = carried;
-        return ` Lasting conditions: ${carried.slice(0, 6).map(entry => `${entry.who} ${entry.condition}`).join(', ')}. When the story ends one: <Wounds>${first.who} — cure ${first.condition}: how</Wounds>.`;
+        return `Lasting conditions: ${carried.slice(0, 6).map(entry => `${entry.who} ${entry.condition}`).join(', ')}. When the story ends one: <Wounds>${first.who} — cure ${first.condition}: how</Wounds>.`;
     } catch {
         return '';
     }
@@ -2239,10 +2253,11 @@ const SUITE_MANAGE = manageApi({
         const own = settings();
         if (!own.enabled) return tokenEstimate();
         const state = chatState();
-        const pc = currentSheet();
-        const asks = Boolean(pc) && !isDead(pc) && !underWay(state);
-        return tokenEstimate({ handoff: handoffNow(context(), state) === 'waiting' ? state.pending.handoff : '', instruction: asks ? storyInstruction() : '' });
+        const layout = layoutFor(context(), { handoff: handoffNow(context(), state) === 'waiting' ? state.pending.handoff : '' });
+        return tokenEstimate({ handoff: layout.tailText, instruction: layout.staticText });
     },
+    // (0.5.41) Story Suite's What's sent: the exact parts, [{ label, text }].
+    preview: () => whatsSent().map(part => ({ label: part.label, text: part.text })),
     enabled: () => settings().enabled,
     enable: on => {
         applySettings({ ...settings(), enabled: on });
@@ -2333,10 +2348,22 @@ function watchSuite() {
 // ---------------------------------------------------------------------------
 // The hand-off: injected once, into the next reply and its swipes
 
-function setPrompt(text, key = PROMPT_KEY, depth = 1) {
+function setPrompt(text, key = TAIL_PROMPT_KEY) {
     const ctx = context();
     if (typeof ctx?.setExtensionPrompt !== 'function') return;
-    ctx.setExtensionPrompt(key, text, EXTENSION_PROMPT_IN_CHAT, depth, false, EXTENSION_PROMPT_ROLE_SYSTEM);
+    // The static slot right after the main prompt; the tail at the very end (depth 0).
+    const early = key === STATIC_PROMPT_KEY;
+    ctx.setExtensionPrompt(key, text, early ? EXTENSION_PROMPT_IN_PROMPT : EXTENSION_PROMPT_IN_CHAT, 0, false, EXTENSION_PROMPT_ROLE_SYSTEM);
+}
+
+/** Both slots emptied, and (0.5.41) the keys of older versions with them. */
+function clearPrompts() {
+    setPrompt('', STATIC_PROMPT_KEY);
+    setPrompt('', TAIL_PROMPT_KEY);
+    for (const key of OLD_PROMPT_KEYS) {
+        const ctx = context();
+        if (typeof ctx?.setExtensionPrompt === 'function') ctx.setExtensionPrompt(key, '', EXTENSION_PROMPT_IN_CHAT, 0, false, EXTENSION_PROMPT_ROLE_SYSTEM);
+    }
 }
 
 // The reader's message a generation of `kind` answers: the last one, before the reply a swipe replaces.
@@ -2513,31 +2540,24 @@ async function onGenerationInterceptor(chat, _contextSize, _abort, type = 'norma
         if (kind === 'quiet' || kind === 'impersonate') {
             // A summary or an impersonation is no story reply: no <Wounds> or <Encounter> asked
             // for, and no fight hand-off either (it waits for the next real reply).
-            setPrompt('', RULES_PROMPT_KEY);
-            setPrompt('');
-            setPrompt('', TRADE_PROMPT_KEY, 0);
-            setPrompt('', ITEM_PROMPT_KEY, 0);
+            clearPrompts();
             return;
         }
         const ctx = context();
         const own = settings(ctx);
         const handoff = own.enabled ? handoffFor(chat, kind) : '';
-        // (0.5.38) At depth 0, as near the end of the prompt as it goes; cleared once spent.
-        setPrompt(handoff, PROMPT_KEY, 0);
-        // Replaced or cleared on every reply, so a spent trade is never told twice.
         const traded = own.enabled ? tradeFor(kind) : '';
-        setPrompt(traded, TRADE_PROMPT_KEY, 0);
         const used = own.enabled ? itemUseFor(kind) : '';
-        setPrompt(used, ITEM_PROMPT_KEY, 0);
-
-        // The story instruction, while there is a sheet to keep in step and no fight under way.
-        // The reply that narrates a fight gets the narrating one (0.5.9): no <Wounds> for that
-        // fight, but a new fight after it is still handed over.
+        // (0.5.41) The story instruction early and unchanged, everything else in one note at the
+        // end, rebuilt (or emptied) on every reply, so nothing spent is told twice. The reply
+        // that narrates a fight also gets the narrating line (0.5.9): no <Wounds> for that fight.
+        const layout = layoutFor(ctx, { handoff, trade: traded, item: used });
+        for (const key of OLD_PROMPT_KEYS) ctx?.setExtensionPrompt?.(key, '', EXTENSION_PROMPT_IN_CHAT, 0, false, EXTENSION_PROMPT_ROLE_SYSTEM);
+        setPrompt(layout.staticText, STATIC_PROMPT_KEY);
+        setPrompt(layout.tailText, TAIL_PROMPT_KEY);
         const pc = own.enabled ? currentSheet() : null;
         const why = !own.enabled ? 'RPG Battle is off' : !pc ? 'no character yet' : isDead(pc) ? 'your character is dead' : underWay(chatState(ctx)) ? 'a fight is under way' : '';
-        const instruction = why ? '' : `${handoff ? NARRATING_INSTRUCTION : storyInstruction(ctx)}${purseLine()}`;
-        setPrompt(instruction, RULES_PROMPT_KEY);
-        lastSent = { at: Date.now(), type: kind, handoff: Boolean(handoff), instruction: why ? 'none' : handoff ? 'narrating' : 'story', why, chars: handoff.length + instruction.length + traded.length + used.length, handoffText: handoff, instructionText: instruction, tradeText: traded, itemText: used };
+        lastSent = { at: Date.now(), type: kind, handoff: Boolean(handoff), instruction: why ? 'none' : handoff ? 'narrating' : 'story', why, chars: layout.staticText.length + layout.tailText.length, staticText: layout.staticText, tailText: layout.tailText };
     } catch (error) {
         console.error('[RPG Battle] interceptor failed', error);
     }
@@ -2694,7 +2714,7 @@ function diagnosticsJson() {
 /**
  * (0.5.12) What the next new reply will be sent, worked out from the saved chat as the
  * interceptor would (no side effects), so it shows right after a restart too: { handoff,
- * instruction: 'story'|'narrating'|'none', why, instructionText, swipeOnly }. `swipeOnly`: the
+ * instruction: 'story'|'narrating'|'none', why, staticText, tailText, swipeOnly }. `swipeOnly`: the
  * hand-off belongs to the latest reply, so only a swipe of it gets it again.
  */
 function nextReplyPreview(ctx = context()) {
@@ -2708,8 +2728,9 @@ function nextReplyPreview(ctx = context()) {
     const swipeOnly = Boolean(pending && !handoff && Number.isInteger(attached));
     const pc = own.enabled ? currentSheet() : null;
     const why = !own.enabled ? 'RPG Battle is off' : !pc ? 'no character yet' : isDead(pc) ? 'your character is dead' : underWay(state) ? 'a fight is under way' : '';
-    const instructionText = why ? '' : `${handoff ? NARRATING_INSTRUCTION : storyInstruction(ctx)}${purseLine()}`;
-    return { handoff, instruction: why ? 'none' : handoff ? 'narrating' : 'story', why, instructionText, swipeOnly, swipeOf: swipeOnly ? attached : null };
+    // (0.5.41) The two slots as they would be sent (without the trade and item notes).
+    const layout = layoutFor(ctx, { handoff });
+    return { handoff, instruction: why ? 'none' : handoff ? 'narrating' : 'story', why, staticText: layout.staticText, tailText: layout.tailText, swipeOnly, swipeOf: swipeOnly ? attached : null };
 }
 
 /**
@@ -2721,18 +2742,19 @@ function nextReplyPreview(ctx = context()) {
 function whatsSent(ctx = context()) {
     try {
         const next = nextReplyPreview(ctx);
-        const parts = [];
-        if (next.handoff) parts.push({ key: PROMPT_KEY, label: 'Fight hand-off', depth: 0, text: next.handoff });
-        if (next.instructionText) parts.push({ key: RULES_PROMPT_KEY, label: next.instruction === 'narrating' ? 'Narrating instruction' : 'Story instruction', depth: 1, text: next.instructionText });
         const chat = ctx?.chat ?? [];
         const trade = settleHandoff(chatState(ctx).trade, chat);
-        if (trade && (trade.attachedTo === null || trade.attachedTo === undefined || trade.attachedTo === chat.length)) parts.push({ key: TRADE_PROMPT_KEY, label: 'Trade note', depth: 0, text: trade.handoff });
+        const tradeText = trade && (trade.attachedTo === null || trade.attachedTo === undefined || trade.attachedTo === chat.length) ? trade.handoff : '';
         const use = chatState(ctx).itemUse;
         const box = String(globalThis.document?.getElementById?.('send_textarea')?.value ?? '');
-        if (use && (use.attachedTo === null || use.attachedTo === undefined)) {
-            const lines = itemResults(use.entries.filter(entry => box.includes(entry.marker)));
-            if (lines.length) parts.push({ key: ITEM_PROMPT_KEY, label: 'Item note (with your message)', depth: 0, text: `[Item] ${lines.join(' ')}\nTell it as it happens in the scene; keep these numbers.` });
-        }
+        const lines = use && (use.attachedTo === null || use.attachedTo === undefined) ? itemResults(use.entries.filter(entry => box.includes(entry.marker))) : [];
+        const itemText = lines.length ? `[Item] ${lines.join(' ')}\nTell it as it happens in the scene; keep these numbers.` : '';
+        // (0.5.41) The static slot first (early in the prompt, the same every reply), then the
+        // tail's parts in the order they are joined at the end of the prompt.
+        const layout = layoutFor(ctx, { handoff: next.handoff, trade: tradeText, item: itemText });
+        const parts = [];
+        if (layout.staticText) parts.push({ key: STATIC_PROMPT_KEY, label: 'Story instruction (start of prompt, same every reply)', depth: 'start', text: layout.staticText });
+        for (const part of layout.tail) parts.push({ key: TAIL_PROMPT_KEY, label: `${part.label} (end of prompt)`, depth: 0, text: part.text });
         return parts;
     } catch {
         return [];
@@ -2760,16 +2782,16 @@ function diagnosticsText() {
             const what = lastSent.instruction === 'story' ? 'story instruction (<Wounds>, <Encounter>, …)' : lastSent.instruction === 'narrating' ? 'narrating instruction (a new fight → <Encounter>, no <Wounds>)' : `no instruction (${lastSent.why})`;
             lines.push(`Last reply sent (${new Date(lastSent.at).toLocaleTimeString()}, ${lastSent.type}): ${lastSent.handoff ? 'fight hand-off + ' : ''}${what} · about ${Math.round(lastSent.chars / 4)} tokens`);
         } else lines.push('Last reply sent: nothing yet this session (it is filled in when a reply is generated; see "Next reply will get" below)');
-        if (lastSent && (lastSent.handoffText || lastSent.instructionText)) {
-            lines.push(`Injected with it (each a system message at chat depth 1; ${PROMPT_KEY} then ${RULES_PROMPT_KEY}):`);
-            if (lastSent.handoffText) lines.push(`  [${PROMPT_KEY}] the hand-off:`, indent(indent(lastSent.handoffText)));
-            if (lastSent.instructionText) lines.push(`  [${RULES_PROMPT_KEY}] the ${lastSent.instruction} instruction:`, indent(indent(lastSent.instructionText)));
+        if (lastSent && (lastSent.staticText || lastSent.tailText)) {
+            lines.push('Injected with it (system messages):');
+            if (lastSent.staticText) lines.push(`  [${STATIC_PROMPT_KEY}] after the main prompt, the same every reply:`, indent(indent(lastSent.staticText)));
+            if (lastSent.tailText) lines.push(`  [${TAIL_PROMPT_KEY}] at the end of the prompt:`, indent(indent(lastSent.tailText)));
         }
         const next = nextReplyPreview(ctx);
         const nextWhat = next.instruction === 'story' ? 'story instruction' : next.instruction === 'narrating' ? 'narrating instruction' : `no instruction (${next.why})`;
-        lines.push(`Next reply will get: ${next.handoff ? 'fight hand-off + ' : ''}${nextWhat}${next.swipeOnly ? ` (the fight's hand-off went to reply #${next.swipeOf}; only a swipe of it gets it again)` : ''} · about ${Math.round((next.handoff.length + next.instructionText.length) / 4)} tokens`);
-        if (next.handoff) lines.push(`  [${PROMPT_KEY}] the hand-off:`, indent(indent(next.handoff)));
-        if (next.instructionText) lines.push(`  [${RULES_PROMPT_KEY}] the ${next.instruction} instruction:`, indent(indent(next.instructionText)));
+        lines.push(`Next reply will get: ${next.handoff ? 'fight hand-off + ' : ''}${nextWhat}${next.swipeOnly ? ` (the fight's hand-off went to reply #${next.swipeOf}; only a swipe of it gets it again)` : ''} · about ${Math.round((next.staticText.length + next.tailText.length) / 4)} tokens`);
+        if (next.staticText) lines.push(`  [${STATIC_PROMPT_KEY}] after the main prompt, the same every reply:`, indent(indent(next.staticText)));
+        if (next.tailText) lines.push(`  [${TAIL_PROMPT_KEY}] at the end of the prompt:`, indent(indent(next.tailText)));
         const pending = state.pending;
         lines.push(`Hand-off: ${handoffNow(ctx, state)}${Number.isInteger(pending?.attachedTo) ? ` (given to reply #${pending.attachedTo})` : ''}`);
         lines.push(`Fight: ${state.plan ? 'a plan under way' : currentFight() ? 'under way' : 'none'}`);
@@ -3736,7 +3758,8 @@ function registerWithStoryBlock() {
     sb.registerTab({
         id: PARTY_TAB_ID,
         label: 'Party',
-        icon: '👥',
+        // (0.5.41) Its own icon: NPC State Delta's Present NPCs tab is 👥 too.
+        icon: '🛡️',
         order: 79,
         isAvailable: () => settings().enabled,
         key: partyKey,
@@ -3860,6 +3883,8 @@ function init() {
     announceToSuite();
     watchSuite();
     ensureUi();
+    // (0.5.41) No stale copy from an older version's keys, nor of the last session's notes.
+    clearPrompts();
     const ctx = context();
     const events = ctx?.event_types ?? ctx?.eventTypes ?? {};
     // A reply in, or its generation stopped: a hand-off given to it is no longer "being
@@ -3887,10 +3912,7 @@ function init() {
             screen = { chatId: chatIdOf(context()), mode: null };
             live = { chatId: null, key: '', fight: null };
             generating = false;
-            setPrompt('');
-            setPrompt('', RULES_PROMPT_KEY);
-            setPrompt('', TRADE_PROMPT_KEY, 0);
-            setPrompt('', ITEM_PROMPT_KEY, 0);
+            clearPrompts();
             try {
                 settlePending();
             } catch (error) {

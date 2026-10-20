@@ -43,8 +43,16 @@ export function announcement({ version, api, enabled = true }) {
  * so the overlay changes them exactly as the panel's own controls do. setSource ignores an
  * area or a choice RPG Battle does not know and says whether it applied the change.
  */
-export function manageApi({ choices, choose, enabled, enable, tokens = null }) {
+export function manageApi({ choices, choose, enabled, enable, tokens = null, preview = null }) {
     return Object.freeze({
+        // (0.5.41) Story Suite's What's sent: the exact parts, [{ label, text }]; never throws.
+        preview() {
+            try {
+                return preview ? preview() : [];
+            } catch {
+                return [];
+            }
+        },
         // (0.4) What RPG Battle itself adds to the next ordinary reply, estimated (tokenEstimate).
         tokens() {
             try {

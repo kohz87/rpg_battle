@@ -1,4 +1,4 @@
-# RPG Battle v0.5.40
+# RPG Battle v0.5.41
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -441,8 +441,21 @@ before sending and nothing is used.
 ## What's sent (0.5.38)
 
 The Party card's **What's sent** fold shows, part by part, what RPG Battle would add to the next
-reply: the story instruction (or the narrating one), a fight's hand-off, the trade note, an item
-note, with each part's depth. Story Suite can read the same list (`api.preview()`).
+reply, with each part's size. Story Suite's overlay lists the same parts (`api.manage.preview()`,
+`[{ label, text }]`; `api.preview()` is the same list with each part's key and place).
+
+**Laid out for prompt caching (0.5.41).** Many providers reuse the part of a prompt that is the
+same as the last request's, from the start, and charge less for it. So RPG Battle sends two things:
+
+- **The story instruction**, early (right after the main prompt), and the same text every reply:
+  nothing in it changes, so it is part of the prefix that is reused.
+- **One note at the very end** (depth 0) with everything that changes: a fight's hand-off and the
+  narrating line, the trade and item notes, *a fight is under way*, the foes the story has met,
+  lasting conditions and the purse. It is rebuilt every reply and emptied when there is nothing
+  to tell, so nothing spent is told twice.
+
+They use Story Suite's shared keys (`story_suite_static_rpg_battle`, `story_suite_tail_3_rpg_battle`);
+the keys of older versions are emptied on load.
 
 ## Equipment and loot: your Inventory block
 
@@ -935,9 +948,9 @@ defeated and fled, XP, loot, levels and mastery, and the hand-off exactly as it 
 **Activity this session** (awards, offers taken or put away, fights started and ended, story
 wounds), with times.
 
-Since 0.5.11 it also quotes **what was injected** with the last reply, word for word: the hand-off
-and the instruction, each a system message at chat depth 1 under its key (`rpg_battle`,
-`rpg_battle_rules`). Under the report, **Raw data (JSON)** holds what the lines are made from:
+Since 0.5.11 it also quotes **what was injected** with the last reply, word for word: since
+0.5.41 the story instruction after the main prompt (`story_suite_static_rpg_battle`) and the note
+at the end of the prompt (`story_suite_tail_3_rpg_battle`), each a system message. Under the report, **Raw data (JSON)** holds what the lines are made from:
 this chat's stored state (the hand-off waiting, the last result, what was put away, the replies
 that narrated a fight), what the last reply was sent, the sheets, the offers, the quests Story
 Director finished in the latest reply, that reply's RPG Battle blocks as written, and the

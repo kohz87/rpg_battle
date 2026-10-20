@@ -1799,12 +1799,14 @@
 }
 
 /* (0.5.38) A name in its rarity's colour (Trade lists, the Party card's gear). Common stays the
-   text colour, a little quieter, so ordinary lists do not turn grey. */
+   text colour, a little quieter, so ordinary lists do not turn grey. (0.5.41) The colours are
+   Story Block's (its story-block-rarity classes, --sb-rarity-*), so the Inventory and these
+   lists match; RPG Battle's own only when Story Block has none. */
 .rpg-rarity.is-common { opacity: 0.9; }
-.rpg-rarity.is-uncommon { color: var(--rb-rarity-uncommon); }
-.rpg-rarity.is-rare { color: var(--rb-rarity-rare); }
-.rpg-rarity.is-epic { color: var(--rb-rarity-epic); }
-.rpg-rarity.is-legendary { color: var(--rb-rarity-legendary); }
+.rpg-rarity.is-uncommon { color: var(--sb-rarity-uncommon, var(--rb-rarity-uncommon)); }
+.rpg-rarity.is-rare { color: var(--sb-rarity-rare, var(--rb-rarity-rare)); }
+.rpg-rarity.is-epic { color: var(--sb-rarity-epic, var(--rb-rarity-epic)); }
+.rpg-rarity.is-legendary { color: var(--sb-rarity-legendary, var(--rb-rarity-legendary)); }
 
 /* (0.5.38) What's sent: each part RPG Battle adds to the next reply, as plain text. */
 .rpg-battle-tab .rpg-battle-sent-text {
