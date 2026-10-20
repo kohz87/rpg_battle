@@ -1164,3 +1164,46 @@ test('laid out for prompt caching: the instruction after the main prompt, the re
         ctx.setExtensionPrompt = before;
     }
 }));
+
+const inventoryAt = index => globalThis.StoryBlock.blockInText(ctx.chat[index].mes, 'Inventory').text;
+
+test('each trade waiting to be told can be undone, exactly; not once something else changed the Inventory (0.5.43)', async () => {
+    const world = '<World_State>\n**📅 Time:** day | **🌤 Loc:** Bluewatch Village | Guild Post | [1, 2] | **🌡 Wx:** grey\n\n**👥 NPCs Present:**\n**Elke:**\n* *Mood:* tired\n\n---\n</World_State>';
+    const inventory = '<Inventory>\nCoin Pouch | 1 | 2 silver\n[Loot]\nRat Tail | 5 | material\n</Inventory>';
+    openChat('undo-chat', [reply(`<Party>\n${REN}\n</Party>`), userMessage('To the guild.'), reply(`Elke waits.\n${world}\n${inventory}`)]);
+    hooks.update();
+    await settle();
+    const start = inventoryAt(2);
+    let pane = drawTrade();
+    pickTrader(pane, 'person:Elke');
+    find(pane, '.rpg-trade-sell').click();
+    await settle();
+    pane = drawTrade();
+    pickTrader(pane, 'person:Elke');
+    find(pane, '.rpg-trade-sell').click();
+    await settle();
+    const twice = inventoryAt(2);
+    assert.match(twice, /Rat Tail \| 3 \| material/);
+    pane = drawTrade();
+    assert.equal(findAll(pane, '.rpg-trade-told li').length, 2);
+    assert.equal(findAll(pane, '.rpg-trade-undo').length, 2);
+    // The first taken back: the second still made, from the first Inventory.
+    findAll(pane, '.rpg-trade-undo')[0].click();
+    await settle();
+    assert.match(inventoryAt(2), /Rat Tail \| 4 \| material/);
+    assert.equal(ctx.chatMetadata.rpgBattle.trade.entries.length, 1);
+    // The last taken back: the Inventory exactly as it was, nothing to tell.
+    findAll(drawTrade(), '.rpg-trade-undo')[0].click();
+    await settle();
+    assert.equal(inventoryAt(2), start);
+    assert.equal(ctx.chatMetadata.rpgBattle.trade, null);
+    // Something else changed the Inventory after a trade: no Undo offered.
+    pane = drawTrade();
+    pickTrader(pane, 'person:Elke');
+    find(pane, '.rpg-trade-sell').click();
+    await settle();
+    ctx.chat[2].mes = ctx.chat[2].mes.replace('Rat Tail | 4 | material', 'Rat Tail | 4 | material\nTorch | 1');
+    hooks.update();
+    await settle();
+    assert.equal(findAll(drawTrade(), '.rpg-trade-undo').length, 0);
+});

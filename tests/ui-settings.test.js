@@ -26,6 +26,9 @@ test('tiers text round-trips; the first coin is always rate 1', () => {
     assert.deepEqual(textToTiers('bits=5, marks=12, crowns=20'), [{ name: 'bits', rate: 1 }, { name: 'marks', rate: 12 }, { name: 'crowns', rate: 20 }]);
     assert.deepEqual(textToTiers('shells'), [{ name: 'shells', rate: 1 }]);
     assert.deepEqual(textToTiers(''), []);
+    // (0.5.43) A short form for the Trade prices after a slash, kept both ways.
+    assert.deepEqual(textToTiers('copper/cp=1, silver/sp=10'), [{ name: 'copper', rate: 1, short: 'cp' }, { name: 'silver', rate: 10, short: 'sp' }]);
+    assert.equal(tiersToText([{ name: 'copper', rate: 1, short: 'cp' }, { name: 'silver', rate: 10 }]), 'copper/cp=1, silver=10');
 });
 
 test('currency mode switches the rows; edits go through onChange', () => {

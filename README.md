@@ -1,4 +1,4 @@
-# RPG Battle v0.5.42
+# RPG Battle v0.5.43
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -409,8 +409,14 @@ tells it.
   story day) and different from what it had on the days before; what you buy is gone from it.
   Gear's rarity follows the place (a city's smith has better pieces). The stock is never put in
   the prompt: only what you bought is told.
-- **Sell:** every row but your purse, what you wear and what is on order, priced once on its
-  button (*Sell 3 · 6 copper (2 copper each)*).
+- **Sell:** every row but your purse, what you wear and what is on order.
+- **One line per thing** (0.5.43): in Buy, Sell and On order each thing is a single line: its
+  name in its rarity's colour, its note quiet in the middle (cut short; a tap shows it whole), a
+  stack's **− n +** count, and a small price button on the right (*💰 6 c*), so the prices line
+  up. The short price is written in your own coins (*1 g 3 s*, or *5 m 8 b* for bits, marks and
+  crowns; see **Money**); the button's full words (*Sell 3 · 6 copper (2 copper each)*) are its
+  tooltip and what a screen reader reads. A trade is made the moment you press its button. On a
+  wide pane (a tablet held sideways) the lines sit in two columns.
 - **Make or order:** name the piece, pick the materials, see what it will be and the crafter's
   fee, then **Make it** now or **Order it**, ready in so many days (a date on Story Director's
   calendar when it is there). An order waits under **[On Order]** with its numbers set.
@@ -427,6 +433,12 @@ Tell it briefly as part of the scene, in the story's own voice. No menus or game
 
 It is told once (again to a swipe of that reply), replaced or cleared on every reply, and never
 sent otherwise. The numbers are in `trade` in the rules.
+
+**Undo** (0.5.43): each trade under **Told in your next reply** has its own Undo, which takes
+exactly that one back: the Inventory and purse are made again from how they were before the first
+of these trades, with every other trade done again and that one left out (a thing bought goes back
+on the trader's shelf). It is offered while nothing else has changed the Inventory since; after
+that, delete or swipe the latest reply to take the trades back.
 
 ## Using an item outside a fight (0.5.38)
 
@@ -828,7 +840,11 @@ kin. With no relative, a new kind is made from its template as before.
 
 Your lorebook names the money, so the currency is a setting: **copper / silver / gold** (rates
 editable), **one coin** named as you like, or **your own** names and rates (for example
-`bits=1, marks=12, crowns=20`). Loot is added to the inventory row named in the setting
+`bits=1, marks=12, crowns=20`). The Trade page's prices are written short in these coins
+(since 0.5.43): each coin by its own short form when you give one after a slash
+(`copper/cp=1, silver/sp=10`), else by the fewest letters that tell your coins apart (*c, s, g*;
+*b, m, c*; *cr* and *co* for crowns and copper); one coin by its **Short form** setting, else its
+first letter. Loot is added to the inventory row named in the setting
 (`Coins` by default), or (since 0.5.25) to a purse the story keeps under its own name, such as
 `Coin Pouch | 1 | 1 Gold, 35 Silver, 14 Copper`, so there is never a second money row.
 

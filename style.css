@@ -1798,6 +1798,126 @@
     padding-left: 0.5rem;
 }
 
+/* (0.5.42) Buy, Sell and On order: one line per thing — name, quiet note (cut short; a tap on it
+   opens the row), a stack's − n +, and a small price button on the right so prices line up. A
+   wide pane (the tab's is-wide) lays the rows in two columns. */
+.rpg-trade-tab .rpg-trade-name-row {
+    margin-top: 0;
+}
+
+.rpg-trade-tab .rpg-trade-item.is-row {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 0.4rem;
+    align-items: center;
+    min-height: 2.1rem;
+    padding: 0.2rem 0;
+}
+
+.rpg-trade-tab .rpg-trade-item.is-row > .rpg-trade-item-name {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rpg-trade-tab .rpg-trade-item.is-row > .rpg-trade-note {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.85em;
+    opacity: 0.7;
+    cursor: pointer;
+}
+
+/* A tap on the note shows it whole, under the name. */
+.rpg-trade-tab .rpg-trade-item.is-row.is-open {
+    flex-wrap: wrap;
+}
+
+.rpg-trade-tab .rpg-trade-item.is-row.is-open > .rpg-trade-note {
+    flex-basis: 100%;
+    order: 9;
+    white-space: normal;
+}
+
+.rpg-trade-tab .rpg-trade-item.is-row > .rpg-trade-stepper,
+.rpg-trade-tab .rpg-trade-item.is-row > .menu_button {
+    flex: none;
+}
+
+.rpg-trade-tab .rpg-trade-item.is-row > .menu_button:last-child {
+    margin-left: auto;
+}
+
+.rpg-trade-tab .menu_button.rpg-trade-price-button {
+    display: inline-flex;
+    gap: 0.3rem;
+    align-items: center;
+    justify-content: flex-end;
+    min-width: 4.2rem;
+    min-height: 1.9rem;
+    margin: 0;
+    padding: 0.15rem 0.5rem;
+    font-size: 0.85em;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.rpg-trade-tab .rpg-trade-stepper {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.1rem;
+}
+
+.rpg-trade-tab .rpg-trade-stepper .menu_button {
+    min-width: 1.6rem;
+    min-height: 1.6rem;
+    margin: 0;
+    padding: 0;
+    font-size: 0.7em;
+}
+
+.rpg-trade-tab .rpg-trade-count {
+    min-width: 1.4rem;
+    text-align: center;
+    font-size: 0.85em;
+    font-variant-numeric: tabular-nums;
+}
+
+.rpg-trade-tab.is-wide .rpg-trade-list.is-rows {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 1rem;
+}
+
+.rpg-trade-tab.is-wide .rpg-trade-list.is-rows > .rpg-trade-item:last-child {
+    border-bottom: 1px solid var(--rb-border);
+}
+
+/* What the next reply is told, each with its Undo. */
+.rpg-trade-tab .rpg-trade-told-line {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+}
+
+.rpg-trade-tab .rpg-trade-told-text {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.rpg-trade-tab .menu_button.rpg-trade-undo {
+    flex: none;
+    min-height: 1.7rem;
+    margin: 0;
+    padding: 0.1rem 0.45rem;
+    font-size: 0.8em;
+}
+
 /* (0.5.38) A name in its rarity's colour (Trade lists, the Party card's gear). Common stays the
    text colour, a little quieter, so ordinary lists do not turn grey. (0.5.41) The colours are
    Story Block's (its story-block-rarity classes, --sb-rarity-*), so the Inventory and these

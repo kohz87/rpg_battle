@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.43
+
+- **Trade is one line per thing.** Each thing in Buy, Sell and On order took two lines, its name and then a button under it. Now it is one line, about half the height:
+  - its name in its rarity's colour;
+  - its note quiet in the middle, cut short (a tap shows it whole);
+  - a stack's **− n +** count;
+  - a small price button on the right, so the prices line up.
+
+  A trade is still made the moment you press its button. On a wide pane, such as a tablet held sideways, the lines sit in two columns.
+- **Prices in your own coins.** A row's price is written short in the currency you set: *1 g 3 s 4 c*, *5 m 8 b* for bits, marks and crowns. When initials clash, as many letters as tell them apart (*cr* and *co*). Give a coin its own short form after a slash in the Coins setting (`copper/cp=1`); one coin has a **Short form** setting. The full words stay everywhere else, including the button's tooltip, what a screen reader reads, the told lines and the note to the story.
+- **Undo for each trade.** Every line under **Told in your next reply** has an Undo that takes exactly that trade back. The Inventory and purse are made again from before the first of these trades, with that one left out, and a thing bought goes back on the shelf. It is offered while nothing else has changed the Inventory since.
+- **The trader's name has its own line**, so its hint is no longer cut off.
+
 ## 0.5.42
 
 - **The story instruction is never lost to a preset without a Main Prompt.** SillyTavern places the instruction next to the Main Prompt. A preset whose prompt order has no Main Prompt dropped it, so the story was never told about `<Wounds>`, `<Encounter>` and the rest, with nothing to show for it. Now RPG Battle checks the reply's prompt just before it goes out and, when the instruction is missing, puts it back after the leading system messages, once. A prompt that already has it is left alone, and so are other extensions' calls during the reply (a scan or a summary has no story in it). Text completion is unaffected: the instruction stays in the story string there. In a test chat with the Main Prompt removed, 0.5.41 sent the instruction 0 times and 0.5.42 once; with it in, both sent it once.
