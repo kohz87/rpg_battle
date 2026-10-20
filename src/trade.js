@@ -102,9 +102,10 @@ export function ordersIn(inventoryText) {
 }
 
 /** `qty` of the row `name` sold for `each` apiece: { text, total } — the row down, the purse up. */
-export function sellIn(inventoryText, { name, qty = 1, each }, currency = DEFAULT_RULES.currency) {
+export function sellIn(inventoryText, { name, qty = 1, each }, currency = DEFAULT_RULES.currency, from = null, purse = from) {
     const total = Math.max(0, Math.round(each * qty));
-    const text = addLoot(useItems(inventoryText, { [name]: qty }), { money: total }, currency);
+    // (0.5.40) `from`: whose row (a member's section, or yours); the coin goes to your purse (`purse`).
+    const text = addLoot(useItems(inventoryText, { [name]: qty }, from), { money: total }, currency, purse && purse.owner ? null : purse);
     return { text, total };
 }
 

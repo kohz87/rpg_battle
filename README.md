@@ -1,4 +1,4 @@
-# RPG Battle v0.5.39
+# RPG Battle v0.5.40
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -515,9 +515,19 @@ Healing Draught | 2 | heal 30
   body parts only once, and a part a creature has one of (a pelt, hide, head, heart, tail, skull,
   horn…) is never more than one per creature: one wolf, one pelt. Fangs, claws and scales may
   come several at a time.
-- **Give item** (on a companion's card) moves one equipment row from your Inventory onto their
-  gear (the Equipped line of their section; the same slot limits and rarity caps, at their
-  level); **Take back** puts a piece back into your Inventory, not equipped.
+- **A companion's own items** (0.5.40) are the Inventory sections named for them: `[Lyra]`, and
+  sub-sections like `[Lyra > Herbs]` (matched by their name or first name, as the Party sections
+  are). Rows marked `equipped` there are their gear in a fight (the same slot limits and rarity
+  caps, at their level); their consumables are theirs to use in a fight and come off their
+  section afterwards. Everything else is yours, and loot stays the party's: it goes into your
+  sections, never a companion's, until you move it. Moving a thing is a plain Inventory edit
+  (move the row under their header), or:
+- **Give item** (on a companion's card) moves one equipment row from your Inventory into their
+  section, worn; **Take back** puts it back into yours, not worn. A companion's older
+  `Equipped:` line on their Party section is still read while they have no section; the first
+  Give moves its pieces into the new section, and the line is not written again after that.
+- **Trade** sells a companion's things too: **Whose items** under Sell picks you or them (the
+  coin goes to your purse).
 
 ## A fight
 

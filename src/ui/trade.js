@@ -109,6 +109,10 @@ function tradeKind(view) {
 function sellSection(view, handlers) {
     const rows = view.sellable ?? [];
     const kind = tradeKind(view);
+    // (0.5.40) Whose items: yours, or a party member's (their Inventory section).
+    const owners = view.owners ?? [];
+    const whose = owners.length > 1 ? select('rpg-trade-owner', 'Whose items', owners.map(owner => [owner.id, owner.id === 'pc' ? `${owner.name} (you)` : owner.name]), view.owner ?? 'pc') : null;
+    whose?.addEventListener('change', () => handlers.onOwner?.(whose.value));
     const items = rows.map(item => {
         const qty = Math.min(Number(draft.sell[item.name] ?? 1), item.qty);
         const each = view.sellPrice?.(item.name, kind) ?? 0;
@@ -133,6 +137,7 @@ function sellSection(view, handlers) {
     });
     return section('rpg-trade-sell-list', [
         sub('Sell', 'fa-coins', rows.length),
+        whose ? el('div', { className: 'rpg-trade-row' }, [el('span', { className: 'rpg-battle-label', text: 'Whose items' }), whose]) : null,
         rows.length ? el('ul', { className: 'rpg-trade-list' }, items) : el('p', { className: 'rpg-battle-empty', text: 'Nothing to sell: what you wear and what is on order stays.' }),
     ]);
 }
@@ -237,7 +242,8 @@ function pendingSection(view) {
  * purse, purseText, sellable, materials, orders, pending, orderDays, money(amount),
  * sellPrice(name, kind), preview({ name, materials, slot, days, kind }) → { name, note, fee,
  * ready } | null, buyerKind(name), stock(kind) → [{ name, note, price, rarity }] (0.5.38) }.
- * `handlers`: onBuy, onSell, onCraft, onCollect, onLevel.
+ * (0.5.40) owners: [{ id, name }] and owner (whose items Sell lists).
+ * `handlers`: onBuy, onSell, onCraft, onCollect, onLevel, onOwner.
  */
 export function renderTradeTab(pane, view = {}, handlers = {}) {
     if (!pane) return;

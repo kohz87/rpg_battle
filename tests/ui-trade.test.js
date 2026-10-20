@@ -144,3 +144,17 @@ test('the purse first, each price once (0.5.38)', () => {
     assert.ok(texts(pane, '.rpg-trade-sell').every(label => (label.match(/\dc/g) ?? []).length === 1), 'one price on a single sale');
     assert.equal(pane.querySelectorAll('.rpg-trade-kind').length, 0, 'a trader kind is what it is');
 });
+
+test('whose items: with a companion who carries things, Sell lists yours or theirs (0.5.40)', () => {
+    resetTradeDraft();
+    const pane = doc.createElement('div');
+    const picked = [];
+    renderTradeTab(pane, view({ owners: [{ id: 'pc', name: 'Ren' }, { id: 'm1', name: 'Lyra' }], owner: 'pc' }), { onOwner: id => picked.push(id) });
+    const whose = pane.querySelector('.rpg-trade-owner');
+    assert.deepEqual(texts(pane, '.rpg-trade-owner option'), ['Ren (you)', 'Lyra']);
+    whose.value = 'm1';
+    whose.dispatch('change');
+    assert.deepEqual(picked, ['m1']);
+    renderTradeTab(pane, view({ owners: [{ id: 'pc', name: 'Ren' }] }), {});
+    assert.equal(pane.querySelector('.rpg-trade-owner'), null, 'only you: no choice');
+});

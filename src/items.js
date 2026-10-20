@@ -58,6 +58,30 @@ const MAIN_BY_SLOT = { weapon: 'ATK', offhand: 'DEF', armour: 'DEF', worn: 'DEF'
 
 const clean = value => String(value ?? '').replace(/\r?\n/g, ' ').trim();
 const stripBold = value => String(value ?? '').replace(/\*\*|__/g, '').trim();
+/**
+ * (0.5.40) Whose a row is: the party member whose name its section starts with (`[Lyra]`,
+ * `[Lyra > Herbs]`), matched by name or first name, else null (yours). `members`: their names.
+ */
+export function sectionOwner(category, members = []) {
+    const head = nameKey(String(category ?? '').split('>')[0]);
+    if (!head) return null;
+    for (const name of members ?? []) {
+        const key = nameKey(name);
+        if (key && (head === key || head === key.split(' ')[0])) return name;
+    }
+    return null;
+}
+
+/**
+ * (0.5.40) Whether a row belongs to `scope`: { members, owner } — owner null (or no scope) is
+ * yours, the rows outside every member's section; a name is that member's section only.
+ */
+export function inScope(row, scope = null) {
+    if (!scope?.members?.length) return true;
+    const owner = sectionOwner(row?.category, scope.members);
+    return scope.owner ? owner !== null && nameKey(owner) === nameKey(scope.owner) : owner === null;
+}
+
 export const nameKey = value => stripBold(value).normalize('NFKC').replace(/\s+/g, ' ').toLowerCase();
 const LIST_MARKER = /^(?:[-*•]|\d+[.)])\s+/;
 // (0.5.19) A line that only says a section is empty ("(empty)", "*(None)*", "—") is no item.
@@ -698,9 +722,12 @@ const KIND_CATEGORY = {
     material: /material|loot|trophies|trophy|component|misc/i,
 };
 
-function categoryFor(item, scanned) {
+function categoryFor(item, scanned, scope = null) {
     const kind = item.kind ?? (item.slot || Object.keys(item.stats ?? {}).length ? 'equipment' : item.effect ? 'consumable' : 'material');
-    const categories = [...new Set(scanned.headers.map(entry => entry.category))];
+    // (0.5.40) Only the owner's sections: yours are not a member's, a member's start with their name.
+    const categories = [...new Set(scanned.headers.map(entry => entry.category))].filter(category => inScope({ category }, scope));
+    // A member's things: a fitting sub-section of theirs, else their own top section ([Lyra]).
+    const top = scope?.owner ? categories.find(category => !category.includes('>')) ?? String(scope.owner).split(' ')[0] : null;
     const slot = kind === 'equipment' ? item.slot ?? kindOf(item.name)?.slot ?? null : null;
     if (kind === 'equipment') {
         const exact = slot && categories.find(category => slotFromCategory(category) === slot);
@@ -709,7 +736,7 @@ function categoryFor(item, scanned) {
     // A weapon does not go under [Equipment > Armour], nor a potion under [Weapons].
     const fits = category => !slotFromCategory(category) || (kind === 'equipment' && slotFromCategory(category) === slot);
     const loose = categories.find(category => KIND_CATEGORY[kind]?.test(category) && fits(category));
-    return { category: loose ?? 'Loot', kind };
+    return { category: loose ?? top ?? 'Loot', kind };
 }
 
 // enemies.js loot tables carry a consumable's effect as its note text already ('heal 30').
@@ -725,6 +752,11 @@ function formatEffect(effect) {
         parts.push(`${element} ${effect.damage.amount}${effect.damage.target === 'all' ? ', all enemies' : ''}`);
     }
     return parts.join(', ');
+}
+
+/** (0.5.40) A piece of gear's note as loot writes it: "uncommon · DEF +4, slot: worn". */
+export function gearNote(item) {
+    return lootNote({ ...item, note: null }, 'equipment');
 }
 
 function lootNote(item, kind) {
@@ -774,9 +806,10 @@ function moneyCellOf(row, c) {
  * every purse row (the currency's own "Coins" row and any "Coin Pouch", "Purse"… written in
  * coins), with `rows` naming them; null when the inventory has none.
  */
-export function purseOf(inventoryText, currency = DEFAULT_RULES.currency) {
+export function purseOf(inventoryText, currency = DEFAULT_RULES.currency, scope = null) {
     const c = currencyOf(currency);
     const rows = scan(String(inventoryText ?? '').split(/\r?\n/)).rows
+        .filter(row => inScope(row, scope))
         .map(row => ({ row, cell: moneyCellOf(row, c) }))
         .filter(entry => entry.cell);
     if (!rows.length) return null;
@@ -789,17 +822,17 @@ export function purseOf(inventoryText, currency = DEFAULT_RULES.currency) {
  * order, each rewritten in its own cell. { text, ok } — ok false (text unchanged) when the
  * purse holds less.
  */
-export function spendMoney(inventoryText, amount, currency = DEFAULT_RULES.currency) {
+export function spendMoney(inventoryText, amount, currency = DEFAULT_RULES.currency, scope = null) {
     const text = String(inventoryText ?? '');
     const c = currencyOf(currency);
     let left = Math.max(0, Math.round(Number(amount) || 0));
     if (!left) return { text, ok: true };
-    const purse = purseOf(text, c);
+    const purse = purseOf(text, c, scope);
     if (!purse || purse.total < left) return { text, ok: false };
     const lines = text.split(/\r?\n/);
     for (const { name, cell } of purse.rows) {
         if (!left) break;
-        const row = scan(lines).rows.find(entry => entry.key === nameKey(name));
+        const row = scan(lines).rows.find(entry => entry.key === nameKey(name) && inScope(entry, scope));
         if (!row) continue;
         const have = parseMoney(cell === 'note' ? row.note : row.qty, c);
         const take = Math.min(have, left);
@@ -812,7 +845,7 @@ export function spendMoney(inventoryText, amount, currency = DEFAULT_RULES.curre
     return { text: lines.join(eolOf(text)), ok: true };
 }
 
-export function addLoot(inventoryText, { items = [], money = 0 } = {}, currency = DEFAULT_RULES.currency) {
+export function addLoot(inventoryText, { items = [], money = 0 } = {}, currency = DEFAULT_RULES.currency, scope = null) {
     const text = String(inventoryText ?? '');
     const eol = eolOf(text);
     const lines = text === '' ? [] : text.split(/\r?\n/);
@@ -821,7 +854,8 @@ export function addLoot(inventoryText, { items = [], money = 0 } = {}, currency 
     if (amount > 0) {
         const scanned = scan(lines);
         // The currency's own row first, else (0.5.25) the purse the story keeps under its own name.
-        const row = scanned.rows.find(entry => entry.key === nameKey(c.row)) ?? scanned.rows.find(entry => moneyCellOf(entry, c));
+        const mine = scanned.rows.filter(entry => inScope(entry, scope));
+        const row = mine.find(entry => entry.key === nameKey(c.row)) ?? mine.find(entry => moneyCellOf(entry, c));
         const cell = row ? moneyCellOf(row, c) : null;
         if (row && cell === 'note') {
             const total = parseMoney(row.note, c) + amount;
@@ -841,14 +875,15 @@ export function addLoot(inventoryText, { items = [], money = 0 } = {}, currency 
         const name = clean(item?.name);
         if (!name) continue;
         const scanned = scan(lines);
-        const row = scanned.rows.find(entry => entry.key === nameKey(name));
+        // (0.5.40) Stacked only onto a row of the same owner; a member's section is never a home for yours.
+        const row = scanned.rows.find(entry => entry.key === nameKey(name) && inScope(entry, scope));
         if (row) {
             const have = /\d/.test(row.qty) ? quantity(row.qty) : 1;
             const value = /\d/.test(row.qty) ? row.qty.replace(/\d[\d,]*/, String(have + qty)) : String(have + qty);
             lines[row.index] = rewriteQty(lines[row.index], row, value);
             continue;
         }
-        const { category, kind } = categoryFor(item, scanned);
+        const { category, kind } = categoryFor(item, scanned, scope);
         const note = lootNote(item, kind);
         insertRow(lines, category, `${escapeName(name)} | ${qty}${note ? ` | ${escapeCell(note)}` : ''}`);
     }
@@ -864,7 +899,7 @@ export function addLoot(inventoryText, { items = [], money = 0 } = {}, currency 
  * Inventory the fight wrote, whose row's note is the one put back (a stack the loot joined keeps
  * the note it had).
  */
-export function restoreLoot(inventoryText, items = [], currency = DEFAULT_RULES.currency, written = null) {
+export function restoreLoot(inventoryText, items = [], currency = DEFAULT_RULES.currency, written = null, scope = null) {
     let text = String(inventoryText ?? '');
     const writtenRows = written === null ? [] : scan(String(written).split(/\r?\n/)).rows;
     for (const item of items ?? []) {
@@ -872,13 +907,13 @@ export function restoreLoot(inventoryText, items = [], currency = DEFAULT_RULES.
         if (!name) continue;
         const lines = text === '' ? [] : text.split(/\r?\n/);
         const scanned = scan(lines);
-        const row = scanned.rows.find(entry => entry.key === nameKey(name));
+        const row = scanned.rows.find(entry => entry.key === nameKey(name) && inScope(entry, scope));
         if (!row) {
-            text = addLoot(text, { items: [item] }, currency);
+            text = addLoot(text, { items: [item] }, currency, scope);
             continue;
         }
-        const kept = writtenRows.find(entry => entry.key === row.key);
-        const note = kept ? clean(kept.note ?? '') : lootNote(item, categoryFor(item, scanned).kind);
+        const kept = writtenRows.find(entry => entry.key === row.key && inScope(entry, scope));
+        const note = kept ? clean(kept.note ?? '') : lootNote(item, categoryFor(item, scanned, scope).kind);
         if (!note || nameKey(row.note ?? '').includes(nameKey(note))) continue;
         lines[row.index] = rewriteCell(lines[row.index], row, row.qtyCell + 1, escapeCell(note));
         text = lines.join(eolOf(text));
@@ -1004,7 +1039,8 @@ export function keepNotes(inventoryText, before) {
     const lines = text === '' ? [] : text.split(/\r?\n/);
     let changed = false;
     for (const row of scan(lines).rows) {
-        const was = old.find(entry => entry.key === row.key);
+        // (0.5.40) The same row: its name in the same section (Lyra's draught is not yours).
+        const was = old.find(entry => entry.key === row.key && nameKey(entry.category) === nameKey(row.category)) ?? old.find(entry => entry.key === row.key && !old.some(other => other !== entry && other.key === row.key));
         if (!was || clean(was.note ?? '') === clean(row.note ?? '')) continue;
         const b = describeRow(was);
         const c = describeRow(row);
@@ -1051,14 +1087,14 @@ function dropEmptyMarks(lines) {
 }
 
 /** Consumables used in a fight taken out: { name: count } down, a row at 0 removed. */
-export function useItems(inventoryText, used = {}) {
+export function useItems(inventoryText, used = {}, scope = null) {
     const text = String(inventoryText ?? '');
     const eol = eolOf(text);
     const lines = text.split(/\r?\n/);
     for (const [name, count] of Object.entries(used ?? {})) {
         const n = Math.round(Number(count) || 0);
         if (n <= 0) continue;
-        const row = scan(lines).rows.find(entry => entry.key === nameKey(name));
+        const row = scan(lines).rows.find(entry => entry.key === nameKey(name) && inScope(entry, scope));
         if (!row) continue;
         const have = /\d/.test(row.qty) ? quantity(row.qty) : 1;
         if (have - n <= 0) lines.splice(row.index, 1);
