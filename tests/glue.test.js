@@ -1098,3 +1098,39 @@ test('buying: each kind of trader at the place has stock, nobody need be present
         ctx.setExtensionPrompt = before;
     }
 });
+
+test('a companion\'s items: their Inventory section is their gear and potions in a fight; Give moves a row there; their old Equipped line is read until then (0.5.40)', async () => {
+    const lyraOld = `${LYRA}\nEquipped: Willow Wand (common) · MATK +3`;
+    const inventory = '<Inventory>\nCoin Pouch | 1 | 2 silver\n[Equipment > Accessories]\nBone Charm | 1 | common · LUK +1\n</Inventory>';
+    openChat('items-chat', [reply(`<Party>\n${REN}\n\n${lyraOld}\n</Party>\n${inventory}`)]);
+    hooks.update();
+    await settle();
+    // No section yet: the Equipped line is her gear.
+    let pane = drawParty();
+    assert.ok(findAll(pane, '.rpg-battle-record-name').some(node => node.textContent === 'Willow Wand'));
+    // Give: the charm goes into her section, her old line's wand with it, and the line is not written again.
+    find(pane, '.rpg-battle-give-open').click();
+    pane = drawParty();
+    find(pane, '.rpg-battle-give-confirm').click();
+    await settle();
+    const text = ctx.chat[0].mes;
+    assert.match(text, /\[Lyra\]\nWillow Wand \| 1 \| equipped · common · MATK \+3\nBone Charm \| 1 \| equipped · common · LUK \+1/);
+    assert.doesNotMatch(text, /\[Equipment > Accessories\]\nBone Charm/);
+    assert.doesNotMatch(text, /Equipped: Willow Wand/);
+    pane = drawParty();
+    assert.ok(findAll(pane, '.rpg-battle-record-name').some(node => node.textContent === 'Bone Charm'), 'her card shows her section\'s gear');
+    // A fight: her gear and potions are her section's.
+    ctx.chat[0].mes = ctx.chat[0].mes.replace('</Inventory>', '[Lyra > Herbs]\nMinor Healing Draught | 2 | heal 20\n</Inventory>');
+    ctx.chat.push(userMessage('Onward.'), reply('Wolves!\n<Encounter>2 wolf (weak)</Encounter>'));
+    hooks.update();
+    await settle();
+    pane = drawTab('rpg-battle');
+    find(pane, '.rpg-battle-encounter-fight').click();
+    pane = drawTab('rpg-battle');
+    find(pane, '.rpg-battle-begin').click();
+    await settle();
+    const her = ctx.chatMetadata.rpgBattle.fight.setup.party.find(unit => unit.name === 'Lyra');
+    assert.deepEqual(her.items.map(item => item.name), ['Minor Healing Draught']);
+    const ren = ctx.chatMetadata.rpgBattle.fight.setup.party.find(unit => unit.memberId === 'pc');
+    assert.deepEqual(ren.items.map(item => item.name), [], 'her potions are not yours');
+});

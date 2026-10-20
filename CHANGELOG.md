@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.40
+
+- **Companions carry their own things, in the Inventory.** A section named for a companion (`[Lyra]`, `[Lyra > Herbs]`) holds their items:
+  - rows marked *equipped* there are their gear in a fight, with the same limits and rarity caps;
+  - their potions are theirs to drink in a fight, and come off their section afterwards;
+  - loot stays the party's, going into your sections and never theirs;
+  - moving something to them is just moving its row under their header.
+- **Give item** puts the piece into their section, worn, and **Take back** returns it to yours. Their old *Equipped:* line is still read until they have a section; the first Give moves its pieces into it, and the line is not written again.
+- **Trade** can sell a companion's things (**Whose items** under Sell); the coin goes to your purse.
+
 ## 0.5.39
 
 - **Clean-up, no change in behaviour.**

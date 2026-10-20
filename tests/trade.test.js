@@ -119,3 +119,12 @@ test('shop stock: by trade and place, the same all day, something new after what
     assert.equal(tradeLine({ kind: 'buy', name: 'Antidote', total: 7, who: 'Elke' }), 'bought Antidote from Elke for 7 copper');
     assert.equal(rememberStock(Array.from({ length: 50 }, (_, i) => `x${i}`), []).length, 40);
 });
+
+test('selling a companion\'s item: from their section, the coin into your purse (0.5.40)', () => {
+    const text = 'Coin Pouch | 1 | 2 silver\n[Lyra > Herbs]\nWolfsbane | 3 | material';
+    const members = ['Lyra'];
+    const { text: sold, total } = sellIn(text, { name: 'Wolfsbane', qty: 2, each: 3 }, DEFAULT_RULES.currency, { members, owner: 'Lyra' }, { members, owner: null });
+    assert.equal(total, 6);
+    assert.match(sold, /\[Lyra > Herbs\]\nWolfsbane \| 1 \| material/);
+    assert.match(sold, /^Coin Pouch \| 1 \| 2 silver, 6 copper$/m);
+});

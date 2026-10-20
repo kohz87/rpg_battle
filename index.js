@@ -48,7 +48,7 @@ import { TEMPLATES, classify, cleanCreature, combinedBestiary, creaturesToMake, 
 import { applyFlavour, flavourPrompt, parseFlavour, sceneText } from './src/flavour.js';
 import { act, availableActions, foeXpWorth, replay, startFight, summarize } from './src/combat.js';
 import { applyResult, foldUses, forgetSkill, formatPartyBlock, learnSkill, newSheet, readSheets, setSkillActive, spendPoints } from './src/sheet.js';
-import { addLoot, applyCrafts, collectOrders, consumables, keepNotes, restoreLoot, formatGearEntry, formatMoney, gearSummary, parseGearEntry, parseInventory, purseOf, useItems } from './src/items.js';
+import { addLoot, applyCrafts, collectOrders, consumables, gearNote, inScope, keepNotes, restoreLoot, formatMoney, gearSummary, parseInventory, purseOf, useItems } from './src/items.js';
 import { NEXT_MOVES_MAX, fallbackMoves, nextMovesPrompt, parseNextMoves } from './src/nextmoves.js';
 import { buildHandoff, buildPlanHandoff, fightOrigin, grouped, handoffState, originHolds, settleHandoff } from './src/handoff.js';
 import { cleanPlan, newPlan, nextStage, planResult, stageDone, stageId } from './src/plan.js';
@@ -69,7 +69,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.39';
+const VERSION = '0.5.40';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -568,8 +568,40 @@ function currentParty() {
     return currentSheets().members;
 }
 
+// (0.5.40) A party member's items are the Inventory sections named for them ([Lyra],
+// [Lyra > Herbs]); yours are all the rest. `owner`: null for you, else the member's name.
+function itemScope(owner = null, members = currentParty()) {
+    return { members: members.map(member => member.name).filter(Boolean), owner };
+}
+
 function currentItems() {
-    return parseInventory(blockText(settings().inventoryTag)).items;
+    const scope = itemScope();
+    return parseInventory(blockText(settings().inventoryTag)).items.filter(item => inScope(item, scope));
+}
+
+/** A member's own items (their Inventory sections); [] when they have none. */
+function memberItems(member, members = currentParty()) {
+    const scope = itemScope(member?.name ?? '', members);
+    return member?.name ? parseInventory(blockText(settings().inventoryTag)).items.filter(item => inScope(item, scope)) : [];
+}
+
+/** Whether a member has a section of their own in the Inventory. */
+function hasSection(member, members = currentParty()) {
+    const text = blockText(settings().inventoryTag);
+    const names = members.map(entry => entry.name).filter(Boolean);
+    return Boolean(member?.name) && text.split(/\r?\n/).some(line => {
+        const header = line.trim().match(/^\[(.+)\]$/)?.[1];
+        return header && inScope({ category: header }, { members: names, owner: member.name });
+    });
+}
+
+/**
+ * (0.5.40) What a member wears in a fight: the equipped rows of their Inventory section, or,
+ * with no section yet, the Equipped line of their Party section (read as before).
+ */
+function memberGear(member, members = currentParty()) {
+    if (!hasSection(member, members)) return member?.gear ?? [];
+    return memberItems(member, members).filter(item => item.equipped && item.slot);
 }
 
 async function writeBlock(tag, text) {
@@ -586,7 +618,9 @@ async function writeBlock(tag, text) {
  * written, the block carries it and the old record goes.
  */
 async function writeSheets(pc, members) {
-    await writeBlock(settings().partyTag, formatPartyBlock(pc, members ?? [], rules()));
+    // (0.5.40) A member with an Inventory section keeps their gear there: no Equipped line anew.
+    const list = (members ?? []).map(member => (hasSection(member, members) ? { ...member, gear: [] } : member));
+    await writeBlock(settings().partyTag, formatPartyBlock(pc, list, rules()));
     dropLegacyUses();
 }
 
@@ -735,8 +769,9 @@ function partyFromSheets(sheet, r) {
         ...currentParty().map(member => combatantFromSheet(member.sheet, {
             memberId: member.id,
             controller: member.control === 'command' ? 'player' : 'auto',
-            gear: member.gear ?? [],
-            items: [],
+            // (0.5.40) Their own gear and consumables, from their Inventory section.
+            gear: memberGear(member),
+            items: memberItems(member),
             library: library(),
             rules: r,
         })),
@@ -1156,10 +1191,14 @@ async function writeResult(result, stakes) {
         const inventory = blockText(own.inventoryTag);
         let guard = null;
         if (inventory.trim() || result.loot?.items?.length || result.loot?.money) {
-            let next = useItems(inventory, result.itemsUsed?.pc ?? {});
+            const used = result.itemsUsed ?? {};
+            let next = useItems(inventory, used.pc ?? {}, itemScope());
+            // (0.5.40) What a member used comes off their own section.
+            for (const member of currentParty()) if (used[member.id]) next = useItems(next, used[member.id], itemScope(member.name));
             // Loot only from fights won: a single fight's result has none otherwise, and a
             // plan's holds the loot of the stages it cleared.
-            if (result.loot?.items?.length || result.loot?.money) next = addLoot(next, result.loot, r.currency);
+            // Loot is the party's: into your sections, never a member's.
+            if (result.loot?.items?.length || result.loot?.money) next = addLoot(next, result.loot, r.currency, itemScope());
             if (next !== inventory) await writeBlock(own.inventoryTag, next);
             // (0.5.33) The reply narrating the fight rewrites the Inventory: what it loses of the loot is put back.
             const at = latestAssistantIndex(context()?.chat ?? []);
@@ -1309,7 +1348,7 @@ function planReply(sb, index, { withWounds = true } = {}) {
             const hours = (now - then) / 60;
             const gear = parseInventory(sb.getBlock(own.inventoryTag, { beforeIndex: index })?.text ?? '').items.filter(item => item.equipped);
             const mine = recoverOverTime(before, hours, { gear, rules: r });
-            const theirs = members.map(member => ({ member, recovery: recoverOverTime(member.sheet, hours, { gear: member.gear ?? [], rules: r }) }));
+            const theirs = members.map(member => ({ member, recovery: recoverOverTime(member.sheet, hours, { gear: memberGear(member, members), rules: r }) }));
             if (mine.kind || theirs.some(entry => entry.recovery.kind)) {
                 gains.pc = { hp: mine.hp, mp: mine.mp };
                 for (const { member, recovery } of theirs) gains[member.id] = { hp: recovery.hp, mp: recovery.mp };
@@ -1435,7 +1474,7 @@ async function guardLoot(sb, index, state, own) {
     if (!guard?.items?.length || !Number.isInteger(guard.origin?.index) || index <= guard.origin.index) return;
     const text = blockAt(sb, index, own.inventoryTag);
     if (text === null) return;
-    const fixed = restoreLoot(text, guard.items, rules().currency, guard.written ?? null);
+    const fixed = restoreLoot(text, guard.items, rules().currency, guard.written ?? null, itemScope());
     if (fixed === text) return;
     try {
         await sb.setBlockText(index, own.inventoryTag, fixed);
@@ -1846,7 +1885,7 @@ async function applyRest(offer, { pc, members, rules: r }) {
     const gains = state.recovered?.index === offer.index ? state.recovered.gains ?? {} : {};
     const gear = currentItems().filter(item => item.equipped);
     const rested = pc ? restAfter(pc, offer.data.kind, { gear, rules: r, already: gains.pc }) : null;
-    const party = members.map(member => ({ ...member, sheet: restAfter(member.sheet, offer.data.kind, { gear: member.gear ?? [], rules: r, already: gains[member.id] }) }));
+    const party = members.map(member => ({ ...member, sheet: restAfter(member.sheet, offer.data.kind, { gear: memberGear(member, members), rules: r, already: gains[member.id] }) }));
     await writeSheets(rested, party);
     putAway(offer);
     const back = (name, before, after) => {
@@ -2876,8 +2915,8 @@ function cardMember(member, r, lib, npc) {
     return {
         ...member,
         skills: resolveSkills(member.sheet.skills, lib, member.sheet.level, r).map((skill, index) => ({ ...skill, aside: Boolean(member.sheet.skills[index]?.aside) })),
-        gearSummary: gearSummary(member.gear ?? [], member.sheet.level, r),
-        combat: combatNumbers(member.sheet, { gear: member.gear ?? [], rules: r }),
+        gearSummary: gearSummary(memberGear(member).map(item => ({ equipped: true, ...item })), member.sheet.level, r),
+        combat: combatNumbers(member.sheet, { gear: memberGear(member), rules: r }),
         dossier: Boolean(linked && typeof npc?.openDossier === 'function'),
     };
 }
@@ -3052,10 +3091,17 @@ async function giveItem(memberId, name) {
     if (!member) throw new Error('That companion is not in the party.');
     const item = currentItems().find(entry => entry.name === name && entry.slot && entry.qty > 0);
     if (!item) throw new Error(`There is no ${name} in your Inventory.`);
-    // The row's own words, read again as an Equipped entry: worn by them, capped by rarity at their level.
-    const worn = parseGearEntry(formatGearEntry({ ...item, equipped: true }));
-    await writeSheets(pc, members.map(entry => (entry.id === memberId ? { ...entry, gear: [...(entry.gear ?? []), worn] } : entry)));
-    await writeBlock(own.inventoryTag, useItems(blockText(own.inventoryTag), { [item.name]: 1 }));
+    // (0.5.40) Given into their Inventory section, worn: one Inventory edit. An Equipped line of
+    // theirs from before goes into the section with it, the first time, so nothing is lost.
+    let text = useItems(blockText(own.inventoryTag), { [item.name]: 1 }, itemScope(null, members));
+    const scope = itemScope(member.name, members);
+    const moving = hasSection(member, members) ? [] : member.gear ?? [];
+    for (const worn of [...moving, item]) {
+        const note = `equipped · ${gearNote(worn)}`;
+        text = addLoot(text, { items: [{ name: worn.name, qty: 1, kind: 'equipment', note }] }, rules().currency, scope);
+    }
+    await writeBlock(own.inventoryTag, text);
+    if (moving.length) await writeSheets(pc, members.map(entry => (entry.id === memberId ? { ...entry, gear: [] } : entry)));
     notify('success', `${member.name} takes the ${item.name}.`);
 }
 
@@ -3063,12 +3109,23 @@ async function takeBack(memberId, name) {
     const own = settings();
     const { pc, members } = currentSheets();
     const member = members.find(entry => entry.id === memberId);
-    const index = member?.gear?.findIndex(item => item.name === name) ?? -1;
-    if (!member || index < 0) throw new Error(`${member?.name ?? 'They'} do not carry ${name}.`);
+    if (!member) throw new Error('That companion is not in the party.');
+    if (hasSection(member, members)) {
+        // (0.5.40) Out of their section, back into yours, no longer worn.
+        const worn = memberItems(member, members).find(item => item.name === name);
+        if (!worn) throw new Error(`${member.name} does not carry ${name}.`);
+        let text = useItems(blockText(own.inventoryTag), { [worn.name]: 1 }, itemScope(member.name, members));
+        text = addLoot(text, { items: [{ name: worn.name, qty: 1, rarity: worn.rarity, slot: worn.slot, stats: worn.stats, tags: worn.tags, kind: 'equipment' }] }, rules().currency, itemScope(null, members));
+        await writeBlock(own.inventoryTag, text);
+        notify('success', `The ${worn.name} is back in your Inventory.`);
+        return;
+    }
+    const index = member.gear?.findIndex(item => item.name === name) ?? -1;
+    if (index < 0) throw new Error(`${member.name} does not carry ${name}.`);
     const item = member.gear[index];
     await writeSheets(pc, members.map(entry => (entry.id === memberId ? { ...entry, gear: entry.gear.filter((_, at) => at !== index) } : entry)));
     const inventory = blockText(own.inventoryTag);
-    await writeBlock(own.inventoryTag, addLoot(inventory, { items: [{ name: item.name, qty: 1, rarity: item.rarity, slot: item.slot, stats: item.stats, tags: item.tags, kind: 'equipment' }] }, rules().currency));
+    await writeBlock(own.inventoryTag, addLoot(inventory, { items: [{ name: item.name, qty: 1, rarity: item.rarity, slot: item.slot, stats: item.stats, tags: item.tags, kind: 'equipment' }] }, rules().currency, itemScope(null, members)));
     notify('success', `The ${item.name} is back in your Inventory.`);
 }
 
@@ -3437,6 +3494,9 @@ function storyDay() {
     return now === null || now === undefined ? '' : String(Math.floor(now / (24 * 60)));
 }
 
+// (0.5.40) Whose items the Trade page's Sell lists: 'pc' or a member's id.
+let tradeOwner = 'pc';
+
 const shopKey = (kind, place) => `${placeKey(place)}|${kind}`;
 
 /**
@@ -3493,8 +3553,14 @@ function tradeView() {
     // (0.5.38) Who is here, as extra choices beside the trader kinds; never your own party.
     t.people = presentPeople();
     const c = t.r.currency;
-    const purse = purseOf(t.inventory, c)?.total ?? 0;
-    const items = sellable(t.inventory, c);
+    const purse = purseOf(t.inventory, c, itemScope())?.total ?? 0;
+    // (0.5.40) Whose items are sold: yours, or a party member's (their Inventory section).
+    const members = currentParty();
+    const owners = [{ id: 'pc', name: t.pc.name }, ...members.filter(member => memberItems(member, members).length).map(member => ({ id: member.id, name: member.name }))];
+    const owner = owners.find(entry => entry.id === tradeOwner) ?? owners[0];
+    const scope = itemScope(owner.id === 'pc' ? null : owner.name, members);
+    const items = sellable(t.inventory, c).filter(item => inScope(item, scope));
+    const mine = sellable(t.inventory, c).filter(item => inScope(item, itemScope(null, members)));
     const pending = handoffState(t.state.trade, ctx?.chat ?? []) === 'waiting' ? (t.state.trade?.entries ?? []).map(entry => tradeLine(entry, c)) : [];
     return {
         ready: true,
@@ -3505,8 +3571,10 @@ function tradeView() {
         people: t.people,
         purse,
         purseText: formatMoney(purse, c),
+        owners,
+        owner: owner.id,
         sellable: items.map(item => ({ name: item.name, qty: item.qty, note: item.note, rarity: item.rarity })),
-        materials: items.filter(item => kindOf(item) !== 'consumable').map(item => ({ name: item.name, qty: item.qty, note: item.note, rarity: item.rarity })),
+        materials: mine.filter(item => kindOf(item) !== 'consumable').map(item => ({ name: item.name, qty: item.qty, note: item.note, rarity: item.rarity })),
         orders: ordersIn(t.inventory).map(item => ({ name: item.name, note: item.note, rarity: item.rarity, with: String(item.note ?? '').match(/\bon order with ([^,·]+)/i)?.[1]?.trim() ?? '' })),
         pending,
         orderDays: t.r.trade.orderDays,
@@ -3514,6 +3582,7 @@ function tradeView() {
         buyerKind: name => buyerKind(name, t.r),
         sellPrice: (name, kind) => {
             const item = items.find(entry => entry.name === name);
+            // (whose: the owner chosen above)
             return item ? sellPrice(item, { buyer: kind, prices: t.prices, level: t.plevel, rules: t.r }) : 0;
         },
         preview: request => {
@@ -3567,11 +3636,17 @@ const tradeHandlers = {
             notify('error', `It could not be bought: ${error instanceof Error ? error.message : String(error)}`);
         }
     },
+    onOwner: id => {
+        tradeOwner = id;
+        storyBlock()?.refresh?.();
+    },
     onSell: async ({ name, qty, each, who }) => {
         try {
             const t = tradeContext();
-            const { text, total } = sellIn(t.inventory, { name, qty, each }, t.r.currency);
-            await recordTrade(text, { kind: 'sell', name, qty, total, who });
+            const members = currentParty();
+            const owner = members.find(member => member.id === tradeOwner) ?? null;
+            const { text, total } = sellIn(t.inventory, { name, qty, each }, t.r.currency, itemScope(owner?.name ?? null, members), itemScope(null, members));
+            await recordTrade(text, { kind: 'sell', name: owner ? `${owner.name}'s ${name}` : name, qty, total, who });
             notify('success', `Sold ${qty > 1 ? `${qty} ` : ''}${name} for ${formatMoney(total, t.r.currency)}. Your next reply tells it.`);
         } catch (error) {
             notify('error', `The sale could not be written: ${error instanceof Error ? error.message : String(error)}`);
@@ -3617,7 +3692,7 @@ function tradeKey() {
     const ctx = context();
     const state = chatState(ctx);
     const own = settings(ctx);
-    return [...baseKey(ctx, state), blockText(own.inventoryTag), storyBlock()?.getBlock?.(WORLD_TAG)?.text?.length ?? 0, JSON.stringify(state.trade ?? null), JSON.stringify(state.tradePrices ?? {}), currentSheet()?.level ?? 0, JSON.stringify(state.shops ?? {}), storyDay(), presentPeople().join(',')].join('|');
+    return [...baseKey(ctx, state), blockText(own.inventoryTag), storyBlock()?.getBlock?.(WORLD_TAG)?.text?.length ?? 0, JSON.stringify(state.trade ?? null), JSON.stringify(state.tradePrices ?? {}), currentSheet()?.level ?? 0, JSON.stringify(state.shops ?? {}), storyDay(), presentPeople().join(','), tradeOwner].join('|');
 }
 
 

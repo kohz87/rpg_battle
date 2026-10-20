@@ -474,3 +474,40 @@ test('keepNotes puts back what a retold note did, in front of the story\'s words
     assert.equal(keepNotes('Wolfsbane Tonic | 2 | heal 40, bitter', before), 'Wolfsbane Tonic | 2 | heal 40, bitter');
     assert.equal(keepNotes('Short Sword | 1 | stowed in the pack', before), 'Short Sword | 1 | common · ATK +4, fire · stowed in the pack');
 });
+
+test('a party member\'s items are the sections named for them; loot and use stay with the right owner (0.5.40)', async () => {
+    const { sectionOwner, inScope } = await import('../src/items.js');
+    const text = [
+        'Coin Pouch | 1 | 2 silver',
+        '[Consumables]',
+        'Minor Healing Draught | 1 | heal 20',
+        '[Lyra]',
+        'Ash Staff | 1 | equipped · uncommon · MATK +6',
+        '[Lyra > Herbs]',
+        'Minor Healing Draught | 2 | heal 20',
+        'Lyra\'s Purse | 1 | 5 silver',
+    ].join('\n');
+    const members = ['Lyra Vane'];
+    assert.equal(sectionOwner('Lyra > Herbs', members), 'Lyra Vane', 'by first name too');
+    assert.equal(sectionOwner('Consumables', members), null);
+    const mine = { members, owner: null };
+    const hers = { members, owner: 'Lyra Vane' };
+    const items = parseInventory(text).items;
+    assert.deepEqual(items.filter(item => inScope(item, hers)).map(item => item.name), ['Ash Staff', 'Minor Healing Draught', 'Lyra\'s Purse']);
+    assert.deepEqual(items.filter(item => inScope(item, mine)).map(item => item.name), ['Coin Pouch', 'Minor Healing Draught']);
+    // Using hers takes from her section, not yours.
+    assert.match(useItems(text, { 'Minor Healing Draught': 1 }, hers), /\[Lyra > Herbs\]\nMinor Healing Draught \| 1 \| heal 20/);
+    assert.match(useItems(text, { 'Minor Healing Draught': 1 }, hers), /\[Consumables\]\nMinor Healing Draught \| 1 \| heal 20/);
+    // Loot is yours: stacked on your row, into your sections, never hers; your coin is your purse.
+    const looted = addLoot(text, { items: [{ name: 'Minor Healing Draught', qty: 1, kind: 'consumable', effect: 'heal 20' }, { name: 'Wolf Pelt', qty: 1, kind: 'material' }], money: 5 }, R.currency, mine);
+    assert.match(looted, /\[Consumables\]\nMinor Healing Draught \| 2 \| heal 20/);
+    assert.match(looted, /\[Lyra > Herbs\]\nMinor Healing Draught \| 2 \| heal 20/);
+    assert.match(looted, /\[Loot\]\nWolf Pelt \| 1/);
+    assert.match(looted, /^Coin Pouch \| 1 \| 2 silver, 5 copper$/m);
+    assert.equal(purseOf(text, R.currency, mine).total, 20);
+    // Given to her: into her section.
+    assert.match(addLoot(text, { items: [{ name: 'Bone Charm', qty: 1, kind: 'equipment', note: 'equipped · common · LUK +1' }] }, R.currency, hers), /\[Lyra\]\nAsh Staff \| 1 \| .*\nBone Charm \| 1 \| equipped · common · LUK \+1/);
+    // Only a sub-section of hers ([Lyra > Herbs]): gear goes to her own top section, made for it.
+    const herbs = 'Coin Pouch | 1 | 2 silver\n[Lyra Vane > Herbs]\nWolfsbane | 1 | material';
+    assert.match(addLoot(herbs, { items: [{ name: 'Bone Charm', qty: 1, kind: 'equipment', note: 'equipped · common · LUK +1' }] }, R.currency, hers), /\[Lyra\]\nBone Charm \| 1/);
+});
