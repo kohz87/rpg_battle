@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.41
+
+- **Laid out for prompt caching.** Many providers reuse the part of a prompt that is the same as the last request's, from its start, and charge less for it (some do it on their own, Claude with cache breakpoints). RPG Battle used to send its story instruction one message from the end, with the foes met, lasting conditions and the purse built into it, so it changed and sat after the chat. Now it sends two things:
+  - **the story instruction**, right after the main prompt, the same text every reply (nothing in it changes), so it is part of the prefix that is reused;
+  - **one note at the very end** (depth 0) with everything that changes: a fight's hand-off and the narrating line, the trade and item notes, *a fight is under way*, the foes met, lasting conditions, the purse. It is rebuilt every reply and emptied when there is nothing to tell.
+
+  They use Story Suite's shared keys (`story_suite_static_rpg_battle`, `story_suite_tail_3_rpg_battle`); the keys of older versions are emptied on load. In a test chat, the instruction moved from message 15 of 18 to message 1, identical between two replies, and the note to the last message. While a fight is being fought the instruction stays and the note says to keep out of it, instead of the instruction going away for that reply.
+- **Story Suite's What's sent**: `api.manage.preview()` gives the parts as `[{ label, text }]` (`api.preview()` stays, with each part's key and place). The Party card's fold shows each part's size.
+- **Rarity colours are Story Block's**: past common, gear names in the Party card and Trade lists carry Story Block's shared `story-block-rarity` class and use its colours (`--sb-rarity-*`), so they match the Inventory; RPG Battle's own colours are the fallback.
+- **The Party tab's icon is 🛡️**: NPC State Delta's Present NPCs tab is 👥 too.
+
 ## 0.5.40
 
 - **Companions carry their own things, in the Inventory.** A section named for a companion (`[Lyra]`, `[Lyra > Herbs]`) holds their items:

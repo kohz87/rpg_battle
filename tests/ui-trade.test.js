@@ -130,6 +130,9 @@ test('buying from the trader: their stock with prices in rarity colours; Buy wai
     assert.equal(buttons.length, 2);
     assert.equal(buttons[1].disabled, true, 'the purse holds 65');
     assert.ok(pane.querySelector('.rpg-trade-buy-list .rpg-rarity.is-rare'));
+    // (0.5.41) Story Block's shared rarity class past common, so its colours apply; common keeps the text colour.
+    assert.ok(pane.querySelector('.rpg-trade-buy-list .story-block-rarity.is-rare'));
+    assert.equal(pane.querySelector('.rpg-trade-buy-list .story-block-rarity.is-common'), null);
     buttons[0].click();
     assert.deepEqual(bought, [{ name: 'Healing Draught', who: 'the general store', kind: 'general' }]);
 });

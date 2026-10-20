@@ -39,7 +39,8 @@ function qtyChoices(max) {
 const RARITY_CLASSES = new Set(['common', 'uncommon', 'rare', 'epic', 'legendary']);
 function itemName(name, rarity) {
     const known = RARITY_CLASSES.has(String(rarity ?? '').toLowerCase()) ? String(rarity).toLowerCase() : 'common';
-    return el('span', { className: `rpg-trade-item-name rpg-rarity is-${known}`, text: name });
+    // (0.5.41) Story Block's shared rarity class too, past common (common keeps the text colour).
+    return el('span', { className: `rpg-trade-item-name rpg-rarity${known === 'common' ? '' : ' story-block-rarity'} is-${known}`, text: name });
 }
 
 function redraw() {

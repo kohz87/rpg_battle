@@ -110,6 +110,12 @@ function fold(className, label, iconName, count, children, { open = false } = {}
 const list = value => (Array.isArray(value) ? value : []);
 const num = (value, fallback = 0) => (Number.isFinite(Number(value)) ? Number(value) : fallback);
 const str = value => String(value ?? '').trim();
+// (0.5.41) A name's classes for its rarity: RPG Battle's, and Story Block's shared one past common.
+function rarityClass(base, rarity) {
+    const word = RARITY_NAMES.has(str(rarity).toLowerCase()) ? str(rarity).toLowerCase() : 'common';
+    return `${base} rpg-rarity${word === 'common' ? '' : ' story-block-rarity'} is-${word}`;
+}
+
 const signed = value => (num(value) >= 0 ? `+${num(value)}` : String(num(value)));
 const tidy = value => String(Math.round(num(value) * 10) / 10);
 const sameName = (a, b) => str(a).toLowerCase().replace(/\s+/g, ' ') === str(b).toLowerCase().replace(/\s+/g, ' ');
@@ -428,7 +434,8 @@ function renderIdle(root, view, handlers) {
     // (0.5.38) What RPG Battle adds to the next reply, as it would be sent.
     const sent = list(view.sent);
     root.append(fold('is-sent', 'What\u2019s sent', 'fa-paper-plane', sent.length, sent.length ? sent.map(part => el('div', { className: 'rpg-battle-sent-part' }, [
-        el('div', { className: 'rpg-battle-sub' }, [el('span', { text: `${str(part.label)} · depth ${num(part.depth)}` })]),
+        // (0.5.41) The label says where it goes; its size in tokens (about four characters each).
+        el('div', { className: 'rpg-battle-sub' }, [el('span', { text: `${str(part.label)} · ~${Math.ceil(str(part.text).length / 4)} tokens` })]),
         el('pre', { className: 'rpg-battle-sent-text', text: str(part.text) }),
     ])) : [el('p', { className: 'rpg-battle-hint', text: 'Nothing: the next reply gets nothing from RPG Battle.' })]));
 }
@@ -799,7 +806,7 @@ function gearPiece(piece, extra = null) {
     const item = el('li', { className: 'rpg-battle-record rpg-battle-gear' }, [
         el('div', { className: 'rpg-battle-record-head' }, [
             // (0.5.38) In its rarity's colour.
-            el('span', { className: `rpg-battle-record-name rpg-rarity is-${RARITY_NAMES.has(str(piece.rarity).toLowerCase()) ? str(piece.rarity).toLowerCase() : 'common'}`, text: str(piece.name) }),
+            el('span', { className: rarityClass('rpg-battle-record-name', piece.rarity), text: str(piece.name) }),
             el('span', { className: 'rpg-battle-tag is-quiet', text: SLOT_NAMES[piece.slot] ?? str(piece.slot) }),
             extra,
         ]),
