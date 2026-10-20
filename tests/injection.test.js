@@ -33,3 +33,26 @@ test('the slots are Story Suite\'s, and the old keys are known so they can be cl
     assert.equal(TAIL_PROMPT_KEY, 'story_suite_tail_3_rpg_battle');
     assert.deepEqual([...OLD_PROMPT_KEYS], ['rpg_battle', 'rpg_battle_rules', 'rpg_battle_trade', 'rpg_battle_item']);
 });
+
+test('a preset with its Main Prompt off still gets the static instruction, once (0.5.42)', async () => {
+    const { withStaticPart } = await import('../src/injection.js');
+    const { STORY_INSTRUCTION } = await import('../src/story.js');
+    // Main Prompt off: SillyTavern dropped the in-prompt slot; it goes after the leading system messages.
+    const off = [{ role: 'system', content: 'Character card' }, { role: 'system', content: 'World info' }, { role: 'user', content: 'Hi' }, { role: 'assistant', content: 'Hello.' }];
+    const kept = withStaticPart(off, STORY_INSTRUCTION);
+    assert.deepEqual(kept.map(message => message.role), ['system', 'system', 'system', 'user', 'assistant']);
+    assert.equal(kept[2].content, STORY_INSTRUCTION);
+    assert.equal(kept.filter(message => message.content.includes(STORY_INSTRUCTION)).length, 1);
+    // Main Prompt on: already merged into a system message, nothing is added.
+    const on = [{ role: 'system', content: `Main prompt\n${STORY_INSTRUCTION}` }, { role: 'user', content: 'Hi' }];
+    assert.equal(withStaticPart(on, STORY_INSTRUCTION), on);
+    // Run again on its own result: no duplicate. Nothing to keep: untouched.
+    assert.equal(withStaticPart(kept, STORY_INSTRUCTION), kept);
+    assert.equal(withStaticPart(off, ''), off);
+    // A chat that starts with the reader's message: first of all.
+    assert.equal(withStaticPart([{ role: 'user', content: 'Hi' }], STORY_INSTRUCTION)[0].role, 'system');
+    // Another extension's call while the story has replies (a scan: system + user, no replies): untouched.
+    const scan = [{ role: 'system', content: 'You are a dossier scanner.' }, { role: 'user', content: 'Transcript …' }];
+    assert.equal(withStaticPart(scan, STORY_INSTRUCTION, { story: true }), scan);
+    assert.equal(withStaticPart(off, STORY_INSTRUCTION, { story: true })[2].content, STORY_INSTRUCTION);
+});

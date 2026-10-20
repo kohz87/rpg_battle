@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.42
+
+- **The story instruction is never lost to a preset without a Main Prompt.** SillyTavern places the instruction next to the Main Prompt. A preset whose prompt order has no Main Prompt dropped it, so the story was never told about `<Wounds>`, `<Encounter>` and the rest, with nothing to show for it. Now RPG Battle checks the reply's prompt just before it goes out and, when the instruction is missing, puts it back after the leading system messages, once. A prompt that already has it is left alone, and so are other extensions' calls during the reply (a scan or a summary has no story in it). Text completion is unaffected: the instruction stays in the story string there. In a test chat with the Main Prompt removed, 0.5.41 sent the instruction 0 times and 0.5.42 once; with it in, both sent it once.
+
 ## 0.5.41
 
 - **Laid out for prompt caching.** Many providers reuse the part of a prompt that is the same as the last request's, from its start, and charge less for it (some do it on their own, Claude with cache breakpoints). RPG Battle used to send its story instruction one message from the end, with the foes met, lasting conditions and the purse built into it, so it changed and sat after the chat. Now it sends two things:
