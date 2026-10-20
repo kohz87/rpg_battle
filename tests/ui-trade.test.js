@@ -13,11 +13,12 @@ function view(over = {}) {
         people: ['Elke'], purse: 65, purseText: '6 silver, 5 copper',
         sellable: [{ name: 'Rat Tail', qty: 5, note: 'material' }, { name: 'Brood-Mother Skull', qty: 1, note: 'uncommon material' }],
         materials: [{ name: 'Rat Tail', qty: 5, note: 'material' }, { name: 'Brood-Mother Skull', qty: 1, note: 'uncommon material' }],
-        orders: [], pending: [], orderDays: 2,
+        orders: [], pending: [],
         money: amount => `${amount}c`,
         buyerKind: name => (/carver/i.test(name) ? 'crafter' : 'general'),
         sellPrice: (name, kind) => (name === 'Rat Tail' ? (kind === 'crafter' ? 3 : kind === 'apothecary' ? 4 : 2) : 12),
-        preview: ({ name, days }) => ({ name, note: 'uncommon · MDEF +4 · accessory', fee: 9, ready: days ? 'Goldwane 14' : '' }),
+        preview: ({ name }) => ({ name, note: 'uncommon · MDEF +4 · accessory', fee: 9, ready: 'Goldwane 14, 03:00 pm', when: 'Goldwane 14', span: 'two days' }),
+        crafters: ['smith', 'crafter', 'apothecary'],
         ...over,
     };
 }
@@ -80,35 +81,51 @@ test('someone present or named: their trade is guessed from the name and can be 
     assert.equal(sold.at(-1).who, 'Elke');
 });
 
-test('ordering a piece: materials picked, the preview with its fee and day, the order handed over', () => {
+test('a commission: only a crafter takes one; materials picked with Use; the crafter says when; no "made now" (0.5.44)', () => {
     resetTradeDraft();
     const pane = doc.createElement('div');
     const made = [];
     renderTradeTab(pane, view(), { onCraft: request => made.push(request) });
+    // The general store makes nothing: it says who does.
+    assert.equal(pane.querySelector('.rpg-trade-craft'), null);
+    assert.ok(texts(pane, '.rpg-trade-commission-who')[0].includes('a smith, a crafter'));
+    pickTrader(pane, 'kind:crafter');
+    assert.equal(pane.querySelector('.rpg-trade-when'), null, 'no made-now / order choice');
+    assert.equal(pane.querySelectorAll('input[type="checkbox"]').length, 0, 'no checkboxes');
     assert.ok(pane.querySelector('.rpg-trade-craft').disabled, 'nothing named or picked yet');
     const piece = pane.querySelector('.rpg-trade-piece');
     piece.value = 'Skull Ring';
     piece.dispatch('input');
     piece.dispatch('change');
-    pane.querySelectorAll('.rpg-trade-pick')[1].checked = true;
-    pane.querySelectorAll('.rpg-trade-pick')[1].dispatch('change');
-    const when = pane.querySelector('.rpg-trade-when');
-    when.value = 'order';
-    when.dispatch('change');
-    assert.ok(texts(pane, '.rpg-trade-preview')[0].includes('ready Goldwane 14 · fee 9c'));
+    const use = pane.querySelectorAll('.rpg-trade-pick')[1];
+    assert.equal(use.getAttribute('aria-pressed'), 'false');
+    use.click();
+    assert.equal(pane.querySelectorAll('.rpg-trade-pick')[1].getAttribute('aria-pressed'), 'true');
+    assert.ok(texts(pane, '.rpg-trade-preview')[0].includes('the bone-carver says two days, ready Goldwane 14 · fee 9c'));
+    // A stack picked: its −/+ count sets how many go in.
+    pane.querySelectorAll('.rpg-trade-pick')[0].click();
+    pane.querySelectorAll('.rpg-trade-make .rpg-trade-more')[0].click();
     pane.querySelector('.rpg-trade-craft').click();
-    assert.deepEqual(made, [{ name: 'Skull Ring', materials: [{ name: 'Brood-Mother Skull', qty: 1 }], slot: null, days: 2, who: 'the general store', kind: 'general' }]);
+    assert.deepEqual(made, [{ name: 'Skull Ring', materials: [{ name: 'Brood-Mother Skull', qty: 1 }, { name: 'Rat Tail', qty: 2 }], slot: null, who: 'the bone-carver', kind: 'crafter' }]);
     // A fee the purse cannot pay: the button waits.
     resetTradeDraft();
     renderTradeTab(pane, view({ purse: 2 }), {});
+    pickTrader(pane, 'kind:crafter');
     const again = pane.querySelector('.rpg-trade-piece');
     again.value = 'Skull Ring';
     again.dispatch('input');
     again.dispatch('change');
-    pane.querySelectorAll('.rpg-trade-pick')[1].checked = true;
-    pane.querySelectorAll('.rpg-trade-pick')[1].dispatch('change');
+    pane.querySelectorAll('.rpg-trade-pick')[1].click();
     assert.ok(pane.querySelector('.rpg-trade-craft').disabled);
     assert.ok(texts(pane, '.rpg-battle-hint').some(line => line.includes('cannot pay')));
+});
+
+test('an order is collected once its time has come; until then the row says when (0.5.44)', () => {
+    resetTradeDraft();
+    const pane = doc.createElement('div');
+    renderTradeTab(pane, view({ orders: [{ name: 'Skull Ring', note: 'uncommon · MDEF +4 · on order with the bone-carver, ready Goldwane 14, 03:00 pm', with: 'the bone-carver', due: false, ready: 'Goldwane 14, 03:00 pm' }] }), {});
+    assert.equal(pane.querySelector('.rpg-trade-collect'), null);
+    assert.deepEqual(texts(pane, '.rpg-trade-ready'), ['ready Goldwane 14, 03:00 pm']);
 });
 
 test('orders to collect, and what the next reply will be told', () => {

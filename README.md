@@ -1,4 +1,4 @@
-# RPG Battle v0.5.43
+# RPG Battle v0.5.44
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -417,17 +417,26 @@ tells it.
   crowns; see **Money**); the button's full words (*Sell 3 · 6 copper (2 copper each)*) are its
   tooltip and what a screen reader reads. A trade is made the moment you press its button. On a
   wide pane (a tablet held sideways) the lines sit in two columns.
-- **Make or order:** name the piece, pick the materials, see what it will be and the crafter's
-  fee, then **Make it** now or **Order it**, ready in so many days (a date on Story Director's
-  calendar when it is there). An order waits under **[On Order]** with its numbers set.
-- **On order:** **Collect** turns an order into the piece. Your purse stays in view at the top.
+- **Commission** (0.5.44): trade with a smith, a crafter (bone-carver, tanner…) or an
+  apothecary, name the piece, and pick its materials with **Use** (a stack's **− n +** once
+  picked). You see what it will be, the fee, and how long the crafter says it takes, then
+  **Commission it**. A piece is always made to order, and how long it takes is the crafter's
+  word, not yours: by its rarity (a few hours for common, about a day for uncommon, two or three
+  days for rare, a week for epic), faster when it is their own line (a smith's sword, a
+  carver's ring), slower outside it and in a small place. The same day, place, crafter and
+  piece always give the same time. With Story Director's calendar the order says when
+  (*ready Goldwane 13, 11:00 am*); without one, how long (*ready in about a day*). The order
+  waits under **[On Order]** with its numbers set and the materials gone.
+- **On order:** each order says when it is ready, and **Collect** appears once the story's clock
+  reaches that time (straight away when there is no clock to read). Your purse stays in view at
+  the top.
 
 Each trade is written into the latest reply's Inventory, so deleting or swiping that reply takes
 it back. All the trades between two replies, with however many traders, are told to the next
 reply as one errand run, grouped by trader, in a short note at the end of its prompt (depth 0):
 
 ```
-[Trade] Since the last reply, Astra went round Bluewatch Village: at the apothecary, sold the Brood-Mother Carcass for 3 silver; at the general store, sold 64 Rat Tail for 2 silver, 2 copper; at the bone-carver, ordered Skull Ring, made from Brood-Mother Skull, ready Goldwane 14, for 8 silver.
+[Trade] Since the last reply, Astra went round Bluewatch Village: at the apothecary, sold the Brood-Mother Carcass for 3 silver; at the general store, sold 64 Rat Tail for 2 silver, 2 copper; at the bone-carver, commissioned Skull Ring, made from Brood-Mother Skull, for 8 silver; they say two days, ready Goldwane 14, 03:00 pm.
 Tell it briefly as part of the scene, in the story's own voice. No menus or game terms; keep the amounts and what was made exactly as they are (the Inventory already shows them).
 ```
 

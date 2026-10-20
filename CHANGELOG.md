@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.44
+
+- **Pieces are commissioned, and the crafter says how long.** Trade asked whether a piece was *made now* or *ordered, ready later*, and nobody would ever choose to wait. That choice is gone. A piece made through Trade is always ordered from the crafter you trade with: a smith, a crafter (bone-carver, tanner…) or an apothecary; the general store, a fence and the guild make nothing. How long it takes is worked out by RPG Battle, not chosen by you:
+  - by the piece's rarity: a few hours for common, about a day for uncommon, two or three days for rare, a week for epic, longer for legendary;
+  - faster in the crafter's own line (a smith's sword, a carver's ring), slower outside it;
+  - slower in a hamlet or village, a little faster in a city;
+  - the same answer every time for the same day, place, crafter and piece, so a swipe or a redraw never changes it.
+
+  With Story Director's calendar the order row says when it is ready (*ready Goldwane 13, 11:00 am*); without one, how long (*ready in about a day*).
+- **Collect waits for the story's clock.** Until the story reaches the ready time, an order shows when it will be ready instead of Collect. With no clock to read, Collect is there at once, as before.
+- **The next reply hears the crafter's word.** The note says how long and when to come back: *commissioned Skull Ring from the bone-carver, made from Brood-Mother Skull, for 1 silver, 6 copper; the bone-carver says a day, ready tomorrow morning (Goldwane 13, 11:00 am)*.
+- **No more checkboxes.** Materials are one line each, like the rest of Trade, picked with **Use** (a stack's **− n +** once picked). The section is now called **Commission**.
+- A story that writes `<Crafted>` itself still works as before.
+
 ## 0.5.43
 
 - **Trade is one line per thing.** Each thing in Buy, Sell and On order took two lines, its name and then a button under it. Now it is one line, about half the height:

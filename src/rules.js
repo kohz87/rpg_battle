@@ -251,19 +251,23 @@ export const DEFAULT_RULES = Object.freeze({
     trade: {
         sellRate: 0.5,      // a buyer pays this share of a thing's worth
         craftFee: 0.3,      // a crafter's labour: this share of the piece's worth
-        orderDays: 2,       // an order is ready this many story days later, unless changed
+        // (0.5.44) How long a commission takes, in story hours, by the piece's rarity (from–to; the
+        // day's own draw picks within), × the crafter's line and the place's craft factor below.
+        craftHours: { common: [3, 6], uncommon: [18, 30], rare: [48, 72], epic: [144, 192], legendary: [288, 384] },
+        craftLine: { specialist: 0.75, outside: 1.25 }, // in their own line (a smith's sword) faster, outside it slower
         material: { common: 3, uncommon: 30, rare: 120, epic: 500, legendary: 2000 },
         goods: 2,           // a plain thing (rope, a sack): worth this, × its rarity's factor
         gearPerPoint: 10,   // gear: this per point of its (capped) stat budget, × its rarity's factor
         rarityFactor: { common: 1, uncommon: 1.5, rare: 2.5, epic: 4, legendary: 7 },
         effect: { heal: 0.5, mp: 0.6, cure: 8, damage: 0.8 }, // a consumable: this per point of what it does
-        // A place by the words of its name: what goods cost there (buy) and what is paid (sell).
+        // A place by the words of its name: what goods cost there (buy) and what is paid (sell);
+        // (0.5.44) craft: × how long a commission takes there (a hamlet's carver is slower).
         areas: {
-            remote: { buy: 0.85, sell: 0.75, words: ['hamlet', 'outpost', 'camp', 'frontier', 'wilds', 'waystation', 'ruins', 'steading', 'homestead', 'farmstead'] },
-            village: { buy: 0.9, sell: 0.85, words: ['village', 'farm', 'mill', 'manor', 'crossing', 'ford', 'landing'] },
-            town: { buy: 1, sell: 1, words: ['town', 'market', 'port', 'harbour', 'harbor', 'docks', 'quay', 'fort', 'keep'] },
-            city: { buy: 1.2, sell: 1.15, words: ['city', 'metropolis', 'citadel'] },
-            capital: { buy: 1.35, sell: 1.25, words: ['capital', 'royal', 'imperial', 'throne'] },
+            remote: { craft: 1.3, buy: 0.85, sell: 0.75, words: ['hamlet', 'outpost', 'camp', 'frontier', 'wilds', 'waystation', 'ruins', 'steading', 'homestead', 'farmstead'] },
+            village: { craft: 1.15, buy: 0.9, sell: 0.85, words: ['village', 'farm', 'mill', 'manor', 'crossing', 'ford', 'landing'] },
+            town: { craft: 1, buy: 1, sell: 1, words: ['town', 'market', 'port', 'harbour', 'harbor', 'docks', 'quay', 'fort', 'keep'] },
+            city: { craft: 0.9, buy: 1.2, sell: 1.15, words: ['city', 'metropolis', 'citadel'] },
+            capital: { craft: 0.85, buy: 1.35, sell: 1.25, words: ['capital', 'royal', 'imperial', 'throne'] },
         },
         // The reader's word for a place (the Trade tab): × both.
         levels: { cheap: 0.8, fair: 1, dear: 1.25 },

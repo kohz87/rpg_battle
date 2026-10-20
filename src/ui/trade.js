@@ -1,4 +1,4 @@
-// RPG Battle's Trade tab (0.5.37): selling, making and ordering, and collecting what was ordered.
+// RPG Battle's Trade tab (0.5.37): buying, selling, commissioning (0.5.44), collecting what was ordered.
 //
 // `renderTradeTab(pane, view, handlers)` draws it; like the Party and Battle tabs it owns no
 // game state. Every price and every preview comes from the glue (`view.sellPrice`,
@@ -27,16 +27,6 @@ function textInput(className, value, { placeholder = '', label = '' } = {}) {
     const node = el('input', { className: `text_pole ${className}`, attrs: { type: 'text', placeholder, 'aria-label': label || placeholder } });
     node.value = value ?? '';
     return node;
-}
-
-function numberInput(className, value, { min = 1, max = 99, label = '' } = {}) {
-    const node = el('input', { className: `text_pole ${className}`, attrs: { type: 'number', min, max, 'aria-label': label } });
-    node.value = String(value);
-    return node;
-}
-
-function qtyChoices(max) {
-    return Array.from({ length: Math.max(1, Math.min(99, max)) }, (_, i) => [String(i + 1), String(i + 1)]);
 }
 
 // (0.5.38) A name in its rarity's colour: grey, green, blue, purple, gold (style.css --rb-rarity-*).
@@ -99,7 +89,7 @@ const TRADER_KINDS = ['general', 'apothecary', 'smith', 'crafter', 'fence', 'gui
 const TRADER_LABELS = { general: 'General store', apothecary: 'Apothecary', smith: 'Smith', crafter: 'Crafter (bone-carver, tanner…)', fence: 'Fence', guild: 'Guild buyer' };
 const TRADER_WHO = { general: 'the general store', apothecary: 'the apothecary', smith: 'the smith', crafter: 'the bone-carver', fence: 'a fence', guild: 'the guild' };
 
-const freshDraft = view => ({ chatId: view.chatId ?? null, trader: 'kind:general', names: {}, name: '', kind: '', sell: {}, piece: '', picks: {}, slot: '', when: 'now', days: view.orderDays ?? 2, ready: '' });
+const freshDraft = view => ({ chatId: view.chatId ?? null, trader: 'kind:general', names: {}, name: '', kind: '', sell: {}, piece: '', picks: {}, slot: '' });
 
 function whoSection(view, handlers) {
     const people = view.people ?? [];
@@ -203,48 +193,54 @@ function buySection(view, handlers) {
     ]);
 }
 
-function makeSection(view, handlers) {
+// (0.5.44) Commission: the piece is made by the crafter you trade with, always as an order, and
+// when it is ready is theirs to say (the glue works it out). Materials are one line each, picked
+// with Use (a stack's −/+ once picked); no "made now" choice.
+const CRAFTER_WORDS = 'a smith, a crafter (bone-carver, tanner…) or an apothecary';
+
+function commissionSection(view, handlers) {
+    const kind = tradeKind(view);
+    const crafters = view.crafters ?? ['smith', 'crafter', 'apothecary'];
+    if (!crafters.includes(kind)) {
+        return section('rpg-trade-make', [
+            sub('Commission', 'fa-hammer'),
+            el('p', { className: 'rpg-battle-hint rpg-trade-commission-who', text: `To have a piece made, trade with ${CRAFTER_WORDS}: they say how long it takes.` }),
+        ]);
+    }
     const materials = view.materials ?? [];
-    const piece = textInput('rpg-trade-piece', draft.piece, { placeholder: 'what to make, e.g. Skull Ring', label: 'What to make' });
+    const piece = textInput('rpg-trade-piece', draft.piece, { placeholder: 'e.g. Skull Ring', label: 'What to have made' });
     piece.addEventListener('input', () => { draft.piece = piece.value; });
     piece.addEventListener('change', redraw);
-    const picks = materials.map(item => {
-        const chosen = Number(draft.picks[item.name] ?? 0);
-        const box = el('input', { className: 'rpg-trade-pick', attrs: { type: 'checkbox', 'aria-label': `Use ${item.name}` } });
-        box.checked = chosen > 0;
-        box.addEventListener('change', () => { draft.picks[item.name] = box.checked ? 1 : 0; redraw(); });
-        const many = chosen > 0 && item.qty > 1 ? select('rpg-trade-qty', `How many ${item.name}`, qtyChoices(item.qty), String(chosen)) : null;
-        many?.addEventListener('change', () => { draft.picks[item.name] = Number(many.value); redraw(); });
-        return el('li', { className: 'rpg-trade-item is-material' }, [
-            el('label', { className: 'rpg-trade-item-head' }, [box, itemName(item.name, item.rarity), el('span', { className: 'rpg-battle-hint', text: `×${item.qty}${item.note ? ` · ${item.note}` : ''}` })]),
-            many,
-        ]);
+    const rows = materials.map(item => {
+        const chosen = Math.max(0, Math.min(Number(draft.picks[item.name] ?? 0), item.qty));
+        const use = button(chosen ? 'Using' : 'Use', `rpg-trade-pick${chosen ? ' is-picked' : ''}`, {
+            iconName: chosen ? 'fa-check' : 'fa-plus',
+            title: chosen ? `Leave ${item.name} out` : `Make it from ${item.name}`,
+            onClick: () => { draft.picks[item.name] = chosen ? 0 : 1; redraw(); },
+        });
+        use.setAttribute('aria-pressed', chosen ? 'true' : 'false');
+        const control = chosen && item.qty > 1 ? stepper(item.name, chosen, item.qty, next => { draft.picks[item.name] = next; redraw(); }) : null;
+        return tradeRow(item, { note: [item.qty > 1 ? `×${item.qty}` : '', item.note].filter(Boolean).join(' · '), control, action: use });
     });
     const slot = select('rpg-trade-slot', 'Where it is worn', SLOT_CHOICES, draft.slot);
     slot.addEventListener('change', () => { draft.slot = slot.value; redraw(); });
-    const when = select('rpg-trade-when', 'When', [['now', 'made now'], ['order', 'ordered, ready later']], draft.when);
-    when.addEventListener('change', () => { draft.when = when.value; redraw(); });
-    const days = draft.when === 'order' ? numberInput('rpg-trade-days', draft.days, { min: 1, max: 60, label: 'Ready in days' }) : null;
-    days?.addEventListener('change', () => { draft.days = Math.max(1, Number(days.value) || 1); redraw(); });
     const chosen = Object.entries(draft.picks).filter(([, qty]) => qty > 0).map(([name, qty]) => ({ name, qty }));
-    const preview = draft.piece.trim() && chosen.length ? view.preview?.({ name: draft.piece.trim(), materials: chosen, slot: draft.slot || null, days: draft.when === 'order' ? draft.days : 0, kind: tradeKind(view) }) : null;
+    const preview = draft.piece.trim() && chosen.length ? view.preview?.({ name: draft.piece.trim(), materials: chosen, slot: draft.slot || null, kind }) : null;
     const who = tradingWith();
     const afford = preview ? preview.fee <= (view.purse ?? 0) : false;
     const why = !draft.piece.trim() ? 'Name the piece first.' : !chosen.length ? 'Pick what it is made from.' : !who ? 'Say who makes it first.' : !afford ? 'Your purse cannot pay the fee.' : '';
-    const order = draft.when === 'order';
     return section('rpg-trade-make', [
-        sub('Make or order', 'fa-hammer'),
+        sub('Commission', 'fa-hammer'),
         el('div', { className: 'rpg-trade-row' }, [piece]),
-        materials.length ? el('ul', { className: 'rpg-trade-list' }, picks) : el('p', { className: 'rpg-battle-empty', text: 'No materials in the Inventory.' }),
+        materials.length ? el('ul', { className: 'rpg-trade-list is-rows' }, rows) : el('p', { className: 'rpg-battle-empty', text: 'No materials in the Inventory.' }),
         el('div', { className: 'rpg-trade-row' }, [el('span', { className: 'rpg-battle-label', text: 'Worn as' }), slot]),
-        el('div', { className: 'rpg-trade-row' }, [el('span', { className: 'rpg-battle-label', text: 'When' }), when, days, days ? el('span', { className: 'rpg-battle-hint', text: 'days' }) : null]),
-        preview ? el('p', { className: 'rpg-trade-preview', text: `${preview.name}: ${preview.note}${preview.ready ? ` · ready ${preview.ready}` : ''} · fee ${view.money?.(preview.fee) ?? preview.fee}` }) : null,
-        button(order ? 'Order it' : 'Make it', 'rpg-trade-craft', {
-            iconName: order ? 'fa-clock' : 'fa-hammer',
+        preview ? el('p', { className: 'rpg-trade-preview', text: `${preview.name}: ${preview.note} · ${who} says ${preview.span}${preview.when && !/^in\b/i.test(preview.when) ? `, ready ${preview.when}` : ''} · fee ${longMoney(view, preview.fee)}` }) : null,
+        button('Commission it', 'rpg-trade-craft', {
+            iconName: 'fa-hammer',
             disabled: Boolean(why),
-            title: why || `${order ? 'Order' : 'Have'} ${draft.piece.trim()} ${order ? 'from' : 'made by'} ${who}: your next reply tells it.`,
+            title: why || `Have ${who} make ${draft.piece.trim()}: they say when it is ready; your next reply tells it.`,
             onClick: () => {
-                handlers.onCraft?.({ name: draft.piece.trim(), materials: chosen, slot: draft.slot || null, days: order ? draft.days : 0, who, kind: tradeKind(view) });
+                handlers.onCraft?.({ name: draft.piece.trim(), materials: chosen, slot: draft.slot || null, who, kind });
                 draft = { ...draft, piece: '', picks: {} };
             },
         }),
@@ -257,9 +253,12 @@ function ordersSection(view, handlers) {
     if (!orders.length) return null;
     return section('rpg-trade-orders', [
         sub('On order', 'fa-clock', orders.length),
+        // (0.5.44) Collect once the story clock has reached the ready time; until then, when.
         el('ul', { className: 'rpg-trade-list is-rows' }, orders.map(item => tradeRow(item, {
             note: item.note ?? '',
-            action: button('Collect', 'rpg-trade-price-button rpg-trade-collect', { iconName: 'fa-box-open', title: `Collect ${item.name}: your next reply tells it.`, onClick: () => handlers.onCollect?.({ name: item.name, who: item.with || tradingWith() }) }),
+            action: item.due === false
+                ? el('span', { className: 'rpg-trade-ready', text: `ready ${item.ready || 'later'}`, attrs: { title: `${item.with || 'The crafter'} is still at it: ready ${item.ready || 'later'}.` } })
+                : button('Collect', 'rpg-trade-price-button rpg-trade-collect', { iconName: 'fa-box-open', title: `Collect ${item.name}: your next reply tells it.`, onClick: () => handlers.onCollect?.({ name: item.name, who: item.with || tradingWith() }) }),
         }))),
     ]);
 }
@@ -296,9 +295,10 @@ function fitWidth(pane, root) {
 
 /**
  * Draws the Trade tab. `view`: { chatId, ready, reason, place, prices, level, people,
- * purse, purseText, sellable, materials, orders, pending, orderDays, money(amount),
- * sellPrice(name, kind), preview({ name, materials, slot, days, kind }) → { name, note, fee,
- * ready } | null, buyerKind(name), stock(kind) → [{ name, note, price, rarity }] (0.5.38) }.
+ * purse, purseText, sellable, materials, orders ({ name, note, rarity, with, due, ready }), pending,
+ * crafters (the trader kinds that take commissions), money(amount),
+ * sellPrice(name, kind), preview({ name, materials, slot, kind }) → { name, note, fee, ready,
+ * when, span } | null, buyerKind(name), stock(kind) → [{ name, note, price, rarity }] (0.5.38) }.
  * (0.5.40) owners: [{ id, name }] and owner (whose items Sell lists).
  * (0.5.43) moneyShort(amount) for the rows' buttons; pending: [{ text, undo }].
  * `handlers`: onBuy, onSell, onCraft, onCollect, onLevel, onOwner, (0.5.43) onUndo(index).
@@ -317,7 +317,7 @@ export function renderTradeTab(pane, view = {}, handlers = {}) {
     }
     // The purse first, and kept in view while the lists scroll.
     root.append(el('p', { className: 'rpg-trade-purse', text: `Purse: ${view.purseText || 'nothing'}` }));
-    root.append(...[whoSection(view, handlers), pendingSection(view, handlers), buySection(view, handlers), sellSection(view, handlers), makeSection(view, handlers), ordersSection(view, handlers)].filter(Boolean));
+    root.append(...[whoSection(view, handlers), pendingSection(view, handlers), buySection(view, handlers), sellSection(view, handlers), commissionSection(view, handlers), ordersSection(view, handlers)].filter(Boolean));
     pane.replaceChildren(root);
     fitWidth(pane, root);
 }
