@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { DEFAULT_RULES } from '../src/rules.js';
 import { craftPlan } from '../src/craft.js';
 import { parseInventory, purseOf, spendMoney } from '../src/items.js';
-import { buyerKind, collectIn, craftFee, craftIn, itemWorth, kindOf, ordersIn, placePrices, sellIn, sellPrice, sellable, tradeHandoff, tradeLine } from '../src/trade.js';
+import { buyerKind, collectIn, craftFee, craftIn, itemWorth, kindOf, ordersIn, placePrices, sellIn, sellPrice, sellable, tradeHandoff, tradeLine, commissionHours, craftSpan, readyAt, readyDateText, readyWords, orderReadyAt, orderDue } from '../src/trade.js';
 
 const INV = [
     'Coin Pouch | 1 | 6 silver, 5 copper',
@@ -127,4 +127,57 @@ test('selling a companion\'s item: from their section, the coin into your purse 
     assert.equal(total, 6);
     assert.match(sold, /\[Lyra > Herbs\]\nWolfsbane \| 1 \| material/);
     assert.match(sold, /^Coin Pouch \| 1 \| 2 silver, 6 copper$/m);
+});
+
+// A calendar of two 30-day months, written as Story Director writes it ("CY 611, Goldwane 12, 01:15 pm").
+const calendarFormat = abs => {
+    const day = Math.floor(abs / 1440);
+    const minutes = abs % 1440;
+    const month = ['Goldwane', 'Haywane'][Math.floor(day / 30) % 2];
+    const hour = Math.floor(minutes / 60);
+    return `CY 611, ${month} ${(day % 30) + 1}, ${String(hour % 12 || 12).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')} ${hour < 12 ? 'am' : 'pm'}`;
+};
+const goldwane12 = 11 * 1440 + 13 * 60 + 15;
+
+test('a commission takes the crafter\'s time: by rarity, faster in their line, slower in a small place, the same each time (0.5.44)', () => {
+    const ring = { rarity: 'uncommon', slot: 'accessory' };
+    const seed = 'bluewatch|crafter|skull ring|11';
+    const hours = commissionHours(ring, { crafter: 'crafter', tier: 'town', seed });
+    assert.equal(commissionHours(ring, { crafter: 'crafter', tier: 'town', seed }), hours, 'the same draw for the same day, place, crafter and piece');
+    assert.ok(hours >= 18 * 0.75 && hours <= 30 * 0.75, `${hours}`);
+    // Outside their line (a smith's ring) slower; a hamlet slower than a city.
+    assert.ok(commissionHours(ring, { crafter: 'smith', tier: 'town', seed }) > hours);
+    assert.ok(commissionHours(ring, { crafter: 'crafter', tier: 'remote', seed }) > commissionHours(ring, { crafter: 'crafter', tier: 'city', seed }));
+    // Rarer takes longer.
+    assert.ok(commissionHours({ rarity: 'common', slot: 'accessory' }, { crafter: 'crafter', seed }) < hours);
+    assert.ok(commissionHours({ rarity: 'rare', slot: 'accessory' }, { crafter: 'crafter', seed }) > hours);
+    assert.deepEqual([4, 20, 49, 140, 168].map(craftSpan), ['a few hours', 'a day', 'two days', 'six days', 'a week']);
+});
+
+test('the ready time on the story calendar: written on the row, read back, said from now; Collect waits for it (0.5.44)', () => {
+    const at = readyAt(5, goldwane12);
+    assert.equal(at, goldwane12 - 15 + 5 * 60 + 60, 'on the hour after');
+    assert.equal(readyDateText(at, calendarFormat), 'Goldwane 12, 07:00 pm');
+    assert.equal(readyWords(at, goldwane12, calendarFormat), 'this evening');
+    assert.equal(readyWords(readyAt(20, goldwane12), goldwane12, calendarFormat), 'tomorrow morning');
+    const later = readyAt(49, goldwane12);
+    assert.equal(readyWords(later, goldwane12, calendarFormat), 'Goldwane 14');
+    const note = `uncommon · MDEF +4 · on order with the bone-carver, ready ${readyDateText(later, calendarFormat)}`;
+    assert.equal(orderReadyAt(note, { now: goldwane12, format: calendarFormat }), later);
+    assert.equal(orderDue(note, { now: goldwane12, format: calendarFormat }), false);
+    assert.equal(orderDue(note, { now: later, format: calendarFormat }), true);
+    // No clock: a span, and Collect is not held back.
+    assert.equal(readyAt(5, null), null);
+    assert.equal(orderDue('on order with the bone-carver, ready in about two days', { now: goldwane12, format: calendarFormat }), true);
+    assert.equal(orderDue(note, { now: null, format: null }), true);
+});
+
+test('the next reply hears the crafter\'s word: how long and when to come back (0.5.44)', () => {
+    const entry = { kind: 'order', name: 'Skull Ring', from: ['Brood-Mother Skull'], fee: 9, ready: 'Goldwane 14, 03:00 pm', when: 'Goldwane 14', span: 'two days', who: 'the bone-carver' };
+    assert.equal(tradeLine(entry), 'commissioned Skull Ring from the bone-carver, made from Brood-Mother Skull, for 9 copper; the bone-carver says two days, ready Goldwane 14, 03:00 pm');
+    assert.equal(tradeLine({ ...entry, ready: 'Goldwane 13, 09:00 am', when: 'tomorrow morning', span: 'a day' }), 'commissioned Skull Ring from the bone-carver, made from Brood-Mother Skull, for 9 copper; the bone-carver says a day, ready tomorrow morning (Goldwane 13, 09:00 am)');
+    // No story clock: the span alone.
+    assert.equal(tradeLine({ ...entry, ready: 'in about two days', when: 'in about two days' }), 'commissioned Skull Ring from the bone-carver, made from Brood-Mother Skull, for 9 copper; the bone-carver says two days');
+    const note = tradeHandoff([entry, { kind: 'sell', name: 'Rat Tail', qty: 3, total: 6, who: 'the general store' }], { name: 'Astra', place: 'Bluewatch' });
+    assert.match(note, /at the bone-carver, commissioned Skull Ring, made from Brood-Mother Skull, for 9 copper; they say two days, ready Goldwane 14, 03:00 pm/);
 });

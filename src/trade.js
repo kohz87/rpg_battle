@@ -1,6 +1,6 @@
 // RPG Battle: the Trade tab's numbers and what a trade does to the Inventory (pure).
 //
-// (0.5.37) Selling, crafting and ordering are the reader's choices, made in the Trade tab and
+// (0.5.37) Selling, commissioning and collecting are the reader's choices, made in the Trade tab and
 // worked out here, so the story never has to be parsed for them: what a thing is worth (its
 // rarity and kind: gear by its stat budget, a potion by what it does, a material by rarity),
 // what the place does to prices (a village pays less and sells for less than a city, by the
@@ -88,6 +88,100 @@ export function sellPrice(item, { buyer = 'general', prices = { sell: 1 }, level
 export function craftFee(piece, { prices = { buy: 1 }, level = 1, rules = DEFAULT_RULES } = {}) {
     const t = tradeRules(rules);
     return Math.max(1, Math.round(itemWorth(piece, { level, rules }) * t.craftFee * (prices.buy ?? 1)));
+}
+
+// ---------------------------------------------------------------------------
+// (0.5.44) Commissions: a piece made through the Trade tab is always ordered from a crafter, and
+// how long it takes is the crafter's word, worked out here, never the reader's choice: a span by
+// the piece's rarity (the day's own draw within it, so a swipe or a redraw gives the same), a
+// specialist in their own line faster, one outside it slower, a small place slower. The ready
+// time is written into the order's row as a date on the story's calendar ("ready Goldwane 14,
+// 06:00 pm"), so the row stands alone and Collect waits until the story clock reaches it.
+
+/** The trader kinds that take commissions. */
+export const COMMISSIONERS = Object.freeze(['smith', 'crafter', 'apothecary']);
+// What each makes in its own line, by the slot the piece is worn in.
+const CRAFT_LINES = { smith: ['weapon', 'offhand', 'armour'], crafter: ['accessory', 'worn'], apothecary: [] };
+const DAY = 24 * 60;
+
+/** Story hours `crafter` (a COMMISSIONERS kind) takes over `piece` (a craftPlan item) at a `tier` place; `seed` fixes the draw. */
+export function commissionHours(piece, { crafter = 'crafter', tier = 'town', seed = '', rules = DEFAULT_RULES } = {}) {
+    const t = tradeRules(rules);
+    const [low, high] = t.craftHours[piece?.rarity] ?? t.craftHours.common;
+    const base = low + makeRng(`commission:${seed}`).next() * (high - low);
+    const line = (CRAFT_LINES[crafter] ?? []).includes(piece?.slot) ? t.craftLine.specialist : t.craftLine.outside;
+    const area = Number(t.areas[tier]?.craft) || 1;
+    return Math.max(1, Math.round(base * line * area));
+}
+
+/** When `hours` from `now` (story minutes) is: on the hour after it; null without a clock. */
+export function readyAt(hours, now) {
+    if (typeof now !== 'number' || !Number.isFinite(now)) return null;
+    return Math.ceil((now + hours * 60) / 60) * 60;
+}
+
+const NUMBER_WORDS = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
+/** How long `hours` is, as a crafter says it: "a few hours", "a day", "two days", "a week". */
+export function craftSpan(hours) {
+    if (hours <= 12) return 'a few hours';
+    const days = Math.max(1, Math.round(hours / 24));
+    if (days === 1) return 'a day';
+    if (days === 7) return 'a week';
+    if (days === 14) return 'two weeks';
+    return `${NUMBER_WORDS[days] ?? days} days`;
+}
+
+// A story time as the calendar writes it, without the era and year ("Goldwane 14, 06:00 pm").
+const WITHOUT_YEAR = text => String(text ?? '').replace(/^(?:[A-Z]{1,5}\s+)?\d+,\s*/, '').trim();
+const TIME_OF_DAY = /,?\s*(\d{1,2}):(\d{2})\s*(am|pm)?\s*$/i;
+const datePart = text => WITHOUT_YEAR(text).replace(TIME_OF_DAY, '').trim();
+
+/** `at` (story minutes) as the order row keeps it: "Goldwane 14, 06:00 pm"; '' without a calendar. */
+export function readyDateText(at, format) {
+    if (at === null || typeof format !== 'function') return '';
+    return WITHOUT_YEAR(format(at));
+}
+
+/** `at` said from `now`: "this evening", "tomorrow morning", else the date ("Goldwane 14"). */
+export function readyWords(at, now, format) {
+    if (at === null || typeof now !== 'number') return '';
+    const hour = Math.floor((at % DAY) / 60);
+    const part = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
+    const days = Math.floor(at / DAY) - Math.floor(now / DAY);
+    if (days <= 0) return `this ${part}`;
+    if (days === 1) return `tomorrow ${part}`;
+    return typeof format === 'function' ? datePart(format(at)) : '';
+}
+
+/**
+ * The story time an order row's note says it is ready (`… on order with X, ready Goldwane 14,
+ * 06:00 pm`), found with the calendar's own `format` near `now`; null when it says a span
+ * ("ready in about two days"), there is no clock, or the date is not one the calendar writes.
+ */
+export function orderReadyAt(note, { now = null, format = null } = {}) {
+    const said = String(note ?? '').match(/\bready\s+([^·]+)/i)?.[1]?.trim() ?? '';
+    if (!said || /^in\b/i.test(said) || typeof format !== 'function' || typeof now !== 'number') return null;
+    const want = datePart(said).toLowerCase();
+    if (!want) return null;
+    const time = said.match(TIME_OF_DAY);
+    let minutes = 0;
+    if (time) {
+        const h = Number(time[1]) % 12 + (/pm/i.test(time[3] ?? '') ? 12 : 0);
+        minutes = (time[3] ? h : Number(time[1])) * 60 + Number(time[2]);
+    }
+    const today = Math.floor(now / DAY);
+    // Nearest first: an order is a few days off, rarely more than a season.
+    for (let step = 0; step <= 800; step++) {
+        const day = today + (step % 2 ? (step + 1) / 2 : -step / 2);
+        if (datePart(format(day * DAY)).toLowerCase() === want) return day * DAY + minutes;
+    }
+    return null;
+}
+
+/** Whether an order (its row's note) can be collected at `now`: true when its time has come or cannot be read. */
+export function orderDue(note, { now = null, format = null } = {}) {
+    const at = orderReadyAt(note, { now, format });
+    return at === null || (typeof now === 'number' && now >= at);
 }
 
 // Rows that can be sold: not the purse, not worn, not on order.
@@ -216,6 +310,15 @@ export function tradeLine(entry, currency = DEFAULT_RULES.currency, { alone = tr
     const by = who ? ` by ${who}` : '';
     if (entry?.kind === 'buy') return `bought ${entry.name}${who ? ` from ${who}` : ''} for ${money(entry.total)}`;
     if (entry?.kind === 'sell') return `sold ${entry.qty > 1 ? `${entry.qty} ` : ''}${entry.name}${to} for ${money(entry.total)}`;
+    // (0.5.44) A commission says how long, in the crafter's words, and when to come back.
+    if (entry?.kind === 'order' && entry.span) {
+        const sayer = who || (alone ? 'the crafter' : 'they');
+        // "tomorrow morning (Goldwane 13, 09:00 am)"; a date alone once ("Goldwane 14, 03:00 pm").
+        // Without a story clock the span is all there is: no "ready in about a day" after it.
+        const back = /^in\b/i.test(String(entry.ready ?? '')) ? ''
+            : entry.when && !String(entry.ready ?? '').toLowerCase().startsWith(String(entry.when).toLowerCase()) ? `${entry.when} (${entry.ready})` : entry.ready;
+        return `commissioned ${entry.name}${who ? ` from ${who}` : ''}, made from ${entry.from.join(', ')}${entry.fee ? `, for ${money(entry.fee)}` : ''}; ${sayer} ${sayer === 'they' ? 'say' : 'says'} ${entry.span}${back ? `, ready ${back}` : ''}`;
+    }
     if (entry?.kind === 'order') return `ordered ${entry.name}${who ? ` from ${who}` : ''}, made from ${entry.from.join(', ')}, ready ${entry.ready}${entry.fee ? `, for ${money(entry.fee)}` : ''}`;
     if (entry?.kind === 'craft') return `had ${entry.name} made${by} from ${entry.from.join(', ')}${entry.fee ? ` for ${money(entry.fee)}` : ''}`;
     if (entry?.kind === 'collect') return `collected ${entry.name}${who ? ` from ${who}` : ''}`;

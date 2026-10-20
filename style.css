@@ -1867,6 +1867,33 @@
     white-space: nowrap;
 }
 
+/* (0.5.44) A material's Use / Using toggle, the size of a price button; an order's ready time
+   where Collect will be, quiet. */
+.rpg-trade-tab .menu_button.rpg-trade-pick {
+    display: inline-flex;
+    gap: 0.3rem;
+    align-items: center;
+    justify-content: center;
+    min-width: 4.2rem;
+    min-height: 1.9rem;
+    margin: 0 0 0 auto;
+    padding: 0.15rem 0.5rem;
+    font-size: 0.85em;
+    white-space: nowrap;
+}
+
+.rpg-trade-tab .menu_button.rpg-trade-pick.is-picked {
+    border-color: var(--SmartThemeQuoteColor, currentColor);
+    color: var(--SmartThemeQuoteColor, inherit);
+}
+
+.rpg-trade-tab .rpg-trade-ready {
+    margin-left: auto;
+    font-size: 0.85em;
+    opacity: 0.7;
+    white-space: nowrap;
+}
+
 .rpg-trade-tab .rpg-trade-stepper {
     display: inline-flex;
     align-items: center;

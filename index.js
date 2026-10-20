@@ -48,7 +48,7 @@ import { TEMPLATES, classify, cleanCreature, combinedBestiary, creaturesToMake, 
 import { applyFlavour, flavourPrompt, parseFlavour, sceneText } from './src/flavour.js';
 import { act, availableActions, foeXpWorth, replay, startFight, summarize } from './src/combat.js';
 import { applyResult, foldUses, forgetSkill, formatPartyBlock, learnSkill, newSheet, readSheets, setSkillActive, spendPoints } from './src/sheet.js';
-import { addLoot, applyCrafts, collectOrders, consumables, formatMoneyShort, gearNote, inScope, keepNotes, restoreLoot, formatMoney, gearSummary, parseInventory, purseOf, useItems } from './src/items.js';
+import { addLoot, applyCrafts, collectOrders, consumables, formatMoneyShort, gearNote, inScope, keepNotes, nameKey, restoreLoot, formatMoney, gearSummary, parseInventory, purseOf, useItems } from './src/items.js';
 import { NEXT_MOVES_MAX, fallbackMoves, nextMovesPrompt, parseNextMoves } from './src/nextmoves.js';
 import { buildHandoff, buildPlanHandoff, fightOrigin, grouped, handoffState, originHolds, settleHandoff } from './src/handoff.js';
 import { cleanPlan, newPlan, nextStage, planResult, stageDone, stageId } from './src/plan.js';
@@ -64,13 +64,13 @@ import { OLD_PROMPT_KEYS, STATIC_PROMPT_KEY, TAIL_PROMPT_KEY, promptLayout, with
 import { craftPlan, parseCrafted } from './src/craft.js';
 import { renderBattleTab } from './src/ui/tab.js';
 import { renderTradeTab } from './src/ui/trade.js';
-import { buyIn, buyerKind, collectIn, craftFee, craftIn, kindOf, ordersIn, placePrices, rememberStock, sellIn, sellPrice, sellable, shopStock, tradeHandoff, tradeLine } from './src/trade.js';
+import { COMMISSIONERS, buyIn, buyerKind, collectIn, commissionHours, craftFee, craftIn, craftSpan, kindOf, orderDue, ordersIn, placePrices, readyAt, readyDateText, readyWords, rememberStock, sellIn, sellPrice, sellable, shopStock, tradeHandoff, tradeLine } from './src/trade.js';
 import { combatValue, renderSettings } from './src/ui/settings.js';
 import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.43';
+const VERSION = '0.5.44';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -3506,16 +3506,13 @@ function worldScene() {
 
 const placeKey = place => String(place ?? '').split('|')[0].trim().toLowerCase();
 
-// The story day an order is ready: N days after the latest reply's time on Story Director's clock.
-function readyDate(days) {
+// (0.5.44) The story clock for orders: the time at the latest reply and the calendar's own way
+// of writing a time (Story Director's), or nulls without one.
+function orderClock() {
     const clock = storyClock();
-    const ctx = context();
-    const now = clock ? clock.timeAt(latestAssistantIndex(ctx?.chat ?? [])) : null;
-    if (clock && now !== null && typeof clock.formatTime === 'function') {
-        const text = clock.formatTime(now + days * 24 * 60);
-        if (text) return text.replace(/^[A-Z]{1,5}\s+\d+,\s*/, '');
-    }
-    return `in ${days} ${days === 1 ? 'day' : 'days'}`;
+    const now = clock ? clock.timeAt(latestAssistantIndex(context()?.chat ?? [])) : null;
+    const format = clock && typeof clock.formatTime === 'function' ? abs => clock.formatTime(abs) : null;
+    return { now: typeof now === 'number' ? now : null, format };
 }
 
 function tradeContext() {
@@ -3577,13 +3574,22 @@ function presentPeople() {
     return keep(profiles.map(profile => profile.name).filter(name => name.length >= 3 && new RegExp(`(?<![\\p{L}])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}])`, 'iu').test(latest)));
 }
 
-function craftPreview(t, { name, materials, slot, days, kind }) {
+// (0.5.44) A commission: always an order, its time the crafter's (commissionHours, the same all
+// story day for this place, crafter and piece), its ready time a date when the story has a clock.
+function craftPreview(t, { name, materials, slot, kind }) {
     const [plan] = craftPlan(t.inventory, [{ name, materials, slot }], { level: t.plevel, rules: t.r });
     if (!plan) return null;
     const fee = craftFee(plan.item, { prices: t.prices, level: t.plevel, rules: t.r });
     const stats = Object.entries(plan.item.stats).map(([stat, value]) => `${stat} +${value}`).join(', ');
     const note = [plan.item.rarity, [stats, ...(plan.item.tags ?? [])].filter(Boolean).join(', '), plan.item.slot].filter(Boolean).join(' · ');
-    return { plan, name: plan.item.name, note, fee, ready: days ? readyDate(days) : '', kind };
+    const hours = commissionHours(plan.item, { crafter: kind, tier: t.prices.tier, seed: `${placeKey(t.place)}|${kind}|${nameKey(plan.item.name)}|${storyDay()}`, rules: t.r });
+    const span = craftSpan(hours);
+    const { now, format } = orderClock();
+    const at = readyAt(hours, now);
+    const date = readyDateText(at, format);
+    const ready = date || `in about ${span}`;
+    const when = date ? readyWords(at, now, format) : ready;
+    return { plan, name: plan.item.name, note, fee, ready, when, span, kind };
 }
 
 function tradeView() {
@@ -3621,9 +3627,14 @@ function tradeView() {
         owner: owner.id,
         sellable: items.map(item => ({ name: item.name, qty: item.qty, note: item.note, rarity: item.rarity })),
         materials: mine.filter(item => kindOf(item) !== 'consumable').map(item => ({ name: item.name, qty: item.qty, note: item.note, rarity: item.rarity })),
-        orders: ordersIn(t.inventory).map(item => ({ name: item.name, note: item.note, rarity: item.rarity, with: String(item.note ?? '').match(/\bon order with ([^,·]+)/i)?.[1]?.trim() ?? '' })),
+        // (0.5.44) Each order with whether the story clock has reached its ready time yet.
+        orders: ordersIn(t.inventory).map(item => {
+            const clock = orderClock();
+            const said = String(item.note ?? '').match(/\bready\s+([^·]+)/i)?.[1]?.trim() ?? '';
+            return { name: item.name, note: item.note, rarity: item.rarity, with: String(item.note ?? '').match(/\bon order with ([^,·]+)/i)?.[1]?.trim() ?? '', due: orderDue(item.note, clock), ready: said };
+        }),
         pending,
-        orderDays: t.r.trade.orderDays,
+        crafters: [...COMMISSIONERS],
         money: amount => formatMoney(amount, c),
         // (0.5.43) The rows' prices, the short way in the chat's own coins.
         moneyShort: amount => formatMoneyShort(amount, c),
@@ -3635,7 +3646,7 @@ function tradeView() {
         },
         preview: request => {
             const made = craftPreview(t, request);
-            return made ? { name: made.name, note: made.note, fee: made.fee, ready: made.ready } : null;
+            return made ? { name: made.name, note: made.note, fee: made.fee, ready: made.ready, when: made.when, span: made.span } : null;
         },
         stock: kind => stockFor(t, kind).items.map(item => ({ name: item.name, note: item.note, price: item.price, rarity: item.rarity })),
     };
@@ -3739,19 +3750,21 @@ const tradeHandlers = {
             notify('error', `The sale could not be written: ${error instanceof Error ? error.message : String(error)}`);
         }
     },
-    onCraft: async ({ name, materials, slot, days, who, kind }) => {
+    // (0.5.44) Always a commission: an order with the crafter, ready when they say.
+    onCraft: async ({ name, materials, slot, who, kind }) => {
         try {
+            if (!COMMISSIONERS.includes(kind)) throw new Error('only a smith, a crafter or an apothecary takes commissions');
             const t = tradeContext();
-            const made = craftPreview(t, { name, materials, slot, days, kind });
+            const made = craftPreview(t, { name, materials, slot, kind });
             if (!made) throw new Error('nothing to make it from');
-            const plan = days ? { ...made.plan, order: made.ready } : made.plan;
+            const plan = { ...made.plan, order: made.ready };
             const { text, ok } = craftIn(t.inventory, plan, { fee: made.fee, from: who, currency: t.r.currency });
             if (!ok) throw new Error('your purse cannot pay the fee');
             const from = made.plan.used.map(use => (use.qty > 1 ? `${use.qty} ${use.name}` : use.name));
-            await recordTrade(text, { kind: days ? 'order' : 'craft', name: made.name, from, fee: made.fee, ready: made.ready, who, plan }, t.inventory);
-            notify('success', days ? `${made.name} ordered, ready ${made.ready}. Your next reply tells it.` : `${made.name} made. Your next reply tells it.`);
+            await recordTrade(text, { kind: 'order', name: made.name, from, fee: made.fee, ready: made.ready, when: made.when, span: made.span, who, plan }, t.inventory);
+            notify('success', `${made.name} commissioned: ${who} says ${made.span}, ready ${made.when}. Your next reply tells it.`);
         } catch (error) {
-            notify('error', `The piece could not be made: ${error instanceof Error ? error.message : String(error)}`);
+            notify('error', `The piece could not be commissioned: ${error instanceof Error ? error.message : String(error)}`);
         }
     },
     onCollect: async ({ name, who }) => {
