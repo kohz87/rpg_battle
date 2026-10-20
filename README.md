@@ -1,4 +1,4 @@
-# RPG Battle v0.5.46
+# RPG Battle v0.5.47
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -464,15 +464,15 @@ of these trades, with every other trade done again and that one left out (a thin
 on the trader's shelf). It is offered while nothing else has changed the Inventory since; after
 that, delete or swipe the latest reply to take the trades back.
 
-## Using an item outside a fight (0.5.38)
+## Using an item outside a fight (0.5.47)
 
-**Use item → Use** no longer applies the item at once: it puts a marker in your message box
-(*\*uses the Minor Healing Draught\**, or *\*gives Lyra the …\** for a companion). Send your
-message when you are ready: the reply to it gets the effect worked out by the code (*[Item] Ren
-uses the Minor Healing Draught: +20 HP (now 60/82 HP). Tell it as it happens in the scene; keep
-these numbers.*, at depth 0), and the item comes off the Inventory and the HP onto the sheet in
-that reply, so a swipe gets it again and deleting the reply takes it back. Take the marker out
-before sending and nothing is used.
+**Use item → Use** applies the item at once: the HP (or MP, or the cure) goes onto the sheet and
+the item comes off the Inventory, both written into the latest reply, so deleting or swiping that
+reply takes it back. The Items page stays open, so each click is one more dose; it stops when the
+stack is gone or the HP is full. Your next reply is told what happened, with the code's numbers
+(*[Item] Ren uses the Minor Healing Draught: +20 HP (now 50/62 HP). This already happened; mention
+it briefly if it fits, and keep these numbers.*, at depth 0); you write nothing in your message.
+(0.5.38 to 0.5.46 put a marker in your message box instead and applied the item with the reply.)
 
 ## What's sent (0.5.38)
 

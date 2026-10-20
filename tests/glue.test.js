@@ -1011,62 +1011,109 @@ test('a trade in the Trade tab: written into the latest reply, told once at dept
     }
 });
 
-test('an item used outside a fight: a marker in the message, the effect with the reply to it, told at depth 0 (0.5.38)', async () => {
+test('an item used outside a fight: applied at once into the latest reply, the next reply told, at depth 0 (0.5.47)', async () => {
     const prompts = {};
     const before = ctx.setExtensionPrompt;
     ctx.setExtensionPrompt = (key, value, _position, depth) => { prompts[key] = { value, depth }; };
-    const box = { value: 'I rest a moment.', dispatchEvent: () => true, focus: () => {} };
-    const getById = doc.getElementById;
-    doc.getElementById = id => (id === 'send_textarea' ? box : null);
     try {
         const hurt = REN.replace('HP: 58/62', 'HP: 30/62');
-        openChat('item-chat', [reply(`<Party>\n${hurt}\n</Party>\n<Inventory>\n[Loot]\nMinor Healing Draught | 2 | heal 20\n</Inventory>`)]);
+        openChat('item-chat', [{ ...reply(`<Party>\n${hurt}\n</Party>\n<Inventory>\n[Loot]\nMinor Healing Draught | 2 | heal 20\n</Inventory>`), send_date: 'zero' }]);
         hooks.update();
         await settle();
-        let pane = drawParty();
-        find(pane, '.rpg-battle-items').click();
-        await settle();
-        pane = drawParty();
-        find(pane, '.rpg-battle-use').click();
-        await settle();
-        assert.equal(box.value, 'I rest a moment. *uses the Minor Healing Draught*');
-        assert.match(ctx.chat[0].mes, /HP: 30\/62/, 'nothing used yet');
-        // What's sent shows it, worked out from the message box.
-        pane = drawParty();
-        assert.ok(findAll(pane, '.rpg-battle-sent-text').some(node => /Minor Healing Draught: \+20 HP \(now 50\/62 HP\)/.test(node.textContent)));
-        // Sent: the reply is told, at depth 0, and gets the effect.
-        ctx.chat.push(userMessage(box.value));
-        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
-        assert.match(prompts.story_suite_tail_3_rpg_battle.value, /^\[Item\] Ren uses the Minor Healing Draught: \+20 HP \(now 50\/62 HP\)\./m);
-        assert.equal(prompts.story_suite_tail_3_rpg_battle.depth, 0);
-        assert.equal(prompts.story_suite_tail_3_rpg_battle.depth, 0, 'the fight hand-off goes at depth 0 too');
-        ctx.chat.push({ ...reply('Ren drinks.'), send_date: 'one' });
-        await hooks.reply({ messageIndex: 2 });
-        await settle();
-        assert.match(partyText(), /HP: 50\/62/);
-        assert.match(ctx.chat[2].mes, /Minor Healing Draught \| 1 \| heal 20/);
-        // Worked again for the same reply: once only.
-        await hooks.reply({ messageIndex: 2 });
-        await settle();
-        assert.match(partyText(), /HP: 50\/62/);
-        // A newer reply: the note is spent.
-        ctx.chat.push(userMessage('On.'));
-        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
-        assert.doesNotMatch(prompts.story_suite_tail_3_rpg_battle.value, /\[Item\]/);
-        // The marker taken out before sending: nothing is used.
-        box.value = '';
-        pane = drawParty();
-        find(pane, '.rpg-battle-items').click();
+        find(drawParty(), '.rpg-battle-items').click();
         await settle();
         find(drawParty(), '.rpg-battle-use').click();
         await settle();
-        ctx.chat.push(userMessage('Never mind.'));
+        // At once: the sheet and the Inventory of the latest reply.
+        assert.match(partyText(), /HP: 50\/62/);
+        assert.match(ctx.chat[0].mes, /Minor Healing Draught \| 1 \| heal 20/);
+        // The Items page stays open for another dose; Back, and What's sent shows the note.
+        assert.ok(findAll(drawParty(), '.rpg-battle-use').length, 'still on the Items page');
+        find(drawParty(), '.rpg-battle-back').click();
+        await settle();
+        assert.ok(findAll(drawParty(), '.rpg-battle-sent-text').some(node => /Minor Healing Draught: \+20 HP \(now 50\/62 HP\)/.test(node.textContent)));
+        ctx.chat.push(userMessage('I rest a moment.'));
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        assert.match(prompts.story_suite_tail_3_rpg_battle.value, /^\[Item\] Ren uses the Minor Healing Draught: \+20 HP \(now 50\/62 HP\)\./m);
+        assert.equal(prompts.story_suite_tail_3_rpg_battle.depth, 0);
+        // A swipe of that reply is told again; a newer reply finds it spent.
+        ctx.chat.push({ ...reply('Ren drinks.'), send_date: 'one' });
+        await hooks.reply({ messageIndex: 2 });
+        await settle();
+        assert.match(partyText(), /HP: 50\/62/, 'not applied a second time with the reply');
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'swipe');
+        assert.match(prompts.story_suite_tail_3_rpg_battle.value, /\[Item\]/);
+        ctx.chat.push(userMessage('On.'));
         await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
         assert.doesNotMatch(prompts.story_suite_tail_3_rpg_battle.value, /\[Item\]/);
         assert.equal(ctx.chatMetadata.rpgBattle.itemUse, null);
     } finally {
         ctx.setExtensionPrompt = before;
-        doc.getElementById = getById;
+    }
+});
+
+test('several doses: each click one dose, until the stock or full HP stops it; one note tells them all (0.5.47)', async () => {
+    const prompts = {};
+    const before = ctx.setExtensionPrompt;
+    ctx.setExtensionPrompt = (key, value, _position, depth) => { prompts[key] = { value, depth }; };
+    const use = async () => {
+        if (!findAll(drawParty(), '.rpg-battle-use').length && findAll(drawParty(), '.rpg-battle-items').length) {
+            find(drawParty(), '.rpg-battle-items').click();
+            await settle();
+        }
+        const button = findAll(drawParty(), '.rpg-battle-use')[0];
+        if (button) button.click();
+        await settle();
+    };
+    try {
+        const hurt = REN.replace('HP: 58/62', 'HP: 10/62');
+        openChat('doses-chat', [{ ...reply(`<Party>\n${hurt}\n</Party>\n<Inventory>\n[Loot]\nMinor Healing Draught | 2 | heal 20\n</Inventory>`), send_date: 'zero' }]);
+        hooks.update();
+        await settle();
+        await use();
+        await use();
+        await use();
+        assert.match(partyText(), /HP: 50\/62/, 'two draughts, two doses; nothing left for a third');
+        assert.doesNotMatch(ctx.chat[0].mes, /Minor Healing Draught \|/);
+        ctx.chat.push(userMessage('I drink.'));
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        const told = prompts.story_suite_tail_3_rpg_battle.value;
+        assert.match(told, /\+20 HP \(now 30\/62 HP\)/);
+        assert.match(told, /\+20 HP \(now 50\/62 HP\)/);
+        // Full HP: the draught is kept.
+        openChat('doses-full', [{ ...reply(`<Party>\n${REN.replace('HP: 58/62', 'HP: 62/62')}\n</Party>\n<Inventory>\n[Loot]\nMinor Healing Draught | 2 | heal 20\n</Inventory>`), send_date: 'zero' }]);
+        hooks.update();
+        await settle();
+        await use();
+        assert.match(ctx.chat[0].mes, /Minor Healing Draught \| 2 \| heal 20/);
+        assert.equal(ctx.chatMetadata.rpgBattle.itemUse ?? null, null);
+    } finally {
+        ctx.setExtensionPrompt = before;
+    }
+});
+
+test('an item used, then its reply deleted or swiped away: the note goes with it (0.5.47)', async () => {
+    const prompts = {};
+    const before = ctx.setExtensionPrompt;
+    ctx.setExtensionPrompt = (key, value, _position, depth) => { prompts[key] = { value, depth }; };
+    try {
+        const hurt = REN.replace('HP: 58/62', 'HP: 30/62');
+        openChat('item-gone', [reply(`<Party>\n${REN}\n</Party>`), userMessage('Wait.'), { ...reply(`<Party>\n${hurt}\n</Party>\n<Inventory>\n[Loot]\nMinor Healing Draught | 2 | heal 20\n</Inventory>`), send_date: 'first' }]);
+        hooks.update();
+        await settle();
+        find(drawParty(), '.rpg-battle-items').click();
+        await settle();
+        find(drawParty(), '.rpg-battle-use').click();
+        await settle();
+        ctx.chat.pop();
+        ctx.chat.push({ ...reply('Ren waits again.'), send_date: 'second' });
+        hooks.update();
+        await settle();
+        ctx.chat.push(userMessage('On.'));
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        assert.doesNotMatch(prompts.story_suite_tail_3_rpg_battle.value, /\[Item\]/);
+    } finally {
+        ctx.setExtensionPrompt = before;
     }
 });
 
