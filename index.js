@@ -62,21 +62,29 @@ import { fallbackKit, kitPrompt, kitTemplate, namedKit, parseKit, usableKit } fr
 import { cleanParty, exportParty } from './src/partyfile.js';
 import { craftPlan, parseCrafted } from './src/craft.js';
 import { renderBattleTab } from './src/ui/tab.js';
+import { renderTradeTab } from './src/ui/trade.js';
+import { buyerKind, collectIn, craftFee, craftIn, kindOf, ordersIn, placePrices, sellIn, sellPrice, sellable, tradeHandoff, tradeLine } from './src/trade.js';
 import { combatValue, renderSettings } from './src/ui/settings.js';
 import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.36';
+const VERSION = '0.5.37';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
 const PARTY_TAB_ID = 'rpg-party';
+// (0.5.37) Selling, making and ordering, and collecting what was ordered.
+const TRADE_TAB_ID = 'rpg-trade';
 const NPC_SUITE_ID = 'npc-state-delta';
 const PROMPT_KEY = 'rpg_battle';
 // The story instruction (<Wounds>, <Encounter>) has its own key: the hand-off comes and goes
 // with one reply, the instruction stays on.
 const RULES_PROMPT_KEY = 'rpg_battle_rules';
+// (0.5.37) The trade note: only for the reply after trades in the Trade tab, at depth 0.
+const TRADE_PROMPT_KEY = 'rpg_battle_trade';
+// Story Block's World State (its default tag): read for the place and who is present.
+const WORLD_TAG = 'World_State';
 // Transport-only tags: Story Block moves them into its hidden envelope, out of the narration.
 const WOUNDS_TAG = 'Wounds';
 const ENCOUNTER_TAG = 'Encounter';
@@ -331,6 +339,11 @@ function chatState(ctx = context()) {
         npcNames: state.npcNames && typeof state.npcNames === 'object' ? state.npcNames : {},
         // (0.5.33) The loot the last fight wrote, kept in the reply narrating it (lootGuardFor).
         lootGuard: holding(state.lootGuard ?? null),
+        // (0.5.37) Trades made in the Trade tab, for the next reply to tell: { entries, handoff,
+        // origin (the reply they were written into), attachedTo }, gone with that reply.
+        trade: holding(state.trade ?? null),
+        // (0.5.37) The reader's word for a place's prices: { [place key]: 'cheap' | 'fair' | 'dear' }.
+        tradePrices: state.tradePrices && typeof state.tradePrices === 'object' ? state.tradePrices : {},
     };
 }
 
@@ -2254,10 +2267,34 @@ function watchSuite() {
 // ---------------------------------------------------------------------------
 // The hand-off: injected once, into the next reply and its swipes
 
-function setPrompt(text, key = PROMPT_KEY) {
+function setPrompt(text, key = PROMPT_KEY, depth = 1) {
     const ctx = context();
     if (typeof ctx?.setExtensionPrompt !== 'function') return;
-    ctx.setExtensionPrompt(key, text, EXTENSION_PROMPT_IN_CHAT, 1, false, EXTENSION_PROMPT_ROLE_SYSTEM);
+    ctx.setExtensionPrompt(key, text, EXTENSION_PROMPT_IN_CHAT, depth, false, EXTENSION_PROMPT_ROLE_SYSTEM);
+}
+
+/**
+ * (0.5.37) The trade note for the reply being generated ('' when there is none), given once:
+ * attached to the first reply after the trades, told again to a swipe of it, spent once a
+ * later reply exists, and dropped with the reply the trades were written into.
+ */
+function tradeFor(kind) {
+    const chat = context()?.chat ?? [];
+    const raw = chatMeta()?.[SETTINGS_KEY]?.trade;
+    const trade = settleHandoff(chatState().trade, chat);
+    if (!trade) {
+        if (raw) saveChatState({ trade: null });
+        return '';
+    }
+    const replacing = (kind.includes('swipe') || kind.includes('regenerate')) && isAssistant(chat.at(-1));
+    const replyIndex = replacing ? chat.length - 1 : chat.length;
+    if (trade.attachedTo === null || trade.attachedTo === undefined) {
+        saveChatState({ trade: { ...trade, attachedTo: replyIndex } });
+        return trade.handoff;
+    }
+    if (trade.attachedTo === replyIndex) return trade.handoff;
+    saveChatState({ trade: null });
+    return '';
 }
 
 /**
@@ -2325,12 +2362,16 @@ async function onGenerationInterceptor(chat, _contextSize, _abort, type = 'norma
             // for, and no fight hand-off either (it waits for the next real reply).
             setPrompt('', RULES_PROMPT_KEY);
             setPrompt('');
+            setPrompt('', TRADE_PROMPT_KEY, 0);
             return;
         }
         const ctx = context();
         const own = settings(ctx);
         const handoff = own.enabled ? handoffFor(chat, kind) : '';
         setPrompt(handoff);
+        // Replaced or cleared on every reply, so a spent trade is never told twice.
+        const traded = own.enabled ? tradeFor(kind) : '';
+        setPrompt(traded, TRADE_PROMPT_KEY, 0);
         // The story instruction, while there is a sheet to keep in step and no fight under way.
         // The reply that narrates a fight gets the narrating one (0.5.9): no <Wounds> for that
         // fight, but a new fight after it is still handed over.
@@ -2338,7 +2379,7 @@ async function onGenerationInterceptor(chat, _contextSize, _abort, type = 'norma
         const why = !own.enabled ? 'RPG Battle is off' : !pc ? 'no character yet' : isDead(pc) ? 'your character is dead' : underWay(chatState(ctx)) ? 'a fight is under way' : '';
         const instruction = why ? '' : `${handoff ? NARRATING_INSTRUCTION : storyInstruction(ctx)}${purseLine()}`;
         setPrompt(instruction, RULES_PROMPT_KEY);
-        lastSent = { at: Date.now(), type: kind, handoff: Boolean(handoff), instruction: why ? 'none' : handoff ? 'narrating' : 'story', why, chars: handoff.length + instruction.length, handoffText: handoff, instructionText: instruction };
+        lastSent = { at: Date.now(), type: kind, handoff: Boolean(handoff), instruction: why ? 'none' : handoff ? 'narrating' : 'story', why, chars: handoff.length + instruction.length + traded.length, handoffText: handoff, instructionText: instruction, tradeText: traded };
     } catch (error) {
         console.error('[RPG Battle] interceptor failed', error);
     }
@@ -3142,6 +3183,174 @@ function renderBattle(pane) {
 }
 
 // ---------------------------------------------------------------------------
+// The Trade tab (0.5.37): selling, making and ordering, collecting
+
+// The World State's place ("Bluewatch Village | Adventurer Guild Post") and who is present.
+function worldScene() {
+    const text = storyBlock()?.getBlock?.(WORLD_TAG)?.text ?? '';
+    const loc = text.match(/\bLoc(?:ation)?:\**\s*([^\n]+)/i)?.[1] ?? '';
+    const place = loc.split('|').map(part => part.trim()).filter(part => part && !/^\*\*|^\[/.test(part)).slice(0, 2).join(' | ');
+    const people = [];
+    const present = text.split(/NPCs Present:?\**/i)[1] ?? '';
+    for (const line of present.split(/\r?\n/)) {
+        if (/^\s*-{3,}/.test(line) || /\*\*\S*\s*Off-Screen/i.test(line)) break;
+        const name = line.match(/^\s*\*\*([^*:\n]{1,40}):\*\*\s*$/)?.[1]?.trim();
+        if (name && !people.includes(name)) people.push(name);
+    }
+    return { place, people };
+}
+
+const placeKey = place => String(place ?? '').split('|')[0].trim().toLowerCase();
+
+// The story day an order is ready: N days after the latest reply's time on Story Director's clock.
+function readyDate(days) {
+    const clock = storyClock();
+    const ctx = context();
+    const now = clock ? clock.timeAt(latestAssistantIndex(ctx?.chat ?? [])) : null;
+    if (clock && now !== null && typeof clock.formatTime === 'function') {
+        const text = clock.formatTime(now + days * 24 * 60);
+        if (text) return text.replace(/^[A-Z]{1,5}\s+\d+,\s*/, '');
+    }
+    return `in ${days} ${days === 1 ? 'day' : 'days'}`;
+}
+
+function tradeContext() {
+    const r = rules();
+    const own = settings();
+    const state = chatState();
+    const inventory = blockText(own.inventoryTag);
+    const { place, people } = worldScene();
+    const level = (state.tradePrices ?? {})[placeKey(place)] ?? null;
+    const prices = placePrices(place, { level, rules: r });
+    const pc = currentSheet();
+    return { r, own, state, inventory, place, people, level, prices, pc, plevel: pc?.level ?? 1 };
+}
+
+function craftPreview(t, { name, materials, slot, days, kind }) {
+    const [plan] = craftPlan(t.inventory, [{ name, materials, slot }], { level: t.plevel, rules: t.r });
+    if (!plan) return null;
+    const fee = craftFee(plan.item, { prices: t.prices, level: t.plevel, rules: t.r });
+    const stats = Object.entries(plan.item.stats).map(([stat, value]) => `${stat} +${value}`).join(', ');
+    const note = [plan.item.rarity, [stats, ...(plan.item.tags ?? [])].filter(Boolean).join(', '), plan.item.slot].filter(Boolean).join(' · ');
+    return { plan, name: plan.item.name, note, fee, ready: days ? readyDate(days) : '', kind };
+}
+
+function tradeView() {
+    const ctx = context();
+    const own = settings(ctx);
+    if (!own.enabled) return { ready: false, reason: 'RPG Battle is off.' };
+    if (!storyBlock()) return { ready: false, reason: 'Trading needs Story Block (its Inventory).' };
+    const t = tradeContext();
+    if (!t.pc) return { ready: false, reason: 'Make your character first (Party tab).' };
+    const c = t.r.currency;
+    const purse = purseOf(t.inventory, c)?.total ?? 0;
+    const items = sellable(t.inventory, c);
+    const pending = handoffState(t.state.trade, ctx?.chat ?? []) === 'waiting' ? (t.state.trade?.entries ?? []).map(entry => tradeLine(entry, c)) : [];
+    return {
+        ready: true,
+        chatId: chatIdOf(ctx),
+        place: t.place,
+        prices: t.prices,
+        level: t.level,
+        people: t.people,
+        purse,
+        purseText: formatMoney(purse, c),
+        sellable: items.map(item => ({ name: item.name, qty: item.qty, note: item.note })),
+        materials: items.filter(item => kindOf(item) !== 'consumable').map(item => ({ name: item.name, qty: item.qty, note: item.note })),
+        orders: ordersIn(t.inventory).map(item => ({ name: item.name, note: item.note, with: String(item.note ?? '').match(/\bon order with ([^,·]+)/i)?.[1]?.trim() ?? '' })),
+        pending,
+        orderDays: t.r.trade.orderDays,
+        money: amount => formatMoney(amount, c),
+        buyerKind: name => buyerKind(name, t.r),
+        sellPrice: (name, kind) => {
+            const item = items.find(entry => entry.name === name);
+            return item ? sellPrice(item, { buyer: kind, prices: t.prices, level: t.plevel, rules: t.r }) : 0;
+        },
+        preview: request => {
+            const made = craftPreview(t, request);
+            return made ? { name: made.name, note: made.note, fee: made.fee, ready: made.ready } : null;
+        },
+    };
+}
+
+/**
+ * A trade done: the latest reply's Inventory written (so deleting or swiping that reply takes
+ * it back) and the trade added to what the next reply is told.
+ */
+async function recordTrade(next, entry) {
+    const ctx = context();
+    const chat = ctx?.chat ?? [];
+    const latest = latestAssistantIndex(chat);
+    if (latest < 0) throw new Error('There is no reply to write into yet: start the chat first.');
+    await writeBlock(settings().inventoryTag, next);
+    const current = settleHandoff(chatState().trade, chat);
+    const open = current && (current.attachedTo === null || current.attachedTo === undefined);
+    const entries = [...(open ? current.entries : []), entry];
+    const name = currentSheet()?.name || 'The party';
+    saveChatState({ trade: { entries, handoff: tradeHandoff(entries, { name, currency: rules().currency }), origin: open ? current.origin : fightOrigin(chat, latest), attachedTo: null } });
+    logActivity(`Trade: ${tradeLine(entry, rules().currency)}`);
+    storyBlock()?.refresh?.();
+}
+
+const tradeHandlers = {
+    onSell: async ({ name, qty, each, who }) => {
+        try {
+            const t = tradeContext();
+            const { text, total } = sellIn(t.inventory, { name, qty, each }, t.r.currency);
+            await recordTrade(text, { kind: 'sell', name, qty, total, who });
+            notify('success', `Sold ${qty > 1 ? `${qty} ` : ''}${name} for ${formatMoney(total, t.r.currency)}. Your next reply tells it.`);
+        } catch (error) {
+            notify('error', `The sale could not be written: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    },
+    onCraft: async ({ name, materials, slot, days, who, kind }) => {
+        try {
+            const t = tradeContext();
+            const made = craftPreview(t, { name, materials, slot, days, kind });
+            if (!made) throw new Error('nothing to make it from');
+            const plan = days ? { ...made.plan, order: made.ready } : made.plan;
+            const { text, ok } = craftIn(t.inventory, plan, { fee: made.fee, from: who, currency: t.r.currency });
+            if (!ok) throw new Error('your purse cannot pay the fee');
+            const from = made.plan.used.map(use => (use.qty > 1 ? `${use.qty} ${use.name}` : use.name));
+            await recordTrade(text, { kind: days ? 'order' : 'craft', name: made.name, from, fee: made.fee, ready: made.ready, who });
+            notify('success', days ? `${made.name} ordered, ready ${made.ready}. Your next reply tells it.` : `${made.name} made. Your next reply tells it.`);
+        } catch (error) {
+            notify('error', `The piece could not be made: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    },
+    onCollect: async ({ name, who }) => {
+        try {
+            const t = tradeContext();
+            const { text } = collectIn(t.inventory, name, t.r.currency);
+            if (text === t.inventory) throw new Error(`${name} is not on order`);
+            await recordTrade(text, { kind: 'collect', name, who });
+            notify('success', `${name} collected. Your next reply tells it.`);
+        } catch (error) {
+            notify('error', `It could not be collected: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    },
+    onLevel: level => {
+        const { place } = worldScene();
+        const prices = { ...(chatState().tradePrices ?? {}) };
+        if (level) prices[placeKey(place)] = level;
+        else delete prices[placeKey(place)];
+        saveChatState({ tradePrices: prices });
+        storyBlock()?.refresh?.();
+    },
+};
+
+function tradeKey() {
+    const ctx = context();
+    const state = chatState(ctx);
+    const own = settings(ctx);
+    return [...baseKey(ctx, state), blockText(own.inventoryTag), storyBlock()?.getBlock?.(WORLD_TAG)?.text?.length ?? 0, JSON.stringify(state.trade ?? null), JSON.stringify(state.tradePrices ?? {}), currentSheet()?.level ?? 0].join('|');
+}
+
+function renderTrade(pane) {
+    renderTradeTab(pane, tradeView(), tradeHandlers);
+}
+
+// ---------------------------------------------------------------------------
 // Registration
 
 function registerKeptBlocks(sb) {
@@ -3203,6 +3412,17 @@ function registerWithStoryBlock() {
         key: battleKey,
         badge: () => (currentFight() || chatState().plan || encounterOffer() ? 1 : 0),
         render: pane => renderBattle(pane),
+    });
+    // (0.5.37) The Trade tab: while there is a character to trade for.
+    sb.registerTab({
+        id: TRADE_TAB_ID,
+        label: 'Trade',
+        icon: '🪙',
+        order: 81,
+        isAvailable: () => settings().enabled && Boolean(currentSheet()),
+        key: tradeKey,
+        badge: () => (handoffState(chatState().trade, context()?.chat ?? []) === 'waiting' ? 1 : 0),
+        render: pane => renderTrade(pane),
     });
     sb.onReply?.(payload => void afterReply(payload));
     // Story Block's settings can change under us (its Character Sheet switched on or off).
@@ -3333,6 +3553,7 @@ function init() {
             generating = false;
             setPrompt('');
             setPrompt('', RULES_PROMPT_KEY);
+            setPrompt('', TRADE_PROMPT_KEY, 0);
             try {
                 settlePending();
             } catch (error) {

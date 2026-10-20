@@ -246,6 +246,37 @@ export const DEFAULT_RULES = Object.freeze({
         gearBudgetShare: 0.75, // gear stats: this share of the rarity's budget at the creature's level
         gearRarity: { F: 'common', E: 'common', D: 'uncommon', C: 'uncommon', B: 'rare', A: 'rare', S: 'epic', SS: 'epic', SSS: 'legendary' },
     },
+    // (0.5.37) The Trade tab (trade.js): what things are worth, in the smallest coin, and how the
+    // place and the one trading change it. Every price is the code's; the story only tells it.
+    trade: {
+        sellRate: 0.5,      // a buyer pays this share of a thing's worth
+        craftFee: 0.3,      // a crafter's labour: this share of the piece's worth
+        orderDays: 2,       // an order is ready this many story days later, unless changed
+        material: { common: 3, uncommon: 30, rare: 120, epic: 500, legendary: 2000 },
+        goods: 2,           // a plain thing (rope, a sack): worth this, × its rarity's factor
+        gearPerPoint: 10,   // gear: this per point of its (capped) stat budget, × its rarity's factor
+        rarityFactor: { common: 1, uncommon: 1.5, rare: 2.5, epic: 4, legendary: 7 },
+        effect: { heal: 0.5, mp: 0.6, cure: 8, damage: 0.8 }, // a consumable: this per point of what it does
+        // A place by the words of its name: what goods cost there (buy) and what is paid (sell).
+        areas: {
+            remote: { buy: 0.85, sell: 0.75, words: ['hamlet', 'outpost', 'camp', 'frontier', 'wilds', 'waystation', 'ruins', 'steading', 'homestead', 'farmstead'] },
+            village: { buy: 0.9, sell: 0.85, words: ['village', 'farm', 'mill', 'manor', 'crossing', 'ford', 'landing'] },
+            town: { buy: 1, sell: 1, words: ['town', 'market', 'port', 'harbour', 'harbor', 'docks', 'quay', 'fort', 'keep'] },
+            city: { buy: 1.2, sell: 1.15, words: ['city', 'metropolis', 'citadel'] },
+            capital: { buy: 1.35, sell: 1.25, words: ['capital', 'royal', 'imperial', 'throne'] },
+        },
+        // The reader's word for a place (the Trade tab): × both.
+        levels: { cheap: 0.8, fair: 1, dear: 1.25 },
+        // Who trades, by the words of their name or trade: × what they pay, by the kind of thing.
+        buyers: {
+            general: { equipment: 1, consumable: 1, material: 1, goods: 1, words: ['merchant', 'trader', 'peddler', 'pedlar', 'shop', 'store', 'innkeeper', 'quartermaster'] },
+            fence: { equipment: 0.6, consumable: 0.6, material: 0.6, goods: 0.6, words: ['fence', 'smuggler', 'pawn', 'broker', 'black market'] },
+            guild: { equipment: 0.9, consumable: 0.9, material: 1.1, goods: 0.9, words: ['guild', 'clerk', 'board', 'factor', 'reeve', 'watch'] },
+            apothecary: { equipment: 0.5, consumable: 1.3, material: 1.2, goods: 0.7, words: ['apothecary', 'alchemist', 'herbalist', 'healer', 'physician', 'chemist'] },
+            smith: { equipment: 1.3, consumable: 0.4, material: 0.9, goods: 0.8, words: ['smith', 'blacksmith', 'armourer', 'armorer', 'weaponsmith', 'forge', 'fletcher', 'bowyer'] },
+            crafter: { equipment: 0.8, consumable: 0.4, material: 1.3, goods: 0.8, words: ['carver', 'bone-carver', 'tanner', 'leatherworker', 'jeweller', 'jeweler', 'tailor', 'weaver', 'artisan', 'crafter', 'cobbler', 'enchanter'] },
+        },
+    },
     // Coins (in the smallest unit) a defeated enemy of each rank may drop.
     moneyByRank: { F: [2, 8], E: [5, 20], D: [15, 50], C: [40, 120], B: [100, 300], A: [250, 700], S: [600, 1600], SS: [1500, 4000], SSS: [4000, 10000] },
 });
