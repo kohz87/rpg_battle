@@ -1,4 +1,4 @@
-# RPG Battle v0.5.44
+# RPG Battle v0.5.45
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -419,7 +419,9 @@ tells it.
   wide pane (a tablet held sideways) the lines sit in two columns.
 - **Commission** (0.5.44): trade with a smith, a crafter (bone-carver, tanner…) or an
   apothecary, name the piece, and pick its materials with **Use** (a stack's **− n +** once
-  picked). You see what it will be, the fee, and how long the crafter says it takes, then
+  picked). Only materials are offered (since 0.5.45): rows noted `material`, rows under a loot,
+  trophy or material section, and creature parts by their name (a *Wolf Fang* or *Wolf Core*
+  kept under [Gear]); rope, a waterskin or a whetstone are not. You see what it will be, the fee, and how long the crafter says it takes, then
   **Commission it**. A piece is always made to order, and how long it takes is the crafter's
   word, not yours: by its rarity (a few hours for common, about a day for uncommon, two or three
   days for rare, a week for epic), faster when it is their own line (a smith's sword, a

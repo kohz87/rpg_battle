@@ -19,7 +19,7 @@ const PART_STATS = [
     [['fang', 'fangs', 'tooth', 'teeth', 'claw', 'claws', 'talon', 'talons', 'tusk', 'tusks', 'horn', 'horns', 'spike', 'spikes', 'stinger', 'barb', 'mandible'], 'ATK'],
     [['pelt', 'hide', 'skin', 'leather', 'scale', 'scales', 'shell', 'carapace', 'plate', 'chitin', 'fur', 'wool'], 'DEF'],
     [['skull', 'bone', 'bones', 'fetish', 'candle', 'antler', 'antlers', 'signet'], 'MDEF'],
-    [['essence', 'ectoplasm', 'crystal', 'shard', 'dust', 'ichor', 'ash', 'star', 'godsblood'], 'MATK'],
+    [['essence', 'ectoplasm', 'crystal', 'shard', 'dust', 'ichor', 'ash', 'star', 'godsblood', 'core', 'cores'], 'MATK'],
     [['feather', 'feathers', 'wing', 'wings', 'sinew', 'tendon', 'silk', 'tail', 'tails'], 'AGI'],
     [['eye', 'eyes', 'lens', 'lockpick'], 'DEX'],
     [['heart', 'blood', 'liver', 'marrow'], 'HP'],
