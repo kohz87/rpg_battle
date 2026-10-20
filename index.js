@@ -48,7 +48,7 @@ import { TEMPLATES, classify, cleanCreature, combinedBestiary, creaturesToMake, 
 import { applyFlavour, flavourPrompt, parseFlavour, sceneText } from './src/flavour.js';
 import { act, availableActions, foeXpWorth, replay, startFight, summarize } from './src/combat.js';
 import { applyResult, foldUses, forgetSkill, formatPartyBlock, learnSkill, newSheet, readSheets, setSkillActive, spendPoints } from './src/sheet.js';
-import { addLoot, consumables, restoreLoot, formatGearEntry, formatMoney, gearSummary, parseGearEntry, parseInventory, purseOf, useItems } from './src/items.js';
+import { addLoot, applyCrafts, consumables, restoreLoot, formatGearEntry, formatMoney, gearSummary, parseGearEntry, parseInventory, purseOf, useItems } from './src/items.js';
 import { NEXT_MOVES_MAX, fallbackMoves, nextMovesPrompt, parseNextMoves } from './src/nextmoves.js';
 import { buildHandoff, buildPlanHandoff, fightOrigin, grouped, handoffState, originHolds, settleHandoff } from './src/handoff.js';
 import { cleanPlan, newPlan, nextStage, planResult, stageDone, stageId } from './src/plan.js';
@@ -60,13 +60,14 @@ import { awardParty, settleCompanions } from './src/growth.js';
 import { guessFocus } from './src/builds.js';
 import { fallbackKit, kitPrompt, kitTemplate, namedKit, parseKit, usableKit } from './src/kit.js';
 import { cleanParty, exportParty } from './src/partyfile.js';
+import { craftPlan, parseCrafted } from './src/craft.js';
 import { renderBattleTab } from './src/ui/tab.js';
 import { combatValue, renderSettings } from './src/ui/settings.js';
 import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.33';
+const VERSION = '0.5.34';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -86,9 +87,12 @@ const XP_TAG = 'XP';
 // Story Director's change lines (its default tag): read only for what a reply closes.
 const DIRECTOR_TAG = 'Director';
 const REST_TAG = 'Rest';
+// (0.5.34) Gear the story made from the Inventory's materials.
+const CRAFTED_TAG = 'Crafted';
 const TRANSPORT_TAGS = [
     ['rpg-wounds', WOUNDS_TAG], ['rpg-encounter', ENCOUNTER_TAG], ['rpg-joins', JOINS_TAG],
     ['rpg-leaves', LEAVES_TAG], ['rpg-learned', LEARNED_TAG], ['rpg-xp', XP_TAG], ['rpg-rest', REST_TAG],
+    ['rpg-crafted', CRAFTED_TAG],
 ];
 // Story Block's own Character Sheet block (a template of its own), which keeps a second HP.
 const STORY_SHEET_TEMPLATE = 'character-sheet';
@@ -1387,6 +1391,7 @@ async function planAndWriteReply({ messageIndex }) {
         }
     }
     if (narrating) await guardLoot(sb, index, state, own);
+    await craftInReply(sb, index, own);
     // (0.5.9) The narrating reply may go on into a new fight, offered when encounterOffer says so.
     if (!narrating || encounterOffer()) toastEncounter(sb, index);
     const fresh = currentOffers().filter(offer => offer.index === index);
@@ -1413,6 +1418,30 @@ async function guardLoot(sb, index, state, own) {
         logActivity(`Loot kept in reply #${index}'s Inventory: ${guard.items.map(item => item.name).join(', ')}`);
     } catch (error) {
         console.error('[RPG Battle] the loot could not be put back', error);
+    }
+}
+
+/**
+ * (0.5.34) The reply's <Crafted> pieces in its Inventory: worked out from the Inventory before
+ * it (craftPlan) and written into this reply's (applyCrafts), so a swipe or a deleted reply
+ * takes the craft back with it and the same reply worked again changes nothing.
+ */
+async function craftInReply(sb, index, own) {
+    const crafted = parseCrafted(blockAt(sb, index, CRAFTED_TAG) ?? '');
+    if (!crafted.length) return;
+    const before = sb.getBlock?.(own.inventoryTag, { beforeIndex: index })?.text ?? '';
+    const current = blockAt(sb, index, own.inventoryTag);
+    const level = sheetsAt(sb, { beforeIndex: index }).pc?.level ?? 1;
+    const plans = craftPlan(before, crafted, { level, rules: rules() });
+    const base = current ?? String(before).trim();
+    const next = applyCrafts(base, before, plans, rules().currency);
+    if (current !== null && next === current) return;
+    if (current === null && !plans.length) return;
+    try {
+        await sb.setBlockText(index, own.inventoryTag, next);
+        logActivity(`Crafted in reply #${index}: ${plans.map(plan => `${plan.item.name} (${plan.item.rarity})`).join(', ')}`);
+    } catch (error) {
+        console.error('[RPG Battle] the crafted gear could not be written', error);
     }
 }
 
@@ -2417,7 +2446,7 @@ function diagnosticsJson() {
         const sb = storyBlock();
         const chat = ctx?.chat ?? [];
         const latest = latestAssistantIndex(chat);
-        const tags = [WOUNDS_TAG, ENCOUNTER_TAG, JOINS_TAG, LEAVES_TAG, LEARNED_TAG, XP_TAG, REST_TAG, settings(ctx).partyTag];
+        const tags = [WOUNDS_TAG, ENCOUNTER_TAG, JOINS_TAG, LEAVES_TAG, LEARNED_TAG, XP_TAG, REST_TAG, CRAFTED_TAG, settings(ctx).partyTag];
         const blocks = sb && latest >= 0 ? Object.fromEntries(tags.map(tag => [tag, blockAt(sb, latest, tag) ?? null]).filter(([, text]) => text !== null)) : {};
         const { pc, members } = currentSheets();
         const data = {

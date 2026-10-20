@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.34
+
+- **Materials say what they would make.** Each material now notes the stat and element it lends a crafted piece. The rarity was all you could see before. A skull reads `uncommon material · MDEF`, a venom sac `material · MP, poison`. The stat comes from the part (fang ATK, pelt DEF, skull MDEF, feather AGI…). The element comes from what it is made of or what dropped it (venom or rats → poison, embers or a drake → fire, frost or a ghost → ice, a relic → holy). Materials you already have are read by their name, and a hint you write in the note wins.
+- **Crafting.** When someone makes something in the story, the reply writes `<Crafted>Bone Charm from Skull, 2 Fang</Crafted>`. RPG Battle then takes the materials off the Inventory and adds the piece, with numbers the code sets:
+  - rarity: the best material's, one step up for three or more of it;
+  - stats: from the materials' affinities, sized to that rarity and your level;
+  - element: carried over from a material that has one.
+
+  A note the model wrote for the piece is replaced; *equipped* is kept. It all happens in that reply's Inventory, so a swipe or a deleted reply takes it back. The story instruction names the new block, about 15 tokens more.
+
 ## 0.5.33
 
 - **The story can no longer lose or retell your loot.** The reply that tells the end of a fight rewrites the Inventory, and it could drop a row the fight had just added or turn `uncommon · LUK +2` into *a yellowed fang on a cord*. RPG Battle now remembers what the fight wrote. If that reply leaves a loot row out, the row is added back; if it rewrites the row's note, the note is put back. Quantities, other rows and every later reply stay the story's.

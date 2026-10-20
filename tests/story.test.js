@@ -153,16 +153,17 @@ test('encounter: unknown names kept (singular only for a creature word), notes i
 // one instruction for every hidden block (Joins, Leaves, Learned, XP, Rest, waves): 170.
 // 0.4.2 adds the stakes marker ("| to the death", about 9 tokens) within that bound. 0.5 tells
 // a wave (`then:`) from the next fight of a plan (`then at <place>:`), about 16 tokens: 185.
-test('the story instruction is compact (about 190 tokens) and names every tag, the grammar and the threat words', () => {
+test('the story instruction is compact (about 210 tokens) and names every tag, the grammar and the threat words', () => {
     // 0.5.9: "never narrating it" after the first blow (a model narrated a rat fight to its end).
     const pieces = STORY_INSTRUCTION.match(/[A-Za-z]+|\d+|[^\sA-Za-z\d]/g).length;
     // 0.5.27: "cure poison" (a condition lifted), about 3 tokens.
     // 0.5.29: the Learned example names its stat ("| stat: INT"), about 3 tokens.
-    assert.ok(STORY_INSTRUCTION.length <= 790, `${STORY_INSTRUCTION.length} characters`);
-    assert.ok(Math.ceil(STORY_INSTRUCTION.length / 4) <= 198, 'about 198 tokens at four characters a token');
-    assert.ok(pieces <= 224, `${pieces} words and marks`);
+    // 0.5.34: the <Crafted> example (gear made from materials), about 15 tokens.
+    assert.ok(STORY_INSTRUCTION.length <= 850, `${STORY_INSTRUCTION.length} characters`);
+    assert.ok(Math.ceil(STORY_INSTRUCTION.length / 4) <= 213, 'about 213 tokens at four characters a token');
+    assert.ok(pieces <= 244, `${pieces} words and marks`);
     assert.ok(STORY_INSTRUCTION.includes('never narrating it'));
-    for (const part of ['<Wounds>', '<Encounter>', '<Joins>', '<Leaves>', '<Learned>', '<XP>', '<Rest>', 'scratch|wound|severe|grievous', 'heal', 'poisoned', 'cure poison', 'Party sheet', 'not for an RPG Battle fight', 'stop at the first blow', 'trivial|weak|even|strong|deadly', 'minor|major|milestone', 'short|long', 'then:', 'then at <place>:', 'more foes join', '| to the death']) {
+    for (const part of ['<Wounds>', '<Encounter>', '<Joins>', '<Leaves>', '<Learned>', '<XP>', '<Rest>', '<Crafted>', 'scratch|wound|severe|grievous', 'heal', 'poisoned', 'cure poison', 'Party sheet', 'not for an RPG Battle fight', 'stop at the first blow', 'trivial|weak|even|strong|deadly', 'minor|major|milestone', 'short|long', 'then:', 'then at <place>:', 'more foes join', '| to the death']) {
         assert.ok(STORY_INSTRUCTION.includes(part), part);
     }
     // Its own examples read back as the grammar says.
