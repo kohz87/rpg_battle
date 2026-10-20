@@ -18,6 +18,7 @@
 // Block's overlay on RPG Battle's tab (the glue says when it shows and what it opens).
 
 import { XP_RATE, clampXpRate } from '../rules.js';
+import { PRICE_LEVELS, placePriceList } from '../trade.js';
 
 const CURRENCY_MODES = [
     { value: 'tiers', label: 'Copper / silver / gold, or your own coins' },
@@ -180,6 +181,7 @@ export function foldHints(settings, profiles = null) {
         combat: combatHint(current),
         after: afterHint(current, profiles),
         party: `${combatValue('pointsPerLevel', current.pointsPerLevel) !== COMBAT_LIMITS.pointsPerLevel.fallback ? `${combatValue('pointsPerLevel', current.pointsPerLevel)} points a level · ` : ''}${Number(current.activeSkills) || 6} active skills · ${current.autoSpend === false ? 'points by hand' : 'auto-spend'}${xpRateValue(current.xpRate) !== 1 ? ` · XP ×${xpRateValue(current.xpRate)}` : ''}`,
+        trade: placePriceList(current.placePrices).length ? `${placePriceList(current.placePrices).length} ${placePriceList(current.placePrices).length === 1 ? 'place' : 'places'} priced by hand` : 'Prices as each place reads',
         truth: chosen ? `${chosen} chosen by hand` : 'Automatic',
         blocks: [current.partyTag || 'Party', current.inventoryTag || 'Inventory'].join(' · '),
         diagnostics: 'What RPG Battle sees and sent',
@@ -393,6 +395,51 @@ export function renderSettings(container, { settings, version = '', status = '',
         commitFlavour({ maxTokens: value });
     });
 
+    // (0.5.46) Trade: the reader's prices by place (they were the Trade page's "Prices here",
+    // which a player could turn to their favour mid-story). A place not listed goes by its name.
+    const levelSelect = (id, value) => {
+        const node = el('select', { className: 'text_pole', attrs: id ? { id } : {} },
+            PRICE_LEVELS.map(level => {
+                const option = el('option', { text: level });
+                option.value = level;
+                return option;
+            }));
+        node.value = value;
+        return node;
+    };
+    const placeItems = el('ul', { className: 'rpg-battle-settings-places' });
+    const drawPlaces = () => {
+        const list = placePriceList(current.placePrices);
+        placeItems.replaceChildren(...list.map(entry => {
+            const level = levelSelect(null, entry.level);
+            level.setAttribute('aria-label', `Prices at ${entry.place}`);
+            level.addEventListener('change', () => commit(next => {
+                next.placePrices = placePriceList(next.placePrices).map(item => (item.place === entry.place ? { ...item, level: level.value } : item));
+            }));
+            const remove = el('button', { className: 'menu_button rpg-battle-settings-place-remove', attrs: { type: 'button', 'aria-label': `Remove ${entry.place}`, title: 'Remove' } }, [el('i', { className: 'fa-solid fa-xmark' })]);
+            remove.addEventListener('click', () => {
+                commit(next => { next.placePrices = placePriceList(next.placePrices).filter(item => item.place !== entry.place); });
+                drawPlaces();
+            });
+            return el('li', { className: 'rpg-battle-settings-place' }, [el('span', { className: 'rpg-battle-settings-place-name', text: entry.place }), level, remove]);
+        }));
+        placeItems.hidden = !list.length;
+    };
+    const newPlace = input('rpg_battle_place_name', '', 'Bluewatch Village');
+    const newLevel = levelSelect('rpg_battle_place_level', 'dear');
+    newLevel.setAttribute('aria-label', 'Prices there');
+    const addPlace = el('button', { className: 'menu_button rpg-battle-settings-place-add', attrs: { type: 'button' } }, [el('i', { className: 'fa-solid fa-plus' }), el('span', { text: 'Add' })]);
+    const add = () => {
+        const place = newPlace.value.replace(/\s+/g, ' ').trim();
+        if (!place) return;
+        commit(next => { next.placePrices = placePriceList([...(next.placePrices ?? []), { place, level: newLevel.value }]); });
+        newPlace.value = '';
+        drawPlaces();
+    };
+    addPlace.addEventListener('click', add);
+    newPlace.addEventListener('keydown', event => { if (event.key === 'Enter') add(); });
+    drawPlaces();
+
     // Source of truth: one select per shared area, and who the story follows now (from the glue).
     const truth = { stats: 'auto', rolls: 'auto', items: 'auto', ...(current.sourceOfTruth ?? {}) };
     const nowLabels = {};
@@ -543,6 +590,11 @@ export function renderSettings(container, { settings, version = '', status = '',
                         singleShortRow,
                         row('Inventory row', 'The Inventory row that holds your money.', moneyRow, 'rpg_battle_currency_row'),
                     ]),
+                    fold('trade', 'Trade', [
+                        muted('A place\'s prices go by the words of its name: a hamlet or village pays less and sells for less than a town, a city or a capital more. Set a place\'s prices by hand here: cheap, fair or dear (× 0.8, 1 or 1.25 on what is bought and paid). A place matches by its name or one part of it ("Bluewatch Village"); a place listed here also counts as a market.'),
+                        placeItems,
+                        el('div', { className: 'rpg-battle-settings-place-new' }, [newPlace, newLevel, addPlace]),
+                    ]),
                     fold('equipment', 'Equipment', [
                         muted('A fight uses one weapon, one off-hand (none with a two-handed weapon) and one armour, plus these. Anything else marked equipped is listed under Gear on its card as not counted.'),
                         row('Worn pieces', 'Helm, gloves, boots, belt…', withUnit(wornCount, 'count'), 'rpg_battle_gear_worn'),
@@ -610,6 +662,7 @@ export function renderSettings(container, { settings, version = '', status = '',
         update(next) {
             current = structuredClone(next);
             refreshHints();
+            drawPlaces();
         },
         /** Show or hide the Character Sheet notice (the glue checks it on every refresh). */
         setSheetConflict(on) { conflict.hidden = !on; },

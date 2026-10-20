@@ -10,7 +10,7 @@ import { creatureSkill } from '../src/skills.js';
 import {
     TEMPLATES, TEMPLATE_IDS, TRAITS, classify, cleanCreature, cleanTraits, combinedBestiary, creatureSingular,
     creaturesToMake, generateCreature, lookupCreature, storeCreatures, templateFor, traitMods,
-    FAMILIES, familyOf, familyTitle, findKin, upgradePerson,
+    FAMILIES, familyOf, familyTitle, findKin, isNoteName, upgradePerson,
 } from '../src/templates.js';
 import { resolveThreats } from '../src/story.js';
 import { enemiesFromRows } from '../src/party.js';
@@ -371,4 +371,11 @@ test('a human foe is a person, with what people carry and their coin (0.5.35)', 
     assert.equal(now.template, 'humanoid');
     assert.ok(now.loot.some(row => row.name === 'Whetstone'));
     assert.equal(upgradePerson({ ...old, name: 'Granary Cellar Brood-Mother' }).template, 'generic');
+});
+
+test('(0.5.46) a foe named only for a note ("Even", "Deadly") is never made a creature', () => {
+    for (const name of ['Even', 'Deadly', 'even foe', 'Boss', 'Strong']) assert.equal(isNoteName(name), true, name);
+    for (const name of ['Cellar Rat', 'Elite Guard', 'Deadly Nightshade Sprite', '', null]) assert.equal(isNoteName(name), false, String(name));
+    const rows = [{ name: 'Even', count: 1 }, { name: 'Deadly', count: 2 }, { name: 'Scrub Quill-Dog', count: 1 }];
+    assert.deepEqual(creaturesToMake(rows, { seed: 's' }).map(entry => entry.name), ['Scrub Quill-Dog']);
 });

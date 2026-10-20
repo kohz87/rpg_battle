@@ -1,4 +1,4 @@
-# RPG Battle v0.5.45
+# RPG Battle v0.5.46
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -394,6 +394,15 @@ You — Power Strike: a heavy blow
 the Party tab, not a tab of its own). You choose; RPG Battle sets every number and the story
 tells it.
 
+- **Only where there is a market** (0.5.46): a place whose *Loc* names a settlement or somewhere
+  goods change hands (*hamlet, village, town, city, port, docks, inn, guild, market, trading
+  post…*), a place you priced in the settings, or anywhere a trader is present (a *peddler*,
+  *merchant*, *smith*, *apothecary*… in their name or trade, so a trader met on the road counts).
+  Anywhere else (the wilds, a cellar, a boat's deck) the page says *No market here (Granary
+  cellar). Trade in a settlement, or with a trader on the road.* and has no Buy, Sell or
+  Commission; your orders still show with their ready time, to collect in a market. The words are
+  `trade.markets` and `trade.traders` in `rules.json`.
+
 - **Trading with:** a kind of trader at this place — *General store, Apothecary, Smith, Crafter
   (bone-carver, tanner…), Fence, Guild buyer* — with the story's name for them if you like
   (*Mother Greta*); or someone present (*Elke (here)*, from the World State, else NPC State
@@ -403,8 +412,12 @@ tells it.
   parts, a smith for gear, a crafter for materials. Your own party is never listed.
 - **Prices fit the place:** read from the World State's *Loc*, the settlement's own name first
   (*Bluewatch Village | Market Square* is a village): a hamlet or outpost pays and charges least,
-  a village a little less than a town, a city or capital more. **Prices here** sets your own
-  word for the place (cheap, fair, dear), remembered for that place.
+  a village a little less than a town, a city or capital more. The page says which (*village
+  prices: goods ×0.9, offers ×0.85*); it is not a choice there (since 0.5.46). Your own word for
+  a place (cheap, fair, dear) is set in **Settings → RPG Battle → Trade**: a list of places, each
+  with its prices, added and removed there. A place matches by its name or one part of it
+  (*Bluewatch Village*). A chat's choices from the old **Prices here** move to that list when it
+  is opened.
 - **Buy** (0.5.38): each trader kind has stock at this place, the same all day (by place, kind and
   story day) and different from what it had on the days before; what you buy is gone from it.
   Gear's rarity follows the place (a city's smith has better pieces). The stock is never put in
@@ -702,7 +715,9 @@ half an even foe's XP and *trivial* a quarter). At level 1 a *weak* wolf has 10 
 one's 16 and is worth 5 XP to 10; a *trivial* one has 6 HP and is worth 3. Only a level that
 came from the word is treated so. The word goes in brackets, or before the name for the
 unmistakable ones
-(`3 weak marsh wolves`; "Lesser Demon" and "High Priest" stay names). A power written outright
+(`3 weak marsh wolves`; "Lesser Demon" and "High Priest" stay names), or (since 0.5.46) after a
+comma or a spaced dash (`2 cellar rats, even`, `Brood-Mother — boss, deadly`): a note on its own
+is the row before it, never a foe called *Even* (which dropped an *Even Trophy* before). A power written outright
 (`rank D`, `level 12`, `Soul Class II`) wins over it; with neither, the fight is even.
 
 **Engagements back to back:** `then:` starts the next engagement, fought once the one before is
@@ -858,6 +873,11 @@ editable), **one coin** named as you like, or **your own** names and rates (for 
 first letter. Loot is added to the inventory row named in the setting
 (`Coins` by default), or (since 0.5.25) to a purse the story keeps under its own name, such as
 `Coin Pouch | 1 | 1 Gold, 35 Silver, 14 Copper`, so there is never a second money row.
+Since 0.5.46 a row named for one coin counts too (`Silver | 4`, `Copper Coins | 36`, `Gold
+Pieces | 2`; a *Silver Ring* does not), and so do amounts written out (*eight silver*). Paying
+from such rows takes the smallest coins first, whole coins, with the change put back. Trade's
+purse is the whole Inventory's, the same one a trade pays from; with no money row at all it says
+so (*Purse: none in the Inventory…*) rather than *0 copper*.
 
 **The purse in one sum** (since 0.5.25). Before each reply the story is told what the party can
 spend in all, every purse row added up. With Story Block 0.9.12 or later keeping the items (its

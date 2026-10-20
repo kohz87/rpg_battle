@@ -689,7 +689,7 @@ export function parseMoney(text, currency = DEFAULT_RULES.currency) {
     const tiers = tierValues(c);
     let total = 0;
     const pattern = /(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*([A-Za-z]+)?/g;
-    for (const [, number, word] of String(text ?? '').matchAll(pattern)) {
+    for (const [, number, word] of numerals(text).matchAll(pattern)) {
         const amount = Number(number.replace(/,/g, ''));
         const tier = c.mode === 'single' || !word ? null : matchTier(word, tiers);
         total += amount * (tier ? tier.value : 1);
@@ -829,24 +829,60 @@ function lootNote(item, kind) {
 // a row named for money whose quantity or note is written in the currency's coins.
 const PURSE_NAME = /\b(?:coins?|purse|pouch|money|wallet|funds|coffer|strongbox)\b/i;
 
-function hasCoins(text, c) {
-    const tiers = tierValues(c);
-    return [...String(text ?? '').matchAll(/(\d[\d,]*(?:\.\d+)?)\s*([A-Za-z]+)/g)].some(([, , word]) => matchTier(word, tiers));
+// (0.5.46) Amounts the story spells out ("eight silver, thirty-six copper") as digits.
+const ONES = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+const TENS = ['twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+const NUMBER_WORDS = new RegExp(`\\b(?:(${TENS.join('|')})(?:[\\s-]+(${ONES.slice(1, 10).join('|')}))?|(${ONES.join('|')}))\\b`, 'gi');
+function numerals(text) {
+    return String(text ?? '').replace(NUMBER_WORDS, (word, tens, unit, one) => String(tens
+        ? (TENS.indexOf(tens.toLowerCase()) + 2) * 10 + (unit ? ONES.indexOf(unit.toLowerCase()) : 0)
+        : ONES.indexOf(one.toLowerCase())));
 }
 
-// Which cell of `row` holds its money: 'qty' or 'note', or null for a row that is no purse.
+function hasCoins(text, c) {
+    if (c.mode === 'single') {
+        const word = String(c.single || 'coins').toLowerCase().replace(/s$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp(`\\d[\\d,]*\\s*${word}`, 'i').test(numerals(text));
+    }
+    const tiers = tierValues(c);
+    return [...numerals(text).matchAll(/(\d[\d,]*(?:\.\d+)?)\s*([A-Za-z]+)/g)].some(([, , word]) => matchTier(word, tiers));
+}
+
+// (0.5.46) The coin a row is named for, counted in its quantity: "Silver | 4", "Copper Coins | 36",
+// "Loose Gold Pieces | 2". The tier ({ name, value }), or null.
+function coinTierOf(row, c) {
+    if (c.mode === 'single' || !/^\s*\d[\d,]*\s*$/.test(numerals(row.qty))) return null;
+    const bare = nameKey(row.name).replace(/^loose\s+/, '').replace(/\s+(?:coins?|pieces?|bits?)$/, '').trim();
+    return tierValues(c).find(tier => {
+        const name = tier.name.toLowerCase();
+        return [name, `${name}s`, name.replace(/s$/, '')].includes(bare);
+    }) ?? null;
+}
+
+// Which cell of `row` holds its money: 'qty' or 'note', (0.5.46) 'tier' for a row named for one
+// coin, or null for a row that is no purse.
 function moneyCellOf(row, c) {
     if (row.key === nameKey(c.row)) return 'qty';
-    if (!PURSE_NAME.test(row.name) || c.mode === 'single') return null;
+    if (coinTierOf(row, c)) return 'tier';
+    // (0.5.46) One coin: a bare count on a row named for money ("Coins | 120", "Crowns | 40").
+    if (c.mode === 'single' && (/^(?:coins?|money|funds)$/.test(row.key) || row.key === nameKey(c.single)) && /^\s*\d[\d,]*\s*$/.test(row.qty)) return 'qty';
+    if (!PURSE_NAME.test(row.name)) return null;
     if (hasCoins(row.note, c)) return 'note';
     if (hasCoins(row.qty, c)) return 'qty';
     return null;
 }
 
+// What a purse row holds, in the smallest coin.
+function rowMoney(row, cell, c) {
+    if (cell === 'tier') return Math.round(Number(numerals(row.qty).replace(/,/g, '').trim()) || 0) * (coinTierOf(row, c)?.value ?? 1);
+    return parseMoney(cell === 'note' ? row.note : row.qty, c);
+}
+
 /**
  * (0.5.25) The party's money as the inventory holds it: { total } in the smallest coin, over
- * every purse row (the currency's own "Coins" row and any "Coin Pouch", "Purse"… written in
- * coins), with `rows` naming them; null when the inventory has none.
+ * every purse row (the currency's own "Coins" row, any "Coin Pouch", "Purse"… written in coins,
+ * and (0.5.46) rows named for one coin, "Silver | 4"), with `rows` naming them; null when the
+ * inventory has none.
  */
 export function purseOf(inventoryText, currency = DEFAULT_RULES.currency, scope = null) {
     const c = currencyOf(currency);
@@ -855,14 +891,15 @@ export function purseOf(inventoryText, currency = DEFAULT_RULES.currency, scope 
         .map(row => ({ row, cell: moneyCellOf(row, c) }))
         .filter(entry => entry.cell);
     if (!rows.length) return null;
-    const total = rows.reduce((sum, { row, cell }) => sum + parseMoney(cell === 'note' ? row.note : row.qty, c), 0);
+    const total = rows.reduce((sum, { row, cell }) => sum + rowMoney(row, cell, c), 0);
     return { total, rows: rows.map(({ row, cell }) => ({ name: row.name, cell })) };
 }
 
 /**
  * (0.5.37) `amount` (in the smallest coin) paid out of the purse: taken from the purse rows in
  * order, each rewritten in its own cell. { text, ok } — ok false (text unchanged) when the
- * purse holds less.
+ * purse holds less. (0.5.46) Rows named for one coin pay last, smallest coin first, in whole
+ * coins; the change goes back into the purse.
  */
 export function spendMoney(inventoryText, amount, currency = DEFAULT_RULES.currency, scope = null) {
     const text = String(inventoryText ?? '');
@@ -872,11 +909,25 @@ export function spendMoney(inventoryText, amount, currency = DEFAULT_RULES.curre
     const purse = purseOf(text, c, scope);
     if (!purse || purse.total < left) return { text, ok: false };
     const lines = text.split(/\r?\n/);
-    for (const { name, cell } of purse.rows) {
+    const rowOf = name => scan(lines).rows.find(entry => entry.key === nameKey(name) && inScope(entry, scope));
+    const value = name => coinTierOf(rowOf(name) ?? { name, qty: '' }, c)?.value ?? 0;
+    const order = [...purse.rows.filter(entry => entry.cell !== 'tier'), ...purse.rows.filter(entry => entry.cell === 'tier').sort((a, b) => value(a.name) - value(b.name))];
+    let change = 0;
+    for (const { name, cell } of order) {
         if (!left) break;
-        const row = scan(lines).rows.find(entry => entry.key === nameKey(name) && inScope(entry, scope));
+        const row = rowOf(name);
         if (!row) continue;
-        const have = parseMoney(cell === 'note' ? row.note : row.qty, c);
+        if (cell === 'tier') {
+            const coin = coinTierOf(row, c);
+            const count = rowMoney(row, cell, c) / coin.value;
+            const used = Math.min(count, Math.ceil(left / coin.value));
+            if (!used) continue;
+            change += Math.max(0, used * coin.value - left);
+            left = Math.max(0, left - used * coin.value);
+            lines[row.index] = rewriteQty(lines[row.index], row, String(count - used));
+            continue;
+        }
+        const have = rowMoney(row, cell, c);
         const take = Math.min(have, left);
         if (!take) continue;
         left -= take;
@@ -884,7 +935,8 @@ export function spendMoney(inventoryText, amount, currency = DEFAULT_RULES.curre
         if (cell === 'note') lines[row.index] = rewriteCell(lines[row.index], row, row.qtyCell + 1, formatMoney(rest, c));
         else lines[row.index] = rewriteQty(lines[row.index], row, c.mode === 'single' && /^\s*[\d,]*\s*$/.test(row.qty) ? String(rest) : formatMoney(rest, c));
     }
-    return { text: lines.join(eolOf(text)), ok: true };
+    const paid = lines.join(eolOf(text));
+    return { text: change ? addLoot(paid, { money: change }, c, scope) : paid, ok: true };
 }
 
 export function addLoot(inventoryText, { items = [], money = 0 } = {}, currency = DEFAULT_RULES.currency, scope = null) {
@@ -897,9 +949,14 @@ export function addLoot(inventoryText, { items = [], money = 0 } = {}, currency 
         const scanned = scan(lines);
         // The currency's own row first, else (0.5.25) the purse the story keeps under its own name.
         const mine = scanned.rows.filter(entry => inScope(entry, scope));
-        const row = mine.find(entry => entry.key === nameKey(c.row)) ?? mine.find(entry => moneyCellOf(entry, c));
+        // (0.5.46) A row named for one coin takes it only when it is the smallest ("Copper | 36").
+        const row = mine.find(entry => entry.key === nameKey(c.row))
+            ?? mine.find(entry => ['qty', 'note'].includes(moneyCellOf(entry, c)))
+            ?? mine.find(entry => coinTierOf(entry, c)?.value === 1);
         const cell = row ? moneyCellOf(row, c) : null;
-        if (row && cell === 'note') {
+        if (row && cell === 'tier') {
+            lines[row.index] = rewriteQty(lines[row.index], row, String(rowMoney(row, cell, c) + amount));
+        } else if (row && cell === 'note') {
             const total = parseMoney(row.note, c) + amount;
             lines[row.index] = rewriteCell(lines[row.index], row, row.qtyCell + 1, formatMoney(total, c));
         } else if (row) {

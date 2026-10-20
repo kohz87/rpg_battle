@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { DEFAULT_RULES } from '../src/rules.js';
 import { craftPlan } from '../src/craft.js';
 import { parseInventory, purseOf, spendMoney } from '../src/items.js';
-import { buyerKind, collectIn, craftFee, craftIn, itemWorth, kindOf, ordersIn, placePrices, sellIn, sellPrice, sellable, tradeHandoff, tradeLine, commissionHours, craftSpan, readyAt, readyDateText, readyWords, orderReadyAt, orderDue } from '../src/trade.js';
+import { buyerKind, marketHere, placePriceList, pricedLevel, collectIn, craftFee, craftIn, itemWorth, kindOf, ordersIn, placePrices, sellIn, sellPrice, sellable, tradeHandoff, tradeLine, commissionHours, craftSpan, readyAt, readyDateText, readyWords, orderReadyAt, orderDue } from '../src/trade.js';
 
 const INV = [
     'Coin Pouch | 1 | 6 silver, 5 copper',
@@ -187,4 +187,39 @@ test('only materials and creature parts can go into a commission (0.5.45)', asyn
     const { parseInventory } = await import('../src/items.js');
     const inv = '[Gear]\nWhetstone | 1 | Worn thin\nRope | 1 | 30 ft, hemp\nWaterskin | 1 | Half full\nBurlap Sack | 2 | empty\nWolf Core | 11 | Dull cloudy beast cores\nWolf Fang | 2\n[Equipment > Weapons]\nCane-Blade | 1 | Equipped · Common · ATK +2\n[Loot]\nRat Tail | 5\nBrood-Mother Skull | 1 | uncommon material\n[Consumables]\nMinor Healing Draught | 2 | heal 20';
     assert.deepEqual(parseInventory(inv).items.filter(isMaterial).map(item => item.name), ['Wolf Core', 'Wolf Fang', 'Rat Tail', 'Brood-Mother Skull']);
+});
+
+// (0.5.46) Trade is open only where there is a market: the user's own case was a cellar and the
+// road outside a village, with Buy and Sell on offer all the same.
+test('marketHere: a settlement or market word in the place, a trader present, or a place priced by hand', () => {
+    assert.deepEqual(marketHere('Bluewatch Village | Adventurer Guild Post'), { open: true, by: 'place' });
+    assert.deepEqual(marketHere('Greyfen Trading Post'), { open: true, by: 'place' });
+    assert.deepEqual(marketHere('Bluewatch Docks | Pier 3'), { open: true, by: 'place' });
+    assert.deepEqual(marketHere('The Drowned Lantern Inn'), { open: true, by: 'place' });
+    // The wilds, a ruin, a cellar, a boat's deck: none.
+    assert.deepEqual(marketHere('Harrowford outskirts | The Old Weir'), { open: false, by: null });
+    assert.deepEqual(marketHere('Granary cellar'), { open: false, by: null });
+    assert.deepEqual(marketHere('Kettle Wife | deck'), { open: false, by: null });
+    assert.deepEqual(marketHere(''), { open: false, by: null });
+    // A trader on the road opens it; a watchman or a bargemaster does not.
+    assert.deepEqual(marketHere('Old North Road', ['Ossa (peddler)']), { open: true, by: 'Ossa (peddler)' });
+    assert.deepEqual(marketHere('Old North Road', ['Quay inspector (Bluewatch Watch)', 'Marrit (bargemaster of the Kettle Wife)']), { open: false, by: null });
+    // A place the reader priced by hand counts as one.
+    assert.deepEqual(marketHere('Harrowford', [], { priced: true }), { open: true, by: 'priced' });
+    // A world's own words, from its rules.json.
+    const rules = { ...DEFAULT_RULES, trade: { ...DEFAULT_RULES.trade, markets: ['souk'], traders: ['chandler'] } };
+    assert.equal(marketHere('Spice Souk', [], { rules }).open, true);
+    assert.equal(marketHere('Bluewatch Village', ['a chandler'], { rules }).by, 'a chandler');
+});
+
+test('placePriceList and pricedLevel: the settings\' prices by place', () => {
+    assert.deepEqual(placePriceList([{ place: ' Bluewatch  Village ', level: 'dear' }, { place: 'bluewatch village', level: 'cheap' }, { place: '', level: 'fair' }, { place: 'X', level: 'free' }, null]),
+        [{ place: 'bluewatch village', level: 'cheap' }]);
+    const list = [{ place: 'Bluewatch Village', level: 'dear' }, { place: 'Adventurer Guild Post', level: 'cheap' }];
+    assert.equal(pricedLevel('Bluewatch Village | Market Square', list), 'dear');
+    assert.equal(pricedLevel('Harrowford | Adventurer Guild Post', list), 'cheap');
+    assert.equal(pricedLevel('Bluewatch', list), null);
+    assert.equal(pricedLevel('Bluewatch Village', null), null);
+    // × both, as the Trade page's choice did.
+    assert.deepEqual(placePrices('Bluewatch Village', { level: pricedLevel('Bluewatch Village', list) }), { tier: 'village', buy: 0.9 * 1.25, sell: 0.85 * 1.25, level: 'dear' });
 });

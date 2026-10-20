@@ -77,6 +77,43 @@ export function placePrices(place, { level = null, rules = DEFAULT_RULES } = {})
     return { tier, buy: area.buy * by, sell: area.sell * by, level: level ?? null };
 }
 
+// Whether `text` holds one of `list` as a word or a phrase of words ("trading post").
+function saysAny(text, list) {
+    const said = ` ${words(text).join(' ')} `;
+    return (list ?? []).some(word => said.includes(` ${String(word).toLowerCase()} `) || said.includes(` ${String(word).toLowerCase()}s `));
+}
+
+/**
+ * (0.5.46) Whether trade is open here: { open, by } — by the place ('place': a settlement word,
+ * "Bluewatch Village | Adventurer Guild Post"; 'priced': a place the reader set prices for in
+ * the settings) or by someone present who trades (their name, "Ossa (peddler)"). The wilds,
+ * a camp, a ruin with no trader in it: { open: false, by: null }.
+ */
+export function marketHere(place, people = [], { rules = DEFAULT_RULES, priced = false } = {}) {
+    const t = tradeRules(rules);
+    if (String(place ?? '').split('|').some(part => saysAny(part, t.markets))) return { open: true, by: 'place' };
+    if (priced) return { open: true, by: 'priced' };
+    const trader = (people ?? []).find(name => saysAny(name, t.traders));
+    return trader ? { open: true, by: trader } : { open: false, by: null };
+}
+
+/** (0.5.46) The reader's prices by place (settings `placePrices`), cleaned: [{ place, level }], one per place. */
+export const PRICE_LEVELS = ['cheap', 'fair', 'dear'];
+export function placePriceList(list) {
+    const out = new Map();
+    for (const entry of Array.isArray(list) ? list : []) {
+        const place = String(entry?.place ?? '').replace(/\s+/g, ' ').trim();
+        if (place && PRICE_LEVELS.includes(entry?.level)) out.set(place.toLowerCase(), { place, level: entry.level });
+    }
+    return [...out.values()];
+}
+
+/** (0.5.46) The reader's word for `place`'s prices: the entry naming one of its parts ("Bluewatch Village"), or null. */
+export function pricedLevel(place, list) {
+    const parts = String(place ?? '').split('|').map(part => part.replace(/\s+/g, ' ').trim().toLowerCase()).filter(Boolean);
+    return placePriceList(list).find(entry => parts.includes(entry.place.toLowerCase()))?.level ?? null;
+}
+
 /** Who trades, by the words of their name or trade: 'apothecary', 'smith', 'crafter', 'fence', 'guild' or 'general'. */
 export function buyerKind(name, rules = DEFAULT_RULES) {
     const t = tradeRules(rules);
