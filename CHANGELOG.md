@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.31
+
+- **A swarm is fought and told as a swarm.** The story wrote `<Encounter>Granary Cellar Rats (EG1 swarm)</Encounter>`. RPG Battle dropped the bracket, made *Rats* singular and, with no number, fought one *Granary Cellar Rat*, so the story then told it as one rat killed. Now *swarm* (also *horde*, *nest*, *colony*, *brood*, *infestation*…) in brackets, written last (*Rat swarm*) or in front (*a swarm of rats*) makes one **Granary Cellar Rat Swarm** foe: the hand-off says *Foes defeated: Granary Cellar Rat Swarm*, and its drops are named for the creature (*Granary Cellar Rat Tail*). A number inside (*a swarm of 30 rats*) is its size: still one swarm.
+- **Packs and plurals are several.** *A pack of wolves* was one foe called *Pack Of Wolf*. Now it is 3 Wolf (*a pack of 5 wolves*: 5), and so are *band*, *gang*, *flock*, *herd*, *troop*, *crew* and *mob*. A plural creature name with no number (*Bandits*) is 3 rather than 1.
+
 ## 0.5.30
 
 - **AGI adds to stamina too.** Running and footwork tire you out, so Max SP now counts AGI as well, at the smallest weight: VIT most, then STR, then AGI. The formula is 10 + VIT × 2 + STR + AGI ÷ 2 + level × 2. Ren, with AGI 6, gets 3 more SP. An existing sheet's max SP rises by the same amount the next time it is worked out (a rest, a level-up, a fight).

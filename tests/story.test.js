@@ -508,3 +508,31 @@ test('an <Encounter> in a reply that already told the fight to its end is not a 
     assert.equal(foughtAlready(pack, { xp: 'major: drove off the wolves' }), true);
     assert.equal(foughtAlready(pack, { xp: 'minor: killed the bailiff' }), false);
 });
+
+test('swarms, packs and plural names (0.5.31): a swarm is one swarm, never one creature; a pack is several', () => {
+    const rows = text => parseEncounter(text).map(row => [row.name, row.count]);
+    assert.deepEqual(rows('Granary Cellar Rats (EG1 swarm)'), [['Granary Cellar Rat Swarm', 1]]);
+    assert.deepEqual(rows('a swarm of granary rats (weak)'), [['Granary Rat Swarm', 1]]);
+    assert.deepEqual(rows('a swarm of 30 rats'), [['Rat Swarm', 1]], 'the 30 is its size');
+    assert.deepEqual(rows('Rat swarm'), [['Rat Swarm', 1]]);
+    assert.deepEqual(rows('2 rat swarms'), [['Rat Swarm', 2]]);
+    assert.deepEqual(rows('a pack of wolves'), [['Wolf', 3]]);
+    assert.deepEqual(rows('a pack of 5 wolves'), [['Wolf', 5]]);
+    assert.deepEqual(rows('a band of three bandits'), [['Bandit', 3]]);
+    assert.deepEqual(rows('Bandits'), [['Bandit', 3]], 'a plural name with no number is several');
+    assert.deepEqual(rows('a wolf'), [['Wolf', 1]]);
+    assert.deepEqual(rows('wolf'), [['Wolf', 1]]);
+    assert.deepEqual(rows('two bandits'), [['Bandit', 2]]);
+    assert.deepEqual(rows('Granary Cellar Brood-Mother (boss, strong)'), [['Granary Cellar Brood-Mother', 1]]);
+    assert.equal(parseEncounter('a swarm of granary rats (weak)')[0].threat, 'weak');
+});
+
+test('a swarm drops what its creatures drop, named for the creature (0.5.31)', async () => {
+    const { findKin, generateCreature } = await import('../src/templates.js');
+    for (const name of ['Granary Cellar Rat Swarm', 'Bat Swarm']) {
+        const creature = generateCreature({ name, level: 1 }, { seed: 'swarm', kin: findKin(name) });
+        const loot = JSON.stringify(creature.loot);
+        assert.ok(!/swarm/i.test(loot), `${name}: ${loot}`);
+        assert.equal(creature.name, name, 'the swarm keeps its name');
+    }
+});
