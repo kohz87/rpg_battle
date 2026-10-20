@@ -13,6 +13,7 @@
 import { DEFAULT_RULES, RANKS, RARITIES } from './rules.js';
 import { creatureSkill, findSkill, skillFromTemplate } from './skills.js';
 import { ELEMENTS, itemSlot } from './items.js';
+import { materialAffinity } from './craft.js';
 
 const ROLES = ['brute', 'skirmisher', 'caster', 'tank', 'support'];
 
@@ -414,6 +415,11 @@ export function rollLoot(enemy, { rng, luck = null, rules = DEFAULT_RULES, table
             if (row.effect) item.effect = row.effect;
             if (row.tags?.length) item.tags = [...row.tags];
             if (row.kind === 'equipment') enrichGear(item, rng);
+            // (0.5.34) What it would lend a crafted piece, by its name and its creature's (no draw).
+            if (row.kind === 'material') {
+                const affinity = materialAffinity(name, '', enemy?.name ?? '');
+                if (affinity.stat || affinity.element) item.affinity = affinity;
+            }
             items.push(item);
         }
     }

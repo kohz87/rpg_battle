@@ -1,4 +1,4 @@
-# RPG Battle v0.5.33
+# RPG Battle v0.5.34
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -318,6 +318,7 @@ the story makes it true (Story Block hides them with its other blocks):
 | `<Learned>Lyra — Frost Lance: ice magic, hits all</Learned>` | *Lyra learned Frost Lance. Add it?* | Opens the learn form, filled in |
 | `<XP>major: rescued the caravan</XP>` | none: awarded at once (0.5.21), toasted *Story XP awarded: XP +25 (rescued the caravan)* | XP for the whole party |
 | `<Rest>long: slept at the inn</Rest>` | none: applied at once (0.5.24), toasted *Rested (long): slept at the inn. Ren HP +40, MP +12.* | A rest (see *Recovery*) |
+| `<Crafted>Bone Charm from Skull, 2 Fang</Crafted>` | none: made at once in that reply's Inventory (0.5.34) | The materials taken, the piece added with code-set numbers (see *Crafting*) |
 | A quest Story Director 0.8.2 closes in the reply | none: awarded at once (0.5.7), toasted *Quest done: The Lost Caravan (hard) · XP +15* | XP for the whole party |
 
 - **A story rest is applied, not offered** (since 0.5.24): the story says the party rested and
@@ -418,6 +419,22 @@ Healing Draught | 2 | heal 30
   each as strong as the hit; holy deals ×1.25 damage to the undead and spirits. The word works on
   gear the story gives you and on gear you wrote earlier, too; on armour or a worn piece it is
   only a word. The numbers are in `combat.gearEffects`.
+- **Crafting** (0.5.34). A material's note says what it would lend a crafted piece: its rarity
+  and an affinity, `uncommon material · MDEF, poison`. The stat comes from what part it is (fang,
+  claw, tusk ATK; pelt, hide, scale DEF; skull, bone MDEF; essence, crystal MATK; feather, wing,
+  silk, tail AGI; eye DEX; heart, blood HP; sac, gland, jelly MP; ear LUK). The element comes from
+  what it is made of or what dropped it (venom, spider, rat → poison; ember, drake → fire; frost,
+  ghost → ice; relic, blessed → holy). A material from before 0.5.34 is read by its name, and a
+  hint you write in its note wins. When someone makes something in the story, the reply writes
+  `<Crafted>Bone Charm from Skull, 2 Fang</Crafted>` and RPG Battle sets the numbers:
+  - **rarity**: the best material's, one step up when three or more are of it;
+  - **stats**: from the affinities (two at most), sized to that rarity and your level;
+  - **element**: the first material's that has one;
+  - **slot**: from the piece's kind, or `| slot: worn` on the line.
+
+  The materials come off the Inventory and the piece goes in, in that reply, so a swipe or a
+  deleted reply takes the craft back. A material you do not hold counts as common and is not
+  taken. Who crafts and what it costs are the story's.
 - **Consumables** with an effect (`heal 30`, `mp 20`, `cure poison`, `fire 25, all enemies`) can
   be used in a fight; what you use comes off the inventory afterwards.
 - **Loot** from a won fight is written into the inventory, money into your money row. Gear carries its rarity and stats (`uncommon · LUK +2`); since 0.5.32 a rarer material or potion says so too (`uncommon material`, `rare · heal 40`). Since 0.5.33 uncommon or rarer gear rolls **one more stat** (+1 uncommon, +2 rare, +3 epic, +4 legendary, still capped by its rarity), and rare or better gear that strikes or is worn as an accessory or off-hand also rolls an **element** (fire, ice, poison or holy). The reply that tells the fight's end rewrites the Inventory; when it leaves a dropped row out or retells its note (*a yellowed fang on a cord*), RPG Battle puts back what the fight wrote. It touches only that fight's loot rows, and only in that reply: later replies are the story's. Only foes

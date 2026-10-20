@@ -58,7 +58,7 @@ const MAIN_BY_SLOT = { weapon: 'ATK', offhand: 'DEF', armour: 'DEF', worn: 'DEF'
 
 const clean = value => String(value ?? '').replace(/\r?\n/g, ' ').trim();
 const stripBold = value => String(value ?? '').replace(/\*\*|__/g, '').trim();
-const nameKey = value => stripBold(value).normalize('NFKC').replace(/\s+/g, ' ').toLowerCase();
+export const nameKey = value => stripBold(value).normalize('NFKC').replace(/\s+/g, ' ').toLowerCase();
 const LIST_MARKER = /^(?:[-*•]|\d+[.)])\s+/;
 // (0.5.19) A line that only says a section is empty ("(empty)", "*(None)*", "—") is no item.
 const EMPTY_LINE = /^[\s*_([{]*(?:empty|none|nothing|nothing yet|n\/a|-+|—|–)[\s*_)\]}.]*$/i;
@@ -164,7 +164,7 @@ function eolOf(text) {
 // ---------------------------------------------------------------------------------------
 // Reading a row's note.
 
-function slotFromWord(word) {
+export function slotFromWord(word) {
     const w = String(word ?? '').toLowerCase().replace(/[^a-z]/g, '');
     if (/^(?:weapon|mainhand|hand)$/.test(w)) return 'weapon';
     if (/^(?:offhand|shield)$/.test(w)) return 'offhand';
@@ -709,6 +709,9 @@ function lootNote(item, kind) {
     // (0.5.32) A rarer find says so ("uncommon material", "rare · heal 40"): the rarity was dropped
     // for everything but gear.
     const rarity = item.rarity && item.rarity !== 'common' ? `${item.rarity}${item.kind === 'material' ? ' material' : ''}` : '';
+    // (0.5.34) A material says what it would lend a crafted piece: `uncommon material · MDEF, poison`.
+    const affinity = item.kind === 'material' ? [item.affinity?.stat, item.affinity?.element].filter(Boolean).join(', ') : '';
+    if (affinity) return `${rarity || 'material'} · ${affinity}`;
     return [rarity, formatEffect(item.effect)].filter(Boolean).join(' · ');
 }
 
@@ -819,6 +822,51 @@ export function restoreLoot(inventoryText, items = [], currency = DEFAULT_RULES.
         const note = kept ? clean(kept.note ?? '') : lootNote(item, categoryFor(item, scanned).kind);
         if (!note || nameKey(row.note ?? '').includes(nameKey(note))) continue;
         lines[row.index] = rewriteCell(lines[row.index], row, row.qtyCell + 1, escapeCell(note));
+        text = lines.join(eolOf(text));
+    }
+    return text;
+}
+
+/**
+ * (0.5.34) The crafts of a reply in its Inventory (`inventoryText`, as the reply wrote it):
+ * `plans` from craft.js craftPlan, worked out from `before` (the Inventory before the reply).
+ * Each material comes down by what was used (the row goes at none; a row the story already
+ * brought lower stays lower) and the piece is there with the note the code gives it (`equipped`
+ * kept when the story wrote it so). The same reply worked again gives the same text.
+ */
+export function applyCrafts(inventoryText, before, plans = [], currency = DEFAULT_RULES.currency) {
+    let text = String(inventoryText ?? '');
+    const old = scan(String(before ?? '').split(/\r?\n/)).rows;
+    for (const { item, used } of plans ?? []) {
+        for (const material of used ?? []) {
+            const had = old.find(row => row.key === nameKey(material.name));
+            if (!had) continue;
+            const left = (/\d/.test(had.qty) ? quantity(had.qty) : 1) - material.qty;
+            const lines = text === '' ? [] : text.split(/\r?\n/);
+            const row = scan(lines).rows.find(entry => entry.key === nameKey(material.name));
+            if (!row) continue;
+            const now = /\d/.test(row.qty) ? quantity(row.qty) : 1;
+            if (left <= 0) lines.splice(row.index, 1);
+            else if (now > left) lines[row.index] = rewriteQty(lines[row.index], row, /\d/.test(row.qty) ? row.qty.replace(/\d[\d,]*/, String(left)) : String(left));
+            text = lines.join(eolOf(text));
+        }
+        const lines = text === '' ? [] : text.split(/\r?\n/);
+        const scanned = scan(lines);
+        const row = scanned.rows.find(entry => entry.key === nameKey(item.name));
+        const note = lootNote(item, 'equipment');
+        if (!row) {
+            text = addLoot(text, { items: [item] }, currency);
+            const added = text.split(/\r?\n/);
+            const placed = scan(added).rows.find(entry => entry.key === nameKey(item.name));
+            if (placed && placed.note !== note) {
+                added[placed.index] = rewriteCell(added[placed.index], placed, placed.qtyCell + 1, escapeCell(note));
+                text = added.join(eolOf(text));
+            }
+            continue;
+        }
+        const wanted = isEquippedMark(row.note) ? `equipped · ${note}` : note;
+        if (clean(row.note ?? '') === wanted) continue;
+        lines[row.index] = rewriteCell(lines[row.index], row, row.qtyCell + 1, escapeCell(wanted));
         text = lines.join(eolOf(text));
     }
     return text;

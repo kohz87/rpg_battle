@@ -63,6 +63,9 @@ export const DEFAULT_RULES = Object.freeze({
         epic: { base: 9, perLevel: 1.6 },
         legendary: { base: 12, perLevel: 2 },
     },
+    // (0.5.34) Crafting (craft.js): the piece is the best material's rarity, one step up when
+    // `bumpAt` or more of the materials are of it; at most `maxStats` stats from their affinities.
+    craft: { bumpAt: 3, maxStats: 2 },
     // Budget cost of one point of each item stat; negatives refund `negativeRefund` of it.
     statCost: { ATK: 1, MATK: 1, DEF: 1, MDEF: 1, HP: 0.2, MP: 0.25, STR: 2, VIT: 2, AGI: 2, DEX: 2, INT: 2, LUK: 2, CHA: 2, crit: 0.5 },
     negativeRefund: 0.5,
