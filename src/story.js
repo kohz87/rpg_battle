@@ -263,6 +263,12 @@ const LEADING_THREATS = new Set(['trivial', 'feeble', 'puny', 'weak', 'easy', 'm
 
 const NUMBER_WORDS = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, several: 3, few: 3, pair: 2, couple: 2 };
 const MAX_COUNT = 9;
+// (0.5.31) A swarm is one foe made of many ("a swarm of rats", "Cellar Rats (swarm)"): it fights
+// as one and is told as one swarm, never as a single rat. A pack, band or flock is several of
+// them ("a pack of wolves": 3 wolves), as a plural name with no number is ("Bandits").
+const SWARM_WORDS = new Set(['swarm', 'swarms', 'horde', 'hordes', 'cloud', 'plague', 'mass', 'nest', 'colony', 'brood', 'infestation']);
+const GROUP_WORDS = new Set(['pack', 'packs', 'band', 'bands', 'gang', 'gangs', 'flock', 'flocks', 'herd', 'herds', 'troop', 'troops', 'crew', 'crews', 'school', 'squad', 'squads', 'mob', 'mobs', 'throng', 'group', 'groups']);
+const SEVERAL = NUMBER_WORDS.several;
 // Engagements after the first (`then:`), each fought when the one before is done.
 const MAX_WAVES = 3;
 // What follows a bar on a line is about the fight, not a foe: "| to the death" (also "| death",
@@ -318,6 +324,7 @@ function parseGroup(raw, bestiary, rules) {
     let role = null;
     let level = null;
     let threat = null;
+    let swarm = false;
     // "(boss)", "(boss, rank D)", "[caster]", "(Soul Class II)": what is in brackets is about the
     // row, not its name. A power in the reader's terms (or "level 12", "Lv 12") needs its name
     // written, so a stray numeral is not taken for one.
@@ -330,7 +337,8 @@ function parseGroup(raw, bestiary, rules) {
         }
         const words = inside.toLowerCase().split(/[\s,;/]+/).filter(Boolean);
         words.forEach((word, index) => {
-            if (word === 'boss') boss = true;
+            if (SWARM_WORDS.has(word)) swarm = true;
+            else if (word === 'boss') boss = true;
             else if (ROLES.includes(word)) role = word;
             else if (THREAT_WORDS[word] && !threat) threat = THREAT_WORDS[word];
             else if (word === 'rank' && RANKS.includes(words[index + 1]?.toUpperCase())) rank = words[index + 1].toUpperCase();
@@ -351,7 +359,22 @@ function parseGroup(raw, bestiary, rules) {
     if (leading) [count, text] = [Number(leading[1]), leading[2]];
     else if (trailing) [count, text] = [Number(trailing[2]), trailing[1]];
     else if (worded) [count, text] = [NUMBER_WORDS[worded[1].toLowerCase()], worded[2]];
+    // "a" and "an" say one of something, not how many of the creature.
+    let counted = Boolean(leading || trailing || (worded && !/^an?$/i.test(worded[1])));
     text = text.replace(/^the\s+/i, '').trim();
+    // (0.5.31) "a swarm of rats", "a pack of wolves": the collective word is not the name.
+    const collective = text.match(/^(\S+)\s+of\s+(.+)$/i);
+    let group = false;
+    if (collective && SWARM_WORDS.has(collective[1].toLowerCase())) [swarm, text] = [true, collective[2]];
+    else if (collective && GROUP_WORDS.has(collective[1].toLowerCase())) [group, text] = [true, collective[2]];
+    // "a pack of 5 wolves", "a band of three bandits": the number inside counts. In "a swarm of 30
+    // rats" it is the swarm's size: still one swarm.
+    const inner = (swarm || group) ? text.match(/^(\d+|two|three|four|five|six|seven|eight|nine|ten|dozens|hundreds|countless)\s+(.+)$/i) : null;
+    if (inner && group) [count, text, counted] = [Number(inner[1]) || NUMBER_WORDS[inner[1].toLowerCase()] || SEVERAL, inner[2], true];
+    else if (inner) text = inner[2];
+    // "Rat Swarm", "rat swarms": the swarm word written last.
+    const tail = text.split(' ');
+    if (tail.length > 1 && SWARM_WORDS.has(tail.at(-1).toLowerCase())) [swarm, text] = [true, tail.slice(0, -1).join(' ')];
     // "3 weak marsh wolves": a threat word before the name, unless the whole name is a creature.
     const lead = text.match(/^(\S+)\s+(.+)$/);
     if (lead && LEADING_THREATS.has(lead[1].toLowerCase()) && !findCreature(bestiary, text)) {
@@ -365,8 +388,13 @@ function parseGroup(raw, bestiary, rules) {
         text = words.slice(0, -1).join(' ');
     }
     if (!text || NOTHING.test(text.toLowerCase())) return null;
+    // (0.5.31) How many when the story gave no number: a pack (or a plural name) is several,
+    // a swarm is one swarm.
+    const plural = Boolean(creatureSingular(text.split(' ').at(-1)));
+    if (!counted && !swarm && (group || plural)) count = SEVERAL;
+    const name = rowName(text, bestiary);
     const row = {
-        name: rowName(text, bestiary),
+        name: swarm ? `${name} Swarm` : name,
         count: Math.min(MAX_COUNT, Math.max(1, Math.round(count) || 1)),
         rank,
         role,

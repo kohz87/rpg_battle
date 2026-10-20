@@ -1,4 +1,4 @@
-# RPG Battle v0.5.30
+# RPG Battle v0.5.31
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -533,7 +533,12 @@ the page can change the fight: RPG Battle builds it from the block it read. **No
 offer away for that reply. Groups are separated by commas, `and` or new lines; each is a count
 (`3`, `3 x`, `two`, `a`), the name, and optionally `(boss)`, `rank D` and a role. A plural is made
 singular when the bestiary knows the creature ("3 bandits" → Bandit) or its last word is a
-creature word ("3 bog wights" → Bog Wight); any other name is kept.
+creature word ("3 bog wights" → Bog Wight); any other name is kept. With no number, a plural
+name is several (*Bandits*: 3) and so is a group (*a pack of wolves*: 3 Wolf; *a pack of 5
+wolves*: 5). A **swarm** is one foe made of many, fought and told as one swarm (since 0.5.31):
+*a swarm of granary rats*, *Rat swarm* or *Cellar Rats (swarm)* is a *Granary Rat Swarm* or
+*Rat Swarm* (a number inside, *a swarm of 30 rats*, is its size), and it drops what its
+creatures drop (*Rat Tail*). At most 9 of one foe join a fight.
 
 The model may also say **how dangerous** a foe is, relative to the party, in one word:
 

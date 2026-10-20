@@ -437,8 +437,12 @@ export function gearValue(stat, rarity, level, rules = DEFAULT_RULES) {
 }
 
 /** The creature's loot table: its materials, perhaps one piece of gear, and its rank's potion. */
-function lootFor(template, { name, noun, rank, level }, rules) {
+// (0.5.31) A swarm leaves what its creatures leave: "Granary Cellar Rat Tail", not "… Swarm Tail".
+const creatureOf = name => String(name ?? '').replace(/\s+swarms?$/i, '') || name;
+
+function lootFor(template, { name: shownName, noun, rank, level }, rules) {
     const g = rules.generated ?? DEFAULT_RULES.generated;
+    const name = creatureOf(shownName);
     const chances = Array.isArray(g.materialChance) ? g.materialChance : [55, 30];
     const rows = template.loot.materials.map((pattern, index) => ({
         name: fill(pattern, name, noun),
@@ -488,7 +492,7 @@ function kinLoot(relative, { name, rank, level }, rules) {
     for (const raw of source) {
         if (!raw || raw.kind === 'consumable') continue;
         const row = structuredClone(raw);
-        if (row.kind === 'material') row.name = kinPart(row.name, relative.name, noun, name);
+        if (row.kind === 'material') row.name = kinPart(row.name, relative.name, noun, creatureOf(name));
         if (row.kind === 'equipment') {
             row.rarity = gearRarityFor(rank, rules);
             row.stats = Object.fromEntries(Object.keys(row.stats ?? { ATK: 1 }).slice(0, 1).map(stat => [stat, gearValue(stat, row.rarity, level, rules)]));
