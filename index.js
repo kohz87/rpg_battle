@@ -48,7 +48,7 @@ import { TEMPLATES, classify, cleanCreature, combinedBestiary, creaturesToMake, 
 import { applyFlavour, flavourPrompt, parseFlavour, sceneText } from './src/flavour.js';
 import { act, availableActions, foeXpWorth, replay, startFight, summarize } from './src/combat.js';
 import { applyResult, foldUses, forgetSkill, formatPartyBlock, learnSkill, newSheet, readSheets, setSkillActive, spendPoints } from './src/sheet.js';
-import { addLoot, applyCrafts, consumables, keepNotes, restoreLoot, formatGearEntry, formatMoney, gearSummary, parseGearEntry, parseInventory, purseOf, useItems } from './src/items.js';
+import { addLoot, applyCrafts, collectOrders, consumables, keepNotes, restoreLoot, formatGearEntry, formatMoney, gearSummary, parseGearEntry, parseInventory, purseOf, useItems } from './src/items.js';
 import { NEXT_MOVES_MAX, fallbackMoves, nextMovesPrompt, parseNextMoves } from './src/nextmoves.js';
 import { buildHandoff, buildPlanHandoff, fightOrigin, grouped, handoffState, originHolds, settleHandoff } from './src/handoff.js';
 import { cleanPlan, newPlan, nextStage, planResult, stageDone, stageId } from './src/plan.js';
@@ -67,7 +67,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.35';
+const VERSION = '0.5.36';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -1435,13 +1435,15 @@ async function craftInReply(sb, index, own) {
     const current = blockAt(sb, index, own.inventoryTag);
     const level = sheetsAt(sb, { beforeIndex: index }).pc?.level ?? 1;
     const plans = craftPlan(before, crafted, { level, rules: rules() });
+    // (0.5.36) An order placed waits under [On Order]; one collected ("<Crafted>Skull Ring</Crafted>") comes out.
+    const collected = crafted.filter(entry => entry.pickup).map(entry => entry.name);
     const base = current ?? String(before).trim();
-    const next = applyCrafts(base, before, plans, rules().currency);
-    if (current !== null && next === current) return;
-    if (current === null && !plans.length) return;
+    const next = collectOrders(applyCrafts(base, before, plans, rules().currency), before, collected, rules().currency);
+    if (next === (current ?? String(before).trim())) return;
     try {
         await sb.setBlockText(index, own.inventoryTag, next);
-        logActivity(`Crafted in reply #${index}: ${plans.map(plan => `${plan.item.name} (${plan.item.rarity})`).join(', ')}`);
+        const made = plans.map(plan => `${plan.item.name} (${plan.item.rarity}${plan.order ? `, on order till ${plan.order}` : ''})`);
+        logActivity(`Crafted in reply #${index}: ${[...made, ...collected.map(name => `${name} collected`)].join(', ')}`);
     } catch (error) {
         console.error('[RPG Battle] the crafted gear could not be written', error);
     }

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.36
+
+- **A piece can be ordered from a crafter and collected later.** The bone-carver took the brood-mother skull and said the ring would be ready in two days. RPG Battle had no way to hold that: the skull left the Inventory, and by the time the ring was collected nothing remembered what it was made of. Now `<Crafted>Skull Ring from Brood-Mother Skull | ready: Goldwane 14</Crafted>` takes the materials at once and adds `Skull Ring | 1 | uncommon · MDEF +4 · on order, ready Goldwane 14` under **[On Order]**. Its numbers are set from the skull it was made of, even if the reply already took the skull out.
+  - It cannot be worn or used until collected.
+  - A reply that rewords it ("being carved") or leaves it out gets it back.
+  - `<Crafted>Skull Ring — collected</Crafted>` makes it the ring, keeping *equipped* when the story put it on.
+  - The story instruction does not grow: this is the groundwork for the coming Trade tab.
+
 ## 0.5.35
 
 - **A potion the story retold can be used again.** The model rewrote `Minor Healing Draught | 4 | heal 20` as *Weak restorative fluid (heals minor wounds)*. Only the number made it a potion, so it dropped out of the fight. Two fixes:

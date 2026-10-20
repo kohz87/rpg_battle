@@ -331,6 +331,8 @@ export function describeRow({ name, category = '', note = '' }) {
     let slot = explicit ? slotFromWord(explicit[1]) : null;
     // [Armour] holds shields, helms and boots too; their kind says which slot they take.
     if (!slot && fromCategory) slot = fromCategory === 'armour' && (kind?.slot === 'offhand' || kind?.slot === 'worn') ? kind.slot : fromCategory;
+    // (0.5.36) A piece on order is not here yet: nothing to wear or use until it is collected.
+    if (ON_ORDER.test(text)) return { equipped: false, rarity: rarityOf(text, name), slot: null, stats: {}, tags: [], effect: null, onOrder: true };
     // (0.5.32) "uncommon material": a rare find, not gear to wear.
     const material = /\bmaterial\b/i.test(text) && !explicit && !Object.keys(stats).length;
     const equipmentish = !material && (EQUIPMENT_CATEGORY.test(category) || equippedMark || hasRarityWord(text) || Object.keys(stats).length > 0);
@@ -345,6 +347,11 @@ export function describeRow({ name, category = '', note = '' }) {
     // (0.5.35) A potion whose note the story retold ("weak restorative fluid") works by its name.
     return { equipped: false, rarity: rarityOf(text, name), slot: null, stats: {}, tags: [], effect: parseEffect(text) ?? (material ? null : effectByName(name)) };
 }
+
+// (0.5.36) A row for a piece ordered from a crafter, not collected yet.
+const ON_ORDER = /\bon order\b/i;
+const ORDER_PART = /\s*·\s*on order\b/i;
+const ORDER_SECTION = 'On Order';
 
 // (0.5.35) What a potion does by its name, when its note does not say: the shipped ones exactly
 // (Minor Healing Draught heal 20, Healing Draught 30, Greater 60, Elixir 120, Grand Elixir 250,
@@ -861,7 +868,8 @@ export function restoreLoot(inventoryText, items = [], currency = DEFAULT_RULES.
 export function applyCrafts(inventoryText, before, plans = [], currency = DEFAULT_RULES.currency) {
     let text = String(inventoryText ?? '');
     const old = scan(String(before ?? '').split(/\r?\n/)).rows;
-    for (const { item, used } of plans ?? []) {
+    for (const plan of plans ?? []) {
+        const { item, used } = plan;
         for (const material of used ?? []) {
             const had = old.find(row => row.key === nameKey(material.name));
             if (!had) continue;
@@ -877,7 +885,13 @@ export function applyCrafts(inventoryText, before, plans = [], currency = DEFAUL
         const lines = text === '' ? [] : text.split(/\r?\n/);
         const scanned = scan(lines);
         const row = scanned.rows.find(entry => entry.key === nameKey(item.name));
-        const note = lootNote(item, 'equipment');
+        const order = plan.order ? ` · on order, ready ${clean(plan.order)}` : '';
+        const note = `${lootNote(item, 'equipment')}${order}`;
+        if (!row && order) {
+            insertRow(lines, ORDER_SECTION, `${escapeName(item.name)} | 1 | ${escapeCell(note)}`);
+            text = dropEmptyMarks(lines).join(eolOf(text));
+            continue;
+        }
         if (!row) {
             text = addLoot(text, { items: [item] }, currency);
             const added = text.split(/\r?\n/);
@@ -888,10 +902,41 @@ export function applyCrafts(inventoryText, before, plans = [], currency = DEFAUL
             }
             continue;
         }
-        const wanted = isEquippedMark(row.note) ? `equipped · ${note}` : note;
+        const wanted = isEquippedMark(row.note) && !order ? `equipped · ${note}` : note;
         if (clean(row.note ?? '') === wanted) continue;
         lines[row.index] = rewriteCell(lines[row.index], row, row.qtyCell + 1, escapeCell(wanted));
         text = lines.join(eolOf(text));
+    }
+    return text;
+}
+
+/**
+ * (0.5.36) Orders collected in a reply: each piece `names` lists that waited under [On Order]
+ * in the Inventory before it (`before`) is in this reply's (`inventoryText`) as the gear it is,
+ * its note the order's without "on order" (`equipped` kept when the story wrote it so), and its
+ * order row gone. A name with no order before is left alone. The same reply again: no change.
+ */
+export function collectOrders(inventoryText, before, names = [], currency = DEFAULT_RULES.currency) {
+    let text = String(inventoryText ?? '');
+    const old = scan(String(before ?? '').split(/\r?\n/)).rows;
+    for (const name of names ?? []) {
+        const ordered = old.find(row => row.key === nameKey(name) && ON_ORDER.test(row.note ?? ''))
+            ?? old.find(row => ON_ORDER.test(row.note ?? '') && row.key.includes(nameKey(name)));
+        if (!ordered) continue;
+        // What it is, without the order and what the story said about the wait ("being carved").
+        const note = clean(ordered.note).split(ORDER_PART)[0].trim();
+        let lines = text === '' ? [] : text.split(/\r?\n/);
+        const rows = scan(lines).rows.filter(row => row.key === ordered.key);
+        const kept = rows.find(row => !ON_ORDER.test(row.note ?? ''));
+        for (const row of rows.filter(entry => entry !== kept).sort((a, b) => b.index - a.index)) lines.splice(row.index, 1);
+        if (kept) {
+            const now = scan(lines).rows.find(row => row.key === ordered.key);
+            const wanted = isEquippedMark(now.note) ? `equipped · ${note}` : note;
+            if (clean(now.note ?? '') !== wanted) lines[now.index] = rewriteCell(lines[now.index], now, now.qtyCell + 1, escapeCell(wanted));
+            text = lines.join(eolOf(text));
+            continue;
+        }
+        text = addLoot(lines.join(eolOf(text)), { items: [{ name: ordered.name, qty: 1, kind: 'equipment', note }] }, currency);
     }
     return text;
 }
@@ -930,12 +975,22 @@ export function keepNotes(inventoryText, before) {
             head = [b.rarity !== 'common' ? b.rarity : '', formatEffect(b.effect)].filter(Boolean).join(' · ');
         } else if (/\bmaterial\b/i.test(was.note ?? '') && !/\bmaterial\b/i.test(prose) && !c.slot) {
             head = clean(was.note);
+        } else if (ON_ORDER.test(was.note ?? '') && !ON_ORDER.test(prose) && !Object.keys(c.stats).length) {
+            // (0.5.36) An order retold ("being carved"): still on order until a <Crafted> collects it.
+            head = clean(was.note);
         }
         if (!head) continue;
         lines[row.index] = rewriteCell(lines[row.index], row, row.qtyCell + 1, escapeCell(prose ? `${head} · ${prose}` : head));
         changed = true;
     }
-    return changed ? lines.join(eolOf(text)) : text;
+    // (0.5.36) A piece on order is the crafter's until collected: a reply that left its row out
+    // gets it back under [On Order].
+    const present = new Set(scan(lines).rows.map(row => row.key));
+    for (const was of old.filter(row => ON_ORDER.test(row.note ?? '') && !present.has(row.key))) {
+        insertRow(lines, ORDER_SECTION, `${escapeName(was.name)} | ${escapeCell(was.qty || '1')} | ${escapeCell(clean(was.note))}`);
+        changed = true;
+    }
+    return changed ? dropEmptyMarks(lines).join(eolOf(text)) : text;
 }
 
 // A section's "(empty)" line goes once the section holds a row.

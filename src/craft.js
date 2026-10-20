@@ -7,6 +7,9 @@
 // what, `<Crafted>Skull Charm from Brood-Mother Skull, 2 Fang</Crafted>`, and the numbers are the
 // code's: the rarity is the best material's (one step up for enough of them), the stats come
 // from the affinities, sized to that rarity and the crafter's level, and an element carries over.
+// (0.5.36) An order (`| ready: Goldwane 14`) takes the materials now and waits under [On Order]
+// with its numbers already set, so a skull handed over is still what the ring is made of; the
+// line naming the piece alone (`<Crafted>Skull Charm</Crafted>`) collects it.
 
 import { DEFAULT_RULES, RARITIES, rarityBudget } from './rules.js';
 import { ELEMENTS, describeRow, itemSlot, mainStat, nameKey, parseInventory, slotFromWord } from './items.js';
@@ -68,9 +71,22 @@ export function parseCrafted(text) {
     for (const raw of String(text ?? '').split(/\r?\n/)) {
         const line = raw.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim();
         if (!line) continue;
+        if (/^(?:none|nothing|no\b)/i.test(line)) continue;
         const [main, ...options] = line.split('|');
+        // (0.5.36) "Skull Ring — collected (from the bone-carver)": an order picked up.
+        const picked = main.match(/^(.+?)\s+[—–-]\s+(?:collected|picked up|fetched|received|delivered|handed over)\b/i);
+        if (picked) {
+            out.push({ name: picked[1].replace(/^(?:an?|the)\s+/i, '').replace(/[*_`]/g, '').trim(), materials: [], slot: null, pickup: true });
+            continue;
+        }
         const match = main.match(/^(.+?)\s+(?:from|out of|using|with)\s+(.+)$/i);
-        if (!match) continue;
+        const option = word => options.join('|').match(new RegExp(`\\b(?:${word})\\s*:\\s*([^|]+)`, 'i'))?.[1]?.trim() ?? null;
+        // (0.5.36) No materials: an order collected ("Skull Ring", "Skull Ring — collected").
+        if (!match) {
+            const collected = main.split(/\s+[—–-]\s+|:/)[0].replace(/^(?:an?|the)\s+/i, '').replace(/[*_`]/g, '').trim();
+            if (collected) out.push({ name: collected, materials: [], slot: null, pickup: true });
+            continue;
+        }
         const name = match[1].replace(/^(?:an?|the)\s+/i, '').replace(/[*_`]/g, '').trim();
         const materials = match[2].split(/\s*(?:,|;|\+|&|\band\b)\s*/i).map(part => {
             const piece = part.replace(/[*_`.]/g, '').trim();
@@ -82,7 +98,9 @@ export function parseCrafted(text) {
         }).filter(entry => entry.name);
         if (!name || !materials.length) continue;
         const slotWord = options.join('|').match(/\bslot\s*:\s*([a-z-]+)/i)?.[1];
-        out.push({ name, materials, slot: slotWord ? slotFromWord(slotWord) : null });
+        // (0.5.36) An order: made later, collected with its own line ("| ready: Goldwane 14").
+        const ready = option('ready|due|on');
+        out.push({ name, materials, slot: slotWord ? slotFromWord(slotWord) : null, ...(ready ? { ready } : {}) });
     }
     return out;
 }
@@ -110,7 +128,7 @@ const bumpRarity = (rarity, steps) => RARITIES[Math.min(RARITIES.length - 1, Mat
 export function craftPlan(inventory, crafted, { level = 1, rules = DEFAULT_RULES } = {}) {
     const items = parseInventory(inventory).items;
     const c = { ...DEFAULT_RULES.craft, ...(rules.craft ?? {}) };
-    return (crafted ?? []).map(entry => {
+    return (crafted ?? []).filter(entry => !entry.pickup && entry.materials?.length).map(entry => {
         const parts = entry.materials.map(material => {
             const row = findMaterial(items, material.name);
             const rarity = row ? describeRow(row).rarity : 'common';
@@ -126,6 +144,6 @@ export function craftPlan(inventory, crafted, { level = 1, rules = DEFAULT_RULES
         const stats = Object.fromEntries(chosen.map(stat => [stat, Math.max(1, Math.floor(budget / chosen.length / (rules.statCost?.[stat] ?? 1)))]));
         const element = parts.find(part => part.element)?.element ?? null;
         const used = parts.filter(part => part.row).map(part => ({ name: part.row.name, qty: part.qty }));
-        return { item: { name: entry.name, qty: 1, kind: 'equipment', rarity, stats, slot, ...(element ? { tags: [element] } : {}) }, used };
+        return { item: { name: entry.name, qty: 1, kind: 'equipment', rarity, stats, slot, ...(element ? { tags: [element] } : {}) }, used, ...(entry.ready ? { order: entry.ready } : {}) };
     });
 }

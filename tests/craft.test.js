@@ -88,3 +88,42 @@ test('the story instruction\'s own <Crafted> example reads back', async () => {
     const example = STORY_INSTRUCTION.match(/<Crafted>(.*?)<\/Crafted>/)[1];
     assert.deepEqual(parseCrafted(example), [{ name: 'Bone Charm', materials: [{ name: 'Skull', qty: 1 }, { name: 'Fang', qty: 2 }], slot: null }]);
 });
+
+test('an order takes the materials now and waits under [On Order]; its own line collects it (0.5.36)', async () => {
+    const { collectOrders, keepNotes } = await import('../src/items.js');
+    const before = '[Gear]\nWhetstone | 1 | Worn thin\n[Loot]\nBrood-Mother Skull | 1 | uncommon material · MDEF';
+    const lines = parseCrafted('Skull Ring from Brood-Mother Skull | ready: Goldwane 14');
+    assert.deepEqual(lines, [{ name: 'Skull Ring', materials: [{ name: 'Brood-Mother Skull', qty: 1 }], slot: null, ready: 'Goldwane 14' }]);
+    const plans = craftPlan(before, lines, { level: 2 });
+    assert.equal(plans[0].order, 'Goldwane 14');
+    // The model already took the skull out: the ring still comes out uncommon, from the skull it was.
+    const written = '[Gear]\nWhetstone | 1 | Worn thin';
+    const ordered = applyCrafts(written, before, plans);
+    assert.match(ordered, /\[On Order\]\nSkull Ring \| 1 \| uncommon · MDEF \+\d+ · on order, ready Goldwane 14/);
+    assert.doesNotMatch(ordered, /Brood-Mother Skull/);
+    assert.equal(applyCrafts(ordered, before, plans), ordered);
+    // Not here yet: nothing to wear.
+    const ring = parseInventory(ordered).items.find(item => item.name === 'Skull Ring');
+    assert.equal(ring.slot, null);
+    assert.equal(ring.onOrder, true);
+    // A later reply that retells it or leaves it out: still on order.
+    assert.match(keepNotes(ordered.replace(/Skull Ring \| 1 \| .*/, 'Skull Ring | 1 | being carved at the lean-to'), ordered), /Skull Ring \| 1 \| uncommon · MDEF \+\d+ · on order, ready Goldwane 14 · being carved/);
+    assert.match(keepNotes(written, ordered), /\[On Order\]\nSkull Ring \| 1 \| uncommon · MDEF/);
+    // Collected: the ring as the gear it is, the order row gone, the same each time.
+    assert.deepEqual(parseCrafted('Skull Ring — collected from the bone-carver'), [{ name: 'Skull Ring', materials: [], slot: null, pickup: true }]);
+    // Retold while it waited ("· being carved" after the order): collected, the numbers alone.
+    const retold = keepNotes(ordered.replace(/Skull Ring \| 1 \| .*/, 'Skull Ring | 1 | being carved'), ordered);
+    assert.match(collectOrders(retold.replace(/\[On Order\]\n.*\n?/, ''), retold, ['Skull Ring']), /^Skull Ring \| 1 \| uncommon · MDEF \+\d+$/m);
+    const collected = collectOrders(ordered, ordered, ['Skull Ring']);
+    assert.doesNotMatch(collected, /on order/);
+    const worn = parseInventory(collected).items.find(item => item.name === 'Skull Ring');
+    assert.equal(worn.slot, 'accessory');
+    assert.equal(worn.rarity, 'uncommon');
+    assert.equal(collectOrders(collected, ordered, ['Skull Ring']), collected);
+    // The story put it on as it handed it over: kept equipped, the order's numbers.
+    const onHand = collectOrders(`${ordered}\n[Equipment > Accessories]\nSkull Ring | 1 | Equipped · a bone band`, ordered, ['Skull Ring']);
+    assert.match(onHand, /Skull Ring \| 1 \| equipped · uncommon · MDEF \+\d+/);
+    assert.equal((onHand.match(/Skull Ring/g) ?? []).length, 1);
+    // No order before: nothing collected.
+    assert.equal(collectOrders(written, written, ['Skull Ring']), written);
+});
