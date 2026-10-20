@@ -174,6 +174,23 @@ const drawTab = id => {
     return pane;
 };
 const find = (pane, selector) => pane.querySelector(selector);
+// (0.5.38) Trade is the Party tab's second page; the first is the party.
+const drawParty = () => {
+    const pane = drawTab('rpg-party');
+    const party = pane.querySelectorAll('.rpg-battle-page')[0];
+    if (party && !party.className.includes('is-current')) party.click();
+    return pane;
+};
+const drawTrade = () => {
+    const pane = drawTab('rpg-party');
+    pane.querySelectorAll('.rpg-battle-page')[1]?.click();
+    return pane;
+};
+const pickTrader = (pane, value) => {
+    const picker = pane.querySelector('.rpg-trade-person');
+    picker.value = value;
+    picker.dispatch('change');
+};
 const findAll = (pane, selector) => pane.querySelectorAll(selector);
 const userMessage = text => ({ mes: text, is_user: true, is_system: false });
 
@@ -950,17 +967,17 @@ test('a trade in the Trade tab: written into the latest reply, told once at dept
         openChat('trade-chat', [reply(`<Party>\n${REN}\n</Party>`), userMessage('To the guild.'), reply(`Elke waits.\n${world}\n${inventory}`)]);
         hooks.update();
         await settle();
-        let pane = drawTab('rpg-trade');
+        let pane = drawTrade();
         assert.match(find(pane, '.rpg-trade-place').textContent, /village prices/);
-        assert.equal(find(pane, '.rpg-trade-person').value, 'Elke');
+        pickTrader(pane, 'person:Elke');
         find(pane, '.rpg-trade-sell').click();
         await settle();
         const latest = ctx.chat[2].mes;
         assert.match(latest, /Rat Tail \| 4 \| material/);
         assert.doesNotMatch(latest, /Coin Pouch \| 1 \| 2 silver\n/);
         assert.match(ctx.chatMetadata.rpgBattle.trade.handoff, /sold Rat Tail to Elke for/);
-        assert.equal(hooks.tabs['rpg-trade'].badge(), 1);
-        pane = drawTab('rpg-trade');
+        assert.equal(hooks.tabs['rpg-party'].badge(), 1, 'a trade waiting is on the Party badge');
+        pane = drawTrade();
         assert.match(find(pane, '.rpg-trade-told li').textContent, /sold Rat Tail to Elke/);
         // The next reply is told, at depth 0; a swipe of it is told again.
         ctx.chat.push(userMessage('Thanks.'));
@@ -980,7 +997,7 @@ test('a trade in the Trade tab: written into the latest reply, told once at dept
         openChat('trade-chat-2', [reply(`<Party>\n${REN}\n</Party>`), userMessage('To the guild.'), { ...reply(`Elke waits.\n${world}\n${inventory}`), send_date: 'first' }]);
         hooks.update();
         await settle();
-        find(drawTab('rpg-trade'), '.rpg-trade-sell').click();
+        find(drawTrade(), '.rpg-trade-sell').click();
         await settle();
         ctx.chat.pop();
         ctx.chat.push({ ...reply('Elke waits again.'), send_date: 'second' });
@@ -988,6 +1005,95 @@ test('a trade in the Trade tab: written into the latest reply, told once at dept
         await settle();
         await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
         assert.equal(prompts.rpg_battle_trade.value, '');
+    } finally {
+        ctx.setExtensionPrompt = before;
+    }
+});
+
+test('an item used outside a fight: a marker in the message, the effect with the reply to it, told at depth 0 (0.5.38)', async () => {
+    const prompts = {};
+    const before = ctx.setExtensionPrompt;
+    ctx.setExtensionPrompt = (key, value, _position, depth) => { prompts[key] = { value, depth }; };
+    const box = { value: 'I rest a moment.', dispatchEvent: () => true, focus: () => {} };
+    const getById = doc.getElementById;
+    doc.getElementById = id => (id === 'send_textarea' ? box : null);
+    try {
+        const hurt = REN.replace('HP: 58/62', 'HP: 30/62');
+        openChat('item-chat', [reply(`<Party>\n${hurt}\n</Party>\n<Inventory>\n[Loot]\nMinor Healing Draught | 2 | heal 20\n</Inventory>`)]);
+        hooks.update();
+        await settle();
+        let pane = drawParty();
+        find(pane, '.rpg-battle-items').click();
+        await settle();
+        pane = drawParty();
+        find(pane, '.rpg-battle-use').click();
+        await settle();
+        assert.equal(box.value, 'I rest a moment. *uses the Minor Healing Draught*');
+        assert.match(ctx.chat[0].mes, /HP: 30\/62/, 'nothing used yet');
+        // What's sent shows it, worked out from the message box.
+        pane = drawParty();
+        assert.ok(findAll(pane, '.rpg-battle-sent-text').some(node => /Minor Healing Draught: \+20 HP \(now 50\/62 HP\)/.test(node.textContent)));
+        // Sent: the reply is told, at depth 0, and gets the effect.
+        ctx.chat.push(userMessage(box.value));
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        assert.match(prompts.rpg_battle_item.value, /^\[Item\] Ren uses the Minor Healing Draught: \+20 HP \(now 50\/62 HP\)\./);
+        assert.equal(prompts.rpg_battle_item.depth, 0);
+        assert.equal(prompts.rpg_battle.depth, 0, 'the fight hand-off goes at depth 0 too');
+        ctx.chat.push({ ...reply('Ren drinks.'), send_date: 'one' });
+        await hooks.reply({ messageIndex: 2 });
+        await settle();
+        assert.match(partyText(), /HP: 50\/62/);
+        assert.match(ctx.chat[2].mes, /Minor Healing Draught \| 1 \| heal 20/);
+        // Worked again for the same reply: once only.
+        await hooks.reply({ messageIndex: 2 });
+        await settle();
+        assert.match(partyText(), /HP: 50\/62/);
+        // A newer reply: the note is spent.
+        ctx.chat.push(userMessage('On.'));
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        assert.equal(prompts.rpg_battle_item.value, '');
+        // The marker taken out before sending: nothing is used.
+        box.value = '';
+        pane = drawParty();
+        find(pane, '.rpg-battle-items').click();
+        await settle();
+        find(drawParty(), '.rpg-battle-use').click();
+        await settle();
+        ctx.chat.push(userMessage('Never mind.'));
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        assert.equal(prompts.rpg_battle_item.value, '');
+        assert.equal(ctx.chatMetadata.rpgBattle.itemUse, null);
+    } finally {
+        ctx.setExtensionPrompt = before;
+        doc.getElementById = getById;
+    }
+});
+
+test('buying: each kind of trader at the place has stock, nobody need be present, and no stock is ever put in the prompt (0.5.38)', async () => {
+    const prompts = {};
+    const before = ctx.setExtensionPrompt;
+    ctx.setExtensionPrompt = (key, value, _position, depth) => { prompts[key] = { value, depth }; };
+    try {
+        const world = `<World_State>\n**🌤 Loc:** Bluewatch Village | Square\n\n**👥 NPCs Present:**\n**Ren:**\n* *Mood:* curious\n\n---\n</World_State>`;
+        openChat('shop-chat', [reply(`<Party>\n${REN}\n</Party>`), userMessage('To the market.'), reply(`A stall.\n${world}\n<Inventory>\nCoin Pouch | 1 | 9 gold\n</Inventory>`)]);
+        hooks.update();
+        await settle();
+        let pane = drawTrade();
+        // Your own party is no trader.
+        assert.ok(!findAll(pane, '.rpg-trade-person option').some(node => /^Ren/.test(node.textContent)));
+        pickTrader(pane, 'kind:apothecary');
+        const buy = findAll(pane, '.rpg-trade-buy');
+        assert.ok(buy.length >= 4, 'the apothecary has stock');
+        buy[0].click();
+        await settle();
+        assert.match(ctx.chatMetadata.rpgBattle.trade.handoff, /bought .+ from the apothecary for/);
+        pane = drawTrade();
+        pickTrader(pane, 'kind:apothecary');
+        assert.equal(findAll(pane, '.rpg-trade-buy').length, buy.length - 1, 'bought: gone from the stock');
+        ctx.chat.push(userMessage('What else?'));
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        assert.match(prompts.rpg_battle_trade.value, /bought .+ from the apothecary/);
+        assert.ok(!Object.keys(prompts).some(key => /shop/.test(key)), 'no stock in the prompt');
     } finally {
         ctx.setExtensionPrompt = before;
     }

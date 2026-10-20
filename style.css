@@ -24,6 +24,12 @@
     --rb-sp: #3fa89a;
     --rb-xp: var(--rb-accent);
     --rb-good: #4fa36b;
+    /* (0.5.38) Rarity colours, as games use them: grey, green, blue, purple, gold. */
+    --rb-rarity-common: #9d9d9d;
+    --rb-rarity-uncommon: #4fae5a;
+    --rb-rarity-rare: #4f8fd8;
+    --rb-rarity-epic: #a96be0;
+    --rb-rarity-legendary: #e0a526;
     --rb-bad: #d46a6a;
     --rb-info: #6b9fd6;
     display: flex;
@@ -1813,4 +1819,89 @@
 .rpg-trade-tab .rpg-trade-pending {
     border-left: 2px solid var(--rb-accent);
     padding-left: 0.5rem;
+}
+
+/* (0.5.38) A name in its rarity's colour (Trade lists, the Party card's gear). Common stays the
+   text colour, a little quieter, so ordinary lists do not turn grey. */
+.rpg-rarity.is-common { opacity: 0.9; }
+.rpg-rarity.is-uncommon { color: var(--rb-rarity-uncommon); }
+.rpg-rarity.is-rare { color: var(--rb-rarity-rare); }
+.rpg-rarity.is-epic { color: var(--rb-rarity-epic); }
+.rpg-rarity.is-legendary { color: var(--rb-rarity-legendary); }
+
+/* (0.5.38) What's sent: each part RPG Battle adds to the next reply, as plain text. */
+.rpg-battle-tab .rpg-battle-sent-text {
+    max-height: 14rem;
+    margin: 0.2rem 0 0.6rem;
+    padding: 0.4rem 0.5rem;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: var(--monoFontFamily, monospace);
+    font-size: 0.8em;
+    background: var(--rb-tint);
+    border-radius: 4px;
+}
+
+/* (0.5.38) An enemy's level · threat · role badge wraps on a narrow sidebar instead of clipping. */
+.rpg-battle-tab .rpg-battle-card-head {
+    flex-wrap: wrap;
+}
+
+.rpg-battle-tab .rpg-battle-card .rpg-battle-badge {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+/* (0.5.38) A section folded on a phone shows its label once, on the fold. */
+.rpg-battle-tab .rpg-battle-phone-fold .rpg-battle-fold-body > .rpg-battle-section > .rpg-battle-sub:first-child {
+    display: none;
+}
+
+/* (0.5.38) The Trade tab's purse, first and kept in view; the trade select is not clipped. */
+.rpg-trade-tab .rpg-trade-purse {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    margin: 0 0 0.4rem;
+    padding: 0.35rem 0.5rem;
+    font-weight: 600;
+    background: var(--SmartThemeBlurTintColor, var(--rb-surface));
+    border-bottom: 1px solid var(--rb-border);
+}
+
+.rpg-trade-tab .rpg-trade-kind {
+    flex: 1 1 8rem;
+    min-width: 7rem;
+}
+
+/* (0.5.38) Party · Trade at the top of the Party tab: one segmented control. */
+.rpg-battle-page-switch {
+    display: flex;
+    gap: 0;
+    margin: 0 0 0.5rem;
+    border: 1px solid var(--rb-border);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.rpg-battle-page-switch .menu_button.rpg-battle-page {
+    display: inline-flex;
+    flex: 1 1 0;
+    gap: 0.35rem;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.1rem;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    opacity: 0.7;
+}
+
+.rpg-battle-page-switch .menu_button.rpg-battle-page.is-current {
+    background: var(--rb-tint);
+    font-weight: 600;
+    opacity: 1;
 }

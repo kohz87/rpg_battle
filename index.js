@@ -63,19 +63,18 @@ import { cleanParty, exportParty } from './src/partyfile.js';
 import { craftPlan, parseCrafted } from './src/craft.js';
 import { renderBattleTab } from './src/ui/tab.js';
 import { renderTradeTab } from './src/ui/trade.js';
-import { buyerKind, collectIn, craftFee, craftIn, kindOf, ordersIn, placePrices, sellIn, sellPrice, sellable, tradeHandoff, tradeLine } from './src/trade.js';
+import { buyIn, buyerKind, collectIn, craftFee, craftIn, kindOf, ordersIn, placePrices, rememberStock, sellIn, sellPrice, sellable, shopStock, tradeHandoff, tradeLine } from './src/trade.js';
 import { combatValue, renderSettings } from './src/ui/settings.js';
 import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.37';
+const VERSION = '0.5.38';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
 const PARTY_TAB_ID = 'rpg-party';
-// (0.5.37) Selling, making and ordering, and collecting what was ordered.
-const TRADE_TAB_ID = 'rpg-trade';
+
 const NPC_SUITE_ID = 'npc-state-delta';
 const PROMPT_KEY = 'rpg_battle';
 // The story instruction (<Wounds>, <Encounter>) has its own key: the hand-off comes and goes
@@ -83,6 +82,8 @@ const PROMPT_KEY = 'rpg_battle';
 const RULES_PROMPT_KEY = 'rpg_battle_rules';
 // (0.5.37) The trade note: only for the reply after trades in the Trade tab, at depth 0.
 const TRADE_PROMPT_KEY = 'rpg_battle_trade';
+// (0.5.38) An item used outside a fight, told to the reply sent with its marker.
+const ITEM_PROMPT_KEY = 'rpg_battle_item';
 // Story Block's World State (its default tag): read for the place and who is present.
 const WORLD_TAG = 'World_State';
 // Transport-only tags: Story Block moves them into its hidden envelope, out of the narration.
@@ -342,6 +343,13 @@ function chatState(ctx = context()) {
         // (0.5.37) Trades made in the Trade tab, for the next reply to tell: { entries, handoff,
         // origin (the reply they were written into), attachedTo }, gone with that reply.
         trade: holding(state.trade ?? null),
+        // (0.5.38) Items used outside a fight, sent with the reader's message: { entries: [{ name,
+        // target, marker }], handoff, attachedTo, applied (the reply they were applied to) }.
+        itemUse: state.itemUse && typeof state.itemUse === 'object' && Array.isArray(state.itemUse.entries) ? state.itemUse : null,
+        // (0.5.38) Shop stock, per trader kind and place: { [key]: { day, bought: [names] } }, and
+        // what each offered before ({ [key]: { day, names } }, the newest kept) so a restock differs.
+        shops: state.shops && typeof state.shops === 'object' ? state.shops : {},
+        shopSeen: state.shopSeen && typeof state.shopSeen === 'object' ? state.shopSeen : {},
         // (0.5.37) The reader's word for a place's prices: { [place key]: 'cheap' | 'fair' | 'dear' }.
         tradePrices: state.tradePrices && typeof state.tradePrices === 'object' ? state.tradePrices : {},
     };
@@ -1364,6 +1372,7 @@ async function afterReply(payload) {
         generating = false;
         settlePending();
         await planAndWriteReply(payload);
+        await applyItemUse(Number(payload?.messageIndex));
     } finally {
         replying -= 1;
     }
@@ -1553,15 +1562,32 @@ function finishedIn(sb, index) {
     return { xp: blockAt(sb, index, XP_TAG) ?? '', director: blockAt(sb, index, DIRECTOR_TAG) ?? '' };
 }
 
+// (0.5.38) The fight toast: shown once per offer, and gone as soon as a fight starts (the Battle
+// tab's badge and Start say the rest).
+let encounterToast = { key: '', toast: null };
+const toastedOffers = new Set();
+
+function clearEncounterToast() {
+    if (encounterToast.toast) globalThis.toastr?.clear?.(encounterToast.toast);
+    encounterToast = { key: '', toast: null };
+}
+
 function toastEncounter(sb, index) {
     if (!currentSheet()) return;
     const text = blockAt(sb, index, ENCOUNTER_TAG) ?? '';
     const { rows, stages } = text ? encounterParts(text) : { rows: [], stages: null };
     if (!rows.length || chatState().dismissed.includes(`${index}:${text}`) || foughtAlready(rows, finishedIn(sb, index))) return;
+    const once = `${chatIdOf(context())}|${index}:${text}`;
+    if (toastedOffers.has(once)) return;
+    toastedOffers.add(once);
     const stakes = parseStakes(text) === 'death' ? ' — to the death' : '';
     const html = `${escapeHtml(offerLine(text))}${stakes}<div class="rpg-battle-toast-actions"><button type="button" class="menu_button rpg-battle-toast-fight">Fight</button></div>`;
     const toast = notify('warning', html, { escapeHtml: false, timeOut: 15000, extendedTimeOut: 6000, closeButton: true });
-    bindToastButton(toast, '.rpg-battle-toast-fight', () => fightEncounter({ rows, stages, stakes: parseStakes(text), key: `${index}:${text}` }));
+    encounterToast = { key: once, toast };
+    bindToastButton(toast, '.rpg-battle-toast-fight', () => {
+        clearEncounterToast();
+        fightEncounter({ rows, stages, stakes: parseStakes(text), key: `${index}:${text}` });
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -2188,7 +2214,8 @@ const SUITE_MANAGE = manageApi({
 
 // (0.5.22) narratesFight: Story Block leaves its dice out of the reply that tells a fight's result.
 // (0.5.26) currency: Story Block counts the Inventory's purse in RPG Battle's coins while it is here.
-const SUITE_API = Object.freeze({ version: VERSION, members: () => suiteMembers(), manage: SUITE_MANAGE, narratesFight: type => narratesFight(type), currency: () => structuredClone(rules().currency) });
+// (0.5.38) preview: what RPG Battle would add to the next reply, part by part (whatsSent).
+const SUITE_API = Object.freeze({ version: VERSION, members: () => suiteMembers(), manage: SUITE_MANAGE, narratesFight: type => narratesFight(type), currency: () => structuredClone(rules().currency), preview: () => whatsSent() });
 
 /** Announced on load and again whenever the switch changes: switched off, with enabled: false. */
 function announceToSuite() {
@@ -2271,6 +2298,93 @@ function setPrompt(text, key = PROMPT_KEY, depth = 1) {
     const ctx = context();
     if (typeof ctx?.setExtensionPrompt !== 'function') return;
     ctx.setExtensionPrompt(key, text, EXTENSION_PROMPT_IN_CHAT, depth, false, EXTENSION_PROMPT_ROLE_SYSTEM);
+}
+
+// The reader's message a generation of `kind` answers: the last one, before the reply a swipe replaces.
+function messageAnswered(chat, kind) {
+    const replacing = (kind.includes('swipe') || kind.includes('regenerate')) && isAssistant(chat.at(-1));
+    const list = replacing ? chat.slice(0, -1) : chat;
+    for (let index = list.length - 1; index >= 0; index--) {
+        if (list[index]?.is_user) return String(list[index].mes ?? '');
+        if (isAssistant(list[index])) break;
+    }
+    return '';
+}
+
+/** (0.5.38) What items used with this message do, worked out on the sheets as they stand now. */
+function itemResults(entries) {
+    let { pc, members } = currentSheets();
+    const stock = consumables(currentItems());
+    const lines = [];
+    for (const entry of entries) {
+        const item = stock.find(candidate => candidate.name === entry.name);
+        const sheet = entry.target === 'pc' ? pc : members.find(member => member.id === entry.target)?.sheet;
+        if (!item || !sheet) continue;
+        const outcome = useItemOutside(sheet, item);
+        if (!outcome.used) continue;
+        const hp = `${outcome.sheet.hp.cur}/${outcome.sheet.hp.max} HP`;
+        lines.push(`${outcome.message.replace(/\.$/, '')} (now ${hp}).`);
+        if (entry.target === 'pc') pc = outcome.sheet;
+        else members = members.map(member => (member.id === entry.target ? { ...member, sheet: outcome.sheet } : member));
+    }
+    return lines;
+}
+
+/**
+ * (0.5.38) The item note for the reply being generated: the items whose marker is in the message
+ * it answers, with what they do; '' when none. Given to that reply and its swipes, spent after.
+ */
+function itemUseFor(kind) {
+    const chat = context()?.chat ?? [];
+    const state = chatState().itemUse;
+    if (!state) return '';
+    const replacing = (kind.includes('swipe') || kind.includes('regenerate')) && isAssistant(chat.at(-1));
+    const replyIndex = replacing ? chat.length - 1 : chat.length;
+    if (state.attachedTo !== null && state.attachedTo !== undefined && state.attachedTo !== replyIndex) {
+        saveChatState({ itemUse: null });
+        return '';
+    }
+    const said = messageAnswered(chat, kind);
+    const sent = state.entries.filter(entry => said.includes(entry.marker));
+    if (!sent.length) {
+        // The reader took the marker out before sending: nothing is used.
+        if (state.attachedTo === null || state.attachedTo === undefined) saveChatState({ itemUse: null });
+        return '';
+    }
+    const lines = state.attachedTo === replyIndex && state.handoff ? null : itemResults(sent);
+    const handoff = lines ? (lines.length ? `[Item] ${lines.join(' ')}\nTell it as it happens in the scene; keep these numbers.` : '') : state.handoff;
+    if (!handoff) {
+        saveChatState({ itemUse: null });
+        return '';
+    }
+    saveChatState({ itemUse: { ...state, entries: sent, handoff, attachedTo: replyIndex } });
+    return handoff;
+}
+
+/**
+ * (0.5.38) After the reply an item was used with: the item off the Inventory and its effect on
+ * the sheet, written into that reply (a swipe of it gets them again; deleting it takes them back).
+ */
+async function applyItemUse(index) {
+    const ctx = context();
+    const chat = ctx?.chat ?? [];
+    const state = chatState(ctx).itemUse;
+    if (!state || state.attachedTo !== index || index !== latestAssistantIndex(chat)) return;
+    const origin = fightOrigin(chat, index);
+    if (state.applied && state.applied.index === origin.index && state.applied.date === origin.date && state.applied.swipe === origin.swipe) return;
+    const own = settings(ctx);
+    for (const entry of state.entries) {
+        const item = consumables(currentItems()).find(candidate => candidate.name === entry.name);
+        const { pc, members } = currentSheets();
+        const sheet = entry.target === 'pc' ? pc : members.find(member => member.id === entry.target)?.sheet;
+        if (!item || !sheet) continue;
+        const outcome = useItemOutside(sheet, item);
+        if (!outcome.used) continue;
+        await writeMember(entry.target, () => outcome.sheet);
+        await writeBlock(own.inventoryTag, useItems(blockText(own.inventoryTag), { [item.name]: 1 }));
+        logActivity(outcome.message);
+    }
+    saveChatState({ itemUse: { ...state, applied: origin } });
 }
 
 /**
@@ -2363,15 +2477,20 @@ async function onGenerationInterceptor(chat, _contextSize, _abort, type = 'norma
             setPrompt('', RULES_PROMPT_KEY);
             setPrompt('');
             setPrompt('', TRADE_PROMPT_KEY, 0);
+            setPrompt('', ITEM_PROMPT_KEY, 0);
             return;
         }
         const ctx = context();
         const own = settings(ctx);
         const handoff = own.enabled ? handoffFor(chat, kind) : '';
-        setPrompt(handoff);
+        // (0.5.38) At depth 0, as near the end of the prompt as it goes; cleared once spent.
+        setPrompt(handoff, PROMPT_KEY, 0);
         // Replaced or cleared on every reply, so a spent trade is never told twice.
         const traded = own.enabled ? tradeFor(kind) : '';
         setPrompt(traded, TRADE_PROMPT_KEY, 0);
+        const used = own.enabled ? itemUseFor(kind) : '';
+        setPrompt(used, ITEM_PROMPT_KEY, 0);
+
         // The story instruction, while there is a sheet to keep in step and no fight under way.
         // The reply that narrates a fight gets the narrating one (0.5.9): no <Wounds> for that
         // fight, but a new fight after it is still handed over.
@@ -2379,7 +2498,7 @@ async function onGenerationInterceptor(chat, _contextSize, _abort, type = 'norma
         const why = !own.enabled ? 'RPG Battle is off' : !pc ? 'no character yet' : isDead(pc) ? 'your character is dead' : underWay(chatState(ctx)) ? 'a fight is under way' : '';
         const instruction = why ? '' : `${handoff ? NARRATING_INSTRUCTION : storyInstruction(ctx)}${purseLine()}`;
         setPrompt(instruction, RULES_PROMPT_KEY);
-        lastSent = { at: Date.now(), type: kind, handoff: Boolean(handoff), instruction: why ? 'none' : handoff ? 'narrating' : 'story', why, chars: handoff.length + instruction.length + traded.length, handoffText: handoff, instructionText: instruction, tradeText: traded };
+        lastSent = { at: Date.now(), type: kind, handoff: Boolean(handoff), instruction: why ? 'none' : handoff ? 'narrating' : 'story', why, chars: handoff.length + instruction.length + traded.length + used.length, handoffText: handoff, instructionText: instruction, tradeText: traded, itemText: used };
     } catch (error) {
         console.error('[RPG Battle] interceptor failed', error);
     }
@@ -2552,6 +2671,33 @@ function nextReplyPreview(ctx = context()) {
     const why = !own.enabled ? 'RPG Battle is off' : !pc ? 'no character yet' : isDead(pc) ? 'your character is dead' : underWay(state) ? 'a fight is under way' : '';
     const instructionText = why ? '' : `${handoff ? NARRATING_INSTRUCTION : storyInstruction(ctx)}${purseLine()}`;
     return { handoff, instruction: why ? 'none' : handoff ? 'narrating' : 'story', why, instructionText, swipeOnly, swipeOf: swipeOnly ? attached : null };
+}
+
+/**
+ * (0.5.38) What RPG Battle would add to the next ordinary reply, as it would be sent: [{ key,
+ * label, depth, text }] — the story instruction (or the narrating one), a fight's hand-off, the
+ * trade note, the item note (worked out from the message box). Read-only: the
+ * notes it shows are only attached when a reply is generated.
+ */
+function whatsSent(ctx = context()) {
+    try {
+        const next = nextReplyPreview(ctx);
+        const parts = [];
+        if (next.handoff) parts.push({ key: PROMPT_KEY, label: 'Fight hand-off', depth: 0, text: next.handoff });
+        if (next.instructionText) parts.push({ key: RULES_PROMPT_KEY, label: next.instruction === 'narrating' ? 'Narrating instruction' : 'Story instruction', depth: 1, text: next.instructionText });
+        const chat = ctx?.chat ?? [];
+        const trade = settleHandoff(chatState(ctx).trade, chat);
+        if (trade && (trade.attachedTo === null || trade.attachedTo === undefined || trade.attachedTo === chat.length)) parts.push({ key: TRADE_PROMPT_KEY, label: 'Trade note', depth: 0, text: trade.handoff });
+        const use = chatState(ctx).itemUse;
+        const box = String(globalThis.document?.getElementById?.('send_textarea')?.value ?? '');
+        if (use && (use.attachedTo === null || use.attachedTo === undefined)) {
+            const lines = itemResults(use.entries.filter(entry => box.includes(entry.marker)));
+            if (lines.length) parts.push({ key: ITEM_PROMPT_KEY, label: 'Item note (with your message)', depth: 0, text: `[Item] ${lines.join(' ')}\nTell it as it happens in the scene; keep these numbers.` });
+        }
+        return parts;
+    } catch {
+        return [];
+    }
 }
 
 /** One plain report, a line each: the links, the character, the latest reply's blocks, what was sent, the fight and its offer. */
@@ -2774,6 +2920,8 @@ function partyView() {
     const items = currentItems();
     return {
         mode: 'idle', chatId, sheet, checks: checkModifiers(sheet.stats, r),
+        // (0.5.38) What RPG Battle would add to the next reply, part by part.
+        sent: whatsSent(ctx),
         skills: resolveSkills(sheet.skills, lib, sheet.level, r).map((skill, index) => ({ ...skill, aside: Boolean(sheet.skills[index]?.aside) })),
         party: members.map(member => cardMember(member, r, lib, npc)),
         rules: r,
@@ -2993,8 +3141,9 @@ const handlers = {
         partyScreen = { chatId: chatIdOf(context()), mode: null };
     }),
     onItems: () => goParty('items'),
+    // (0.5.38) Use puts a marker in the message box ("*uses the Minor Healing Draught*"); the item
+    // is used with the reply to that message (applyItemUse), and that reply is told the result.
     onUseItem: ({ name, target = 'pc' }) => void guarded(async () => {
-        const own = settings();
         const item = consumables(currentItems()).find(entry => entry.name === name);
         if (!item) throw new Error(`There is no ${name} left.`);
         const { pc, members } = currentSheets();
@@ -3005,9 +3154,18 @@ const handlers = {
             notify('info', outcome.message);
             return;
         }
-        await writeMember(target, () => outcome.sheet);
-        await writeBlock(own.inventoryTag, useItems(blockText(own.inventoryTag), { [item.name]: 1 }));
-        notify('success', outcome.message);
+        const marker = target === 'pc' ? `*uses the ${item.name}*` : `*gives ${sheet.name} the ${item.name}*`;
+        const open = chatState().itemUse;
+        const entries = [...(open && (open.attachedTo === null || open.attachedTo === undefined) ? open.entries : []), { name: item.name, target, marker }];
+        saveChatState({ itemUse: { entries, handoff: '', attachedTo: null, applied: null } });
+        const box = globalThis.document?.getElementById?.('send_textarea') ?? null;
+        if (box) {
+            box.value = `${String(box.value ?? '').trim()} ${marker}`.trim();
+            box.dispatchEvent(new Event('input', { bubbles: true }));
+            box.focus?.();
+        }
+        notify('info', `${marker} is in your message. The ${item.name} is used when you send it.`);
+        goParty(null);
     }),
     onGenerateKit: who => void generateKit({ ...(who ?? {}), skills: [] }),
     onAddCompanion: input => void guarded(async () => {
@@ -3154,6 +3312,7 @@ function battleKey() {
 }
 
 function partyKey() {
+    if (partyPage === 'trade' && currentSheet()) return `trade|${tradeKey()}`;
     const ctx = context();
     const state = chatState(ctx);
     const story = state.story ? `${state.story.index}:${state.story.signature}:${state.story.undone}:${state.story.applied?.length ?? 0}:${canUndoStory(ctx, state)}` : '';
@@ -3170,15 +3329,60 @@ function npcKey(state) {
     return `${profiles.length}:${profiles.filter(profile => linked.has(String(profile.id))).map(profile => `${profile.id}=${profile.name}`).join(',')}`;
 }
 
+// (0.5.38) The Party tab's two views, switched at its top: the party, and trading. One tab, not
+// two: the sidebar has enough of them.
+let partyPage = 'party';
+
+function pageSwitch(pane, onPick) {
+    const doc = globalThis.document;
+    const row = doc.createElement('div');
+    row.className = 'rpg-battle-page-switch';
+    row.setAttribute('role', 'tablist');
+    for (const [page, label, iconName] of [['party', 'Party', 'fa-users'], ['trade', 'Trade', 'fa-coins']]) {
+        const button = doc.createElement('button');
+        button.type = 'button';
+        button.className = `menu_button rpg-battle-page${partyPage === page ? ' is-current' : ''}`;
+        button.setAttribute('role', 'tab');
+        button.setAttribute('aria-selected', String(partyPage === page));
+        const glyph = doc.createElement('i');
+        glyph.className = `fa-solid ${iconName}`;
+        glyph.setAttribute('aria-hidden', 'true');
+        const text = doc.createElement('span');
+        text.textContent = label;
+        button.append(glyph, text);
+        // A trade waiting for the next reply is marked on its switch.
+        if (page === 'trade' && handoffState(chatState().trade, context()?.chat ?? []) === 'waiting') {
+            const dot = doc.createElement('span');
+            dot.className = 'rpg-battle-count';
+            dot.textContent = '1';
+            button.append(dot);
+        }
+        button.addEventListener('click', () => onPick(page));
+        row.append(button);
+    }
+    return row;
+}
+
 function renderParty(pane) {
     const { legacy, folded } = currentSheets();
     if (legacy || folded) scheduleMigration();
     scheduleNpcFollow();
-    renderBattleTab(pane, partyView(), partyHandlers);
+    const page = currentSheet() ? partyPage : 'party';
+    const body = globalThis.document.createElement('div');
+    body.className = 'rpg-battle-page-body';
+    const redraw = next => {
+        partyPage = next;
+        renderParty(pane);
+    };
+    pane.replaceChildren(...(currentSheet() ? [pageSwitch(pane, redraw)] : []), body);
+    if (page === 'trade') renderTradeTab(body, tradeView(), tradeHandlers);
+    else renderBattleTab(body, partyView(), partyHandlers);
     settingsPanel?.setSheetConflict?.(sheetConflict());
 }
 
 function renderBattle(pane) {
+    // A fight set up or under way: the toast that offered it has done its job.
+    if (encounterToast.toast && (underWay(chatState()) || screen.mode === 'setup' || screen.mode === 'fight')) clearEncounterToast();
     renderBattleTab(pane, battleView(), battleHandlers);
 }
 
@@ -3226,6 +3430,50 @@ function tradeContext() {
     return { r, own, state, inventory, place, people, level, prices, pc, plevel: pc?.level ?? 1 };
 }
 
+// (0.5.38) The story day (Story Director's clock at the latest reply), or '' without one.
+function storyDay() {
+    const clock = storyClock();
+    const now = clock ? clock.timeAt(latestAssistantIndex(context()?.chat ?? [])) : null;
+    return now === null || now === undefined ? '' : String(Math.floor(now / (24 * 60)));
+}
+
+const shopKey = (kind, place) => `${placeKey(place)}|${kind}`;
+
+/**
+ * (0.5.38) A trader kind's stock at this place today: the same all day (shopStock, seeded by
+ * place, kind and story day), unlike what it offered on the days before, less what was bought
+ * from it. Worked out, never stored: only what was bought and what was offered are kept.
+ */
+function stockFor(t, kind) {
+    const key = shopKey(kind, t.place);
+    const day = storyDay();
+    const seen = t.state.shopSeen?.[key];
+    // What it offered before today: a stock remembered on an earlier day is the one to differ from.
+    const before = seen && seen.day !== day ? seen.names : seen?.before ?? [];
+    const items = shopStock({ kind, prices: t.prices, seed: `${key}|${day}`, seen: before, level: t.plevel, rules: t.r });
+    const shop = t.state.shops?.[key];
+    const bought = shop && shop.day === day ? shop.bought : [];
+    return { key, day, before, items: items.filter(item => !bought.includes(item.name)), all: items };
+}
+
+/**
+ * (0.5.38) Who is here, for the optional named-trader list: Story Block's World State (NPCs
+ * Present), else NPC State Delta's present NPCs, else known NPCs the latest reply names. Your
+ * own party is never one of them.
+ */
+function presentPeople() {
+    const party = new Set([currentSheet()?.name, ...currentParty().map(member => member.name)].filter(Boolean).map(name => String(name).trim().toLowerCase()));
+    const keep = names => [...new Set(names.map(name => String(name ?? '').trim()).filter(Boolean))].filter(name => !party.has(name.toLowerCase()));
+    const scene = keep(worldScene().people);
+    if (scene.length) return scene;
+    const profiles = npcProfiles();
+    const present = keep(profiles.filter(profile => profile.present).map(profile => profile.name));
+    if (present.length) return present;
+    const chat = context()?.chat ?? [];
+    const latest = String(chat[latestAssistantIndex(chat)]?.mes ?? '');
+    return keep(profiles.map(profile => profile.name).filter(name => name.length >= 3 && new RegExp(`(?<![\\p{L}])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}])`, 'iu').test(latest)));
+}
+
 function craftPreview(t, { name, materials, slot, days, kind }) {
     const [plan] = craftPlan(t.inventory, [{ name, materials, slot }], { level: t.plevel, rules: t.r });
     if (!plan) return null;
@@ -3242,6 +3490,8 @@ function tradeView() {
     if (!storyBlock()) return { ready: false, reason: 'Trading needs Story Block (its Inventory).' };
     const t = tradeContext();
     if (!t.pc) return { ready: false, reason: 'Make your character first (Party tab).' };
+    // (0.5.38) Who is here, as extra choices beside the trader kinds; never your own party.
+    t.people = presentPeople();
     const c = t.r.currency;
     const purse = purseOf(t.inventory, c)?.total ?? 0;
     const items = sellable(t.inventory, c);
@@ -3255,9 +3505,9 @@ function tradeView() {
         people: t.people,
         purse,
         purseText: formatMoney(purse, c),
-        sellable: items.map(item => ({ name: item.name, qty: item.qty, note: item.note })),
-        materials: items.filter(item => kindOf(item) !== 'consumable').map(item => ({ name: item.name, qty: item.qty, note: item.note })),
-        orders: ordersIn(t.inventory).map(item => ({ name: item.name, note: item.note, with: String(item.note ?? '').match(/\bon order with ([^,·]+)/i)?.[1]?.trim() ?? '' })),
+        sellable: items.map(item => ({ name: item.name, qty: item.qty, note: item.note, rarity: item.rarity })),
+        materials: items.filter(item => kindOf(item) !== 'consumable').map(item => ({ name: item.name, qty: item.qty, note: item.note, rarity: item.rarity })),
+        orders: ordersIn(t.inventory).map(item => ({ name: item.name, note: item.note, rarity: item.rarity, with: String(item.note ?? '').match(/\bon order with ([^,·]+)/i)?.[1]?.trim() ?? '' })),
         pending,
         orderDays: t.r.trade.orderDays,
         money: amount => formatMoney(amount, c),
@@ -3270,6 +3520,7 @@ function tradeView() {
             const made = craftPreview(t, request);
             return made ? { name: made.name, note: made.note, fee: made.fee, ready: made.ready } : null;
         },
+        stock: kind => stockFor(t, kind).items.map(item => ({ name: item.name, note: item.note, price: item.price, rarity: item.rarity })),
     };
 }
 
@@ -3287,12 +3538,35 @@ async function recordTrade(next, entry) {
     const open = current && (current.attachedTo === null || current.attachedTo === undefined);
     const entries = [...(open ? current.entries : []), entry];
     const name = currentSheet()?.name || 'The party';
-    saveChatState({ trade: { entries, handoff: tradeHandoff(entries, { name, currency: rules().currency }), origin: open ? current.origin : fightOrigin(chat, latest), attachedTo: null } });
+    const place = worldScene().place.split('|')[0].trim();
+    saveChatState({ trade: { entries, handoff: tradeHandoff(entries, { name, place, currency: rules().currency }), origin: open ? current.origin : fightOrigin(chat, latest), attachedTo: null } });
     logActivity(`Trade: ${tradeLine(entry, rules().currency)}`);
     storyBlock()?.refresh?.();
 }
 
 const tradeHandlers = {
+    onBuy: async ({ name, who, kind }) => {
+        try {
+            const t = tradeContext();
+            const stock = stockFor(t, kind);
+            const item = stock.items.find(entry => entry.name === name);
+            if (!item) throw new Error(`${who} has no ${name} left`);
+            const { text, ok } = buyIn(t.inventory, item, t.r.currency);
+            if (!ok) throw new Error('your purse cannot pay for it');
+            const state = chatState();
+            const shop = state.shops?.[stock.key];
+            const bought = shop && shop.day === stock.day ? shop.bought : [];
+            // Today's stock remembered as offered, so another day's restock differs from it.
+            saveChatState({
+                shops: { ...(state.shops ?? {}), [stock.key]: { day: stock.day, bought: [...bought, name] } },
+                shopSeen: { ...(state.shopSeen ?? {}), [stock.key]: { day: stock.day, before: stock.before, names: rememberStock(stock.before, stock.all) } },
+            });
+            await recordTrade(text, { kind: 'buy', name, total: item.price, who });
+            notify('success', `Bought ${name} for ${formatMoney(item.price, t.r.currency)}. Your next reply tells it.`);
+        } catch (error) {
+            notify('error', `It could not be bought: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    },
     onSell: async ({ name, qty, each, who }) => {
         try {
             const t = tradeContext();
@@ -3343,12 +3617,9 @@ function tradeKey() {
     const ctx = context();
     const state = chatState(ctx);
     const own = settings(ctx);
-    return [...baseKey(ctx, state), blockText(own.inventoryTag), storyBlock()?.getBlock?.(WORLD_TAG)?.text?.length ?? 0, JSON.stringify(state.trade ?? null), JSON.stringify(state.tradePrices ?? {}), currentSheet()?.level ?? 0].join('|');
+    return [...baseKey(ctx, state), blockText(own.inventoryTag), storyBlock()?.getBlock?.(WORLD_TAG)?.text?.length ?? 0, JSON.stringify(state.trade ?? null), JSON.stringify(state.tradePrices ?? {}), currentSheet()?.level ?? 0, JSON.stringify(state.shops ?? {}), storyDay(), presentPeople().join(',')].join('|');
 }
 
-function renderTrade(pane) {
-    renderTradeTab(pane, tradeView(), tradeHandlers);
-}
 
 // ---------------------------------------------------------------------------
 // Registration
@@ -3397,7 +3668,8 @@ function registerWithStoryBlock() {
         badge: () => {
             const offers = currentOffers();
             scheduleQuestAwards(offers);
-            return shownOffers(offers).length;
+            // (0.5.38) And a trade waiting to be told.
+            return shownOffers(offers).length + (handoffState(chatState().trade, context()?.chat ?? []) === 'waiting' ? 1 : 0);
         },
         render: pane => renderParty(pane),
     });
@@ -3412,17 +3684,6 @@ function registerWithStoryBlock() {
         key: battleKey,
         badge: () => (currentFight() || chatState().plan || encounterOffer() ? 1 : 0),
         render: pane => renderBattle(pane),
-    });
-    // (0.5.37) The Trade tab: while there is a character to trade for.
-    sb.registerTab({
-        id: TRADE_TAB_ID,
-        label: 'Trade',
-        icon: '🪙',
-        order: 81,
-        isAvailable: () => settings().enabled && Boolean(currentSheet()),
-        key: tradeKey,
-        badge: () => (handoffState(chatState().trade, context()?.chat ?? []) === 'waiting' ? 1 : 0),
-        render: pane => renderTrade(pane),
     });
     sb.onReply?.(payload => void afterReply(payload));
     // Story Block's settings can change under us (its Character Sheet switched on or off).
@@ -3554,6 +3815,7 @@ function init() {
             setPrompt('');
             setPrompt('', RULES_PROMPT_KEY);
             setPrompt('', TRADE_PROMPT_KEY, 0);
+            setPrompt('', ITEM_PROMPT_KEY, 0);
             try {
                 settlePending();
             } catch (error) {

@@ -9,8 +9,9 @@
 // gear). The tab writes the result into the latest reply's Inventory, as a fight's loot is, and
 // the next reply is told what happened in a line the story turns into the scene (tradeHandoff).
 
-import { DEFAULT_RULES } from './rules.js';
-import { addLoot, applyCrafts, capItem, collectOrders, formatMoney, nameKey, parseInventory, purseOf, spendMoney, useItems } from './items.js';
+import { DEFAULT_RULES, RARITIES, rarityBudget } from './rules.js';
+import { addLoot, applyCrafts, capItem, collectOrders, formatMoney, itemSlot, mainStat, nameKey, parseEffect, parseInventory, purseOf, spendMoney, useItems } from './items.js';
+import { makeRng } from './rng.js';
 
 const tradeRules = rules => ({ ...DEFAULT_RULES.trade, ...(rules?.trade ?? {}) });
 const words = text => String(text ?? '').toLowerCase().split(/[^a-z-]+/).filter(Boolean);
@@ -50,9 +51,16 @@ export function itemWorth(item, { level = 1, rules = DEFAULT_RULES } = {}) {
  */
 export function placePrices(place, { level = null, rules = DEFAULT_RULES } = {}) {
     const t = tradeRules(rules);
-    const said = words(place);
+    // The settlement's own name first ("Bluewatch Village | Market Square" is a village, not a market town).
     let tier = 'town';
-    for (const [name, area] of Object.entries(t.areas)) if (area.words.some(word => said.includes(word))) tier = name;
+    for (const part of String(place ?? '').split('|')) {
+        const said = words(part);
+        const found = Object.entries(t.areas).filter(([, area]) => area.words.some(word => said.includes(word))).map(([name]) => name);
+        if (found.length) {
+            tier = found.at(-1);
+            break;
+        }
+    }
     const area = t.areas[tier] ?? { buy: 1, sell: 1 };
     const by = typeof level === 'number' && level > 0 ? level : t.levels[level] ?? 1;
     return { tier, buy: area.buy * by, sell: area.sell * by, level: level ?? null };
@@ -116,12 +124,96 @@ export function collectIn(inventoryText, name, currency = DEFAULT_RULES.currency
     return { text: collectOrders(inventoryText, inventoryText, [name], currency) };
 }
 
-/** One trade as the story is told it: "sold 5 Rat Tail to Elke for 3 silver". */
-export function tradeLine(entry, currency = DEFAULT_RULES.currency) {
-    const who = String(entry?.who ?? '').trim();
+// ---------------------------------------------------------------------------
+// (0.5.38) Shop stock: what a trader has for sale, by their trade and the place, the same all
+// day (seeded by place, trader and story day), different from what they offered before.
+
+const potion = (name, effect, from = 'village') => ({ name, kind: 'consumable', effect, from });
+const goods = name => ({ name, kind: 'goods', from: 'remote' });
+const gear = (name, from = 'remote') => ({ name, kind: 'equipment', from });
+const TIER_ORDER = ['remote', 'village', 'town', 'city', 'capital'];
+export const STOCK = {
+    general: [potion('Minor Healing Draught', 'heal 20', 'remote'), potion('Healing Draught', 'heal 30'), potion('Antidote', 'cure poison'), goods('Rope'), goods('Torch'), goods('Travel Rations'), goods('Bedroll'), goods('Whetstone'), goods('Flint & Steel'), gear('Leather Gloves'), gear('Walking Boots'), gear('Travelling Cloak')],
+    guild: [potion('Minor Healing Draught', 'heal 20', 'remote'), potion('Healing Draught', 'heal 30'), potion('Antidote', 'cure poison'), goods('Rope'), goods('Torch'), goods('Bedroll'), gear('Short Sword'), gear('Leather Jerkin'), gear('Buckler')],
+    apothecary: [potion('Minor Healing Draught', 'heal 20', 'remote'), potion('Healing Draught', 'heal 30'), potion('Greater Healing Draught', 'heal 60', 'town'), potion('Mana Tonic', 'mp 20'), potion('Greater Mana Tonic', 'mp 40', 'town'), potion('Antidote', 'cure poison', 'remote'), potion('Elixir', 'heal 120', 'city')],
+    smith: [gear('Iron Dagger'), gear('Short Sword'), gear('Hand Axe'), gear('Spear'), gear('Mace'), gear('Longsword', 'town'), gear('Buckler'), gear('Iron Shield', 'village'), gear('Leather Jerkin'), gear('Chain Shirt', 'town'), gear('Iron Helm', 'village'), gear('Gauntlets', 'village')],
+    crafter: [gear('Bone Charm'), gear('Copper Ring'), gear('Silver Ring', 'town'), gear('Leather Gloves'), gear('Leather Boots'), gear('Belt'), gear('Travelling Cloak'), gear('Amulet', 'village')],
+    fence: [potion('Healing Draught', 'heal 30'), potion('Antidote', 'cure poison'), gear('Stiletto'), gear('Short Sword'), gear('Silver Ring', 'remote'), gear('Studded Coat'), gear('Amulet', 'remote'), goods('Lockpicks')],
+};
+// The rarity of a piece for sale, by the place (% for common, uncommon, rare, epic).
+const STOCK_RARITY = { remote: [85, 15, 0, 0], village: [78, 20, 2, 0], town: [65, 29, 6, 0], city: [55, 32, 11, 2], capital: [45, 35, 15, 5] };
+const STOCK_SIZE = [5, 7];
+const SEEN_KEPT = 40;
+
+const tierAtLeast = (tier, from) => TIER_ORDER.indexOf(tier) >= TIER_ORDER.indexOf(from);
+
+function stockRarity(rng, tier, fence) {
+    const odds = STOCK_RARITY[tier] ?? STOCK_RARITY.town;
+    let roll = rng.int(1, 100);
+    let index = 0;
+    while (index < odds.length - 1 && roll > odds[index]) roll -= odds[index++];
+    // A fence's goods came from somewhere better, now and then.
+    if (fence && index < 3 && rng.chance(20)) index += 1;
+    return RARITIES[index];
+}
+
+/**
+ * What `kind` of trader (buyerKind) has for sale at `prices` (placePrices) on `day`: [{ name,
+ * kind, rarity, stats, slot, effect, note, price }], the same for the same place, trader and
+ * day (`seed`), preferring what is not in `seen` (what they offered before). Prices: the
+ * thing's worth × the place's goods price (a fence a little under).
+ */
+export function shopStock({ kind = 'general', prices = placePrices(''), seed = '', seen = [], level = 1, rules = DEFAULT_RULES } = {}) {
+    const rng = makeRng(`shop:${seed}`);
+    const tier = prices.tier ?? 'town';
+    const pool = (STOCK[kind] ?? STOCK.general).filter(entry => tierAtLeast(tier, entry.from));
+    const old = new Set((seen ?? []).map(nameKey));
+    // New things first, in an order of the day's own; what they had before fills the rest.
+    const order = pool.map(entry => ({ entry, key: (old.has(nameKey(entry.name)) ? 1 : 0) + rng.next() * 0.9 })).sort((a, b) => a.key - b.key).map(({ entry }) => entry);
+    const count = Math.min(order.length, rng.int(STOCK_SIZE[0], STOCK_SIZE[1]));
+    return order.slice(0, count).map(entry => {
+        const rarity = entry.kind === 'equipment' ? stockRarity(rng, tier, kind === 'fence') : 'common';
+        const item = { name: entry.name, kind: entry.kind, rarity, stats: {}, slot: null, effect: null, tags: [] };
+        if (entry.kind === 'equipment') {
+            item.slot = itemSlot(entry.name, {});
+            const stat = mainStat({ name: entry.name, slot: item.slot });
+            const share = Number(rules.generated?.gearBudgetShare ?? DEFAULT_RULES.generated.gearBudgetShare) || 0.75;
+            item.stats = { [stat]: Math.max(1, Math.round(rarityBudget(rarity, level, rules) * share / (Number(rules.statCost?.[stat]) || 1))) };
+        }
+        if (entry.kind === 'consumable') item.effect = parseEffect(entry.effect);
+        const worth = itemWorth({ ...item, effect: item.effect }, { level, rules });
+        const price = Math.max(1, Math.round(worth * (prices.buy ?? 1) * (kind === 'fence' ? 0.8 : 1)));
+        const note = entry.kind === 'equipment'
+            ? [rarity, Object.entries(item.stats).map(([name, value]) => `${name} +${value}`).join(', ')].join(' · ')
+            : entry.kind === 'consumable' ? entry.effect : '';
+        return { ...item, effectText: entry.effect ?? '', note, price };
+    });
+}
+
+/** What a trader offered before, with `items` added: the newest SEEN_KEPT names. */
+export function rememberStock(seen = [], items = []) {
+    const names = [...(seen ?? []), ...(items ?? []).map(item => item.name)];
+    return [...new Set(names.reverse())].reverse().slice(-SEEN_KEPT);
+}
+
+/** `item` (shopStock's) bought for its price: { text, ok } — ok false when the purse cannot pay. */
+export function buyIn(inventoryText, item, currency = DEFAULT_RULES.currency) {
+    const paid = spendMoney(inventoryText, item.price, currency);
+    if (!paid.ok) return { text: inventoryText, ok: false };
+    const piece = { name: item.name, qty: 1, kind: item.kind === 'goods' ? 'goods' : item.kind, rarity: item.rarity, stats: item.stats ?? {}, slot: item.slot ?? null, ...(item.effectText ? { effect: item.effectText } : {}), ...(item.kind === 'goods' ? { note: '' } : {}) };
+    return { text: addLoot(paid.text, { items: [piece] }, currency), ok: true };
+}
+
+/**
+ * One trade as the story is told it: "sold 5 Rat Tail to Elke for 3 silver"; with `alone` false
+ * (the trader already said, in the errand run) without the trader: "sold 5 Rat Tail for 3 silver".
+ */
+export function tradeLine(entry, currency = DEFAULT_RULES.currency, { alone = true } = {}) {
+    const who = alone ? String(entry?.who ?? '').trim() : '';
     const money = amount => formatMoney(amount, currency);
     const to = who ? ` to ${who}` : '';
     const by = who ? ` by ${who}` : '';
+    if (entry?.kind === 'buy') return `bought ${entry.name}${who ? ` from ${who}` : ''} for ${money(entry.total)}`;
     if (entry?.kind === 'sell') return `sold ${entry.qty > 1 ? `${entry.qty} ` : ''}${entry.name}${to} for ${money(entry.total)}`;
     if (entry?.kind === 'order') return `ordered ${entry.name}${who ? ` from ${who}` : ''}, made from ${entry.from.join(', ')}, ready ${entry.ready}${entry.fee ? `, for ${money(entry.fee)}` : ''}`;
     if (entry?.kind === 'craft') return `had ${entry.name} made${by} from ${entry.from.join(', ')}${entry.fee ? ` for ${money(entry.fee)}` : ''}`;
@@ -133,8 +225,22 @@ export function tradeLine(entry, currency = DEFAULT_RULES.currency) {
  * The note the next reply is given after trades in the tab: what was done, with the amounts as
  * they are, for the story to tell in its own voice. '' when there is nothing to tell.
  */
-export function tradeHandoff(entries, { name = 'The party', currency = DEFAULT_RULES.currency } = {}) {
-    const lines = (entries ?? []).map(entry => tradeLine(entry, currency)).filter(Boolean);
-    if (!lines.length) return '';
-    return `[Trade] Since the last reply, ${name} ${lines.join('; ')}.\nTell it as part of the scene, in the story's own voice. No menus or game terms; keep the amounts and what was made exactly as they are (the Inventory already shows them).`;
+export function tradeHandoff(entries, { name = 'The party', place = '', currency = DEFAULT_RULES.currency } = {}) {
+    // (0.5.38) One errand run: the trades grouped by trader, in the order they were first visited.
+    const groups = new Map();
+    for (const entry of entries ?? []) {
+        const line = tradeLine(entry, currency, { alone: false });
+        if (!line) continue;
+        const who = String(entry.who ?? '').trim();
+        if (!groups.has(who)) groups.set(who, []);
+        groups.get(who).push(line);
+    }
+    if (!groups.size) return '';
+    const tail = `\nTell it briefly as part of the scene, in the story's own voice. No menus or game terms; keep the amounts and what was made exactly as they are (the Inventory already shows them).`;
+    // One trader: plain lines, each saying who ("bought an Antidote from Elke for 7 copper").
+    if (groups.size === 1) return `[Trade] Since the last reply, ${name} ${(entries ?? []).map(entry => tradeLine(entry, currency)).filter(Boolean).join(', ')}.${tail}`;
+    const at = who => (!who ? '' : /^(?:the|a|an)\s/i.test(who) ? `at ${who}, ` : `with ${who}, `);
+    const visits = [...groups.entries()].map(([who, lines]) => `${at(who)}${lines.join(', ')}`);
+    const round = groups.size > 1 ? ` went round${place ? ` ${place}` : ''}:` : '';
+    return `[Trade] Since the last reply, ${name}${round} ${visits.join('; ')}.${tail}`;
 }

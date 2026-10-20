@@ -36,6 +36,7 @@ import { levelTag, levelText, progress, termsOf, xpGainText } from '../terms.js'
 import { buildStats, cleanFocus, guessFocus } from '../builds.js';
 
 const ROLES = ['brute', 'skirmisher', 'caster', 'tank', 'support'];
+const RARITY_NAMES = new Set(['common', 'uncommon', 'rare', 'epic', 'legendary']);
 const SKILL_TYPES = ['physical', 'magic', 'heal', 'buff', 'debuff'];
 const SKILL_TARGETS = ['one', 'all', 'self', 'ally', 'allies'];
 // A template's element puts its condition on a hit (skills.skillFromTemplate); heals and buffs ignore it.
@@ -476,6 +477,12 @@ function renderIdle(root, view, handlers) {
     ]));
     const creatures = list(view.bestiary).filter(entry => entry && str(entry.name));
     root.append(bestiaryFold(creatures, handlers));
+    // (0.5.38) What RPG Battle adds to the next reply, as it would be sent.
+    const sent = list(view.sent);
+    root.append(fold('is-sent', 'What\u2019s sent', 'fa-paper-plane', sent.length, sent.length ? sent.map(part => el('div', { className: 'rpg-battle-sent-part' }, [
+        el('div', { className: 'rpg-battle-sub' }, [el('span', { text: `${str(part.label)} · depth ${num(part.depth)}` })]),
+        el('pre', { className: 'rpg-battle-sent-text', text: str(part.text) }),
+    ])) : [el('p', { className: 'rpg-battle-hint', text: 'Nothing: the next reply gets nothing from RPG Battle.' })]));
 }
 
 // The offer whose Accept is armed (an offer that asks twice, like a fallen companion's Remove).
@@ -667,9 +674,11 @@ function memberCard(member, view, handlers) {
         statGrid(sheet, member.you ? member.checks : null),
         combatLine(member.combat, rules),
         pointsRow(member, sheet, view, handlers),
-        cardSkills(member, id, view, handlers),
-        member.you ? yourGear(member.gear) : companionGear(member, id, view, handlers),
-        editing ? editForm(member, handlers) : member.you ? startOverControls(handlers, { companions: list(view.party).length }) : memberControls(member, handlers),
+        // (0.5.38) On a phone the skills and gear fold away until opened.
+        phoneFold(cardSkills(member, id, view, handlers), `is-card-skills-${id}`, 'Skills', 'fa-wand-sparkles'),
+        phoneFold(member.you ? yourGear(member.gear) : companionGear(member, id, view, handlers), `is-card-gear-${id}`, 'Gear', 'fa-shield-halved'),
+        // (0.5.38) Start over behind a "More" fold, out of the way of the gear; it still asks twice.
+        editing ? editForm(member, handlers) : member.you ? fold('is-card-more', 'More', 'fa-ellipsis', null, [startOverControls(handlers, { companions: list(view.party).length })]) : memberControls(member, handlers),
     ]);
     const details = el('details', { className: `rpg-battle-member-card${member.you ? ' is-you' : ' rpg-battle-member'}${editing ? ' is-editing' : ''}` }, [summary, body]);
     details.open = openCards.has(key) ? openCards.get(key) : member.you || Boolean(editing);
@@ -841,7 +850,8 @@ function cardSkills(member, id, view, handlers) {
 function gearPiece(piece, extra = null) {
     const item = el('li', { className: 'rpg-battle-record rpg-battle-gear' }, [
         el('div', { className: 'rpg-battle-record-head' }, [
-            el('span', { className: 'rpg-battle-record-name', text: str(piece.name) }),
+            // (0.5.38) In its rarity's colour.
+            el('span', { className: `rpg-battle-record-name rpg-rarity is-${RARITY_NAMES.has(str(piece.rarity).toLowerCase()) ? str(piece.rarity).toLowerCase() : 'common'}`, text: str(piece.name) }),
             el('span', { className: 'rpg-battle-tag is-quiet', text: SLOT_NAMES[piece.slot] ?? str(piece.slot) }),
             extra,
         ]),
@@ -893,6 +903,20 @@ function companionGear(member, id, view, handlers) {
 
 // Start over: your sheet cleared (and, unless kept, the companions) and creation opened; it
 // asks twice, and nothing is carried over.
+// (0.5.38) A phone-width pane: a section folds away under its label until opened.
+const narrow = () => {
+    try {
+        return Boolean(globalThis.matchMedia?.('(max-width: 600px)')?.matches);
+    } catch {
+        return false;
+    }
+};
+
+function phoneFold(node, className, label, iconName) {
+    if (!node || !narrow()) return node;
+    return fold(`rpg-battle-phone-fold ${className}`, label, iconName, null, [node]);
+}
+
 function startOverControls(handlers, { companions = 0 } = {}) {
     const keep = el('input', { className: 'rpg-battle-keep-companions', attrs: { type: 'checkbox', 'aria-label': 'Keep the companions' } });
     keep.checked = keepCompanions;
@@ -1595,7 +1619,7 @@ function aimOf(target, { type = null, damages = false } = {}) {
  * its attack, defence, AGI and DEX, then the two hit chances the fight rolls for physical
  * attacks. Each part's title says where it comes from.
  */
-function matchup(enemy, versus, rules) {
+function matchup(enemy, versus, rules, { hit = true } = {}) {
     const s = enemy.stats ?? {};
     const a = rules.attack ?? DEFAULT_RULES.attack;
     const parts = [
@@ -1608,10 +1632,10 @@ function matchup(enemy, versus, rules) {
         const name = versus.memberId === 'pc' || versus.id === 'pc' ? null : str(versus.name);
         const yours = hitChance(versus.stats?.DEX, s.AGI, rules);
         const theirs = hitChance(s.DEX, versus.stats?.AGI, rules);
-        parts.push(
+        if (hit) parts.push(
             ['hit', `${name ? `${name} hits` : 'You hit'} ${tidy(yours)}%`, `A physical attack lands ${tidy(yours)}% of the time: ${a.hitBase}% + ${a.hitPerPoint}% per point of ${name ?? 'your'} DEX (${num(versus.stats?.DEX)}) over its AGI (${num(s.AGI)}). Spells never miss`],
-            ['dodge', `${name ? `${name} dodges` : 'You dodge'} ${tidy(100 - theirs)}%`, `${name ?? 'You'} dodge${name ? 's' : ''} its physical attacks ${tidy(100 - theirs)}% of the time: they land ${a.hitBase}% + ${a.hitPerPoint}% per point of its DEX (${num(s.DEX)}) over ${name ?? 'your'} AGI (${num(versus.stats?.AGI)}). Its spells never miss`],
         );
+        parts.push(['dodge', `${name ? `${name} dodges` : 'You dodge'} ${tidy(100 - theirs)}%`, `${name ?? 'You'} dodge${name ? 's' : ''} its physical attacks ${tidy(100 - theirs)}% of the time: they land ${a.hitBase}% + ${a.hitPerPoint}% per point of its DEX (${num(s.DEX)}) over ${name ?? 'your'} AGI (${num(versus.stats?.AGI)}). Its spells never miss`]);
     }
     // Its numbers on one line, the two chances on the next, so a narrow card wraps cleanly.
     const line = list => el('ul', { className: 'rpg-battle-matchup-line' }, list.map(([key, text, title]) => el('li', { className: `rpg-battle-matchup-part is-${key}`, text, attrs: { title } })));
@@ -1668,7 +1692,8 @@ function combatantCard(unit, { turnId, pick, onPick, versus = null, previews = n
         !isEnemy ? bar('mp', unit.mp?.cur, unit.mp?.max, `${unit.name ?? ''} MP`) : null,
         !isEnemy && unit.sp ? bar('sp', unit.sp.cur, unit.sp.max, `${unit.name ?? ''} SP`) : null,
         pickable && preview ? previewLine(preview) : null,
-        isEnemy && !unit.gone ? matchup(unit, versus, rules) : null,
+        // (0.5.38) While aiming, the preview already gives the hit chance: once is enough.
+        isEnemy && !unit.gone ? matchup(unit, versus, rules, { hit: !(pickable && preview) }) : null,
         chips(unit.conditions),
     ]);
     card.dataset.combatantId = unit.id;
