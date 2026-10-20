@@ -15,7 +15,6 @@
 import { DEFAULT_RULES, xpToNext } from './rules.js';
 
 export const DEFAULT_TERMS = Object.freeze({ levelName: 'Level', xpName: 'XP', tiers: null, cap: null });
-export const NUMERALS = Object.freeze(['roman', 'arabic']);
 
 const DEFAULT_TIER_SIZE = 10;
 // A term is a label in the blocks (`Soul Class: …`), so it may not hold what separates

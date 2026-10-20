@@ -773,24 +773,12 @@
     opacity: 1;
 }
 
-.rpg-battle-tab .rpg-battle-chooser {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-}
-
-/* Preset names come from an editable data file; a long one wraps rather than overflows. */
-.rpg-battle-tab .rpg-battle-chooser .menu_button {
-    white-space: normal;
-}
-
 .rpg-battle-tab .menu_button[aria-pressed="true"],
 .rpg-battle-tab .menu_button.is-selected {
     border-color: var(--rb-accent);
     background: color-mix(in srgb, var(--rb-accent) 18%, transparent);
 }
 
-.rpg-battle-tab .rpg-battle-picks,
 .rpg-battle-tab .rpg-battle-menu-list {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
@@ -829,12 +817,6 @@
 .rpg-battle-tab .rpg-battle-pick-meta {
     font-size: 0.78em;
     opacity: 0.65;
-}
-
-.rpg-battle-tab .rpg-battle-pick-desc {
-    font-size: 0.8em;
-    line-height: 1.35;
-    opacity: 0.8;
 }
 
 .rpg-battle-tab .rpg-battle-pick-reason {
@@ -1798,11 +1780,6 @@
     flex: 0 0 4rem;
     width: 4rem;
     margin: 0;
-}
-
-.rpg-trade-tab .rpg-trade-price {
-    font-variant-numeric: tabular-nums;
-    opacity: 0.8;
 }
 
 .rpg-trade-tab .rpg-trade-preview {

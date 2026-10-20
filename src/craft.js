@@ -56,11 +56,6 @@ export function materialAffinity(name, note = '', creature = '') {
     return { stat, element };
 }
 
-/** A material's affinity as its note's tail: `MDEF, poison`; '' when it has none. */
-export function affinityText({ stat = null, element = null } = {}) {
-    return [stat, element].filter(Boolean).join(', ');
-}
-
 /**
  * <Crafted> lines: `Skull Charm from Brood-Mother Skull, 2 Fang | slot: worn`, one piece each
  * (a "2 Fang" or "Fang ×2" uses two). [{ name, materials: [{ name, qty }], slot }]; a line

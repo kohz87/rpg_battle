@@ -433,9 +433,6 @@ function skillsFor(moves, traits) {
 
 const fill = (pattern, name, noun) => String(pattern).replace(/\{name\}/g, name).replace(/\{noun\}/g, noun).replace(/\s+/g, ' ').trim();
 
-function rarityIndex(rarity) {
-    return Math.max(0, RARITIES.indexOf(rarity));
-}
 
 /** The gear rarity a creature of this rank drops (rules.generated.gearRarity). */
 export function gearRarityFor(rank, rules = DEFAULT_RULES) {
