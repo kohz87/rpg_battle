@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.47
+
+- **Use applies the item at once again.** Since 0.5.38 **Use** put *\*uses the Minor Healing Draught\** in your message box and the item worked only with the reply. Now it works on the click, as before: the HP onto the sheet, the item off the Inventory, written into the latest reply (deleting or swiping that reply takes it back). Your next reply is told what happened with the exact numbers, so the story doesn't contradict it; nothing goes in your message.
+- **Several doses.** The Items page stays open after **Use**, so each click is one more dose, until the stack is gone or the HP is full. One note tells the next reply all of them (*+20 HP (now 30/62) … +20 HP (now 50/62)*). The marker way could promise more doses than you had, or use two when you had taken one marker out; both are gone with it.
+
 ## 0.5.46
 
 - **Prices are set in the settings, not on the Trade page.** The Trade page had a **Prices here** choice, so a player could make any place cheap. It is gone; the page now only says the prices (*village prices: goods ×0.9, offers ×0.85*, or *dear prices (set in the settings)*). Your own word for a place is in **Settings → RPG Battle → Trade**: a list of places, each cheap, fair or dear, with Add and a remove button. A chat's choices from the old **Prices here** are moved into that list when the chat is opened (a place already listed keeps what you set).

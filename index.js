@@ -70,7 +70,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.46';
+const VERSION = '0.5.47';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -344,9 +344,10 @@ function chatState(ctx = context()) {
         // (0.5.37) Trades made in the Trade tab, for the next reply to tell: { entries, handoff,
         // origin (the reply they were written into), attachedTo }, gone with that reply.
         trade: holding(state.trade ?? null),
-        // (0.5.38) Items used outside a fight, sent with the reader's message: { entries: [{ name,
-        // target, marker }], handoff, attachedTo, applied (the reply they were applied to) }.
-        itemUse: state.itemUse && typeof state.itemUse === 'object' && Array.isArray(state.itemUse.entries) ? state.itemUse : null,
+        // (0.5.47) Items used outside a fight, for the next reply to tell: { entries (a line each),
+        // handoff, origin (the reply they were written into), attachedTo }, gone with that reply.
+        // A 0.5.38 marker note (no origin) is dropped.
+        itemUse: state.itemUse?.origin && Array.isArray(state.itemUse.entries) && state.itemUse.entries.every(entry => typeof entry === 'string') ? holding(state.itemUse) : null,
         // (0.5.38) Shop stock, per trader kind and place: { [key]: { day, bought: [names] } }, and
         // what each offered before ({ [key]: { day, names } }, the newest kept) so a restock differs.
         shops: state.shops && typeof state.shops === 'object' ? state.shops : {},
@@ -1430,7 +1431,6 @@ async function afterReply(payload) {
         generating = false;
         settlePending();
         await planAndWriteReply(payload);
-        await applyItemUse(Number(payload?.messageIndex));
     } finally {
         replying -= 1;
     }
@@ -2392,91 +2392,31 @@ function clearPrompts() {
 }
 
 // The reader's message a generation of `kind` answers: the last one, before the reply a swipe replaces.
-function messageAnswered(chat, kind) {
-    const replacing = (kind.includes('swipe') || kind.includes('regenerate')) && isAssistant(chat.at(-1));
-    const list = replacing ? chat.slice(0, -1) : chat;
-    for (let index = list.length - 1; index >= 0; index--) {
-        if (list[index]?.is_user) return String(list[index].mes ?? '');
-        if (isAssistant(list[index])) break;
-    }
-    return '';
-}
-
-/** (0.5.38) What items used with this message do, worked out on the sheets as they stand now. */
-function itemResults(entries) {
-    let { pc, members } = currentSheets();
-    const stock = consumables(currentItems());
-    const lines = [];
-    for (const entry of entries) {
-        const item = stock.find(candidate => candidate.name === entry.name);
-        const sheet = entry.target === 'pc' ? pc : members.find(member => member.id === entry.target)?.sheet;
-        if (!item || !sheet) continue;
-        const outcome = useItemOutside(sheet, item);
-        if (!outcome.used) continue;
-        const hp = `${outcome.sheet.hp.cur}/${outcome.sheet.hp.max} HP`;
-        lines.push(`${outcome.message.replace(/\.$/, '')} (now ${hp}).`);
-        if (entry.target === 'pc') pc = outcome.sheet;
-        else members = members.map(member => (member.id === entry.target ? { ...member, sheet: outcome.sheet } : member));
-    }
-    return lines;
-}
-
 /**
- * (0.5.38) The item note for the reply being generated: the items whose marker is in the message
- * it answers, with what they do; '' when none. Given to that reply and its swipes, spent after.
+ * (0.5.47) The item note for the reply being generated ('' when there is none), given like the
+ * trade note: attached to the first reply after the items were used, told again to a swipe of
+ * it, spent once a later reply exists, and dropped with the reply the items were written into.
  */
 function itemUseFor(kind) {
     const chat = context()?.chat ?? [];
-    const state = chatState().itemUse;
-    if (!state) return '';
+    const raw = chatMeta()?.[SETTINGS_KEY]?.itemUse;
+    const use = settleHandoff(chatState().itemUse, chat);
+    if (!use) {
+        if (raw) saveChatState({ itemUse: null });
+        return '';
+    }
     const replacing = (kind.includes('swipe') || kind.includes('regenerate')) && isAssistant(chat.at(-1));
     const replyIndex = replacing ? chat.length - 1 : chat.length;
-    if (state.attachedTo !== null && state.attachedTo !== undefined && state.attachedTo !== replyIndex) {
-        saveChatState({ itemUse: null });
-        return '';
+    if (use.attachedTo === null || use.attachedTo === undefined) {
+        saveChatState({ itemUse: { ...use, attachedTo: replyIndex } });
+        return use.handoff;
     }
-    const said = messageAnswered(chat, kind);
-    const sent = state.entries.filter(entry => said.includes(entry.marker));
-    if (!sent.length) {
-        // The reader took the marker out before sending: nothing is used.
-        if (state.attachedTo === null || state.attachedTo === undefined) saveChatState({ itemUse: null });
-        return '';
-    }
-    const lines = state.attachedTo === replyIndex && state.handoff ? null : itemResults(sent);
-    const handoff = lines ? (lines.length ? `[Item] ${lines.join(' ')}\nTell it as it happens in the scene; keep these numbers.` : '') : state.handoff;
-    if (!handoff) {
-        saveChatState({ itemUse: null });
-        return '';
-    }
-    saveChatState({ itemUse: { ...state, entries: sent, handoff, attachedTo: replyIndex } });
-    return handoff;
+    if (use.attachedTo === replyIndex) return use.handoff;
+    saveChatState({ itemUse: null });
+    return '';
 }
 
-/**
- * (0.5.38) After the reply an item was used with: the item off the Inventory and its effect on
- * the sheet, written into that reply (a swipe of it gets them again; deleting it takes them back).
- */
-async function applyItemUse(index) {
-    const ctx = context();
-    const chat = ctx?.chat ?? [];
-    const state = chatState(ctx).itemUse;
-    if (!state || state.attachedTo !== index || index !== latestAssistantIndex(chat)) return;
-    const origin = fightOrigin(chat, index);
-    if (state.applied && state.applied.index === origin.index && state.applied.date === origin.date && state.applied.swipe === origin.swipe) return;
-    const own = settings(ctx);
-    for (const entry of state.entries) {
-        const item = consumables(currentItems()).find(candidate => candidate.name === entry.name);
-        const { pc, members } = currentSheets();
-        const sheet = entry.target === 'pc' ? pc : members.find(member => member.id === entry.target)?.sheet;
-        if (!item || !sheet) continue;
-        const outcome = useItemOutside(sheet, item);
-        if (!outcome.used) continue;
-        await writeMember(entry.target, () => outcome.sheet);
-        await writeBlock(own.inventoryTag, useItems(blockText(own.inventoryTag), { [item.name]: 1 }));
-        logActivity(outcome.message);
-    }
-    saveChatState({ itemUse: { ...state, applied: origin } });
-}
+const itemHandoff = entries => `[Item] ${entries.join(' ')}\nThis already happened; mention it briefly if it fits, and keep these numbers.`;
 
 /**
  * (0.5.37) The trade note for the reply being generated ('' when there is none), given once:
@@ -2771,10 +2711,8 @@ function whatsSent(ctx = context()) {
         const chat = ctx?.chat ?? [];
         const trade = settleHandoff(chatState(ctx).trade, chat);
         const tradeText = trade && (trade.attachedTo === null || trade.attachedTo === undefined || trade.attachedTo === chat.length) ? trade.handoff : '';
-        const use = chatState(ctx).itemUse;
-        const box = String(globalThis.document?.getElementById?.('send_textarea')?.value ?? '');
-        const lines = use && (use.attachedTo === null || use.attachedTo === undefined) ? itemResults(use.entries.filter(entry => box.includes(entry.marker))) : [];
-        const itemText = lines.length ? `[Item] ${lines.join(' ')}\nTell it as it happens in the scene; keep these numbers.` : '';
+        const use = settleHandoff(chatState(ctx).itemUse, chat);
+        const itemText = use && (use.attachedTo === null || use.attachedTo === undefined || use.attachedTo === chat.length) ? use.handoff : '';
         // (0.5.41) The static slot first (early in the prompt, the same every reply), then the
         // tail's parts in the order they are joined at the end of the prompt.
         const layout = layoutFor(ctx, { handoff: next.handoff, trade: tradeText, item: itemText });
@@ -3246,9 +3184,13 @@ const handlers = {
         partyScreen = { chatId: chatIdOf(context()), mode: null };
     }),
     onItems: () => goParty('items'),
-    // (0.5.38) Use puts a marker in the message box ("*uses the Minor Healing Draught*"); the item
-    // is used with the reply to that message (applyItemUse), and that reply is told the result.
+    // (0.5.47) Use applies the item at once, into the latest reply (deleting or swiping it takes
+    // the item back), and the next reply is told what it did. Each click is one dose.
     onUseItem: ({ name, target = 'pc' }) => void guarded(async () => {
+        const own = settings();
+        const chat = context()?.chat ?? [];
+        const latest = latestAssistantIndex(chat);
+        if (latest < 0) throw new Error('There is no reply to write into yet: start the chat first.');
         const item = consumables(currentItems()).find(entry => entry.name === name);
         if (!item) throw new Error(`There is no ${name} left.`);
         const { pc, members } = currentSheets();
@@ -3259,18 +3201,16 @@ const handlers = {
             notify('info', outcome.message);
             return;
         }
-        const marker = target === 'pc' ? `*uses the ${item.name}*` : `*gives ${sheet.name} the ${item.name}*`;
-        const open = chatState().itemUse;
-        const entries = [...(open && (open.attachedTo === null || open.attachedTo === undefined) ? open.entries : []), { name: item.name, target, marker }];
-        saveChatState({ itemUse: { entries, handoff: '', attachedTo: null, applied: null } });
-        const box = globalThis.document?.getElementById?.('send_textarea') ?? null;
-        if (box) {
-            box.value = `${String(box.value ?? '').trim()} ${marker}`.trim();
-            box.dispatchEvent(new Event('input', { bubbles: true }));
-            box.focus?.();
-        }
-        notify('info', `${marker} is in your message. The ${item.name} is used when you send it.`);
-        goParty(null);
+        await writeMember(target, () => outcome.sheet);
+        await writeBlock(own.inventoryTag, useItems(blockText(own.inventoryTag), { [item.name]: 1 }));
+        const line = `${outcome.message.replace(/\.$/, '')} (now ${outcome.sheet.hp.cur}/${outcome.sheet.hp.max} HP).`;
+        const current = settleHandoff(chatState().itemUse, context()?.chat ?? []);
+        const open = current && (current.attachedTo === null || current.attachedTo === undefined);
+        const entries = [...(open ? current.entries : []), line];
+        saveChatState({ itemUse: { entries, handoff: itemHandoff(entries), origin: open ? current.origin : fightOrigin(chat, latest), attachedTo: null } });
+        logActivity(outcome.message);
+        notify('success', outcome.message);
+        storyBlock()?.refresh?.();
     }),
     onGenerateKit: who => void generateKit({ ...(who ?? {}), skills: [] }),
     onAddCompanion: input => void guarded(async () => {
