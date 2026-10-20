@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.5.38
+
+- **Trade is a page of the Party tab.** The sidebar had enough tabs. **Party · Trade** at the top of the Party tab switches between them, and a trade waiting to be told is counted on the Party badge.
+- **Trade with the place's traders.** You pick a kind of trader at this place: general store, apothecary, smith, crafter (bone-carver, tanner…), fence or guild buyer. You can give them a name, and nobody needs to be in the scene. People present are listed as extra choices, but never your own party (Lyra was offered as a trader). The place is read by the settlement's own name first, so a market square in a village is village prices.
+- **Buy.** Each trader kind has stock at the place. It stays the same all day and differs from what it had before; what you buy is gone. Its stock is never put in the prompt: the code settles the sale, and only what you bought is told.
+- **One errand run.** All the trades between two replies, with several traders, are told to the next reply as one short note grouped by trader ("went round Bluewatch Village: at the apothecary, …; at the general store, …"), to tell briefly in the story's voice.
+- **Using an item outside a fight goes with your message.** **Use** puts *\*uses the Minor Healing Draught\** in the message box instead of applying it at once. When you send, the reply is told the exact result (+20 HP, now 60/82) and the item is used in that reply, so a swipe or delete takes it back. Take the marker out and nothing is used.
+- **What's sent.** A fold on the Party card shows what RPG Battle adds to the next reply, part by part, with its depth. Story Suite can read it too.
+- **The fight hand-off sits at the very end of the prompt** (depth 0). It is replaced or cleared on every reply, so it is never told twice.
+- **Rarity colours** (grey, green, blue, purple, gold) on gear names in the Party card and on Trade lists.
+- **Smaller fixes from a review:**
+  - the fight toast shows once and goes when the fight starts;
+  - an enemy's level · threat · role badge wraps instead of clipping;
+  - the hit chance is shown once while aiming;
+  - **Start over** sits under a **More** fold (it still asks twice);
+  - on a phone, a card's skills and gear fold away;
+  - each Trade price is shown once;
+  - the purse stays at the top.
+
 ## 0.5.37
 
 - **A Trade tab.** Selling, having things made and ordering were things the story had to be asked to write, and read back from its words. Now they are yours to choose in a tab (🪙 Trade), and RPG Battle sets every number:

@@ -1,4 +1,4 @@
-# RPG Battle v0.5.37
+# RPG Battle v0.5.38
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -388,38 +388,61 @@ You — Power Strike: a heavy blow
 - Story Block hides the blocks when it normalizes a message (on receive, render, swipe and
   edit); if a greeting shows them raw, Story Block's **Rescan** tidies it.
 
-## Trade: selling, making, ordering (0.5.37)
+## Trade: buying, selling, making, ordering (0.5.37, 0.5.38)
 
-The **Trade** tab (🪙, while you have a character) is where you sell, have things made and
-collect what you ordered. You choose; RPG Battle sets every number and the story tells it.
+**Party · Trade** at the top of the Party tab switches to trading (since 0.5.38 it is a page of
+the Party tab, not a tab of its own). You choose; RPG Battle sets every number and the story
+tells it.
 
-- **Trading with:** someone present in the scene (from Story Block's World State *NPCs Present*)
-  or anyone you name (*the bone-carver*). Their trade is guessed from the name (merchant,
-  guild buyer, apothecary, smith, crafter, fence) and you can change it. A fence pays least for
-  everything; an apothecary pays well for potions and parts, a smith for gear, a crafter for
-  materials.
-- **Prices fit the place:** read from the World State's *Loc* (a hamlet or outpost pays and
-  charges least, a village a little less than a town, a city or capital more). **Prices here**
-  sets your own word for the place (cheap, fair, dear), remembered for that place.
-- **Sell:** every row but your purse, what you wear and what is on order, with what is offered
-  each and how many. A sale takes the row down and adds the coin to your purse.
-- **Make or order:** name the piece, pick the materials, see what it will be (its rarity, stats
-  and element come from the materials, as with `<Crafted>`) and the crafter's fee, then
-  **Make it** now or **Order it**, ready in so many days (a date on Story Director's calendar
-  when it is there). An order waits under **[On Order]** with its numbers already set.
-- **On order:** **Collect** turns an order into the piece.
+- **Trading with:** a kind of trader at this place — *General store, Apothecary, Smith, Crafter
+  (bone-carver, tanner…), Fence, Guild buyer* — with the story's name for them if you like
+  (*Mother Greta*); or someone present (*Elke (here)*, from the World State, else NPC State
+  Delta's present NPCs, else known NPCs the latest reply names); or anyone you name. Nobody needs
+  to be in the scene: the place has its traders. A person's trade is guessed from the name and
+  can be changed. A fence pays least for everything; an apothecary pays well for potions and
+  parts, a smith for gear, a crafter for materials. Your own party is never listed.
+- **Prices fit the place:** read from the World State's *Loc*, the settlement's own name first
+  (*Bluewatch Village | Market Square* is a village): a hamlet or outpost pays and charges least,
+  a village a little less than a town, a city or capital more. **Prices here** sets your own
+  word for the place (cheap, fair, dear), remembered for that place.
+- **Buy** (0.5.38): each trader kind has stock at this place, the same all day (by place, kind and
+  story day) and different from what it had on the days before; what you buy is gone from it.
+  Gear's rarity follows the place (a city's smith has better pieces). The stock is never put in
+  the prompt: only what you bought is told.
+- **Sell:** every row but your purse, what you wear and what is on order, priced once on its
+  button (*Sell 3 · 6 copper (2 copper each)*).
+- **Make or order:** name the piece, pick the materials, see what it will be and the crafter's
+  fee, then **Make it** now or **Order it**, ready in so many days (a date on Story Director's
+  calendar when it is there). An order waits under **[On Order]** with its numbers set.
+- **On order:** **Collect** turns an order into the piece. Your purse stays in view at the top.
 
 Each trade is written into the latest reply's Inventory, so deleting or swiping that reply takes
-it back. The next reply is told what you did, in a short note at the end of its prompt, for the
-story to tell in its own voice, amounts unchanged:
+it back. All the trades between two replies, with however many traders, are told to the next
+reply as one errand run, grouped by trader, in a short note at the end of its prompt (depth 0):
 
 ```
-[Trade] Since the last reply, Astra sold 3 Rat Tail to the apothecary for 6 copper; ordered Skull Ring from the bone-carver, made from Brood-Mother Skull, ready Goldwane 14, for 1 silver, 6 copper.
-Tell it as part of the scene, in the story's own voice. No menus or game terms; keep the amounts and what was made exactly as they are (the Inventory already shows them).
+[Trade] Since the last reply, Astra went round Bluewatch Village: at the apothecary, sold the Brood-Mother Carcass for 3 silver; at the general store, sold 64 Rat Tail for 2 silver, 2 copper; at the bone-carver, ordered Skull Ring, made from Brood-Mother Skull, ready Goldwane 14, for 8 silver.
+Tell it briefly as part of the scene, in the story's own voice. No menus or game terms; keep the amounts and what was made exactly as they are (the Inventory already shows them).
 ```
 
-It is told once (again to a swipe of that reply) and never on any other reply. The numbers are
-in `trade` in the rules (`sellRate`, `craftFee`, worth by rarity and kind, place and trade factors).
+It is told once (again to a swipe of that reply), replaced or cleared on every reply, and never
+sent otherwise. The numbers are in `trade` in the rules.
+
+## Using an item outside a fight (0.5.38)
+
+**Use item → Use** no longer applies the item at once: it puts a marker in your message box
+(*\*uses the Minor Healing Draught\**, or *\*gives Lyra the …\** for a companion). Send your
+message when you are ready: the reply to it gets the effect worked out by the code (*[Item] Ren
+uses the Minor Healing Draught: +20 HP (now 60/82 HP). Tell it as it happens in the scene; keep
+these numbers.*, at depth 0), and the item comes off the Inventory and the HP onto the sheet in
+that reply, so a swipe gets it again and deleting the reply takes it back. Take the marker out
+before sending and nothing is used.
+
+## What's sent (0.5.38)
+
+The Party card's **What's sent** fold shows, part by part, what RPG Battle would add to the next
+reply: the story instruction (or the narrating one), a fight's hand-off, the trade note, an item
+note, with each part's depth. Story Suite can read the same list (`api.preview()`).
 
 ## Equipment and loot: your Inventory block
 

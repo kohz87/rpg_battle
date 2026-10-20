@@ -245,9 +245,9 @@ test('gearSummary lists what the fight uses, capped, and what it leaves out', ()
     const { items } = parseInventory(`${INVENTORY}\n[Equipment > Accessories]\nRing of Giants | 1 | equipped · common · STR +20\nRing B | 1 | equipped\nRing C | 1 | equipped`);
     const summary = gearSummary(items, 4, R);
     const giants = summary.counted.find(piece => piece.name === 'Ring of Giants');
-    assert.deepEqual(giants, { name: 'Ring of Giants', slot: 'accessory', stats: { STR: 2 }, capped: true, from: { STR: 20 } });
+    assert.deepEqual(giants, { name: 'Ring of Giants', slot: 'accessory', rarity: 'common', stats: { STR: 2 }, capped: true, from: { STR: 20 } });
     assert.ok(summary.counted.every(piece => piece.name !== 'Ring C'));
-    assert.deepEqual(summary.unused, [{ name: 'Ring C', slot: 'accessory', why: 'only 2 accessories count' }]);
+    assert.deepEqual(summary.unused, [{ name: 'Ring C', slot: 'accessory', rarity: 'common', why: 'only 2 accessories count' }]);
 });
 
 test('gearBonuses sums capped stats of what is equipped and lists the capped items', () => {

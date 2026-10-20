@@ -32,6 +32,8 @@ test('worth: gear by its stats and rarity, a potion by what it does, a material 
 
 test('a place prices by its name; the reader\'s word for it scales both ways', () => {
     assert.deepEqual(placePrices('Bluewatch Village | Adventurer Guild Post'), { tier: 'village', buy: 0.9, sell: 0.85, level: null });
+    // The settlement's own name first: a market square in a village is still the village.
+    assert.equal(placePrices('Bluewatch Village | Market Square').tier, 'village');
     assert.equal(placePrices('Auvoth City').tier, 'city');
     assert.equal(placePrices('Somewhere new').tier, 'town');
     const dear = placePrices('Bluewatch Village', { level: 'dear' });
@@ -81,16 +83,39 @@ test('making and ordering: the fee is paid, the materials go, the piece is made 
     assert.equal(spendMoney(INV, 99999).ok, false);
 });
 
-test('the note the next reply gets: what was done, amounts as they are, told in the story\'s voice', () => {
+test('the note the next reply gets: one errand run, grouped by trader, amounts as they are (0.5.38)', () => {
     const entries = [
         { kind: 'sell', name: 'Rat Tail', qty: 3, total: 6, who: 'the apothecary' },
         { kind: 'order', name: 'Skull Ring', from: ['Brood-Mother Skull'], ready: 'Goldwane 14, 01:15 pm', fee: 12, who: 'the bone-carver' },
-        { kind: 'collect', name: 'Skull Ring', who: 'the bone-carver' },
+        { kind: 'buy', name: 'Antidote', total: 7, who: 'the apothecary' },
     ];
     assert.equal(tradeLine(entries[0]), 'sold 3 Rat Tail to the apothecary for 6 copper');
-    const note = tradeHandoff(entries, { name: 'Astra' });
-    assert.match(note, /^\[Trade\] Since the last reply, Astra sold 3 Rat Tail to the apothecary for 6 copper; ordered Skull Ring from the bone-carver, made from Brood-Mother Skull, ready Goldwane 14, 01:15 pm, for 1 silver, 2 copper; collected Skull Ring from the bone-carver\./);
-    assert.match(note, /No menus or game terms/);
+    const note = tradeHandoff(entries, { name: 'Astra', place: 'Bluewatch Village' });
+    assert.match(note, /^\[Trade\] Since the last reply, Astra went round Bluewatch Village: at the apothecary, sold 3 Rat Tail for 6 copper, bought Antidote for 7 copper; at the bone-carver, ordered Skull Ring, made from Brood-Mother Skull, ready Goldwane 14, 01:15 pm, for 1 silver, 2 copper\./);
+    assert.match(note, /Tell it briefly as part of the scene.*No menus or game terms/);
     assert.ok(note.split('\n').length <= 3, 'a few lines');
+    // One trader: plain lines that say who.
+    assert.match(tradeHandoff([entries[2]], { name: 'Astra' }), /^\[Trade\] Since the last reply, Astra bought Antidote from the apothecary for 7 copper\./);
     assert.equal(tradeHandoff([]), '');
+});
+
+test('shop stock: by trade and place, the same all day, something new after what they offered before (0.5.38)', async () => {
+    const { shopStock, rememberStock, buyIn } = await import('../src/trade.js');
+    const village = placePrices('Bluewatch Village');
+    const one = shopStock({ kind: 'smith', prices: village, seed: 'bluewatch|smith|12', level: 2 });
+    assert.deepEqual(shopStock({ kind: 'smith', prices: village, seed: 'bluewatch|smith|12', level: 2 }), one, 'same seed, same stock');
+    assert.ok(one.length >= 5 && one.every(item => item.kind === 'equipment' && Object.keys(item.stats).length === 1 && item.price > 0));
+    assert.ok(!one.some(item => item.name === 'Longsword' || item.name === 'Chain Shirt'), 'town goods are not in a village');
+    const next = shopStock({ kind: 'smith', prices: village, seed: 'bluewatch|smith|13', level: 2, seen: rememberStock([], one) });
+    assert.ok(next.filter(item => !one.some(old => old.name === item.name)).length >= 2, 'a restock brings what they did not have');
+    const potions = shopStock({ kind: 'apothecary', prices: village, seed: 'x' });
+    assert.ok(potions.every(item => item.kind === 'consumable' && item.effect));
+    const draught = potions.find(item => item.name === 'Minor Healing Draught') ?? potions[0];
+    const bought = buyIn(INV, draught);
+    assert.ok(bought.ok);
+    assert.equal(purseOf(bought.text).total, purseOf(INV).total - draught.price);
+    assert.ok(parseInventory(bought.text).items.some(entry => entry.name === draught.name && entry.effect));
+    assert.equal(buyIn(INV, { ...draught, price: 99999 }).ok, false);
+    assert.equal(tradeLine({ kind: 'buy', name: 'Antidote', total: 7, who: 'Elke' }), 'bought Antidote from Elke for 7 copper');
+    assert.equal(rememberStock(Array.from({ length: 50 }, (_, i) => `x${i}`), []).length, 40);
 });

@@ -500,9 +500,9 @@ export function gearSummary(items, level, rules = DEFAULT_RULES) {
     const gear = equipped(items, rules);
     const counted = [gear.weapon, gear.offhand, gear.armour, ...gear.worn, ...gear.accessory].filter(Boolean).map(item => {
         const result = capItem(item, level, rules);
-        return { name: item.name, slot: item.slot, stats: result.stats, capped: result.capped, from: result.capped ? { ...item.stats } : null };
+        return { name: item.name, slot: item.slot, rarity: item.rarity ?? 'common', stats: result.stats, capped: result.capped, from: result.capped ? { ...item.stats } : null };
     });
-    return { counted, unused: gear.unused.map(({ item, why }) => ({ name: item.name, slot: item.slot, why })) };
+    return { counted, unused: gear.unused.map(({ item, why }) => ({ name: item.name, slot: item.slot, rarity: item.rarity ?? 'common', why })) };
 }
 
 /**

@@ -16,7 +16,7 @@ function view(over = {}) {
         orders: [], pending: [], orderDays: 2,
         money: amount => `${amount}c`,
         buyerKind: name => (/carver/i.test(name) ? 'crafter' : 'general'),
-        sellPrice: (name, kind) => (name === 'Rat Tail' ? (kind === 'crafter' ? 3 : 2) : 12),
+        sellPrice: (name, kind) => (name === 'Rat Tail' ? (kind === 'crafter' ? 3 : kind === 'apothecary' ? 4 : 2) : 12),
         preview: ({ name, days }) => ({ name, note: 'uncommon · MDEF +4 · accessory', fee: 9, ready: days ? 'Goldwane 14' : '' }),
         ...over,
     };
@@ -31,37 +31,52 @@ test('not ready: says why', () => {
     assert.deepEqual(texts(pane, '.rpg-battle-empty'), ['Make your character first (Party tab).']);
 });
 
-test('selling to someone present: price each, how many, and the sale handed over', () => {
-    resetTradeDraft();
-    const pane = doc.createElement('div');
-    const sold = [];
-    const handlers = { onSell: sale => sold.push(sale) };
-    renderTradeTab(pane, view(), handlers);
-    assert.ok(texts(pane, '.rpg-trade-place')[0].includes('village prices'));
-    assert.ok(texts(pane, '.rpg-trade-purse')[0].includes('6 silver, 5 copper'));
-    const qty = pane.querySelectorAll('.rpg-trade-qty')[0];
-    qty.value = '3';
-    qty.dispatch('change');
-    find(pane, '.rpg-trade-sell', 'Sell 3').click();
-    assert.deepEqual(sold, [{ name: 'Rat Tail', qty: 3, each: 2, who: 'Elke', kind: 'general' }]);
-});
+const pickTrader = (pane, value) => {
+    const picker = pane.querySelector('.rpg-trade-person');
+    picker.value = value;
+    picker.dispatch('change');
+};
 
-test('someone named: their trade is guessed from the name and prices follow it', () => {
+test('trading with a kind of trader at this place: no one need be here; a name is optional (0.5.38)', () => {
     resetTradeDraft();
     const pane = doc.createElement('div');
     const sold = [];
     renderTradeTab(pane, view(), { onSell: sale => sold.push(sale) });
-    const person = pane.querySelector('.rpg-trade-person');
-    person.value = person.querySelectorAll('option').at(-1).value;
-    person.dispatch('change');
+    assert.ok(texts(pane, '.rpg-trade-place')[0].includes('village prices'));
+    assert.deepEqual(texts(pane, '.rpg-trade-person option').slice(0, 6), ['General store', 'Apothecary', 'Smith', 'Crafter (bone-carver, tanner…)', 'Fence', 'Guild buyer']);
+    assert.ok(texts(pane, '.rpg-trade-person option').includes('Elke (here)'), 'who is here, as extra choices');
+    const qty = pane.querySelectorAll('.rpg-trade-qty')[0];
+    qty.value = '3';
+    qty.dispatch('change');
+    find(pane, '.rpg-trade-sell', 'Sell 3').click();
+    assert.deepEqual(sold, [{ name: 'Rat Tail', qty: 3, each: 2, who: 'the general store', kind: 'general' }]);
+    // The apothecary, with the story's name for her.
+    pickTrader(pane, 'kind:apothecary');
+    const name = pane.querySelector('.rpg-trade-name');
+    name.value = 'Mother Greta';
+    name.dispatch('input');
+    name.dispatch('change');
+    find(pane, '.rpg-trade-sell', '4c').click();
+    assert.deepEqual(sold.at(-1), { name: 'Rat Tail', qty: 3, each: 4, who: 'Mother Greta', kind: 'apothecary' }, 'how many is kept across traders');
+});
+
+test('someone present or named: their trade is guessed from the name and can be changed', () => {
+    resetTradeDraft();
+    const pane = doc.createElement('div');
+    const sold = [];
+    renderTradeTab(pane, view(), { onSell: sale => sold.push(sale) });
+    pickTrader(pane, '\u0000someone');
     const name = pane.querySelector('.rpg-trade-name');
     name.value = 'the bone-carver';
     name.dispatch('input');
     name.dispatch('change');
     assert.equal(pane.querySelector('.rpg-trade-kind').value, 'crafter');
+    assert.match(texts(pane, '.rpg-trade-guess')[0], /by the name: crafter/);
     find(pane, '.rpg-trade-sell', '3c').click();
     assert.equal(sold[0].who, 'the bone-carver');
-    assert.equal(sold[0].each, 3);
+    pickTrader(pane, 'person:Elke');
+    find(pane, '.rpg-trade-sell', 'Sell').click();
+    assert.equal(sold.at(-1).who, 'Elke');
 });
 
 test('ordering a piece: materials picked, the preview with its fee and day, the order handed over', () => {
@@ -81,7 +96,7 @@ test('ordering a piece: materials picked, the preview with its fee and day, the 
     when.dispatch('change');
     assert.ok(texts(pane, '.rpg-trade-preview')[0].includes('ready Goldwane 14 · fee 9c'));
     pane.querySelector('.rpg-trade-craft').click();
-    assert.deepEqual(made, [{ name: 'Skull Ring', materials: [{ name: 'Brood-Mother Skull', qty: 1 }], slot: null, days: 2, who: 'Elke', kind: 'general' }]);
+    assert.deepEqual(made, [{ name: 'Skull Ring', materials: [{ name: 'Brood-Mother Skull', qty: 1 }], slot: null, days: 2, who: 'the general store', kind: 'general' }]);
     // A fee the purse cannot pay: the button waits.
     resetTradeDraft();
     renderTradeTab(pane, view({ purse: 2 }), {});
@@ -103,4 +118,29 @@ test('orders to collect, and what the next reply will be told', () => {
     assert.deepEqual(texts(pane, '.rpg-trade-told li'), ['sold 3 Rat Tail to Elke for 6 copper']);
     pane.querySelector('.rpg-trade-collect').click();
     assert.deepEqual(collected, [{ name: 'Skull Ring', who: 'the bone-carver' }]);
+});
+
+test('buying from the trader: their stock with prices in rarity colours; Buy waits for the purse (0.5.38)', () => {
+    resetTradeDraft();
+    const pane = doc.createElement('div');
+    const bought = [];
+    const stock = [{ name: 'Healing Draught', note: 'heal 30', price: 14, rarity: 'common' }, { name: 'Belt', note: 'rare · DEF +6', price: 135, rarity: 'rare' }];
+    renderTradeTab(pane, view({ stock: () => stock }), { onBuy: request => bought.push(request) });
+    const buttons = pane.querySelectorAll('.rpg-trade-buy');
+    assert.equal(buttons.length, 2);
+    assert.equal(buttons[1].disabled, true, 'the purse holds 65');
+    assert.ok(pane.querySelector('.rpg-trade-buy-list .rpg-rarity.is-rare'));
+    buttons[0].click();
+    assert.deepEqual(bought, [{ name: 'Healing Draught', who: 'the general store', kind: 'general' }]);
+});
+
+test('the purse first, each price once (0.5.38)', () => {
+    resetTradeDraft();
+    const pane = doc.createElement('div');
+    renderTradeTab(pane, view(), {});
+    const root = pane.querySelector('.rpg-trade-tab');
+    assert.ok(root.childNodes[0].className.includes('rpg-trade-purse'));
+    assert.equal(pane.querySelectorAll('.rpg-trade-price').length, 0);
+    assert.ok(texts(pane, '.rpg-trade-sell').every(label => (label.match(/\dc/g) ?? []).length === 1), 'one price on a single sale');
+    assert.equal(pane.querySelectorAll('.rpg-trade-kind').length, 0, 'a trader kind is what it is');
 });

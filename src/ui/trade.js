@@ -85,43 +85,74 @@ function qtyChoices(max) {
     return Array.from({ length: Math.max(1, Math.min(99, max)) }, (_, i) => [String(i + 1), String(i + 1)]);
 }
 
+// (0.5.38) A name in its rarity's colour: grey, green, blue, purple, gold (style.css --rb-rarity-*).
+const RARITY_CLASSES = new Set(['common', 'uncommon', 'rare', 'epic', 'legendary']);
+function itemName(name, rarity) {
+    const known = RARITY_CLASSES.has(String(rarity ?? '').toLowerCase()) ? String(rarity).toLowerCase() : 'common';
+    return el('span', { className: `rpg-trade-item-name rpg-rarity is-${known}`, text: name });
+}
+
 function redraw() {
     if (last) renderTradeTab(...last);
 }
 
-const freshDraft = view => ({ chatId: view.chatId ?? null, person: view.people?.[0] ?? SOMEONE, name: '', kind: '', sell: {}, piece: '', picks: {}, slot: '', when: 'now', days: view.orderDays ?? 2, ready: '' });
+// (0.5.38) Who you trade with: a kind of trader at this place (the general store, the
+// apothecary…), with a name if you like, or someone present, or anyone you name. Nobody needs to
+// be in the scene: the place has its traders.
+const TRADER_KINDS = ['general', 'apothecary', 'smith', 'crafter', 'fence', 'guild'];
+const TRADER_LABELS = { general: 'General store', apothecary: 'Apothecary', smith: 'Smith', crafter: 'Crafter (bone-carver, tanner…)', fence: 'Fence', guild: 'Guild buyer' };
+const TRADER_WHO = { general: 'the general store', apothecary: 'the apothecary', smith: 'the smith', crafter: 'the bone-carver', fence: 'a fence', guild: 'the guild' };
 
-// Who the reader trades with: one present in the scene, or anyone they name; their kind of trade.
+const freshDraft = view => ({ chatId: view.chatId ?? null, trader: 'kind:general', names: {}, name: '', kind: '', sell: {}, piece: '', picks: {}, slot: '', when: 'now', days: view.orderDays ?? 2, ready: '' });
+
 function whoSection(view, handlers) {
     const people = view.people ?? [];
-    const person = select('rpg-trade-person', 'Trading with', [...people.map(name => [name, name]), [SOMEONE, 'someone else…']], draft.person);
-    person.addEventListener('change', () => { draft.person = person.value; draft.kind = ''; redraw(); });
-    const named = draft.person === SOMEONE;
-    const nameBox = named ? textInput('rpg-trade-name', draft.name, { placeholder: 'who, e.g. the bone-carver', label: 'Who you trade with' }) : null;
-    nameBox?.addEventListener('input', () => { draft.name = nameBox.value; });
-    nameBox?.addEventListener('change', () => { draft.kind = ''; redraw(); });
+    const choices = [
+        ...TRADER_KINDS.map(kind => [`kind:${kind}`, TRADER_LABELS[kind]]),
+        ...people.map(name => [`person:${name}`, `${name} (here)`]),
+        [SOMEONE, 'someone else…'],
+    ];
+    const trader = select('rpg-trade-person', 'Trading with', choices, draft.trader);
+    trader.addEventListener('change', () => { draft.trader = trader.value; draft.kind = ''; redraw(); });
+    const kindPick = draft.trader.startsWith('kind:') ? draft.trader.slice(5) : null;
+    // A trader kind may have a name of the story's ("Mother Greta"); someone else needs one.
+    const nameBox = kindPick || draft.trader === SOMEONE
+        ? textInput('rpg-trade-name', kindPick ? draft.names[kindPick] ?? '' : draft.name, { placeholder: kindPick ? `name (optional), else ${TRADER_WHO[kindPick]}` : 'who, e.g. the bone-carver', label: 'Their name' })
+        : null;
+    nameBox?.addEventListener('input', () => {
+        if (kindPick) draft.names[kindPick] = nameBox.value;
+        else draft.name = nameBox.value;
+    });
+    nameBox?.addEventListener('change', redraw);
+    // A person's trade is guessed from their name and can be changed; a kind is what it is.
     const guessed = view.buyerKind?.(tradingWith()) ?? 'general';
-    const kind = select('rpg-trade-kind', 'Their trade', Object.entries(KIND_LABELS).map(([value, label]) => [value, value === guessed ? `${label} (by name)` : label]), draft.kind || guessed);
-    kind.addEventListener('change', () => { draft.kind = kind.value; redraw(); });
+    const kind = kindPick ? null : select('rpg-trade-kind', 'Their trade', Object.entries(KIND_LABELS), draft.kind || guessed);
+    kind?.addEventListener('change', () => { draft.kind = kind.value; redraw(); });
     const prices = view.prices ?? { tier: 'town', buy: 1, sell: 1 };
     const level = select('rpg-trade-level', 'Prices here', [['', `as the place reads (${prices.tier})`], ['cheap', 'cheap'], ['fair', 'fair'], ['dear', 'dear']], view.level ?? '');
     level.addEventListener('change', () => handlers.onLevel?.(level.value || null));
     return section('rpg-trade-who', [
         sub('Trading with', 'fa-handshake'),
-        el('div', { className: 'rpg-trade-row' }, [person, nameBox, kind]),
+        el('div', { className: 'rpg-trade-row' }, [trader, nameBox, kind]),
+        kind && !draft.kind && tradingWith() ? el('p', { className: 'rpg-battle-hint rpg-trade-guess', text: `Their trade, by the name: ${KIND_LABELS[guessed] ?? guessed}.` }) : null,
         el('p', { className: 'rpg-battle-hint rpg-trade-place', text: `${view.place || 'Somewhere'} · ${prices.tier} prices: goods ×${round(prices.buy)}, offers ×${round(prices.sell)}` }),
         el('div', { className: 'rpg-trade-row' }, [el('span', { className: 'rpg-battle-label', text: 'Prices here' }), level]),
-        el('p', { className: 'rpg-battle-hint rpg-trade-purse', text: `Purse: ${view.purseText || 'nothing'}` }),
     ]);
 }
 
 const round = value => String(Math.round(Number(value) * 100) / 100);
 
 function tradingWith() {
-    return draft.person === SOMEONE ? draft.name.trim() : draft.person;
+    if (draft.trader.startsWith('kind:')) {
+        const kind = draft.trader.slice(5);
+        return String(draft.names[kind] ?? '').trim() || TRADER_WHO[kind] || 'the trader';
+    }
+    if (draft.trader.startsWith('person:')) return draft.trader.slice(7);
+    return draft.name.trim();
 }
 
 function tradeKind(view) {
+    if (draft.trader.startsWith('kind:')) return draft.trader.slice(5);
     return draft.kind || view.buyerKind?.(tradingWith()) || 'general';
 }
 
@@ -135,13 +166,13 @@ function sellSection(view, handlers) {
         picker?.addEventListener('change', () => { draft.sell[item.name] = Number(picker.value); redraw(); });
         return el('li', { className: 'rpg-trade-item' }, [
             el('div', { className: 'rpg-trade-item-head' }, [
-                el('span', { className: 'rpg-trade-item-name', text: item.name }),
+                itemName(item.name, item.rarity),
                 el('span', { className: 'rpg-battle-hint', text: `×${item.qty}${item.note ? ` · ${item.note}` : ''}` }),
             ]),
             el('div', { className: 'rpg-trade-item-actions' }, [
-                el('span', { className: 'rpg-trade-price', text: `${view.money?.(each) ?? each} each` }),
                 picker,
-                button(`Sell${qty > 1 ? ` ${qty}` : ''} · ${view.money?.(each * qty) ?? each * qty}`, 'rpg-trade-sell', {
+                // The price once: the total, and what each fetches when it is more than one.
+                button(`Sell${qty > 1 ? ` ${qty}` : ''} · ${view.money?.(each * qty) ?? each * qty}${qty > 1 ? ` (${view.money?.(each) ?? each} each)` : ''}`, 'rpg-trade-sell', {
                     iconName: 'fa-coins',
                     disabled: !tradingWith(),
                     title: tradingWith() ? `Sell to ${tradingWith()}: your next reply tells it.` : 'Say who you trade with first.',
@@ -153,6 +184,28 @@ function sellSection(view, handlers) {
     return section('rpg-trade-sell-list', [
         sub('Sell', 'fa-coins', rows.length),
         rows.length ? el('ul', { className: 'rpg-trade-list' }, items) : el('p', { className: 'rpg-battle-empty', text: 'Nothing to sell: what you wear and what is on order stays.' }),
+    ]);
+}
+
+// (0.5.38) What the trader has for sale today, at what; Buy when the purse can pay.
+function buySection(view, handlers) {
+    const who = tradingWith();
+    if (!who || typeof view.stock !== 'function') return null;
+    const kind = tradeKind(view);
+    const items = view.stock(kind) ?? [];
+    return section('rpg-trade-buy-list', [
+        sub(`Buy from ${who}`, 'fa-store', items.length),
+        items.length ? el('ul', { className: 'rpg-trade-list' }, items.map(item => el('li', { className: 'rpg-trade-item' }, [
+            el('div', { className: 'rpg-trade-item-head' }, [itemName(item.name, item.rarity), item.note ? el('span', { className: 'rpg-battle-hint', text: item.note }) : null]),
+            el('div', { className: 'rpg-trade-item-actions' }, [
+                button(`Buy · ${view.money?.(item.price) ?? item.price}`, 'rpg-trade-buy', {
+                    iconName: 'fa-cart-shopping',
+                    disabled: item.price > (view.purse ?? 0),
+                    title: item.price > (view.purse ?? 0) ? 'Your purse cannot pay for it.' : `Buy from ${who}: your next reply tells it.`,
+                    onClick: () => handlers.onBuy?.({ name: item.name, who, kind }),
+                }),
+            ]),
+        ]))) : el('p', { className: 'rpg-battle-empty', text: `${who} has nothing left to sell today.` }),
     ]);
 }
 
@@ -169,7 +222,7 @@ function makeSection(view, handlers) {
         const many = chosen > 0 && item.qty > 1 ? select('rpg-trade-qty', `How many ${item.name}`, qtyChoices(item.qty), String(chosen)) : null;
         many?.addEventListener('change', () => { draft.picks[item.name] = Number(many.value); redraw(); });
         return el('li', { className: 'rpg-trade-item is-material' }, [
-            el('label', { className: 'rpg-trade-item-head' }, [box, el('span', { className: 'rpg-trade-item-name', text: item.name }), el('span', { className: 'rpg-battle-hint', text: `×${item.qty}${item.note ? ` · ${item.note}` : ''}` })]),
+            el('label', { className: 'rpg-trade-item-head' }, [box, itemName(item.name, item.rarity), el('span', { className: 'rpg-battle-hint', text: `×${item.qty}${item.note ? ` · ${item.note}` : ''}` })]),
             many,
         ]);
     });
@@ -211,7 +264,7 @@ function ordersSection(view, handlers) {
     return section('rpg-trade-orders', [
         sub('On order', 'fa-clock', orders.length),
         el('ul', { className: 'rpg-trade-list' }, orders.map(item => el('li', { className: 'rpg-trade-item' }, [
-            el('div', { className: 'rpg-trade-item-head' }, [el('span', { className: 'rpg-trade-item-name', text: item.name }), el('span', { className: 'rpg-battle-hint', text: item.note ?? '' })]),
+            el('div', { className: 'rpg-trade-item-head' }, [itemName(item.name, item.rarity), el('span', { className: 'rpg-battle-hint', text: item.note ?? '' })]),
             el('div', { className: 'rpg-trade-item-actions' }, [
                 button('Collect', 'rpg-trade-collect', { iconName: 'fa-box-open', title: `Collect ${item.name}: your next reply tells it.`, onClick: () => handlers.onCollect?.({ name: item.name, who: item.with || tradingWith() }) }),
             ]),
@@ -233,20 +286,24 @@ function pendingSection(view) {
  * Draws the Trade tab. `view`: { chatId, ready, reason, place, prices, level, people,
  * purse, purseText, sellable, materials, orders, pending, orderDays, money(amount),
  * sellPrice(name, kind), preview({ name, materials, slot, days, kind }) → { name, note, fee,
- * ready } | null, buyerKind(name) }. `handlers`: onSell, onCraft, onCollect, onLevel.
+ * ready } | null, buyerKind(name), stock(kind) → [{ name, note, price, rarity }] (0.5.38) }.
+ * `handlers`: onBuy, onSell, onCraft, onCollect, onLevel.
  */
 export function renderTradeTab(pane, view = {}, handlers = {}) {
     if (!pane) return;
     last = [pane, view, handlers];
     if (!draft || draft.chatId !== (view.chatId ?? null)) draft = freshDraft(view);
-    if (draft.person !== SOMEONE && !(view.people ?? []).includes(draft.person)) draft.person = view.people?.[0] ?? SOMEONE;
+    // Someone no longer here: back to the general store.
+    if (draft.trader.startsWith('person:') && !(view.people ?? []).includes(draft.trader.slice(7))) draft.trader = 'kind:general';
     const root = el('div', { className: 'rpg-battle-tab rpg-trade-tab' });
     if (!view.ready) {
         root.append(el('p', { className: 'rpg-battle-empty', text: view.reason || 'Nothing to trade yet.' }));
         pane.replaceChildren(root);
         return;
     }
-    root.append(...[whoSection(view, handlers), pendingSection(view), sellSection(view, handlers), makeSection(view, handlers), ordersSection(view, handlers)].filter(Boolean));
+    // The purse first, and kept in view while the lists scroll.
+    root.append(el('p', { className: 'rpg-trade-purse', text: `Purse: ${view.purseText || 'nothing'}` }));
+    root.append(...[whoSection(view, handlers), pendingSection(view), buySection(view, handlers), sellSection(view, handlers), makeSection(view, handlers), ordersSection(view, handlers)].filter(Boolean));
     pane.replaceChildren(root);
 }
 
