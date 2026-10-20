@@ -342,7 +342,31 @@ export function describeRow({ name, category = '', note = '' }) {
     if (slot) {
         return { equipped: equippedMark, rarity: rarityOf(text, name), slot, stats, tags: parseTags(text, name), effect: null };
     }
-    return { equipped: false, rarity: rarityOf(text, name), slot: null, stats: {}, tags: [], effect: parseEffect(text) };
+    // (0.5.35) A potion whose note the story retold ("weak restorative fluid") works by its name.
+    return { equipped: false, rarity: rarityOf(text, name), slot: null, stats: {}, tags: [], effect: parseEffect(text) ?? (material ? null : effectByName(name)) };
+}
+
+// (0.5.35) What a potion does by its name, when its note does not say: the shipped ones exactly
+// (Minor Healing Draught heal 20, Healing Draught 30, Greater 60, Elixir 120, Grand Elixir 250,
+// Mana Tonic mp 20, Antidote), and one the story names the same way by the same words.
+const CONTAINER = /\b(?:draughts?|potions?|tonics?|elixirs?|salves?|tinctures?|philt(?:er|re)s?|brews?|flasks?|vials?|poultices?|balms?|remed(?:y|ies)|drafts?)\b/;
+const HEALING = /\b(?:heal(?:ing)?|health|restorative|restoration|regeneration|vitality|life|mending)\b/;
+const SMALL = /\b(?:minor|lesser|weak|small|little|light)\b/;
+const LARGE = /\b(?:greater|strong|major|large|potent|regeneration)\b/;
+const HUGE = /\b(?:grand|superior|supreme|full|perfect)\b/;
+
+export function effectByName(name) {
+    const lower = String(name ?? '').toLowerCase();
+    if (/\b(?:antidote|anti-?venom)s?\b/.test(lower)) return { cure: ['poison'] };
+    const container = CONTAINER.test(lower);
+    if (container && /\b(?:mana|ether|aether|arcane)\b/.test(lower)) {
+        return { mp: SMALL.test(lower) ? 10 : LARGE.test(lower) || HUGE.test(lower) ? 40 : 20 };
+    }
+    const elixir = /\belixirs?\b/.test(lower);
+    if (!elixir && !(container && HEALING.test(lower))) return null;
+    if (HUGE.test(lower)) return { heal: 250 };
+    if (elixir && !HEALING.test(lower)) return { heal: 120 };
+    return { heal: SMALL.test(lower) ? 20 : LARGE.test(lower) ? 60 : 30 };
 }
 
 function quantity(text) {
@@ -870,6 +894,48 @@ export function applyCrafts(inventoryText, before, plans = [], currency = DEFAUL
         text = lines.join(eolOf(text));
     }
     return text;
+}
+
+// A note that says the piece was taken off ("stowed", "unequipped"): its equipped mark stays off.
+const TAKEN_OFF = /\b(?:(?:un|not)[\s-]?equipped|stowed|sheathed|packed away|taken off|removed)\b/i;
+
+/**
+ * (0.5.35) What a row's note did, put back where the reply retold it. The model rewrites the
+ * Inventory each reply, and a `heal 20` may come back as "weak restorative fluid", gear's
+ * `uncommon · LUK +2` as "a fang on a cord", `uncommon material · MDEF` as "a cracked skull".
+ * For each row the Inventory before the reply (`before`) also has: an effect, stats or a
+ * material's line the note lost goes back in front of the story's words, which stay. A note
+ * that still says something RPG Battle reads (other numbers too) is the story's; a row the
+ * reply dropped stays dropped.
+ */
+export function keepNotes(inventoryText, before) {
+    const text = String(inventoryText ?? '');
+    const old = scan(String(before ?? '').split(/\r?\n/)).rows;
+    if (!old.length) return text;
+    const lines = text === '' ? [] : text.split(/\r?\n/);
+    let changed = false;
+    for (const row of scan(lines).rows) {
+        const was = old.find(entry => entry.key === row.key);
+        if (!was || clean(was.note ?? '') === clean(row.note ?? '')) continue;
+        const b = describeRow(was);
+        const c = describeRow(row);
+        const prose = clean(row.note ?? '');
+        let head = '';
+        if (b.slot && Object.keys(b.stats).length && !Object.keys(c.stats).length) {
+            const extras = [formatStats(b.stats), ...b.tags];
+            if (kindOf(row.name)?.slot !== b.slot) extras.push(`slot: ${b.slot}`);
+            const on = b.equipped && !TAKEN_OFF.test(prose) && !c.equipped;
+            head = [on ? 'equipped' : '', b.rarity, extras.filter(Boolean).join(', ')].filter(Boolean).join(' · ');
+        } else if (!b.slot && b.effect && !parseEffect(row.note ?? '') && !c.slot && (!c.effect || formatEffect(c.effect) === formatEffect(b.effect))) {
+            head = [b.rarity !== 'common' ? b.rarity : '', formatEffect(b.effect)].filter(Boolean).join(' · ');
+        } else if (/\bmaterial\b/i.test(was.note ?? '') && !/\bmaterial\b/i.test(prose) && !c.slot) {
+            head = clean(was.note);
+        }
+        if (!head) continue;
+        lines[row.index] = rewriteCell(lines[row.index], row, row.qtyCell + 1, escapeCell(prose ? `${head} · ${prose}` : head));
+        changed = true;
+    }
+    return changed ? lines.join(eolOf(text)) : text;
 }
 
 // A section's "(empty)" line goes once the section holds a row.
