@@ -377,7 +377,10 @@ export function rollLoot(enemy, { rng, luck = null, rules = DEFAULT_RULES, table
             // Drawn either way, so the rolls after it do not move; a whole-body part is one per creature.
             const drawn = rng.int(lo, hi);
             const qty = row.kind === 'material' && wholePart(row.name) ? Math.min(1, drawn) : drawn;
-            const item = { name: row.name, qty, rarity, kind: row.kind, stats: { ...(row.stats ?? {}) } };
+            // (0.5.32) A swarm's parts are its creatures' ("Rat Swarm Tail" → "Rat Tail"), for a swarm
+            // the chat's bestiary kept from before 0.5.31 too.
+            const name = row.kind === 'material' ? String(row.name).replace(/\s+swarms?(?=\s)/i, '') : row.name;
+            const item = { name, qty, rarity, kind: row.kind, stats: { ...(row.stats ?? {}) } };
             if (row.effect) item.effect = row.effect;
             items.push(item);
         }

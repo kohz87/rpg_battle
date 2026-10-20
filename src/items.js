@@ -324,7 +324,9 @@ export function describeRow({ name, category = '', note = '' }) {
     let slot = explicit ? slotFromWord(explicit[1]) : null;
     // [Armour] holds shields, helms and boots too; their kind says which slot they take.
     if (!slot && fromCategory) slot = fromCategory === 'armour' && (kind?.slot === 'offhand' || kind?.slot === 'worn') ? kind.slot : fromCategory;
-    const equipmentish = EQUIPMENT_CATEGORY.test(category) || equippedMark || hasRarityWord(text) || Object.keys(stats).length > 0;
+    // (0.5.32) "uncommon material": a rare find, not gear to wear.
+    const material = /\bmaterial\b/i.test(text) && !explicit && !Object.keys(stats).length;
+    const equipmentish = !material && (EQUIPMENT_CATEGORY.test(category) || equippedMark || hasRarityWord(text) || Object.keys(stats).length > 0);
     if (!slot && equipmentish && kind) slot = kind.slot;
     if (!slot && (equippedMark || EQUIPMENT_CATEGORY.test(category)) && Object.keys(stats).length) slot = slotFromStats(stats);
     if (!slot && equippedMark) slot = 'accessory';
@@ -694,7 +696,10 @@ function lootNote(item, kind) {
         const tail = extras.filter(Boolean).join(', ');
         return `${item.rarity ?? 'common'}${tail ? ` · ${tail}` : ''}`;
     }
-    return formatEffect(item.effect);
+    // (0.5.32) A rarer find says so ("uncommon material", "rare · heal 40"): the rarity was dropped
+    // for everything but gear.
+    const rarity = item.rarity && item.rarity !== 'common' ? `${item.rarity}${item.kind === 'material' ? ' material' : ''}` : '';
+    return [rarity, formatEffect(item.effect)].filter(Boolean).join(' · ');
 }
 
 /**

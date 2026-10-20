@@ -392,3 +392,28 @@ test('a purse kept under its own name is the party\'s money, and loot coins go i
     assert.equal(purseOf('Rope | 1 | coiled'), null);
     assert.equal(purseOf('Coin Pouch | 1 | empty'), null, 'a purse with no coins written is not read as money');
 });
+
+test('a rarer find that is not gear keeps its rarity in the Inventory, and stays what it is (0.5.32)', async () => {
+    const { addLoot, parseInventory } = await import('../src/items.js');
+    const inv = addLoot('', { items: [
+        { name: 'Brood-Mother Skull', qty: 1, rarity: 'uncommon', kind: 'material', stats: {} },
+        { name: 'Iron Gauntlet Shard', qty: 1, rarity: 'rare', kind: 'material', stats: {} },
+        { name: 'Greater Healing Draught', qty: 1, rarity: 'uncommon', kind: 'consumable', effect: { heal: 60 } },
+        { name: 'Wolf Pelt', qty: 1, rarity: 'common', kind: 'material', stats: {} },
+    ] });
+    assert.match(inv, /Brood-Mother Skull \| 1 \| uncommon material/);
+    assert.match(inv, /Iron Gauntlet Shard \| 1 \| rare material/);
+    assert.match(inv, /Greater Healing Draught \| 1 \| uncommon · heal 60/);
+    assert.match(inv, /Wolf Pelt \| 1\s*$/m, 'a common one says nothing more');
+    const items = parseInventory(inv).items;
+    assert.equal(items.find(item => item.name === 'Iron Gauntlet Shard').slot, null, 'a material is never worn, whatever its name');
+    assert.equal(items.find(item => item.name === 'Brood-Mother Skull').rarity, 'uncommon');
+    assert.equal(items.find(item => item.name === 'Greater Healing Draught').effect.heal, 60);
+});
+
+test('a swarm\'s parts are its creatures\', for a swarm the chat kept from before too (0.5.32)', async () => {
+    const { rollLoot } = await import('../src/enemies.js');
+    const { makeRng } = await import('../src/rng.js');
+    const enemy = { name: 'Granary Cellar Rat Swarm', rank: 'F', coins: false, loot: [{ name: 'Granary Cellar Rat Swarm Tail', chance: 100, qty: [1, 1], kind: 'material' }] };
+    assert.deepEqual(rollLoot(enemy, { rng: makeRng('x') }).items.map(item => item.name), ['Granary Cellar Rat Tail']);
+});

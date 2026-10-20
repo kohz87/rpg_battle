@@ -1,4 +1,4 @@
-# RPG Battle v0.5.31
+# RPG Battle v0.5.32
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -414,7 +414,7 @@ Healing Draught | 2 | heal 30
   rarity and kind.
 - **Consumables** with an effect (`heal 30`, `mp 20`, `cure poison`, `fire 25, all enemies`) can
   be used in a fight; what you use comes off the inventory afterwards.
-- **Loot** from a won fight is written into the inventory, money into your money row. Only foes
+- **Loot** from a won fight is written into the inventory, money into your money row. Gear carries its rarity and stats (`uncommon · LUK +2`); since 0.5.32 a rarer material or potion says so too (`uncommon material`, `rare · heal 40`). Only foes
   that would carry coin drop money: people (bandits, cultists, goblins, orcs…), their leaders and
   casters, and a drake or wyvern that is a boss, on its hoard. Beasts, insects, oozes, plants,
   constructs, spirits and the dead leave something of themselves instead (a *Wolf Pelt*, a
