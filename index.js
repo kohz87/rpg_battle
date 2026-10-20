@@ -44,11 +44,11 @@ import { DEFAULT_RULES, checkModifiers, clampXpRate, makeRules, suggestRank, thr
 import { hashSeed, makeRng } from './src/rng.js';
 import { DEFAULT_SKILLS, findSkill, resolveSkills, skillFromTemplate } from './src/skills.js';
 import { DEFAULT_BESTIARY, findCreature } from './src/enemies.js';
-import { TEMPLATES, classify, cleanCreature, combinedBestiary, creaturesToMake, familyOf, familyTitle, findKin, generateCreature, storeCreatures } from './src/templates.js';
+import { TEMPLATES, classify, cleanCreature, combinedBestiary, creaturesToMake, familyOf, familyTitle, findKin, generateCreature, storeCreatures, upgradePerson } from './src/templates.js';
 import { applyFlavour, flavourPrompt, parseFlavour, sceneText } from './src/flavour.js';
 import { act, availableActions, foeXpWorth, replay, startFight, summarize } from './src/combat.js';
 import { applyResult, foldUses, forgetSkill, formatPartyBlock, learnSkill, newSheet, readSheets, setSkillActive, spendPoints } from './src/sheet.js';
-import { addLoot, applyCrafts, consumables, restoreLoot, formatGearEntry, formatMoney, gearSummary, parseGearEntry, parseInventory, purseOf, useItems } from './src/items.js';
+import { addLoot, applyCrafts, consumables, keepNotes, restoreLoot, formatGearEntry, formatMoney, gearSummary, parseGearEntry, parseInventory, purseOf, useItems } from './src/items.js';
 import { NEXT_MOVES_MAX, fallbackMoves, nextMovesPrompt, parseNextMoves } from './src/nextmoves.js';
 import { buildHandoff, buildPlanHandoff, fightOrigin, grouped, handoffState, originHolds, settleHandoff } from './src/handoff.js';
 import { cleanPlan, newPlan, nextStage, planResult, stageDone, stageId } from './src/plan.js';
@@ -67,7 +67,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.34';
+const VERSION = '0.5.35';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -322,7 +322,8 @@ function chatState(ctx = context()) {
         dismissedAt: Object.fromEntries(dismissed.filter(key => stamps[key]).map(key => [key, stamps[key]])),
         // (0.5) The replies that narrated a fight ({ index, date, swipe }): no XP or rest offered from them.
         narrated: Array.isArray(state.narrated) ? state.narrated.filter(entry => entry && Number.isInteger(entry.index)) : [],
-        bestiary: Array.isArray(state.bestiary) ? state.bestiary.filter(entry => entry && typeof entry === 'object' && entry.name) : [],
+        // (0.5.35) A person kept as the catch-all before its name was known as one: a person now.
+        bestiary: Array.isArray(state.bestiary) ? state.bestiary.filter(entry => entry && typeof entry === 'object' && entry.name).map(entry => upgradePerson(entry)) : [],
         npcLinks: state.npcLinks && typeof state.npcLinks === 'object' ? state.npcLinks : {},
         done: Array.isArray(state.done) ? state.done : [],
         fallen: Array.isArray(state.fallen) ? state.fallen.filter(entry => entry && entry.memberId) : [],
@@ -1392,6 +1393,7 @@ async function planAndWriteReply({ messageIndex }) {
     }
     if (narrating) await guardLoot(sb, index, state, own);
     await craftInReply(sb, index, own);
+    await keepInventoryNotes(sb, index, own);
     // (0.5.9) The narrating reply may go on into a new fight, offered when encounterOffer says so.
     if (!narrating || encounterOffer()) toastEncounter(sb, index);
     const fresh = currentOffers().filter(offer => offer.index === index);
@@ -1442,6 +1444,25 @@ async function craftInReply(sb, index, own) {
         logActivity(`Crafted in reply #${index}: ${plans.map(plan => `${plan.item.name} (${plan.item.rarity})`).join(', ')}`);
     } catch (error) {
         console.error('[RPG Battle] the crafted gear could not be written', error);
+    }
+}
+
+/**
+ * (0.5.35) The reply's Inventory with what its notes did put back where the model retold them
+ * (keepNotes): a potion's heal, gear's stats, a material's rarity. The same reply worked again
+ * changes nothing; a reply without an Inventory block keeps the one before it.
+ */
+async function keepInventoryNotes(sb, index, own) {
+    const current = blockAt(sb, index, own.inventoryTag);
+    if (current === null) return;
+    const before = sb.getBlock?.(own.inventoryTag, { beforeIndex: index })?.text ?? '';
+    const next = keepNotes(current, before);
+    if (next === current) return;
+    try {
+        await sb.setBlockText(index, own.inventoryTag, next);
+        logActivity(`Inventory notes kept in reply #${index}`);
+    } catch (error) {
+        console.error('[RPG Battle] the Inventory notes could not be kept', error);
     }
 }
 

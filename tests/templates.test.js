@@ -10,7 +10,7 @@ import { creatureSkill } from '../src/skills.js';
 import {
     TEMPLATES, TEMPLATE_IDS, TRAITS, classify, cleanCreature, cleanTraits, combinedBestiary, creatureSingular,
     creaturesToMake, generateCreature, lookupCreature, storeCreatures, templateFor, traitMods,
-    FAMILIES, familyOf, familyTitle, findKin,
+    FAMILIES, familyOf, familyTitle, findKin, upgradePerson,
 } from '../src/templates.js';
 import { resolveThreats } from '../src/story.js';
 import { enemiesFromRows } from '../src/party.js';
@@ -356,4 +356,19 @@ test('kin: the flavour call is told whose relative it is', () => {
     assert.match(user.content, /^Creature: Razor Dog \(a relative of the Feral Ditch-Dog: make its look fit that kin\)$/m);
     const [, plain] = flavourPrompt(ditchDog(), { power: 'Level 1' });
     assert.match(plain.content, /^Creature: Feral Ditch-Dog$/m);
+});
+
+test('a human foe is a person, with what people carry and their coin (0.5.35)', () => {
+    for (const name of ['Hired Muscle', 'Dockside Enforcer', 'Cutpurse', 'Cult Fanatic', 'Village Militiaman', 'Grain Factor']) {
+        assert.equal(templateFor(name), 'humanoid', name);
+    }
+    assert.equal(templateFor('Cultist'), 'caster');
+    assert.equal(templateFor('Caiman'), 'generic');
+    assert.ok(!generateCreature({ name: 'Hired Muscle', level: 3 }).loot.some(row => /trophy/i.test(row.name)));
+    // One the chat kept as the catch-all before: a person now, its trophy table replaced.
+    const old = { name: 'Hired Muscle', template: 'generic', level: 3, loot: [{ name: 'Muscle Trophy', chance: 55, qty: [1, 1], kind: 'material' }] };
+    const now = upgradePerson(old);
+    assert.equal(now.template, 'humanoid');
+    assert.ok(now.loot.some(row => row.name === 'Whetstone'));
+    assert.equal(upgradePerson({ ...old, name: 'Granary Cellar Brood-Mother' }).template, 'generic');
 });

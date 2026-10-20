@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { DEFAULT_RULES, rarityBudget } from '../src/rules.js';
 import {
     addLoot, capItem, consumables, equipped, formatGearEntry, formatMoney, gearBonuses, gearLimits, gearSummary, parseGearEntry, parseInventory, parseMoney, purseOf,
-    restoreLoot, useItems,
+    effectByName, keepNotes, restoreLoot, useItems,
 } from '../src/items.js';
 
 const R = DEFAULT_RULES;
@@ -444,4 +444,33 @@ test('an element on what strikes works in a fight; on armour it is only a word (
         { name: 'Frost Coat', slot: 'armour', equipped: true, rarity: 'rare', stats: { DEF: 6 }, tags: ['ice'] },
     ];
     assert.deepEqual(gearBonuses(gear, 5).onHit, ['fire']);
+});
+
+test('a potion the story retold still works by its name (0.5.35)', () => {
+    const { items } = parseInventory('[Consumables]\nMinor Healing Draught | 4 | Weak restorative fluid (heals minor wounds)\nMana Tonic | 1 | blue and fizzing\nAntidote | 1 | bitter\nHealing Herbs | 2 | fragrant\n[Loot]\nBrood-Mother Skull | 1 | uncommon material');
+    assert.deepEqual(items.map(item => [item.name, item.effect]), [
+        ['Minor Healing Draught', { heal: 20 }], ['Mana Tonic', { mp: 20 }], ['Antidote', { cure: ['poison'] }], ['Healing Herbs', null], ['Brood-Mother Skull', null],
+    ]);
+    assert.deepEqual(consumables(items).map(item => item.name), ['Minor Healing Draught', 'Mana Tonic', 'Antidote']);
+    // The note's own number wins over the name's.
+    assert.deepEqual(parseInventory('Healing Draught | 1 | heal 45').items[0].effect, { heal: 45 });
+    for (const [name, effect] of [['Healing Draught', { heal: 30 }], ['Greater Healing Draught', { heal: 60 }], ['Elixir', { heal: 120 }], ['Grand Elixir', { heal: 250 }], ['Regeneration Tonic', { heal: 60 }], ['Empty Flask', null]]) {
+        assert.deepEqual(effectByName(name), effect, name);
+    }
+});
+
+test('keepNotes puts back what a retold note did, in front of the story\'s words (0.5.35)', () => {
+    const before = '[Weapons]\nShort Sword | 1 | Equipped · Common · ATK +4, fire · Notched\n[Consumables]\nWolfsbane Tonic | 2 | heal 25\nMinor Healing Draught | 4 | heal 20\n[Loot]\nBrood-Mother Skull | 1 | uncommon material · MDEF\nRope | 1 | 30 ft';
+    const now = '[Weapons]\nShort Sword | 1 | A notched blade, still keen\n[Consumables]\nWolfsbane Tonic | 1 | Bitter green tonic\nMinor Healing Draught | 4 | Weak restorative fluid\n[Loot]\nBrood-Mother Skull | 1 | A cracked yellow skull\nRope | 1 | coiled\nTorch | 1 | new';
+    const kept = keepNotes(now, before);
+    assert.match(kept, /Short Sword \| 1 \| equipped · common · ATK \+4, fire · A notched blade, still keen/);
+    assert.match(kept, /Wolfsbane Tonic \| 1 \| heal 25 · Bitter green tonic/);
+    // A potion that works by its name gets its number shown again too.
+    assert.match(kept, /Minor Healing Draught \| 4 \| heal 20 · Weak restorative fluid/);
+    assert.match(kept, /Brood-Mother Skull \| 1 \| uncommon material · MDEF · A cracked yellow skull/);
+    assert.match(kept, /Rope \| 1 \| coiled/);
+    assert.equal(keepNotes(kept, before), kept);
+    // New numbers are the story's; a piece it says was stowed is not put back on.
+    assert.equal(keepNotes('Wolfsbane Tonic | 2 | heal 40, bitter', before), 'Wolfsbane Tonic | 2 | heal 40, bitter');
+    assert.equal(keepNotes('Short Sword | 1 | stowed in the pack', before), 'Short Sword | 1 | common · ATK +4, fire · stowed in the pack');
 });

@@ -193,7 +193,14 @@ const KEYWORDS = {
     plant: ['treant', 'vine', 'shambler', 'mandrake', 'fungus', 'mushroom', 'myconid', 'briar', 'creeper', 'bloom', 'thornling'],
     // Cultists cast in the shipped bestiary, so the word is a caster's.
     caster: ['shaman', 'witch', 'warlock', 'mage', 'wizard', 'sorcerer', 'sorceress', 'priest', 'priestess', 'druid', 'necromancer', 'cleric', 'oracle', 'seer', 'hexer', 'conjurer', 'enchanter', 'magus', 'summoner', 'acolyte', 'cultist'],
-    humanoid: ['bandit', 'thug', 'soldier', 'guard', 'knight', 'brigand', 'raider', 'pirate', 'mercenary', 'sellsword', 'assassin', 'thief', 'rogue', 'warrior', 'fighter', 'hunter', 'archer', 'ranger', 'scout', 'goblin', 'hobgoblin', 'orc', 'kobold', 'gnoll', 'ogre', 'troll', 'giant', 'man', 'woman', 'elf', 'dwarf', 'highwayman', 'poacher', 'smuggler', 'zealot', 'duelist', 'berserker', 'gladiator', 'sentry', 'watchman', 'militia', 'legionnaire', 'footman', 'spearman', 'swordsman', 'cutthroat', 'ruffian', 'marauder', 'outlaw', 'deserter', 'slaver', 'inquisitor', 'paladin', 'templar'],
+    humanoid: ['bandit', 'thug', 'soldier', 'guard', 'knight', 'brigand', 'raider', 'pirate', 'mercenary', 'sellsword', 'assassin', 'thief', 'rogue', 'warrior', 'fighter', 'hunter', 'archer', 'ranger', 'scout', 'goblin', 'hobgoblin', 'orc', 'kobold', 'gnoll', 'ogre', 'troll', 'giant', 'man', 'woman', 'elf', 'dwarf', 'highwayman', 'poacher', 'smuggler', 'zealot', 'duelist', 'berserker', 'gladiator', 'sentry', 'watchman', 'militia', 'legionnaire', 'footman', 'spearman', 'swordsman', 'cutthroat', 'ruffian', 'marauder', 'outlaw', 'deserter', 'slaver', 'inquisitor', 'paladin', 'templar',
+        // (0.5.35) More people, so a human foe is not a "{noun} Trophy" of the catch-all.
+        'enforcer', 'muscle', 'cutpurse', 'pickpocket', 'footpad', 'mugger', 'robber', 'burglar', 'crook', 'goon', 'lackey',
+        'hireling', 'bouncer', 'brawler', 'bruiser', 'fanatic', 'conscript', 'recruit', 'squire', 'monk', 'nun',
+        'warden', 'jailer', 'gaoler', 'executioner', 'torturer', 'collector', 'factor', 'steward', 'bailiff', 'sheriff',
+        'constable', 'deputy', 'agent', 'spy', 'informant', 'fence', 'trapper', 'miner', 'sailor', 'deckhand', 'dockhand',
+        'farmer', 'villager', 'peasant', 'merchant', 'trader', 'noble', 'nobleman', 'courtier', 'human', 'person', 'halfling',
+        'gnome', 'bodyguard', 'henchman', 'minion', 'heretic', 'apprentice', 'student'],
 };
 const LEADER_WORDS = new Set(['captain', 'chief', 'chieftain', 'boss', 'warlord', 'lord', 'king', 'queen', 'matriarch', 'patriarch', 'alpha', 'leader', 'commander', 'general', 'overlord', 'master', 'mistress', 'elder', 'prince', 'princess', 'baron', 'tyrant', 'champion', 'warchief', 'broodmother', 'sergeant']);
 // A few kinds are bigger or tougher than their template's average.
@@ -219,11 +226,18 @@ function forms(word) {
     return out;
 }
 
+// Words ending in -man that are not people.
+const NOT_PEOPLE = new Set(['caiman', 'doberman', 'talisman', 'ottoman', 'superman', 'shaman', 'bogeyman', 'boogeyman']);
+
 /** The keyword a word is, also as a plural or at the end of a compound ("hellhound" → hound). */
 function keywordOf(word) {
     for (const form of forms(word)) {
         if (KEYWORD_INDEX.has(form)) return form;
         if (LEADER_WORDS.has(form)) return form;
+    }
+    // (0.5.35) A someone-man is a person: militiaman, guardsman, headsman, crossbowman.
+    for (const form of forms(word)) {
+        if (form.length >= 6 && /(?:wo)?man$/.test(form) && !NOT_PEOPLE.has(form)) return 'man';
     }
     // Compounds only on longer keywords: "werewolf", "hellhound", "stonegolem"; never "pirate" → rat.
     for (const form of forms(word)) {
@@ -678,6 +692,28 @@ export function cleanCreature(raw, rules = DEFAULT_RULES) {
         ...(typeof raw.kin === 'string' && raw.kin.replace(/[\r\n|<>#]/g, ' ').trim() ? { kin: raw.kin.replace(/[\r\n|<>#]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, MAX_NAME) } : {}),
         ...(typeof raw.coins === 'boolean' || raw.coins === 'boss' ? { coins: raw.coins } : {}),
     }, rules);
+}
+
+// The templates of people: they carry coin and what people carry.
+const PEOPLE_TEMPLATES = new Set(['humanoid', 'leader', 'caster']);
+
+/**
+ * (0.5.35) A creature the chat's bestiary kept as the catch-all (`generic`) whose name now
+ * reads as a person (a Hired Muscle, a Dockside Enforcer): made a person, with people's loot
+ * in place of the "{noun} Trophy" and their coin. Its moves, level and look stay; anything
+ * else is returned as it was.
+ */
+export function upgradePerson(entry, rules = DEFAULT_RULES) {
+    if (!entry || typeof entry !== 'object' || entry.template !== 'generic' || !entry.name) return entry;
+    const info = classify(entry.name);
+    if (!PEOPLE_TEMPLATES.has(info.template)) return entry;
+    const trophies = (entry.loot ?? []).every(row => typeof row?.name === 'string' && /\btrophy$/i.test(row.name));
+    const level = clamp(Math.round(Number(entry.level) || 1), 1, 999);
+    return {
+        ...entry,
+        template: info.template,
+        ...(trophies ? { loot: lootFor(TEMPLATES[info.template], { name: entry.name, noun: info.noun, rank: rankRowForLevel(level, rules).rank, level }, rules) } : {}),
+    };
 }
 
 /**

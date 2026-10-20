@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.35
+
+- **A potion the story retold can be used again.** The model rewrote `Minor Healing Draught | 4 | heal 20` as *Weak restorative fluid (heals minor wounds)*. Only the number made it a potion, so it dropped out of the fight. Two fixes:
+  - **Lost numbers are put back.** Each reply, a note that lost what RPG Battle reads gets it back in front of the story's words: `heal 20 · Weak restorative fluid`. This covers a potion's effect, gear's rarity and stats (and *equipped*, unless the note says it was stowed), and a material's line. Numbers the story writes itself are kept.
+  - **Potions work by name.** One whose note never had a number still works by its name: *Minor Healing Draught* heals 20, *Greater* 60, *Mana Tonic* restores 20 MP, *Antidote* cures poison. Story-made potions named the same way work too.
+- **People drop what people carry.** Many human foes (*Hired Muscle*, *Dockside Enforcer*, *Cutpurse*, *Cult Fanatic*, *Village Militiaman*) were not recognised as people. They were made as the catch-all creature: no coin, only a *Muscle Trophy*. Many more people-words are now known, and so is any *-man* (*guardsman*, *headsman*). Such foes carry coin and drop a *Worn Insignia*, a *Whetstone*, now and then a blade or a potion. Ones this chat met before are fixed too: their trophy table is replaced the next time they fight.
+
 ## 0.5.34
 
 - **Materials say what they would make.** Each material now notes the stat and element it lends a crafted piece. The rarity was all you could see before. A skull reads `uncommon material · MDEF`, a venom sac `material · MP, poison`. The stat comes from the part (fang ATK, pelt DEF, skull MDEF, feather AGI…). The element comes from what it is made of or what dropped it (venom or rats → poison, embers or a drake → fire, frost or a ghost → ice, a relic → holy). Materials you already have are read by their name, and a hint you write in the note wins.

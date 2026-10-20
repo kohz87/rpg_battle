@@ -1,4 +1,4 @@
-# RPG Battle v0.5.34
+# RPG Battle v0.5.35
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -419,6 +419,14 @@ Healing Draught | 2 | heal 30
   each as strong as the hit; holy deals ×1.25 damage to the undead and spirits. The word works on
   gear the story gives you and on gear you wrote earlier, too; on armour or a worn piece it is
   only a word. The numbers are in `combat.gearEffects`.
+- **Notes the story retells keep working** (0.5.35). The model rewrites the Inventory each
+  reply, and a `heal 20` can come back as *weak restorative fluid*, a sword's `ATK +4` as *a
+  notched blade*. Each reply, a note that lost what RPG Battle reads (an effect, gear's rarity
+  and stats, a material's line) gets it back in front of the story's words:
+  `heal 20 · Weak restorative fluid`. New numbers the story writes are its own, and a row it
+  drops stays dropped. A potion whose note says nothing still works by its name (*Minor
+  Healing Draught* heal 20, *Healing Draught* 30, *Greater* 60, *Elixir* 120, *Grand Elixir*
+  250, *Mana Tonic* mp 20, *Antidote* cures poison, and one the story names the same way).
 - **Crafting** (0.5.34). A material's note says what it would lend a crafted piece: its rarity
   and an affinity, `uncommon material · MDEF, poison`. The stat comes from what part it is (fang,
   claw, tusk ATK; pelt, hide, scale DEF; skull, bone MDEF; essence, crystal MATK; feather, wing,
