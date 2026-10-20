@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.32
+
+- **A rare find keeps its rarity in the Inventory.** Only gear was written with its rarity, so an uncommon Brood-Mother Skull arrived as a bare `Brood-Mother Skull | 1`. Now a material reads `Brood-Mother Skull | 1 | uncommon material` and a potion `uncommon · heal 60`; a common one says nothing more. A material stays a material even when its name sounds like gear (*Iron Gauntlet Shard* is never worn).
+- **Swarm parts are named for the creature, for swarms met before 0.5.31 too.** A swarm the chat's bestiary kept from earlier still dropped *Granary Cellar Rat Swarm Tail*. Now it drops *Granary Cellar Rat Tail*.
+
 ## 0.5.31
 
 - **A swarm is fought and told as a swarm.** The story wrote `<Encounter>Granary Cellar Rats (EG1 swarm)</Encounter>`. RPG Battle dropped the bracket, made *Rats* singular and, with no number, fought one *Granary Cellar Rat*, so the story then told it as one rat killed. Now *swarm* (also *horde*, *nest*, *colony*, *brood*, *infestation*…) in brackets, written last (*Rat swarm*) or in front (*a swarm of rats*) makes one **Granary Cellar Rat Swarm** foe: the hand-off says *Foes defeated: Granary Cellar Rat Swarm*, and its drops are named for the creature (*Granary Cellar Rat Tail*). A number inside (*a swarm of 30 rats*) is its size: still one swarm.
