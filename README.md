@@ -1,4 +1,4 @@
-# RPG Battle v0.5.35
+# RPG Battle v0.5.36
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -441,7 +441,11 @@ Healing Draught | 2 | heal 30
   - **slot**: from the piece's kind, or `| slot: worn` on the line.
 
   The materials come off the Inventory and the piece goes in, in that reply, so a swipe or a
-  deleted reply takes the craft back. A material you do not hold counts as common and is not
+  deleted reply takes the craft back. Since 0.5.36 a piece can be **ordered**: `| ready: Goldwane
+  14` on the line takes the materials now and puts the piece under `[On Order]` with its numbers
+  already set (`Skull Ring | 1 | uncommon · MDEF +4 · on order, ready Goldwane 14`). It cannot
+  be worn or used until collected, a reply that retells or drops its row gets it back, and
+  `<Crafted>Skull Ring — collected</Crafted>` (or the name alone) makes it the gear it is. A material you do not hold counts as common and is not
   taken. Who crafts and what it costs are the story's.
 - **Consumables** with an effect (`heal 30`, `mp 20`, `cure poison`, `fire 25, all enemies`) can
   be used in a fight; what you use comes off the inventory afterwards.
