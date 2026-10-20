@@ -60,7 +60,7 @@ import { awardParty, settleCompanions } from './src/growth.js';
 import { guessFocus } from './src/builds.js';
 import { fallbackKit, kitPrompt, kitTemplate, namedKit, parseKit, usableKit } from './src/kit.js';
 import { cleanParty, exportParty } from './src/partyfile.js';
-import { OLD_PROMPT_KEYS, STATIC_PROMPT_KEY, TAIL_PROMPT_KEY, promptLayout } from './src/injection.js';
+import { OLD_PROMPT_KEYS, STATIC_PROMPT_KEY, TAIL_PROMPT_KEY, promptLayout, withStaticPart } from './src/injection.js';
 import { craftPlan, parseCrafted } from './src/craft.js';
 import { renderBattleTab } from './src/ui/tab.js';
 import { renderTradeTab } from './src/ui/trade.js';
@@ -70,7 +70,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.41';
+const VERSION = '0.5.42';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -2348,6 +2348,11 @@ function watchSuite() {
 // ---------------------------------------------------------------------------
 // The hand-off: injected once, into the next reply and its swipes
 
+// (0.5.42) The static instruction of the reply being generated, macros filled in, from its
+// interceptor until that reply is in (or stopped): put back by keepStaticPart when a preset with
+// its Main Prompt off leaves it out. '' otherwise, so no background call ever gets it.
+let sentStatic = '';
+
 function setPrompt(text, key = TAIL_PROMPT_KEY) {
     const ctx = context();
     if (typeof ctx?.setExtensionPrompt !== 'function') return;
@@ -2356,8 +2361,23 @@ function setPrompt(text, key = TAIL_PROMPT_KEY) {
     ctx.setExtensionPrompt(key, text, early ? EXTENSION_PROMPT_IN_PROMPT : EXTENSION_PROMPT_IN_CHAT, 0, false, EXTENSION_PROMPT_ROLE_SYSTEM);
 }
 
+/**
+ * (0.5.42) A chat completion about to go out: SillyTavern drops in-prompt extension prompts
+ * when the preset's Main Prompt is off, so the static instruction is put back after the leading
+ * system messages (once; never when it is already there). Text completion keeps it in the story
+ * string as before. Not on a dry run (a token count).
+ */
+function keepStaticPart(eventData) {
+    if (!sentStatic || eventData?.dryRun === true || !Array.isArray(eventData?.chat)) return;
+    // Only the story's own prompt: one that carries the chat's replies (another extension's call
+    // during the generation, a scan or a summary, is a system and user message of its own).
+    const next = withStaticPart(eventData.chat, sentStatic, { story: (context()?.chat ?? []).some(isAssistant) });
+    if (next !== eventData.chat) eventData.chat.splice(0, eventData.chat.length, ...next);
+}
+
 /** Both slots emptied, and (0.5.41) the keys of older versions with them. */
 function clearPrompts() {
+    sentStatic = '';
     setPrompt('', STATIC_PROMPT_KEY);
     setPrompt('', TAIL_PROMPT_KEY);
     for (const key of OLD_PROMPT_KEYS) {
@@ -2555,6 +2575,7 @@ async function onGenerationInterceptor(chat, _contextSize, _abort, type = 'norma
         for (const key of OLD_PROMPT_KEYS) ctx?.setExtensionPrompt?.(key, '', EXTENSION_PROMPT_IN_CHAT, 0, false, EXTENSION_PROMPT_ROLE_SYSTEM);
         setPrompt(layout.staticText, STATIC_PROMPT_KEY);
         setPrompt(layout.tailText, TAIL_PROMPT_KEY);
+        sentStatic = layout.staticText && typeof ctx?.substituteParams === 'function' ? ctx.substituteParams(layout.staticText) : layout.staticText;
         const pc = own.enabled ? currentSheet() : null;
         const why = !own.enabled ? 'RPG Battle is off' : !pc ? 'no character yet' : isDead(pc) ? 'your character is dead' : underWay(chatState(ctx)) ? 'a fight is under way' : '';
         lastSent = { at: Date.now(), type: kind, handoff: Boolean(handoff), instruction: why ? 'none' : handoff ? 'narrating' : 'story', why, chars: layout.staticText.length + layout.tailText.length, staticText: layout.staticText, tailText: layout.tailText };
@@ -3894,6 +3915,8 @@ function init() {
     const handoffEvent = (event, { done = false, settles = false }) => {
         if (event) ctx.eventSource?.on?.(event, () => {
             if (done) generating = false;
+            // (0.5.42) The reply is in or stopped: its static instruction is not put back again.
+            if (done) sentStatic = '';
             try {
                 if (settles) settlePending();
             } catch (error) {
@@ -3902,6 +3925,7 @@ function init() {
             storyBlock()?.refresh?.();
         });
     };
+    if (events.CHAT_COMPLETION_PROMPT_READY) ctx.eventSource?.on?.(events.CHAT_COMPLETION_PROMPT_READY, keepStaticPart);
     handoffEvent(events.MESSAGE_RECEIVED, { done: true, settles: true });
     handoffEvent(events.GENERATION_STOPPED, { done: true });
     handoffEvent(events.MESSAGE_DELETED, { settles: true });

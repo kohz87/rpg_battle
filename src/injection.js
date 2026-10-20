@@ -42,3 +42,22 @@ export function promptLayout({ story = false, underWay = false, handoff = '', tr
     }
     return { staticText: story ? STORY_INSTRUCTION : '', tail, tailText: tail.map(part => part.text).join('\n\n') };
 }
+
+/**
+ * (0.5.42) `messages` (a chat completion's) with the static instruction `text` in them: as they
+ * are when some message already holds it, else with it as a system message after the leading
+ * system messages, early and in the same place every reply. SillyTavern drops in-prompt extension
+ * prompts when a preset turns its Main Prompt off; this keeps the instruction then (once). A new
+ * array when it adds; `messages` itself otherwise.
+ */
+export function withStaticPart(messages, text, { story = false } = {}) {
+    const body = String(text ?? '').trim();
+    if (!body || !Array.isArray(messages)) return messages;
+    // `story`: the chat has replies, so the story's own prompt carries some; a call without any
+    // (another extension's scan or summary during the generation) is left alone.
+    if (story && !messages.some(message => message?.role === 'assistant')) return messages;
+    if (messages.some(message => typeof message?.content === 'string' && message.content.includes(body))) return messages;
+    let at = 0;
+    while (at < messages.length && messages[at]?.role === 'system') at += 1;
+    return [...messages.slice(0, at), { role: 'system', content: body }, ...messages.slice(at)];
+}

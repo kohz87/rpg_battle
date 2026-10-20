@@ -1,4 +1,4 @@
-# RPG Battle v0.5.41
+# RPG Battle v0.5.42
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -456,6 +456,8 @@ same as the last request's, from the start, and charge less for it. So RPG Battl
 
 They use Story Suite's shared keys (`story_suite_static_rpg_battle`, `story_suite_tail_3_rpg_battle`);
 the keys of older versions are emptied on load.
+
+SillyTavern places the story instruction next to the Main Prompt; a preset without a Main Prompt in its prompt order would drop it. Since 0.5.42 RPG Battle then puts it back itself, once, after the leading system messages, in the reply's own prompt only (never another extension's scan or summary). Text completion keeps it in the story string as before.
 
 ## Equipment and loot: your Inventory block
 
