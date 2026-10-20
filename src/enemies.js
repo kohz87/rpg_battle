@@ -12,6 +12,7 @@
 
 import { DEFAULT_RULES, RANKS, RARITIES } from './rules.js';
 import { creatureSkill, findSkill, skillFromTemplate } from './skills.js';
+import { ELEMENTS, itemSlot } from './items.js';
 
 const ROLES = ['brute', 'skirmisher', 'caster', 'tank', 'support'];
 
@@ -354,6 +355,35 @@ export function wholePart(name) {
  * whole-body part (wholePart: a pelt, a hide, a head, a tail…) is at most one per creature,
  * whatever its row's quantity; its quantity is still drawn, so the draws stay the same.
  */
+// (0.5.33) What a rarer piece of gear rolls on top of its table row: one more stat (+1 for
+// uncommon up to +4 for legendary, still capped by its rarity when worn), and from rare up an
+// element on what strikes or is worn (fire, ice, poison, holy), which works in a fight.
+const EXTRA_STAT = { uncommon: 1, rare: 2, epic: 3, legendary: 4 };
+const EXTRA_STATS = {
+    weapon: ['STR', 'DEX', 'AGI', 'LUK'],
+    caster: ['INT', 'LUK', 'DEX'],
+    offhand: ['VIT', 'DEX', 'INT'],
+    armour: ['VIT', 'AGI', 'DEX'],
+    worn: ['AGI', 'VIT', 'DEX'],
+    accessory: ['STR', 'VIT', 'AGI', 'DEX', 'INT', 'LUK'],
+};
+const ELEMENT_SLOTS = new Set(['weapon', 'offhand', 'accessory']);
+
+/** A gear drop of uncommon or rarer, its extra stat and element rolled in (no draws below). */
+function enrichGear(item, rng) {
+    const bonus = EXTRA_STAT[item.rarity];
+    if (!bonus) return;
+    // The slot as the row reads before the extra stat, which must not move it.
+    const slot = itemSlot(item.name, item.stats);
+    item.slot = slot;
+    const pool = slot === 'weapon' && item.stats.MATK ? EXTRA_STATS.caster : EXTRA_STATS[slot] ?? EXTRA_STATS.accessory;
+    const open = pool.filter(stat => !(stat in item.stats));
+    if (open.length) item.stats[rng.pick(open)] = bonus;
+    if (RARITIES.indexOf(item.rarity) < RARITIES.indexOf('rare') || !ELEMENT_SLOTS.has(slot)) return;
+    if ((item.tags ?? []).some(tag => ELEMENTS.includes(tag))) return;
+    item.tags = [...(item.tags ?? []), rng.pick(ELEMENTS)];
+}
+
 export function rollLoot(enemy, { rng, luck = null, rules = DEFAULT_RULES, tables = LOOT_TABLES } = {}) {
     const l = rules.loot;
     // No luck given is the start stat's (Number(null) would be 0, an unlucky party).
@@ -382,6 +412,8 @@ export function rollLoot(enemy, { rng, luck = null, rules = DEFAULT_RULES, table
             const name = row.kind === 'material' ? String(row.name).replace(/\s+swarms?(?=\s)/i, '') : row.name;
             const item = { name, qty, rarity, kind: row.kind, stats: { ...(row.stats ?? {}) } };
             if (row.effect) item.effect = row.effect;
+            if (row.tags?.length) item.tags = [...row.tags];
+            if (row.kind === 'equipment') enrichGear(item, rng);
             items.push(item);
         }
     }

@@ -11,6 +11,7 @@ import { DEFAULT_RULES, clampXpRate, costPool, fleeChance, hitChance, mitigate, 
 import { makeRng } from './rng.js';
 import { effectivePower } from './skills.js';
 import { LOOT_TABLES, rollLoot } from './enemies.js';
+import { templateFor } from './templates.js';
 
 const DOTS = ['poison', 'burn', 'bleed'];
 const HARMFUL = new Set(['poison', 'burn', 'bleed', 'stun', 'slow', 'weaken']);
@@ -33,6 +34,12 @@ const cap = text => text.charAt(0).toUpperCase() + text.slice(1);
 const norm = name => String(name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 const average = list => (list.length ? list.reduce((sum, value) => sum + value, 0) / list.length : 0);
 const lowest = list => [...list].sort((a, b) => share(a) - share(b))[0] ?? null;
+
+// (0.5.33) The creatures holy gear bites harder: by their loot table or their name.
+const HALLOWED_FOES = new Set(['undead', 'spirit']);
+const hallowedFoe = c => c?.side === 'enemy' && (HALLOWED_FOES.has(c.loot) || HALLOWED_FOES.has(templateFor(c.name)));
+// The damage × an actor's holy gear gives against `target` (1 when none or not undead).
+const holyFactor = (actor, target, rules) => (actor?.onHit?.includes('holy') && hallowedFoe(target) ? Number(rules.combat.gearEffects?.holy) || 1 : 1);
 
 /** "the Goblin" for an unnamed enemy, the name itself for the party and proper names. */
 function label(c) {
@@ -203,7 +210,7 @@ function strike(f, actor, target, skill, rng, rules) {
         return false;
     }
     const power = skill ? effectivePower(skill, skill.mastery, rules) : 1;
-    let raw = skillValue(actor, skill, rules) * power;
+    let raw = skillValue(actor, skill, rules) * power * holyFactor(actor, target, rules);
     if (has(actor, 'weaken')) raw *= rules.combat.weaken;
     let damage = mitigate(raw, physical ? target.pdef : target.mdef) * rng.between(a.varianceLow, a.varianceHigh);
     const crit = rng.chance(actor.crit);
@@ -224,7 +231,32 @@ function strike(f, actor, target, skill, rng, rules) {
         const applied = applyEffect(f, actor, target, skill, rules);
         if (applied.length) log(f, actor, `${label(target)} is ${applied.join(', ')}.`, 'condition');
     }
+    if (physical) gearOnHit(f, actor, target, skill, rng, rules);
     return true;
+}
+
+/**
+ * (0.5.33) A physical hit with fire, poison or ice on the actor's gear (`onHit`): a chance each
+ * to burn, poison or slow the target, as strong as the hit's attack value. No gear element, no
+ * roll, so a fight without such gear rolls as before.
+ */
+function gearOnHit(f, actor, target, skill, rng, rules) {
+    const g = rules.combat.gearEffects;
+    if (!g || !actor.onHit?.length) return;
+    const applied = [];
+    const from = [];
+    for (const element of ['fire', 'poison', 'ice']) {
+        if (!actor.onHit.includes(element) || !g[element] || !isActive(target)) continue;
+        if (!rng.chance(Number(g.chance) || 0)) continue;
+        for (const [name, rounds] of Object.entries(g[element])) {
+            if (!LABELS[name] || !(rounds > 0)) continue;
+            const strength = DOTS.includes(name) ? Math.max(1, Math.round(skillValue(actor, skill, rules) * rules.combat.dot[name])) : 0;
+            addCondition(target, name, rounds, strength);
+            applied.push(`${LABELS[name]} (${rounds} ${rounds === 1 ? 'round' : 'rounds'})`);
+            if (!from.includes(element)) from.push(element);
+        }
+    }
+    if (applied.length) log(f, actor, `${label(target)} is ${applied.join(', ')}, from ${label(actor)}'s ${from.join(' and ')} gear.`, 'condition');
 }
 
 function heal(f, target, amount) {
@@ -854,7 +886,7 @@ export function previewStrike(actor, target, skill = null, rules = DEFAULT_RULES
     if (skill && !(Number(skill.power) > 0)) return null;
     const a = rules.attack;
     const physical = !skill || skill.type === 'physical';
-    let raw = skillValue(actor, skill, rules) * (skill ? effectivePower(skill, skill.mastery, rules) : 1);
+    let raw = skillValue(actor, skill, rules) * (skill ? effectivePower(skill, skill.mastery, rules) : 1) * holyFactor(actor, target, rules);
     if (has(actor, 'weaken')) raw *= rules.combat.weaken;
     let damage = mitigate(raw, physical ? target.pdef : target.mdef);
     if (has(target, 'guard')) damage *= a.defendTaken;

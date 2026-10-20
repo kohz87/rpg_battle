@@ -147,6 +147,10 @@ export const DEFAULT_RULES = Object.freeze({
         healBelow: 0.4,    // AI heals an ally under this HP share
         itemHealBelow: 0.3,
         nearDeath: 0.2,    // a party member at or under this HP share is a key moment
+        // (0.5.33) What an element on worn gear (weapon, off-hand, accessory) does: fire, poison
+        // and ice a chance (%) on each physical hit to burn, poison or slow, for so many rounds;
+        // holy more damage (×) against the undead and spirits.
+        gearEffects: { chance: 25, fire: { burn: 2 }, poison: { poison: 3 }, ice: { slow: 2 }, holy: 1.25 },
         maxRounds: 60,     // a fight that has not ended by then is broken off (never in practice)
     },
     // Numbers for enemies the rank table does not give directly.

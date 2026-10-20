@@ -624,3 +624,19 @@ test('stamina (0.5.29): a physical skill costs SP, the rest MP; breath comes bac
     const old = act(start(), { type: 'skill', skill: 'Power Strike', target: 'e1' }, EXACT);
     assert.equal(get(old, 'pc').mp.cur, 50 - strike.mp);
 });
+
+test('gear elements work in a fight: fire burns on a hit, holy bites the undead harder (0.5.33)', () => {
+    const always = tweak({ combat: { ...EXACT.combat, gearEffects: { ...EXACT.combat.gearEffects, chance: 100 } } });
+    const burnt = act(start({ party: [hero({ onHit: ['fire'] })] }, always), { type: 'attack', target: 'e1' }, always);
+    const burn = get(burnt, 'e1').conditions.find(cond => cond.name === 'burn');
+    assert.ok(burn, 'burning');
+    assert.equal(burn.power, Math.max(1, Math.round(20 * EXACT.combat.dot.burn)));
+    assert.ok(texts(burnt).some(text => /burning \(\d rounds?\), from Ren's fire gear\./.test(text)));
+    // No element, no roll: the same fight as before.
+    const plain = act(start(), { type: 'attack', target: 'e1' }, EXACT);
+    assert.equal(get(plain, 'e1').conditions.length, 0);
+    const holy = act(start({ party: [hero({ onHit: ['holy'] })], enemies: [dummy('e1', { name: 'Skeleton', loot: 'undead' })] }), { type: 'attack', target: 'e1' }, EXACT);
+    assert.equal(get(holy, 'e1').hp.cur, 200 - Math.round(20 * EXACT.combat.gearEffects.holy));
+    const living = act(start({ party: [hero({ onHit: ['holy'] })] }), { type: 'attack', target: 'e1' }, EXACT);
+    assert.equal(get(living, 'e1').hp.cur, 180);
+});

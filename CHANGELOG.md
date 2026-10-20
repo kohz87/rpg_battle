@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.33
+
+- **The story can no longer lose or retell your loot.** The reply that tells the end of a fight rewrites the Inventory, and it could drop a row the fight had just added or turn `uncommon · LUK +2` into *a yellowed fang on a cord*. RPG Battle now remembers what the fight wrote. If that reply leaves a loot row out, the row is added back; if it rewrites the row's note, the note is put back. Quantities, other rows and every later reply stay the story's.
+- **Rarer gear rolls more.** Uncommon or rarer gear now rolls one more stat (+1 uncommon, +2 rare, +3 epic, +4 legendary), still capped by its rarity when worn. Rare or better weapons, off-hands and accessories also roll an element: fire, ice, poison or holy. Common gear and materials are unchanged.
+- **Elements do something in a fight.** Before, *fire* or *holy* in a note was just a word. Now, when it is on your weapon, off-hand or an accessory, each physical hit has a 25 % chance to burn (fire, 2 rounds), poison (3 rounds) or slow (ice, 2 rounds) the foe. Holy deals ×1.25 damage to the undead and spirits. This also works for gear the story gives you and for gear you already have, if its note names the element. The numbers are in `combat.gearEffects`. A fight with no such gear rolls exactly as before.
+
 ## 0.5.32
 
 - **A rare find keeps its rarity in the Inventory.** Only gear was written with its rarity, so an uncommon Brood-Mother Skull arrived as a bare `Brood-Mother Skull | 1`. Now a material reads `Brood-Mother Skull | 1 | uncommon material` and a potion `uncommon · heal 60`; a common one says nothing more. A material stays a material even when its name sounds like gear (*Iron Gauntlet Shard* is never worn).

@@ -14,6 +14,8 @@ const RARITY_WORDS = ['legendary', 'epic', 'rare', 'uncommon', 'common'];
 const SLOTS = ['weapon', 'offhand', 'armour', 'worn', 'accessory'];
 const ITEM_STATS = ['ATK', 'MATK', 'DEF', 'MDEF', 'HP', 'MP', ...STATS, 'crit'];
 const TAGS = ['range', 'fire', 'ice', 'holy', 'poison', 'two-handed'];
+// (0.5.33) The tags that do something in a fight (combat.js gearOnHit, holy against the undead).
+export const ELEMENTS = ['fire', 'ice', 'poison', 'holy'];
 // Combat condition names; a written "poisoned" or "stunned" maps to them by prefix.
 const CONDITIONS = ['poison', 'burn', 'bleed', 'stun', 'slow', 'weaken', 'shield', 'regen', 'guard'];
 
@@ -309,6 +311,11 @@ function slotFromStats(stats) {
     return 'accessory';
 }
 
+/** (0.5.33) The slot a piece of gear takes, by its name's kind, else by its stats. */
+export function itemSlot(name, stats = {}) {
+    return kindOf(name)?.slot ?? slotFromStats(stats ?? {});
+}
+
 /**
  * Everything a row's name, category and note say about it: { equipped, rarity, slot,
  * stats, tags, effect }. Equipment needs a signal (an equipment category, `equipped`, a
@@ -475,15 +482,18 @@ export function gearSummary(items, level, rules = DEFAULT_RULES) {
 export function gearBonuses(items, level, rules = DEFAULT_RULES) {
     const totals = Object.fromEntries(ITEM_STATS.map(name => [name, 0]));
     const tags = new Set();
+    const onHit = new Set();
     const capped = [];
     const gear = equipped(items, rules);
     for (const item of [gear.weapon, gear.offhand, gear.armour, ...gear.worn, ...gear.accessory].filter(Boolean)) {
         const result = capItem(item, level, rules);
         for (const [name, value] of Object.entries(result.stats)) totals[name] = (totals[name] ?? 0) + value;
         for (const tag of item.tags ?? []) tags.add(tag);
+        // (0.5.33) An element on what strikes or is worn to (weapon, off-hand, accessory) works in a fight.
+        if (item === gear.weapon || item === gear.offhand || gear.accessory.includes(item)) for (const tag of item.tags ?? []) if (ELEMENTS.includes(tag)) onHit.add(tag);
         if (result.capped) capped.push({ name: item.name, from: { ...item.stats }, to: result.stats });
     }
-    return { ...totals, tags: [...tags], capped };
+    return { ...totals, tags: [...tags], onHit: ELEMENTS.filter(tag => onHit.has(tag)), capped };
 }
 
 /** Rows a fight can use: an effect and something left. */
@@ -781,6 +791,37 @@ export function addLoot(inventoryText, { items = [], money = 0 } = {}, currency 
         insertRow(lines, category, `${escapeName(name)} | ${qty}${note ? ` | ${escapeCell(note)}` : ''}`);
     }
     return dropEmptyMarks(lines).join(eol);
+}
+
+/**
+ * (0.5.33) The loot a fight wrote, put back where the reply after it lost it: the model rewrites
+ * the Inventory each reply, and narrating the fight it may leave a dropped row out or retell its
+ * note ("uncommon · LUK +2" as "a charm on a cord"). A row it left out is added again; a row whose
+ * note lost what the fight wrote (its rarity, stats, effect) gets that note back. Its quantity and
+ * every other line are the story's. `items`: the loot as addLoot took it; `written`: the
+ * Inventory the fight wrote, whose row's note is the one put back (a stack the loot joined keeps
+ * the note it had).
+ */
+export function restoreLoot(inventoryText, items = [], currency = DEFAULT_RULES.currency, written = null) {
+    let text = String(inventoryText ?? '');
+    const writtenRows = written === null ? [] : scan(String(written).split(/\r?\n/)).rows;
+    for (const item of items ?? []) {
+        const name = clean(item?.name);
+        if (!name) continue;
+        const lines = text === '' ? [] : text.split(/\r?\n/);
+        const scanned = scan(lines);
+        const row = scanned.rows.find(entry => entry.key === nameKey(name));
+        if (!row) {
+            text = addLoot(text, { items: [item] }, currency);
+            continue;
+        }
+        const kept = writtenRows.find(entry => entry.key === row.key);
+        const note = kept ? clean(kept.note ?? '') : lootNote(item, categoryFor(item, scanned).kind);
+        if (!note || nameKey(row.note ?? '').includes(nameKey(note))) continue;
+        lines[row.index] = rewriteCell(lines[row.index], row, row.qtyCell + 1, escapeCell(note));
+        text = lines.join(eolOf(text));
+    }
+    return text;
 }
 
 // A section's "(empty)" line goes once the section holds a row.
