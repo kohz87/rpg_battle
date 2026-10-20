@@ -54,6 +54,8 @@ export function combatantFromSheet(sheet, { memberId = 'pc', controller = 'playe
         loot: null,
         gone: null,
         capped: bonus.capped ?? [],
+        // (0.5.33) The elements on the gear that strikes: fire, ice, poison, holy.
+        onHit: bonus.onHit ?? [],
     };
 }
 

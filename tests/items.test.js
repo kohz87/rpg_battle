@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { DEFAULT_RULES, rarityBudget } from '../src/rules.js';
 import {
     addLoot, capItem, consumables, equipped, formatGearEntry, formatMoney, gearBonuses, gearLimits, gearSummary, parseGearEntry, parseInventory, parseMoney, purseOf,
-    useItems,
+    restoreLoot, useItems,
 } from '../src/items.js';
 
 const R = DEFAULT_RULES;
@@ -416,4 +416,32 @@ test('a swarm\'s parts are its creatures\', for a swarm the chat kept from befor
     const { makeRng } = await import('../src/rng.js');
     const enemy = { name: 'Granary Cellar Rat Swarm', rank: 'F', coins: false, loot: [{ name: 'Granary Cellar Rat Swarm Tail', chance: 100, qty: [1, 1], kind: 'material' }] };
     assert.deepEqual(rollLoot(enemy, { rng: makeRng('x') }).items.map(item => item.name), ['Granary Cellar Rat Tail']);
+});
+
+test('restoreLoot puts back the loot the narrating reply dropped or retold, and nothing else (0.5.33)', () => {
+    const written = addLoot('[Gear]\nRope | 1', { items: [
+        { name: 'Wolf-fang Charm', qty: 1, rarity: 'uncommon', kind: 'equipment', stats: { LUK: 2 } },
+        { name: 'Brood-Mother Skull', qty: 1, rarity: 'uncommon', kind: 'material', stats: {} },
+    ] });
+    const items = [
+        { name: 'Wolf-fang Charm', qty: 1, rarity: 'uncommon', kind: 'equipment', stats: { LUK: 2 } },
+        { name: 'Brood-Mother Skull', qty: 1, rarity: 'uncommon', kind: 'material', stats: {} },
+    ];
+    const retold = '[Gear]\nRope | 1\nWolf-fang Charm | 1 | A yellowed fang on a cord\nTorch | 2';
+    const fixed = restoreLoot(retold, items, undefined, written);
+    assert.match(fixed, /Wolf-fang Charm \| 1 \| uncommon · LUK \+2/);
+    assert.match(fixed, /Brood-Mother Skull \| 1 \| uncommon material/);
+    assert.match(fixed, /Torch \| 2/);
+    assert.equal(restoreLoot(fixed, items, undefined, written), fixed);
+    // A note that keeps what the fight wrote, with more said, stays the story's.
+    const kept = '[Gear]\nWolf-fang Charm | 1 | uncommon · LUK +2 (on a cord)\nBrood-Mother Skull | 1 | uncommon material';
+    assert.equal(restoreLoot(kept, items, undefined, written), kept);
+});
+
+test('an element on what strikes works in a fight; on armour it is only a word (0.5.33)', () => {
+    const gear = [
+        { name: 'Ember Sword', slot: 'weapon', equipped: true, rarity: 'rare', stats: { ATK: 6 }, tags: ['fire'] },
+        { name: 'Frost Coat', slot: 'armour', equipped: true, rarity: 'rare', stats: { DEF: 6 }, tags: ['ice'] },
+    ];
+    assert.deepEqual(gearBonuses(gear, 5).onHit, ['fire']);
 });

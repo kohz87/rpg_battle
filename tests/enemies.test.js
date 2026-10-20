@@ -463,3 +463,22 @@ test('waves and plan stages carry the scale onto their foes', () => {
     const foes = enemiesFromRows(stage2, { bestiary: DEFAULT_BESTIARY, library: DEFAULT_SKILLS, rules: DEFAULT_RULES, rng: null });
     assert.deepEqual(foes.map(foe => [foe.scale, foe.hp.max, foeXpWorth(foe, 1)]), [[0.6, 10, 5], [0.6, 10, 5]]);
 });
+
+test('rarer gear drops roll one more stat, and from rare up an element (0.5.33)', () => {
+    const drops = [];
+    for (let seed = 0; seed < 400 && drops.length < 30; seed++) {
+        const loot = rollLoot({ loot: 'spirit', rank: 'C' }, { rng: makeRng(`gear-${seed}`) });
+        drops.push(...loot.items.filter(item => item.kind === 'equipment'));
+    }
+    assert.ok(drops.length > 5);
+    for (const ring of drops) {
+        assert.equal(Object.keys(ring.stats).length, 3, 'MDEF, INT and one more');
+        assert.equal(ring.slot, 'accessory');
+        assert.equal(ring.tags.filter(tag => ['fire', 'ice', 'poison', 'holy'].includes(tag)).length, 1);
+    }
+    // Common gear rolls nothing more.
+    for (let seed = 0; seed < 200; seed++) {
+        const knife = rollLoot({ loot: 'bandit', rank: 'E' }, { rng: makeRng(`knife-${seed}`) }).items.find(item => item.name === 'Bandit\'s Knife');
+        if (knife) assert.deepEqual([knife.stats, knife.tags], [{ ATK: 3 }, undefined]);
+    }
+});

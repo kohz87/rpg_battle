@@ -48,7 +48,7 @@ import { TEMPLATES, classify, cleanCreature, combinedBestiary, creaturesToMake, 
 import { applyFlavour, flavourPrompt, parseFlavour, sceneText } from './src/flavour.js';
 import { act, availableActions, foeXpWorth, replay, startFight, summarize } from './src/combat.js';
 import { applyResult, foldUses, forgetSkill, formatPartyBlock, learnSkill, newSheet, readSheets, setSkillActive, spendPoints } from './src/sheet.js';
-import { addLoot, consumables, formatGearEntry, formatMoney, gearSummary, parseGearEntry, parseInventory, purseOf, useItems } from './src/items.js';
+import { addLoot, consumables, restoreLoot, formatGearEntry, formatMoney, gearSummary, parseGearEntry, parseInventory, purseOf, useItems } from './src/items.js';
 import { NEXT_MOVES_MAX, fallbackMoves, nextMovesPrompt, parseNextMoves } from './src/nextmoves.js';
 import { buildHandoff, buildPlanHandoff, fightOrigin, grouped, handoffState, originHolds, settleHandoff } from './src/handoff.js';
 import { cleanPlan, newPlan, nextStage, planResult, stageDone, stageId } from './src/plan.js';
@@ -66,7 +66,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.32';
+const VERSION = '0.5.33';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -324,6 +324,8 @@ function chatState(ctx = context()) {
         fallen: Array.isArray(state.fallen) ? state.fallen.filter(entry => entry && entry.memberId) : [],
         foughtAt,
         npcNames: state.npcNames && typeof state.npcNames === 'object' ? state.npcNames : {},
+        // (0.5.33) The loot the last fight wrote, kept in the reply narrating it (lootGuardFor).
+        lootGuard: holding(state.lootGuard ?? null),
     };
 }
 
@@ -1126,13 +1128,18 @@ async function writeResult(result, stakes) {
             if (fell.length) saveChatState({ fallen: [...chatState().fallen.filter(entry => !fell.some(member => member.id === entry.memberId)), ...fell.map(member => ({ memberId: member.id, name: member.name }))] });
         }
         const inventory = blockText(own.inventoryTag);
+        let guard = null;
         if (inventory.trim() || result.loot?.items?.length || result.loot?.money) {
             let next = useItems(inventory, result.itemsUsed?.pc ?? {});
             // Loot only from fights won: a single fight's result has none otherwise, and a
             // plan's holds the loot of the stages it cleared.
             if (result.loot?.items?.length || result.loot?.money) next = addLoot(next, result.loot, r.currency);
             if (next !== inventory) await writeBlock(own.inventoryTag, next);
+            // (0.5.33) The reply narrating the fight rewrites the Inventory: what it loses of the loot is put back.
+            const at = latestAssistantIndex(context()?.chat ?? []);
+            if (result.loot?.items?.length && at >= 0) guard = { origin: fightOrigin(context()?.chat ?? [], at), items: result.loot.items, written: next };
         }
+        saveChatState({ lootGuard: guard });
     } catch (error) {
         notify('error', `The result could not be written: ${error instanceof Error ? error.message : String(error)}`);
         console.error('[RPG Battle] writing the result failed', error);
@@ -1379,12 +1386,34 @@ async function planAndWriteReply({ messageIndex }) {
             logActivity(`Story wounds from reply #${index}: ${plan.applied.map(describeWound).join('; ')}`);
         }
     }
+    if (narrating) await guardLoot(sb, index, state, own);
     // (0.5.9) The narrating reply may go on into a new fight, offered when encounterOffer says so.
     if (!narrating || encounterOffer()) toastEncounter(sb, index);
     const fresh = currentOffers().filter(offer => offer.index === index);
     await awardQuests(fresh);
     toastOffers(fresh.filter(offer => !autoAwarded(offer)));
     sb.refresh?.();
+}
+
+/**
+ * (0.5.33) The reply narrating a fight, its Inventory with the loot that fight wrote put back
+ * (restoreLoot): the model rewrites the block each reply, and telling the fight it may drop a
+ * row or retell a note. Only the replies after the one the loot went into; only the fight's own
+ * rows. A reply without an Inventory block keeps the one before it, loot and all.
+ */
+async function guardLoot(sb, index, state, own) {
+    const guard = state.lootGuard;
+    if (!guard?.items?.length || !Number.isInteger(guard.origin?.index) || index <= guard.origin.index) return;
+    const text = blockAt(sb, index, own.inventoryTag);
+    if (text === null) return;
+    const fixed = restoreLoot(text, guard.items, rules().currency, guard.written ?? null);
+    if (fixed === text) return;
+    try {
+        await sb.setBlockText(index, own.inventoryTag, fixed);
+        logActivity(`Loot kept in reply #${index}'s Inventory: ${guard.items.map(item => item.name).join(', ')}`);
+    } catch (error) {
+        console.error('[RPG Battle] the loot could not be put back', error);
+    }
 }
 
 /** Whether the latest story wounds can still be undone: that reply's sheets are still ours. */

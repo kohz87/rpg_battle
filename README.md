@@ -1,4 +1,4 @@
-# RPG Battle v0.5.32
+# RPG Battle v0.5.33
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -412,9 +412,15 @@ Healing Draught | 2 | heal 30
   so an item the model makes up cannot carry "ATK +50": in a fight it is scaled down to what its
   rarity allows, and the Gear list on your card shows it as capped ("STR +2 · capped from STR +20"). An item without stats gets them from its
   rarity and kind.
+- **Elements work in a fight** (0.5.33). *fire*, *ice*, *poison* or *holy* in the note of your
+  weapon, off-hand or an accessory (`rare · ATK +12, STR +2, fire`): on each physical hit fire has
+  a 25 % chance to burn the foe for 2 rounds, poison to poison it for 3, ice to slow it for 2,
+  each as strong as the hit; holy deals ×1.25 damage to the undead and spirits. The word works on
+  gear the story gives you and on gear you wrote earlier, too; on armour or a worn piece it is
+  only a word. The numbers are in `combat.gearEffects`.
 - **Consumables** with an effect (`heal 30`, `mp 20`, `cure poison`, `fire 25, all enemies`) can
   be used in a fight; what you use comes off the inventory afterwards.
-- **Loot** from a won fight is written into the inventory, money into your money row. Gear carries its rarity and stats (`uncommon · LUK +2`); since 0.5.32 a rarer material or potion says so too (`uncommon material`, `rare · heal 40`). Only foes
+- **Loot** from a won fight is written into the inventory, money into your money row. Gear carries its rarity and stats (`uncommon · LUK +2`); since 0.5.32 a rarer material or potion says so too (`uncommon material`, `rare · heal 40`). Since 0.5.33 uncommon or rarer gear rolls **one more stat** (+1 uncommon, +2 rare, +3 epic, +4 legendary, still capped by its rarity), and rare or better gear that strikes or is worn as an accessory or off-hand also rolls an **element** (fire, ice, poison or holy). The reply that tells the fight's end rewrites the Inventory; when it leaves a dropped row out or retells its note (*a yellowed fang on a cord*), RPG Battle puts back what the fight wrote. It touches only that fight's loot rows, and only in that reply: later replies are the story's. Only foes
   that would carry coin drop money: people (bandits, cultists, goblins, orcs…), their leaders and
   casters, and a drake or wyvern that is a boss, on its hoard. Beasts, insects, oozes, plants,
   constructs, spirits and the dead leave something of themselves instead (a *Wolf Pelt*, a
