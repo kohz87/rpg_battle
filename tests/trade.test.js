@@ -181,3 +181,10 @@ test('the next reply hears the crafter\'s word: how long and when to come back (
     const note = tradeHandoff([entry, { kind: 'sell', name: 'Rat Tail', qty: 3, total: 6, who: 'the general store' }], { name: 'Astra', place: 'Bluewatch' });
     assert.match(note, /at the bone-carver, commissioned Skull Ring, made from Brood-Mother Skull, for 9 copper; they say two days, ready Goldwane 14, 03:00 pm/);
 });
+
+test('only materials and creature parts can go into a commission (0.5.45)', async () => {
+    const { isMaterial } = await import('../src/trade.js');
+    const { parseInventory } = await import('../src/items.js');
+    const inv = '[Gear]\nWhetstone | 1 | Worn thin\nRope | 1 | 30 ft, hemp\nWaterskin | 1 | Half full\nBurlap Sack | 2 | empty\nWolf Core | 11 | Dull cloudy beast cores\nWolf Fang | 2\n[Equipment > Weapons]\nCane-Blade | 1 | Equipped · Common · ATK +2\n[Loot]\nRat Tail | 5\nBrood-Mother Skull | 1 | uncommon material\n[Consumables]\nMinor Healing Draught | 2 | heal 20';
+    assert.deepEqual(parseInventory(inv).items.filter(isMaterial).map(item => item.name), ['Wolf Core', 'Wolf Fang', 'Rat Tail', 'Brood-Mother Skull']);
+});

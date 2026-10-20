@@ -12,6 +12,7 @@
 import { DEFAULT_RULES, RARITIES, rarityBudget } from './rules.js';
 import { addLoot, applyCrafts, capItem, collectOrders, formatMoney, itemSlot, mainStat, nameKey, parseEffect, parseInventory, purseOf, spendMoney, useItems } from './items.js';
 import { makeRng } from './rng.js';
+import { materialAffinity } from './craft.js';
 
 const tradeRules = rules => ({ ...DEFAULT_RULES.trade, ...(rules?.trade ?? {}) });
 const words = text => String(text ?? '').toLowerCase().split(/[^a-z-]+/).filter(Boolean);
@@ -22,6 +23,16 @@ export function kindOf(item) {
     if (item?.effect) return 'consumable';
     if (/\bmaterial\b/i.test(String(item?.note ?? '')) || item?.kind === 'material' || item?.category && /loot|material|troph|component/i.test(item.category)) return 'material';
     return 'goods';
+}
+
+/**
+ * (0.5.45) Whether `item` can go into a commission: a material by its note or section, or a
+ * creature part by its name (a Wolf Fang kept under [Gear]). Rope, a waterskin, tools: no.
+ */
+export function isMaterial(item) {
+    const kind = kindOf(item);
+    if (kind === 'material') return true;
+    return kind === 'goods' && Boolean(materialAffinity(item?.name ?? '', '').stat);
 }
 
 /** What `item` (an Inventory item, or a crafted piece) is worth, in the smallest coin; at least 1. */

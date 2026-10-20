@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.45
+
+- **Commission offers only materials.** The list of things a piece could be made from showed everything that wasn't a potion, Rope and a Waterskin included. It now shows rows noted `material`, rows under a loot, trophy or material section, and creature parts by their name, so a *Wolf Fang* or the *Wolf Cores* kept under [Gear] still count. A *core* also reads as a material now (it lends MATK, like an essence).
+
 ## 0.5.44
 
 - **Pieces are commissioned, and the crafter says how long.** Trade asked whether a piece was *made now* or *ordered, ready later*, and nobody would ever choose to wait. That choice is gone. A piece made through Trade is always ordered from the crafter you trade with: a smith, a crafter (bone-carver, tanner…) or an apothecary; the general store, a fence and the guild make nothing. How long it takes is worked out by RPG Battle, not chosen by you:

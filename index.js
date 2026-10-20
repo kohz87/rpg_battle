@@ -64,13 +64,13 @@ import { OLD_PROMPT_KEYS, STATIC_PROMPT_KEY, TAIL_PROMPT_KEY, promptLayout, with
 import { craftPlan, parseCrafted } from './src/craft.js';
 import { renderBattleTab } from './src/ui/tab.js';
 import { renderTradeTab } from './src/ui/trade.js';
-import { COMMISSIONERS, buyIn, buyerKind, collectIn, commissionHours, craftFee, craftIn, craftSpan, kindOf, orderDue, ordersIn, placePrices, readyAt, readyDateText, readyWords, rememberStock, sellIn, sellPrice, sellable, shopStock, tradeHandoff, tradeLine } from './src/trade.js';
+import { COMMISSIONERS, buyIn, buyerKind, collectIn, commissionHours, craftFee, craftIn, craftSpan, isMaterial, orderDue, ordersIn, placePrices, readyAt, readyDateText, readyWords, rememberStock, sellIn, sellPrice, sellable, shopStock, tradeHandoff, tradeLine } from './src/trade.js';
 import { combatValue, renderSettings } from './src/ui/settings.js';
 import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.44';
+const VERSION = '0.5.45';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -3626,7 +3626,8 @@ function tradeView() {
         owners,
         owner: owner.id,
         sellable: items.map(item => ({ name: item.name, qty: item.qty, note: item.note, rarity: item.rarity })),
-        materials: mine.filter(item => kindOf(item) !== 'consumable').map(item => ({ name: item.name, qty: item.qty, note: item.note, rarity: item.rarity })),
+        // (0.5.45) Only what a piece can be made of: materials and creature parts, never rope or a waterskin.
+        materials: mine.filter(isMaterial).map(item => ({ name: item.name, qty: item.qty, note: item.note, rarity: item.rarity })),
         // (0.5.44) Each order with whether the story clock has reached its ready time yet.
         orders: ordersIn(t.inventory).map(item => {
             const clock = orderClock();
