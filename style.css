@@ -1723,3 +1723,94 @@
     max-height: 24rem;
     font-family: var(--monoFontFamily, monospace);
 }
+
+/* (0.5.37) The Trade tab: who you trade with, then Sell, Make or order, On order. Rows wrap on a
+   phone-width pane; each item is a hairline row with its actions under the name. */
+.rpg-trade-tab .rpg-trade-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    align-items: center;
+    margin: 0.3rem 0;
+}
+
+.rpg-trade-tab .rpg-trade-row > .text_pole,
+.rpg-trade-tab .rpg-trade-row > select {
+    flex: 1 1 9rem;
+    min-width: 0;
+    margin: 0;
+}
+
+.rpg-trade-tab .rpg-trade-days {
+    flex: 0 0 4.5rem !important;
+}
+
+.rpg-trade-tab .rpg-trade-list,
+.rpg-trade-tab .rpg-trade-told {
+    margin: 0.2rem 0 0.4rem;
+    padding: 0;
+    list-style: none;
+}
+
+.rpg-trade-tab .rpg-trade-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid var(--rb-border);
+}
+
+.rpg-trade-tab .rpg-trade-item:last-child {
+    border-bottom: 0;
+}
+
+.rpg-trade-tab .rpg-trade-item-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    align-items: baseline;
+}
+
+.rpg-trade-tab .rpg-trade-item-name {
+    font-weight: 600;
+}
+
+.rpg-trade-tab .rpg-trade-item-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    align-items: center;
+}
+
+.rpg-trade-tab .rpg-trade-item-actions .menu_button,
+.rpg-trade-tab .rpg-trade-craft {
+    min-height: 2rem;
+    margin: 0;
+}
+
+.rpg-trade-tab .rpg-trade-qty {
+    flex: 0 0 4rem;
+    width: 4rem;
+    margin: 0;
+}
+
+.rpg-trade-tab .rpg-trade-price {
+    font-variant-numeric: tabular-nums;
+    opacity: 0.8;
+}
+
+.rpg-trade-tab .rpg-trade-preview {
+    margin: 0.3rem 0;
+    padding: 0.35rem 0.5rem;
+    border-left: 2px solid var(--rb-accent);
+    background: var(--rb-tint);
+}
+
+.rpg-trade-tab .rpg-trade-told li {
+    padding: 0.2rem 0;
+}
+
+.rpg-trade-tab .rpg-trade-pending {
+    border-left: 2px solid var(--rb-accent);
+    padding-left: 0.5rem;
+}

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.37
+
+- **A Trade tab.** Selling, having things made and ordering were things the story had to be asked to write, and read back from its words. Now they are yours to choose in a tab (🪙 Trade), and RPG Battle sets every number:
+  - **Trading with:** someone present in the scene, or anyone you name. Their trade (merchant, guild buyer, apothecary, smith, crafter, fence) is guessed from the name and changes what they pay.
+  - **Prices that fit the place:** a village pays and charges a little less than a town, a city more, read from the World State's place. You can call a place cheap, fair or dear yourself.
+  - **Sell** a row for coin. **Make or order** a piece from your materials, with its numbers and the crafter's fee shown first; an order waits under **[On Order]** until you **Collect** it.
+- **The story tells what you did.** Each trade is written into the latest reply's Inventory, so a swipe or a deleted reply takes it back. The next reply gets a short note at the end of its prompt ("Since the last reply, Astra sold … for 6 copper; ordered … ready Goldwane 14") to tell in its own voice, amounts unchanged. It is sent only then (again to a swipe of that reply), and cleared after.
+- An empty **[On Order]** section goes once its last order is collected.
+
 ## 0.5.36
 
 - **A piece can be ordered from a crafter and collected later.** The bone-carver took the brood-mother skull and said the ring would be ready in two days. RPG Battle had no way to hold that: the skull left the Inventory, and by the time the ring was collected nothing remembered what it was made of. Now `<Crafted>Skull Ring from Brood-Mother Skull | ready: Goldwane 14</Crafted>` takes the materials at once and adds `Skull Ring | 1 | uncommon · MDEF +4 · on order, ready Goldwane 14` under **[On Order]**. Its numbers are set from the skull it was made of, even if the reply already took the skull out.

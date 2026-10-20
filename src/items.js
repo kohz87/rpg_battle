@@ -784,6 +784,34 @@ export function purseOf(inventoryText, currency = DEFAULT_RULES.currency) {
     return { total, rows: rows.map(({ row, cell }) => ({ name: row.name, cell })) };
 }
 
+/**
+ * (0.5.37) `amount` (in the smallest coin) paid out of the purse: taken from the purse rows in
+ * order, each rewritten in its own cell. { text, ok } — ok false (text unchanged) when the
+ * purse holds less.
+ */
+export function spendMoney(inventoryText, amount, currency = DEFAULT_RULES.currency) {
+    const text = String(inventoryText ?? '');
+    const c = currencyOf(currency);
+    let left = Math.max(0, Math.round(Number(amount) || 0));
+    if (!left) return { text, ok: true };
+    const purse = purseOf(text, c);
+    if (!purse || purse.total < left) return { text, ok: false };
+    const lines = text.split(/\r?\n/);
+    for (const { name, cell } of purse.rows) {
+        if (!left) break;
+        const row = scan(lines).rows.find(entry => entry.key === nameKey(name));
+        if (!row) continue;
+        const have = parseMoney(cell === 'note' ? row.note : row.qty, c);
+        const take = Math.min(have, left);
+        if (!take) continue;
+        left -= take;
+        const rest = have - take;
+        if (cell === 'note') lines[row.index] = rewriteCell(lines[row.index], row, row.qtyCell + 1, formatMoney(rest, c));
+        else lines[row.index] = rewriteQty(lines[row.index], row, c.mode === 'single' && /^\s*[\d,]*\s*$/.test(row.qty) ? String(rest) : formatMoney(rest, c));
+    }
+    return { text: lines.join(eolOf(text)), ok: true };
+}
+
 export function addLoot(inventoryText, { items = [], money = 0 } = {}, currency = DEFAULT_RULES.currency) {
     const text = String(inventoryText ?? '');
     const eol = eolOf(text);
@@ -885,7 +913,8 @@ export function applyCrafts(inventoryText, before, plans = [], currency = DEFAUL
         const lines = text === '' ? [] : text.split(/\r?\n/);
         const scanned = scan(lines);
         const row = scanned.rows.find(entry => entry.key === nameKey(item.name));
-        const order = plan.order ? ` · on order, ready ${clean(plan.order)}` : '';
+        // (0.5.37) The crafter it waits with, when the Trade tab names one.
+        const order = plan.order ? ` · on order${plan.from ? ` with ${clean(plan.from)}` : ''}, ready ${clean(plan.order)}` : '';
         const note = `${lootNote(item, 'equipment')}${order}`;
         if (!row && order) {
             insertRow(lines, ORDER_SECTION, `${escapeName(item.name)} | 1 | ${escapeCell(note)}`);
@@ -938,7 +967,22 @@ export function collectOrders(inventoryText, before, names = [], currency = DEFA
         }
         text = addLoot(lines.join(eolOf(text)), { items: [{ name: ordered.name, qty: 1, kind: 'equipment', note }] }, currency);
     }
-    return text;
+    return dropEmptyOrders(text);
+}
+
+// (0.5.37) An [On Order] header with nothing left under it goes, with the blank line before it.
+function dropEmptyOrders(text) {
+    const lines = text.split(/\r?\n/);
+    const scanned = scan(lines);
+    const headers = scanned.headers.filter(entry => nameKey(entry.category) === nameKey(ORDER_SECTION));
+    let changed = false;
+    for (const header of [...headers].reverse()) {
+        if (scanned.rows.some(row => nameKey(row.category) === nameKey(ORDER_SECTION))) continue;
+        const from = header.index > 0 && !lines[header.index - 1].trim() ? header.index - 1 : header.index;
+        lines.splice(from, header.index - from + 1);
+        changed = true;
+    }
+    return changed ? lines.join(eolOf(text)) : text;
 }
 
 // A note that says the piece was taken off ("stowed", "unequipped"): its equipped mark stays off.

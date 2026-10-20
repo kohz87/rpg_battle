@@ -939,3 +939,56 @@ test('the story is told the conditions the party carries and how to end one, and
         ctx.setExtensionPrompt = before;
     }
 }));
+
+test('a trade in the Trade tab: written into the latest reply, told once at depth 0 (again to a swipe), spent after, gone with its reply (0.5.37)', async () => {
+    const prompts = {};
+    const before = ctx.setExtensionPrompt;
+    ctx.setExtensionPrompt = (key, value, _position, depth) => { prompts[key] = { value, depth }; };
+    try {
+        const world = '<World_State>\n**📅 Time:** day | **🌤 Loc:** Bluewatch Village | Guild Post | [1, 2] | **🌡 Wx:** grey\n\n**👥 NPCs Present:**\n**Elke:**\n* *Mood:* tired\n\n---\n</World_State>';
+        const inventory = '<Inventory>\nCoin Pouch | 1 | 2 silver\n[Loot]\nRat Tail | 5 | material\n</Inventory>';
+        openChat('trade-chat', [reply(`<Party>\n${REN}\n</Party>`), userMessage('To the guild.'), reply(`Elke waits.\n${world}\n${inventory}`)]);
+        hooks.update();
+        await settle();
+        let pane = drawTab('rpg-trade');
+        assert.match(find(pane, '.rpg-trade-place').textContent, /village prices/);
+        assert.equal(find(pane, '.rpg-trade-person').value, 'Elke');
+        find(pane, '.rpg-trade-sell').click();
+        await settle();
+        const latest = ctx.chat[2].mes;
+        assert.match(latest, /Rat Tail \| 4 \| material/);
+        assert.doesNotMatch(latest, /Coin Pouch \| 1 \| 2 silver\n/);
+        assert.match(ctx.chatMetadata.rpgBattle.trade.handoff, /sold Rat Tail to Elke for/);
+        assert.equal(hooks.tabs['rpg-trade'].badge(), 1);
+        pane = drawTab('rpg-trade');
+        assert.match(find(pane, '.rpg-trade-told li').textContent, /sold Rat Tail to Elke/);
+        // The next reply is told, at depth 0; a swipe of it is told again.
+        ctx.chat.push(userMessage('Thanks.'));
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        assert.match(prompts.rpg_battle_trade.value, /^\[Trade\] Since the last reply, Ren sold Rat Tail to Elke/);
+        assert.equal(prompts.rpg_battle_trade.depth, 0);
+        ctx.chat.push(reply('Elke counts the tails.'));
+        await hooks.reply({ messageIndex: 4 });
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'swipe');
+        assert.match(prompts.rpg_battle_trade.value, /sold Rat Tail/);
+        // A newer reply: spent, and cleared from the prompt.
+        ctx.chat.push(userMessage('Onward.'));
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        assert.equal(prompts.rpg_battle_trade.value, '');
+        assert.equal(ctx.chatMetadata.rpgBattle.trade, null);
+        // A trade whose reply is deleted goes with it: nothing is told.
+        openChat('trade-chat-2', [reply(`<Party>\n${REN}\n</Party>`), userMessage('To the guild.'), { ...reply(`Elke waits.\n${world}\n${inventory}`), send_date: 'first' }]);
+        hooks.update();
+        await settle();
+        find(drawTab('rpg-trade'), '.rpg-trade-sell').click();
+        await settle();
+        ctx.chat.pop();
+        ctx.chat.push({ ...reply('Elke waits again.'), send_date: 'second' });
+        hooks.update();
+        await settle();
+        await globalThis.rpgBattleInterceptor(ctx.chat, 0, null, 'normal');
+        assert.equal(prompts.rpg_battle_trade.value, '');
+    } finally {
+        ctx.setExtensionPrompt = before;
+    }
+});

@@ -1,4 +1,4 @@
-# RPG Battle v0.5.36
+# RPG Battle v0.5.37
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
@@ -387,6 +387,39 @@ You — Power Strike: a heavy blow
   character starts with it); it still counts toward the skills in use.
 - Story Block hides the blocks when it normalizes a message (on receive, render, swipe and
   edit); if a greeting shows them raw, Story Block's **Rescan** tidies it.
+
+## Trade: selling, making, ordering (0.5.37)
+
+The **Trade** tab (🪙, while you have a character) is where you sell, have things made and
+collect what you ordered. You choose; RPG Battle sets every number and the story tells it.
+
+- **Trading with:** someone present in the scene (from Story Block's World State *NPCs Present*)
+  or anyone you name (*the bone-carver*). Their trade is guessed from the name (merchant,
+  guild buyer, apothecary, smith, crafter, fence) and you can change it. A fence pays least for
+  everything; an apothecary pays well for potions and parts, a smith for gear, a crafter for
+  materials.
+- **Prices fit the place:** read from the World State's *Loc* (a hamlet or outpost pays and
+  charges least, a village a little less than a town, a city or capital more). **Prices here**
+  sets your own word for the place (cheap, fair, dear), remembered for that place.
+- **Sell:** every row but your purse, what you wear and what is on order, with what is offered
+  each and how many. A sale takes the row down and adds the coin to your purse.
+- **Make or order:** name the piece, pick the materials, see what it will be (its rarity, stats
+  and element come from the materials, as with `<Crafted>`) and the crafter's fee, then
+  **Make it** now or **Order it**, ready in so many days (a date on Story Director's calendar
+  when it is there). An order waits under **[On Order]** with its numbers already set.
+- **On order:** **Collect** turns an order into the piece.
+
+Each trade is written into the latest reply's Inventory, so deleting or swiping that reply takes
+it back. The next reply is told what you did, in a short note at the end of its prompt, for the
+story to tell in its own voice, amounts unchanged:
+
+```
+[Trade] Since the last reply, Astra sold 3 Rat Tail to the apothecary for 6 copper; ordered Skull Ring from the bone-carver, made from Brood-Mother Skull, ready Goldwane 14, for 1 silver, 6 copper.
+Tell it as part of the scene, in the story's own voice. No menus or game terms; keep the amounts and what was made exactly as they are (the Inventory already shows them).
+```
+
+It is told once (again to a swipe of that reply) and never on any other reply. The numbers are
+in `trade` in the rules (`sellRate`, `craftFee`, worth by rarity and kind, place and trade factors).
 
 ## Equipment and loot: your Inventory block
 
