@@ -48,7 +48,7 @@ import { TEMPLATES, classify, cleanCreature, combinedBestiary, creaturesToMake, 
 import { applyFlavour, flavourPrompt, parseFlavour, sceneText } from './src/flavour.js';
 import { act, availableActions, foeXpWorth, replay, startFight, summarize } from './src/combat.js';
 import { applyResult, foldUses, forgetSkill, formatPartyBlock, learnSkill, newSheet, readSheets, setSkillActive, spendPoints } from './src/sheet.js';
-import { addLoot, applyCrafts, collectOrders, consumables, gearNote, inScope, keepNotes, restoreLoot, formatMoney, gearSummary, parseInventory, purseOf, useItems } from './src/items.js';
+import { addLoot, applyCrafts, collectOrders, consumables, formatMoneyShort, gearNote, inScope, keepNotes, restoreLoot, formatMoney, gearSummary, parseInventory, purseOf, useItems } from './src/items.js';
 import { NEXT_MOVES_MAX, fallbackMoves, nextMovesPrompt, parseNextMoves } from './src/nextmoves.js';
 import { buildHandoff, buildPlanHandoff, fightOrigin, grouped, handoffState, originHolds, settleHandoff } from './src/handoff.js';
 import { cleanPlan, newPlan, nextStage, planResult, stageDone, stageId } from './src/plan.js';
@@ -70,7 +70,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.42';
+const VERSION = '0.5.43';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -3604,7 +3604,10 @@ function tradeView() {
     const scope = itemScope(owner.id === 'pc' ? null : owner.name, members);
     const items = sellable(t.inventory, c).filter(item => inScope(item, scope));
     const mine = sellable(t.inventory, c).filter(item => inScope(item, itemScope(null, members)));
-    const pending = handoffState(t.state.trade, ctx?.chat ?? []) === 'waiting' ? (t.state.trade?.entries ?? []).map(entry => tradeLine(entry, c)) : [];
+    // (0.5.43) Each waiting trade with whether Undo can take it back exactly.
+    const waiting = handoffState(t.state.trade, ctx?.chat ?? []) === 'waiting';
+    const undoable = waiting && canUndoTrades(t.state.trade, t.inventory);
+    const pending = waiting ? (t.state.trade?.entries ?? []).map(entry => ({ text: tradeLine(entry, c), undo: undoable })) : [];
     return {
         ready: true,
         chatId: chatIdOf(ctx),
@@ -3622,6 +3625,8 @@ function tradeView() {
         pending,
         orderDays: t.r.trade.orderDays,
         money: amount => formatMoney(amount, c),
+        // (0.5.43) The rows' prices, the short way in the chat's own coins.
+        moneyShort: amount => formatMoneyShort(amount, c),
         buyerKind: name => buyerKind(name, t.r),
         sellPrice: (name, kind) => {
             const item = items.find(entry => entry.name === name);
@@ -3640,7 +3645,7 @@ function tradeView() {
  * A trade done: the latest reply's Inventory written (so deleting or swiping that reply takes
  * it back) and the trade added to what the next reply is told.
  */
-async function recordTrade(next, entry) {
+async function recordTrade(next, entry, before = null) {
     const ctx = context();
     const chat = ctx?.chat ?? [];
     const latest = latestAssistantIndex(chat);
@@ -3649,11 +3654,50 @@ async function recordTrade(next, entry) {
     const current = settleHandoff(chatState().trade, chat);
     const open = current && (current.attachedTo === null || current.attachedTo === undefined);
     const entries = [...(open ? current.entries : []), entry];
-    const name = currentSheet()?.name || 'The party';
-    const place = worldScene().place.split('|')[0].trim();
-    saveChatState({ trade: { entries, handoff: tradeHandoff(entries, { name, place, currency: rules().currency }), origin: open ? current.origin : fightOrigin(chat, latest), attachedTo: null } });
+    // (0.5.43) The Inventory before the first trade of this run and after the last: Undo replays
+    // the run from the first without the one taken back.
+    const base = open ? current.base ?? null : before;
+    saveTradeRun(entries, { origin: open ? current.origin : fightOrigin(chat, latest), base, after: next });
     logActivity(`Trade: ${tradeLine(entry, rules().currency)}`);
     storyBlock()?.refresh?.();
+}
+
+function saveTradeRun(entries, { origin, base, after }) {
+    if (!entries.length) {
+        saveChatState({ trade: null });
+        return;
+    }
+    const name = currentSheet()?.name || 'The party';
+    const place = worldScene().place.split('|')[0].trim();
+    saveChatState({ trade: { entries, handoff: tradeHandoff(entries, { name, place, currency: rules().currency }), origin, attachedTo: null, base, after } });
+}
+
+// (0.5.43) One trade again, from what it kept: the same row sold, the same thing bought, the
+// same piece made or ordered, the same order collected. null when it cannot be made again.
+function replayTrade(text, entry, currency) {
+    const members = currentParty();
+    if (entry.kind === 'sell' && entry.item) {
+        const owner = entry.owner ? members.find(member => member.name === entry.owner) ?? null : null;
+        return sellIn(text, { name: entry.item, qty: entry.qty, each: entry.each }, currency, itemScope(owner?.name ?? null, members), itemScope(null, members)).text;
+    }
+    if (entry.kind === 'buy' && entry.stock) {
+        const bought = buyIn(text, entry.stock, currency);
+        return bought.ok ? bought.text : null;
+    }
+    if ((entry.kind === 'craft' || entry.kind === 'order') && entry.plan) {
+        const made = craftIn(text, entry.plan, { fee: entry.fee, from: entry.who, currency });
+        return made.ok ? made.text : null;
+    }
+    if (entry.kind === 'collect') return collectIn(text, entry.name, currency).text;
+    return null;
+}
+
+// Undo is exact only while the Inventory is what the run left (nothing else changed it since)
+// and every trade in it can be made again.
+function canUndoTrades(trade, inventory) {
+    const same = (a, b) => String(a ?? '').replace(/\r\n?/g, '\n').replace(/[ \t]+$/gm, '').trim() === String(b ?? '').replace(/\r\n?/g, '\n').replace(/[ \t]+$/gm, '').trim();
+    if (!trade || typeof trade.base !== 'string' || !same(trade.after, inventory)) return false;
+    return (trade.entries ?? []).every(entry => (entry.kind === 'sell' ? Boolean(entry.item) : entry.kind === 'buy' ? Boolean(entry.stock) : entry.kind === 'collect' ? true : Boolean(entry.plan)));
 }
 
 const tradeHandlers = {
@@ -3673,7 +3717,7 @@ const tradeHandlers = {
                 shops: { ...(state.shops ?? {}), [stock.key]: { day: stock.day, bought: [...bought, name] } },
                 shopSeen: { ...(state.shopSeen ?? {}), [stock.key]: { day: stock.day, before: stock.before, names: rememberStock(stock.before, stock.all) } },
             });
-            await recordTrade(text, { kind: 'buy', name, total: item.price, who });
+            await recordTrade(text, { kind: 'buy', name, total: item.price, who, stock: { ...item }, shop: stock.key, day: stock.day }, t.inventory);
             notify('success', `Bought ${name} for ${formatMoney(item.price, t.r.currency)}. Your next reply tells it.`);
         } catch (error) {
             notify('error', `It could not be bought: ${error instanceof Error ? error.message : String(error)}`);
@@ -3689,7 +3733,7 @@ const tradeHandlers = {
             const members = currentParty();
             const owner = members.find(member => member.id === tradeOwner) ?? null;
             const { text, total } = sellIn(t.inventory, { name, qty, each }, t.r.currency, itemScope(owner?.name ?? null, members), itemScope(null, members));
-            await recordTrade(text, { kind: 'sell', name: owner ? `${owner.name}'s ${name}` : name, qty, total, who });
+            await recordTrade(text, { kind: 'sell', name: owner ? `${owner.name}'s ${name}` : name, qty, total, who, item: name, each, owner: owner?.name ?? null }, t.inventory);
             notify('success', `Sold ${qty > 1 ? `${qty} ` : ''}${name} for ${formatMoney(total, t.r.currency)}. Your next reply tells it.`);
         } catch (error) {
             notify('error', `The sale could not be written: ${error instanceof Error ? error.message : String(error)}`);
@@ -3704,7 +3748,7 @@ const tradeHandlers = {
             const { text, ok } = craftIn(t.inventory, plan, { fee: made.fee, from: who, currency: t.r.currency });
             if (!ok) throw new Error('your purse cannot pay the fee');
             const from = made.plan.used.map(use => (use.qty > 1 ? `${use.qty} ${use.name}` : use.name));
-            await recordTrade(text, { kind: days ? 'order' : 'craft', name: made.name, from, fee: made.fee, ready: made.ready, who });
+            await recordTrade(text, { kind: days ? 'order' : 'craft', name: made.name, from, fee: made.fee, ready: made.ready, who, plan }, t.inventory);
             notify('success', days ? `${made.name} ordered, ready ${made.ready}. Your next reply tells it.` : `${made.name} made. Your next reply tells it.`);
         } catch (error) {
             notify('error', `The piece could not be made: ${error instanceof Error ? error.message : String(error)}`);
@@ -3715,10 +3759,45 @@ const tradeHandlers = {
             const t = tradeContext();
             const { text } = collectIn(t.inventory, name, t.r.currency);
             if (text === t.inventory) throw new Error(`${name} is not on order`);
-            await recordTrade(text, { kind: 'collect', name, who });
+            await recordTrade(text, { kind: 'collect', name, who }, t.inventory);
             notify('success', `${name} collected. Your next reply tells it.`);
         } catch (error) {
             notify('error', `It could not be collected: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    },
+    // (0.5.43) One trade taken back: the run made again from its first Inventory without it.
+    onUndo: async index => {
+        try {
+            const t = tradeContext();
+            const chat = context()?.chat ?? [];
+            const trade = settleHandoff(chatState().trade, chat);
+            if (!trade || handoffState(chatState().trade, chat) !== 'waiting') throw new Error('it has already been told');
+            if (!canUndoTrades(trade, t.inventory)) throw new Error('the Inventory has changed since; delete or swipe the latest reply instead');
+            const undone = trade.entries[index];
+            if (!undone) throw new Error('no such trade');
+            const rest = trade.entries.filter((_, at) => at !== index);
+            let text = trade.base;
+            for (const entry of rest) {
+                text = replayTrade(text, entry, t.r.currency);
+                if (text === null) throw new Error('the trades after it could not be made again');
+            }
+            await writeBlock(t.own.inventoryTag, text);
+            // A thing bought goes back on the trader's shelf.
+            if (undone.kind === 'buy' && undone.shop) {
+                const shop = chatState().shops?.[undone.shop];
+                if (shop && shop.day === undone.day) {
+                    const bought = [...shop.bought];
+                    const at = bought.lastIndexOf(undone.name);
+                    if (at >= 0) bought.splice(at, 1);
+                    saveChatState({ shops: { ...(chatState().shops ?? {}), [undone.shop]: { ...shop, bought } } });
+                }
+            }
+            saveTradeRun(rest, { origin: trade.origin, base: trade.base, after: text });
+            logActivity(`Trade undone: ${tradeLine(undone, t.r.currency)}`);
+            notify('info', `Taken back: ${tradeLine(undone, t.r.currency)}.`);
+            storyBlock()?.refresh?.();
+        } catch (error) {
+            notify('error', `It could not be taken back: ${error instanceof Error ? error.message : String(error)}`);
         }
     },
     onLevel: level => {

@@ -55,9 +55,9 @@ function withUnit(control, unit) {
     return el('span', { className: 'story-suite-number' }, [control, unit ? el('small', { text: unit }) : null]);
 }
 
-/** "copper=1, silver=10, gold=10" ⇄ [{ name, rate }]. */
+/** "copper=1, silver=10, gold=10" ⇄ [{ name, rate }]; (0.5.43) "copper/cp=1": with a short form. */
 export function tiersToText(tiers) {
-    return (tiers ?? []).map(tier => `${tier.name}=${tier.rate}`).join(', ');
+    return (tiers ?? []).map(tier => `${tier.name}${tier.short ? `/${tier.short}` : ''}=${tier.rate}`).join(', ');
 }
 
 export function textToTiers(text) {
@@ -65,7 +65,8 @@ export function textToTiers(text) {
         const match = /^\s*([^=]+?)\s*=\s*(\d+(?:\.\d+)?)\s*$/.exec(part) ?? /^\s*(\S.*?)\s*$/.exec(part);
         if (!match) return null;
         const rate = match[2] === undefined ? 1 : Math.max(1, Math.round(Number(match[2])));
-        return { name: match[1].trim(), rate };
+        const [name, short] = match[1].split('/').map(word => word.trim());
+        return { name, rate, ...(short ? { short } : {}) };
     }).filter(tier => tier && tier.name);
     if (tiers.length) tiers[0] = { ...tiers[0], rate: 1 };
     return tiers;
@@ -224,11 +225,15 @@ export function renderSettings(container, { settings, version = '', status = '',
     const tiers = input('rpg_battle_currency_tiers', tiersToText(current.currency?.tiers), 'copper=1, silver=10, gold=10');
     const single = input('rpg_battle_currency_single', current.currency?.single, 'coins');
     const moneyRow = input('rpg_battle_currency_row', current.currency?.row, 'Coins');
-    const tiersRow = row('Coins', 'Smallest first; each rate is how many of the one before make one of this.', tiers, 'rpg_battle_currency_tiers');
+    const tiersRow = row('Coins', 'Smallest first; each rate is how many of the one before make one of this. A short form for the Trade prices after a slash: copper/cp=1 (else the shortest letters that tell them apart).', tiers, 'rpg_battle_currency_tiers');
     const singleRow = row('Coin name', '', single, 'rpg_battle_currency_single');
+    // (0.5.43) The one coin's short form on the Trade prices ("12 c" by default).
+    const singleShort = input('rpg_battle_currency_single_short', current.currency?.singleShort ?? '', 'its first letter');
+    const singleShortRow = row('Short form', 'How the Trade prices write it.', singleShort, 'rpg_battle_currency_single_short');
     const sync = () => {
         tiersRow.hidden = mode.value !== 'tiers';
         singleRow.hidden = mode.value !== 'single';
+        singleShortRow.hidden = mode.value !== 'single';
     };
     mode.addEventListener('change', () => {
         sync();
@@ -241,6 +246,7 @@ export function renderSettings(container, { settings, version = '', status = '',
         commit(next => { next.currency = { ...next.currency, tiers: parsed }; });
     });
     single.addEventListener('change', () => commit(next => { next.currency = { ...next.currency, single: single.value.trim() || 'coins' }; }));
+    singleShort.addEventListener('change', () => commit(next => { next.currency = { ...next.currency, singleShort: singleShort.value.trim() }; }));
     moneyRow.addEventListener('change', () => commit(next => { next.currency = { ...next.currency, row: moneyRow.value.trim() || 'Coins' }; }));
 
     // Terms: kept as the reader typed them (empty means the default), tiers as an object or null.
@@ -534,6 +540,7 @@ export function renderSettings(container, { settings, version = '', status = '',
                         row('Currency', 'Loot is written in it.', mode, 'rpg_battle_currency_mode'),
                         tiersRow,
                         singleRow,
+                        singleShortRow,
                         row('Inventory row', 'The Inventory row that holds your money.', moneyRow, 'rpg_battle_currency_row'),
                     ]),
                     fold('equipment', 'Equipment', [

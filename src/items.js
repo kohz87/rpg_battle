@@ -604,8 +604,50 @@ function tierValues(currency) {
     let value = 1;
     return (currency.tiers ?? []).map((tier, index) => {
         if (index > 0) value *= Math.max(1, Number(tier.rate) || 1);
-        return { name: String(tier.name), value };
+        return { name: String(tier.name), value, ...(tier.short ? { short: String(tier.short).trim() } : {}) };
     });
+}
+
+/**
+ * (0.5.43) Each name's shortest prefix no other name starts with (case ignored): copper,
+ * silver, gold → c, s, g; crowns, copper → cr, co. A name that is a prefix of another keeps
+ * its whole self.
+ */
+function shortPrefixes(names) {
+    const lower = names.map(name => String(name).toLowerCase());
+    return names.map((name, index) => {
+        const own = lower[index];
+        for (let size = 1; size <= own.length; size++) {
+            const head = own.slice(0, size);
+            if (!lower.some((other, at) => at !== index && other.startsWith(head))) return String(name).slice(0, size);
+        }
+        return String(name);
+    });
+}
+
+/**
+ * (0.5.43) An amount in the chat's coins, short: '1 g 3 s 4 c', '12 c', '5 m 2 b' — for the
+ * Trade rows, where prices line up. Each tier's own `short` (from the setting) when it has one,
+ * else its shortest unique prefix; one coin: its `singleShort`, else its first letter. The full
+ * words (formatMoney) stay for labels, the told lines and the hand-off.
+ */
+export function formatMoneyShort(amount, currency = DEFAULT_RULES.currency) {
+    const c = currencyOf(currency);
+    let left = Math.max(0, Math.round(Number(amount) || 0));
+    const tiers = tierValues(c);
+    if (c.mode === 'single' || !tiers.length) {
+        const unit = String(c.singleShort || '').trim() || shortPrefixes([c.single || 'coins'])[0];
+        return `${left} ${unit}`;
+    }
+    const prefixes = shortPrefixes(tiers.map(tier => tier.name));
+    const shorts = tiers.map((tier, index) => tier.short || prefixes[index]);
+    const parts = [];
+    for (let index = tiers.length - 1; index >= 0; index--) {
+        const count = Math.floor(left / tiers[index].value);
+        left -= count * tiers[index].value;
+        if (count) parts.push(`${count} ${shorts[index]}`);
+    }
+    return parts.length ? parts.join(' ') : `0 ${shorts[0]}`;
 }
 
 function unitLabel(name, count) {

@@ -511,3 +511,20 @@ test('a party member\'s items are the sections named for them; loot and use stay
     const herbs = 'Coin Pouch | 1 | 2 silver\n[Lyra Vane > Herbs]\nWolfsbane | 1 | material';
     assert.match(addLoot(herbs, { items: [{ name: 'Bone Charm', qty: 1, kind: 'equipment', note: 'equipped · common · LUK +1' }] }, R.currency, hers), /\[Lyra\]\nBone Charm \| 1/);
 });
+
+test('the short price follows the chat\'s coins: shortest unique letters, a tier\'s own short form, one coin (0.5.43)', async () => {
+    const { formatMoneyShort } = await import('../src/items.js');
+    assert.equal(formatMoneyShort(134), '1 g 3 s 4 c');
+    assert.equal(formatMoneyShort(0), '0 c');
+    const custom = { mode: 'tiers', tiers: [{ name: 'bits', rate: 1 }, { name: 'marks', rate: 12 }, { name: 'crowns', rate: 20 }] };
+    assert.equal(formatMoneyShort(68, custom), '5 m 8 b');
+    // Initials that clash: as many letters as tell them apart.
+    assert.equal(formatMoneyShort(241, { tiers: [{ name: 'copper', rate: 1 }, { name: 'crowns', rate: 10 }] }), '24 cr 1 co');
+    // A tier's own short form wins.
+    assert.equal(formatMoneyShort(25, { tiers: [{ name: 'copper', rate: 1, short: 'cp' }, { name: 'silver', rate: 10, short: 'sp' }] }), '2 sp 5 cp');
+    // One coin: its short form, else its first letter.
+    assert.equal(formatMoneyShort(12, { mode: 'single', single: 'coins' }), '12 c');
+    assert.equal(formatMoneyShort(12, { mode: 'single', single: 'shells', singleShort: 'sh' }), '12 sh');
+    // The words stay formatMoney's.
+    assert.equal(formatMoney(134), '1 gold, 3 silver, 4 copper');
+});

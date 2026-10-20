@@ -9,6 +9,10 @@
 //
 // Drawn like the Party tab: quiet section labels, hairlines, SillyTavern's menu_buttons, and
 // every node filled through textContent (names and notes are the model's).
+// (0.5.43) Buy, Sell and On order are one line per thing: the name in its rarity's colour, the
+// note quiet in the middle (cut short; a tap shows it whole), a stack's −/+ count, and a small
+// price button on the right, so the prices line up. Each trade is made at once, per row; every
+// line under "Told in your next reply" can be undone. A wide pane lays the rows in two columns.
 
 import { button, el, section, select, sub } from './dom.js';
 
@@ -47,6 +51,47 @@ function redraw() {
     if (last) renderTradeTab(...last);
 }
 
+// (0.5.43) An amount the short way for a row's button ('2 c', '1 g 3 s': the chat's own coins),
+// the long way for its label and title.
+const shortMoney = (view, amount) => (view.moneyShort ?? view.money)?.(amount) ?? String(amount);
+const longMoney = (view, amount) => view.money?.(amount) ?? String(amount);
+
+// The note in the middle of a row: one line, cut short; its whole text on hover, and a tap opens
+// the row to show it.
+function rowNote(text) {
+    if (!text) return null;
+    const node = el('span', { className: 'rpg-trade-note', text, attrs: { title: text } });
+    node.addEventListener('click', () => node.parentNode?.classList?.toggle('is-open'));
+    return node;
+}
+
+// A stack's how-many: − n +, from 1 to the stack.
+function stepper(name, value, max, onChange) {
+    const set = next => onChange(Math.max(1, Math.min(max, next)));
+    const less = button('', 'rpg-trade-less', { iconName: 'fa-minus', title: `One fewer ${name}`, disabled: value <= 1, onClick: () => set(value - 1) });
+    const more = button('', 'rpg-trade-more', { iconName: 'fa-plus', title: `One more ${name}`, disabled: value >= max, onClick: () => set(value + 1) });
+    return el('span', { className: 'rpg-trade-stepper', attrs: { role: 'group', 'aria-label': `How many ${name}` } }, [
+        less,
+        el('span', { className: 'rpg-trade-count', text: String(value), attrs: { 'aria-live': 'polite' } }),
+        more,
+    ]);
+}
+
+// One line: the name, the note, an optional control, the action on the right.
+function tradeRow(item, { note, control = null, action }) {
+    // A long name is cut short on a narrow pane; its whole self on hover.
+    const name = itemName(item.name, item.rarity);
+    name.setAttribute('title', item.name);
+    return el('li', { className: 'rpg-trade-item is-row' }, [name, rowNote(note), control, action]);
+}
+
+// The row's button: a short price and an icon; its full words for the title and screen readers.
+function priceButton(className, iconName, short, full, { disabled = false, why = '', onClick } = {}) {
+    const node = button(short, `rpg-trade-price-button ${className}`, { iconName, title: why || full, disabled, onClick });
+    node.setAttribute('aria-label', full);
+    return node;
+}
+
 // (0.5.38) Who you trade with: a kind of trader at this place (the general store, the
 // apothecary…), with a name if you like, or someone present, or anyone you name. Nobody needs to
 // be in the scene: the place has its traders.
@@ -68,7 +113,7 @@ function whoSection(view, handlers) {
     const kindPick = draft.trader.startsWith('kind:') ? draft.trader.slice(5) : null;
     // A trader kind may have a name of the story's ("Mother Greta"); someone else needs one.
     const nameBox = kindPick || draft.trader === SOMEONE
-        ? textInput('rpg-trade-name', kindPick ? draft.names[kindPick] ?? '' : draft.name, { placeholder: kindPick ? `name (optional), else ${TRADER_WHO[kindPick]}` : 'who, e.g. the bone-carver', label: 'Their name' })
+        ? textInput('rpg-trade-name', kindPick ? draft.names[kindPick] ?? '' : draft.name, { placeholder: kindPick ? 'their name (optional)' : 'who, e.g. the bone-carver', label: kindPick ? `Their name (optional; else ${TRADER_WHO[kindPick]})` : 'Their name' })
         : null;
     nameBox?.addEventListener('input', () => {
         if (kindPick) draft.names[kindPick] = nameBox.value;
@@ -84,7 +129,9 @@ function whoSection(view, handlers) {
     level.addEventListener('change', () => handlers.onLevel?.(level.value || null));
     return section('rpg-trade-who', [
         sub('Trading with', 'fa-handshake'),
-        el('div', { className: 'rpg-trade-row' }, [trader, nameBox, kind]),
+        // (0.5.43) The name on its own line under the trader, so its hint is never cut.
+        el('div', { className: 'rpg-trade-row' }, [trader, kind]),
+        nameBox ? el('div', { className: 'rpg-trade-row rpg-trade-name-row' }, [nameBox]) : null,
         kind && !draft.kind && tradingWith() ? el('p', { className: 'rpg-battle-hint rpg-trade-guess', text: `Their trade, by the name: ${KIND_LABELS[guessed] ?? guessed}.` }) : null,
         el('p', { className: 'rpg-battle-hint rpg-trade-place', text: `${view.place || 'Somewhere'} · ${prices.tier} prices: goods ×${round(prices.buy)}, offers ×${round(prices.sell)}` }),
         el('div', { className: 'rpg-trade-row' }, [el('span', { className: 'rpg-battle-label', text: 'Prices here' }), level]),
@@ -115,31 +162,25 @@ function sellSection(view, handlers) {
     const whose = owners.length > 1 ? select('rpg-trade-owner', 'Whose items', owners.map(owner => [owner.id, owner.id === 'pc' ? `${owner.name} (you)` : owner.name]), view.owner ?? 'pc') : null;
     whose?.addEventListener('change', () => handlers.onOwner?.(whose.value));
     const items = rows.map(item => {
-        const qty = Math.min(Number(draft.sell[item.name] ?? 1), item.qty);
+        const qty = Math.max(1, Math.min(Number(draft.sell[item.name] ?? 1), item.qty));
         const each = view.sellPrice?.(item.name, kind) ?? 0;
-        const picker = item.qty > 1 ? select('rpg-trade-qty', `How many ${item.name}`, qtyChoices(item.qty), String(qty)) : null;
-        picker?.addEventListener('change', () => { draft.sell[item.name] = Number(picker.value); redraw(); });
-        return el('li', { className: 'rpg-trade-item' }, [
-            el('div', { className: 'rpg-trade-item-head' }, [
-                itemName(item.name, item.rarity),
-                el('span', { className: 'rpg-battle-hint', text: `×${item.qty}${item.note ? ` · ${item.note}` : ''}` }),
-            ]),
-            el('div', { className: 'rpg-trade-item-actions' }, [
-                picker,
-                // The price once: the total, and what each fetches when it is more than one.
-                button(`Sell${qty > 1 ? ` ${qty}` : ''} · ${view.money?.(each * qty) ?? each * qty}${qty > 1 ? ` (${view.money?.(each) ?? each} each)` : ''}`, 'rpg-trade-sell', {
-                    iconName: 'fa-coins',
-                    disabled: !tradingWith(),
-                    title: tradingWith() ? `Sell to ${tradingWith()}: your next reply tells it.` : 'Say who you trade with first.',
-                    onClick: () => handlers.onSell?.({ name: item.name, qty, each, who: tradingWith(), kind }),
-                }),
-            ]),
-        ]);
+        const control = item.qty > 1 ? stepper(item.name, qty, item.qty, next => { draft.sell[item.name] = next; redraw(); }) : null;
+        // The price once: the total for how many; each one's price in the words.
+        const full = `Sell${qty > 1 ? ` ${qty}` : ''} · ${longMoney(view, each * qty)}${qty > 1 ? ` (${longMoney(view, each)} each)` : ''}`;
+        return tradeRow(item, {
+            note: [item.qty > 1 ? `×${item.qty}` : '', item.note].filter(Boolean).join(' · '),
+            control,
+            action: priceButton('rpg-trade-sell', 'fa-coins', shortMoney(view, each * qty), full, {
+                disabled: !tradingWith(),
+                why: tradingWith() ? '' : 'Say who you trade with first.',
+                onClick: () => handlers.onSell?.({ name: item.name, qty, each, who: tradingWith(), kind }),
+            }),
+        });
     });
     return section('rpg-trade-sell-list', [
         sub('Sell', 'fa-coins', rows.length),
         whose ? el('div', { className: 'rpg-trade-row' }, [el('span', { className: 'rpg-battle-label', text: 'Whose items' }), whose]) : null,
-        rows.length ? el('ul', { className: 'rpg-trade-list' }, items) : el('p', { className: 'rpg-battle-empty', text: 'Nothing to sell: what you wear and what is on order stays.' }),
+        rows.length ? el('ul', { className: 'rpg-trade-list is-rows' }, items) : el('p', { className: 'rpg-battle-empty', text: 'Nothing to sell: what you wear and what is on order stays.' }),
     ]);
 }
 
@@ -151,17 +192,14 @@ function buySection(view, handlers) {
     const items = view.stock(kind) ?? [];
     return section('rpg-trade-buy-list', [
         sub(`Buy from ${who}`, 'fa-store', items.length),
-        items.length ? el('ul', { className: 'rpg-trade-list' }, items.map(item => el('li', { className: 'rpg-trade-item' }, [
-            el('div', { className: 'rpg-trade-item-head' }, [itemName(item.name, item.rarity), item.note ? el('span', { className: 'rpg-battle-hint', text: item.note }) : null]),
-            el('div', { className: 'rpg-trade-item-actions' }, [
-                button(`Buy · ${view.money?.(item.price) ?? item.price}`, 'rpg-trade-buy', {
-                    iconName: 'fa-cart-shopping',
-                    disabled: item.price > (view.purse ?? 0),
-                    title: item.price > (view.purse ?? 0) ? 'Your purse cannot pay for it.' : `Buy from ${who}: your next reply tells it.`,
-                    onClick: () => handlers.onBuy?.({ name: item.name, who, kind }),
-                }),
-            ]),
-        ]))) : el('p', { className: 'rpg-battle-empty', text: `${who} has nothing left to sell today.` }),
+        items.length ? el('ul', { className: 'rpg-trade-list is-rows' }, items.map(item => tradeRow(item, {
+            note: item.note,
+            action: priceButton('rpg-trade-buy', 'fa-cart-shopping', shortMoney(view, item.price), `Buy · ${longMoney(view, item.price)}`, {
+                disabled: item.price > (view.purse ?? 0),
+                why: item.price > (view.purse ?? 0) ? 'Your purse cannot pay for it.' : '',
+                onClick: () => handlers.onBuy?.({ name: item.name, who, kind }),
+            }),
+        }))) : el('p', { className: 'rpg-battle-empty', text: `${who} has nothing left to sell today.` }),
     ]);
 }
 
@@ -219,23 +257,41 @@ function ordersSection(view, handlers) {
     if (!orders.length) return null;
     return section('rpg-trade-orders', [
         sub('On order', 'fa-clock', orders.length),
-        el('ul', { className: 'rpg-trade-list' }, orders.map(item => el('li', { className: 'rpg-trade-item' }, [
-            el('div', { className: 'rpg-trade-item-head' }, [itemName(item.name, item.rarity), el('span', { className: 'rpg-battle-hint', text: item.note ?? '' })]),
-            el('div', { className: 'rpg-trade-item-actions' }, [
-                button('Collect', 'rpg-trade-collect', { iconName: 'fa-box-open', title: `Collect ${item.name}: your next reply tells it.`, onClick: () => handlers.onCollect?.({ name: item.name, who: item.with || tradingWith() }) }),
-            ]),
-        ]))),
+        el('ul', { className: 'rpg-trade-list is-rows' }, orders.map(item => tradeRow(item, {
+            note: item.note ?? '',
+            action: button('Collect', 'rpg-trade-price-button rpg-trade-collect', { iconName: 'fa-box-open', title: `Collect ${item.name}: your next reply tells it.`, onClick: () => handlers.onCollect?.({ name: item.name, who: item.with || tradingWith() }) }),
+        }))),
     ]);
 }
 
-function pendingSection(view) {
-    const lines = view.pending ?? [];
+// (0.5.43) Each trade waiting to be told, with Undo: it takes exactly that trade back out of the
+// Inventory and the purse (the glue replays the others). `pending`: [{ text, undo }] (or text).
+function pendingSection(view, handlers) {
+    const lines = (view.pending ?? []).map(line => (typeof line === 'string' ? { text: line, undo: false } : line));
     if (!lines.length) return null;
+    const undoable = typeof handlers.onUndo === 'function';
     return section('rpg-trade-pending', [
         sub('Told in your next reply', 'fa-feather', lines.length),
-        el('ul', { className: 'rpg-trade-told' }, lines.map(line => el('li', { text: line }))),
-        el('p', { className: 'rpg-battle-hint', text: 'Already in the Inventory. Delete or swipe the latest reply to take it back.' }),
+        el('ul', { className: 'rpg-trade-told' }, lines.map((line, index) => el('li', { className: 'rpg-trade-told-line' }, [
+            el('span', { className: 'rpg-trade-told-text', text: line.text }),
+            undoable && line.undo ? button('Undo', 'rpg-trade-undo', { iconName: 'fa-rotate-left', title: `Take back: ${line.text}`, onClick: () => handlers.onUndo(index) }) : null,
+        ]))),
+        el('p', { className: 'rpg-battle-hint', text: 'Already in the Inventory. Undo one, or delete or swipe the latest reply to take them all back.' }),
     ]);
+}
+
+// (0.5.43) Two columns of rows on a wide pane (tablet landscape, a wide sidebar), one on a narrow.
+const WIDE = 480;
+const watched = new WeakSet();
+function fitWidth(pane, root) {
+    const width = pane.getBoundingClientRect?.().width || pane.clientWidth || 0;
+    root.classList.toggle('is-wide', width >= WIDE);
+    if (watched.has(pane) || typeof globalThis.ResizeObserver !== 'function') return;
+    watched.add(pane);
+    new globalThis.ResizeObserver(entries => {
+        const box = entries[0]?.contentRect?.width ?? 0;
+        pane.querySelector('.rpg-trade-tab')?.classList.toggle('is-wide', box >= WIDE);
+    }).observe(pane);
 }
 
 /**
@@ -244,7 +300,8 @@ function pendingSection(view) {
  * sellPrice(name, kind), preview({ name, materials, slot, days, kind }) → { name, note, fee,
  * ready } | null, buyerKind(name), stock(kind) → [{ name, note, price, rarity }] (0.5.38) }.
  * (0.5.40) owners: [{ id, name }] and owner (whose items Sell lists).
- * `handlers`: onBuy, onSell, onCraft, onCollect, onLevel, onOwner.
+ * (0.5.43) moneyShort(amount) for the rows' buttons; pending: [{ text, undo }].
+ * `handlers`: onBuy, onSell, onCraft, onCollect, onLevel, onOwner, (0.5.43) onUndo(index).
  */
 export function renderTradeTab(pane, view = {}, handlers = {}) {
     if (!pane) return;
@@ -260,8 +317,9 @@ export function renderTradeTab(pane, view = {}, handlers = {}) {
     }
     // The purse first, and kept in view while the lists scroll.
     root.append(el('p', { className: 'rpg-trade-purse', text: `Purse: ${view.purseText || 'nothing'}` }));
-    root.append(...[whoSection(view, handlers), pendingSection(view), buySection(view, handlers), sellSection(view, handlers), makeSection(view, handlers), ordersSection(view, handlers)].filter(Boolean));
+    root.append(...[whoSection(view, handlers), pendingSection(view, handlers), buySection(view, handlers), sellSection(view, handlers), makeSection(view, handlers), ordersSection(view, handlers)].filter(Boolean));
     pane.replaceChildren(root);
+    fitWidth(pane, root);
 }
 
 /** Forget the half-made choice (a new chat). */
