@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.39
+
+- **Clean-up, no change in behaviour.**
+  - The Party and Trade pages share one set of small DOM helpers (`src/ui/dom.js`) instead of two copies.
+  - Code nothing called is gone: a crafting note helper, a numerals list, a rarity lookup.
+  - Styles for screens that no longer exist are gone.
+  - The architecture notes list the crafting, trade and Trade-page modules.
+
 ## 0.5.38
 
 - **Trade is a page of the Party tab.** The sidebar had enough tabs. **Party · Trade** at the top of the Party tab switches between them, and a trade waiting to be told is counted on the Party badge.

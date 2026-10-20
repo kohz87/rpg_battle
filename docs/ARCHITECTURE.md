@@ -33,7 +33,11 @@ src/templates.js  creatures made up from their names        tests/templates.test
 src/flavour.js    the flavour call's prompt, parse, mapping tests/flavour.test.js
 src/suite.js      the Story Suite registry (shared, as is) tests/suite.test.js
 src/handshake.js  RPG Battle's side of the Story Suite     tests/handshake.test.js
+src/craft.js      (0.5.34) crafting from materials, orders tests/craft.test.js
+src/trade.js      (0.5.37) prices, stock, trade edits, note tests/trade.test.js
+src/ui/dom.js     (0.5.39) the tabs' shared DOM helpers
 src/ui/tab.js     the Party and Battle tabs                 tests/ui-tab.test.js
+src/ui/trade.js   (0.5.37) the Party tab's Trade page       tests/ui-trade.test.js
 src/ui/settings.js the settings panel                      tests/ui-settings.test.js
 src/suite.css     the Story Suite panel look (shared as is)
 style.css         RPG Battle's own styles

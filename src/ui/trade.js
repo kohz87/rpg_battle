@@ -10,64 +10,14 @@
 // Drawn like the Party tab: quiet section labels, hairlines, SillyTavern's menu_buttons, and
 // every node filled through textContent (names and notes are the model's).
 
+import { button, el, section, select, sub } from './dom.js';
+
 const SLOT_CHOICES = [['', 'by its kind'], ['weapon', 'weapon'], ['offhand', 'off-hand'], ['armour', 'armour'], ['worn', 'worn'], ['accessory', 'accessory']];
 const KIND_LABELS = { general: 'merchant', guild: 'guild buyer', apothecary: 'apothecary', smith: 'smith', crafter: 'crafter', fence: 'fence' };
 const SOMEONE = '\u0000someone';
 
 let draft = null;
 let last = null;
-
-function el(tag, { className, text, title, attrs } = {}, children = []) {
-    const node = globalThis.document.createElement(tag);
-    if (className) node.className = className;
-    if (text !== undefined && text !== null) node.textContent = String(text);
-    if (title) {
-        node.title = title;
-        node.setAttribute('aria-label', title);
-    }
-    for (const [name, value] of Object.entries(attrs ?? {})) node.setAttribute(name, String(value));
-    for (const child of children) if (child) node.append(child);
-    return node;
-}
-
-function icon(name) {
-    return el('i', { className: `fa-solid ${name}`, attrs: { 'aria-hidden': 'true' } });
-}
-
-function button(label, className, { iconName, title, onClick, disabled = false } = {}) {
-    const node = el('button', { className: `menu_button rpg-battle-button ${className}`.trim(), title });
-    node.type = 'button';
-    if (iconName) node.append(icon(iconName));
-    if (label) node.append(el('span', { className: 'rpg-battle-button-label', text: label }));
-    if (onClick) node.addEventListener('click', onClick);
-    node.disabled = Boolean(disabled);
-    return node;
-}
-
-function sub(label, iconName, count = null) {
-    return el('div', { className: 'rpg-battle-sub' }, [
-        icon(iconName),
-        el('span', { text: label }),
-        count === null ? null : el('span', { className: 'rpg-battle-count', text: String(count) }),
-    ]);
-}
-
-function section(className, children) {
-    return el('section', { className: `rpg-battle-section ${className}` }, children);
-}
-
-function option(value, label = value) {
-    const node = el('option', { text: label });
-    node.value = value;
-    return node;
-}
-
-function select(className, label, choices, value) {
-    const node = el('select', { className: `text_pole rpg-battle-select ${className}`, attrs: { 'aria-label': label } },
-        choices.map(choice => (Array.isArray(choice) ? option(choice[0], choice[1]) : option(choice))));
-    node.value = value;
-    return node;
-}
 
 function textInput(className, value, { placeholder = '', label = '' } = {}) {
     const node = el('input', { className: `text_pole ${className}`, attrs: { type: 'text', placeholder, 'aria-label': label || placeholder } });
