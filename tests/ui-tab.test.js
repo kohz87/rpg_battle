@@ -30,6 +30,9 @@ test('battle recovery reconnects only through an explicit action and shows block
     renderBattleTab(pane, { mode: 'recovery', reason: 'Reload the page before retrying.' });
     assert.equal(pane.querySelector('.rpg-battle-recover-replacement'), null);
     assert.match(pane.textContent, /Reload the page/);
+    renderBattleTab(pane, { mode: 'recovery', recovery: plan, automatic: true });
+    assert.equal(pane.querySelector('.rpg-battle-recover-replacement'), null);
+    assert.match(pane.textContent, /Reconnecting the regenerated reply/);
 });
 
 // ---------------------------------------------------------------------------

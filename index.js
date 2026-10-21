@@ -72,7 +72,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.50';
+const VERSION = '0.5.51';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -1254,9 +1254,22 @@ async function resultReady({ id, result, handoff, origin, report }) {
 async function finishFight(fight) {
     // Once per fight, even if a redraw asks again while the writes are under way.
     if (finishing === fight.id) return;
+    if (storyBlock()?.replyBusy?.()) return;
     const state = chatState();
     if (state.last?.fightId === fight.id) { saveChatState({ fight: null }); return; }
-    if (battleRecovery()) { storyBlock()?.refresh?.(); return; }
+    const recovery = battleRecovery();
+    if (recovery) {
+        if (recovery.recovery && recovery.automatic) {
+            const recoveryChat = context()?.chat, recoveryChatId = chatIdOf(context());
+            finishing = fight.id;
+            try { await storyBlock().reconnectRegeneratedReply(); }
+            finally { if (finishing === fight.id) finishing = null; }
+            if (context()?.chat !== recoveryChat || chatIdOf(context()) !== recoveryChatId || currentFight()?.id !== fight.id) return;
+            if (!battleRecovery()) return finishFight(fight);
+        }
+        storyBlock()?.refresh?.();
+        return;
+    }
     if (state.plan && state.plan.status === 'fighting' && stageId(state.plan.id, state.plan.at) === fight.id) {
         finishing = fight.id;
         try { await finishStage(fight, state.plan); }
@@ -2969,8 +2982,9 @@ function battleRecovery() {
     const sb = storyBlock();
     const history = sb?.journalVersion === 1 ? sb.journal() : null;
     const plan = history?.availability === 'incomplete' ? sb.regeneratedReplyRecovery?.() : null;
+    const automatic = typeof sb?.reconnectRegeneratedReply === 'function';
     return history?.availability === 'incomplete'
-        ? { mode: 'recovery', reason: history.reason, recovery: plan?.messageIndex === chatState().fight?.origin?.index ? plan : null, busy: Boolean(finishing) } : null;
+        ? { mode: 'recovery', reason: history.reason, recovery: automatic || plan?.messageIndex === chatState().fight?.origin?.index ? plan : null, automatic, busy: Boolean(finishing) } : null;
 }
 
 /** The Battle tab: the offer, the setup, the fight, the result. */
@@ -2982,7 +2996,10 @@ function battleView() {
     const fight = currentFight();
     if (fight && fight.status !== 'active') {
         const recovery = battleRecovery();
-        if (recovery) return recovery;
+        if (recovery) {
+            if (recovery.recovery && recovery.automatic) void finishFight(fight).catch(error => notify('error', error.message));
+            return recovery;
+        }
         // A finished fight still stored (the page closed before its end was saved): record it now,
         // unless its result already is.
         if (chatState(ctx).last?.fightId === fight.id) saveChatState({ fight: null });

@@ -419,8 +419,9 @@ const meta = () => ctx.chatMetadata.rpgBattle;
 const planReply = text => ({ ...reply(text), send_date: 'd2', swipe_id: 0 });
 const PLAN_TEXT = '<Encounter>at the gate: 2 giant rat (trivial); then at the yard: giant rat (trivial); then: giant rat (trivial); then at the tower: giant rat (boss, trivial)</Encounter>';
 
-test('a finished battle on a legacy regenerated root waits for explicit reconnection, then records its result once', async t => withClock(async () => {
+for (const mode of ['manual', 'automatic', 'changed-chat']) test(`disconnected battle recovery: ${mode}`, async t => withClock(async () => {
     const sb = globalThis.StoryBlock;
+    const automatic = mode !== 'manual';
     let repaired = false, evidenceWrites = 0, repairWrites = 0;
     const plan = { chatId: 'regenerated-battle', messageIndex: 2, owner: 'new-root', head: 'old-root' };
     sb.journalVersion = 1; sb.transactionVersion = 1;
@@ -428,6 +429,10 @@ test('a finished battle on a legacy regenerated root waits for explicit reconnec
         : { availability: 'incomplete', reason: 'No retained reply matches the saved quest history.' };
     sb.regeneratedReplyRecovery = () => repaired ? null : plan;
     sb.recoverRegeneratedReply = async expected => { assert.equal(expected, plan); repairWrites++; repaired = true; return { status: 'durable' }; };
+    if (automatic) sb.reconnectRegeneratedReply = async () => {
+        await sb.recoverRegeneratedReply(plan);
+        if (mode === 'changed-chat') openChat('another-chat', [reply('Another story.')]);
+    };
     sb.messageIdentity = index => ctx.chat[index]?.extra?.owner;
     sb.commitBlocks = async request => {
         assert.equal(repaired, true);
@@ -435,7 +440,7 @@ test('a finished battle on a legacy regenerated root waits for explicit reconnec
         ctx.chat[request.messageIndex].extra[request.namespace] = structuredClone(request.value);
         return { status: 'durable' };
     };
-    t.after(() => { for (const key of ['journalVersion', 'transactionVersion', 'journal', 'regeneratedReplyRecovery', 'recoverRegeneratedReply', 'messageIdentity', 'commitBlocks']) delete sb[key]; });
+    t.after(() => { for (const key of ['journalVersion', 'transactionVersion', 'journal', 'regeneratedReplyRecovery', 'recoverRegeneratedReply', 'reconnectRegeneratedReply', 'messageIdentity', 'commitBlocks']) delete sb[key]; });
     openChat('regenerated-battle', [reply(`<Party>\n${REN}\n</Party>`), userMessage('Hunt.'),
         { ...planReply('<Encounter>giant rat (trivial)</Encounter>'), extra: { owner: 'new-root' } }]);
     hooks.update(); await settle();
@@ -443,13 +448,23 @@ test('a finished battle on a legacy regenerated root waits for explicit reconnec
     find(drawTab('rpg-battle'), '.rpg-battle-begin').click();
     await settle();
     const before = partyText();
+    const original = meta();
     const fightId = meta().fight.setup.id;
     let pane = await fightOut();
-    assert.equal(modeOf(pane), 'recovery');
-    assert.equal(partyText(), before);
-    assert.equal(evidenceWrites, 0);
-    assert.equal(repairWrites, 0);
-    find(pane, '.rpg-battle-recover-replacement').click();
+    if (mode === 'changed-chat') {
+        assert.equal(ctx.chatId, 'another-chat');
+        assert.equal(original.fight.setup.id, fightId);
+        assert.equal(evidenceWrites, 0, 'switching chats during repair cannot settle the old fight');
+        assert.equal(repairWrites, 1);
+        return;
+    }
+    if (!automatic) {
+        assert.equal(modeOf(pane), 'recovery');
+        assert.equal(partyText(), before);
+        assert.equal(evidenceWrites, 0);
+        assert.equal(repairWrites, 0);
+        find(pane, '.rpg-battle-recover-replacement').click();
+    }
     await settle();
     pane = drawTab('rpg-battle');
     assert.equal(modeOf(pane), 'result');
