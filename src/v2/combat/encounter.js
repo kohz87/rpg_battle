@@ -1,7 +1,7 @@
 // The `encounter` change line (MODULES §B3): the story starts a fight, code turns it into an
 // offer the reader fights or turns down.
 //
-//   ! encounter 6 Cellar Rat Swarm — boiling out of the bins | tier: even | stakes: normal
+//   ! encounter 3 Wolf — circling the camp | tier: weak | stakes: normal
 //
 // The name part is read with v1's encounter parser (story.parseEncounter), so everything v1 knew
 // about how models write foes still holds: counts in digits or words, plurals made singular
@@ -14,17 +14,18 @@ import { DEFAULT_RULES } from '../../rules.js';
 import { parseEncounter } from '../../story.js';
 import { isNoteName } from '../../templates.js';
 
-export const TIERS = Object.freeze(['weak', 'even', 'strong', 'deadly']);
+// v1's five threat words (story.THREATS): 'trivial' is a tier of its own, two steps below the
+// party (rules.threat.offsets), never read as 'weak'.
+export const TIERS = Object.freeze(['trivial', 'weak', 'even', 'strong', 'deadly']);
 export const STAKES = Object.freeze(['normal', 'death']);
 export const MAX_COUNT = 9;
 const MAX_FOES = 6;
 const MAX_NOTE = 160;
 const MAX_PLACE = 60;
 
-// The words a tier may be written as (v1's threat words, story.js), as one of the four tiers.
-// v1's "trivial" is the weakest the offer shape has.
+// The words a tier may be written as (v1's threat words, story.js), as one of the tiers.
 const TIER_WORDS = {
-    trivial: 'weak', feeble: 'weak', puny: 'weak',
+    trivial: 'trivial', feeble: 'trivial', puny: 'trivial',
     weak: 'weak', minor: 'weak', easy: 'weak', low: 'weak', lesser: 'weak',
     even: 'even', fair: 'even', matched: 'even', equal: 'even', normal: 'even', medium: 'even',
     strong: 'strong', tough: 'strong', dangerous: 'strong', high: 'strong', hard: 'strong',
@@ -70,7 +71,7 @@ export function readEncounter(line, { bestiary, rules = DEFAULT_RULES } = {}) {
 
     const tierText = labelOf(line?.labels, 'tier', 'threat');
     const tier = tierText ? tierOf(tierText) : 'even';
-    if (!tier) return { ok: false, message: `"${tierText}" is not a tier: write weak, even, strong or deadly.` };
+    if (!tier) return { ok: false, message: `"${tierText}" is not a tier: write trivial, weak, even, strong or deadly.` };
     const stakesText = labelOf(line?.labels, 'stakes');
     const stakes = stakesOf(stakesText);
     if (!stakes) return { ok: false, message: `"${stakesText}" is not a stake: write normal or death.` };

@@ -332,8 +332,13 @@ test('party.grantXp: amounts, awards by kind or difficulty, claims, the cap', ()
     rejects(run(state, 'party.grantXp', { xp: -3 }), 'INVALID');
     rejects(run(state, 'party.grantXp', { xp: 5, actors: ['ac_nobody00'] }), 'NOT_FOUND');
     rejects(run(makeState(), 'party.grantXp', { xp: 5 }), 'NOT_FOUND');
+    rejects(run(state, 'party.grantXp', { difficulty: 'banana' }), 'INVALID');
+    // Everyone at the level cap: nothing given, and no failure (combat.end must always settle).
     const capped = run(state, 'party.grantXp', { xp: 100 }, { settings: { maxLevel: 1 } });
-    rejects(capped, 'REFUSED');
+    assert.ok(capped.ok, capped.message);
+    assert.deepEqual(capped.result.data.gains, []);
+    assert.equal(capped.result.summary, 'Ren and Lyra are at the level cap: no XP to give.');
+    assert.equal(JSON.stringify(capped.state.domains.party), JSON.stringify(state.domains.party));
 });
 
 test('check.resolve rolls a d20 + the stat modifier, deterministic per seed', () => {

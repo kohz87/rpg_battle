@@ -26,6 +26,7 @@ function checkActor(errors, id, actor) {
     if (!isText(actor.name, 60) || !actor.name.trim()) errors.push(`${where}: a name is needed.`);
     if (actor.kind !== 'pc' && actor.kind !== 'companion') errors.push(`${where}: kind must be pc or companion.`);
     if (actor.control !== 'player' && actor.control !== 'auto') errors.push(`${where}: control must be player or auto.`);
+    if (actor.growth !== undefined && actor.growth !== 'auto' && actor.growth !== 'manual') errors.push(`${where}: growth must be auto or manual.`);
     if (!isText(actor.role, 60)) errors.push(`${where}: role must be text.`);
     if (!isInt(actor.level, 1)) errors.push(`${where}: level must be a whole number from 1.`);
     if (!isInt(actor.xp)) errors.push(`${where}: xp must be a whole number, 0 or more.`);

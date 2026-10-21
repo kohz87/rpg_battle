@@ -132,16 +132,19 @@ test('the same seed plays the same fight: same log, same result', () => {
     assert.notEqual(other.state.domains.combat.session.setup.seed, a.seed, 'the seed comes from the receipt\'s dice');
 });
 
-test('a consumable used in the fight comes out of its stack at the end', () => {
+test('a consumable used in the fight comes out of its stack at use, not at the end', () => {
     const [world, offer] = offered('Giant Rat', { tier: 'weak' }, { actors: [hero({ hp: { cur: 100, max: 220 } })] });
     world.run('combat.start', { offer });
     const r = world.run('combat.act', { action: { type: 'item', item: 'Minor Healing Draught' } });
     assert.equal(r.ok, true, r.message);
     assert.match(r.receipt.summary, /Minor Healing Draught/);
+    assert.deepEqual(r.calls.filter(c => c.type === 'inventory.consume').map(c => c.payload), [{ stack: it(1), qty: 1 }]);
+    assert.deepEqual(r.receipt.data.used, [{ stack: it(1), qty: 1 }]);
+    assert.equal(world.state.domains.inventory.stacks[it(1)].qty, 1);
     fightOut(world);
     const end = world.run('combat.end');
     assert.equal(end.ok, true, end.message);
-    assert.deepEqual(end.calls.filter(c => c.type === 'inventory.consume').map(c => c.payload), [{ stack: it(1), qty: 1 }]);
+    assert.deepEqual(end.calls.filter(c => c.type === 'inventory.consume'), []);
     assert.equal(world.state.domains.inventory.stacks[it(1)].qty, 1);
 });
 
@@ -382,7 +385,7 @@ test('context: the static text never changes; the tail says what is under way or
     assert.equal(part.context.static(), part.context.static());
     assert.match(STATIC_TEXT, /stop at the first blow/);
     assert.doesNotMatch(STATIC_TEXT, /\d/);
-    assert.match(part.kinds.encounter.grammar, /^! encounter .+ \| tier: weak\|even\|strong\|deadly \| stakes: normal\|death$/);
+    assert.match(part.kinds.encounter.grammar, /^! encounter .+ \| tier: trivial\|weak\|even\|strong\|deadly \| stakes: normal\|death$/);
     const [world, offer] = offered();
     const tail = state => part.context.tail({ state, query: (name, args) => world.query(name, args, state) });
     assert.deepEqual(tail(world.state).lines, []);

@@ -74,6 +74,7 @@ function itemRow(row, defs) {
     const def = row?.def && typeof row.def === 'object' ? row.def : defs?.[row?.def] ?? {};
     return {
         stack: typeof row?.stack === 'string' ? row.stack : typeof row?.id === 'string' ? row.id : null,
+        def: typeof row?.def === 'string' ? row.def : typeof def.id === 'string' ? def.id : null,
         name: String(row?.name ?? def.name ?? '').trim(),
         qty: Math.max(0, Math.round(Number(row?.qty ?? 1) || 0)),
         kind: row?.kind ?? def.kind ?? 'goods',
@@ -106,10 +107,10 @@ function gearRows(ctx, actorId, defs, held) {
 
 const usable = effect => Boolean(effect && typeof effect === 'object' && (Number(effect.heal) > 0 || Number(effect.mp) > 0 || (Array.isArray(effect.cure) && effect.cure.length) || effect.damage));
 
-/** The consumables a member can use in the fight: { name, qty, effect, kind, stack }. */
+/** The consumables a member can use in the fight: { name, qty, effect, kind, stack, def } (the stack and def ids are where combat.act takes a used one from). */
 function fightItems(rows) {
     return rows.filter(row => row.name && row.qty > 0 && row.kind === 'consumable' && usable(row.effect))
-        .map(row => ({ name: row.name, qty: row.qty, kind: 'consumable', effect: structuredClone(row.effect), ...(row.stack ? { stack: row.stack } : {}) }));
+        .map(row => ({ name: row.name, qty: row.qty, kind: 'consumable', effect: structuredClone(row.effect), ...(row.stack ? { stack: row.stack } : {}), ...(row.def ? { def: row.def } : {}) }));
 }
 
 const pool = (value, computed) => {

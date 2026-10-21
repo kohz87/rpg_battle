@@ -88,7 +88,7 @@ test('the fuzz checks themselves catch a leak, a wrong total, a new stack withou
     void bytes;
 });
 
-// ---------- properties that do not hold yet (todo) ----------
+// ---------- properties that did not hold before the wave 4 fixes ----------
 
 const SMALL = 200;
 
@@ -106,7 +106,7 @@ each(`fuzz (${SMALL} sequences): every receipt that moves money names the amount
     assert.deepEqual(bad, []);
 });
 
-each(`fuzz (${SMALL} sequences): no stack or wallet ever belongs to someone who is not in the party`, { todo: 'party.removeCompanion / party.create replace leave the actor\'s stacks and wallet behind (see conservation.test.js)' }, () => {
+each(`fuzz (${SMALL} sequences): no stack or coin ever belongs to someone who is not in the party`, () => {
     const bad = [];
     for (let seed = 0; seed < SMALL && bad.length < 5; seed++) {
         runSequence(seed, STEPS, ({ type, result, after, n }) => {
@@ -114,13 +114,14 @@ each(`fuzz (${SMALL} sequences): no stack or wallet ever belongs to someone who 
             const actors = after.domains.party.actors;
             const inv = after.domains.inventory;
             for (const stack of Object.values(inv.stacks)) if (stack.owner !== 'party' && !actors[stack.owner]) bad.push(`seed ${seed} step ${n} ${type}: stack ${stack.id} (${inv.defs[stack.def].name} ×${stack.qty}) owned by ${stack.owner}`);
-            for (const owner of Object.keys(inv.wallets)) if (owner !== 'party' && !actors[owner]) bad.push(`seed ${seed} step ${n} ${type}: wallet of ${owner}`);
+            // An emptied purse may stay as { coin: 0 } (Story Block keeps wallets); no coin may.
+            for (const [owner, wallet] of Object.entries(inv.wallets)) if (owner !== 'party' && !actors[owner] && wallet.coin) bad.push(`seed ${seed} step ${n} ${type}: wallet of ${owner}`);
         });
     }
     assert.deepEqual(bad.slice(0, 5), []);
 });
 
-each(`fuzz (${SMALL} sequences): a finished fight can always be settled (combat.end never sticks)`, { todo: 'combat.end fails with NOT_FOUND for good once a stack the fight used was sold, used or given away meanwhile (see conservation.test.js)' }, () => {
+each(`fuzz (${SMALL} sequences): a finished fight can always be settled (combat.end never sticks)`, () => {
     const bad = [];
     for (let seed = 0; seed < SMALL && bad.length < 5; seed++) {
         runSequence(seed, STEPS, ({ type, after, h, n }) => {

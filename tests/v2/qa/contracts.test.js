@@ -167,7 +167,7 @@ each('combat.end → inventory.grant: a loot def keeps the price item.define giv
     assert.ok(def.value > 0, `stored value ${def.value}`);
 });
 
-each('combat.end → inventory.consume { stack, qty }: a draught drunk in the fight leaves its stack', () => {
+each('combat.act → inventory.consume { stack, qty }: a draught drunk in the fight leaves its stack at once; combat.end takes nothing', () => {
     const { h, pc } = withHero({ seed: 3 });
     const pot = storyItem(h, 'Minor Healing Draught', 2);
     h.capture({ op: '!', kind: 'encounter', name: '2 Cellar Rats', text: '', labels: { tier: 'weak' } });
@@ -175,12 +175,15 @@ each('combat.end → inventory.consume { stack, qty }: a draught drunk in the fi
     assert.equal(h.command('combat.act', { action: { type: 'defend' } }).ok, true);
     const drink = h.command('combat.act', { action: { type: 'item', item: 'Minor Healing Draught', target: pc } });
     assert.equal(drink.ok, true, drink.message);
+    const consumed = sent(h, 'combat.act', 'inventory.consume');
+    assert.deepEqual(consumed.map(keys), [['qty', 'stack']]);
+    assert.equal(consumed[0].qty, 1);
+    assert.equal(stacksOf(h, pot)[0].qty, 1, 'taken at use');
+    assert.deepEqual(drink.receipt.data.used, [{ stack: consumed[0].stack, qty: 1 }]);
     fightOut(h);
     const end = h.command('combat.end');
     assert.equal(end.ok, true, end.message);
-    const consumed = sent(h, 'combat.end', 'inventory.consume');
-    assert.deepEqual(consumed.map(keys), [['qty', 'stack']]);
-    assert.equal(consumed[0].qty, 1);
+    assert.deepEqual(sent(h, 'combat.end', 'inventory.consume'), []);
     assert.equal(stacksOf(h, pot)[0].qty, 1);
 });
 
@@ -284,11 +287,14 @@ each('Story Director → party.grantXp { quest, difficulty }: given once per que
     assert.equal(again.code, 'CLAIMED');
 });
 
-each('party.grantXp { difficulty } refuses a word that is not a quest difficulty', { todo: 'growth.questDifficulty reads any unknown word as "normal", so { difficulty: "banana" } pays a normal quest\'s XP' }, () => {
+each('party.grantXp { difficulty } refuses a word that is not a quest difficulty', () => {
     const { h } = withHero();
+    const before = JSON.stringify(h.state());
     const r = h.command('party.grantXp', { difficulty: 'banana' });
     assert.equal(r.ok, false);
     assert.equal(r.code, 'INVALID');
+    assert.equal(JSON.stringify(h.state()), before);
+    assert.equal(h.command('party.grantXp', { difficulty: 'Hard' }).ok, true, 'any case of a real one');
 });
 
 each('party.heal / party.restore refuse a fractional or negative amount (no half HP reaches the state)', () => {
