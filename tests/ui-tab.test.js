@@ -15,6 +15,23 @@ const { renderBattleTab } = await import('../src/ui/tab.js');
 
 const rules = DEFAULT_RULES;
 
+test('battle recovery reconnects only through an explicit action and shows blocked saves without a reset button', () => {
+    const pane = doc.createElement('div');
+    const plan = { owner: 'regenerated', head: 'old-root' };
+    let selected = null;
+    renderBattleTab(pane, { mode: 'recovery', recovery: plan }, { onRecoverReplacement: value => { selected = value; } });
+    const button = pane.querySelector('.rpg-battle-recover-replacement');
+    assert.ok(button);
+    assert.equal(selected, null);
+    button.click();
+    assert.equal(selected, plan);
+    renderBattleTab(pane, { mode: 'recovery', recovery: plan, busy: true });
+    assert.equal(pane.querySelector('.rpg-battle-recover-replacement').disabled, true);
+    renderBattleTab(pane, { mode: 'recovery', reason: 'Reload the page before retrying.' });
+    assert.equal(pane.querySelector('.rpg-battle-recover-replacement'), null);
+    assert.match(pane.textContent, /Reload the page/);
+});
+
 // ---------------------------------------------------------------------------
 // Fixtures
 

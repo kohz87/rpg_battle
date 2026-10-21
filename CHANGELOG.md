@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.50
+
+- **A blocked battle waits for recovery.** An incomplete quest journal now keeps the finished battle on a recovery screen instead of repeatedly attempting to save its evidence. Its stored actions remain available, and XP/loot are not applied while the evidence is blocked.
+- **Reconnect a reply affected by the earlier Regenerate bug.** With Story Block **0.9.29**, eligible lost-root cases show **Reconnect regenerated reply**. Clicking verifies the replacement link and resumes the same completed battle once; it does not replay combat or reset history. Ambiguous history remains blocked, and an unverified reconnect requires a page reload.
+
 ## 0.5.49
 
 - **Quest proof survives long chats.** Defeat queries include the active branch's archived records from Story Block's shared chat journal. Hidden replies and prefix archival retain proof; future and sibling-branch fights do not contribute.

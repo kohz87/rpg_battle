@@ -48,7 +48,7 @@ const NEW_ASIDE = '\u0000new';
 const LOG_LINES = 8;
 // Which tab a mode belongs to: the Party tab (always there) or the Battle tab (while there is a battle).
 const PARTY_MODES = ['create', 'idle', 'spend', 'learn', 'companion', 'items'];
-const BATTLE_MODES = ['offer', 'setup', 'fight', 'between', 'result'];
+const BATTLE_MODES = ['offer', 'setup', 'fight', 'between', 'result', 'recovery'];
 
 // What each stat does, in a few words, for the reader building a character.
 const STAT_HINTS = {
@@ -2143,6 +2143,15 @@ function renderOffer(root, view, handlers) {
 // ---------------------------------------------------------------------------
 
 const RENDERERS = {
+    recovery(root, view, handlers) {
+        root.append(el('p', { className: 'rpg-battle-empty', text: 'Battle result needs recovery.' }),
+            el('p', { className: 'rpg-battle-hint', text: view.recovery
+                ? 'Regenerate removed the saved reply link. Reconnect this reply as its replacement to record the battle. Previous variants stay separate.'
+                : view.reason || 'Restore the original chat branch before retrying.' }));
+        if (view.recovery) root.append(button('Reconnect regenerated reply', 'rpg-battle-primary rpg-battle-recover-replacement', {
+            disabled: view.busy, onClick: () => emit(handlers, 'onRecoverReplacement', view.recovery),
+        }));
+    },
     offer: renderOffer,
     create: renderCreate,
     idle: renderIdle,
