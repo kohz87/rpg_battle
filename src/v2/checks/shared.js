@@ -6,14 +6,19 @@
 //
 // The `checks` domain:
 //   checks = {
-//     prepared: [{ for: reply index | null, rolls: [d20, …], rev }],   // last 8, one per reply index
-//     log:      [{ id, actor, skill, stat, dc, word, what, rev, carrier, roll, die, modifiers,
-//                  mod, total, outcome, said, mismatch, note }],        // last 30 results
-//     last:     null | { carrier, rev, results: [{ id, actor, name, text, outcome, outcomeText,
-//                  mismatch, note }] },                                  // the latest reply's checks, for its card
+//     prepared: { [key]: { for: reply index | null, rolls: [d20, …], rev } },   // key: the carrier the prepare
+//                  landed on (`s:<sid>`, else its "index:swipe", else `rev<n>`)
+//     log:      { [check id]: { id, actor, name, skill, stat, dc, word, what, rev, carrier, roll, die,
+//                  modifiers, mod, total, outcome, outcomeText, text, said, mismatch, note } },
 //   }
-// A chat from before F80 may still hold a `pending` list (the old reader-rolled checks); it is
-// accepted and dropped by the next checks command.
+// Bookkeeping that later replies write is keyed by the reply (or the check's id), never a list
+// position or a field of an entry an earlier reply made (B-b1r2-13, SPEC §2): a reply deleted from
+// the middle of the chat takes its own entries with it and every later reply's still apply on
+// replay. The oldest are pruned (MAX_LOG results, MAX_PREPARED replies' rolls): Story Block 2.0.0-alpha.2
+// passes over the remove of a key that is already gone. The latest reply's checks (its card) are
+// read from the log: the entries of the newest carrier.
+// Older shapes are accepted and turned into this one by the next checks command: a `prepared` and
+// a `log` list, a `last` record (F80 before B-b1r2-13), a `pending` list (before F80).
 
 import { STATS } from '../../rules.js';
 import { OUTCOMES } from '../party/checks.js';
@@ -21,6 +26,10 @@ import { MAX_ROLLS } from './dice.js';
 
 export const MAX_LOG = 30;
 export const MAX_PREPARED = 8;
+// What the validator allows (4× the kept number): the writers prune to the kept number, but a
+// replay after a middle delete may keep an entry the deleted reply had pruned (its remove is gone
+// with it, and a later remove of that reply's own entry is passed over); the next write prunes again.
+export const slack = most => most * 4;
 /** Up to 2 checks per reply (MODULES §F32); a reply gets as many rolls. */
 export const MAX_PER_REPLY = 2;
 export const ROLLS_PER_REPLY = MAX_PER_REPLY;
@@ -30,7 +39,25 @@ export const OUTCOME_KEYS = Object.freeze(Object.keys(OUTCOMES));
 const CHECK_ID = /^ck_[0-9a-z]{8}$/;
 const ACTOR_ID = /^ac_[0-9a-z]{8}$/;
 
-export const initialChecks = () => ({ prepared: [], log: [], last: null });
+export const initialChecks = () => ({ prepared: {}, log: {} });
+
+const byRev = (a, b) => ((a?.rev ?? 0) - (b?.rev ?? 0)) || (String(a?.id ?? '') < String(b?.id ?? '') ? -1 : String(a?.id ?? '') > String(b?.id ?? '') ? 1 : 0);
+const entriesOf = value => (Array.isArray(value) ? value : value && typeof value === 'object' ? Object.values(value) : []);
+
+/** The check results kept, oldest first (by rev; the log as a record, or an older chat's list). */
+export const logEntries = checks => entriesOf(checks?.log).filter(entry => entry && typeof entry === 'object').sort(byRev);
+
+/** The rolls kept for replies, oldest first (by rev). */
+export const preparedEntries = checks => entriesOf(checks?.prepared).filter(entry => entry && typeof entry === 'object').sort((a, b) => (a.rev ?? 0) - (b.rev ?? 0));
+
+/** The newest reply's checks (its card): its log entries, oldest first, with the reply's key and rev; null when none. */
+export function latestChecks(checks) {
+    const entries = logEntries(checks);
+    const newest = entries.at(-1);
+    if (!newest) return null;
+    const results = entries.filter(entry => entry.carrier === newest.carrier);
+    return { carrier: newest.carrier ?? '', rev: newest.rev, results };
+}
 
 export const nameKey = value => String(value ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
 
@@ -128,6 +155,12 @@ function checkResult(entry, where, errors) {
     if (entry?.note !== undefined && !str(entry.note, 160)) errors.push(`${where}: the note is too long.`);
 }
 
+function checkShown(entry, where, errors) {
+    if (entry?.name !== undefined && !str(entry.name, 80)) errors.push(`${where}: the name is too long.`);
+    if (entry?.text !== undefined && !str(entry.text, 240)) errors.push(`${where}: the text is too long.`);
+    if (entry?.outcomeText !== undefined && !str(entry.outcomeText, 40)) errors.push(`${where}: the outcome text is too long.`);
+}
+
 function checkLast(last, errors) {
     if (last === undefined || last === null) return;
     if (typeof last !== 'object' || !str(last.carrier, 40) || !int(last.rev, 0, Number.MAX_SAFE_INTEGER) || !Array.isArray(last.results)) {
@@ -147,27 +180,34 @@ function checkLast(last, errors) {
 export function validateChecks(slice) {
     const errors = [];
     if (!slice || typeof slice !== 'object') return ['The checks are missing.'];
-    if (!Array.isArray(slice.log)) errors.push('The check log must be a list.');
-    if (slice.prepared !== undefined && !Array.isArray(slice.prepared)) errors.push('The rolls prepared must be a list.');
+    const record = value => value && typeof value === 'object';
+    if (!record(slice.log)) errors.push('The check log must be a record (or an older chat\'s list).');
+    if (slice.prepared !== undefined && !record(slice.prepared)) errors.push('The rolls prepared must be a record (or an older chat\'s list).');
     if (slice.pending !== undefined && !Array.isArray(slice.pending)) errors.push('The old pending checks must be a list.');
     if (errors.length) return errors;
-    if (slice.log.length > MAX_LOG) errors.push(`The check log keeps the last ${MAX_LOG} results only.`);
-    const prepared = slice.prepared ?? [];
-    if (prepared.length > MAX_PREPARED) errors.push(`At most ${MAX_PREPARED} replies' rolls are kept.`);
+    const legacy = Array.isArray(slice.log);
+    const log = Array.isArray(slice.log) ? slice.log : Object.entries(slice.log);
+    if (log.length > slack(MAX_LOG)) errors.push(`The check log keeps about the last ${MAX_LOG} results only.`);
+    const prepared = Array.isArray(slice.prepared ?? []) ? (slice.prepared ?? []).map((entry, index) => [String(index), entry]) : Object.entries(slice.prepared);
+    if (prepared.length > slack(MAX_PREPARED)) errors.push(`About ${MAX_PREPARED} replies' rolls are kept at most.`);
     const indexes = new Set();
-    prepared.forEach((entry, index) => {
+    prepared.forEach(([key, entry], index) => {
         const where = `Rolls ${index + 1}`;
         if (!entry || typeof entry !== 'object') return errors.push(`${where} is not a record.`);
+        if (!Array.isArray(slice.prepared) && !str(key, 48, { empty: false })) errors.push(`${where}: the reply key must be short text.`);
         if (entry.for !== null && !int(entry.for, 0, Number.MAX_SAFE_INTEGER)) errors.push(`${where}: the reply index must be a whole number or null.`);
-        if (indexes.has(entry.for)) errors.push(`${where}: that reply already has its rolls.`);
+        if (Array.isArray(slice.prepared) && indexes.has(entry.for)) errors.push(`${where}: that reply already has its rolls.`);
         indexes.add(entry.for);
         if (!Array.isArray(entry.rolls) || entry.rolls.length > MAX_ROLLS || !entry.rolls.every(die => int(die, 1, 20))) errors.push(`${where}: the rolls must be up to ${MAX_ROLLS} d20s.`);
         if (!int(entry.rev, 0, Number.MAX_SAFE_INTEGER)) errors.push(`${where}: the rev must be a whole number.`);
     });
     const ids = new Set();
-    slice.log.forEach((entry, index) => {
+    log.forEach((item, index) => {
+        const [key, entry] = legacy ? [null, item] : item;
         const where = `Check result ${index + 1}`;
         checkResult(entry, where, errors);
+        checkShown(entry, where, errors);
+        if (!legacy && key !== entry?.id) errors.push(`${where}: kept under another id.`);
         if (ids.has(entry?.id)) errors.push(`${where}: the id is used twice.`);
         ids.add(entry?.id);
     });

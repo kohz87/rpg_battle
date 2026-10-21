@@ -15,7 +15,7 @@ import { parseLevelLabel, maxLevel } from '../../terms.js';
 import { fromSheet, rulesFrom, settingsOf, toSheet } from './sheets.js';
 import { COMPANION_LEVELS_ABOVE, addOffer, fightOn, handlers } from './commands.js';
 import { clipped } from '../lines.js';
-import { MAX_LABEL, cleanName, cleanRole, fail, labelsOf, nameKey, replyOf, resolveName } from './util.js';
+import { MAX_LABEL, cleanName, cleanRole, fail, labelsOf, nameKey, replyOf, resolveName, waitingOffers } from './util.js';
 
 // The static grammar each kind adds to the change-line instruction (SPEC §5): fixed words only,
 // so the static prompt is byte-identical every reply.
@@ -96,7 +96,7 @@ function applyJoin(ctx, line) {
     const name = cleanName(line.name);
     if (!name || /^(?:you|me|myself)$/i.test(name)) fail(ctx, 'INVALID', 'A join line needs the newcomer\'s name.');
     if (Object.values(party.actors).some(actor => nameKey(actor.name) === nameKey(name))) fail(ctx, 'REFUSED', `${name} is already in the party.`);
-    if (party.offers.some(offer => offer.kind === 'join' && nameKey(offer.name) === nameKey(name))) fail(ctx, 'REFUSED', `${name}'s offer to join is already waiting.`);
+    if (waitingOffers(party).some(offer => offer.kind === 'join' && nameKey(offer.name) === nameKey(name))) fail(ctx, 'REFUSED', `${name}'s offer to join is already waiting.`);
     const text = String(line.text ?? '').trim().slice(0, 160);
     let level = null;
     if (labels.level) {
@@ -124,7 +124,7 @@ function applyLeave(ctx, line) {
     const party = ctx.draft('party');
     const actor = memberOf(ctx, party, line.name);
     if (actor.kind !== 'companion') fail(ctx, 'REFUSED', 'Only a companion can leave the party.');
-    if (party.offers.some(offer => offer.kind === 'leave' && offer.actor === actor.id)) fail(ctx, 'REFUSED', `${actor.name}'s leaving is already waiting for the reader.`);
+    if (waitingOffers(party).some(offer => offer.kind === 'leave' && offer.actor === actor.id)) fail(ctx, 'REFUSED', `${actor.name}'s leaving is already waiting for the reader.`);
     const text = String(line.text ?? '').trim().replace(/^leaves\.?$/i, '').slice(0, 160);
     const offer = addOffer(ctx, party, { kind: 'leave', actor: actor.id, text });
     return { summary: `${actor.name} means to leave the party.`, data: { offer: offer.id, actor: actor.id }, narrate: false };
@@ -142,7 +142,7 @@ function applySkill(ctx, line) {
     if (!skill) fail(ctx, 'INVALID', 'A skill line needs the skill\'s name.');
     const words = colon >= 0 ? text.slice(colon + 1).trim().slice(0, 160) : '';
     if (actor.skills.some(entry => nameKey(entry.name) === nameKey(skill))) fail(ctx, 'REFUSED', `${actor.name} already knows ${skill}.`);
-    if (party.offers.some(offer => offer.kind === 'skill' && offer.actor === actor.id && nameKey(offer.skill) === nameKey(skill))) fail(ctx, 'REFUSED', `${skill} is already offered to ${actor.name}.`);
+    if (waitingOffers(party).some(offer => offer.kind === 'skill' && offer.actor === actor.id && nameKey(offer.skill) === nameKey(skill))) fail(ctx, 'REFUSED', `${skill} is already offered to ${actor.name}.`);
     const known = findSkill(DEFAULT_SKILLS, skill) ?? findSkill(Object.values(party.custom), skill);
     // The template the story's words and hints suggest; code still sets every number when learned.
     const hints = parseHints(Object.entries(labels).filter(([key]) => ['type', 'stat', 'target', 'effect', 'element'].includes(key)).map(([key, value]) => `${key}: ${value}`).join(', '));

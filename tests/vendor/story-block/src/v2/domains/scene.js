@@ -3,6 +3,7 @@
 
 import { isPlainObject, labelOf } from './common.js';
 import { cleanName, trimText } from './names.js';
+import { foldKey } from '../../text.js';
 
 const MAX_NAME = 80;
 const MAX_PRESENT = 40;
@@ -65,9 +66,20 @@ function companions(ctx, value) {
     return names;
 }
 
-// A place keeps the stored kind and region unless the line says otherwise: a move line without
-// `kind:` keeps it (Story Director's map knows the place's kind; a model often leaves it out), and only
-// an explicit empty value (`kind:` with nothing after it) clears it. Who was
+// The kind of a place a pack names (by name or alias, `packs.content({ kind: 'places' })`), or null.
+function packPlaceKind(ctx, name) {
+    let places;
+    try { places = ctx.query('packs.content', { kind: 'places' }); } catch { return null; }
+    if (!Array.isArray(places)) return null;
+    const key = foldKey(name);
+    const place = places.find(entry => [entry?.name, ...(Array.isArray(entry?.aliases) ? entry.aliases : [])].some(other => typeof other === 'string' && foldKey(other) === key));
+    return typeof place?.kind === 'string' && place.kind.trim() ? place.kind : null;
+}
+
+// A place's kind: what the line says (an explicit empty `kind:` clears it); without `kind:`, the
+// same place keeps its stored kind (a model often leaves it out), and a move to another place takes
+// the kind a pack gives a place of that name, else none (B4r2-5: never the old place's kind). The
+// region is kept unless the line says otherwise. Who was
 // present stays behind: after a move only the people named in `with` (they came along) are here, and
 // the story adds whoever it meets there (`+ present`). The same place keeps everyone; `with` adds to them.
 function setPlace(ctx, { name, kind, region, with: along }) {
@@ -78,7 +90,7 @@ function setPlace(ctx, { name, kind, region, with: along }) {
     const came = companions(ctx, along);
     scene.place = {
         name: placeName,
-        kind: field(ctx, kind, 'kind') ?? scene.place.kind,
+        kind: field(ctx, kind, 'kind') ?? (moved ? field(ctx, packPlaceKind(ctx, placeName), 'kind') ?? '' : scene.place.kind),
         region: field(ctx, region, 'region') ?? scene.place.region,
     };
     const keys = list => new Set(list.map(person => person.toLowerCase()));

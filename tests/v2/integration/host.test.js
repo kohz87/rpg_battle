@@ -5,6 +5,7 @@
 // fight plays the same way every run.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { preparedEntries } from '../../../src/v2/checks/shared.js';
 import { playOut, rpgHost, seeded } from './helpers/host.js';
 import { MODULE_ID } from '../../../src/v2/module.js';
 
@@ -270,7 +271,7 @@ test('swipe and delete roll back: the offer, the fight, its loot and XP go with 
             const { checks: thenChecks, ...then } = before.domains;
             assert.deepEqual(now, then);
             assert.deepEqual(nowChecks.log, thenChecks.log);
-            assert.equal(nowChecks.prepared.at(-1).for, out.index, 'the leftover rolls are the deleted reply\'s');
+            assert.equal(preparedEntries(nowChecks).at(-1).for, out.index, 'the leftover rolls are the deleted reply\'s');
             assert.equal(host.q('party.pc').xp, 0);
             assert.deepEqual(host.q('inventory.items', {}), []);
             assert.deepEqual(host.q('combat.foesBeaten', { sinceRev: 0 }), []);

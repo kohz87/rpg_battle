@@ -72,10 +72,10 @@ function checkOffer(errors, offer, index, actors) {
         if (!isText(offer.name, 60) || !offer.name.trim()) errors.push(`${where}: a join offer needs a name.`);
         if (offer.level !== null && !isInt(offer.level, 1)) errors.push(`${where}: level must be a whole number from 1 or null.`);
     } else if (offer.kind === 'skill') {
-        if (!actors[offer.actor]) errors.push(`${where}: the skill offer is for someone not in the party.`);
+        if (typeof offer.actor !== 'string' || !offer.actor) errors.push(`${where}: the skill offer names nobody.`);
         if (!isText(offer.skill, 60) || !offer.skill.trim()) errors.push(`${where}: a skill offer needs a skill name.`);
     } else if (offer.kind === 'leave') {
-        if (!actors[offer.actor] || actors[offer.actor].kind !== 'companion') errors.push(`${where}: a leave offer is for a companion in the party.`);
+        if (typeof offer.actor !== 'string' || !offer.actor || (Object.hasOwn(actors, offer.actor) && actors[offer.actor].kind !== 'companion')) errors.push(`${where}: a leave offer is for a companion.`);
         if (!isText(offer.text, 160)) errors.push(`${where}: a leave offer's text must be short text.`);
     } else errors.push(`${where}: kind must be join, skill or leave.`);
 }
@@ -106,15 +106,20 @@ export function validateParty(slice) {
             if (!isObject(def) || def.name !== name) errors.push(`party.custom.${name} must be a skill named ${name}.`);
         }
     }
-    if (!Array.isArray(slice.offers)) errors.push('party.offers must be a list.');
+    // A record keyed by offer id (B-b1r2-13), or an older chat's list. An offer for someone no longer
+    // in the party may stay (nothing removes another reply's offer); it is never shown or taken.
+    if (!isObject(slice.offers) && !Array.isArray(slice.offers)) errors.push('party.offers must be a record.');
     else {
-        slice.offers.forEach((offer, index) => checkOffer(errors, offer, index, actors));
-        if (new Set(slice.offers.map(offer => offer?.id)).size !== slice.offers.length) errors.push('party.offers has an id twice.');
+        const list = Array.isArray(slice.offers) ? slice.offers : Object.values(slice.offers);
+        if (list.length > 1000) errors.push('party.offers keeps 1000 offers at most.');
+        list.forEach((offer, index) => checkOffer(errors, offer, index, actors));
+        if (Array.isArray(slice.offers) && new Set(slice.offers.map(offer => offer?.id)).size !== slice.offers.length) errors.push('party.offers has an id twice.');
+        if (!Array.isArray(slice.offers)) for (const [key, offer] of Object.entries(slice.offers)) if (offer?.id !== key) errors.push(`party.offers.${key} is kept under another id.`);
     }
     return errors;
 }
 
 /** The empty party slice: no character yet. */
 export function initialParty() {
-    return { pc: null, order: [], actors: {}, custom: {}, offers: [] };
+    return { pc: null, order: [], actors: {}, custom: {}, offers: {} };
 }

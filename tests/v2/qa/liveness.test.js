@@ -66,10 +66,10 @@ each('a leave offer accepted during a fight is refused and stays waiting', () =>
     startBandit(h);
     const offered = h.capture({ op: '-', kind: 'join', name: 'Lyra', text: 'goes home', labels: {} });
     assert.equal(offered.ok, true, offered.message);
-    const offer = h.state().domains.party.offers.find(entry => entry.kind === 'leave');
+    const offer = Object.values(h.state().domains.party.offers).find(entry => entry.kind === 'leave');
     const accepted = h.command('party.acceptOffer', { offer: offer.id });
     assert.equal(accepted.code, 'REFUSED');
-    assert.ok(h.state().domains.party.offers.some(entry => entry.id === offer.id));
+    assert.ok(Object.values(h.state().domains.party.offers).some(entry => entry.id === offer.id));
 });
 
 each('your character cannot be remade in the middle of a fight; the fight settles', () => {

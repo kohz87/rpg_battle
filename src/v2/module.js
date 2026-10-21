@@ -238,6 +238,10 @@ export function createModule({ settings = null } = {}) {
         name: MODULE_NAME,
         version: VERSION,
         description: 'Your character and companions, fights played in code, items with rules, trade and crafting.',
+        // The Story Block this needs (R2-b7-combos-1): carrier sids (ctx.carrier.sid) for claims, dice
+        // and keyed bookkeeping, the F80 dice path, and replay that passes over a gone key's remove and
+        // replays list appends at the end (B-b1r2-13) came in Story Block 2.0.0-alpha.2.
+        requires: { storyBlock: '>=2.0.0-alpha.2' },
         domains,
         commands,
         queries,

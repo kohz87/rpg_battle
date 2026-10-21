@@ -4,7 +4,7 @@
 
 import { levelTag } from '../../terms.js';
 import { rulesFrom } from './sheets.js';
-import { actorsInOrder } from './util.js';
+import { actorsInOrder, waitingOffers } from './util.js';
 
 export const STATIC = 'Party numbers (HP, MP, SP, XP, levels) are set by code: never write them; write a wound, rest or check line instead, and tell what the [Happened] lines say.';
 
@@ -32,7 +32,7 @@ export function tail(view) {
     if (!party) return { lines: [], optional: [] };
     const rules = rulesFrom(settingsFrom(view));
     const lines = actorsInOrder(party).map(actor => `Party: ${actorLine(actor, { pc: actor.id === party.pc, rules })}`);
-    const waiting = (party.offers ?? []).map(offer => (offer.kind === 'join'
+    const waiting = waitingOffers(party).map(offer => (offer.kind === 'join'
         ? `${offer.name} asked to join`
         : offer.kind === 'leave'
             ? `${party.actors?.[offer.actor]?.name ?? 'someone'} may leave`

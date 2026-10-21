@@ -47,7 +47,7 @@ test('members, offers and their buttons', async () => {
     pane.querySelector('.rpg-party-accept').click();
     pane.querySelector('.rpg-party-dismiss').click();
     await settle();
-    const offer = state.domains.party.offers[0].id;
+    const offer = Object.values(state.domains.party.offers)[0].id;
     const id = pcOf(state).id;
     assert.deepEqual(calls.map(call => [call.type, call.payload]), [
         ['party.spend', { actor: id, points: { VIT: 1 } }],

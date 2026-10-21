@@ -134,10 +134,10 @@ test('a join line\'s level is held near your character\'s; at most 10 offers of 
         const host = await started();
         try {
             await host.send('Who comes?', host.reply('A veteran.', ['+ join Lyra — a veteran archer | level: 60 | role: ranger']));
-            assert.equal(host.head().domains.party.offers.at(-1).level, host.q('party.pc').level + 2);
+            assert.equal(Object.values(host.head().domains.party.offers).at(-1).level, host.q('party.pc').level + 2);
             const lines = Array.from({ length: 15 }, (_, n) => `+ join Stranger${n} — a traveller`);
             await host.send('Everyone?', host.reply('A crowd.', lines));
-            assert.equal(host.head().domains.party.offers.filter(offer => offer.kind === 'join').length, MAX_OFFERS_PER_KIND);
+            assert.equal(Object.values(host.head().domains.party.offers).filter(offer => offer.kind === 'join').length, MAX_OFFERS_PER_KIND);
         } finally {
             host.close();
         }

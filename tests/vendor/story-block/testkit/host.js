@@ -41,7 +41,7 @@ export async function hostAvailable() {
  * (register Story Block's core module: scene, inventory, packs, events, assist), callModel?(prompt, opts)
  * (the assist helpers' model call), fakes?: false (use fakes.js), st?: options for
  * createFakeContext (plus onBlocked?), settings?: initial extension_settings.storySuite }.
- * Returns { st, ctx, registry, settings, store, bus, events, sdk, turn, packs, send(text, reply),
+ * Returns { st, ctx, registry, settings, store, bus, events, sdk, turn, packs, send(text, reply, { stopped }),
  * swipe(reply), regenerate(reply), cont(reply), quiet(), head(), close() }; `st` is the fake
  * SillyTavern (fake-st.js), with `st.notices` = [{ reason, moduleId }] for held-back generations. Throws when the runtime is missing and `fakes` is not set.
  */
@@ -77,7 +77,7 @@ export async function createHost(options = {}) {
 
     return {
         st, ctx, registry, settings, store, bus, events, sdk, turn, packs: runtime.packs,
-        send: (text, reply = '') => st.send(text, { reply }),
+        send: (text, reply = '', { stopped = false } = {}) => st.send(text, { reply, stopped }),
         swipe: (reply = '') => st.generate('swipe', { reply }),
         regenerate: (reply = '') => st.generate('regenerate', { reply }),
         cont: (reply = '') => st.generate('continue', { reply }),

@@ -18,8 +18,8 @@
 // turn.js receives the SillyTavern context and the host parts; it never imports the store or
 // the command bus (their interfaces are docs/v2/SPEC.md §12).
 
-import { cutLine, extractBlock, hideBlock, parseChanges, stripBlock } from './capture.js';
-import { readRecord } from './persist.js';
+import { continuation, cutLine, extractBlock, hideBlock, parseChanges, stripBlock } from './capture.js';
+import { hash, readRecord } from './persist.js';
 import { CAPTURE_PREFIX } from './registry.js';
 import { STATIC_MARKER, assemble } from './prompt.js';
 import { MAX_CHANGE_LINES, ensureModules, makeView } from './sdk.js';
@@ -340,9 +340,9 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
                 staticText: defuseMacros(built.staticText),
                 tailText: defuseMacros(built.tailText),
                 parts: built.parts,
-                // A Continue's reply was captured before: only blocks the continuation adds (after
-                // this much of the text) are read.
-                from: kind === 'continue' ? String(chat[last]?.mes ?? '').length : 0,
+                // A Continue's reply was captured before: only blocks the continuation adds to this
+                // text are read (capture.js continuation()).
+                base: kind === 'continue' ? String(chat[last]?.mes ?? '') : null,
                 prompted: false,
                 background: 0,
                 restored: '',
@@ -435,7 +435,7 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
     // Runs `lines` as story captures on carrier `index`, each on the state the one before left. Stored on
     // the head as they go (append), or, with `base` (a Re-read), run on that state and returned as
     // { ops } for store.replaceStory, nothing stored.
-    async function captureEach(index, lines, receipts, found, base = null) {
+    async function captureEach(index, lines, receipts, found, base = null, seeds = null) {
         const collected = [];
         let state = base ?? store.head();
         // ctx.carrier and ctx.chat for the capture handlers (MODULES §F2's capture context).
@@ -452,7 +452,11 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
             }
             let result;
             try {
-                result = await bus.run(`${CAPTURE_PREFIX}${entry.kind}`, { ...line, kind: entry.kind, word: line.kind }, { cause: 'story', state, capture: entry, carrier, chat });
+                const mark = lineMark(line.raw);
+                const seed = seeds?.(entry.kind, mark);
+                result = await bus.run(`${CAPTURE_PREFIX}${entry.kind}`, { ...line, kind: entry.kind, word: line.kind }, { cause: 'story', state, capture: entry, carrier, chat, ...(seed === undefined ? {} : { seed }) });
+                // The receipt remembers which line made it (`line`), so a Re-read can give the line its seed again.
+                if (result?.ok) result = { ...result, receipt: { ...result.receipt, line: mark } };
                 if (result?.ok && base) collected.push(...result.ops);
                 else if (result?.ok) store.append({ ops: result.ops, receipt: result.receipt });
             } catch (error) {
@@ -474,6 +478,26 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
     }
 
     const refusal = (code, message) => ({ ok: false, code, message });
+
+    // A change line's mark: a hash of its text without spaces (hiding the block breaks up "--" with one).
+    const lineMark = raw => hash(String(raw ?? '').replace(/\s+/g, ''));
+
+    // For a Re-read (r2-3): each line run again gets the seed of the story receipt it made before, so the
+    // records it makes keep their IDs and the reader's later actions on them still fit. The reply's story
+    // receipts are taken in order, a line matching the next one of its kind made by the same line text
+    // (`line`, lineMark); a line that made none before (it failed, was changed, or is new) gets a fresh
+    // seed. → (kind, mark) => seed | undefined.
+    function storySeeds(record) {
+        const stored = (Array.isArray(record?.receipts) ? record.receipts : [])
+            .filter(receipt => receipt?.cause === 'story' && typeof receipt.line === 'string' && Number.isInteger(receipt.seed));
+        let next = 0;
+        return (kind, mark) => {
+            const at = stored.findIndex((receipt, n) => n >= next && receipt.type === `${CAPTURE_PREFIX}${kind}` && receipt.line === mark);
+            if (at < 0) return undefined;
+            next = at + 1;
+            return stored[at].seed;
+        };
+    }
 
     /**
      * Re-read (F40): reads reply `index`'s <Changes> block again, as its shown swipe has it now, and
@@ -503,7 +527,7 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
         const lines = capped(index, parsed.lines, problems);
         let ops;
         try {
-            ({ ops } = await captureEach(index, lines, receipts, problems, base));
+            ({ ops } = await captureEach(index, lines, receipts, problems, base, storySeeds(readRecord(message))));
             store.replaceStory(index, { ops, receipts });
         } catch (error) {
             return refusal('CONFLICT', `${error?.message ?? error}`);
@@ -550,11 +574,16 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
                 problem({ index: id, code: 'FAILED', message: 'The reply is not the last message that keeps the story, so its changes were not read.' });
                 return null;
             }
-            const from = Math.min(current.from ?? 0, String(message.mes ?? '').length);
-            const block = extractBlock(String(message.mes ?? '').slice(from));
+            const text = String(message.mes ?? '');
+            // A Continue: SillyTavern wrote the old text again, cleaned up, so it can be shorter than it
+            // was; where the added text starts is found, not counted, or its block is left bare.
+            const at = typeof current.base === 'string' ? continuation(current.base, text) : null;
+            // The reader stopped it (GENERATION_STOPPED): an open block's unfinished last line is left out.
+            const stopped = current.stopped === true;
+            const block = extractBlock(text, 'Changes', at, { stopped });
             const parsed = block === null ? { lines: [], problems: [] } : parseChanges(block);
-            const problems = parsed.problems.map(text => problem({ index: id, code: 'UNREADABLE', message: text }));
-            const cut = block === null ? null : cutLine(String(message.mes ?? '').slice(from));
+            const problems = parsed.problems.map(line => problem({ index: id, code: 'UNREADABLE', message: line }));
+            const cut = block === null ? null : cutLine(text, 'Changes', at, { stopped });
             if (cut) problems.push(problem({ index: id, line: cut, code: 'CUT_OFF', message: `The reply stopped in the middle of the change line "${cut.slice(0, 80)}", so it was not used.` }));
             const result = await captureLines(id, parsed.lines);
             problems.push(...result.problems);
@@ -567,7 +596,7 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
 
             let edited = false;
             if (block !== null) {
-                const hidden = hideBlock(message.mes, 'Changes', { from });
+                const hidden = hideBlock(message.mes, 'Changes', { ...(at ?? {}), stopped });
                 if (hidden !== message.mes) {
                     message.mes = hidden;
                     if (Array.isArray(message.swipes) && Number.isInteger(message.swipe_id)) message.swipes[message.swipe_id] = hidden;
@@ -645,6 +674,12 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
         dryNext = dryRun === true;
     }
 
+    /** GENERATION_STOPPED: the reader stopped the reply being written (its last line may be unfinished). */
+    function onGenerationStopped() {
+        if (session) session.stopped = true;
+        onGenerationEnded();
+    }
+
     /** GENERATION_ENDED / GENERATION_STOPPED: a spent note never reaches a later prompt. */
     function onGenerationEnded() {
         if (session?.prompted) clearPrompts();
@@ -668,7 +703,7 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
         on(names.MESSAGE_RECEIVED, onMessageReceived);
         on(names.GENERATION_STARTED, onGenerationStarted);
         on(names.GENERATION_ENDED, onGenerationEnded);
-        on(names.GENERATION_STOPPED, onGenerationEnded);
+        on(names.GENERATION_STOPPED, onGenerationStopped);
         on(names.CHAT_CHANGED, onChatChanged);
         // MESSAGE_EDITED too: a record's swipe mark follows an edit (persist.js restamp), so a Continue
         // after it still finds the record.

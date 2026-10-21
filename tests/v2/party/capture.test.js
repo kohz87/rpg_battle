@@ -79,13 +79,13 @@ test('join: an offer, not a member; accepted by the reader', () => {
     const out = capture(state, '+ join Lyra — the archer from the mill | level: 3 | role: ranger', { rev: 17 });
     assert.ok(out.ok, out.message);
     assert.equal(byName(out.state, 'Lyra'), undefined);
-    const [offer] = out.state.domains.party.offers;
+    const [offer] = Object.values(out.state.domains.party.offers);
     assert.match(offer.id, /^of_[a-z0-9]{8}$/);
     assert.deepEqual({ ...offer, id: 'x' }, { id: 'x', kind: 'join', name: 'Lyra', role: 'ranger', level: 3, focus: ['DEX', 'AGI'], skills: [], npc: null, text: 'the archer from the mill', rev: 17 });
     assert.equal(out.result.summary, 'Lyra offers to join the party.');
     const plain = capture(state, '+ join Bram — a mercenary');
-    assert.equal(plain.state.domains.party.offers[0].role, 'mercenary');
-    assert.equal(plain.state.domains.party.offers[0].level, null);
+    assert.equal(Object.values(plain.state.domains.party.offers)[0].role, 'mercenary');
+    assert.equal(Object.values(plain.state.domains.party.offers)[0].level, null);
     const accepted = run(out.state, 'party.acceptOffer', { offer: offer.id });
     assert.equal(byName(accepted.state, 'Lyra').level, 3);
 });
@@ -106,7 +106,7 @@ test('skill: an offer to learn, with a template for a skill the library lacks', 
     const state = withPc();
     const out = capture(state, '+ skill Ren — Shadow Cut: a blurring slash | taught by: Kael | type: physical | stat: AGI');
     assert.ok(out.ok, out.message);
-    const [offer] = out.state.domains.party.offers;
+    const [offer] = Object.values(out.state.domains.party.offers);
     assert.equal(offer.kind, 'skill');
     assert.equal(offer.actor, out.state.domains.party.pc);
     assert.equal(offer.skill, 'Shadow Cut');
@@ -115,10 +115,10 @@ test('skill: an offer to learn, with a template for a skill the library lacks', 
     assert.equal(out.result.summary, 'Ren could learn Shadow Cut from Kael.');
     assert.deepEqual(pcOf(out.state).skills, []);
     // Without hints the words decide (v1 guessSkill): "shadow" is magic.
-    assert.equal(capture(state, '+ skill Ren — Shadow Cut').state.domains.party.offers[0].template.type, 'magic');
+    assert.equal(Object.values(capture(state, '+ skill Ren — Shadow Cut').state.domains.party.offers)[0].template.type, 'magic');
     const library = capture(state, '+ skill Ren — mend');
-    assert.equal(library.state.domains.party.offers[0].skill, 'Mend');
-    assert.equal(library.state.domains.party.offers[0].template, null);
+    assert.equal(Object.values(library.state.domains.party.offers)[0].skill, 'Mend');
+    assert.equal(Object.values(library.state.domains.party.offers)[0].template, null);
 });
 
 test('skill rejections', () => {

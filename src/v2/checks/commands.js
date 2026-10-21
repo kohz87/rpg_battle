@@ -23,7 +23,7 @@ import { memberOf, modifiersFor, rulesFor } from './modifiers.js';
 import { clipped } from '../lines.js';
 import {
     MAX_LOG, MAX_PER_REPLY, MAX_PREPARED, ROLLS_PER_REPLY,
-    attemptText, clip, dcText, mismatchOf, nameKey, saidOutcome, short, sumOf,
+    attemptText, clip, dcText, logEntries, mismatchOf, nameKey, preparedEntries, saidOutcome, short, sumOf,
 } from './shared.js';
 
 const BASE36 = '0123456789abcdefghijklmnopqrstuvwxyz';
@@ -58,19 +58,40 @@ function ask(ctx, name, args) {
     }
 }
 
-/** The checks slice to change, in its F80 shape (an older chat's `pending` list is dropped). */
+const isRecord = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+/**
+ * The checks slice to change, in its keyed shape (shared.js): an older chat's `prepared` and `log`
+ * lists become records (the rolls under `old<n>`, the results under their ids), its `last` and
+ * `pending` go.
+ */
 function draftChecks(ctx) {
     const checks = ctx.draft('checks');
-    if (!Array.isArray(checks.prepared)) checks.prepared = [];
-    if (!Array.isArray(checks.log)) checks.log = [];
-    if (checks.last === undefined) checks.last = null;
+    if (!isRecord(checks.prepared)) {
+        const list = Array.isArray(checks.prepared) ? checks.prepared : [];
+        checks.prepared = Object.fromEntries(list.filter(isRecord).map((entry, index) => [`old${index}`, entry]));
+    }
+    if (!isRecord(checks.log)) {
+        const list = Array.isArray(checks.log) ? checks.log : [];
+        checks.log = Object.fromEntries(list.filter(entry => isRecord(entry) && typeof entry.id === 'string').map(entry => [entry.id, entry]));
+    }
+    if ('last' in checks) delete checks.last;
     if ('pending' in checks) delete checks.pending;
     return checks;
 }
 
-/** A new `ck_xxxxxxxx` id drawn from the receipt's dice, not used by any check kept. */
+/**
+ * A new `ck_xxxxxxxx` id not used by any check kept: from the receipt's rev when the host gives one
+ * (so the log's keys sort as the checks were made, and the card lists a reply's checks in order),
+ * else drawn from the receipt's dice.
+ */
 function newId(ctx, checks) {
-    const used = id => checks.log.some(entry => entry.id === id) || (checks.last?.results ?? []).some(entry => entry.id === id);
+    const used = id => Object.hasOwn(checks.log, id);
+    const rev = revOf(ctx);
+    if (rev > 0 && rev < 36 ** 8) {
+        const id = `ck_${rev.toString(36).padStart(8, '0')}`;
+        if (!used(id)) return id;
+    }
     for (let guard = 0; guard < 100; guard++) {
         let id = 'ck_';
         for (let n = 0; n < 8; n++) id += BASE36[Math.floor(ctx.rng() * 36) % 36];
@@ -98,9 +119,35 @@ function rulesOf(ctx) {
 // The rolls of a reply
 
 /**
+ * The oldest entries of `record` (by rev) removed until `most` are left; `keep` is never removed.
+ * Safe on replay: Story Block passes over the remove of a key a deleted reply had made (alpha.2).
+ */
+function prune(record, most, keep) {
+    const keys = Object.keys(record);
+    if (keys.length <= most) return;
+    const oldest = keys.filter(key => key !== keep)
+        .sort((a, b) => ((record[a]?.rev ?? 0) - (record[b]?.rev ?? 0)) || (a < b ? -1 : a > b ? 1 : 0))
+        .slice(0, keys.length - most);
+    for (const key of oldest) delete record[key];
+}
+
+/**
+ * The key a reply's bookkeeping is kept under: its record id (`s:<sid>`, which a middle delete
+ * never moves), else its carrier ("index:swipe"), else this receipt's rev.
+ */
+function carrierKey(ctx) {
+    if (typeof ctx?.carrier?.sid === 'string' && ctx.carrier.sid) return `s:${ctx.carrier.sid.slice(0, 36)}`;
+    if (typeof ctx?.carrier?.key === 'string' && ctx.carrier.key) return ctx.carrier.key.slice(0, 40);
+    if (Number.isInteger(ctx?.carrier?.index)) return `${ctx.carrier.index}:${Number.isInteger(ctx.carrier.swipe) ? ctx.carrier.swipe : 0}`;
+    return `rev${revOf(ctx)}`;
+}
+
+/**
  * checks.prepare { for } (system; beforeGenerate's): 2 fresh d20s from this receipt's seed for
- * the reply at chat index `for` (null when unknown), replacing that index's earlier rolls (a
- * swipe or a regenerate gets new ones). The last 8 replies' rolls are kept.
+ * the reply at chat index `for` (null when unknown), kept under the carrier the prepare lands on
+ * (Story Block writes it to the head carrier: the reply before, or the reply itself on a swipe).
+ * A second prepare on that carrier (a regenerate) replaces its rolls; another carrier's are never
+ * touched (B-b1r2-13). The newest rolls are the latest reply's.
  */
 function prepare(ctx, payload = {}) {
     if (ctx?.cause === 'ui') fail(ctx, 'REFUSED', 'The dice are rolled by code before a reply, not from a screen.');
@@ -110,7 +157,9 @@ function prepare(ctx, payload = {}) {
     const checks = draftChecks(ctx);
     const rolls = rollDice(ROLLS_PER_REPLY, 20, drawFrom(() => ctx.rng()));
     const entry = { for: index, rolls, rev: revOf(ctx) };
-    checks.prepared = [...checks.prepared.filter(other => other.for !== index), entry].slice(-MAX_PREPARED);
+    const key = carrierKey(ctx);
+    checks.prepared[key] = entry;
+    prune(checks.prepared, MAX_PREPARED, key);
     return {
         summary: `Dice for the next reply: ${promptRolls(rolls)}.`,
         data: { for: index, rolls: [...rolls] },
@@ -126,10 +175,10 @@ function prepare(ctx, payload = {}) {
  * again) that reply's own rolls when they are still kept, else the latest.
  */
 export function preparedFor(checks, index) {
-    const list = Array.isArray(checks?.prepared) ? checks.prepared : [];
+    const list = preparedEntries(checks);
     const latest = list.at(-1) ?? null;
     if (!latest || !Number.isInteger(index) || latest.for === null || latest.for === index || latest.for === index + 1) return latest;
-    return list.find(entry => entry.for === index) ?? latest;
+    return list.findLast(entry => entry.for === index) ?? latest;
 }
 
 /**
@@ -211,7 +260,7 @@ function applyCheck(ctx, line) {
     const checks = draftChecks(ctx);
     const prepared = preparedFor(checks, ctx?.carrier?.index);
     const key = replyKey(ctx, prepared);
-    const earlier = checks.log.filter(entry => entry.carrier === key);
+    const earlier = logEntries(checks).filter(entry => entry.carrier === key);
     const what = clip(line?.text ?? '', 120);
     if (earlier.length >= MAX_PER_REPLY) {
         fail(ctx, 'REFUSED', `Only ${MAX_PER_REPLY} checks count in one reply: ${attemptText({ skill, stat, what })} was not rolled.`);
@@ -228,17 +277,14 @@ function applyCheck(ctx, line) {
     const mismatch = mismatchOf(said, outcome);
     const rev = revOf(ctx);
     const entry = {
-        id: newId(ctx, checks), actor: actor.id, skill, stat, dc: target.dc, word: target.word, what, rev,
-        carrier: key, roll: picked.roll, die: picked.die, modifiers, mod, total: picked.die + mod, outcome,
+        id: newId(ctx, checks), actor: actor.id, name: clip(actor.name, 80), skill, stat, dc: target.dc, word: target.word, what, rev,
+        carrier: key, roll: picked.roll, die: picked.die, modifiers, mod, total: picked.die + mod, outcome, outcomeText: OUTCOMES[outcome],
         said, mismatch, note: clip(picked.note, 160),
     };
-    checks.log = [...checks.log, entry].slice(-MAX_LOG);
-    const shown = {
-        id: entry.id, actor: actor.id, name: clip(actor.name, 80),
-        text: clip(`${attemptText(entry)}: ${rollText(entry)}`, 240),
-        outcome, outcomeText: OUTCOMES[outcome], mismatch, note: entry.note,
-    };
-    checks.last = checks.last?.carrier === key ? { ...checks.last, rev, results: [...checks.last.results, shown] } : { carrier: key, rev, results: [shown] };
+    entry.text = clip(`${attemptText(entry)}: ${rollText(entry)}`, 240);
+    // Under its own id (B-b1r2-13): an earlier reply deleted never moves it.
+    checks.log[entry.id] = entry;
+    prune(checks.log, MAX_LOG, entry.id);
 
     const parts = modifiers.map(modifier => `${modifier.reason} ${short(modifier.amount)}`).join(', ');
     const flag = mismatch ? ` The story ${mismatch.replace(/^narrated/, 'narrated it')}.` : '';

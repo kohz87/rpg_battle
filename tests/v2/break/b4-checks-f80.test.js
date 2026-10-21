@@ -9,16 +9,17 @@
 // first reads them with a plain reply, then writes the reply that names the better one.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { logEntries, preparedEntries } from '../../../src/v2/checks/shared.js';
 import { seeded, started } from './helpers.js';
 
-const lastLog = host => host.head().domains.checks.log.at(-1);
+const lastLog = host => logEntries(host.head().domains.checks).at(-1);
 
 async function rollsOf(seed) {
     return seeded(seed, async () => {
         const host = await started();
         try {
             await host.send('I sneak past.', 'You slip past the guard.');
-            return [...host.head().domains.checks.prepared.at(-1).rolls];
+            return [...preparedEntries(host.head().domains.checks).at(-1).rolls];
         } finally {
             host.close();
         }
@@ -43,7 +44,7 @@ for (const [label, written] of [['by number (roll: 2)', () => '2'], ['by value (
                 const mod = 1;   // Ren the fighter: DEX 7 → +1 for stealth, no extras
                 const dc = rolls[1] + mod;   // Roll 2 just makes it, Roll 1 falls 4 or more short
                 await host.send('I sneak past.', host.reply('You slip past the guard.', [`? check stealth — slipping past the guard | dc: ${dc} | roll: ${written(rolls)} | result: success`]));
-                assert.deepEqual(host.head().domains.checks.prepared.at(-1).rolls, rolls, 'the same seed handed over the same rolls');
+                assert.deepEqual(preparedEntries(host.head().domains.checks).at(-1).rolls, rolls, 'the same seed handed over the same rolls');
                 const entry = lastLog(host);
                 assert.equal(entry.mod, mod);
                 assert.ok(entry.roll === 1 || entry.mismatch, `rolls ${JSON.stringify(rolls)}: the only check took Roll ${entry.roll} = ${entry.die} → ${entry.outcome}, unflagged`);

@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { part, tradeTail, validateTrade } from '../../../src/v2/trade/index.js';
 import { part as items } from '../../../src/v2/items/index.js';
-import { DAY, shortageAt, shortageKey } from '../../../src/v2/trade/core.js';
+import { DAY, currentShops, currentShortages, shortageAt, shortageKey } from '../../../src/v2/trade/core.js';
 import { baseState, createHost, def, stack } from './helpers/fake-ctx.js';
 
 const coin = host => host.state.domains.inventory.wallets.party.coin;
@@ -27,7 +27,8 @@ test('! market marks a shortage at a place: dearer to buy, the same to sell, tol
     assert.equal(r.ok, true, r.message);
     assert.equal(r.receipt.narrate, false, 'the reply told it');
     assert.equal(r.receipt.summary, 'Shortage at Bluewatch (blockade on the river): its shops do not restock and charge 150% of their usual prices until it is lifted (expected: the bridge is cleared).');
-    assert.deepEqual(host.state.domains.trade.shortages, { bluewatch: { place: 'Bluewatch', reason: 'blockade on the river', until: 'the bridge is cleared', day: 3, rev: 1 } });
+    assert.deepEqual(currentShortages(host.state.domains.trade.shortages), { bluewatch: { place: 'Bluewatch', reason: 'blockade on the river', until: 'the bridge is cleared', day: 3, rev: 1 } });
+    assert.deepEqual(Object.keys(host.state.domains.trade.shortages), ['bluewatch#1'], 'a write of its own (B-b1r2-13)');
     // "Bluewatch" holds at "Bluewatch Village".
     assert.deepEqual(host.query('trade.market').shortage, { place: 'Bluewatch', reason: 'blockade on the river', until: 'the bridge is cleared', prices: 150 });
     const during = host.query('trade.stock', { kind: 'general' });
@@ -56,7 +57,7 @@ test('a shortage pauses the restock: the stock of the day it began, less what wa
     const lifted = host.capture(LIFT);
     assert.equal(lifted.ok, true, lifted.message);
     assert.equal(lifted.receipt.summary, 'Supplies are back at Bluewatch: its shops restock and their prices are back to usual.');
-    assert.deepEqual(host.state.domains.trade.shortages, {});
+    assert.deepEqual(currentShortages(host.state.domains.trade.shortages), {}, 'lifted: its writes removed');
     const after = host.query('trade.stock', { kind: 'smith' });
     assert.equal(after.day, 6);
     assert.equal(after.shortage, false);
@@ -68,8 +69,8 @@ test('! market again updates the words and keeps the day it began; another place
     host.capture(BLOCKADE);
     host.time = 5 * DAY;
     host.capture({ op: '!', kind: 'market', name: 'Bluewatch Village', text: 'the granary burned', labels: {} });
-    assert.deepEqual(host.state.domains.trade.shortages.bluewatch, { place: 'Bluewatch', reason: 'the granary burned', until: 'the bridge is cleared', day: 3, rev: 2 });
-    assert.equal(shortageAt(host.state.domains.trade.shortages, 'Kingsport'), null);
+    assert.deepEqual(currentShortages(host.state.domains.trade.shortages).bluewatch, { place: 'Bluewatch', reason: 'the granary burned', until: 'the bridge is cleared', day: 3, rev: 2 });
+    assert.equal(shortageAt(currentShortages(host.state.domains.trade.shortages), 'Kingsport'), null);
     assert.equal(shortageKey('Bluewatch  Village | Docks'), 'bluewatch village');
     const elsewhere = createHost(part, { state: { ...baseState({ place: { name: 'Kingsport', kind: 'settlement' } }) } });
     elsewhere.state.domains.trade.shortages = structuredClone(host.state.domains.trade.shortages);
@@ -177,7 +178,7 @@ test('a pack\'s shops for the place stand in for the generic traders, each line 
     assert.equal(r.ok, true, r.message);
     assert.equal(r.receipt.summary, 'Ren bought 2 Trail Rations from Watch Stores for 36 gold.');
     assert.equal(coin(host), 20000 - 36);
-    assert.deepEqual(host.state.domains.trade.shops[stores.shop], { day: null, bought: ['pack.e/trail-rations', 'pack.e/trail-rations'] });
+    assert.deepEqual(currentShops(host.state.domains.trade.shops)[stores.shop], { day: null, bought: ['pack.e/trail-rations', 'pack.e/trail-rations'] });
     assert.equal(host.query('trade.stock', { kind: 'watch-stores' }).items[0].left, 1);
     const more = host.command('trade.buy', { shop: stores.shop, def: 'pack.e/trail-rations', qty: 2 });
     assert.deepEqual([more.code, more.message], ['NOT_ENOUGH', 'Watch Stores has only 1 Trail Rations left today.']);

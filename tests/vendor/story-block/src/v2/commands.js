@@ -23,7 +23,7 @@
 // * Internal commands (registry.isInternal: capture.*, module.init.*, events.fire) are refused with
 //   REFUSED when the cause is 'ui', whether named at the top or through ctx.call.
 
-import { apply, checkOps, clone, deepFreeze, diff, escapeKey, isCounterPath, isJson, valueAt } from './ops.js';
+import { apply, checkOps, clone, counterInside, deepFreeze, diff, escapeKey, isCounterPath, isJson, valueAt } from './ops.js';
 import { isSeed, rng as makeRng, roll as rollDice, seed as freshSeed } from './rng.js';
 
 export const MAX_DEPTH = 8;
@@ -279,9 +279,16 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
             const changes = before === undefined ? [{ op: 'add', path, value: clone(draft) }] : diff(before, draft, path);
             // A count the domain keeps by adding and taking away remembers what it replaced (ops.js
             // counters), so a replay after a deleted reply adds this change instead of writing the number.
+            // A thing removed that held a count (an emptied stack) remembers how much it held then.
             const counters = typeof registry.counters === 'function' ? registry.counters(name) : null;
             if (counters?.length) {
                 for (const change of changes) {
+                    if (change.op === 'remove') {
+                        const count = counterInside(change.path, counters);
+                        const was = count ? valueAt(tx.head, `${change.path}${count}`) : undefined;
+                        if (typeof was === 'number') Object.assign(change, { was, count });
+                        continue;
+                    }
                     if (change.op !== 'replace' || typeof change.value !== 'number' || !isCounterPath(change.path, counters)) continue;
                     const was = valueAt(tx.head, change.path);
                     if (typeof was === 'number') change.was = was;

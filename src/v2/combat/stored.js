@@ -8,6 +8,21 @@
 
 import { makeRules } from '../../rules.js';
 
+export const MAX_OFFERS = 10;
+export const MAX_BEATEN = 200;
+
+export const byRev = (a, b) => ((a?.rev ?? 0) - (b?.rev ?? 0)) || (String(a?.id ?? '') < String(b?.id ?? '') ? -1 : String(a?.id ?? '') > String(b?.id ?? '') ? 1 : 0);
+export const valuesOf = value => (Array.isArray(value) ? value : value && typeof value === 'object' ? Object.values(value) : []);
+
+/** The fights on offer, oldest first: the newest MAX_OFFERS (the record keyed by offer id, or an older chat's list). */
+export const offersOf = combat => valuesOf(combat?.offers).filter(offer => offer && typeof offer === 'object').sort(byRev).slice(-MAX_OFFERS);
+
+/** The settled fights' foes, oldest first: the newest MAX_BEATEN (keyed by fight id). */
+export const beatenOf = combat => valuesOf(combat?.beaten).filter(entry => entry && typeof entry === 'object').sort(byRev).slice(-MAX_BEATEN);
+
+/** The latest fight's result, or null (`last` is a one-entry list; an older chat's record is read too). */
+export const lastOf = combat => (Array.isArray(combat?.last) ? combat.last[0] ?? null : combat?.last ?? null);
+
 /** A loot row as stored: its `qty` range under `range`. Rows without a range stay as they are. */
 export function packLootRow(row) {
     if (!row || typeof row !== 'object' || !Array.isArray(row.qty)) return row;

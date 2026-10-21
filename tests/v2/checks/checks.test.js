@@ -11,6 +11,7 @@ import { EXTRA_CAP, extrasOf, itemTopics, modifiersFor, tableLine, topicsOf } fr
 import { mismatchOf, saidOutcome } from '../../../src/v2/checks/shared.js';
 import { checkModifier, DEFAULT_RULES } from '../../../src/rules.js';
 import { byName, capture, logOf, makeState, pcOf, prepared, run, sfc32, toolsFor, viewOf, withItem, withParty } from './helpers/fake-ctx.js';
+import { last as lastOf } from '../../../src/v2/checks/queries.js';
 
 const LINE = '? check stealth — slipping past the guard | dc: hard | roll: 1 | result: success';
 
@@ -52,7 +53,7 @@ test('promptRolls ties each roll to an attempt (v1 0.9.6 wording, "uncertain att
 test('checks.prepare: two fresh d20s from the receipt seed for that reply index, not narrated', () => {
     const out = run(withParty(), 'checks.prepare', { for: 4 }, { seed: 11, cause: 'system' });
     assert.ok(out.ok, out.message);
-    const [entry] = out.state.domains.checks.prepared;
+    const [entry] = Object.values(out.state.domains.checks.prepared);
     assert.equal(entry.for, 4);
     assert.equal(entry.rolls.length, 2);
     assert.equal(entry.rev, out.ctx.rev);
@@ -63,14 +64,22 @@ test('checks.prepare: two fresh d20s from the receipt seed for that reply index,
     assert.deepEqual(part.domains.checks.validate(out.state.domains.checks), []);
 });
 
-test('checks.prepare: a swipe or regenerate of the same reply replaces its rolls; 8 replies kept', () => {
-    let state = prepared(withParty(), 4, { seed: 1 });
-    const first = state.domains.checks.prepared[0].rolls;
-    state = prepared(state, 4, { seed: 2 });
-    assert.equal(state.domains.checks.prepared.length, 1);
-    assert.notDeepEqual(state.domains.checks.prepared[0].rolls, first, 'fresh rolls for the swipe');
-    for (let index = 5; index < 15; index++) state = prepared(state, index, { seed: index });
-    assert.deepEqual(state.domains.checks.prepared.map(entry => entry.for), [7, 8, 9, 10, 11, 12, 13, 14]);
+test('checks.prepare: kept under the carrier it lands on; a regenerate there replaces its rolls, other carriers\' stay (B-b1r2-13)', () => {
+    const prepare = (state, index, seed, carrier) => {
+        const out = run(state, 'checks.prepare', { for: index }, { seed, cause: 'system', carrier });
+        assert.ok(out.ok, out.message);
+        return out.state;
+    };
+    let state = prepare(withParty(), 4, 1, { index: 3 });
+    const first = state.domains.checks.prepared['3:0'].rolls;
+    state = prepare(state, 4, 2, { index: 3 });
+    assert.deepEqual(Object.keys(state.domains.checks.prepared), ['3:0']);
+    assert.notDeepEqual(state.domains.checks.prepared['3:0'].rolls, first, 'fresh rolls for the regenerate');
+    for (let index = 5; index < 15; index++) state = prepare(state, index, index, { index: index - 1 });
+    // The oldest are pruned: the last 8 replies' rolls are kept, the newest handed over.
+    assert.deepEqual(Object.values(state.domains.checks.prepared).map(entry => entry.for).sort((a, b) => a - b), [7, 8, 9, 10, 11, 12, 13, 14]);
+    assert.equal(part.queries['checks.rolls'](state).for, 14);
+    assert.equal(part.queries['checks.rolls'](state, { for: 9 }).for, 9);
     assert.deepEqual(part.domains.checks.validate(state.domains.checks), []);
 });
 
@@ -83,7 +92,7 @@ test('checks.prepare is refused from a screen and for a bad index; nothing saved
     assert.equal(run(base, 'checks.prepare', { for: 'x' }, { cause: 'system' }).code, 'INVALID');
     const unknown = run(base, 'checks.prepare', {}, { cause: 'system' });
     assert.equal(unknown.ok, true);
-    assert.equal(unknown.state.domains.checks.prepared[0].for, null);
+    assert.equal(Object.values(unknown.state.domains.checks.prepared)[0].for, null);
 });
 
 // ---------------------------------------------------------------------------------------
@@ -95,17 +104,21 @@ test('a check line: the roll it names + code\'s modifiers against the DC is the 
     const dex = checkModifier(ren.stats.DEX, DEFAULT_RULES);
     assert.equal(dex, 2, 'DEX 9 gives +2 by v1 rules');
     assert.match(entry.id, /^ck_[0-9a-z]{8}$/);
+    assert.equal(entry.id, 'ck_00000004', 'from the receipt\'s rev, so the log\'s keys sort as made');
     assert.deepEqual({ ...entry, id: 'x' }, {
-        id: 'x', actor: ren.id, skill: 'stealth', stat: 'DEX', dc: 20, word: 'hard', what: 'slipping past the guard', rev: 4,
+        id: 'x', actor: ren.id, name: 'Ren', skill: 'stealth', stat: 'DEX', dc: 20, word: 'hard', what: 'slipping past the guard', rev: 4,
         carrier: '4:0', roll: 1, die: 12, modifiers: [{ source: 'stat', amount: 2, reason: 'DEX' }], mod: 2, total: 14,
-        outcome: 'fail', said: 'success', mismatch: 'narrated as success, the dice say fail', note: '',
+        outcome: 'fail', outcomeText: 'fail', said: 'success', mismatch: 'narrated as success, the dice say fail', note: '',
+        text: 'stealth (slipping past the guard): Roll 1 = 12 + 2 = 14 against 20 (hard)',
     });
+    assert.deepEqual(Object.keys(state.domains.checks.log), [entry.id], 'kept under its id');
     assert.equal(result.narrate, false, 'the reply narrated it already');
     assert.equal(result.summary, 'Ren tries stealth (slipping past the guard): Roll 1 = 12, DEX +2 → 14 against 20 (hard): fail. The story narrated it as success, the dice say fail.');
     assert.equal(result.data.outcome, 'fail');
     assert.equal(result.data.mismatch, 'narrated as success, the dice say fail');
-    // The reply's card reads `last`.
-    assert.deepEqual(state.domains.checks.last, {
+    // The reply's card: its log entries (checks.last reads them).
+    assert.equal('last' in state.domains.checks, false);
+    assert.deepEqual(lastOf(state), {
         carrier: '4:0', rev: 4,
         results: [{ id: entry.id, actor: ren.id, name: 'Ren', text: 'stealth (slipping past the guard): Roll 1 = 12 + 2 = 14 against 20 (hard)', outcome: 'fail', outcomeText: 'fail', mismatch: 'narrated as success, the dice say fail', note: '' }],
     });
@@ -124,7 +137,7 @@ test('a result the dice agree with carries no flag; a second check takes Roll 2 
     assert.equal(entry.die, 5);
     assert.equal(entry.outcome, 'fail');
     assert.equal(entry.mismatch, '');
-    assert.deepEqual(state.domains.checks.last.results.map(row => row.name), ['Ren', 'Lyra']);
+    assert.deepEqual(lastOf(state).results.map(row => row.name), ['Ren', 'Lyra']);
 });
 
 test('F31: a natural 20 always succeeds and a natural 1 always fails, whatever the modifiers and DC', () => {
@@ -184,7 +197,7 @@ test('F32: up to 2 checks per reply; a third is refused (a problem), nothing sav
     const again = captured(swiped, '? check lore — three | dc: 10 | roll: 1', { carrier: { index: 4, swipe: 1 } });
     assert.equal(again.entry.carrier, '4:1');
     assert.equal(again.entry.die, 9);
-    assert.deepEqual(again.state.domains.checks.last.results.map(row => row.text.split(':')[0]), ['lore (three)'], 'the swipe\'s card shows its own checks');
+    assert.deepEqual(lastOf(again.state).results.map(row => row.text.split(':')[0]), ['lore (three)'], 'the swipe\'s card shows its own checks');
 });
 
 test('a check line is refused for nobody, a bad difficulty, a bad stat, no character; nothing saved', () => {
@@ -214,14 +227,16 @@ test('the same receipt replays to the same result (no randomness outside the see
     assert.deepEqual(a.result, b.result);
 });
 
-test('the log keeps the last 30 results', () => {
+test('the log keeps the last 30 results (the oldest pruned)', () => {
     let state = withParty();
     for (let reply = 0; reply < 35; reply++) {
         state = prepared(state, reply, { rolls: [10, 10] });
         state = captured(state, '? check stealth — again | dc: 10 | roll: 1', { carrier: { index: reply } }).state;
     }
     assert.equal(logOf(state).length, 30);
-    assert.equal(logOf(state)[0].carrier, '5:0');
+    const shown = part.queries['checks.log'](state);
+    assert.equal(shown.length, 30);
+    assert.equal(shown[0].carrier, '5:0');
     assert.deepEqual(part.domains.checks.validate(state.domains.checks), []);
 });
 
@@ -231,7 +246,9 @@ test('an older chat\'s pending checks are accepted and dropped by the next check
     assert.deepEqual(part.domains.checks.validate(state.domains.checks), []);
     const out = prepared(state, 4);
     assert.equal('pending' in out.domains.checks, false);
-    assert.equal(out.domains.checks.last, null);
+    assert.equal('last' in out.domains.checks, false);
+    assert.deepEqual(out.domains.checks.log, {}, 'the old list becomes a record');
+    assert.deepEqual(part.domains.checks.validate(out.domains.checks), []);
 });
 
 // ---------------------------------------------------------------------------------------
@@ -381,16 +398,20 @@ test('the validator refuses malformed checks', () => {
         mutate(slice);
         return part.domains.checks.validate(slice);
     };
+    const first = s => Object.values(s.log)[0];
+    const rolls = s => Object.values(s.prepared)[0];
     assert.ok(bad(s => { s.log = 'x'; }).length);
-    assert.ok(bad(s => { s.prepared = {}; }).length);
-    assert.ok(bad(s => { s.prepared[0].rolls = [21]; }).length);
-    assert.ok(bad(s => { s.prepared.push({ ...s.prepared[0] }); }).length, 'one entry per reply index');
-    assert.ok(bad(s => { s.log[0].die = 0; }).length);
-    assert.ok(bad(s => { s.log[0].outcome = 'maybe'; }).length);
-    assert.ok(bad(s => { s.log[0].roll = 11; }).length);
-    assert.ok(bad(s => { s.log[0].modifiers[0].source = 'reader'; }).length);
-    assert.ok(bad(s => { s.last = { carrier: '4:0' }; }).length);
-    assert.ok(bad(s => { s.last.results = [1, 2, 3]; }).length);
+    assert.ok(bad(s => { s.prepared = 'x'; }).length);
+    assert.ok(bad(s => { rolls(s).rolls = [21]; }).length);
+    assert.ok(bad(s => { s.prepared.x = { ...rolls(s), for: -1 }; }).length);
+    assert.ok(bad(s => { first(s).die = 0; }).length);
+    assert.ok(bad(s => { first(s).outcome = 'maybe'; }).length);
+    assert.ok(bad(s => { first(s).roll = 11; }).length);
+    assert.ok(bad(s => { first(s).modifiers[0].source = 'reader'; }).length);
+    assert.ok(bad(s => { s.log.ck_zzzzzzzz = first(s); }).length, 'kept under its own id');
+    assert.ok(bad(s => { s.last = { carrier: '4:0' }; }).length, 'an older chat\'s last, malformed');
+    // An older chat's lists still validate.
+    assert.deepEqual(part.domains.checks.validate({ prepared: Object.values(good.prepared), log: Object.values(good.log), last: null }), []);
     assert.equal(part.domains.checks.validate(null).length, 1);
 });
 

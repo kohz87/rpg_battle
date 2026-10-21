@@ -34,7 +34,7 @@ function offered(name = '3 Cellar Rats', labels = { tier: 'weak' }, opts = {}) {
     const world = createWorld({ domains: armed(opts.actors), ...opts });
     const r = world.capture(line('!', 'encounter', name, 'boiling out of the bins', labels));
     assert.equal(r.ok, true, r.message);
-    return [world, world.state.domains.combat.offers.at(-1).id];
+    return [world, Object.values(world.state.domains.combat.offers).at(-1).id];
 }
 
 /** Plays attacks on the first foe until the fight is over; returns the actions sent. */
@@ -57,7 +57,7 @@ test('a fight from offer to end: started, played, settled through the owners', (
     assert.equal(started.ok, true, started.message);
     assert.equal(started.receipt.narrate, false);
     const combat = world.state.domains.combat;
-    assert.deepEqual(combat.offers, [], 'the offer fought is gone');
+    assert.deepEqual(combat.offers, {}, 'the offer fought is gone');
     assert.deepEqual(Object.keys(combat.session).sort(), ['actions', 'id', 'setup', 'status'], 'the session stores only id, setup, actions, status');
     assert.match(combat.session.id, /^fi_[0-9a-z]{8}$/);
     assert.equal(combat.session.status, 'active');
@@ -81,9 +81,13 @@ test('a fight from offer to end: started, played, settled through the owners', (
     assert.ok(!ended.receipt.summary.includes('\n'), 'one line for [Happened]');
     const after = world.state.domains.combat;
     assert.equal(after.session, null);
-    assert.equal(after.last.summary, ended.receipt.summary);
-    assert.ok(after.last.moments.length > 0);
-    assert.deepEqual(after.beaten, [{ rev: ended.receipt.rev, foes: [{ name: 'Cellar Rat', count: 3 }], won: true }]);
+    // The latest result is written whole, as a one-entry list (B-b1r2-13); beaten is keyed by fight id.
+    assert.equal(after.last.length, 1);
+    assert.equal(after.last[0].summary, ended.receipt.summary);
+    assert.ok(after.last[0].moments.length > 0);
+    const fight = Object.keys(after.beaten)[0];
+    assert.match(fight, /^fi_[0-9a-z]{8}$/);
+    assert.deepEqual(after.beaten, { [fight]: { fight, rev: ended.receipt.rev, foes: [{ name: 'Cellar Rat', count: 3 }], won: true } });
     assert.deepEqual(ended.receipt.data.foes, [{ name: 'Cellar Rat', count: 3 }]);
     const types = ended.calls.map(c => c.type);
     assert.equal(types[0], 'party.applyResult');
@@ -164,8 +168,8 @@ test('flee: the party gets away; nothing is looted and nobody is counted beaten'
     assert.equal(end.ok, true, end.message);
     assert.match(end.receipt.summary, /^Escaped after/);
     assert.equal(end.calls.some(c => c.type === 'inventory.grant' || c.type === 'wallet.receive'), false);
-    assert.equal(fled.state.domains.combat.last.outcome, 'fled');
-    assert.deepEqual(fled.state.domains.combat.beaten.filter(entry => entry.won), []);
+    assert.equal(fled.state.domains.combat.last[0].outcome, 'fled');
+    assert.deepEqual(Object.values(fled.state.domains.combat.beaten).filter(entry => entry.won), []);
 });
 
 test('a lost fight is settled as a defeat, without loot', () => {
@@ -206,7 +210,10 @@ test('combat.foesBeaten: the fights settled after sinceRev', () => {
         { rev: 6, foes: [{ name: 'Wolf', count: 1 }, { name: 'Bandit', count: 2 }], won: false },
         { rev: 8, foes: [{ name: 'Bandit', count: 1 }], won: true },
     ] } } };
-    assert.deepEqual(foesBeaten(state, { sinceRev: 3 }), [state.domains.combat.beaten[1], state.domains.combat.beaten[2]]);
+    assert.deepEqual(foesBeaten(state, { sinceRev: 3 }), [state.domains.combat.beaten[1], state.domains.combat.beaten[2]], 'an older chat\'s list');
+    // Keyed by fight id (B-b1r2-13): the same answer, without the key.
+    const keyed = { domains: { combat: { ...state.domains.combat, beaten: Object.fromEntries(state.domains.combat.beaten.map((entry, n) => [`fi_0000000${n}`, { fight: `fi_0000000${n}`, ...entry }])) } } };
+    assert.deepEqual(foesBeaten(keyed, { sinceRev: 3 }), foesBeaten(state, { sinceRev: 3 }));
     assert.equal(foesBeaten(state).length, 3);
     assert.deepEqual(foesBeaten(state, { sinceRev: 8 }), []);
     assert.equal(part.queries['combat.foesBeaten'], foesBeaten);
@@ -217,7 +224,7 @@ test('dismiss: the offer goes; a second dismiss or a start of it is refused and 
     const r = world.run('combat.dismiss', { offer });
     assert.equal(r.ok, true, r.message);
     assert.equal(r.receipt.narrate, false);
-    assert.deepEqual(world.state.domains.combat.offers, []);
+    assert.deepEqual(Object.values(world.state.domains.combat.offers), []);
     const before = world.state;
     assert.equal(world.run('combat.dismiss', { offer }).code, 'NOT_FOUND');
     assert.equal(world.run('combat.start', { offer }).code, 'NOT_FOUND');
@@ -235,15 +242,15 @@ test('every rejection keeps nothing', () => {
     // Nobody to fight with.
     const lonely = createWorld({ domains: baseDomains({ actors: [] }) });
     lonely.capture(line('!', 'encounter', 'Wolf'));
-    const r = lonely.run('combat.start', { offer: lonely.state.domains.combat.offers[0].id });
+    const r = lonely.run('combat.start', { offer: Object.values(lonely.state.domains.combat.offers)[0].id });
     assert.equal(r.code, 'REFUSED');
     assert.match(r.message, /Make your character first/);
     const down = createWorld({ domains: baseDomains({ actors: [actor(1, { hp: { cur: 0, max: 80 } })] }) });
     down.capture(line('!', 'encounter', 'Wolf'));
-    assert.match(down.run('combat.start', { offer: down.state.domains.combat.offers[0].id }).message, /Nobody in the party is standing/);
+    assert.match(down.run('combat.start', { offer: Object.values(down.state.domains.combat.offers)[0].id }).message, /Nobody in the party is standing/);
 
     world.capture(line('!', 'encounter', 'Wolf'));
-    const second = world.state.domains.combat.offers[1].id;
+    const second = Object.values(world.state.domains.combat.offers)[1].id;
     assert.equal(world.run('combat.start', { offer }).ok, true);
     const active = world.state;
     assert.match(world.run('combat.start', { offer: second }).message, /already under way/);
@@ -270,22 +277,22 @@ test('encounter capture: offers from the line, threat words never a creature', (
     const r = world.capture(line('!', 'encounter', '6 Cellar Rat Swarm', 'boiling out of the bins', { tier: 'even', stakes: 'normal' }));
     assert.equal(r.ok, true, r.message);
     assert.equal(r.receipt.cause, 'story');
-    const [offer] = world.state.domains.combat.offers;
+    const [offer] = Object.values(world.state.domains.combat.offers);
     assert.match(offer.id, /^en_[0-9a-z]{8}$/);
     assert.deepEqual({ ...offer, id: '' }, { id: '', foes: [{ name: 'Cellar Rat Swarm', count: 6, tier: 'even' }], stakes: 'normal', place: 'Bluewatch Village', rev: r.receipt.rev, note: 'boiling out of the bins' });
 
     // Several groups, a boss, a threat word on the foe itself, stakes and a place.
     world.capture(line('!', 'encounter', '3 weak wolves, wolf matriarch (boss)', '', { tier: 'strong', stakes: 'to the death', place: 'the den' }));
-    const pack = world.state.domains.combat.offers[1];
+    const pack = Object.values(world.state.domains.combat.offers)[1];
     assert.deepEqual(pack.foes, [{ name: 'Wolf', count: 3, tier: 'weak' }, { name: 'Wolf Matriarch', count: 1, tier: 'strong', boss: true }]);
     assert.equal(pack.stakes, 'death');
     assert.equal(pack.place, 'the den');
     // No tier: an even fight. "a swarm of rats" is one swarm.
     world.capture(line('!', 'encounter', 'a swarm of rats'));
-    assert.deepEqual(world.state.domains.combat.offers[2].foes, [{ name: 'Rat Swarm', count: 1, tier: 'even' }]);
+    assert.deepEqual(Object.values(world.state.domains.combat.offers)[2].foes, [{ name: 'Rat Swarm', count: 1, tier: 'even' }]);
     // Humanoid words: people, a leader.
     world.capture(line('!', 'encounter', '2 dockside enforcers and the guard captain', '', { tier: 'even' }));
-    assert.deepEqual(world.state.domains.combat.offers[3].foes.map(f => [f.name, f.count]), [['Dockside Enforcer', 2], ['Guard Captain', 1]]);
+    assert.deepEqual(Object.values(world.state.domains.combat.offers)[3].foes.map(f => [f.name, f.count]), [['Dockside Enforcer', 2], ['Guard Captain', 1]]);
 
     const before = world.state;
     for (const [name, labels, pattern] of [
@@ -305,13 +312,13 @@ test('encounter capture: offers from the line, threat words never a creature', (
     assert.equal(world.state, before, 'a refused line keeps nothing');
     // A threat word written apart from the name is the foe's tier, not a foe called Even.
     world.capture(line('!', 'encounter', '2 cellar rats, even'));
-    assert.deepEqual(world.state.domains.combat.offers.at(-1).foes, [{ name: 'Cellar Rat', count: 2, tier: 'even' }]);
+    assert.deepEqual(Object.values(world.state.domains.combat.offers).at(-1).foes, [{ name: 'Cellar Rat', count: 2, tier: 'even' }]);
 });
 
 test('offers are capped, oldest first out', () => {
     const world = createWorld();
     for (let n = 0; n < 12; n++) assert.equal(world.capture(line('!', 'encounter', `${(n % 9) + 1} wolves`)).ok, true);
-    const offers = world.state.domains.combat.offers;
+    const offers = Object.values(world.state.domains.combat.offers);
     assert.equal(offers.length, 10);
     assert.equal(offers[0].foes[0].count, 3);
 });
@@ -355,7 +362,7 @@ test('names nobody wrote up are made once and kept in the bestiary', () => {
     fightOut(world);
     world.run('combat.end');
     world.capture(line('!', 'encounter', 'Bog Wight'));
-    const next = world.run('combat.start', { offer: world.state.domains.combat.offers[0].id });
+    const next = world.run('combat.start', { offer: Object.values(world.state.domains.combat.offers)[0].id });
     assert.deepEqual(next.receipt.data.made, []);
     assert.equal(world.query('combat.session').combatants.filter(c => c.fresh).length, 0);
 });

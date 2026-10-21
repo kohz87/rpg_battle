@@ -67,6 +67,88 @@ export function settingsOf(source, id = 'rpg-battle') {
 export const SHORTAGE_PRICES = 150;
 export const MAX_SHORTAGES = 20;
 
+// ---------------------------------------------------------------------------------------
+// Bookkeeping later replies write (B-b1r2-13, SPEC §2): each write is a new key `<what>#<rev>`
+// (a place's shortage, a shop's purchase, a price paid), never a field of an entry an earlier reply
+// made, so a reply deleted from the middle of the chat takes only its own writes with it and every
+// later one still applies on replay. A write removes the ones it supersedes (the place's earlier
+// shortage, the shop's purchases of another day, a higher price paid; a lift removes the place's
+// shortage): Story Block 2.0.0-alpha.2 passes over the remove of a key that is already gone, so
+// deleting the later reply brings the earlier write back, and deleting the earlier one leaves the
+// later as it is. What holds now is read from them: a place's newest shortage write, a shop's
+// purchases on its latest day, the least paid for a thing. An older chat's entries (kept under the
+// bare key) are read the same way. MAX_SHOP_WRITES purchases are kept in all (the oldest go).
+export const MAX_SHOP_WRITES = 500;
+const WRITE = /#(?:\d+|n\d+)$/;
+
+/** The keys of `record` written about `base` (its writes and an older chat's bare entry). */
+export const writesOf = (record, base) => Object.keys(record ?? {}).filter(key => baseOf(key) === base);
+
+/** The key a write is kept under: `<base>#<rev>` (else `#n<count>` when the host gives no rev). */
+export function writeKey(record, base, rev) {
+    if (Number.isInteger(rev) && rev > 0) return `${base}#${rev}`;
+    let n = Object.keys(record ?? {}).length;
+    while (Object.hasOwn(record ?? {}, `${base}#n${n}`)) n += 1;
+    return `${base}#n${n}`;
+}
+
+/** What a key is about: `<base>` of `<base>#<rev>`, or the bare key of an older chat's entry. */
+export const baseOf = key => String(key).replace(WRITE, '');
+
+const revAt = (key, entry) => {
+    const match = /#(\d+)$/.exec(String(key));
+    return match ? Number(match[1]) : Number.isInteger(entry?.rev) ? entry.rev : 0;
+};
+
+/** The shortages that hold, as { [place key]: { place, reason, until, day, rev } }: each place's newest write unless it lifted. */
+export function currentShortages(raw) {
+    const newest = new Map();
+    for (const [key, entry] of Object.entries(raw && typeof raw === 'object' ? raw : {})) {
+        if (!entry || typeof entry !== 'object') continue;
+        const base = baseOf(key);
+        const at = revAt(key, entry);
+        const was = newest.get(base);
+        if (!was || at > was.at || (at === was.at && WRITE.test(key))) newest.set(base, { at, entry });
+    }
+    const out = {};
+    for (const base of [...newest.keys()].sort()) {
+        const { entry } = newest.get(base);
+        if (entry.lifted) continue;
+        const { lifted: _lifted, ...rest } = entry;
+        out[base] = rest;
+    }
+    return out;
+}
+
+/** What each shop sold on its latest day: { [shop]: { day, bought: [def ids] } }, from its purchases in order. */
+export function currentShops(raw) {
+    const groups = new Map();
+    for (const [key, entry] of Object.entries(raw && typeof raw === 'object' ? raw : {})) {
+        if (!entry || typeof entry !== 'object') continue;
+        const base = baseOf(key);
+        if (!groups.has(base)) groups.set(base, []);
+        groups.get(base).push({ at: revAt(key, entry), day: entry.day ?? null, bought: Array.isArray(entry.bought) ? entry.bought : [] });
+    }
+    const out = {};
+    for (const [base, list] of groups) {
+        list.sort((a, b) => a.at - b.at);
+        const day = list.at(-1).day;
+        out[base] = { day, bought: list.filter(entry => entry.day === day).flatMap(entry => entry.bought) };
+    }
+    return out;
+}
+
+/** The least paid for each thing: { [def id]: amount }. */
+export function leastPaid(raw) {
+    const out = {};
+    for (const [key, each] of Object.entries(raw && typeof raw === 'object' ? raw : {})) {
+        if (!Number.isInteger(each)) continue;
+        const def = baseOf(key);
+        if (!Object.hasOwn(out, def) || each < out[def]) out[def] = each;
+    }
+    return out;
+}
+
 /** The key a shortage is kept under: its place's first part, lowercased, spaces tidied ("bluewatch"). */
 export const shortageKey = name => placeKey(name).replace(/\s+/g, ' ');
 
@@ -85,7 +167,8 @@ const wordsIn = (outer, inner) => Boolean(inner) && ` ${outer} `.includes(` ${in
 export function shortageAt(shortages, placeName) {
     const here = shortageKey(placeName);
     if (!here || !shortages || typeof shortages !== 'object') return null;
-    if (shortages[here]) return { key: here, ...shortages[here] };
+    // Own keys only (B-b1r2-6): a place keyed "constructor" must not find Object's own.
+    if (Object.hasOwn(shortages, here)) return { key: here, ...shortages[here] };
     const key = Object.keys(shortages).sort().find(other => wordsIn(here, other) || wordsIn(other, here));
     return key ? { key, ...shortages[key] } : null;
 }
@@ -106,7 +189,8 @@ export function makeWorld({ scene, inventory, trade, party, settings = {}, now =
     const level = pricedLevel(place.name, settings.placePrices);
     const base = placePrices(placeText, { level, rules });
     // (MODULES §F36) A shortage here: restock paused and buying dearer until the story lifts it.
-    const shortage = shortageAt(trade?.shortages, place.name);
+    const shortages = currentShortages(trade?.shortages);
+    const shortage = shortageAt(shortages, place.name);
     const rate = shortageRate(settings);
     const prices = shortage ? { ...base, buy: base.buy * rate / 100, shortage: rate } : base;
     let market = marketHere(placeText, present, { rules, priced: Boolean(level) });
@@ -119,7 +203,8 @@ export function makeWorld({ scene, inventory, trade, party, settings = {}, now =
         now: clock, day: clock === null ? null : Math.floor(clock / DAY),
         shortage,
         inventory: { defs: inventory?.defs ?? {}, stacks: inventory?.stacks ?? {} },
-        trade: { orders: trade?.orders ?? {}, shops: trade?.shops ?? {}, shortages: trade?.shortages ?? {}, paid: trade?.paid ?? {} },
+        // What holds now, read from the writes (B-b1r2-13): the planners read these as before.
+        trade: { orders: trade?.orders ?? {}, shops: currentShops(trade?.shops), shortages, paid: leastPaid(trade?.paid) },
         // Where this place's shops are kept: a known place's name when one is meant (shopPlaceOf).
         shopPlace: shopPlaceOf(place.name, packs?.places),
         currency: oneCurrency(currency),
@@ -303,7 +388,7 @@ export function stockOf(world, kind) {
     const k = traderKind(kind, world.rules);
     const shop = shopKey(k, world.shopPlace ?? world.place.name);
     const all = shopStock({ kind: k, prices: world.prices, seed: `${shop}|${day ?? ''}`, seen: [], level: world.plevel, rules: world.rules });
-    const kept = world.trade.shops[shop];
+    const kept = Object.hasOwn(world.trade.shops ?? {}, shop) ? world.trade.shops[shop] : null;
     const bought = kept && kept.day === day ? kept.bought ?? [] : [];
     const items = all.map(item => ({ def: stockDef(item, world), price: item.price, note: item.note })).filter(entry => !bought.includes(entry.def.id));
     return { shop, kind: k, day, open: world.market.open, shortage: Boolean(world.shortage), items };
@@ -312,7 +397,7 @@ export function stockOf(world, kind) {
 /** A pack shop's stock today: its lines less what was bought that day, priced by the pack or by value. */
 function packStock(world, packed, day) {
     const shop = `${placeKey(world.shopPlace ?? world.place.name)}|${packed.slug}`;
-    const kept = world.trade.shops[shop];
+    const kept = Object.hasOwn(world.trade.shops ?? {}, shop) ? world.trade.shops[shop] : null;
     const bought = kept && kept.day === day ? kept.bought ?? [] : [];
     const rate = world.prices.shortage ? world.prices.shortage / 100 : 1;
     const items = packed.stock.map(line => {
@@ -340,7 +425,7 @@ export function planSell(world, { stack, qty = 1, kind = null, who = '' } = {}) 
     if (row.qty < qty) return no(CODES.notEnough, row.qty ? `There ${row.qty === 1 ? 'is' : 'are'} only ${row.qty} ${def.name}.` : `There is no ${def.name} left.`);
     const buyer = traderKind(kind || who, world.rules);
     // A thing bought (or commissioned) never sells for more than was paid for it (B-b3-13, -14).
-    const paid = world.trade.paid?.[def.id];
+    const paid = Object.hasOwn(world.trade.paid ?? {}, def.id) ? world.trade.paid[def.id] : undefined;
     const each = Number.isInteger(paid) ? Math.min(sellEach(def, buyer, world), paid) : sellEach(def, buyer, world);
     const total = each * qty;
     const name = whoOf(who || kind, buyer);
@@ -435,7 +520,7 @@ export function orderDue(order, now) {
 /** Collecting `order`: only when it is ready and at a market. */
 export function planCollect(world, { order } = {}) {
     if (!world.market.open) return noMarket(world);
-    const found = world.trade.orders[order];
+    const found = typeof order === 'string' && Object.hasOwn(world.trade.orders ?? {}, order) ? world.trade.orders[order] : null;
     if (!found) return no(CODES.notFound, 'There is no such order.');
     const name = found.piece?.name ?? 'The piece';
     if (!orderDue(found, world.now)) {

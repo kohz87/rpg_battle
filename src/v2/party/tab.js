@@ -6,7 +6,7 @@
 
 import { STATS } from '../../rules.js';
 import { PRESETS } from '../../skills.js';
-import { actorsInOrder, offerText } from './util.js';
+import { actorsInOrder, offerText, waitingOffers } from './util.js';
 
 function make(doc, tag, { text = '', className = '', attrs = {} } = {}) {
     const node = doc.createElement(tag);
@@ -45,7 +45,7 @@ export function renderPartyTab(el, view, api) {
         el.append(form);
     }
 
-    for (const offer of party.offers ?? []) {
+    for (const offer of waitingOffers(party)) {
         const row = make(doc, 'div', { className: 'rpg-party-offer', attrs: { 'data-offer': offer.id } });
         const who = offerText(offer, party);
         row.append(make(doc, 'span', { text: who }),

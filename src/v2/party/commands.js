@@ -18,7 +18,7 @@ import { fromSheet, gearOf, growthOf, libraryOf, maxCompanionsOf, rulesFrom, set
 import { exportCharacter, originIds, readCharacter } from './portable.js';
 import { defineItem } from '../items/define.js';
 import { OUTCOMES, dcOf, outcomeOf, statForCheck } from './checks.js';
-import { actorFrom, actorsInOrder, attempt, cleanName, cleanRole, fail, nameKey, newId, revOf } from './util.js';
+import { actorFrom, actorsInOrder, attempt, cleanName, cleanRole, fail, nameKey, newId, offersRecord, revOf, waitingOffers } from './util.js';
 
 // Skills learned onto a built sheet, in order (v1 newSheet's own loop, for a sheet made from final stats).
 const newSheetSkills = (sheet, skills, rules) => skills.reduce((out, skill) => learnV1(out, skill, { rules }), sheet);
@@ -194,7 +194,8 @@ function create(ctx, payload = {}) {
     if (old) {
         if (party.actors[old]) handOver(ctx, party.actors[old]);
         delete party.actors[old];
-        party.offers = party.offers.filter(offer => offer.actor !== old);
+        // Their waiting offers go (each a key of its own: one a deleted reply made is passed over on replay).
+        dropOffersFor(party, old);
     }
     const background = String(payload.background ?? '').trim().slice(0, 2000);
     writeSheet(party, {
@@ -315,7 +316,7 @@ function dropMember(ctx, party, actor) {
     const handed = handOver(ctx, actor);
     delete party.actors[actor.id];
     party.order = party.order.filter(id => id !== actor.id);
-    party.offers = party.offers.filter(offer => offer.actor !== actor.id);
+    dropOffersFor(party, actor.id);
     return handed;
 }
 
@@ -776,7 +777,7 @@ function importPc(ctx, payload = {}) {
     if (!read.ok) fail(ctx, read.code, read.message);
     const character = read.character;
     if (nameTaken(party, character.name)) fail(ctx, 'REFUSED', `There is already a ${character.name} in the party.`);
-    for (const skill of character.custom) if (!party.custom[skill.name]) party.custom[skill.name] = skill;
+    for (const skill of character.custom) if (!Object.hasOwn(party.custom, skill.name)) party.custom[skill.name] = skill;
     const id = newId(ctx, 'ac', candidate => Boolean(party.actors[candidate]));
     const background = String(payload.background ?? character.background ?? '').trim().slice(0, 2000);
     // The origin as this chat knows it, else as the file names it (when it is well formed).
@@ -811,9 +812,9 @@ function importPc(ctx, payload = {}) {
  */
 function acceptOffer(ctx, payload = {}) {
     const party = ctx.draft('party');
-    const offer = party.offers.find(entry => entry.id === payload.offer);
+    const offer = waitingOffers(party).find(entry => entry.id === payload.offer);
     if (!offer) fail(ctx, 'NOT_FOUND', 'That offer is no longer waiting.');
-    party.offers = party.offers.filter(entry => entry.id !== offer.id);
+    delete offersRecord(party)[offer.id];
     if (offer.kind === 'leave') return removeCompanion(ctx, { actor: offer.actor });
     if (offer.kind === 'join') {
         return joinParty(ctx, {
@@ -827,9 +828,9 @@ function acceptOffer(ctx, payload = {}) {
 /** party.dismissOffer { offer }: the reader turns a waiting offer down. */
 function dismissOffer(ctx, payload = {}) {
     const party = ctx.draft('party');
-    const offer = party.offers.find(entry => entry.id === payload.offer);
+    const offer = waitingOffers(party).find(entry => entry.id === payload.offer);
     if (!offer) fail(ctx, 'NOT_FOUND', 'That offer is no longer waiting.');
-    party.offers = party.offers.filter(entry => entry.id !== offer.id);
+    delete offersRecord(party)[offer.id];
     const who = party.actors[offer.actor]?.name ?? 'Nobody';
     const what = offer.kind === 'join' ? `${offer.name} does not join` : offer.kind === 'leave' ? `${who} stays with the party` : `${who} does not learn ${offer.skill}`;
     return { summary: `${what}.`, data: { offer: offer.id }, narrate: false };
@@ -837,16 +838,24 @@ function dismissOffer(ctx, payload = {}) {
 
 const listNames = names => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
 
+/** The waiting offers for `actorId` removed from the party's record (B-b1r2-13: by key). */
+function dropOffersFor(party, actorId) {
+    const record = offersRecord(party);
+    for (const [id, offer] of Object.entries(record)) if (offer?.actor === actorId) delete record[id];
+}
+
 /** Adds an offer to the party (used by the join, skill and leave kinds). */
 export function addOffer(ctx, party, offer) {
-    const waiting = party.offers.filter(entry => entry.kind === offer.kind).length;
+    const waiting = waitingOffers(party).filter(entry => entry.kind === offer.kind).length;
     if (waiting >= MAX_OFFERS_PER_KIND) {
         const what = offer.kind === 'join' ? 'offers to join' : offer.kind === 'leave' ? 'companions leaving' : 'skills offered';
         fail(ctx, 'REFUSED', `${MAX_OFFERS_PER_KIND} ${what} already wait for the reader: accept or dismiss some first.`);
     }
-    const id = newId(ctx, 'of', candidate => party.offers.some(entry => entry.id === candidate));
+    const record = offersRecord(party);
+    const id = newId(ctx, 'of', candidate => Object.hasOwn(record, candidate));
     const full = { id, ...offer, rev: revOf(ctx) };
-    party.offers.push(full);
+    // Under its own id (B-b1r2-13): a reply deleted before it never moves it.
+    record[id] = full;
     return full;
 }
 

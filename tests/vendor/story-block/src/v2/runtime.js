@@ -24,7 +24,7 @@ import { createRewind } from './rewind.js';
 import { createStore as realStore } from './store.js';
 import { createTurn, substituteNames } from './turn.js';
 
-export const VERSION = '2.0.0-alpha.1';
+export const VERSION = '2.0.0-alpha.2';
 
 /**
  * Settings where Story Block's `currency` (and `currencyShort`, `currencyPlural`) fall back to
@@ -207,7 +207,7 @@ export function createRuntime({
             return [`The ${name} check failed: ${error?.message ?? error}`];
         }
     });
-    const store = createStore({ ...storeSaving({ ctx, live, fetch, onSaveError }), validate });
+    const store = createStore({ ...storeSaving({ ctx, live, fetch, onSaveError }), validate, scratch: name => registry.scratch(name) });
     saveOnUnload(store, page);
     bus = createCommandBus({ store, registry, settings });
     events = createEvents();

@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { part, validateTrade, initialTrade, tradeTail } from '../../../src/v2/trade/index.js';
-import { makeWorld, worldFromState, stockOf, legacyItem, DAY } from '../../../src/v2/trade/core.js';
+import { makeWorld, worldFromState, stockOf, legacyItem, DAY, currentShops } from '../../../src/v2/trade/core.js';
 import { commissionHours, placePrices, readyAt, sellPrice } from '../../../src/trade.js';
 import { baseState, createHost } from './helpers/fake-ctx.js';
 
@@ -145,7 +145,7 @@ test('trade.buy: pays the stock price, grants the def, and the line leaves the s
     assert.equal(granted.owner, 'party');
     assert.equal(Object.values(host.state.domains.inventory.stacks).find(row => row.def === item.def.id).from, result.receipt.id);
     assert.ok(host.state.domains.inventory.defs[item.def.id]);
-    assert.deepEqual(host.state.domains.trade.shops[stock.shop], { day: 3, bought: [item.def.id] });
+    assert.deepEqual(currentShops(host.state.domains.trade.shops)[stock.shop], { day: 3, bought: [item.def.id] });
     assert.ok(!host.query('trade.stock', { kind: 'smith' }).items.some(entry => entry.def.id === item.def.id));
     assert.match(result.receipt.summary, new RegExp(`^Ren bought ${item.def.name} from the smith for `));
     rejected(host, 'trade.buy', { shop: stock.shop, def: item.def.id, qty: 1 }, 'NOT_FOUND');

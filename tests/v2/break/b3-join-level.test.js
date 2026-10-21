@@ -9,7 +9,7 @@ test('a join offer\'s level is held near the party\'s level', async () => {
     const host = await market();
     try {
         await host.send('Will you come?', host.reply('A veteran nods.', ['+ join Lyra — a veteran archer | level: 60 | role: ranger']));
-        const offer = host.head().domains.party.offers.at(-1);
+        const offer = Object.values(host.head().domains.party.offers).at(-1);
         assert.ok(offer, 'a join offer');
         const r = await host.cmd('party.acceptOffer', { offer: offer.id });
         assert.equal(r.ok, true, show(r));

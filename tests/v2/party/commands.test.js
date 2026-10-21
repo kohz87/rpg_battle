@@ -407,19 +407,19 @@ test('party.acceptOffer and party.dismissOffer', async () => {
     let state = withPc();
     state = capture(state, '+ join Lyra — the archer | level: 3 | role: ranger').state;
     state = capture(state, '+ skill Ren — Shadow Cut: a blurring slash | taught by: Kael').state;
-    const [join, skill] = state.domains.party.offers;
+    const [join, skill] = Object.values(state.domains.party.offers);
     const accepted = run(state, 'party.acceptOffer', { offer: join.id, control: 'player' });
     assert.ok(accepted.ok, accepted.message);
     const lyra = byName(accepted.state, 'Lyra');
     assert.equal(lyra.level, 3);
     assert.equal(lyra.role, 'ranger');
     assert.equal(lyra.control, 'player');
-    assert.deepEqual(accepted.state.domains.party.offers.map(offer => offer.id), [skill.id]);
+    assert.deepEqual(Object.values(accepted.state.domains.party.offers).map(offer => offer.id), [skill.id]);
     const learned = run(accepted.state, 'party.acceptOffer', { offer: skill.id });
     assert.ok(learned.ok, learned.message);
     assert.equal(pcOf(learned.state).skills[0].name, 'Shadow Cut');
     assert.ok(learned.state.domains.party.custom['Shadow Cut']);
-    assert.deepEqual(learned.state.domains.party.offers, []);
+    assert.deepEqual(Object.values(learned.state.domains.party.offers), []);
     const dismissed = run(state, 'party.dismissOffer', { offer: join.id });
     assert.ok(dismissed.ok);
     assert.equal(dismissed.result.summary, 'Lyra does not join.');
@@ -430,7 +430,7 @@ test('party.acceptOffer and party.dismissOffer', async () => {
     const clash = run(state, 'party.addCompanion', { name: 'Lyra' }).state;
     const refused = run(clash, 'party.acceptOffer', { offer: join.id });
     rejects(refused, 'REFUSED', /already a Lyra/);
-    assert.equal(refused.state.domains.party.offers.length, 2);
+    assert.equal(Object.values(refused.state.domains.party.offers).length, 2);
 });
 
 test('sub-commands through ctx.call share the transaction', () => {

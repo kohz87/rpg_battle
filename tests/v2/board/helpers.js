@@ -24,7 +24,7 @@ export function liveFight(foes = '3 Cellar Rats', labels = { tier: 'even' }, { a
     const world = createWorld({ domains: baseDomains({ actors, defs, stacks }) });
     const captured = world.capture(line('!', 'encounter', foes, 'out of the dark', labels));
     assert.equal(captured.ok, true, captured.message);
-    const started = world.run('combat.start', { offer: world.state.domains.combat.offers[0].id });
+    const started = world.run('combat.start', { offer: Object.values(world.state.domains.combat.offers)[0].id });
     assert.equal(started.ok, true, started.message);
     return world;
 }
