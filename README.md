@@ -1,5 +1,8 @@
 # RPG Battle v0.5.48
 
+> **Story Suite v2 is being built on the `v2` branch.** RPG Battle v2 module: party, items, combat and trade parts merged; integration, checks, creation, return in time, battle board and screens in progress. Progress for the whole suite: [Story Block docs/v2/STATUS.md](https://github.com/kohz87/Story_block/blob/v2/docs/v2/STATUS.md). The rest of this README describes v1 until v2 is released.
+
+
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.
 When the story starts a fight, RPG Battle offers it: **Fight?** shows the foes and the stakes as
 the story gave them, **Start** begins it, you fight with buttons (**Attack, Skill, Item, Defend,
