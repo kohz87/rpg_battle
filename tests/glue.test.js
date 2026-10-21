@@ -422,6 +422,20 @@ const PLAN_TEXT = '<Encounter>at the gate: 2 giant rat (trivial); then at the ya
 test('a plan in three stages: Fight?, the stages read-only, Start, each stage fought, Go on between, one result and one hand-off', async () => withClock(async () => {
     const prompts = {};
     const before = ctx.setExtensionPrompt;
+    const sb = globalThis.StoryBlock;
+    let evidenceWrites = 0;
+    sb.transactionVersion = 1;
+    sb.messageIdentity = index => `${ctx.chatId}:reply:${index}`;
+    sb.commitBlocks = async request => {
+        evidenceWrites++;
+        assert.equal(request.namespace, 'rpgBattleEvidence');
+        // Redraws during an asynchronous save must not try to finish this stage again.
+        drawTab('rpg-battle');
+        await settle();
+        const message = ctx.chat[request.messageIndex];
+        message.extra = { ...message.extra, [request.namespace]: structuredClone(request.value) };
+        return { status: 'durable' };
+    };
     ctx.setExtensionPrompt = (key, value) => { prompts[key] = value; };
     try {
         openChat('plan-chat', [reply(`<Party>\n${REN.replace('HP: 58/62', 'HP: 102/102')}\n</Party>`), userMessage('We storm the keep.'), planReply(`They reach the gate.\n${PLAN_TEXT}`)]);
@@ -467,6 +481,11 @@ test('a plan in three stages: Fight?, the stages read-only, Start, each stage fo
         assert.equal(find(pane, '.rpg-battle-outcome').textContent, 'Victory');
         assert.deepEqual(findAll(pane, '.rpg-battle-stage-line').map(node => node.textContent.replace(/\d+ rounds?/, 'N')), ['Stage 1, the gate: victory in N', 'Stage 2, the yard: victory in N', 'Stage 3, the tower: victory in N']);
         assert.equal(meta().plan, null);
+        assert.equal(evidenceWrites, 3, 'one durable evidence write per stage, no aggregate duplication');
+        const evidence = storySuite().api('rpg-battle').quests.evidence({ version: 1, anchor: sb.messageIdentity(2), excluded: [] });
+        assert.equal(evidence.availability, 'available');
+        assert.equal(evidence.events.length, 3);
+        assert.equal(new Set(evidence.events.flatMap(event => event.defeated.map(enemy => enemy.id))).size, 5);
         const handoff = meta().pending.handoff;
         assert.match(handoff, /^Stage 1, the gate: victory in \d+ rounds?\.\nStage 2, the yard: victory in \d+ rounds?\.\nStage 3, the tower: victory in \d+ rounds?\.$/m);
         assert.doesNotMatch(handoff, /Not reached/);
@@ -485,6 +504,9 @@ test('a plan in three stages: Fight?, the stages read-only, Start, each stage fo
         assert.equal(hooks.tabs['rpg-battle'].isAvailable(), false, 'the Battle tab goes with the battle');
     } finally {
         ctx.setExtensionPrompt = before;
+        delete sb.transactionVersion;
+        delete sb.messageIdentity;
+        delete sb.commitBlocks;
     }
 }));
 

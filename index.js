@@ -49,6 +49,8 @@ import { applyFlavour, flavourPrompt, parseFlavour, sceneText } from './src/flav
 import { act, availableActions, foeXpWorth, replay, startFight, summarize } from './src/combat.js';
 import { applyResult, foldUses, forgetSkill, formatPartyBlock, learnSkill, newSheet, readSheets, setSkillActive, spendPoints } from './src/sheet.js';
 import { addLoot, applyCrafts, collectOrders, consumables, formatMoneyShort, gearNote, inScope, keepNotes, nameKey, restoreLoot, formatMoney, gearSummary, parseInventory, purseOf, useItems } from './src/items.js';
+import { questCoins, questInventory, settleQuestInventory } from './src/items.js';
+import { appendEvidence, queryEvidence, resultEvidence } from './src/quest-evidence.js';
 import { NEXT_MOVES_MAX, fallbackMoves, nextMovesPrompt, parseNextMoves } from './src/nextmoves.js';
 import { buildHandoff, buildPlanHandoff, fightOrigin, grouped, handoffState, originHolds, settleHandoff } from './src/handoff.js';
 import { cleanPlan, newPlan, nextStage, planResult, stageDone, stageId } from './src/plan.js';
@@ -70,7 +72,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.47';
+const VERSION = '0.5.48';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -1151,7 +1153,7 @@ function importBestiary(text) {
 
 async function playAction(action) {
     const fight = currentFight();
-    if (!fight) return;
+    if (!fight || fight.status !== 'active' || finishing) return;
     const saved = chatState().fight;
     const next = act(fight, action, fightRules(saved.setup));
     saveChatState({ fight: { ...saved, actions: [...(saved.actions ?? []), action] } });
@@ -1250,14 +1252,23 @@ async function finishFight(fight) {
     if (finishing === fight.id) return;
     const state = chatState();
     if (state.plan && state.plan.status === 'fighting' && stageId(state.plan.id, state.plan.at) === fight.id) {
-        await finishStage(fight, state.plan);
+        finishing = fight.id;
+        try { await finishStage(fight, state.plan); }
+        finally { if (finishing === fight.id) finishing = null; }
         return;
     }
     finishing = fight.id;
+    const chat = context()?.chat;
+    const chatId = chatIdOf(context());
     const r = rules();
     const result = summarize(fight, fightRules(fight.setup));
     // The reply the fight started from, before the fight is cleared.
     const origin = state.fight?.origin ?? null;
+    await recordQuestEvidence(fight.id, result, origin);
+    if (context()?.chat !== chat || chatIdOf(context()) !== chatId) {
+        finishing = null;
+        return;
+    }
     // Shown in the Battle tab while the result is written, so the tab does not drop out (and the
     // sidebar jump to another tab) between the fight and its result.
     ending = { chatId: chatIdOf(context()), fight };
@@ -1285,7 +1296,12 @@ async function finishStage(fight, plan) {
         saveChatState({ fight: null });
         return;
     }
-    const { plan: next, ended } = stageDone(plan, fight, summarize(fight, fightRules(fight.setup)));
+    const chat = context()?.chat;
+    const chatId = chatIdOf(context());
+    const result = summarize(fight, fightRules(fight.setup));
+    await recordQuestEvidence(fight.id, result, plan.origin, plan.id);
+    if (context()?.chat !== chat || chatIdOf(context()) !== chatId) return;
+    const { plan: next, ended } = stageDone(plan, fight, result);
     live = { chatId: chatIdOf(context()), key: '', fight: null };
     if (!ended) {
         saveChatState({ fight: null, plan: next });
@@ -2274,7 +2290,82 @@ const SUITE_MANAGE = manageApi({
 // (0.5.22) narratesFight: Story Block leaves its dice out of the reply that tells a fight's result.
 // (0.5.26) currency: Story Block counts the Inventory's purse in RPG Battle's coins while it is here.
 // (0.5.38) preview: what RPG Battle would add to the next reply, part by part (whatsSent).
-const SUITE_API = Object.freeze({ version: VERSION, members: () => suiteMembers(), manage: SUITE_MANAGE, narratesFight: type => narratesFight(type), currency: () => structuredClone(rules().currency), preview: () => whatsSent() });
+let questHistoryCache = null;
+
+function questHistory() {
+    const ctx = context();
+    const chat = ctx?.chat ?? [];
+    const sb = storyBlock();
+    if (!questHistoryCache || questHistoryCache.chat !== chat || questHistoryCache.length !== chat.length || questHistoryCache.chatId !== chatIdOf(ctx)) {
+        questHistoryCache = {
+            chat, length: chat.length, chatId: chatIdOf(ctx),
+            history: chat.map((message, index) => ({
+                owner: sb?.messageIdentity?.(index),
+                ledger: message.extra?.rpgBattleEvidence ?? null,
+            })),
+        };
+    }
+    return questHistoryCache.history;
+}
+
+async function recordQuestEvidence(id, result, origin, planId = null) {
+    const ctx = context();
+    const sb = storyBlock();
+    const index = origin?.index;
+    if (sb?.transactionVersion !== 1 || !Number.isInteger(index)) return;
+    const owner = sb.messageIdentity(index);
+    // Old replies have no verified boundary. They stay unavailable, never backfilled.
+    if (!owner || !originHolds(origin, ctx.chat)) return;
+    const message = ctx.chat[index];
+    const ledger = appendEvidence(message.extra?.rpgBattleEvidence, resultEvidence(id, result, { planId }), owner);
+    const saved = await sb.commitBlocks({
+        id: `battle:${id}`, chatId: chatIdOf(ctx), messageIndex: index,
+        expectedText: message.mes, expectedExtra: JSON.stringify(message.extra ?? {}),
+        namespace: 'rpgBattleEvidence', value: ledger,
+    });
+    questHistoryCache = null;
+    if (saved.status !== 'durable') {
+        finishing = null;
+        throw new Error(`Battle evidence needs recovery: ${saved.reason}`);
+    }
+}
+
+const QUEST_API = Object.freeze({
+    version: 1,
+    cursor(index) {
+        if (!settings().enabled || storyBlock()?.transactionVersion !== 1) return null;
+        const owner = storyBlock().messageIdentity(index);
+        if (!owner) return null;
+        return { version: 1, anchor: owner, excluded: (context()?.chat?.[index]?.extra?.rpgBattleEvidence?.events ?? []).map(event => event.id) };
+    },
+    evidence(cursor) {
+        if (!settings().enabled) return { availability: 'unavailable', events: [], revision: '' };
+        return queryEvidence(questHistory(), cursor);
+    },
+    busy() {
+        const state = chatState();
+        return Boolean(state.fight || state.plan || finishing || ending);
+    },
+    inventory({ beforeIndex = null } = {}) {
+        const tag = settings().inventoryTag;
+        const found = storyBlock()?.getBlock?.(tag, { beforeIndex });
+        const currency = structuredClone(rules().currency);
+        const scope = itemScope();
+        const text = found?.text ?? '';
+        return {
+            availability: found ? 'available' : 'unavailable',
+            tag, text, scope, currency, ...questInventory(text, currency, scope),
+            revision: JSON.stringify([text, scope, currency]),
+        };
+    },
+    parseCoins: questCoins,
+    formatCoins: formatMoney,
+    reconcile(base, returned, plan) {
+        return settleQuestInventory(base.text, returned, plan, base.currency, base.scope);
+    },
+});
+
+const SUITE_API = Object.freeze({ version: VERSION, members: () => suiteMembers(), manage: SUITE_MANAGE, narratesFight: type => narratesFight(type), currency: () => structuredClone(rules().currency), preview: () => whatsSent(), quests: QUEST_API });
 
 /** Announced on load and again whenever the switch changes: switched off, with enabled: false. */
 function announceToSuite() {
@@ -2833,7 +2924,8 @@ function battleView() {
         // A finished fight still stored (the page closed before its end was saved): record it now,
         // unless its result already is.
         if (chatState(ctx).last?.fightId === fight.id) saveChatState({ fight: null });
-        else void finishFight(fight).then(() => storyBlock()?.refresh?.());
+        else void finishFight(fight).then(() => storyBlock()?.refresh?.())
+            .catch(error => notify('error', error.message));
     } else if (fight) {
         const fr = fightRules(fight.setup);
         return { mode: 'fight', fight, actions: availableActions(fight, fr), rules: fr };
@@ -3872,6 +3964,7 @@ function registerWithStoryBlock() {
     sb.onReply?.(payload => void afterReply(payload));
     // Story Block's settings can change under us (its Character Sheet switched on or off).
     sb.onUpdate?.(() => {
+        questHistoryCache = null;
         settingsPanel?.setSheetConflict?.(sheetConflict());
         // A chat opened (or changed) may still keep your sheet in the older Character block, or
         // its mastery progress in metadata; a linked NPC may have been renamed meanwhile.

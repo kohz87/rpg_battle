@@ -67,6 +67,23 @@ kept as before, and its instruction points the model at NPC State Delta's cards.
 
 ## For developers
 
+### Quest API (unreleased)
+
+`suite.api('rpg-battle').quests.version === 1` exposes:
+
+- `cursor(index)`: `{version, anchor, excluded}`, or null without a verified identity.
+- `evidence(cursor)`: `{availability, events, revision}`; available/unavailable/incomplete.
+- `inventory({beforeIndex})`: configured Inventory text/tag/scope/currency, strict player
+  items, purse validity and revision. Companion/shop/order goods are excluded.
+- `busy()`, `parseCoins(text, currency)`, `formatCoins(amount, currency)`.
+- `reconcile(base, returnedText, plan)`: apply omitted payment/delivery once; accept echoed
+  effects, preserve unrelated rows and throw on ambiguity.
+
+Production fights/stages persist `extra.rpgBattleEvidence = {version:1, owner, events}`
+through Block transaction v1. Events contain `id`, `planId`, `outcome`, and individual
+`defeated: [{id, name}]` using canonical names. IDs deduplicate stages/aggregates; queries
+return copies after the cursor, never inferred prose. Director owns terms and claims.
+
 ```js
 import { storySuite, isSourceOfTruth } from './src/suite.js';
 const suite = storySuite();
