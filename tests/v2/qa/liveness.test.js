@@ -30,9 +30,11 @@ each('a plain won fight settles and the next one can start (the baseline)', () =
 });
 
 each('a won fight with a companion at the level cap settles', () => {
-    const { h } = withHero({ seed: 4 });
-    const lyra = h.command('party.addCompanion', { name: 'Lyra', role: 'archer', level: 99 });
+    // A level cap of 3: a companion joins two levels above your level-1 character at most (B-b3-16).
+    const { h } = withHero({ seed: 4, settings: { 'party.maxLevel': 3 } });
+    const lyra = h.command('party.addCompanion', { name: 'Lyra', role: 'archer', level: 99 }, { cause: 'system' });
     assert.equal(lyra.ok, true);
+    assert.equal(lyra.receipt.data.level, 3, 'at the level cap');
     const { end, status } = winFight(h, 'Bandit');
     assert.equal(status, 'won');
     assert.equal(end.ok, true, `${end.code}: ${end.message}`);
@@ -42,7 +44,7 @@ each('a won fight with a companion at the level cap settles', () => {
 
 each('a companion cannot leave in the middle of a fight; the fight settles, then they can', () => {
     const { h } = withHero({ seed: 4 });
-    const lyra = h.command('party.addCompanion', { name: 'Lyra', role: 'archer', level: 1 }).receipt.data.actor;
+    const lyra = h.command('party.addCompanion', { name: 'Lyra', role: 'archer', level: 1 }, { cause: 'system' }).receipt.data.actor;
     h.capture({ op: '!', kind: 'encounter', name: '3 Wolves', text: '', labels: { tier: 'strong' } });
     assert.equal(h.command('combat.start', { offer: h.query('combat.offers').at(-1).id }).ok, true);
     assert.equal(h.state().domains.combat.session.status, 'active');
@@ -60,7 +62,7 @@ each('a companion cannot leave in the middle of a fight; the fight settles, then
 
 each('a leave offer accepted during a fight is refused and stays waiting', () => {
     const { h } = withHero({ seed: 4 });
-    h.command('party.addCompanion', { name: 'Lyra', role: 'archer', level: 1 });
+    h.command('party.addCompanion', { name: 'Lyra', role: 'archer', level: 1 }, { cause: 'system' });
     startBandit(h);
     const offered = h.capture({ op: '-', kind: 'join', name: 'Lyra', text: 'goes home', labels: {} });
     assert.equal(offered.ok, true, offered.message);
@@ -81,7 +83,7 @@ each('your character cannot be remade in the middle of a fight; the fight settle
 
 each('combat.end settles even when a member the fight names is no longer in the party (skipped)', () => {
     const { h, pc } = withHero({ seed: 4 });
-    const lyra = h.command('party.addCompanion', { name: 'Lyra', role: 'archer', level: 1 }).receipt.data.actor;
+    const lyra = h.command('party.addCompanion', { name: 'Lyra', role: 'archer', level: 1 }, { cause: 'system' }).receipt.data.actor;
     startBandit(h);
     fightOut(h);
     // However it came about (a state from before the refusals), the fight names someone gone.
@@ -122,7 +124,7 @@ each('a fight whose draughts were handed to a companion meanwhile still settles,
     const drink = h.command('combat.act', { action: { type: 'item', item: 'Minor Healing Draught', target: pc } });
     assert.equal(drink.ok, true, drink.message);
     // A companion joins mid-fight and is handed the rest one by one: the second merges the bag's stack away.
-    const lyra = h.command('party.addCompanion', { name: 'Lyra', role: 'archer' }).receipt.data.actor;
+    const lyra = h.command('party.addCompanion', { name: 'Lyra', role: 'archer' }, { cause: 'system' }).receipt.data.actor;
     const bag = () => stacksOf(h, pot).find(row => row.owner === 'party')?.stack;
     assert.equal(h.command('item.give', { stack: bag(), to: lyra, qty: 1 }).ok, true);
     assert.equal(h.command('item.give', { stack: bag(), to: lyra, qty: 1 }).ok, true);
@@ -135,7 +137,7 @@ each('a fight whose draughts were handed to a companion meanwhile still settles,
 
 each('party.edit control (MODULES §F49): a companion led by the reader waits for orders in the next fight; on auto acts alone', () => {
     const { h } = withHero({ seed: 4 });
-    const lyra = h.command('party.addCompanion', { name: 'Lyra', role: 'archer', level: 1 }).receipt.data.actor;
+    const lyra = h.command('party.addCompanion', { name: 'Lyra', role: 'archer', level: 1 }, { cause: 'system' }).receipt.data.actor;
     assert.equal(h.command('party.edit', { actor: lyra, control: 'player' }).ok, true);
     h.capture({ op: '!', kind: 'encounter', name: '3 Bandits', text: '', labels: { tier: 'even' } });
     assert.equal(h.command('combat.start', { offer: h.query('combat.offers').at(-1).id }).ok, true);

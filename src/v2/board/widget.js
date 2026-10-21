@@ -7,7 +7,7 @@
 // portraits, HP/MP/SP meters and conditions; the turn order; the acting member's actions with
 // target selection and the numbers an attack would do; the last lines of the log; and, once the
 // fight is over, the result with Finish. Every click is a command through `api.command`
-// (`combat.act { action }`, `combat.end`); the board never touches the state.
+// (`combat.act { action, session, logLength }`, `combat.end { session }`); the board never touches the state.
 //
 // What the reader is in the middle of (an open skill list, the target being picked, the log's scroll
 // position, the focused button) survives an update that does not move the fight on.
@@ -221,7 +221,14 @@ function render(el, input, api) {
         else settle();
     }
 
-    const act = action => send('combat.act', { action });
+    // Which fight, and which moment of it, the board showed when the choice was made (combat.act
+    // refuses an action meant for another fight or for a turn already played: a stale board, a
+    // second window, a double click).
+    const shown = () => ({
+        ...(typeof p.id === 'string' && p.id ? { session: p.id } : {}),
+        ...(Number.isInteger(p.logLength) && p.logLength > 0 ? { logLength: p.logLength } : {}),
+    });
+    const act = action => send('combat.act', { action, ...shown() });
 
     function cancel() {
         ui = { ...ui, menu: null, pick: null };
@@ -605,7 +612,7 @@ function render(el, input, api) {
         if (canCommand()) {
             box.append(
                 h(doc, 'p', 'rpg-bb-hint', 'Finish settles it: the party’s HP, XP and the loot, and the next reply tells the fight.'),
-                button('rpg-bb-finish', 'Finish', { key: 'finish', iconName: 'fa-flag-checkered', onClick: () => send('combat.end', {}) }),
+                button('rpg-bb-finish', 'Finish', { key: 'finish', iconName: 'fa-flag-checkered', onClick: () => send('combat.end', typeof p.id === 'string' && p.id ? { session: p.id } : {}) }),
             );
         }
         return box;

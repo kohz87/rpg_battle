@@ -114,7 +114,10 @@ test('a fight result: same as v1 applyResult then settleCompanions', () => {
 
 test('a companion: same as v1 newCompanion', () => {
     for (const [name, role, level, focus, skills] of [['Lyra', 'healer', 6, ['INT', 'VIT', 'CHA'], ['Mend', 'Ward']], ['Bram', 'tank', 1, [], ['Shield Bash']], ['Ilse', 'mage', 12, ['INT'], ['Firebolt', 'Fireball']]]) {
-        const out = run(withPc(), 'party.addCompanion', { name, role, level, focus, skills });
+        // Your character at the companion's level: a companion joins two levels above yours at most.
+        const state = withPc();
+        state.domains.party.actors[state.domains.party.pc].level = level;
+        const out = run(state, 'party.addCompanion', { name, role, level, focus, skills });
         assert.ok(out.ok, out.message);
         // An empty focus is read from the role's words (v1's Joins form prefilled it so).
         const v1 = newCompanion({ name, role, level, focus: focus.length ? focus : guessFocus(role), skills }, { rules: DEFAULT_RULES, existing: [], library: null });

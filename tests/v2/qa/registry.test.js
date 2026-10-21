@@ -33,7 +33,7 @@ each('the static prompt part is byte-identical across very different states (SPE
     const first = ctx.static();
     storyItem(h, 'Minor Healing Draught', 3);
     winFight(h, 'Bandit');
-    h.command('party.addCompanion', { name: 'Lyra', role: 'archer', level: 4 });
+    h.command('party.addCompanion', { name: 'Lyra', role: 'archer', level: 4 }, { cause: 'system' });
     h.capture({ op: '?', kind: 'check', name: 'stealth', text: 'past the guard', labels: { dc: 'hard' } });
     assert.equal(ctx.static(), first);
     assert.doesNotMatch(first, /Ren|Lyra|Bandit/, 'no names in the static part');
@@ -42,7 +42,7 @@ each('the static prompt part is byte-identical across very different states (SPE
 
 each('the tail\'s always-sent lines fit the module budget with a busy state', () => {
     const { h } = withHero();
-    for (const name of ['Lyra', 'Kael', 'Mira']) h.command('party.addCompanion', { name, role: 'fighter', level: 3 });
+    for (const name of ['Lyra', 'Kael', 'Mira']) h.command('party.addCompanion', { name, role: 'fighter', level: 3 }, { cause: 'system' });
     for (let n = 0; n < 10; n++) h.capture({ op: '!', kind: 'encounter', name: `${n + 2} Cellar Rats`, text: 'more and more', labels: { tier: 'weak' } });
     const ctx = h.registry.contexts().find(entry => entry.moduleId === 'rpg-battle');
     const out = ctx.tail({ state: h.state(), query: (name, args) => h.query(name, args), settings: () => h.settingsOf('rpg-battle') });

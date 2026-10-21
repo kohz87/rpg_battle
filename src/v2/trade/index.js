@@ -17,6 +17,7 @@ import {
     packShopsHere, packsFrom, planSell, settingsOf, shortageAt, shortageKey, shortageRate, stockOf, summaryOf, worldFromState,
 } from './core.js';
 import { renderTradePage } from './page.js';
+import { clipped } from '../lines.js';
 
 const ORDER_ID = /^or_[0-9a-z]{8}$/;
 const SHOP_KEY = /^[^|]*\|[a-z0-9-]+$/;
@@ -25,7 +26,21 @@ const DEF_ID = /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*$/;
 const TAIL_ORDERS = 4;
 
 /** The trade slice of a new chat. */
-export const initialTrade = () => ({ orders: {}, shops: {}, shortages: {} });
+export const initialTrade = () => ({ orders: {}, shops: {}, shortages: {}, paid: {} });
+// What was paid for a thing, kept for this many defs at most (the oldest first out).
+export const MAX_PAID = 500;
+
+/**
+ * What one of `def` was paid (trade.paid, B-b3-14): the least paid when bought again, so it never
+ * sells for more than that. → the draft's record.
+ */
+function keepPaid(trade, def, each) {
+    trade.paid ??= {};
+    const was = trade.paid[def];
+    trade.paid[def] = Number.isInteger(was) ? Math.min(was, each) : each;
+    const keys = Object.keys(trade.paid);
+    if (keys.length > MAX_PAID) for (const key of keys.slice(0, keys.length - MAX_PAID)) delete trade.paid[key];
+}
 // Shortages listed in the tail at most.
 const TAIL_SHORTAGES = 3;
 
@@ -100,6 +115,7 @@ const commands = {
         const bought = kept && kept.day === plan.day ? kept.bought : [];
         // A pack shop counts every one bought (it has so many a day); a generic shelf line goes at once.
         trade.shops[plan.shop] = { day: plan.day, bought: [...bought, ...Array(plan.pack ? plan.qty : 1).fill(plan.def.id)] };
+        keepPaid(trade, plan.def.id, plan.each);
         return {
             summary: summaryOf(world, plan.line),
             narrate: true,
@@ -122,7 +138,7 @@ const commands = {
         const piece = { id: `craft/${id.slice(3)}`, ...plan.piece };
         trade.orders[id] = {
             id, piece, materials: plan.materials.map(part => ({ def: part.def, qty: part.qty })), fee: plan.fee,
-            ready: plan.ready, crafter: plan.crafter, place: plan.place,
+            ready: plan.ready, crafter: plan.crafter, place: plan.place, cap: plan.cap,
         };
         return {
             summary: summaryOf(world, plan.line),
@@ -143,7 +159,10 @@ const commands = {
         const heavy = tooHeavy(ctx, plan.piece, 1);
         if (heavy) ctx.fail(CODES.refused, `${heavy.message} The ${plan.piece.name} stays with ${plan.crafter || 'the crafter'} for now.`);
         grant(ctx, plan.piece, 1);
-        delete ctx.draft('trade').orders[id];
+        const trade = ctx.draft('trade');
+        const order = trade.orders[id];
+        if (Number.isInteger(order?.cap) && typeof plan.piece.id === 'string') keepPaid(trade, plan.piece.id, order.cap);
+        delete trade.orders[id];
         return {
             summary: summaryOf(world, plan.line),
             narrate: true,
@@ -193,6 +212,7 @@ export function validateTrade(slice) {
         if (!Number.isInteger(order?.fee) || order.fee < 0) errors.push(`${at}.fee: not a whole amount of at least 0`);
         if (order?.ready !== null && (!Number.isInteger(order?.ready) || order.ready < 0)) errors.push(`${at}.ready: not whole minutes or null`);
         if (typeof order?.crafter !== 'string' || typeof order?.place !== 'string') errors.push(`${at}: crafter and place must be text`);
+        if (order?.cap !== undefined && (!Number.isInteger(order.cap) || order.cap < 0)) errors.push(`${at}.cap: not a whole amount of at least 0`);
     }
     if (slice.shortages !== undefined) {
         if (!isPlain(slice.shortages)) errors.push('trade.shortages: not a record');
@@ -206,6 +226,15 @@ export function validateTrade(slice) {
                 if (typeof entry?.reason !== 'string' || entry.reason.length > 120 || typeof entry?.until !== 'string' || entry.until.length > 80) errors.push(`${at}: reason and until must be short text`);
                 if (entry?.day !== null && (!Number.isInteger(entry?.day) || entry.day < 0)) errors.push(`${at}.day: not a whole day or null`);
                 if (!Number.isInteger(entry?.rev) || entry.rev < 0) errors.push(`${at}.rev: not a whole number`);
+            }
+        }
+    }
+    if (slice.paid !== undefined) {
+        if (!isPlain(slice.paid)) errors.push('trade.paid: not a record');
+        else {
+            if (Object.keys(slice.paid).length > MAX_PAID) errors.push(`trade.paid: at most ${MAX_PAID}`);
+            for (const [def, each] of Object.entries(slice.paid)) {
+                if (!DEF_ID.test(def) || !Number.isInteger(each) || each < 0) errors.push(`trade.paid.${def}: a def id and a whole amount of at least 0`);
             }
         }
     }
@@ -299,7 +328,7 @@ export const part = {
     commands,
     queries,
     kinds: {
-        market: { grammar: MARKET_GRAMMAR, apply: applyMarket },
+        market: { grammar: MARKET_GRAMMAR, apply: clipped(applyMarket) },
     },
     context: { static: () => '', tail: tradeTail, budget: 140 },
     hooks: {},

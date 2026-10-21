@@ -6,7 +6,8 @@
 //   hands them to the model tied to attempts (index.js).
 // * The `check` kind: the reply already narrated the outcome and wrote
 //   `? check stealth — slipping past the guard | dc: hard | roll: 1 | result: success`. Code takes
-//   the roll it names (Roll 1, Roll 2; a die value handed over is read as that roll), adds its own
+//   the roll of the line's place among the reply's checks (the first Roll 1, the second Roll 2,
+//   whatever the line names: a line naming the other roll is noted on the card), adds its own
 //   modifiers (modifiers.js), reads the total against the difficulty (a natural 20 always
 //   succeeds, a natural 1 always fails, F31) and records **that** result in the log and the
 //   receipt (not narrated: the reply told it already). When the model's stated result disagrees,
@@ -19,6 +20,7 @@
 import { OUTCOMES, dcOf, outcomeOf, statForCheck } from '../party/checks.js';
 import { drawFrom, promptRolls, rollDice } from './dice.js';
 import { memberOf, modifiersFor, rulesFor } from './modifiers.js';
+import { clipped } from '../lines.js';
 import {
     MAX_LOG, MAX_PER_REPLY, MAX_PREPARED, ROLLS_PER_REPLY,
     attemptText, clip, dcText, mismatchOf, nameKey, saidOutcome, short, sumOf,
@@ -131,44 +133,36 @@ export function preparedFor(checks, index) {
 }
 
 /**
- * The die a check takes: { roll (1-based; 0 when code rolled), die, note }. `written` is the
- * line's `roll:` ("1", "Roll 2", or a die value that was handed over); `used` the rolls earlier
- * checks of this reply took; `place` this check's place in the reply (1, 2).
+ * The die a check takes: { roll (1-based; 0 when code rolled), die, note }. The roll is fixed by the
+ * check's place among the checks this reply wrote (F80: the first uncertain attempt takes Roll 1,
+ * the next Roll 2, "whatever they say"): `place` (1, 2). What the line names (`written`: "1",
+ * "Roll 2", or a die value that was handed over) never picks another die, or the model could take
+ * the better of the two (B-b4-2); a line that names another roll gets the roll of its place and a
+ * note saying so, for the reply's card. `used`: the rolls earlier checks of this reply took.
  */
 export function pickRoll(prepared, written, used, place, rollCode) {
     const rolls = Array.isArray(prepared?.rolls) ? prepared.rolls : [];
-    const free = index => index >= 1 && index <= rolls.length && !used.includes(index);
-    const firstFree = () => {
-        if (free(place)) return place;
-        for (let index = 1; index <= rolls.length; index++) if (free(index)) return index;
-        return 0;
-    };
     if (!rolls.length) {
         return { roll: 0, die: rollCode(), note: 'no dice were handed over for this reply: code rolled' };
     }
-    const number = Number.parseInt(/(\d+)/.exec(String(written ?? ''))?.[1] ?? '', 10);
-    let roll = 0;
-    let note = '';
-    if (!Number.isInteger(number)) {
-        roll = firstFree();
-        if (roll) note = `no roll was named: Roll ${roll} taken`;
-    } else if (number >= 1 && number <= rolls.length) {
-        if (free(number)) roll = number;
-        else {
-            roll = firstFree();
-            if (roll) note = `Roll ${number} was already used: Roll ${roll} taken`;
-        }
-    } else {
-        const found = rolls.findIndex((die, index) => die === number && free(index + 1));
-        if (found >= 0) roll = found + 1;
-        else {
-            roll = firstFree();
-            if (roll) note = `${number} is not a roll that was handed over: Roll ${roll} taken`;
-        }
-    }
+    const roll = Number.isInteger(place) && place >= 1 && place <= rolls.length && !used.includes(place) ? place : 0;
     if (!roll) return { roll: 0, die: rollCode(), note: 'every roll handed over was used: code rolled' };
-    return { roll, die: rolls[roll - 1], note };
+    const die = rolls[roll - 1];
+    const number = Number.parseInt(/(\d+)/.exec(String(written ?? ''))?.[1] ?? '', 10);
+    let note = '';
+    if (!Number.isInteger(number)) note = `no roll was named: Roll ${roll} taken`;
+    else if (number >= 1 && number <= rolls.length) {
+        // A roll number; a die value that is also a roll number counts as the die when it is this one.
+        if (number !== roll && die !== number) note = `the line named Roll ${number}, but this is the reply's ${ORDINALS[roll - 1] ?? `${roll}th`} check: Roll ${roll} taken`;
+    } else if (number !== die) {
+        note = rolls.includes(number)
+            ? `the line named ${number}, Roll ${rolls.indexOf(number) + 1}'s die, but this is the reply's ${ORDINALS[roll - 1] ?? `${roll}th`} check: Roll ${roll} taken`
+            : `${number} is not a roll that was handed over: Roll ${roll} taken`;
+    }
+    return { roll, die, note };
 }
+
+const ORDINALS = ['first', 'second', 'third'];
 
 /** The d20 code rolls when no handed roll is left (ctx.roll, else ctx.rng). */
 function d20(ctx) {
@@ -181,8 +175,12 @@ function d20(ctx) {
 // ---------------------------------------------------------------------------------------
 // A check the reply wrote
 
-/** The key results of one reply share: its carrier ("index:swipe"), else its rolls' index. */
+/**
+ * The key results of one reply share: its record id (`s:<sid>`, which a middle delete never
+ * moves), else its carrier ("index:swipe"), else its rolls' index.
+ */
 function replyKey(ctx, prepared) {
+    if (typeof ctx?.carrier?.sid === 'string' && ctx.carrier.sid) return `s:${ctx.carrier.sid.slice(0, 36)}`;
     if (typeof ctx?.carrier?.key === 'string') return ctx.carrier.key;
     if (Number.isInteger(ctx?.carrier?.index)) return `${ctx.carrier.index}:${Number.isInteger(ctx.carrier.swipe) ? ctx.carrier.swipe : 0}`;
     return prepared ? `r${prepared.for ?? 'x'}:${prepared.rev}` : `rev${revOf(ctx)}`;
@@ -264,5 +262,5 @@ export const commands = {
 export const GRAMMAR = '? check <skill or stat> — what is attempted | dc: easy|normal|hard|<number> | roll: <1 or 2> | result: success|fail | who: Name';
 
 export const kinds = {
-    check: { grammar: GRAMMAR, apply: applyCheck },
+    check: { grammar: GRAMMAR, apply: clipped(applyCheck) },
 };

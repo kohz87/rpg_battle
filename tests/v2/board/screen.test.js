@@ -135,9 +135,10 @@ test('the screen: board clicks run through the template\'s command runner, Finis
     }
     assert.ok(sent.length > 0 && sent.every(([type, payload]) => type === 'combat.act' && payload.action.type === 'attack'));
     assert.equal(el.querySelector('.rpg-bb-outcome').textContent, 'Victory');
+    const fightId = world.state.domains.combat.session.id;
     el.querySelector('.rpg-bb-finish').click();
     await settle();
-    assert.deepEqual(sent.at(-1), ['combat.end', {}]);
+    assert.deepEqual(sent.at(-1), ['combat.end', { session: fightId }]);
     assert.equal(el.querySelector('.rpg-bb'), null, 'the board leaves with the fight');
     assert.deepEqual(texts(el, '.rb-fight-summary'), [world.state.domains.combat.last.summary]);
     assert.deepEqual(texts(el, '.rb-fight-offer button'), ['Fight', 'Not now'], 'the waiting offer can be fought now');

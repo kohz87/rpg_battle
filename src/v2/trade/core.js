@@ -119,7 +119,9 @@ export function makeWorld({ scene, inventory, trade, party, settings = {}, now =
         now: clock, day: clock === null ? null : Math.floor(clock / DAY),
         shortage,
         inventory: { defs: inventory?.defs ?? {}, stacks: inventory?.stacks ?? {} },
-        trade: { orders: trade?.orders ?? {}, shops: trade?.shops ?? {}, shortages: trade?.shortages ?? {} },
+        trade: { orders: trade?.orders ?? {}, shops: trade?.shops ?? {}, shortages: trade?.shortages ?? {}, paid: trade?.paid ?? {} },
+        // Where this place's shops are kept: a known place's name when one is meant (shopPlaceOf).
+        shopPlace: shopPlaceOf(place.name, packs?.places),
         currency: oneCurrency(currency),
         // The enabled packs' shops at this place (Story Block's packs.content), with their items' defs.
         packShops: packShopsAt(packs, place.name),
@@ -151,7 +153,20 @@ export function packsFrom(query) {
         }
     };
     const shops = ask('shops');
-    return { shops, items: shops.length ? ask('items') : [] };
+    return { shops, items: shops.length ? ask('items') : [], places: ask('places') };
+}
+
+/**
+ * The place the shops here belong to (B-b3-14): a known place (an enabled pack's, by its name or
+ * an alias) the scene's place name means, so "Old Bluewatch" and "Bluewatch Village" are one market
+ * when a pack says so; else the scene's place name as it is.
+ */
+export function shopPlaceOf(placeName, places) {
+    const here = placeKey(placeName);
+    if (!here || !Array.isArray(places)) return placeName;
+    const known = places.find(entry => entry && typeof entry.name === 'string'
+        && [entry.name, ...(Array.isArray(entry.aliases) ? entry.aliases : [])].some(name => placeKey(name) === here));
+    return known ? known.name : placeName;
 }
 
 /** A shop's key part after the place: its slug ("watch-stores"). */
@@ -286,7 +301,7 @@ export function stockOf(world, kind) {
     const packed = packShopFor(world, kind);
     if (packed) return packStock(world, packed, day);
     const k = traderKind(kind, world.rules);
-    const shop = shopKey(k, world.place.name);
+    const shop = shopKey(k, world.shopPlace ?? world.place.name);
     const all = shopStock({ kind: k, prices: world.prices, seed: `${shop}|${day ?? ''}`, seen: [], level: world.plevel, rules: world.rules });
     const kept = world.trade.shops[shop];
     const bought = kept && kept.day === day ? kept.bought ?? [] : [];
@@ -296,7 +311,7 @@ export function stockOf(world, kind) {
 
 /** A pack shop's stock today: its lines less what was bought that day, priced by the pack or by value. */
 function packStock(world, packed, day) {
-    const shop = `${placeKey(world.place.name)}|${packed.slug}`;
+    const shop = `${placeKey(world.shopPlace ?? world.place.name)}|${packed.slug}`;
     const kept = world.trade.shops[shop];
     const bought = kept && kept.day === day ? kept.bought ?? [] : [];
     const rate = world.prices.shortage ? world.prices.shortage / 100 : 1;
@@ -324,7 +339,9 @@ export function planSell(world, { stack, qty = 1, kind = null, who = '' } = {}) 
     if (def.kind === 'money' || def.kind === 'quest') return no(CODES.refused, `The ${def.name} cannot be sold.`);
     if (row.qty < qty) return no(CODES.notEnough, row.qty ? `There ${row.qty === 1 ? 'is' : 'are'} only ${row.qty} ${def.name}.` : `There is no ${def.name} left.`);
     const buyer = traderKind(kind || who, world.rules);
-    const each = sellEach(def, buyer, world);
+    // A thing bought (or commissioned) never sells for more than was paid for it (B-b3-13, -14).
+    const paid = world.trade.paid?.[def.id];
+    const each = Number.isInteger(paid) ? Math.min(sellEach(def, buyer, world), paid) : sellEach(def, buyer, world);
     const total = each * qty;
     const name = whoOf(who || kind, buyer);
     const line = tradeLine({ kind: 'sell', name: def.name, qty, total, who: name }, world.currency);
@@ -339,7 +356,7 @@ export function planBuy(world, { shop, def, qty = 1, who = '' } = {}) {
     let kind = said;
     if (said.includes('|')) {
         const at = said.lastIndexOf('|');
-        if (said.slice(0, at) !== placeKey(world.place.name)) return no(CODES.notFound, 'That shop is not here.');
+        if (said.slice(0, at) !== placeKey(world.shopPlace ?? world.place.name)) return no(CODES.notFound, 'That shop is not here.');
         kind = said.slice(at + 1);
     }
     const stock = stockOf(world, kind);
@@ -393,15 +410,20 @@ export function planCommission(world, { piece, materials, crafter } = {}) {
     const said = whoOf(who, kind);
     const stats = Object.entries(made.stats).map(([stat, value]) => `${stat} +${value}`).join(', ');
     const note = [made.rarity, [stats, ...(made.tags ?? [])].filter(Boolean).join(', '), made.slot].filter(Boolean).join(' · ');
+    // The piece is worth what went into it (B-b3-13): its materials' worth and the fee; and it
+    // never sells for more than the fee and what the materials would have fetched (`cap`, kept as
+    // what was paid for it when it is collected), so a commission mints nothing.
+    const inputs = parts.reduce((sum, part) => sum + worthOf(part.def, world) * part.qty, 0);
+    const raw = parts.reduce((sum, part) => sum + Math.min(...TRADER_KINDS.map(buyer => sellEach(part.def, buyer, world))) * part.qty, 0);
     const def = {
-        name: made.name, kind: 'equipment', rarity: made.rarity, value: itemWorth(made, { level: world.plevel, rules: world.rules }), stack: false,
+        name: made.name, kind: 'equipment', rarity: made.rarity, value: Math.max(1, inputs + fee), stack: false,
         slot: made.slot, stats: { ...made.stats }, effect: {}, tags: [...(made.tags ?? [])], note,
     };
     const from = parts.map(part => (part.qty > 1 ? `${part.qty} ${part.def.name}` : part.def.name));
     const line = tradeLine({ kind: 'order', name: made.name, who: said, from, fee, span, ready: when, when }, world.currency);
     return {
         ok: true, type: 'commission', piece: def, materials: parts.map(part => ({ stack: part.stack, def: part.def.id, qty: part.qty })),
-        fee, hours, ready, span, when, crafter: said, kind, place: world.place.name, line,
+        fee, cap: fee + raw, hours, ready, span, when, crafter: said, kind, place: world.place.name, line,
     };
 }
 

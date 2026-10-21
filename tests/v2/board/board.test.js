@@ -10,6 +10,8 @@ import { actor } from '../combat/helpers/fake-ctx.js';
 import { battleBoard, part, WIDGET_NAME, boardView } from '../../../src/v2/board/index.js';
 
 const sessionOf = world => world.query('combat.session');
+// What the board sent, without the fight id and log length it stamps every action with (checked once below).
+const plain = sent => sent.map(([type, { session: _session, logLength: _length, ...rest }]) => [type, rest]);
 
 test('the part: the widget under its namespaced name, the board query, the Fight screen', () => {
     assert.equal(WIDGET_NAME, 'rpg-battle.battle-board');
@@ -128,8 +130,10 @@ test('action buttons send combat.act with the combat part\'s payloads', () => {
     for (const [kind, action] of plays) {
         const world = liveFight();
         const { el, sent } = mount(world);
+        const shown = sessionOf(world);
         byAct(el, kind).click();
-        assert.deepEqual(sent, [['combat.act', { action }]], kind);
+        assert.deepEqual(plain(sent), [['combat.act', { action }]], kind);
+        assert.deepEqual([sent[0][1].session, sent[0][1].logLength], [shown.id, shown.logLength], 'the action names the fight and the moment it was chosen for');
         assert.equal(world.receipts.at(-1).type, 'combat.act', `${kind} was played`);
         assert.deepEqual(world.state.domains.combat.session.actions.at(-1), action);
     }
@@ -144,7 +148,7 @@ test('action buttons send combat.act with the combat part\'s payloads', () => {
     assert.equal(target.getAttribute('role'), 'button');
     assert.equal(target.getAttribute('aria-label'), 'Target Cellar Rat B');
     target.querySelector('.rpg-bb-name').click();
-    assert.deepEqual(sent, [['combat.act', { action: { type: 'attack', target: 'fo_00000002' } }]]);
+    assert.deepEqual(plain(sent), [['combat.act', { action: { type: 'attack', target: 'fo_00000002' } }]]);
 
     // A skill aimed at one enemy, from the Skill list (cost and cooldown shown); Enter picks the target.
     const w2 = liveFight();
@@ -157,7 +161,7 @@ test('action buttons send combat.act with the combat part\'s payloads', () => {
     entry.click();
     const third = enemyCards(m2.el)[2];
     third.dispatch('keydown', { key: 'Enter' });
-    assert.deepEqual(m2.sent, [['combat.act', { action: { type: 'skill', skill: 'Power Strike', target: 'fo_00000003' } }]]);
+    assert.deepEqual(plain(m2.sent), [['combat.act', { action: { type: 'skill', skill: 'Power Strike', target: 'fo_00000003' } }]]);
     assert.equal(w2.receipts.at(-1).type, 'combat.act');
 
     // An item for an ally: only Ren can take it, so it goes at once.
@@ -167,7 +171,7 @@ test('action buttons send combat.act with the combat part\'s payloads', () => {
     const potion = m3.el.querySelector('.rpg-bb-menu-item .rpg-bb-entry');
     assert.equal(potion.querySelector('.rpg-bb-entry-meta').textContent, '×2 · one ally');
     potion.click();
-    assert.deepEqual(m3.sent, [['combat.act', { action: { type: 'item', item: 'Minor Healing Draught', target: 'ac_00000001' } }]]);
+    assert.deepEqual(plain(m3.sent), [['combat.act', { action: { type: 'item', item: 'Minor Healing Draught', target: 'ac_00000001' } }]]);
 });
 
 test('parley aims at the foes that talk, and a single target goes at once', () => {
@@ -183,7 +187,7 @@ test('parley aims at the foes that talk, and a single target goes at once', () =
     assert.equal(el.querySelector('.rpg-bb-picking-text').textContent, 'Parley: tap an enemy.');
     assert.equal(el.querySelectorAll('.rpg-bb-preview').length, 0, 'talking shows no damage');
     enemyCards(el)[1].click();
-    assert.deepEqual(sent, [['combat.act', { action: { type: 'parley', target: 'fo_00000002' } }]]);
+    assert.deepEqual(plain(sent), [['combat.act', { action: { type: 'parley', target: 'fo_00000002' } }]]);
     assert.equal(world.receipts.at(-1).type, 'combat.act');
     // One foe: Attack sends straight away (v1).
     const lone = liveFight('Giant Rat', { tier: 'weak' });
@@ -266,8 +270,9 @@ test('the result: outcome, XP, loot, then Finish runs combat.end', () => {
     assert.ok(result.querySelector('.rpg-bb-defeated').textContent.startsWith('Defeated: '));
 
     // Finish settles the fight; what it applies is what the panel showed.
+    const fightId = world.state.domains.combat.session.id;
     byText(el, 'Finish').click();
-    assert.deepEqual(sent.at(-1), ['combat.end', {}]);
+    assert.deepEqual(sent.at(-1), ['combat.end', { session: fightId }]);
     const ended = world.receipts.at(-1);
     assert.equal(ended.type, 'combat.end');
     assert.deepEqual(ended.data.loot.items.map(item => item.name), view.result.loot.items.map(item => item.name));

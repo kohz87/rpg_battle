@@ -147,15 +147,20 @@ test('outcomes: at or over the DC succeeds, 1 or 2 short succeeds at a cost, low
     assert.equal(outcome(10, 15).mismatch, '');
 });
 
-test('the roll named: "Roll 2", a die value handed over, none, one used already, one never handed', () => {
+test('the roll is the check\'s place in the reply (F80), whatever the line names; another roll named is noted (B-b4-2)', () => {
     const named = written => captured(ready([12, 5]), `? check stealth — x | dc: 10${written === null ? '' : ` | roll: ${written}`}`).entry;
-    assert.deepEqual([named('Roll 2').roll, named('Roll 2').die], [2, 5]);
-    assert.deepEqual([named('12').roll, named('12').note], [1, ''], 'a die value that was handed over is that roll');
+    assert.deepEqual([named('Roll 1').roll, named('Roll 1').die, named('Roll 1').note], [1, 12, '']);
+    assert.deepEqual([named('12').roll, named('12').note], [1, ''], 'the die value of its own roll');
+    assert.deepEqual([named('Roll 2').roll, named('Roll 2').die, named('Roll 2').note], [1, 12, 'the line named Roll 2, but this is the reply\'s first check: Roll 1 taken']);
+    assert.deepEqual([named('5').roll, named('5').note], [1, 'the line named 5, Roll 2\'s die, but this is the reply\'s first check: Roll 1 taken']);
     assert.deepEqual([named(null).roll, named(null).note], [1, 'no roll was named: Roll 1 taken']);
     assert.deepEqual([named('17').roll, named('17').note], [1, '17 is not a roll that was handed over: Roll 1 taken']);
     const first = captured(ready([12, 5]), '? check stealth — x | dc: 10 | roll: 1').state;
-    const reused = captured(first, '? check climb — y | dc: 10 | roll: 1').entry;
-    assert.deepEqual([reused.roll, reused.die, reused.note], [2, 5, 'Roll 1 was already used: Roll 2 taken']);
+    const second = captured(first, '? check climb — y | dc: 10 | roll: 1').entry;
+    assert.deepEqual([second.roll, second.die, second.note], [2, 5, 'the line named Roll 1, but this is the reply\'s second check: Roll 2 taken']);
+    const firstNamesTwo = captured(ready([12, 5]), '? check stealth — x | dc: 10 | roll: 2').state;
+    const secondNamesOne = captured(firstNamesTwo, '? check climb — y | dc: 10 | roll: 1').entry;
+    assert.deepEqual([secondNamesOne.roll, secondNamesOne.die], [2, 5], 'the second check still takes Roll 2');
 });
 
 test('no rolls handed over for the reply: code rolls the d20 itself and says so', () => {

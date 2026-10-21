@@ -22,7 +22,7 @@ const rejected = (host, type, payload, code) => {
 
 test('part shape: domain, commands, queries, settings, tab', () => {
     assert.deepEqual(Object.keys(part.domains), ['trade']);
-    assert.deepEqual(part.domains.trade.initial(), { orders: {}, shops: {}, shortages: {} });
+    assert.deepEqual(part.domains.trade.initial(), { orders: {}, shops: {}, shortages: {}, paid: {} });
     assert.deepEqual(Object.keys(part.commands).sort(), ['craft.collect', 'craft.commission', 'trade.buy', 'trade.sell']);
     assert.deepEqual(Object.keys(part.queries).sort(), ['trade.market', 'trade.orders', 'trade.quote', 'trade.shops', 'trade.stock']);
     assert.deepEqual(Object.keys(part.kinds), ['market']);

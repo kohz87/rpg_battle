@@ -118,7 +118,7 @@ each('item.equip: a weapon swapped says what came off', () => {
 
 each('item.give → inventory.transfer { stack, to, qty }: the callee moves exactly qty to that actor', () => {
     const { h, pc } = withHero();
-    const joined = h.command('party.addCompanion', { name: 'Lyra', role: 'archer' });
+    const joined = h.command('party.addCompanion', { name: 'Lyra', role: 'archer' }, { cause: 'system' });
     assert.equal(joined.ok, true, joined.message);
     const lyra = joined.receipt.data.actor;
     const pot = storyItem(h, 'Minor Healing Draught', 3);
@@ -142,9 +142,11 @@ each('combat.end → party.applyResult { outcome, stakes, actors: [{ id, hp, mp,
     assert.deepEqual(keys(applied.actors[0]), ['conditions', 'down', 'hp', 'id', 'mp', 'sp', 'uses']);
     const me = h.state().domains.party.actors[pc];
     assert.equal(applied.actors[0].id, pc);
-    assert.deepEqual(me.hp, applied.actors[0].hp);
-    assert.deepEqual(me.mp, applied.actors[0].mp);
-    assert.deepEqual(me.sp, applied.actors[0].sp);
+    // Only the current numbers are sent (B-b4-4): each member's maxima stay the party's own.
+    for (const key of ['hp', 'mp', 'sp']) {
+        assert.deepEqual(keys(applied.actors[0][key]), ['cur'], key);
+        assert.equal(me[key].cur, applied.actors[0][key].cur, key);
+    }
     // A fight's "bleed" is kept as the party's kind word.
     for (const cond of applied.actors[0].conditions) assert.ok(me.conditions.some(c => c.kind.startsWith(cond.kind.slice(0, 4))), `${cond.kind} kept`);
 });
@@ -302,11 +304,13 @@ each('Story Director → party.grantXp { quest, difficulty }: given once per que
         id: 'story-director',
         commands: { 'quest.finishQa': (ctx, payload) => { ctx.call('party.grantXp', { quest: payload.quest, difficulty: 'hard' }); return { summary: 'done' }; } },
     });
-    const first = h.command('quest.finishQa', { quest: 'q_ab12cd34' });
+    // As a system command: the sb bus's shim gives a caller only to RPG Battle's own handlers, and
+    // party.grantXp refuses a click with no calling module (B-b3-10).
+    const first = h.command('quest.finishQa', { quest: 'q_ab12cd34' }, { cause: 'system' });
     assert.equal(first.ok, true, first.message);
     assert.ok(h.state().domains.party.actors[pc].xp > 0);
     assert.equal(h.state().meta.claims['xp:quest:q_ab12cd34'], true);
-    const again = h.command('quest.finishQa', { quest: 'q_ab12cd34' });
+    const again = h.command('quest.finishQa', { quest: 'q_ab12cd34' }, { cause: 'system' });
     assert.equal(again.ok, false);
     assert.equal(again.code, 'CLAIMED');
 });
@@ -314,11 +318,11 @@ each('Story Director → party.grantXp { quest, difficulty }: given once per que
 each('party.grantXp { difficulty } refuses a word that is not a quest difficulty', () => {
     const { h } = withHero();
     const before = JSON.stringify(h.state());
-    const r = h.command('party.grantXp', { difficulty: 'banana' });
+    const r = h.command('party.grantXp', { difficulty: 'banana' }, { cause: 'system' });
     assert.equal(r.ok, false);
     assert.equal(r.code, 'INVALID');
     assert.equal(JSON.stringify(h.state()), before);
-    assert.equal(h.command('party.grantXp', { difficulty: 'Hard' }).ok, true, 'any case of a real one');
+    assert.equal(h.command('party.grantXp', { difficulty: 'Hard' }, { cause: 'system' }).ok, true, 'any case of a real one');
 });
 
 each('party.heal / party.restore refuse a fractional or negative amount (no half HP reaches the state)', () => {
@@ -326,7 +330,7 @@ each('party.heal / party.restore refuse a fractional or negative amount (no half
     hurt(h);
     for (const hp of [1.5, -3, Number.NaN, '5']) {
         const before = JSON.stringify(h.state());
-        const r = h.command('party.heal', { actor: pc, hp });
+        const r = h.command('party.heal', { actor: pc, hp }, { cause: 'system' });
         assert.equal(r.ok, false, `hp ${hp}`);
         assert.equal(JSON.stringify(h.state()), before);
     }

@@ -10,6 +10,7 @@
 
 import { USE_GRAMMAR, applyUse, itemEquip, itemGive, itemUnequip, itemUse } from './commands.js';
 import { defineItem } from './define.js';
+import { clipped } from '../lines.js';
 import { itemsTab } from './page.js';
 import { DEFAULTS as CARRY_DEFAULTS } from './carry.js';
 import { carry, gear, usable } from './queries.js';
@@ -32,7 +33,7 @@ export const part = {
     },
     // A story's use (MODULES §F96): `! use <item> | on: Name`, applied by code (story-use.js).
     kinds: {
-        use: { grammar: USE_GRAMMAR, apply: applyUse },
+        use: { grammar: USE_GRAMMAR, apply: clipped(applyUse) },
     },
     context: { static: () => USE_STATIC, tail: () => ({ lines: [], optional: [] }), budget: 0 },
     hooks: {
