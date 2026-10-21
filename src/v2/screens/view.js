@@ -14,7 +14,7 @@
 import { DEFAULT_RULES, STATS, checkModifier, makeRules, statCap, xpToNext } from '../../rules.js';
 import { DEFAULT_SKILLS, findSkill } from '../../skills.js';
 import { useItemOutside } from '../../recovery.js';
-import { maxLevel } from '../../terms.js';
+import { levelTag, maxLevel, xpLabel } from '../../terms.js';
 import { isMaterial } from '../../trade.js';
 
 export const MODULE_ID = 'rpg-battle';
@@ -38,10 +38,12 @@ export const STAT_NAMES = Object.freeze({
  */
 export function settingsFor(args, tools = null) {
     if (isRecord(args?.settings)) return args.settings;
+    // The display terms as src/v2/module.js hands them to the query (a pack's under the reader's, §F25).
+    const terms = isRecord(tools?.settings?.terms) ? { terms: tools.settings.terms } : {};
     try {
         const sdk = globalThis.StoryBlock?.sdk;
         const found = typeof sdk?.settings === 'function' ? sdk.settings(MODULE_ID) : null;
-        if (isRecord(found)) return found;
+        if (isRecord(found)) return { ...found, ...terms };
     } catch {
         // No host: the tools' settings, if any.
     }
@@ -195,7 +197,9 @@ export function actorCard(actor, party, { rules = DEFAULT_RULES, portrait = null
         control: actor.control ?? 'auto',
         role,
         level,
-        line: [`Lv ${level}`, role, who].filter(Boolean).join(' · '),
+        line: [levelTag(level, rules), role, who].filter(Boolean).join(' · '),
+        // The reader's (or the pack's) word for XP (MODULES §F25), the EXP meter's label.
+        xpName: xpLabel(rules) === 'XP' ? 'EXP' : xpLabel(rules),
         portrait: typeof portrait === 'string' && portrait ? portrait : typeof actor.portrait === 'string' && actor.portrait ? actor.portrait : '',
         hp,
         mp: pool(actor.mp),

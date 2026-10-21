@@ -66,6 +66,8 @@ export function createFakeStore({ chat, save = async () => {} }) {
         head: () => at(headIndex()),
         at,
         headIndex,
+        receipts: () => carriers().flatMap(i => (chat()[i].extra?.storySuite?.receipts ?? []).map(receipt => ({ index: i, receipt: clone(receipt) }))),
+        opsAt: index => clone(chat()[index]?.extra?.storySuite?.ops ?? []),
         changesAt: index => [...new Set((chat()[index]?.extra?.storySuite?.ops ?? []).map(op => op.path))],
         ensureInitial(initial) {
             const first = carriers()[0];

@@ -38,14 +38,15 @@ export async function hostAvailable() {
 
 /**
  * Builds a host. `options`: { modules?: def[] (registered after the core ones), core?: true
- * (register Story Block's core module: scene, inventory, packs, events), fakes?: false (use fakes.js), st?: options for
+ * (register Story Block's core module: scene, inventory, packs, events, assist), callModel?(prompt, opts)
+ * (the assist helpers' model call), fakes?: false (use fakes.js), st?: options for
  * createFakeContext (plus onBlocked?), settings?: initial extension_settings.storySuite }.
  * Returns { st, ctx, registry, settings, store, bus, events, sdk, turn, packs, send(text, reply),
  * swipe(reply), regenerate(reply), cont(reply), quiet(), head(), close() }; `st` is the fake
  * SillyTavern (fake-st.js), with `st.notices` = [{ reason, moduleId }] for held-back generations. Throws when the runtime is missing and `fakes` is not set.
  */
 export async function createHost(options = {}) {
-    const { modules = [], core = true, fakes = false, st: stOptions = {}, settings: initialSettings = null } = options;
+    const { modules = [], core = true, fakes = false, st: stOptions = {}, settings: initialSettings = null, callModel = null } = options;
     let createStore = createFakeStore;
     let createCommandBus = createFakeBus;
     if (!fakes) {
@@ -64,7 +65,7 @@ export async function createHost(options = {}) {
     // The same wiring as index.js (src/v2/runtime.js): the core module with its packs part over the
     // fake extension settings, then the given modules.
     const runtime = createRuntime({
-        ctx, core, modules, createStore, createCommandBus,
+        ctx, core, modules, createStore, createCommandBus, callModel,
         onBlocked: stOptions.onBlocked ?? null,
         notify: (reason, moduleId) => st.notices.push({ reason, moduleId }),
     });

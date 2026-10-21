@@ -1,6 +1,6 @@
 # RPG Battle v2.0.0-alpha.1
 
-> **Story Suite v2 is being built on the `v2` branch.** On `v2`, RPG Battle is a module of Story Block v2 (it needs Story Block 2 and shows one line in the drawer without it): the party, checks, items, combat, return-in-time and trade parts are merged into one module (`src/v2/module.js`, loaded by `index.js`); the v1 glue is kept in `v1.js` but not loaded. Battle board and screens in progress. Progress for the whole suite: [Story Block docs/v2/STATUS.md](https://github.com/kohz87/Story_block/blob/v2/docs/v2/STATUS.md). The rest of this README describes v1 until v2 is released.
+> **Story Suite v2 is being built on the `v2` branch.** On `v2`, RPG Battle is a module of Story Block v2 (it needs Story Block 2 and shows one line in the drawer without it): the party, creation, checks, items, combat, battle board, return-in-time, trade and screens parts are merged into one module (`src/v2/module.js`, loaded by `index.js`), with Story Block's screens for Party, Items, Trade, Fight, the HUD, the card under each reply and the character creation wizard; the v1 glue is kept in `v1.js` but not loaded. Progress for the whole suite: [Story Block docs/v2/STATUS.md](https://github.com/kohz87/Story_block/blob/v2/docs/v2/STATUS.md). The rest of this README describes v1 until v2 is released.
 
 
 Turn-based fights for SillyTavern, resolved in code, and a party that grows with the story.

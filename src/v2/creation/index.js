@@ -1,5 +1,6 @@
 // RPG Battle v2, part **creation** (MODULES §F12, §F14; SPEC §13.6): making your character.
-// Built-in races and talents (used for each kind no enabled pack provides), the commands
+// Built-in races and talents (used for each kind no enabled pack provides), the packs'
+// ready-made characters (the wizard's Start step, widget `rpg-battle.preset-pick`), the commands
 // `creation.finish` (the wizard's whole draft, checked, then `party.create` in the same
 // transaction) and `creation.rollTalent` (a seeded random talent, through preview and commit),
 // the queries the wizard reads, the small `creation` domain that keeps rolled talents, and the
@@ -22,6 +23,7 @@ import { SETTINGS_DEFAULTS, SETTINGS_SCHEMA } from './build.js';
 import { commands, initialCreation, queries, validateCreation } from './commands.js';
 import { openCreation } from './open.js';
 import { createScreen } from './screen.js';
+import { PRESET_WIDGET, presetPick } from './preset-pick.js';
 
 /**
  * onBlocked(reason, moduleId) (Story Block's turn calls the blocking module's hook): when the
@@ -47,6 +49,7 @@ export const part = {
     hooks: { onBlocked },
     settings: { section: 'Character creation', defaults: { ...SETTINGS_DEFAULTS }, schema: SETTINGS_SCHEMA },
     tabs: [],
+    widgets: { [PRESET_WIDGET]: presetPick },
     screens: [createScreen],
 };
 
@@ -56,3 +59,4 @@ export { buildQuery, cleanPortrait, commands, contentQuery, initialCreation, que
 export { openCreation, startDraft } from './open.js';
 export { BACKGROUND_LIMIT, avatarUrl, personaFor, readPersona } from './persona.js';
 export { CREATE_SCREEN_ID, CREATE_STEPS, createScreen } from './screen.js';
+export { PRESET_WIDGET, presetDraft, presetPick, renderPresetPick } from './preset-pick.js';

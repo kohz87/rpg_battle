@@ -1,8 +1,7 @@
 // Story Suite v2: the one `render(el, screen, scope)` the mounts are given (src/v2/view/mounts/common.js).
 // A screen is drawn by the layout renderer (src/v2/layout/) when it has a `layout`, and by the template
-// renderer (SPEC §13.2, src/v2/view/template/) when it has a `template`. The template renderer is an
-// optional piece: until its files are in this checkout a template screen shows one plain line saying so,
-// and `setTemplates()` (or a successful `loadTemplates()`) plugs it in without touching the mounts.
+// renderer (SPEC §13.2, src/v2/view/template/) when it has a `template`, with its css scoped to the
+// screen (src/v2/view/css.js). `setTemplates(null)` turns templates off (a plain line instead).
 //
 // What a screen gets:
 // * queries against the state the mount shows (`scope.state`: the head, or a card's own reply), through
@@ -16,9 +15,13 @@
 import { compile, evaluate as evaluateAst } from '../events/condition.js';
 import { renderLayout } from '../layout/index.js';
 import { ensureLayoutStyles } from '../layout/styles.js';
+import { conditionEvaluator } from './bind.js';
+import { scopeCss } from './css.js';
+import { compileTemplate, renderTemplate } from './template/index.js';
 
-const TEMPLATE_MODULE = './template/index.js';
-const CSS_MODULE = './css.js';
+/** The template renderer (SPEC §13.2) as this file uses it; setTemplates() can swap it (tests). */
+export const TEMPLATES = Object.freeze({ compileTemplate, renderTemplate, scopeCss });
+const templateEvaluate = conditionEvaluator({ compile, evaluate: evaluateAst });
 
 /** A condition evaluator for layouts: (cond, { item, index, query }) → true only when it holds. */
 export function layoutEvaluator(scope) {
@@ -33,11 +36,12 @@ export function layoutEvaluator(scope) {
 }
 
 /**
- * createScreenRenderer({ queryAt, widgets, headIndex, templates?, sanitize?, doc? }) →
- * { render(el, screen, scope), setTemplates(mod), loadTemplates(), hasTemplates() }.
- * `widgets()` → { [name]: widget }; `templates` = { compileTemplate, renderTemplate, scopeCss? }.
+ * createScreenRenderer({ queryAt, widgets, headIndex, templates?, sanitize?, formatters? }) →
+ * { render(el, screen, scope), setTemplates(mod), hasTemplates() }.
+ * `widgets()` → { [name]: widget }; `templates` = { compileTemplate, renderTemplate, scopeCss? }
+ * (default TEMPLATES); `formatters()` → { money(n), time(m) } for templates' fmt helpers.
  */
-export function createScreenRenderer({ queryAt, widgets = () => ({}), headIndex = () => null, templates = null, sanitize = null } = {}) {
+export function createScreenRenderer({ queryAt, widgets = () => ({}), headIndex = () => null, templates = TEMPLATES, sanitize = null, formatters = () => ({}) } = {}) {
     let tpl = templates;
     const compiled = new Map();      // template text → compiled template
 
@@ -88,8 +92,8 @@ export function createScreenRenderer({ queryAt, widgets = () => ({}), headIndex 
             }
             css(el, screen);
             if (!compiled.has(screen.template)) compiled.set(screen.template, tpl.compileTemplate(screen.template, { sanitize }));
-            const view = tpl.renderTemplate(el, compiled.get(screen.template), scope, {
-                command, evaluate, widgets: widgets(), onDraft: api.onDraft,
+            const view = tpl.renderTemplate(el, compiled.get(screen.template), { ...scope, query, formatters: formatters() ?? {} }, {
+                command, evaluate: templateEvaluate, widgets: widgets(), onDraft: api.onDraft,
                 api: { query, preview: api.preview, commit: api.commit, on: api.on },
             });
             return view && typeof view.destroy === 'function' ? () => view.destroy() : undefined;
@@ -101,17 +105,5 @@ export function createScreenRenderer({ queryAt, widgets = () => ({}), headIndex 
         render,
         setTemplates(mod) { tpl = mod; compiled.clear(); },
         hasTemplates: () => Boolean(tpl?.renderTemplate),
-        /** Plugs in the template renderer when its files are in this checkout; false when they are not. */
-        async loadTemplates() {
-            try {
-                const [main, styles] = await Promise.all([import(TEMPLATE_MODULE), import(CSS_MODULE).catch(() => ({}))]);
-                if (typeof main.renderTemplate !== 'function' || typeof main.compileTemplate !== 'function') return false;
-                tpl = { compileTemplate: main.compileTemplate, renderTemplate: main.renderTemplate, scopeCss: styles.scopeCss };
-                compiled.clear();
-                return true;
-            } catch {
-                return false;
-            }
-        },
     };
 }

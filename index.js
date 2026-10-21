@@ -2,8 +2,8 @@
 //
 // RPG Battle 2 is a module of Story Block v2 (docs/v2/SPEC.md §6): Story Block keeps the state,
 // runs the commands, reads the replies' change lines and builds the prompt; this file only waits
-// for it and registers RPG Battle's definition (src/v2/module.js: the party, items, combat and
-// trade parts). Without a v2 host it shows one line in the extensions drawer saying Story Block
+// for it and registers RPG Battle's definition (src/v2/module.js: the party, creation, checks,
+// items, combat, board, return, trade and screens parts). Without a v2 host it shows one line in the extensions drawer saying Story Block
 // v2 is needed, and does nothing else. The v1 glue (v1.js) stays in the repository but is not
 // loaded: no v1 interceptor, blocks or tabs.
 

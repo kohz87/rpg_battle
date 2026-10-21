@@ -1,6 +1,7 @@
 // RPG Battle v2: the one module definition Story Block registers (SPEC §6), merged from its
-// parts (MODULES §A): party, checks (pending d20 checks, §F16), items, combat, return (in time
-// after death, §F17) and trade, in that order.
+// parts (MODULES §A): party, creation (making your character, §F12, §F14), checks (pending d20
+// checks, §F16), items, combat, board (the battle screen), return (in time after death, §F17)
+// trade and screens (the default screens: party, items, trade, HUD, status card), in that order.
 //
 // - domains, commands and queries are put together as they are; a name two parts claim is a
 //   mistake, refused here before Story Block ever sees it.
@@ -15,8 +16,15 @@
 // - settings: each part's keys under its part id (`combat.hitBase`), so two parts can never clash,
 //   labelled with the part's section title; a part still reads its own keys bare
 //   (`ctx.settings().hitBase`), with the module's un-namespaced keys (a rules file's `rules`,
-//   `xpRate`, `terms`, `gear`) under them.
-// - tabs: every part's, in part order; widgets (names `rpg-battle.<name>`, §F9) put together.
+//   `xpRate`, `terms`, `gear`) under them. A few keys are handed on to a part that needs another's
+//   (SHARED_SETTINGS: creation reads the Character points budget as `party.startPoints`).
+// - terms (MODULES §F25): what a pack suggests for the level and XP names and the tier titles
+//   (Story Block's `packs.content({ kind: 'terms' })`) goes under the reader's own `terms`, field
+//   by field, wherever a part reads its settings through a ctx, a view or a query's tools; the
+//   reader's own words always win.
+// - screens (SPEC §13.1) and widgets (names `rpg-battle.<name>`, §F9): every part's put together, a
+//   name two parts claim refused. tabs: every part's, in part order, except a hand-built tab a
+//   screen now covers (a screen `rpg-battle/<tab id>` with a tab mount): the screen is that tab.
 //
 // What a handler gets is Story Block's ctx (SPEC §3.2) with two things made the part's own: its
 // settings, as above, and `ctx.rev` (MODULES §F2) worked out from the state when the host does not
@@ -24,18 +32,31 @@
 // tools (a command's ctx.query) the tools reach this module's own queries.
 
 import { part as party } from './party/index.js';
+import { part as creation } from './creation/index.js';
 import { part as checks } from './checks/index.js';
 import { part as items } from './items/index.js';
 import { part as combat } from './combat/index.js';
+import { part as board } from './board/index.js';
 import { part as returnPart } from './return/index.js';
 import { part as trade } from './trade/index.js';
+import { part as screens } from './screens/index.js';
+import { withTerms } from '../terms.js';
+
+export { TERM_FIELDS, mergeTerms, packTerms, withTerms } from '../terms.js';
 
 export const MODULE_ID = 'rpg-battle';
 export const MODULE_NAME = 'RPG Battle';
 export const VERSION = '2.0.0-alpha.1';
 
 /** The parts in their order: [part id, part]. */
-export const PARTS = Object.freeze([['party', party], ['checks', checks], ['items', items], ['combat', combat], ['return', returnPart], ['trade', trade]]);
+export const PARTS = Object.freeze([
+    ['party', party], ['creation', creation], ['checks', checks], ['items', items], ['combat', combat],
+    ['board', board], ['return', returnPart], ['trade', trade], ['screens', screens],
+]);
+
+// Settings a part reads from another part: part → { other part: [keys] }, handed on with the
+// other part's prefix (`party.startPoints`), so they never mix with the part's own bare keys.
+export const SHARED_SETTINGS = Object.freeze({ creation: Object.freeze({ party: Object.freeze(['startPoints', 'statCap']) }) });
 
 // Change-line kinds a later part takes over from an earlier one: kind → the part that keeps it.
 export const KIND_OVERRIDES = Object.freeze({ check: 'checks' });
@@ -61,6 +82,12 @@ export function partSettings(all, partId) {
     }
     for (const [key, value] of Object.entries(isObject(all) ? all : {})) {
         if (key.startsWith(prefix)) out[key.slice(prefix.length)] = value;
+    }
+    for (const [other, keys] of Object.entries(SHARED_SETTINGS[partId] ?? {})) {
+        for (const key of keys) {
+            const long = settingKey(other, key);
+            if (isObject(all) && Object.hasOwn(all, long)) out[long] = all[long];
+        }
     }
     return out;
 }
@@ -107,12 +134,16 @@ export function createModule({ settings = null } = {}) {
             }
             return isObject(source) ? { ...defaults, ...source } : moduleSettings();
         };
-        return Object.freeze({ ...(view ?? {}), settings: () => partSettings(raw(), partId) });
+        const query = typeof view?.query === 'function' ? (name, args) => view.query(name, args) : null;
+        return Object.freeze({ ...(view ?? {}), settings: () => withTerms(partSettings(raw(), partId), query) });
     };
     // Story Block's ctx with the part's settings and ctx.rev.
     const ctxFor = (ctx, partId) => {
         const out = { ...ctx };
-        out.settings = id => (id === undefined || id === null || id === MODULE_ID ? partSettings({ ...defaults, ...(ctx.settings() ?? {}) }, partId) : ctx.settings(id));
+        const query = typeof ctx.query === 'function' ? (name, args) => ctx.query(name, args) : null;
+        out.settings = id => (id === undefined || id === null || id === MODULE_ID
+            ? withTerms(partSettings({ ...defaults, ...(ctx.settings() ?? {}) }, partId), query)
+            : ctx.settings(id));
         if (!Number.isInteger(ctx.rev)) {
             let rev;
             Object.defineProperty(out, 'rev', {
@@ -133,10 +164,11 @@ export function createModule({ settings = null } = {}) {
     const commands = {};
     const queries = {};
     const kinds = {};
-    const owners = { domain: {}, command: {}, query: {}, kind: {}, tab: {}, widget: {} };
+    const owners = { domain: {}, command: {}, query: {}, kind: {}, tab: {}, widget: {}, screen: {} };
     const hooks = {};
     const tabs = [];
     const widgets = {};
+    const screens = [];
     const statics = [];
     const tails = [];
     let budget = 0;
@@ -163,7 +195,7 @@ export function createModule({ settings = null } = {}) {
         for (const [name, fn] of Object.entries(part.queries ?? {})) {
             claim(owners.query, name, id, 'query');
             queries[name] = (state, args, tools) => fn(state, args, tools
-                ? Object.freeze({ ...tools, settings: partSettings(moduleSettings(), id) })
+                ? Object.freeze({ ...tools, settings: withTerms(partSettings(moduleSettings(), id), typeof tools.query === 'function' ? tools.query : null) })
                 : localTools(state, id));
         }
         for (const [kind, spec] of Object.entries(part.kinds ?? {})) {
@@ -183,11 +215,19 @@ export function createModule({ settings = null } = {}) {
             claim(owners.widget, name, id, 'widget');
             widgets[name] = widget;
         }
+        for (const screen of part.screens ?? []) {
+            claim(owners.screen, screen?.id, id, 'screen');
+            screens.push(screen);
+        }
         if (typeof part.context?.static === 'function') statics.push(part.context.static);
         if (typeof part.context?.tail === 'function') tails.push({ part: id, tail: part.context.tail });
         budget += Number.isInteger(part.context?.budget) && part.context.budget > 0 ? part.context.budget : 0;
     }
     claim(owners.query, REV_QUERY, 'module', 'query');
+
+    // A hand-built tab a screen now covers gives way to it (the screen shows as that tab).
+    const covered = new Set(screens.filter(screen => (screen.mounts ?? []).includes('tab')).map(screen => screen.id));
+    const shownTabs = tabs.filter(tab => !covered.has(`${MODULE_ID}/${tab.id}`));
     queries[REV_QUERY] = state => (Number.isInteger(state?.meta?.rev) ? state.meta.rev : 0);
 
     const mergedHooks = {};
@@ -232,8 +272,9 @@ export function createModule({ settings = null } = {}) {
         },
         hooks: mergedHooks,
         settings: { defaults, schema },
-        tabs,
+        tabs: shownTabs,
         widgets,
+        screens,
     };
 }
 

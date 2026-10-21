@@ -127,6 +127,21 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
         return deepFreeze({ ...tx.head, meta: tx.meta ? clone(tx.meta) : tx.head.meta, domains });
     }
 
+    // A query's third argument (MODULES §F3): other queries over the same transaction state, and the
+    // stored receipts in chat order.
+    function queryTools(tx) {
+        const state = currentState(tx);
+        const tools = Object.freeze({
+            query(name, args) {
+                const fn = findQuery(name);
+                if (!fn) fail('NOT_FOUND', `There is no query called "${name}".`);
+                return deepFreeze(clone(fn(state, deepFreeze(clone(args)), tools)));
+            },
+            receipts: () => store.receipts?.() ?? [],
+        });
+        return tools;
+    }
+
     function invoke(tx, type, target, payload, depth, caller = null) {
         const ctx = makeCtx(tx, target.moduleId, depth, caller);
         const out = target.handler(ctx, deepFreeze(clone(payload)));
@@ -205,7 +220,7 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
                 open();
                 const fn = findQuery(name);
                 if (!fn) fail('NOT_FOUND', `There is no query called "${name}".`);
-                return deepFreeze(clone(fn(currentState(tx), deepFreeze(clone(args)))));
+                return deepFreeze(clone(fn(currentState(tx), deepFreeze(clone(args)), queryTools(tx))));
             },
             settings(id = moduleId) {
                 return deepFreeze(clone(settings(id) ?? {}));
@@ -215,7 +230,7 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
             time() {
                 open();
                 const fn = findQuery('director.time');
-                const value = fn ? fn(currentState(tx), deepFreeze({})) : readOf(tx, 'director')?.time;
+                const value = fn ? fn(currentState(tx), deepFreeze({}), queryTools(tx)) : readOf(tx, 'director')?.time;
                 const minutes = isRecord(value) ? value.minutes : value;
                 return Number.isInteger(minutes) ? minutes : null;
             },

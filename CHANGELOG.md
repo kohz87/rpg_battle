@@ -2,7 +2,13 @@
 
 ## 2.0.0-alpha.1 (in progress, `v2` branch)
 
-Story Suite v2. RPG Battle v2 module: party, items, combat and trade parts merged; integration, checks, creation, return in time, battle board and screens in progress. Status: https://github.com/kohz87/Story_block/blob/v2/docs/v2/STATUS.md
+Story Suite v2. RPG Battle v2 module: party, creation, checks, items, combat, battle board, return in time, trade and screens parts merged and wired into one module. Status: https://github.com/kohz87/Story_block/blob/v2/docs/v2/STATUS.md
+
+- **Wiring pass.** `src/v2/module.js` takes the creation, board and screens parts; every part's `screens` and `widgets` go to Story Block (a name two parts claim is refused); a hand-built tab a screen covers is dropped (Party, Items, Trade and Fight are screens now); the creation part reads the Character points budget (`party.startPoints`, `party.statCap`).
+- **Character creation into the party.** `party.create` takes `origin { race, talents }` (final stats from `creation.build`) and the persona's `background`, and keeps both on your character. Built-in races and talents are offered as `rpg-battle/<slug>`, as a pack's are `pack.<pack>/<slug>`.
+- **Ready-made characters.** The wizard's new Start step shows the packs' presets (widget `rpg-battle.preset-pick`): choosing one fills race, talents and points (name and background stay the persona's); `creation.finish { preset }` teaches its pack skills, built by the rules into `party.custom`.
+- **Companions who die or leave** (MODULES §F26). A companion who goes down in a fight to the death is gone from the party for good, and the fight's summary says so; what they carried goes to the party. `- leave Lyra — parts ways at the ford` (or `- join Lyra — leaves`) offers to let them go: Accept removes them, Dismiss keeps them. Waiting offers show on the Party screen with Accept and Dismiss.
+- **Terms** (MODULES §F25). The reader's `terms` (level name, XP name, tier titles) word the summaries (XP awards, level-ups, the fight's hand-off) and the Party screen; a pack's suggestion (`packs.content({ kind: 'terms' })`, read defensively until Story Block has it) fills what the reader did not set. Query `party.terms`.
 
 - **One module for Story Block v2.** `src/v2/module.js` merges the parts (party, checks, items, combat, return, trade): domains, commands, queries, change-line kinds (the checks part keeps `check`), the prompt's fixed instructions and per-reply notes, hooks (any part's "no" holds a reply back: no character yet, a dead character), settings under each part's id (`combat.hitBase`), tabs and widgets.
 - **v2 bootstrap.** `index.js` waits for Story Block v2 and registers the module; without it, one line in the drawer. The manifest depends on Story Block and has no v1 interceptor; the v1 glue moves to `v1.js` and is not loaded.

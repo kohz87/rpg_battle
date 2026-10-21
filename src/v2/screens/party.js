@@ -1,5 +1,6 @@
 // RPG Battle v2, screen `rpg-battle/party` (SPEC §13.1, MODULES §B1 "Tab: Party"): a character card
-// per party member, your character first. Each card: portrait, name, the level and class line, HP /
+// per party member, your character first, under the offers waiting for the reader (a join, a skill,
+// a companion leaving: party.offers' sentence) with Accept and Dismiss. Each card: portrait, name, the level and class line, HP /
 // MP / SP meters, the EXP meter, condition badges with the turns left, the skills as a tree by tier
 // (those in use checked) with Use / Set aside, the stats as a radar with their check modifiers, and,
 // while the member has points to spend, a stepper per stat and Spend (`party.spend { actor, points }`).
@@ -14,6 +15,18 @@ import { THEME, sheet } from './style.js';
 const template = `
 <div class="rb rb-party">
   <p class="empty" data-if="len(q.cards) == 0"><i class="fa-solid fa-user-plus"></i>No character yet. Create yours to begin the story.</p>
+  <section class="card offers" data-if="len(q.offers) > 0">
+    <h4><i class="fa-solid fa-user-plus"></i>Waiting for you</h4>
+    <ul class="rows">
+      <li class="row offer" data-each="q.offers as o" data-class="leave: o.kind == 'leave'">
+        <div class="main"><span class="nm">{{ o.text }}</span></div>
+        <div class="acts">
+          <button class="btn primary" data-command="party.acceptOffer" data-payload='{"offer":"{{ o.id }}"}'>Accept</button>
+          <button class="btn ghost" data-command="party.dismissOffer" data-payload='{"offer":"{{ o.id }}"}'>Dismiss</button>
+        </div>
+      </li>
+    </ul>
+  </section>
   <div class="cards">
     <article class="card actor" data-each="q.cards as a" data-class="you: a.you; low: a.low; down: a.down; can-spend: a.spend">
       <header class="head">
@@ -30,7 +43,7 @@ const template = `
         <ss-widget class="pool mp" name="ss.meter" data-props='{"bind":"a.mp","label":"MP","icon":"fa-droplet"}'></ss-widget>
         <ss-widget class="pool sp" name="ss.meter" data-props='{"bind":"a.sp","label":"SP","icon":"fa-bolt"}'></ss-widget>
       </div>
-      <ss-widget class="pool xp" name="ss.meter" data-props='{"bind":"a.xp","label":"EXP","icon":"fa-star","text":"{{ a.xpText }}"}'></ss-widget>
+      <ss-widget class="pool xp" name="ss.meter" data-props='{"bind":"a.xp","label":"{{ a.xpName }}","icon":"fa-star","text":"{{ a.xpText }}"}'></ss-widget>
 
       <div class="badges" data-if="len(a.badges) > 0">
         <ss-widget data-each="a.badges as b" name="ss.badge" data-props='{"bind":"b"}'></ss-widget>
@@ -129,6 +142,8 @@ const css = sheet(`
 .steppers { display: grid; gap: 6px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @container rb-card (min-width: 400px) { .steppers { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .spend .btn.primary { justify-self: end; }
+.offers { display: grid; gap: 6px; margin-bottom: 12px; }
+.offer.leave .nm { color: var(--rb-muted); }
 `);
 
 export const partyScreen = Object.freeze({
@@ -136,7 +151,7 @@ export const partyScreen = Object.freeze({
     title: 'Party',
     icon: 'fa-users',
     mounts: Object.freeze(['tab', 'screen']),
-    data: Object.freeze({ cards: Object.freeze({ query: 'rpg-battle.cards' }) }),
+    data: Object.freeze({ cards: Object.freeze({ query: 'rpg-battle.cards' }), offers: Object.freeze({ query: 'party.offers' }) }),
     theme: THEME,
     template,
     css,

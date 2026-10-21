@@ -13,11 +13,13 @@
 import { createCommandBus as realBus } from './commands.js';
 import { CORE_MODULE_ID, createCoreModule } from './domains/index.js';
 import { WALLET_KEY } from './domains/money.js';
+import { createAssistPart } from './assist/index.js';
 import { applyStart, createPacksPart } from './packs/index.js';
 import { createRegistry } from './registry.js';
 import { createEvents, createSdk, createSettings, newId } from './sdk.js';
+import { createRewind } from './rewind.js';
 import { createStore as realStore } from './store.js';
-import { createTurn } from './turn.js';
+import { createTurn, substituteNames } from './turn.js';
 
 export const VERSION = '2.0.0-alpha.1';
 
@@ -78,13 +80,13 @@ export function packsFor(ctx, options = {}) {
 
 /**
  * createRuntime({ ctx, packs?, core = true, modules = [], createStore?, createCommandBus?, notify?,
- * onBlocked?, onSaveError?, onRegister?(def) }) → { registry, settings, store, bus, events, sdk, turn, markReady,
+ * onBlocked?, onSaveError?, onRegister?(def), branch?(index) (src/v2/rewind.js stBranch), callModel? (assist) }) → { registry, settings, store, bus, events, sdk, turn, markReady,
  * initial, packs }. `ctx` is SillyTavern's context (or the testkit's fake); `packs` a
  * createPacksPart() result (default: one over ctx.extensionSettings).
  */
 export function createRuntime({
     ctx, packs = null, core = true, modules = [], createStore = realStore, createCommandBus = realBus,
-    notify, onBlocked = null, onSaveError = null, onRegister = null,
+    notify, onBlocked = null, onSaveError = null, onRegister = null, branch = null, callModel = null,
 } = {}) {
     const registry = createRegistry();
     const packPart = packs ?? packsFor(ctx);
@@ -102,6 +104,15 @@ export function createRuntime({
                 if (!sdk) throw new Error('Story Block is not ready.');
                 return sdk.query(name, args);
             },
+            // The two optional helpers, off until the reader turns them on (Assist settings).
+            assist: createAssistPart({
+                settings: () => settings(CORE_MODULE_ID),
+                grammar: () => registry.contexts().flatMap(context => context.kinds.map(kind => kind.grammar)),
+                chat: () => ctx.chat,
+                chatId: () => ctx.getCurrentChatId?.() ?? ctx.chatId ?? '',
+                hasKind: kind => Boolean(registry.capture(kind)),
+                ...(callModel ? { callModel } : {}),
+            }),
         }));
     }
     for (const def of modules) registry.register(def);
@@ -109,9 +120,14 @@ export function createRuntime({
     const store = createStore({ chat: () => ctx.chat, save: () => ctx.saveChat(), onSaveError });
     const bus = createCommandBus({ store, registry, settings });
     const events = createEvents();
-    const made = createSdk({ store, bus, registry, settings, events, chat: () => ctx.chat, onRegister: def => onRegister?.(def) });
+    const rewind = createRewind({ ctx, store, events, ...(branch ? { branch } : {}) });
+    let dialogOpener = null;
+    const made = createSdk({ store, bus, registry, settings, events, chat: () => ctx.chat, onRegister: def => onRegister?.(def), rewind,
+        substitute: text => substituteNames(text, ctx), dialog: (screenId, opts) => dialogOpener?.(screenId, opts) ?? null });
     sdk = made.sdk;
     const initial = () => initialWithStart(registry);
     const turn = createTurn({ ctx, store, bus, registry, settings, events, onBlocked, initial, ...(notify ? { notify } : {}) });
-    return { registry, settings, store, bus, events, sdk, turn, markReady: made.markReady, initial, packs: packPart };
+    // The UI (ui-host.js) plugs its dialog mount in here, for sdk.dialog.open.
+    const setDialog = fn => { dialogOpener = typeof fn === 'function' ? fn : null; };
+    return { registry, settings, store, bus, events, sdk, turn, markReady: made.markReady, initial, packs: packPart, setDialog };
 }

@@ -170,12 +170,12 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
 
     // beforeGenerate (§4.1 step 3): each hook may return lines for the tail, or commands to
     // commit now as `system` receipts: string[] | { lines?: string[], commands?: [{ type, payload }] }.
-    async function runCues() {
+    async function runCues(type = 'normal') {
         const cues = {};
         let committed = false;
         for (const { moduleId, fn } of registry.hookEntries('beforeGenerate')) {
             let out;
-            try { out = await fn(view()); } catch (error) {
+            try { out = await fn(view(), { type }); } catch (error) {
                 problem({ module: moduleId, code: 'FAILED', message: `beforeGenerate failed: ${error?.message ?? error}` });
                 continue;
             }
@@ -256,7 +256,7 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
                 block(blocked, abort);
                 return;
             }
-            const cues = await runCues();
+            const cues = await runCues(kind);
             const built = build(cues);
             const chat = ctx.chat;
             const last = chat.length - 1;
@@ -401,11 +401,50 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
             if (edited) ctx.updateMessageBlock?.(id, message);
             const turn = { index: id, type: current.type, receipts: result.receipts, problems, told: current.untold };
             events?.emit('turn', turn);
+            if (!parsed.lines.length) afterReply(id, current.type, message);
             return turn;
         } catch (error) {
             problem({ index: id, code: 'FAILED', message: `The reply's changes could not be kept: ${error?.message ?? error}` });
             return null;
         }
+    }
+
+    // afterReply (the assist extractor): a reply that came without change lines may get them from a
+    // module after all. Not awaited; a failure is logged. `capture(text, { index, swipe })` runs the
+    // lines as story captures on that reply when it is still the head on the same swipe.
+    function afterReply(index, type, message) {
+        const swipe = Number.isInteger(message?.swipe_id) ? message.swipe_id : 0;
+        for (const { moduleId, fn } of registry.hookEntries('afterReply')) {
+            Promise.resolve()
+                .then(() => fn({ index, swipe, type, mes: String(message?.mes ?? ''), capture: (text, at = { index, swipe }) => captureLate(at, text) }))
+                .catch(error => problem({ module: moduleId, index, code: 'FAILED', message: `afterReply failed: ${error?.message ?? error}` }));
+        }
+    }
+
+    /** Change lines found after the reply (afterReply): captured on it and kept in its hidden block. */
+    async function captureLate({ index, swipe } = {}, text = '') {
+        const message = ctx?.chat?.[index];
+        if (!isCarrier(message) || store.headIndex() !== index || (Number.isInteger(message.swipe_id) ? message.swipe_id : 0) !== swipe || session) {
+            return { receipts: [], problems: ['The reply changed before its late change lines arrived; they were not used.'] };
+        }
+        const parsed = parseChanges(String(text ?? ''));
+        const problems = parsed.problems.map(line => problem({ index, code: 'UNREADABLE', message: line }));
+        const result = await captureLines(index, parsed.lines);
+        problems.push(...result.problems);
+        if (parsed.lines.length) {
+            // Kept in the reply's hidden block, so Re-read finds them too.
+            const before = extractBlock(message.mes);
+            const body = [before?.trim(), ...parsed.lines.map(line => line.raw)].filter(Boolean).join('\n');
+            const mes = hideBlock(`${stripBlock(message.mes)}\n\n<Changes>\n${body}\n</Changes>`);
+            message.mes = mes;
+            if (Array.isArray(message.swipes) && Number.isInteger(message.swipe_id)) message.swipes[message.swipe_id] = mes;
+        }
+        if (store.dirty()) await store.flush();
+        else if (parsed.lines.length) await ctx.saveChat?.();
+        if (parsed.lines.length) ctx.updateMessageBlock?.(index, message);
+        const turn = { index, type: 'late', receipts: result.receipts, problems, told: [] };
+        events?.emit('turn', turn);
+        return turn;
     }
 
     /** CHAT_CHANGED: a new chat (or the same one reloaded). */

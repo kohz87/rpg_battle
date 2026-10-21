@@ -10,6 +10,9 @@
 // opener, never typed in the wizard.
 // `origin` only when a race or a talent was taken. party.create asks this part's query
 // `creation.build` for the checked final stats of that origin, so no caller can hand it stats.
+// A pack's ready-made character (`preset`) only filled the draft's race, talents and points; its
+// skills are learned after party.create (party.learnSkill with the pack skill as the template,
+// built by v1 skillFromTemplate into party.custom).
 
 import { STATS } from '../../rules.js';
 import { buildCharacter, creationRules } from './build.js';
@@ -119,8 +122,9 @@ function querySettings(args, tools) {
 
 /**
  * `creation.content({ settings? })` → what the wizard offers: { races, talents (each with
- * `rolled`), rolled (the rolled talents' records), stats: [{ id, label }], rules: { startPoints, statCap, startStat, maxTalents,
- * pointMax }, hasRaces, hasTalents }.
+ * `rolled`), rolled (the rolled talents' records), presets (the packs' ready-made characters),
+ * stats: [{ id, label }], rules: { startPoints, statCap, startStat, maxTalents, pointMax },
+ * hasRaces, hasTalents, hasPresets }.
  */
 export function contentQuery(state, args = {}, tools = null) {
     const rules = creationRules(querySettings(args, tools));
@@ -130,12 +134,14 @@ export function contentQuery(state, args = {}, tools = null) {
     const kept = new Set(rolled);
     return {
         races: content.races,
+        presets: content.presets,
         talents: content.talents.map(talent => ({ ...talent, rolled: kept.has(talent.id) })),
         rolled: rolled.map(id => content.talents.find(talent => talent.id === id)).filter(Boolean),
         stats: STATS.map(id => ({ id, label: STAT_LABELS[id] })),
         rules: { startPoints: rules.startPoints, statCap: rules.statCap, startStat: rules.startStat, maxTalents: rules.maxTalents, pointMax: cap === null ? null : Math.max(0, cap - rules.startStat) },
         hasRaces: content.races.length > 0,
         hasTalents: content.talents.length > 0,
+        hasPresets: content.presets.length > 0,
     };
 }
 
@@ -164,10 +170,11 @@ function setup(ctx) {
 }
 
 /**
- * creation.finish { name, background?, race?, talents?: [ids], points: { STAT: n }, portrait? }:
- * your character from the wizard's draft (name and background from the persona). Every rule is
- * checked here (buildCharacter), then party.create makes the character in the same transaction;
- * the talents rolled are then cleared. Nothing is saved when any part refuses.
+ * creation.finish { name, background?, race?, talents?: [ids], points: { STAT: n }, portrait?,
+ * preset? }: your character from the wizard's draft (name and background from the persona). Every
+ * rule is checked here (buildCharacter), then party.create makes the character in the same
+ * transaction, and a preset's skills are learned; the talents rolled are then cleared. Nothing
+ * is saved when any part refuses.
  */
 function finish(ctx, payload = {}) {
     const draft = isRecord(payload) ? payload : {};
@@ -181,6 +188,10 @@ function finish(ctx, payload = {}) {
     const portrait = cleanPortrait(draft.portrait);
     if (portrait.error) fail(ctx, 'INVALID', portrait.error);
     const { rules, content, creation } = setup(ctx);
+    if (draft.preset !== undefined && draft.preset !== null && typeof draft.preset !== 'string') fail(ctx, 'INVALID', 'The ready-made character must be one of the choices.');
+    const presetId = typeof draft.preset === 'string' ? draft.preset.trim() : '';
+    const preset = presetId ? content.presets.find(entry => entry.id === presetId) ?? null : null;
+    if (presetId && !preset) fail(ctx, 'NOT_FOUND', 'That ready-made character is not one of the choices any more.');
     const built = buildCharacter(draft, content, rules, creation.rolled);
     if (!built.ok) fail(ctx, built.code ?? 'INVALID', built.message);
 
@@ -203,11 +214,21 @@ function finish(ctx, payload = {}) {
     if (wrong) fail(ctx, 'FAILED', `Your character could not be made with the race and talents: ${wrong} came out ${pc.stats?.[wrong]}, not ${built.stats[wrong]}.`);
     if (background && pc.background !== background) fail(ctx, 'FAILED', 'Your character could not be made with your persona\'s background.');
 
+    // The ready-made character's skills, built from the pack's words by the party part's rules.
+    const learned = [];
+    for (const skill of preset?.skills ?? []) {
+        const known = (readParty(ctx)?.actors?.[pc.id]?.skills ?? []).some(entry => entry.name.toLowerCase() === skill.name.toLowerCase());
+        if (known) continue;
+        const { type, stat, target, element, note } = skill;
+        ctx.call('party.learnSkill', { actor: pc.id, name: skill.name, free: true, template: { type, ...(stat ? { stat } : {}), target, ...(element ? { element } : {}), ...(note ? { note } : {}) } });
+        learned.push(skill.name);
+    }
+
     if (creation.rolled.length) ctx.draft('creation').rolled = [];
-    const what = [built.race?.name ?? '', built.talentNames].filter(Boolean).join('; ');
+    const what = [built.race?.name ?? '', built.talentNames, learned.join(', ')].filter(Boolean).join('; ');
     return {
         summary: `${pc.name}${what ? ` (${what})` : ''} is ready.`,
-        data: { actor: pc.id, race: built.race?.id ?? null, talents: built.talents.map(talent => talent.id), stats: { ...built.stats } },
+        data: { actor: pc.id, race: built.race?.id ?? null, talents: built.talents.map(talent => talent.id), stats: { ...built.stats }, preset: preset?.id ?? null, skills: learned },
         narrate: false,
     };
 }

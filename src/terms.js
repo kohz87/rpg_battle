@@ -242,3 +242,81 @@ export function parseLevelLabel(text, rules = DEFAULT_RULES, { strict = false } 
     }
     return /^\d+$/.test(rest) ? clampLevel(Number(rest), terms) : null;
 }
+
+// ---------------------------------------------------------------------------------------
+// Terms a pack suggests (Story Suite v2, MODULES §F25)
+
+// The words a pack may suggest, as termsOf reads them: { levelName, xpName, tiers }. The
+// level cap is a rule, not a word, so a pack does not set it here.
+export const TERM_FIELDS = Object.freeze(['levelName', 'xpName', 'tiers']);
+
+const isRecord = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+const cleanWord = value => (typeof value === 'string' && value.trim() ? value.replace(/\s+/g, ' ').trim().slice(0, 30) : null);
+
+function cleanTiers(value) {
+    if (value === true) return { size: 10, numerals: 'roman' };
+    if (!isRecord(value)) return null;
+    const out = {};
+    if (Number.isInteger(value.size) && value.size >= 1) out.size = value.size;
+    if (value.numerals === 'roman' || value.numerals === 'arabic') out.numerals = value.numerals;
+    if (value.enabled === false) out.enabled = false;
+    return out;
+}
+
+/** One record's terms (`levelName` or `level`, `xpName` or `xp`, `tiers`), only the fields it gives. */
+function termsRecord(record) {
+    if (!isRecord(record)) return {};
+    const source = isRecord(record.terms) ? record.terms : record;
+    const out = {};
+    const level = cleanWord(source.levelName ?? source.level);
+    const xp = cleanWord(source.xpName ?? source.xp);
+    const tiers = cleanTiers(source.tiers);
+    if (level) out.levelName = level;
+    if (xp) out.xpName = xp;
+    if (tiers) out.tiers = tiers;
+    return out;
+}
+
+/**
+ * The terms the enabled packs suggest, or null: the first pack's record from Story Block's
+ * `packs.content({ kind: 'terms' })` (one `{ pack, levelName?, xpName?, tiers? }` per pack, as
+ * `currency` comes). Read defensively: no packs part, a host without the kind, or a failing
+ * query all mean none.
+ */
+export function packTerms(query) {
+    if (typeof query !== 'function') return null;
+    let list;
+    try {
+        list = query('packs.content', { kind: 'terms' });
+    } catch {
+        return null;
+    }
+    for (const record of Array.isArray(list) ? list : []) {
+        const terms = termsRecord(record);
+        if (Object.keys(terms).length) return terms;
+    }
+    return null;
+}
+
+/**
+ * The terms a part reads: the pack's suggestion with the reader's own `terms` over it, field by
+ * field (a reader's field wins whenever it is set; null or empty leaves the pack's).
+ */
+export function mergeTerms(reader, pack) {
+    const own = isRecord(reader) ? reader : {};
+    if (!pack) return isRecord(reader) ? reader : undefined;
+    const out = { ...own };
+    for (const field of TERM_FIELDS) {
+        const mine = own[field];
+        const set = field === 'tiers' ? isRecord(mine) : typeof mine === 'string' && mine.trim() !== '';
+        if (!set && pack[field] !== undefined) out[field] = structuredClone(pack[field]);
+    }
+    return out;
+}
+
+/** A part's settings with the pack's terms under the reader's (unchanged when no pack suggests any). */
+export function withTerms(settings, query) {
+    const pack = packTerms(query);
+    if (!pack) return settings;
+    return { ...settings, terms: mergeTerms(settings?.terms, pack) };
+}

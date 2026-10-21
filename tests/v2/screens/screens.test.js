@@ -38,11 +38,12 @@ test('the part exports the five default screens under the new `screens` key, and
     for (const other of [partyPart, itemsPart, tradePart]) for (const name of Object.keys(part.queries)) assert.equal(other.queries[name], undefined);
 });
 
-test('Story Block\'s registry accepts RPG Battle with these screens and queries merged in', { skip: definitionProblems ? false : 'Story Block\'s registry.js was not found' }, () => {
+test('Story Block\'s registry accepts RPG Battle with these screens and queries merged in (src/v2/module.js)', { skip: definitionProblems ? false : 'Story Block\'s registry.js was not found' }, () => {
+    // src/v2/module.js merges this part: its queries and screens are in the module as they are.
     const merged = createModule({ settings: () => ({}) });
-    for (const name of Object.keys(part.queries)) assert.equal(merged.queries[name], undefined, `${name} is not taken by another part`);
-    const def = { ...merged, queries: { ...merged.queries, ...part.queries }, screens: [...screens] };
-    assert.deepEqual(definitionProblems(def), []);
+    for (const name of Object.keys(part.queries)) assert.equal(typeof merged.queries[name], 'function', name);
+    for (const screen of screens) assert.ok(merged.screens.includes(screen), screen.id);
+    assert.deepEqual(definitionProblems(merged), []);
 });
 
 test(`every screen passes validateScreen (${validatorFrom}) and the registry's id rule`, () => {
@@ -72,7 +73,7 @@ test('mounts: party, items and trade are tabs and game screens; the HUD is a hud
 });
 
 test('data bindings name the view queries; the status card reads the reply\'s own state', () => {
-    assert.deepEqual(byId['rpg-battle/party'].data, { cards: { query: 'rpg-battle.cards' } });
+    assert.deepEqual(byId['rpg-battle/party'].data, { cards: { query: 'rpg-battle.cards' }, offers: { query: 'party.offers' } });
     assert.deepEqual(byId['rpg-battle/items'].data, { items: { query: 'rpg-battle.items' } });
     assert.deepEqual(byId['rpg-battle/trade'].data, { trade: { query: 'rpg-battle.trade' } });
     assert.deepEqual(byId['rpg-battle/hud'].data, { hud: { query: 'rpg-battle.hud' } });
@@ -82,7 +83,7 @@ test('data bindings name the view queries; the status card reads the reply\'s ow
         const aliases = new Set(Object.keys(screen.data ?? {}));
         const used = new Set([...screen.template.matchAll(/\bq\.([A-Za-z_]\w*)/g)].map(match => match[1]));
         for (const alias of used) assert.ok(aliases.has(alias), `${screen.id} reads q.${alias}, which its data does not give`);
-        for (const binding of Object.values(screen.data ?? {})) assert.ok(part.queries[binding.query], `${screen.id} binds ${binding.query}`);
+        for (const binding of Object.values(screen.data ?? {})) assert.ok(part.queries[binding.query] ?? partyPart.queries[binding.query], `${screen.id} binds ${binding.query}`);
     }
 });
 
@@ -168,7 +169,7 @@ test('buttons run commands RPG Battle has; widgets are the standard ss.* set', (
     }
     assert.deepEqual([...used].sort(), [
         'craft.collect', 'craft.commission', 'item.equip', 'item.give', 'item.unequip', 'item.use',
-        'party.setSkillActive', 'party.spend', 'trade.buy', 'trade.sell',
+        'party.acceptOffer', 'party.dismissOffer', 'party.setSkillActive', 'party.spend', 'trade.buy', 'trade.sell',
     ]);
     const widgets = new Set(screens.flatMap(screen => [...screen.template.matchAll(WIDGET_TAG)].map(match => match[1])));
     for (const name of ['ss.meter', 'ss.portrait', 'ss.badge', 'ss.radar', 'ss.skill-tree', 'ss.stepper']) assert.ok(widgets.has(name), `a screen uses ${name}`);

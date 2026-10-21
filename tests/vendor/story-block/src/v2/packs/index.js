@@ -9,7 +9,9 @@
 //
 // Interface for the other parts:
 // * query `packs.list` → installed packs for display (`installed.js` list()).
-// * query `packs.content({ kind, pack? })` → records of one kind from enabled packs.
+// * query `packs.content({ kind, pack? })` → records of one kind from enabled packs (places and
+//   routes are the map Story Director's atlas reads).
+// * query `packs.calendar` → the first enabled pack's calendar for the story clock, or null.
 // * query `packs.item({ name })` and hook `item.resolve(name)` → the pack item def a story
 //   name means (`pack.<packId>/<slug>`, SPEC §7 shape) or null. Inventory capture calls it
 //   after its own aliases and before it creates a `story/<slug>` def.
@@ -17,12 +19,12 @@
 //   `applyStart(state, start, { id })` writes it into an initial State.
 
 import { createInstalled } from './installed.js';
-import { contentOf, mergeStart, resolveItemIn, applyStart } from './content.js';
+import { calendarOf, contentOf, mergeStart, resolveItemIn, applyStart } from './content.js';
 import { renderPacksPanel } from './panel.js';
 import { HOST_VERSION, validatePack, slugify } from './validate.js';
 import { readCharacterLorebook, stCapabilities, stHostVersion, stSettings } from './st-adapter.js';
 
-export { validatePack, slugify, applyStart, mergeStart, resolveItemIn, contentOf, createInstalled, renderPacksPanel };
+export { validatePack, slugify, applyStart, mergeStart, resolveItemIn, contentOf, calendarOf, createInstalled, renderPacksPanel };
 export { LIMITS, CONTENT_KINDS } from './limits.js';
 export { findPackEntries, PACK_TAG } from './lorebook.js';
 export { satisfies } from './version.js';
@@ -51,6 +53,7 @@ export function createPacksPart({ settings, readLorebook = async () => ({ charac
             'packs.content': (_state, { kind, pack = null } = {}) => contentOf(packs.packs(), kind, { pack }),
             'packs.item': (_state, { name } = {}) => resolveItem(name),
             'packs.start': () => startState(),
+            'packs.calendar': () => calendarOf(packs.packs()),
         },
         kinds: {},
         context: { static: () => '', tail: () => ({ lines: [], optional: [] }), budget: 0 },

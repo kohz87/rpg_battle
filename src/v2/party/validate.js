@@ -52,6 +52,14 @@ function checkActor(errors, id, actor) {
     }
     if (actor.npc !== null && !isText(actor.npc, 80)) errors.push(`${where}: npc must be a name or null.`);
     if (actor.portrait !== undefined && actor.portrait !== null && !isText(actor.portrait, 2048)) errors.push(`${where}: portrait must be an image path or null.`);
+    if (actor.background !== undefined && !isText(actor.background, 2000)) errors.push(`${where}: background must be text of at most 2000 characters.`);
+    if (actor.origin !== undefined) {
+        const origin = actor.origin;
+        const named = entry => isObject(entry) && isText(entry.id, 120) && entry.id.trim() && isText(entry.name, 80) && entry.name.trim();
+        if (!isObject(origin) || (origin.race !== null && !named(origin.race)) || !Array.isArray(origin.talents) || !origin.talents.every(named)) {
+            errors.push(`${where}: origin must be { race: { id, name } | null, talents: [{ id, name }] }.`);
+        }
+    }
 }
 
 function checkOffer(errors, offer, index, actors) {
@@ -65,7 +73,10 @@ function checkOffer(errors, offer, index, actors) {
     } else if (offer.kind === 'skill') {
         if (!actors[offer.actor]) errors.push(`${where}: the skill offer is for someone not in the party.`);
         if (!isText(offer.skill, 60) || !offer.skill.trim()) errors.push(`${where}: a skill offer needs a skill name.`);
-    } else errors.push(`${where}: kind must be join or skill.`);
+    } else if (offer.kind === 'leave') {
+        if (!actors[offer.actor] || actors[offer.actor].kind !== 'companion') errors.push(`${where}: a leave offer is for a companion in the party.`);
+        if (!isText(offer.text, 160)) errors.push(`${where}: a leave offer's text must be short text.`);
+    } else errors.push(`${where}: kind must be join, skill or leave.`);
 }
 
 /** The party slice's problems, [] when it is fine. */
