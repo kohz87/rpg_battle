@@ -412,7 +412,7 @@ function start(ctx, payload) {
     } catch (error) {
         ctx.fail('REFUSED', error?.message || 'That fight cannot start.');
     }
-    const { setup, made } = built;
+    const { setup, made, heldBack = 0 } = built;
     // Rebuilt once now: a setup that cannot be fought is refused before anything is kept.
     let status;
     let opening;
@@ -438,10 +438,10 @@ function start(ctx, payload) {
     draft.offers = draft.offers.filter(entry => entry.id !== offer.id);
     draft.session = { id, setup: packSetup(setup), actions: [], status };
     return {
-        summary: `A fight begins: ${partyNames(setup)} against ${foeNames(setup)}.`,
+        summary: `A fight begins: ${partyNames(setup)} against ${foeNames(setup)}${heldBack ? ` (${heldBack} more hang${heldBack === 1 ? 's' : ''} back)` : ''}.`,
         narrate: false,
         // `place`: where the fight began (the return part finds the fatal fight's start by it).
-        data: { session: id, offer: offer.id, place: setup.place ?? '', made: made.map(entry => entry.name) },
+        data: { session: id, offer: offer.id, place: setup.place ?? '', made: made.map(entry => entry.name), ...(heldBack ? { heldBack } : {}) },
     };
 }
 

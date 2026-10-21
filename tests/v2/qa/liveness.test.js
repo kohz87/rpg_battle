@@ -148,6 +148,8 @@ each('party.edit control (MODULES §F49): a companion led by the reader waits fo
     assert.equal(controllers()[lyra], 'player');
     fightOut(h);
     assert.equal(h.command('combat.end').ok, true);
+    // (RB-fix1: an even fight is lost now and then, B-b4-11: a rest, so someone stands for the next.)
+    assert.equal(h.command('party.rest', { kind: 'long' }).ok, true);
     h.capture({ op: '!', kind: 'encounter', name: '3 Bandits', text: '', labels: { tier: 'even' } });
     assert.equal(h.command('combat.start', { offer: h.query('combat.offers').at(-1).id }).ok, true);
     assert.equal(controllers()[lyra], 'auto');

@@ -16,7 +16,9 @@ export const hero = (over = {}) => actor(1, {
 const POTION = 'story/minor-healing-draught';
 
 /** A world with a fight under way against `foes` (an encounter name), the hero carrying two potions. */
-export function liveFight(foes = '3 Cellar Rats', labels = { tier: 'weak' }, { actors = [hero()] } = {}) {
+// (RB-fix1: even, not weak: three even foes keep v1's numbers under the headcount budget, B-b4-11,
+// so the fixture's fight is the one these tests were written for.)
+export function liveFight(foes = '3 Cellar Rats', labels = { tier: 'even' }, { actors = [hero()] } = {}) {
     const defs = { [POTION]: { id: POTION, name: 'Minor Healing Draught', kind: 'consumable', rarity: 'common', value: 5, stack: true, slot: null, stats: {}, effect: { heal: 20 }, tags: [], note: '' } };
     const stacks = { [it(1)]: { id: it(1), def: POTION, qty: 2, owner: 'party', equipped: null, note: '', from: '' } };
     const world = createWorld({ domains: baseDomains({ actors, defs, stacks }) });
