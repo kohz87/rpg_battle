@@ -118,7 +118,7 @@ each('combat.end (won): the inventory gains exactly the loot its receipt lists, 
 each('combat.end (lost or fled): nothing gained', () => {
     const { h } = withHero({ seed: 1 });
     const before = holdings(h.state());
-    h.capture({ op: '!', kind: 'encounter', name: '3 Cellar Rats', text: '', labels: { tier: 'weak' } });
+    h.capture({ op: '!', kind: 'encounter', name: '3 Cellar Rats', text: '', labels: { tier: 'deadly' } });
     assert.equal(h.command('combat.start', { offer: h.query('combat.offers')[0].id }).ok, true);
     fightOut(h);
     const end = h.command('combat.end');

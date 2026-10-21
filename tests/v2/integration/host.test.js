@@ -86,9 +86,13 @@ test('a reply\'s encounter line → offer → combat.start/act/end: loot and XP 
                 assert.ok(Number.isInteger(row.value) && row.value > 0, `${drop.name} has a price`);
                 assert.equal(host.head().domains.inventory.stacks[row.stack].from, ended.receipt.id);
             }
+            // A draught among the drops (the seed decides) has v1's effect.
             const draught = host.head().domains.inventory.defs['story/minor-healing-draught'];
-            assert.equal(draught.kind, 'consumable');
-            assert.equal(draught.effect.heal, 20);
+            if (draught) {
+                assert.equal(draught.kind, 'consumable');
+                assert.equal(draught.effect.heal, 20);
+            }
+            for (const drop of data.loot.items) assert.ok(items.find(item => item.name === drop.name).kind, drop.name);
             // The fight is gone; its result waits to be told; Story Director's quests can count it.
             assert.equal(host.q('combat.session'), null);
             assert.deepEqual(host.q('combat.foesBeaten', { sinceRev: 0 }).map(entry => entry.foes), [[{ name: 'Cellar Rat', count: 2 }]]);

@@ -102,6 +102,16 @@ function fakeCommands(world) {
             }
             return { summary: '' };
         },
+        // MODULES §B1 party.fightPools: HP, MP, SP as the running fight has them.
+        'party.fightPools'(ctx, { actors }) {
+            const party = ctx.draft('party');
+            for (const entry of actors) {
+                const a = party.actors[entry.id];
+                if (!a) continue;
+                for (const key of ['hp', 'mp', 'sp']) if (entry[key] !== undefined) a[key].cur = Math.min(a[key].max, entry[key]);
+            }
+            return { summary: '' };
+        },
         'party.grantXp'(ctx, { actor: id, amount }) {
             ctx.draft('party').actors[id].xp += amount;
             return { summary: '' };
@@ -143,7 +153,7 @@ const moduleOf = type => (/^(?:inventory|wallet)\./.test(type) ? 'story-block' :
  * A world: { state, history, receipts, calls, run(type, payload, { seed, cause }), capture(line, opts),
  * query(name, args, state?) }. `settings` are the module's settings; `seed` the first receipt seed.
  */
-export function createWorld({ domains = baseDomains(), settings = {}, seed = 1, extraCommands = {}, checkGeneric = true } = {}) {
+export function createWorld({ domains = baseDomains(), settings = {}, seed = 1, extraCommands = {}, extraQueries = {}, checkGeneric = true } = {}) {
     const world = {
         state: deepFreeze({ v: 2, meta: { rev: 0, claims: {} }, domains: structuredClone(domains) }),
         history: [],
@@ -154,7 +164,7 @@ export function createWorld({ domains = baseDomains(), settings = {}, seed = 1, 
     };
     world.history.push(world.state);
     const commands = { ...part.commands, ...fakeCommands(world) };
-    const queries = { ...part.queries, ...FAKE_QUERIES };
+    const queries = { ...part.queries, ...FAKE_QUERIES, ...extraQueries };
 
     // Queries are called (state, args, tools) with tools.query over the same state (MODULES §F3).
     const runQuery = (name, state, args) => {

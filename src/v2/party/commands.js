@@ -396,6 +396,7 @@ function rest(ctx, payload = {}) {
     const rules = rulesFor(ctx);
     const kind = payload.kind;
     if (kind !== 'short' && kind !== 'long') fail(ctx, 'INVALID', 'A rest is short or long.');
+    if (fightOn(ctx)?.status === 'active') fail(ctx, 'REFUSED', 'There is no resting in the middle of a fight.');
     const ids = Array.isArray(payload.actors) ? payload.actors : party.order;
     if (!ids.length) fail(ctx, 'NOT_FOUND', 'There is nobody in the party yet.');
     const inventory = readInventory(ctx);
@@ -433,6 +434,8 @@ function heal(ctx, payload = {}) {
     const party = ctx.draft('party');
     const rules = rulesFor(ctx);
     const actor = actorFrom(ctx, party, payload, { pcDefault: false });
+    // In a fight, HP follows the fight (party.fightPools): a draught is drunk there, as a fight action.
+    if (fightOn(ctx)?.status === 'active') fail(ctx, 'REFUSED', 'A fight is under way: use it in the fight.');
     const hp = whole(ctx, payload.hp, 'HP');
     const mp = whole(ctx, payload.mp, 'MP');
     const sp = whole(ctx, payload.sp, 'SP');
@@ -452,6 +455,33 @@ function heal(ctx, payload = {}) {
 
 // ---------------------------------------------------------------------------------------
 // Fights and XP
+
+/**
+ * party.fightPools { actors: [{ id, hp?, mp?, sp? }] } (internal, from combat.start / combat.act):
+ * current HP, MP and SP as the running fight has them, never above max, so every view of the
+ * party agrees with the battle board. Members no longer in the party are passed over; a pool
+ * already at that number stays. combat.end's applyResult still writes the result.
+ */
+function fightPools(ctx, payload = {}) {
+    if (ctx.cause === 'ui' && !ctx.caller) fail(ctx, 'REFUSED', 'HP in a fight follows the fight.');
+    if (!Array.isArray(payload.actors)) fail(ctx, 'INVALID', 'Say whose HP, MP and SP the fight changed.');
+    const party = ctx.draft('party');
+    const changed = [];
+    for (const entry of payload.actors) {
+        const actor = party.actors[entry?.id];
+        if (!actor) continue;
+        for (const key of ['hp', 'mp', 'sp']) {
+            if (entry[key] === undefined) continue;
+            if (!Number.isInteger(entry[key]) || entry[key] < 0) fail(ctx, 'INVALID', `${key.toUpperCase()} must be a whole number, 0 or more.`);
+            const cur = Math.min(actor[key].max, entry[key]);
+            if (cur !== actor[key].cur) {
+                actor[key] = { ...actor[key], cur };
+                if (!changed.includes(actor.id)) changed.push(actor.id);
+            }
+        }
+    }
+    return { summary: changed.length ? `${listNames(changed.map(id => party.actors[id].name))}: as the fight left them.` : 'Nothing moved.', data: { actors: changed }, narrate: false };
+}
 
 // The fight result with 'pc' (v1's id for your character) read as your character's actor id.
 function normalResult(result, pc) {
@@ -747,7 +777,7 @@ export function addOffer(ctx, party, offer) {
 
 export const handlers = {
     create, addCompanion, edit, removeCompanion, spend, learnSkill, setSkillActive, forgetSkill,
-    rest, heal, applyResult, grantXp, resolveCheck, acceptOffer, dismissOffer, exportPc, importPc,
+    rest, heal, fightPools, applyResult, grantXp, resolveCheck, acceptOffer, dismissOffer, exportPc, importPc,
 };
 
 export const commands = {
@@ -761,6 +791,7 @@ export const commands = {
     'party.forgetSkill': forgetSkill,
     'party.rest': rest,
     'party.applyResult': applyResult,
+    'party.fightPools': fightPools,
     'party.grantXp': grantXp,
     'party.heal': heal,
     'party.restore': heal,
