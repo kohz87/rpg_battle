@@ -10,11 +10,12 @@
 // recomputes the total with code's modifiers against the DC; that result is recorded (checks
 // log, receipt, the reply's card), and a stated result that disagrees is flagged on the card.
 // Nobody adds or changes a modifier; a swipe or regenerate brings fresh rolls. The reply's status
-// card (screens part) shows its checks from `checks.last`; there is no check widget any more. The party part's
+// card (screens part) shows the log entries that reply added; there is no check widget any more. The party part's
 // check.resolve stays for a direct roll. The coordinator's src/v2/module.js merges this part
 // with the others; its `check` kind takes over from the party part's.
 
 import { commands, kinds, preparedFor } from './commands.js';
+import { preparedEntries } from './shared.js';
 import { promptRolls } from './dice.js';
 import { memberOf, rulesFor, tableLine } from './modifiers.js';
 import { queries } from './queries.js';
@@ -74,7 +75,7 @@ export function beforeGenerate(view, info = {}) {
     const type = String(info?.type ?? 'normal').toLowerCase();
     const length = view?.chat?.length;
     const index = Number.isInteger(length) ? (type === 'swipe' || type === 'continue' ? Math.max(0, length - 1) : length) : null;
-    if (type === 'continue' && (view?.state?.domains?.checks?.prepared ?? []).some(entry => entry.for === index)) return { commands: [] };
+    if (type === 'continue' && preparedEntries(view?.state?.domains?.checks).some(entry => entry.for === index)) return { commands: [] };
     return { commands: [{ type: 'checks.prepare', payload: { for: index } }] };
 }
 

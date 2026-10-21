@@ -149,6 +149,30 @@ export function labelsOf(line) {
     return out;
 }
 
+/**
+ * The offers waiting for the reader, oldest first (B-b1r2-13: `party.offers` is a record keyed by
+ * offer id, each added on its own and removed only when it is taken or turned down; an older chat's
+ * list is read too). An offer for someone no longer in the party (they left, or your character was
+ * remade) is not waiting any more: it stays in the record, untouched, and is never shown.
+ */
+export function waitingOffers(party) {
+    const raw = party?.offers;
+    const list = Array.isArray(raw) ? raw : raw && typeof raw === 'object' ? Object.values(raw) : [];
+    const actors = party?.actors ?? {};
+    return list
+        .filter(offer => offer && typeof offer === 'object' && (offer.kind === 'join' || Object.hasOwn(actors, offer.actor)))
+        .sort((a, b) => ((a.rev ?? 0) - (b.rev ?? 0)) || (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0));
+}
+
+/** The draft's offers as a record (an older chat's list is turned into one, keyed by id). */
+export function offersRecord(party) {
+    if (!party.offers || typeof party.offers !== 'object' || Array.isArray(party.offers)) {
+        const list = Array.isArray(party.offers) ? party.offers : [];
+        party.offers = Object.fromEntries(list.filter(offer => offer && typeof offer.id === 'string').map(offer => [offer.id, offer]));
+    }
+    return party.offers;
+}
+
 export const plainCopy = value => (value === undefined ? null : JSON.parse(JSON.stringify(value)));
 
 /**

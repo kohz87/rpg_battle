@@ -17,7 +17,7 @@ function sample() {
 }
 
 test('initial state is a valid empty party', () => {
-    assert.deepEqual(part.domains.party.initial(), { pc: null, order: [], actors: {}, custom: {}, offers: [] });
+    assert.deepEqual(part.domains.party.initial(), { pc: null, order: [], actors: {}, custom: {}, offers: {} });
     assert.deepEqual(validate(part.domains.party.initial()), []);
     assert.deepEqual(validate(sample().domains.party), []);
 });
@@ -53,14 +53,15 @@ test('the validator catches broken records', () => {
     broken(slice => { slice.order.reverse(); }, /must start with the pc/);
     broken(slice => { slice.order.pop(); }, /every actor once/);
     broken(slice => { slice.custom.Zap = { name: 'Zop' }; }, /custom.Zap/);
-    broken(slice => { slice.offers[0].kind = 'farewell'; }, /join, skill or leave/);
-    broken(slice => { slice.offers[0].kind = 'leave'; slice.offers[0].actor = slice.pc; }, /leave offer is for a companion/);
+    broken(slice => { Object.values(slice.offers)[0].kind = 'farewell'; }, /join, skill or leave/);
+    broken(slice => { Object.values(slice.offers)[0].kind = 'leave'; Object.values(slice.offers)[0].actor = slice.pc; }, /leave offer is for a companion/);
     broken(slice => { slice.actors[pc].background = 7; }, /background must be text/);
     broken(slice => { slice.actors[pc].origin = { race: 'elf', talents: [] }; }, /origin must be/);
-    broken(slice => { slice.offers[0].id = 'bad'; }, /not an offer id/);
-    broken(slice => { slice.offers[0].rev = -1; }, /rev must be/);
-    broken(slice => { slice.offers.push({ ...slice.offers[0] }); }, /id twice/);
-    broken(slice => { slice.offers.push({ id: 'of_aaaaaaaa', kind: 'skill', actor: 'ac_gone0000', skill: 'Mend', rev: 0 }); }, /not in the party/);
+    broken(slice => { Object.values(slice.offers)[0].id = 'bad'; }, /not an offer id/);
+    broken(slice => { Object.values(slice.offers)[0].rev = -1; }, /rev must be/);
+    broken(slice => { slice.offers.of_zzzzzzzz = { ...Object.values(slice.offers)[0] }; }, /kept under another id/);
+    broken(slice => { slice.offers = [...Object.values(slice.offers), ...Object.values(slice.offers)]; }, /id twice/);
+    broken(slice => { slice.offers.of_aaaaaaaa = { id: 'of_aaaaaaaa', kind: 'skill', actor: '', skill: 'Mend', rev: 0 }; }, /names nobody/);
     assert.deepEqual(validate(null), ['party is not a record.']);
 });
 

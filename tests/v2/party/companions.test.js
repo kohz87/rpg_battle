@@ -83,7 +83,7 @@ test('leave lines: an offer to let a companion go; Accept removes them, Dismiss 
     const offered = capture(state, '- leave Lyra — parts ways at the ford');
     assert.ok(offered.ok, offered.message);
     assert.ok(byName(offered.state, 'Lyra'), 'nothing happens before the reader decides');
-    const [offer] = offered.state.domains.party.offers;
+    const [offer] = Object.values(offered.state.domains.party.offers);
     assert.deepEqual({ kind: offer.kind, actor: offer.actor, text: offer.text }, { kind: 'leave', actor: lyra.id, text: 'parts ways at the ford' });
     assert.equal(offered.result.summary, 'Lyra means to leave the party.');
     assert.equal(part.queries['party.offers'](offered.state)[0].text, 'Lyra means to leave the party: parts ways at the ford.');
@@ -92,7 +92,7 @@ test('leave lines: an offer to let a companion go; Accept removes them, Dismiss 
     const accepted = run(offered.state, 'party.acceptOffer', { offer: offer.id });
     assert.ok(accepted.ok, accepted.message);
     assert.equal(byName(accepted.state, 'Lyra'), undefined);
-    assert.deepEqual(accepted.state.domains.party.offers, []);
+    assert.deepEqual(Object.values(accepted.state.domains.party.offers), []);
     assert.match(accepted.result.summary, /Lyra leaves the party/);
 
     const kept = run(offered.state, 'party.dismissOffer', { offer: offer.id });
@@ -103,7 +103,7 @@ test('leave lines: an offer to let a companion go; Accept removes them, Dismiss 
     // `- join Lyra — leaves` says the same.
     const join = capture(state, '- join Lyra — leaves');
     assert.ok(join.ok, join.message);
-    assert.deepEqual(join.state.domains.party.offers.map(entry => [entry.kind, entry.actor, entry.text]), [['leave', lyra.id, '']]);
+    assert.deepEqual(Object.values(join.state.domains.party.offers).map(entry => [entry.kind, entry.actor, entry.text]), [['leave', lyra.id, '']]);
 });
 
 test('leave rejections: your character, someone not in the party, twice, a wrong op', () => {

@@ -4,9 +4,11 @@
 // (MODULES §F3 tools); item tags are read from the inventory's defs as they are. Pure.
 
 import { memberOf, modifiersFor, rulesFor, statModifiers } from './modifiers.js';
+import { MAX_LOG, latestChecks, logEntries, preparedEntries } from './shared.js';
+import { OUTCOMES } from '../party/checks.js';
 
 const copy = value => JSON.parse(JSON.stringify(value ?? null));
-const checksOf = state => state?.domains?.checks ?? { prepared: [], log: [], last: null };
+const checksOf = state => state?.domains?.checks ?? { prepared: {}, log: {} };
 
 /** A query through the host's tools, null when it is not registered or fails. */
 export function asker(tools) {
@@ -20,21 +22,36 @@ export function asker(tools) {
     };
 }
 
-/** The last results (up to 30), oldest first. */
+/** The last results (up to MAX_LOG, 30), oldest first: the log is keyed by check id (B-b1r2-13), read in rev order. */
 export function log(state) {
-    return copy(checksOf(state).log ?? []);
+    return copy(logEntries(checksOf(state)).slice(-MAX_LOG));
 }
 
 /** `checks.rolls({ for? })` → { for, rolls, rev } handed over for that reply (else the latest), or null. */
 export function rolls(state, args = {}) {
-    const list = checksOf(state).prepared ?? [];
-    const found = (Number.isInteger(args?.for) ? list.find(entry => entry.for === args.for) : null) ?? list.at(-1) ?? null;
+    const list = preparedEntries(checksOf(state));
+    const found = (Number.isInteger(args?.for) ? list.findLast(entry => entry.for === args.for) : null) ?? list.at(-1) ?? null;
     return copy(found);
 }
 
-/** `checks.last` → the latest reply's checks as its card shows them: { carrier, rev, results } or null. */
+/**
+ * `checks.last` → the latest reply's checks as its card shows them: { carrier, rev, results:
+ * [{ id, actor, name, text, outcome, outcomeText, mismatch, note }] } or null. Read from the log
+ * (the newest carrier's entries); an older chat's `last` record when its log has none.
+ */
 export function last(state) {
-    return copy(checksOf(state).last ?? null);
+    const checks = checksOf(state);
+    const latest = latestChecks(checks);
+    if (!latest) return copy(checks.last ?? null);
+    const actors = state?.domains?.party?.actors ?? {};
+    const results = latest.results.map(entry => ({
+        id: entry.id, actor: entry.actor,
+        name: entry.name ?? (Object.hasOwn(actors, entry.actor) ? actors[entry.actor].name : ''),
+        text: entry.text ?? `${entry.skill || entry.stat}${entry.what ? ` (${entry.what})` : ''}`,
+        outcome: entry.outcome, outcomeText: entry.outcomeText ?? OUTCOMES[entry.outcome] ?? entry.outcome,
+        mismatch: entry.mismatch ?? '', note: entry.note ?? '',
+    }));
+    return copy({ carrier: latest.carrier, rev: latest.rev, results });
 }
 
 /**

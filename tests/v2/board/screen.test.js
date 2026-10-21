@@ -102,11 +102,11 @@ test('the screen: offer cards with Fight and Not now; Fight starts it and the bo
     assert.equal(again.el.querySelector('.rpg-bb'), null, 'no board before a fight');
     assert.equal(again.el.querySelectorAll('.rb-fight-empty').length, 0);
 
-    const [first, second] = world.state.domains.combat.offers.map(offer => offer.id);
+    const [first, second] = Object.values(world.state.domains.combat.offers).map(offer => offer.id);
     again.el.querySelectorAll('.rb-fight-not-now')[1].click();
     await settle();
     assert.deepEqual(again.sent, [['combat.dismiss', { offer: second }]]);
-    assert.equal(world.state.domains.combat.offers.length, 1);
+    assert.equal(Object.values(world.state.domains.combat.offers).length, 1);
     again.el.querySelector('.rb-fight-go').click();
     await settle();
     assert.deepEqual(again.sent.at(-1), ['combat.start', { offer: first }]);
@@ -140,7 +140,7 @@ test('the screen: board clicks run through the template\'s command runner, Finis
     await settle();
     assert.deepEqual(sent.at(-1), ['combat.end', { session: fightId }]);
     assert.equal(el.querySelector('.rpg-bb'), null, 'the board leaves with the fight');
-    assert.deepEqual(texts(el, '.rb-fight-summary'), [world.state.domains.combat.last.summary]);
+    assert.deepEqual(texts(el, '.rb-fight-summary'), [world.state.domains.combat.last[0].summary]);
     assert.deepEqual(texts(el, '.rb-fight-offer button'), ['Fight', 'Not now'], 'the waiting offer can be fought now');
     assert.deepEqual(warnings, []);
 });

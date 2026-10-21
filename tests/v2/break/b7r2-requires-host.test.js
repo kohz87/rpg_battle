@@ -9,10 +9,7 @@ import assert from 'node:assert/strict';
 
 import { createModule } from '../../../src/v2/module.js';
 
-// Blocked (todo): the vendored testkit's Story Block is 2.0.0-alpha.1 and enforces requires, so
-// `>=2.0.0-alpha.2` refuses RPG Battle in its own suite. Lands with the testkit synced from
-// Story Block's 2.0.0-alpha.2 (SB-r2fix).
-test('RPG Battle says which Story Block it needs', { todo: 'waits for Story Block 2.0.0-alpha.2 in the vendored testkit' }, () => {
+test('RPG Battle says which Story Block it needs', () => {
     const def = createModule();
     assert.equal(typeof def.requires?.storyBlock, 'string', 'no requires.storyBlock in the definition');
 });

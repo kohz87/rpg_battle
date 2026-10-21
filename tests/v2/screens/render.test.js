@@ -328,7 +328,7 @@ test('status card: level-ups and skills are named; "only what changed" hides the
 });
 
 test('status card: the reply\'s checks with code\'s result and the mismatch flag; only on that reply', { skip }, () => {
-    const drawn = draw(statusCardScreen, makeState(), { changes: ['/domains/checks/last'], settings: { cardOnlyChanged: true } });
+    const drawn = draw(statusCardScreen, makeState(), { changes: ['/domains/checks/log/ck_aaaaaaaa'], settings: { cardOnlyChanged: true } });
     assert.deepEqual(drawn.warnings, []);
     assert.equal(all(drawn.el, '.member').length, 0);
     const [check] = all(drawn.el, '.checks .check');

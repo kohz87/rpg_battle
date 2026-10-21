@@ -29,7 +29,7 @@ function pools(h, p) {
     const state = h.state();
     const stacks = Object.keys(state.domains.inventory.stacks);
     const actors = state.domains.party.order;
-    const offers = state.domains.combat.offers.map(offer => offer.id);
+    const offers = Object.values(state.domains.combat.offers).map(offer => offer.id);
     const orders = Object.keys(state.domains.trade.orders);
     const stack = () => (stacks.length && p.chance(0.85) ? p.pick(stacks) : p.pick(['it_zzzzzzzz', 42, null, '', 'party']));
     const actor = () => (actors.length && p.chance(0.85) ? p.pick(actors) : p.pick(['ac_zzzzzzzz', 'party', 7, null]));

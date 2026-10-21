@@ -8,6 +8,7 @@
 
 import { part } from '../../../../src/v2/checks/index.js';
 import { part as party } from '../../../../src/v2/party/index.js';
+import { logEntries, preparedEntries } from '../../../../src/v2/checks/shared.js';
 
 export function sfc32(seed) {
     let a = 0x9e3779b9;
@@ -179,7 +180,7 @@ export function capture(state, raw, options = {}) {
 export function prepared(state, index = 4, { rolls = null, seed = 3 } = {}) {
     const out = run(state, 'checks.prepare', { for: index }, { seed, cause: 'system' });
     if (!out.ok) throw new Error(out.message);
-    if (rolls) out.state.domains.checks.prepared.at(-1).rolls = [...rolls];
+    if (rolls) preparedEntries(out.state.domains.checks).at(-1).rolls = [...rolls];
     return out.state;
 }
 
@@ -207,4 +208,5 @@ export function withItem(state, { id, name, owner = 'party', kind = 'goods', not
 
 export const pcOf = state => state.domains.party.actors[state.domains.party.pc];
 export const byName = (state, name) => Object.values(state.domains.party.actors).find(actor => actor.name === name);
-export const logOf = state => state.domains.checks.log;
+/** The check results kept, oldest first (the log is keyed by check id, B-b1r2-13). */
+export const logOf = state => logEntries(state.domains.checks);

@@ -13,9 +13,13 @@
 import { PRICE_LEVELS } from '../../trade.js';
 import { consume, grant, pay, receive, sceneOf, tooHeavy } from './calls.js';
 import {
-    CODES, DAY, MAX_SHORTAGES, SHORTAGE_PRICES, currencyFrom, makeWorld, marketOf, ordersOf, planBuy, planCollect, planCommission,
-    packShopsHere, packsFrom, planSell, settingsOf, shortageAt, shortageKey, shortageRate, stockOf, summaryOf, worldFromState,
+    CODES, DAY, MAX_SHOP_WRITES, MAX_SHORTAGES, SHORTAGE_PRICES, baseOf, currencyFrom, currentShortages, leastPaid, makeWorld, marketOf, ordersOf,
+    planBuy, planCollect, planCommission, packShopsHere, packsFrom, planSell, settingsOf, shortageAt, shortageKey, shortageRate, stockOf,
+    summaryOf, worldFromState, writeKey, writesOf,
 } from './core.js';
+
+// What was paid is kept for this many things at most (the oldest written first out).
+export const MAX_PAID = 500;
 import { renderTradePage } from './page.js';
 import { clipped } from '../lines.js';
 
@@ -27,19 +31,31 @@ const TAIL_ORDERS = 4;
 
 /** The trade slice of a new chat. */
 export const initialTrade = () => ({ orders: {}, shops: {}, shortages: {}, paid: {} });
-// What was paid for a thing, kept for this many defs at most (the oldest first out).
-export const MAX_PAID = 500;
+const revOf = ctx => (Number.isInteger(ctx?.rev) ? ctx.rev : 0);
+
+const revAt = key => Number(/#(\d+)$/.exec(key)?.[1] ?? 0);
+
+/** The oldest keys of `record` (by the rev they were written at) removed until `most` are left; `keep` stays. */
+function pruneWrites(record, most, keep) {
+    const keys = Object.keys(record);
+    if (keys.length <= most) return;
+    for (const key of keys.filter(other => other !== keep).sort((a, b) => (revAt(a) - revAt(b)) || (a < b ? -1 : 1)).slice(0, keys.length - most)) delete record[key];
+}
 
 /**
  * What one of `def` was paid (trade.paid, B-b3-14): the least paid when bought again, so it never
- * sells for more than that. → the draft's record.
+ * sells for more than that. Kept as a write of its own (`<def>#<rev>`, B-b1r2-13) when it is less
+ * than what was paid before, the earlier write for that thing removed; MAX_PAID things at most.
  */
-function keepPaid(trade, def, each) {
+function keepPaid(ctx, trade, def, each) {
     trade.paid ??= {};
-    const was = trade.paid[def];
-    trade.paid[def] = Number.isInteger(was) ? Math.min(was, each) : each;
-    const keys = Object.keys(trade.paid);
-    if (keys.length > MAX_PAID) for (const key of keys.slice(0, keys.length - MAX_PAID)) delete trade.paid[key];
+    const least = leastPaid(trade.paid);
+    if (Object.hasOwn(least, def) && least[def] <= each) return;
+    const before = writesOf(trade.paid, def);
+    const key = writeKey(trade.paid, def, revOf(ctx));
+    trade.paid[key] = each;
+    for (const old of before) delete trade.paid[old];
+    pruneWrites(trade.paid, MAX_PAID, key);
 }
 // Shortages listed in the tail at most.
 const TAIL_SHORTAGES = 3;
@@ -111,11 +127,14 @@ const commands = {
         grant(ctx, plan.def, plan.qty);
         const trade = ctx.draft('trade');
         trade.shops ??= {};
-        const kept = trade.shops[plan.shop];
-        const bought = kept && kept.day === plan.day ? kept.bought : [];
-        // A pack shop counts every one bought (it has so many a day); a generic shelf line goes at once.
-        trade.shops[plan.shop] = { day: plan.day, bought: [...bought, ...Array(plan.pack ? plan.qty : 1).fill(plan.def.id)] };
-        keepPaid(trade, plan.def.id, plan.each);
+        // A pack shop counts every one bought (it has so many a day); a generic shelf line goes at
+        // once. Each purchase is a write of its own (B-b1r2-13); the shop's purchases of another day go.
+        const stale = writesOf(trade.shops, plan.shop).filter(old => trade.shops[old]?.day !== plan.day);
+        const key = writeKey(trade.shops, plan.shop, revOf(ctx));
+        trade.shops[key] = { day: plan.day, bought: Array(plan.pack ? plan.qty : 1).fill(plan.def.id) };
+        for (const old of stale) delete trade.shops[old];
+        pruneWrites(trade.shops, MAX_SHOP_WRITES, key);
+        keepPaid(ctx, trade, plan.def.id, plan.each);
         return {
             summary: summaryOf(world, plan.line),
             narrate: true,
@@ -161,7 +180,7 @@ const commands = {
         grant(ctx, plan.piece, 1);
         const trade = ctx.draft('trade');
         const order = trade.orders[id];
-        if (Number.isInteger(order?.cap) && typeof plan.piece.id === 'string') keepPaid(trade, plan.piece.id, order.cap);
+        if (Number.isInteger(order?.cap) && typeof plan.piece.id === 'string') keepPaid(ctx, trade, plan.piece.id, order.cap);
         delete trade.orders[id];
         return {
             summary: summaryOf(world, plan.line),
@@ -218,10 +237,13 @@ export function validateTrade(slice) {
         if (!isPlain(slice.shortages)) errors.push('trade.shortages: not a record');
         else {
             const list = Object.entries(slice.shortages);
-            if (list.length > MAX_SHORTAGES) errors.push(`trade.shortages: at most ${MAX_SHORTAGES}`);
+            // 4× the number that may hold: a replay after a middle delete (a lift deleted) may keep more.
+            if (Object.keys(currentShortages(slice.shortages)).length > MAX_SHORTAGES * 4) errors.push(`trade.shortages: at most about ${MAX_SHORTAGES}`);
             for (const [key, entry] of list) {
                 const at = `trade.shortages.${key}`;
-                if (!key || key.length > 80 || key.includes('|') || key !== shortageKey(key)) errors.push(`${at}: not a place key`);
+                const base = baseOf(key);
+                if (!base || base.length > 80 || base.includes('|') || base !== shortageKey(base)) errors.push(`${at}: not a place key`);
+                if (entry?.lifted !== undefined && entry.lifted !== true) errors.push(`${at}.lifted: true or absent`);
                 if (!isPlain(entry) || typeof entry.place !== 'string' || !entry.place.trim() || entry.place.length > 80) errors.push(`${at}.place: needs a name`);
                 if (typeof entry?.reason !== 'string' || entry.reason.length > 120 || typeof entry?.until !== 'string' || entry.until.length > 80) errors.push(`${at}: reason and until must be short text`);
                 if (entry?.day !== null && (!Number.isInteger(entry?.day) || entry.day < 0)) errors.push(`${at}.day: not a whole day or null`);
@@ -232,15 +254,16 @@ export function validateTrade(slice) {
     if (slice.paid !== undefined) {
         if (!isPlain(slice.paid)) errors.push('trade.paid: not a record');
         else {
-            if (Object.keys(slice.paid).length > MAX_PAID) errors.push(`trade.paid: at most ${MAX_PAID}`);
+            if (Object.keys(slice.paid).length > MAX_PAID * 4) errors.push(`trade.paid: at most about ${MAX_PAID}`);
             for (const [def, each] of Object.entries(slice.paid)) {
-                if (!DEF_ID.test(def) || !Number.isInteger(each) || each < 0) errors.push(`trade.paid.${def}: a def id and a whole amount of at least 0`);
+                if (!DEF_ID.test(baseOf(def)) || !Number.isInteger(each) || each < 0) errors.push(`trade.paid.${def}: a def id and a whole amount of at least 0`);
             }
         }
     }
+    if (isPlain(slice.shops) && Object.keys(slice.shops).length > MAX_SHOP_WRITES * 4) errors.push(`trade.shops: too many purchases kept`);
     for (const [key, shop] of Object.entries(isPlain(slice.shops) ? slice.shops : {})) {
         const at = `trade.shops.${key}`;
-        if (!SHOP_KEY.test(key)) errors.push(`${at}: not a place|kind key`);
+        if (!SHOP_KEY.test(baseOf(key))) errors.push(`${at}: not a place|kind key`);
         if (shop?.day !== null && (!Number.isInteger(shop?.day) || shop.day < 0)) errors.push(`${at}.day: not a whole day or null`);
         if (!Array.isArray(shop?.bought) || shop.bought.some(def => typeof def !== 'string')) errors.push(`${at}.bought: not a list of def ids`);
     }
@@ -291,10 +314,14 @@ export function applyMarket(ctx, line) {
     const key = shortageKey(place);
     const trade = ctx.draft('trade');
     trade.shortages ??= {};
-    const found = trade.shortages[key] ? { key, ...trade.shortages[key] } : shortageAt(trade.shortages, place);
+    // What holds now, read from the writes; a mark or a lift is a write of its own (B-b1r2-13).
+    const holding = currentShortages(trade.shortages);
+    const found = Object.hasOwn(holding, key) ? { key, ...holding[key] } : shortageAt(holding, place);
+    const rev = Number.isInteger(ctx.rev) ? ctx.rev : 0;
     if (LIFT_OPS.includes(line?.op)) {
         if (!found) ctx.fail(CODES.refused, `There is no shortage at ${place} to lift.`);
-        delete trade.shortages[found.key];
+        // Its writes go (deleting this reply brings them back; a write already gone is passed over).
+        for (const old of writesOf(trade.shortages, found.key)) delete trade.shortages[old];
         return {
             summary: `Supplies are back at ${found.place}: its shops restock and their prices are back to usual.`,
             narrate: false,
@@ -305,12 +332,13 @@ export function applyMarket(ctx, line) {
     for (const [label, value] of Object.entries(line?.labels ?? {})) labels[String(label).trim().toLowerCase()] = value;
     const reason = cleanText(line?.text, 120);
     const until = cleanText(labels.until, 80);
-    if (!found && Object.keys(trade.shortages).length >= MAX_SHORTAGES) ctx.fail(CODES.refused, `${MAX_SHORTAGES} shortages already hold: lift one first.`);
-    const rev = Number.isInteger(ctx.rev) ? ctx.rev : 0;
+    if (!found && Object.keys(holding).length >= MAX_SHORTAGES) ctx.fail(CODES.refused, `${MAX_SHORTAGES} shortages already hold: lift one first.`);
     const entry = found
         ? { place: found.place, reason: reason || found.reason, until: until || found.until, day: found.day ?? null, rev }
         : { place, reason, until, day: dayOf(ctx), rev };
-    trade.shortages[found?.key ?? key] = entry;
+    const before = writesOf(trade.shortages, found?.key ?? key);
+    trade.shortages[writeKey(trade.shortages, found?.key ?? key, rev)] = entry;
+    for (const old of before) delete trade.shortages[old];
     const rate = shortageRate(settingsOf(ctx.settings?.()));
     return {
         summary: `Shortage at ${entry.place}${entry.reason ? ` (${entry.reason})` : ''}: its shops do not restock and charge ${rate}% of their usual prices until it is lifted${entry.until ? ` (expected: ${entry.until})` : ''}.`,

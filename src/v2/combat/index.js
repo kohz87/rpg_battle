@@ -26,13 +26,40 @@ import { itemSlot, oneCurrency, parseEffect } from '../../items.js';
 import { combinedBestiary } from '../../templates.js';
 import { foesText, readEncounter, STAKES, TIERS } from './encounter.js';
 import { buildSetup, COMBAT_DEFAULTS, fightNumbers, partyCombatants } from './setup.js';
-import { bestiaryList, creatureSlug, fightRules, latinSlug, packCreature, packSetup, sessionStatus, unpackSetup } from './stored.js';
+import { beatenOf, bestiaryList, byRev, creatureSlug, fightRules, lastOf, latinSlug, offersOf, packCreature, packSetup, sessionStatus, unpackSetup, valuesOf } from './stored.js';
+export { beatenOf, lastOf, offersOf } from './stored.js';
 import { clipped } from '../lines.js';
 import { applyStock, beatenFoes, boardToken, endSummary, foeNames, partyNames, rebuild, sessionView, tailLines } from './view.js';
 
-export const MAX_OFFERS = 10;
-export const MAX_BEATEN = 200;
+export { MAX_BEATEN, MAX_OFFERS } from './stored.js';
+import { MAX_BEATEN, MAX_OFFERS } from './stored.js';
 export const MAX_CREATURES = 200;
+// Bookkeeping later replies write is keyed (B-b1r2-13, SPEC §2): an offer under its id, a settled
+// fight's foes under the fight's id, a made creature under its key, never a list position or a
+// field of an entry an earlier reply made. The oldest are pruned past MAX_OFFERS, MAX_BEATEN and
+// MAX_CREATURES (Story Block 2.0.0-alpha.2 passes over the remove of a key that is already gone).
+// The latest result (`last`) is one value written whole, as a one-entry list (one replace), so the
+// newest write left on the chat's line wins.
+
+/** The oldest entries of `record` (by rev) removed until `most` are left; `keep` stays. */
+function prune(record, most, keep) {
+    const keys = Object.keys(record);
+    if (keys.length <= most) return;
+    const oldest = keys.filter(key => key !== keep)
+        .sort((a, b) => ((record[a]?.rev ?? 0) - (record[b]?.rev ?? 0)) || (a < b ? -1 : a > b ? 1 : 0))
+        .slice(0, keys.length - most);
+    for (const key of oldest) delete record[key];
+}
+
+
+/** The draft's `key` slice as a record (an older chat's list is turned into one, keyed by `field`). */
+function recordOf(draft, key, field = 'id') {
+    if (!draft[key] || typeof draft[key] !== 'object' || Array.isArray(draft[key])) {
+        const list = Array.isArray(draft[key]) ? draft[key] : [];
+        draft[key] = Object.fromEntries(list.filter(entry => entry && typeof entry === 'object').map((entry, n) => [typeof entry[field] === 'string' ? entry[field] : `old${n}`, entry]));
+    }
+    return draft[key];
+}
 const STATUSES = ['active', 'won', 'lost', 'fled'];
 const ACTION_TYPES = ['attack', 'skill', 'item', 'defend', 'flee', 'parley', 'auto'];
 const ACTION_FIELDS = ['target', 'skill', 'item', 'actor'];
@@ -400,7 +427,7 @@ function grantLoot(ctx, items) {
 function start(ctx, payload) {
     const offerId = payload?.offer;
     const combat = ctx.read('combat');
-    const offer = combat.offers.find(entry => entry.id === offerId);
+    const offer = offersOf(combat).find(entry => entry.id === offerId);
     if (!offer) ctx.fail('NOT_FOUND', 'That fight is no longer on offer.');
     if (combat.session) ctx.fail('REFUSED', combat.session.status === 'active' ? 'A fight is already under way.' : 'Finish the last fight first.');
     const numbers = fightNumbers(ctx.settings() ?? {});
@@ -443,15 +470,16 @@ function start(ctx, payload) {
     const rev = nextRev(ctx);
     if (made.length) {
         const bestiary = ctx.draft('bestiary');
-        for (const entry of made) bestiary.creatures[creatureSlug(entry.name)] = packCreature({ ...entry, rev });
-        const keys = Object.keys(bestiary.creatures);
-        if (keys.length > MAX_CREATURES) {
-            const oldest = keys.sort((a, b) => (bestiary.creatures[a].rev - bestiary.creatures[b].rev) || (a < b ? -1 : 1)).slice(0, keys.length - MAX_CREATURES);
-            for (const key of oldest) delete bestiary.creatures[key];
+        // Each under its own key, added once (B-b1r2-13); the oldest go past MAX_CREATURES.
+        for (const entry of made) {
+            const key = creatureSlug(entry.name);
+            if (Object.hasOwn(bestiary.creatures, key)) continue;
+            bestiary.creatures[key] = packCreature({ ...entry, rev });
         }
+        prune(bestiary.creatures, MAX_CREATURES, null);
     }
     const draft = ctx.draft('combat');
-    draft.offers = draft.offers.filter(entry => entry.id !== offer.id);
+    delete recordOf(draft, 'offers')[offer.id];
     draft.session = { id, setup: packSetup(setup), actions: [], status };
     return {
         summary: `A fight begins: ${partyNames(setup)} against ${foeNames(setup)}${heldBack ? ` (${heldBack} more hang${heldBack === 1 ? 's' : ''} back)` : ''}.`,
@@ -554,10 +582,12 @@ function end(ctx, payload) {
     const summary = `${endSummary(result, { pcName, rules: shown, names, currency: chatCurrency(ctx) })}${behind}${lost}`;
     const combat = ctx.draft('combat');
     if (foes.length) {
-        combat.beaten.push({ rev, foes, won: result.outcome === 'victory' });
-        if (combat.beaten.length > MAX_BEATEN) combat.beaten.splice(0, combat.beaten.length - MAX_BEATEN);
+        const beaten = recordOf(combat, 'beaten', 'fight');
+        beaten[session.id] = { fight: session.id, rev, foes, won: result.outcome === 'victory' };
+        prune(beaten, MAX_BEATEN, session.id);
     }
-    combat.last = { summary, moments: [...result.keyMoments], outcome: session.status, rev };
+    // Written whole (a one-entry list is one replace): the newest result left on the chat's line wins.
+    combat.last = [{ summary, moments: [...result.keyMoments], outcome: session.status, rev }];
     combat.session = null;
     return {
         summary,
@@ -581,10 +611,10 @@ function end(ctx, payload) {
 /** combat.dismiss({ offer }): the reader turns an offered fight down. */
 function dismiss(ctx, payload) {
     const combat = ctx.read('combat');
-    const offer = combat.offers.find(entry => entry.id === payload?.offer);
+    const offer = offersOf(combat).find(entry => entry.id === payload?.offer);
     if (!offer) ctx.fail('NOT_FOUND', 'That fight is no longer on offer.');
     const draft = ctx.draft('combat');
-    draft.offers = draft.offers.filter(entry => entry.id !== offer.id);
+    delete recordOf(draft, 'offers')[offer.id];
     return { summary: `The reader turns down the fight with ${foesText(offer.foes, { tiers: false })}.`, narrate: false, data: { offer: offer.id } };
 }
 
@@ -602,8 +632,10 @@ function captureEncounter(ctx, line) {
     const id = newId(ctx, 'en');
     const offer = { id, foes: read.foes, stakes: read.stakes, place, rev: nextRev(ctx), ...(read.note ? { note: read.note } : {}) };
     const draft = ctx.draft('combat');
-    draft.offers.push(offer);
-    if (draft.offers.length > MAX_OFFERS) draft.offers.splice(0, draft.offers.length - MAX_OFFERS);
+    const offers = recordOf(draft, 'offers');
+    // Under its own id (B-b1r2-13); the oldest go past MAX_OFFERS.
+    offers[id] = offer;
+    prune(offers, MAX_OFFERS, id);
     return {
         summary: `A fight is offered: ${foesText(offer.foes)}${offer.stakes === 'death' ? ', to the death' : ''}.`,
         narrate: false,
@@ -623,10 +655,14 @@ const validStock = stock => stock === undefined || (Array.isArray(stock) && stoc
 export function validateCombat(slice) {
     const errors = [];
     if (!slice || typeof slice !== 'object') return ['The combat record is missing.'];
-    if (!Array.isArray(slice.offers)) errors.push('combat.offers must be a list.');
+    const record = value => Boolean(value) && typeof value === 'object';
+    if (!record(slice.offers)) errors.push('combat.offers must be a record.');
     else {
-        if (slice.offers.length > MAX_OFFERS) errors.push(`combat.offers holds ${MAX_OFFERS} fights at most.`);
-        slice.offers.forEach((offer, n) => {
+        const offers = valuesOf(slice.offers);
+        // 4× the kept number: a replay after a middle delete may keep one the deleted reply had pruned.
+        if (offers.length > MAX_OFFERS * 4) errors.push(`combat.offers holds about ${MAX_OFFERS} fights at most.`);
+        if (!Array.isArray(slice.offers)) for (const [key, offer] of Object.entries(slice.offers)) if (offer?.id !== key) errors.push(`combat.offers.${key} is kept under another id.`);
+        offers.forEach((offer, n) => {
             const at = `combat.offers[${n}]`;
             if (!isText(offer?.id, 20) || !/^en_[0-9a-z]{8}$/.test(offer.id)) errors.push(`${at}.id must be an offer id like en_k3f9a2qz.`);
             if (!Array.isArray(offer?.foes) || !offer.foes.length) errors.push(`${at} names no foe.`);
@@ -647,15 +683,17 @@ export function validateCombat(slice) {
         if (!Array.isArray(s.actions) || s.actions.some(action => !cleanAction(action) || !validStock(action.stock))) errors.push('combat.session.actions must be a list of actions.');
         if (!STATUSES.includes(s.status)) errors.push(`combat.session.status must be ${STATUSES.join(', ')}.`);
     } else if (s === undefined) errors.push('combat.session must be a fight or null.');
-    if (!Array.isArray(slice.beaten)) errors.push('combat.beaten must be a list.');
+    if (!record(slice.beaten)) errors.push('combat.beaten must be a record.');
     else {
-        if (slice.beaten.length > MAX_BEATEN) errors.push(`combat.beaten keeps ${MAX_BEATEN} fights at most.`);
-        slice.beaten.forEach((entry, n) => {
+        const beaten = valuesOf(slice.beaten);
+        if (beaten.length > MAX_BEATEN * 4) errors.push(`combat.beaten keeps about ${MAX_BEATEN} fights at most.`);
+        beaten.forEach((entry, n) => {
             if (!isInt(entry?.rev) || typeof entry?.won !== 'boolean' || !Array.isArray(entry?.foes)
                 || entry.foes.some(foe => !isText(foe?.name, 60) || !isInt(foe?.count, 1))) errors.push(`combat.beaten[${n}] must be { rev, foes: [{ name, count }], won }.`);
         });
     }
-    const last = slice.last;
+    if (Array.isArray(slice.last) && slice.last.length > 1) errors.push('combat.last holds one result.');
+    const last = Array.isArray(slice.last) ? slice.last[0] ?? null : slice.last;
     if (last !== null && last !== undefined) {
         if (!isText(last.summary, 4000) || !Array.isArray(last.moments) || last.moments.some(moment => typeof moment !== 'string')) errors.push('combat.last must be { summary, moments }.');
     } else if (last === undefined) errors.push('combat.last must be a result or null.');
@@ -666,7 +704,7 @@ export function validateBestiary(slice) {
     if (!slice || typeof slice !== 'object' || !slice.creatures || typeof slice.creatures !== 'object' || Array.isArray(slice.creatures)) return ['bestiary.creatures must be a record.'];
     const errors = [];
     const keys = Object.keys(slice.creatures);
-    if (keys.length > MAX_CREATURES) errors.push(`The bestiary keeps ${MAX_CREATURES} creatures at most.`);
+    if (keys.length > MAX_CREATURES * 4) errors.push(`The bestiary keeps about ${MAX_CREATURES} creatures at most.`);
     for (const key of keys) {
         const entry = slice.creatures[key];
         if (!isText(entry?.name, 60) || !entry.name.trim()) errors.push(`bestiary.creatures.${key} has no name.`);
@@ -679,12 +717,12 @@ export function validateBestiary(slice) {
 
 // --- queries ----------------------------------------------------------------------------------
 
-const combatOf = state => state?.domains?.combat ?? { offers: [], session: null, beaten: [], last: null };
+const combatOf = state => state?.domains?.combat ?? { offers: {}, session: null, beaten: {}, last: [] };
 
 /** combat.foesBeaten({ sinceRev }) → [{ rev, foes: [{ name, count }], won }]: the fights settled after `sinceRev`. */
 export function foesBeaten(state, { sinceRev = -1 } = {}) {
     const since = Number.isFinite(Number(sinceRev)) ? Number(sinceRev) : -1;
-    return combatOf(state).beaten.filter(entry => entry.rev > since).map(entry => structuredClone(entry));
+    return beatenOf(combatOf(state)).filter(entry => entry.rev > since).map(({ fight: _fight, ...entry }) => structuredClone(entry));
 }
 
 // --- the part ---------------------------------------------------------------------------------
@@ -692,7 +730,7 @@ export function foesBeaten(state, { sinceRev = -1 } = {}) {
 export const part = {
     domains: {
         combat: {
-            initial: () => ({ offers: [], session: null, beaten: [], last: null }),
+            initial: () => ({ offers: {}, session: null, beaten: {}, last: [] }),
             validate: validateCombat,
         },
         bestiary: {
@@ -708,9 +746,9 @@ export const part = {
         'combat.dismiss': dismiss,
     },
     queries: {
-        'combat.offers': state => combatOf(state).offers.map(offer => ({ ...structuredClone(offer), text: foesText(offer.foes) })),
+        'combat.offers': state => offersOf(combatOf(state)).map(offer => ({ ...structuredClone(offer), text: foesText(offer.foes) })),
         'combat.session': state => sessionView(combatOf(state).session),
-        'combat.last': state => (combatOf(state).last ? structuredClone(combatOf(state).last) : null),
+        'combat.last': state => (lastOf(combatOf(state)) ? structuredClone(lastOf(combatOf(state))) : null),
         'combat.foesBeaten': foesBeaten,
         'bestiary.creatures': state => bestiaryList(state?.domains?.bestiary).map(entry => ({ name: entry.name, level: entry.level, template: entry.template ?? null, look: entry.look ?? '' })),
     },

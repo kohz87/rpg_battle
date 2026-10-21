@@ -5,7 +5,7 @@
 import { act, availableActions, replay } from '../../combat.js';
 import { buildHandoff, grouped, HANDOFF_HEADER } from '../../handoff.js';
 import { oneCurrency } from '../../items.js';
-import { fightRules, unpackSetup } from './stored.js';
+import { fightRules, offersOf, unpackSetup } from './stored.js';
 import { foesText } from './encounter.js';
 
 const LOG_SHOWN = 40;
@@ -195,7 +195,7 @@ export function tailLines(combat) {
     } else if (session) {
         lines.push(`[Fight] Over (${session.status}), being settled in RPG Battle: narrate no outcome until it is told.`);
     }
-    for (const offer of combat?.offers ?? []) {
+    for (const offer of offersOf(combat)) {
         const note = offer.note ? ` — ${offer.note}` : '';
         const stakes = offer.stakes === 'death' ? ', to the death' : '';
         optional.push(`[Fight offered] ${foesText(offer.foes)}${stakes}${note}. Waiting for the reader to fight it or turn it down.`);

@@ -9,7 +9,7 @@
 // one is older; a field this host does not know (a newer module's) is logged and ignored, never a
 // refusal. A domain's initial() that throws when a chat starts costs that domain only.
 
-import { parseRange, parseVersion, satisfies } from './packs/version.js';
+import { compareVersions, formatVersion, parseRange, parseVersion, satisfies } from './packs/version.js';
 
 // Commands the registry makes itself, so the command bus can run them like any other:
 // `capture.<kind>` runs the owner's capture.apply on a change line (turn.js), and
@@ -29,7 +29,7 @@ export const HOST_MODULE = 'story-block';
 export const STANDARD_PREFIX = 'ss.';
 
 const KNOWN_KEYS = ['id', 'name', 'version', 'description', 'requires', 'domains', 'commands', 'queries', 'capture', 'context', 'hooks', 'settings', 'tabs', 'screens', 'widgets'];
-const FIELD_TYPES = ['bool', 'int', 'choice', 'text', 'list'];
+export const FIELD_TYPES = Object.freeze(['bool', 'int', 'choice', 'text', 'list']);
 
 const MODULE_ID = /^[a-z0-9][a-z0-9._-]*$/;
 // Domain names are JSON Pointer segments (/domains/<name>/…): no `/` or `~`.
@@ -66,11 +66,15 @@ export function jsonProblem(value, path = '') {
     return `${path || 'the value'} is not plain JSON (${value === undefined ? 'undefined' : typeof value})`;
 }
 
+const fieldType = field => (typeof field === 'string' ? field : Array.isArray(field) ? 'choice' : field?.type);
+
 // One settings schema field: '' or what is wrong with it. A string is shorthand for its type and
-// an array for a choice.
+// an array for a choice. A type this Story Block does not know (a newer module's) is no problem: the
+// field is hidden and its value kept as it is (definitionWarnings says so).
 function fieldProblem(field, where) {
-    const type = typeof field === 'string' ? field : Array.isArray(field) ? 'choice' : field?.type;
-    if (!FIELD_TYPES.includes(type)) return `${where} has type "${type}"; use one of ${FIELD_TYPES.join(', ')}`;
+    const type = fieldType(field);
+    if (typeof type === 'string' && type && !FIELD_TYPES.includes(type)) return '';
+    if (!FIELD_TYPES.includes(type)) return `${where} has no type; use one of ${FIELD_TYPES.join(', ')}`;
     if (type === 'choice') {
         const options = Array.isArray(field) ? field : field.options;
         if (!Array.isArray(options) || !options.length) return `${where} is a choice with no options`;
@@ -127,6 +131,9 @@ export function definitionProblems(def) {
             if (domain.counters !== undefined && (!Array.isArray(domain.counters) || domain.counters.some(path => typeof path !== 'string' || !/^[^/~][^~]*$/.test(path)))) {
                 problems.push(`domain "${name}" counters must be a list of paths inside the domain, like "wallets/*/coin"`);
             }
+            if (domain.scratch !== undefined && (!Array.isArray(domain.scratch) || domain.scratch.some(key => typeof key !== 'string' || !/^[A-Za-z_][A-Za-z0-9_-]*$/.test(key)))) {
+                problems.push(`domain "${name}" scratch must be a list of field names in the domain, like "perReply"`);
+            }
             if (typeof domain.initial === 'function') {
                 let slice;
                 try { slice = domain.initial(); } catch (error) { problems.push(`domain "${name}" initial() threw: ${error?.message ?? error}`); continue; }
@@ -142,7 +149,6 @@ export function definitionProblems(def) {
             if (isObject(handler)) {
                 fn(handler.handler, `command "${type}" handler`);
                 if (handler.internal !== undefined && typeof handler.internal !== 'boolean') problems.push(`command "${type}" internal is not true or false`);
-                for (const key of Object.keys(handler)) if (!['handler', 'internal'].includes(key)) problems.push(`"${key}" is not a command field (known: handler, internal)`);
             } else fn(handler, `command "${type}"`);
         }
     }
@@ -191,9 +197,6 @@ export function definitionProblems(def) {
         // in `render(el, api)` (MODULES §A).
         if (section !== undefined && typeof section !== 'string') fn(section, 'settings.section');
         if (render !== undefined) fn(render, 'settings.render');
-        for (const key of Object.keys(def.settings)) {
-            if (!['defaults', 'schema', 'section', 'render'].includes(key)) problems.push(`"settings.${key}" is not a settings field (known: defaults, schema, section, render)`);
-        }
     }
     if (def.tabs !== undefined) {
         if (!Array.isArray(def.tabs)) problems.push('tabs is not a list');
@@ -236,10 +239,26 @@ export function definitionWarnings(def) {
     if (isObject(def.requires)) {
         for (const key of Object.keys(def.requires)) if (key !== 'storyBlock') out.push(`"requires.${key}" is not a requires field this Story Block knows; it is ignored`);
     }
+    // One level down the same (R2-b7-2): a newer module's command option, settings part or field type.
+    if (isObject(def.commands)) {
+        for (const [type, handler] of Object.entries(def.commands)) {
+            if (isObject(handler)) for (const key of Object.keys(handler)) if (!['handler', 'internal'].includes(key)) out.push(`"${key}" on command "${type}" is not a command field this Story Block knows; it is ignored`);
+        }
+    }
+    if (isObject(def.settings)) {
+        for (const key of Object.keys(def.settings)) if (!['defaults', 'schema', 'section', 'render'].includes(key)) out.push(`"settings.${key}" is not a settings field this Story Block knows; it is ignored`);
+        const fields = isObject(def.settings.schema) ? Object.entries(def.settings.schema) : [];
+        for (const [key, field] of fields) {
+            const subs = fieldType(field) === 'list' && isObject(field?.of) ? Object.entries(field.of).map(([sub, inner]) => [`${key}.${sub}`, inner]) : [];
+            for (const [where, inner] of [[key, field], ...subs]) {
+                const type = fieldType(inner);
+                if (typeof type === 'string' && type && !FIELD_TYPES.includes(type)) out.push(`settings field "${where}" has the type "${type}", which this Story Block does not know; it is hidden and its value kept`);
+            }
+        }
+    }
     return out;
 }
 
-const compareVersions = (a, b) => (a[0] - b[0]) || (a[1] - b[1]) || (a[2] - b[2]);
 
 // What a refused module needs, for the reader: "≥ 2.1.0" when every alternative of the range starts
 // at a version above `version`, else the range as written ("<2", "^1.4").
@@ -253,7 +272,7 @@ function neededVersion(range, version) {
         .reduce((best, target) => (!best || compareVersions(target, best) > 0 ? target : best), null));
     if (lows.some(low => !low)) return range;
     const lowest = lows.reduce((a, b) => (compareVersions(a, b) <= 0 ? a : b));
-    return compareVersions(lowest, v) > 0 ? `≥ ${lowest.join('.')}` : range;
+    return compareVersions(lowest, v) > 0 ? `≥ ${formatVersion(lowest)}` : range;
 }
 
 /**
@@ -442,6 +461,12 @@ export function createRegistry({ hostVersion = null, warn = message => console.w
         validator(name) {
             const owner = owners.domain.get(name);
             return owner ? defs.get(owner).domains[name].validate ?? null : null;
+        },
+        /** The fields a domain keeps per-reply bookkeeping in (`scratch`, ops.js), [] when none. */
+        scratch(name) {
+            const owner = owners.domain.get(name);
+            const list = owner ? defs.get(owner).domains[name].scratch : null;
+            return Array.isArray(list) ? [...list] : [];
         },
         /** The number paths a domain keeps as counts (`counters`, ops.js), [] when none. */
         counters(name) {

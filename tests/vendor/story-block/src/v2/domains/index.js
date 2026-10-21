@@ -83,7 +83,7 @@ export function createCorePart({ hooks = () => [], settings = () => ({}), hookEn
         domains: {
             scene: { initial: initialScene, validate: slice => validateScene(slice) },
             // Coin and stack sizes are counts: a replay after a deleted reply adds each change to them.
-            inventory: { initial: initialInventory, validate: slice => validateInventory(slice), counters: ['wallets/*/coin', 'stacks/*/qty'] },
+            inventory: { initial: initialInventory, validate: slice => validateInventory(slice), counters: ['wallets/*/coin', 'stacks/*/qty'], scratch: ['perReply'] },
         },
         commands: { ...createInventoryCommands(env), ...sceneCommands },
         queries: { ...createInventoryQueries(env), ...sceneQueries },

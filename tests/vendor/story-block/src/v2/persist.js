@@ -68,8 +68,8 @@ export function recordFault(message) {
     return 'its saved starting point (checkpoint) is damaged';
 }
 
-// 32-bit FNV-1a, as 8 hex digits: enough to tell two swipes' openings apart.
-function hash(text) {
+// 32-bit FNV-1a, as 8 hex digits: enough to tell two swipes' openings apart (and two change lines).
+export function hash(text) {
     let h = 0x811c9dc5;
     for (let i = 0; i < text.length; i++) {
         h ^= text.charCodeAt(i);

@@ -1,4 +1,3 @@
-Story Block (kohz87/Story_block) branch v2 at commit bb8f21f5037fd64a8f6dbd5909868f9178017192
-Files last changed in commit 5d55a6fa1ef72b417e22d746e31a0bb6e645d08b
-Copied unchanged: src/id.js, src/v2/{commands,ops,rng,check,registry}.js, src/v2/domains/*.js,
-src/v2/ui/{inventory-tab,scene-tab}.js (imported by src/v2/domains/index.js).
+Story Block (kohz87/Story_block) branch v2 at commit 6badfd53a80d76cc0a0b170973be99978b750b3a (2.0.0-alpha.2)
+Copied unchanged: src/id.js, src/v2/{commands,ops,rng,check,registry}.js, src/v2/domains/*.js and every
+file under src/ those import (followed through their imports).

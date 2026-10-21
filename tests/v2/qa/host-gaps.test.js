@@ -28,8 +28,8 @@ function probe(host) {
     return seen;
 }
 
-test('[sb] Story Block v2\'s bus gives handlers no ctx.rev and no ctx.caller', () => {
-    assert.deepEqual(probe('sb'), { rev: undefined, caller: undefined });
+test('[sb] Story Block v2\'s bus now gives ctx.rev and ctx.caller too (the gap closed by 6badfd5, 2.0.0-alpha.2)', () => {
+    assert.deepEqual(probe('sb'), { rev: 1, caller: null });
 });
 
 test('[int] Story Block v2-int\'s bus gives ctx.rev (head rev + 1) and ctx.caller (null at the top)', () => {
@@ -40,14 +40,14 @@ each('without a host ctx.rev, module.js still gives the parts the receipt\'s rev
     const h = rawHero(host, 4);
     const offer = h.capture({ op: '!', kind: 'encounter', name: 'Cellar Rat', text: '', labels: { tier: 'weak' } });
     assert.equal(offer.ok, true, `${offer.code}: ${offer.message}`);
-    assert.equal(h.state().domains.combat.offers[0].rev, offer.receipt.rev);
+    assert.equal(Object.values(h.state().domains.combat.offers)[0].rev, offer.receipt.rev);
     const join = h.capture({ op: '+', kind: 'join', name: 'Lyra', text: 'the archer', labels: { level: '2', role: 'ranger' } });
     assert.equal(join.ok, true, join.message);
-    assert.equal(h.state().domains.party.offers[0].rev, join.receipt.rev);
-    assert.equal(h.command('combat.start', { offer: h.state().domains.combat.offers[0].id }).ok, true);
+    assert.equal(Object.values(h.state().domains.party.offers)[0].rev, join.receipt.rev);
+    assert.equal(h.command('combat.start', { offer: Object.values(h.state().domains.combat.offers)[0].id }).ok, true);
     fightOut(h);
     const end = h.command('combat.end');
-    if (end.ok) assert.equal(h.state().domains.combat.last.rev, end.receipt.rev);
+    if (end.ok) assert.equal(h.state().domains.combat.last[0].rev, end.receipt.rev);
 });
 
 each('trade.buy (a click) gets the bought thing through inventory.grant', sbOnly('inventory.grant refuses unless ctx.caller || cause is story/system; the sb bus never sets ctx.caller, so trade.buy → REFUSED "Items cannot be handed out from a button"'), host => {
@@ -71,7 +71,7 @@ each('craft.collect (a click) hands the finished piece over', sbOnly('same as tr
 
 each('a won fight\'s loot reaches the inventory (combat.end is a click)', sbOnly('combat.end → inventory.grant → REFUSED'), host => {
     const h = rawHero(host, 4);
-    patch(h, s => { s.domains.combat.offers.push({ id: 'en_00000001', foes: [{ name: 'Bandit', count: 1, tier: 'weak' }], stakes: 'normal', place: '', rev: 1 }); });
+    patch(h, s => { s.domains.combat.offers.en_00000001 = ({ id: 'en_00000001', foes: [{ name: 'Bandit', count: 1, tier: 'weak' }], stakes: 'normal', place: '', rev: 1 }); });
     assert.equal(h.command('combat.start', { offer: 'en_00000001' }).ok, true);
     fightOut(h);
     const end = h.command('combat.end');

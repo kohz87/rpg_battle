@@ -84,18 +84,18 @@ export function makeState() {
                     [LYRA]: actor({ id: LYRA, name: 'Lyra', role: 'ranger', level: 2, hp: { cur: 60, max: 60 }, mp: { cur: 25, max: 25 } }),
                 },
                 custom: { 'Shadow Cut': { name: 'Shadow Cut', type: 'physical', stat: 'AGI', mp: 5 } },
-                offers: [],
+                offers: {},
             },
+            // Keyed by the reply and by check id (B-b1r2-13); the card shows the entries its reply added.
             checks: {
-                prepared: [{ for: 12, rolls: [12, 5], rev: 11 }],
-                log: [{
-                    id: 'ck_aaaaaaaa', actor: PC, skill: 'stealth', stat: 'DEX', dc: 20, word: 'hard', what: 'slipping past the guard', rev: 12,
-                    carrier: '12:0', roll: 1, die: 12, modifiers: [{ source: 'stat', amount: 0, reason: 'DEX' }], mod: 0, total: 12,
-                    outcome: 'fail', said: 'success', mismatch: 'narrated as success, the dice say fail', note: '',
-                }],
-                last: {
-                    carrier: '12:0', rev: 12,
-                    results: [{ id: 'ck_aaaaaaaa', actor: PC, name: 'Ren', text: 'stealth (slipping past the guard): Roll 1 = 12 + 0 = 12 against 20 (hard)', outcome: 'fail', outcomeText: 'fail', mismatch: 'narrated as success, the dice say fail', note: '' }],
+                prepared: { '11:0': { for: 12, rolls: [12, 5], rev: 11 } },
+                log: {
+                    ck_aaaaaaaa: {
+                        id: 'ck_aaaaaaaa', actor: PC, name: 'Ren', skill: 'stealth', stat: 'DEX', dc: 20, word: 'hard', what: 'slipping past the guard', rev: 12,
+                        carrier: '12:0', roll: 1, die: 12, modifiers: [{ source: 'stat', amount: 0, reason: 'DEX' }], mod: 0, total: 12,
+                        outcome: 'fail', outcomeText: 'fail', said: 'success', mismatch: 'narrated as success, the dice say fail', note: '',
+                        text: 'stealth (slipping past the guard): Roll 1 = 12 + 0 = 12 against 20 (hard)',
+                    },
                 },
             },
             trade: {
@@ -112,9 +112,9 @@ export function makeState() {
 /** A state with nobody in the party yet (before character creation). */
 export function emptyState() {
     const state = makeState();
-    state.domains.party = { pc: null, order: [], actors: {}, custom: {}, offers: [] };
+    state.domains.party = { pc: null, order: [], actors: {}, custom: {}, offers: {} };
     state.domains.inventory.stacks = {};
-    state.domains.checks = { prepared: [], log: [], last: null };
+    state.domains.checks = { prepared: {}, log: {} };
     return state;
 }
 

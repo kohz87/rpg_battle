@@ -57,12 +57,14 @@ const revOf = state => (Number.isInteger(state?.meta?.rev) ? state.meta.rev : 0)
  * @param {number} [options.checkpointEvery] / [options.checkpointBytes]  thresholds (default 20 / 32 KB)
  * @param {() => string} [options.recordId]  ID of a new carrier record
  * @param {(state, domains: string[]) => string[]} [options.validate]  the domains' validators, run on a
- *   state whose counts were moved by a replay (ops.js rebaseOps); a problem skips that block
+ *   state whose counts were moved by a replay (ops.js rebaseOps), and on every replayed block's touched
+ *   domains; a problem the block brings skips that block
+ * @param {(domain: string) => string[]} [options.scratch]  a domain's per-reply scratch fields (ops.js)
  */
 export function createStore({
     chat, save, now = null, apply = applyOps, onSaveError = null, timers = globalThis,
     checkpointEvery = CHECKPOINT_EVERY, checkpointBytes = CHECKPOINT_BYTES, recordId = newRecordId, validate = null,
-    chatId = () => undefined, place = () => null, rescue = null,
+    chatId = () => undefined, place = () => null, rescue = null, scratch = null,
 } = {}) {
     if (typeof chat !== 'function') throw new TypeError('createStore needs a chat() function.');
     if (typeof apply !== 'function') throw new TypeError('createStore needs an apply(state, ops) function.');
@@ -165,15 +167,29 @@ export function createStore({
 
     // Ops are cloned on the way in so nothing the chat holds ends up inside (and frozen with) a state.
     // A count that stands elsewhere than when the op was made (a reply before it was deleted) takes the
-    // op's change rather than its number (ops.js rebaseOps, B3-8); the domains whose counts moved are
-    // checked by their validators, and a problem there throws (the block is skipped and reported).
-    function step(state, ops) {
+    // op's change rather than its number (ops.js rebaseOps, B3-8), and per-reply scratch fits what is
+    // there (ops.js scratch); the domains whose counts moved are checked by their validators, and a
+    // problem there throws (the block is skipped and reported). With `replayed` (a stored block replayed,
+    // r2-14) every domain the block touches is checked too: a block that leaves one invalid (a stack
+    // whose definition a deleted reply made) throws the same way. Only problems the block brings count,
+    // so a chat stored before a validator grew stricter still replays.
+    function step(state, ops, { replayed = false } = {}) {
         if (!ops.length) return state;
-        const { ops: rebased, rebased: moved } = rebaseOps(state, ops);
+        const { ops: rebased, rebased: moved } = rebaseOps(state, ops, { scratch, replayed });
         const next = deepFreeze(apply(state, structuredClone(rebased)));
-        if (moved.size && typeof validate === 'function') {
-            const problems = validate(next, [...moved].sort()) ?? [];
-            if (problems.length) throw new Error(`Taken onto the counts as they stand now, these changes no longer fit: ${problems.join(' ')}`);
+        if (typeof validate !== 'function') return next;
+        const names = new Set(moved);
+        if (replayed) for (const op of rebased) if (/^\/domains\/[^/]/.test(op?.path ?? '')) names.add(op.path.split('/')[2].replace(/~1/g, '/').replace(/~0/g, '~'));
+        if (!names.size) return next;
+        const list = [...names].filter(name => next?.domains?.[name] !== undefined).sort();
+        const problems = list.length ? validate(next, list) ?? [] : [];
+        if (!problems.length) return next;
+        const before = new Set(validate(state, list.filter(name => state?.domains?.[name] !== undefined)) ?? []);
+        const brought = problems.filter(problem => !before.has(problem));
+        if (brought.length) {
+            throw new Error(moved.size
+                ? `Taken onto the counts as they stand now, these changes no longer fit: ${brought.join(' ')}`
+                : `Taken onto the story as it stands now, these changes no longer fit: ${brought.join(' ')}`);
         }
         return next;
     }
@@ -244,7 +260,7 @@ export function createStore({
                 return;
             }
             try {
-                state = step(state, ops);
+                state = step(state, ops, { replayed: true });
             } catch (error) {
                 const why = String(error?.message ?? error);
                 problems.push({

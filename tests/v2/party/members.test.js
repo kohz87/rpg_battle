@@ -97,7 +97,7 @@ test('party size: you + 3 companions by default; the setting changes it; acceptO
     // A join offer waits; accepting it is refused while the party is full, and it stays.
     const offered = capture(state, '+ join Bram — the smith | level: 2 | role: tank');
     assert.ok(offered.ok, offered.message);
-    const offer = offered.state.domains.party.offers.find(entry => entry.kind === 'join');
+    const offer = Object.values(offered.state.domains.party.offers).find(entry => entry.kind === 'join');
     rejects(run(offered.state, 'party.acceptOffer', { offer: offer.id }), 'REFUSED', /full/);
     assert.ok(run(offered.state, 'party.acceptOffer', { offer: offer.id }, { settings: { maxCompanions: 4 } }).ok);
 });

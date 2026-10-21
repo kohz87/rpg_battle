@@ -5,7 +5,7 @@
 import { combatNumbers, combatantFromSheet } from '../../party.js';
 import { gearOf, rulesFrom, toSheet } from './sheets.js';
 import { termsOf } from '../../terms.js';
-import { actorsInOrder, offerText, plainCopy, resolveName } from './util.js';
+import { actorsInOrder, offerText, plainCopy, resolveName, waitingOffers } from './util.js';
 
 /**
  * A member's record with its `portrait` (MODULES §F11): the one kept on the record (your
@@ -53,7 +53,7 @@ export function pc(state, args = {}, tools = null) {
  */
 export function offers(state) {
     const party = partyOf(state);
-    return plainCopy((party.offers ?? []).map(offer => ({ ...offer, text: offerText(offer, party) })));
+    return plainCopy(waitingOffers(party).map(offer => ({ ...offer, text: offerText(offer, party) })));
 }
 
 /**

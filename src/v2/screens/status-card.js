@@ -5,7 +5,7 @@
 // part's `cardOnlyChanged`: `screens.cardOnlyChanged` in the module's settings, src/v2/module.js),
 // members this reply left alone are not listed.
 //
-// The checks this reply wrote (MODULES §F80) show with code's result, and a flag when the reply
+// The checks this reply wrote (MODULES §F80; the log entries its ops added, B-b1r2-13) show with code's result, and a flag when the reply
 // narrated it otherwise ("narrated as success, the dice say fail"). The level and XP words are the
 // chat's terms (`party.terms`, MODULES §F25: the reader's, else a pack's, else Lv and EXP).
 //
@@ -39,8 +39,8 @@ const template = `
       <span class="cond" data-each="${actor}.conditions as c" data-class="new: changed(c)">{{ c.kind }}<b data-if="c.stacks > 1">{{ c.stacks }}</b></span>
     </span>
   </div>
-  <div class="checks" data-if="changed('state.checks.last') && len(state.checks.last.results) > 0">
-    <div class="check" data-each="state.checks.last.results as c" data-class="pass: c.outcome == 'success' || c.outcome == 'crit' || c.outcome == 'cost'; off: c.mismatch != ''">
+  <div class="checks" data-if="changed('state.checks.log')">
+    <div class="check" data-each="state.checks.log as c" data-if="changed(c)" data-class="pass: c.outcome == 'success' || c.outcome == 'crit' || c.outcome == 'cost'; off: c.mismatch != ''">
       <i class="fa-solid fa-dice-d20"></i><b class="who">{{ c.name }}</b><span class="txt">{{ c.text }}</span><span class="out">{{ c.outcomeText }}</span>
       <small class="flag" data-if="c.mismatch != ''"><i class="fa-solid fa-triangle-exclamation"></i>{{ c.mismatch }}</small>
       <small class="note" data-if="c.note != ''">{{ c.note }}</small>
@@ -51,7 +51,7 @@ const template = `
     <span class="chg" data-if="changed('state.inventory.wallets')"><i class="fa-solid fa-coins"></i>Coin</span>
     <span class="chg" data-if="changed('state.party.offers')"><i class="fa-solid fa-user-plus"></i>Offer</span>
   </div>
-  <p class="none calm" data-if="len(state.party.order) > 0 && !changed('state.party') && !changed('state.inventory') && !changed('state.checks.last')">Nothing changed for the party in this reply.</p>
+  <p class="none calm" data-if="len(state.party.order) > 0 && !changed('state.party') && !changed('state.inventory') && !changed('state.checks.log')">Nothing changed for the party in this reply.</p>
 </div>
 `;
 

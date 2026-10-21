@@ -18,7 +18,9 @@ test('a pack item sells for a share of the pack\'s own value, never above it', a
     const host = await market();
     try {
         assert.equal((await host.packs.packs.install(PACK)).ok, true);
-        await host.send('Loot.', host.reply('We pick it up.', ['+ item Minor Healing Draught', '+ item Rat Tail']));
+        // One reply each: Story Block 2.0.0-alpha.2 holds a reply's story goods to a worth budget.
+        await host.send('Loot.', host.reply('We pick it up.', ['+ item Minor Healing Draught']));
+        await host.send('More.', host.reply('And this.', ['+ item Rat Tail']));
         for (const name of ['Minor Healing Draught', 'Rat Tail']) {
             const item = host.q('inventory.items', {}).find(entry => entry.name === name);
             assert.ok(item.def.startsWith('pack.'), `${name} is the pack's def`);

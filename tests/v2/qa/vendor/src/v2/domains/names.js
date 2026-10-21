@@ -8,9 +8,13 @@
 
 const ARTICLES = /^(?:a|an|the|some)\s+/i;
 
-/** A written name tidied for display: one line, single spaces, no leading article. */
+/**
+ * A written name tidied for display: one line, single spaces, no leading article, in Unicode NFC (so
+ * "Rópe" written precomposed or decomposed is one name) and without invisible format characters
+ * (zero-width spaces and joiners, bidi marks), which would make two names that look the same.
+ */
 export function cleanName(name) {
-    return String(name ?? '').replace(/\s+/g, ' ').trim().replace(ARTICLES, '').trim();
+    return String(name ?? '').replace(/\p{Cf}+/gu, '').normalize('NFC').replace(/\s+/g, ' ').trim().replace(ARTICLES, '').trim();
 }
 
 /** The alias index key for a name. */

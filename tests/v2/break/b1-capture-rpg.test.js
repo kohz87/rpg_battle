@@ -1,6 +1,7 @@
 // RPG Battle capture findings from the b1-capture break round (B-b1-capture-5, -6, -12, -3b).
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { logEntries } from '../../../src/v2/checks/shared.js';
 import { rpgHost } from '../integration/helpers/host.js';
 import { DEFAULT_TAIL_BUDGET, estimateTokens } from '../../vendor/story-block/src/v2/prompt.js';
 
@@ -61,9 +62,9 @@ test('a reply with five ? check lines opens at most two checks', async t => {
         '? check perception — look | dc: easy',
         '? check persuasion — talk | dc: hard',
     ]));
-    const checks = host.head().domains.checks;
-    const carrier = checks.log.at(-1)?.carrier;
-    const counted = checks.log.filter(entry => entry.carrier === carrier).length;
+    const log = logEntries(host.head().domains.checks);
+    const carrier = log.at(-1)?.carrier;
+    const counted = log.filter(entry => entry.carrier === carrier).length;
     assert.ok(counted >= 1 && counted <= 2, `${counted} checks counted in one reply`);
 });
 
@@ -74,7 +75,7 @@ test('one reply with 300 join and skill lines does not leave 300 offers waiting'
     const lines = [];
     for (let i = 0; i < 150; i += 1) lines.push(`+ join Stranger${i} — a traveller`, `+ skill Ren — Trick${i}: a trick`);
     await host.send('Everyone wants to join.', host.reply('A crowd.', lines));
-    assert.ok(host.head().domains.party.offers.length <= 20, `${host.head().domains.party.offers.length} offers wait`);
+    assert.ok(Object.values(host.head().domains.party.offers).length <= 20, `${Object.values(host.head().domains.party.offers).length} offers wait`);
 });
 
 // B-b1-capture-3 (RPG Battle side): `! rest` is narrated and has no per-reply limit, so a reply

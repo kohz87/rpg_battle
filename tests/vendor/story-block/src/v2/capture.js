@@ -125,22 +125,29 @@ function findBlocks(mes, tag) {
     return blocks;
 }
 
-// A block left open ends where the reply stopped. Its last line is only whole when a line break
-// follows it; otherwise it was cut off mid-way ("+ coin 2" of "+ coin 25") and is left out (B2-11).
+// A block left open ends where the reply stopped. Its last line is whole when a line break follows
+// it; with none (SillyTavern trims every reply, so a block the model forgot to close ends that way) it
+// is still read, unless the reader stopped the reply (`stopped`: it was cut off mid-way, "+ coin 2" of
+// "+ coin 25", B2-11), the line is not a change line, or a tag sits in it (a close in mid-line, story
+// text after it) (r2-2); then it is left out.
 // → { body, cut } (`cut`: the line left out, or '').
-function wholeLines(block) {
+function wholeLines(block, stopped = false) {
     if (!block.open || block.body.endsWith('\n')) return { body: block.body, cut: '' };
     const nl = block.body.lastIndexOf('\n');
-    return { body: nl < 0 ? '' : block.body.slice(0, nl + 1), cut: block.body.slice(nl + 1).trim() };
+    const last = block.body.slice(nl + 1).trim();
+    if (!stopped && (!last || (!last.includes('</') && !parseLine(last).error))) return { body: block.body, cut: '' };
+    return { body: nl < 0 ? '' : block.body.slice(0, nl + 1), cut: last };
 }
 
 /**
  * The change line a reply stopped in the middle of (its block left open, the last line with no line
- * break after it), or null. extractBlock and hideBlock leave that line out; turn.js tells it as a Problem.
+ * break after it, and the reply `stopped` by the reader or the line no change line), or null.
+ * extractBlock and hideBlock leave that line out; turn.js tells it as a Problem.
+ * `at` (continuation()): only a Continue's own blocks are looked at.
  */
-export function cutLine(mes, tag = 'Changes') {
-    const last = findBlocks(withoutReasoning(mes), tag).at(-1);
-    const cut = last ? wholeLines(last).cut : '';
+export function cutLine(mes, tag = 'Changes', at = null, { stopped = false } = {}) {
+    const last = (at ? laterBlocks(mes, tag, at) : findBlocks(withoutReasoning(mes), tag)).at(-1);
+    const cut = last ? wholeLines(last, stopped).cut : '';
     return cut || null;
 }
 
@@ -159,16 +166,52 @@ export function withoutReasoning(mes) {
 // `text` with its closed reasoning blocks blanked to spaces of the same length, so the
 // positions of what is outside them stay where they are.
 const maskReasoning = text => text.replace(REASONING_RE, match => ' '.repeat(match.length));
+// The bare blocks of `mes` (not hidden in Story Suite's comment, not inside closed reasoning), at
+// their places in `mes`.
+const bareBlocks = (mes, tag) => findBlocks(maskReasoning(String(mes ?? '').replace(HIDDEN_RE, match => ' '.repeat(match.length))), tag);
+// The bare blocks a Continue added: from the `skip`th bare block on, starting at or after `from`.
+const laterBlocks = (mes, tag, { from = 0, skip = 0 } = {}) => bareBlocks(mes, tag).filter((block, i) => i >= skip && block.start >= from);
+
+/**
+ * Where a Continue's own text starts in `mes` (the reply after the Continue), given `base` (the reply
+ * as it was before it) → { from, skip } for extractBlock, cutLine and hideBlock.
+ * SillyTavern writes a continued reply again from its copy of the old text plus what was added, and
+ * cleans the whole of it up (spaces at line ends and at the start dropped, blank lines collapsed when
+ * that is set, the reader's regex scripts), so the old text can come back shorter than it was. A
+ * place counted in the old text would then land inside the added text and its block be missed, left
+ * bare for the reader to see. So `from` is found by following `base` through `mes` while passing over
+ * whitespace on either side; where something else differs it stops there, early. `skip` is how many
+ * whole bare blocks `base` already had (edited in by hand, never read): those are never read here,
+ * even when `from` stopped early. Only bare blocks count: a hidden one was read before.
+ */
+export function continuation(base, mes, tag = 'Changes') {
+    const before = String(base ?? '');
+    const after = String(mes ?? '');
+    const skip = bareBlocks(before, tag).filter(block => !block.open).length;
+    if (after.startsWith(before)) return { from: before.length, skip };
+    let i = 0;
+    let j = 0;
+    while (i < before.length) {
+        if (isSpace(before[i])) { i += 1; continue; }
+        while (j < after.length && isSpace(after[j])) j += 1;
+        if (after[j] !== before[i]) break;
+        i += 1;
+        j += 1;
+    }
+    return { from: j, skip };
+}
 
 /**
  * The text inside the reply's <Changes> block (or `tag`), or null when there is none. Found
  * whether the block is bare or already hidden in Story Suite's comment; several blocks are
  * read as one, in order, so no line is lost. Blocks inside closed reasoning are not read.
+ * `at` ({ from, skip }, from continuation()): only the bare blocks a Continue added are read.
+ * `stopped`: the reader stopped the reply, so an open block's unfinished last line is left out.
  */
-export function extractBlock(mes, tag = 'Changes') {
-    const blocks = findBlocks(withoutReasoning(mes), tag);
+export function extractBlock(mes, tag = 'Changes', at = null, { stopped = false } = {}) {
+    const blocks = at ? laterBlocks(mes, tag, at) : findBlocks(withoutReasoning(mes), tag);
     if (!blocks.length) return null;
-    return blocks.map(block => blockBody(wholeLines(block).body)).join('\n');
+    return blocks.map(block => blockBody(wholeLines(block, stopped).body)).join('\n');
 }
 
 /**
@@ -188,17 +231,16 @@ const commentSafe = text => text.replace(/-(?=-)/g, '- ');
 /**
  * `mes` with its bare <Changes> blocks moved into one hidden comment at the end, so
  * SillyTavern shows nothing of them and Re-read can still find them. Already hidden: unchanged.
- * `from`: only blocks that start at or after this place (a Continue's own text) are moved; the
- * ones before it are left as they are.
+ * `from`, `skip` (continuation()): only blocks that start at or after `from`, from the `skip`th bare
+ * block on (a Continue's own text), are moved; the ones before are left as they are.
  */
-export function hideBlock(mes, tag = 'Changes', { from = 0 } = {}) {
+export function hideBlock(mes, tag = 'Changes', { from = 0, skip = 0, stopped = false } = {}) {
     const text = String(mes ?? '');
-    const bare = findBlocks(maskReasoning(text.replace(HIDDEN_RE, match => ' '.repeat(match.length))), tag)
-        .filter(block => block.start >= from);
+    const bare = laterBlocks(text, tag, { from, skip });
     if (!bare.length) return text;
     let story = text;
     for (const block of [...bare].reverse()) story = story.slice(0, block.start) + story.slice(block.end);
-    const kept = bare.map(block => `<${tag}>\n${commentSafe(blockBody(wholeLines(block).body))}\n</${tag}>`).join('\n');
+    const kept = bare.map(block => `<${tag}>\n${commentSafe(blockBody(wholeLines(block, stopped).body))}\n</${tag}>`).join('\n');
     return `${trimEnd(story)}\n\n<!-- ${HIDDEN_MARKER}\n${kept}\n-->`;
 }
 
