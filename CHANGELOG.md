@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.0.0-alpha.1 (in progress, `v2` branch)
+
+Story Suite v2. RPG Battle v2 module: party, items, combat and trade parts merged; integration, checks, creation, return in time, battle board and screens in progress. Status: https://github.com/kohz87/Story_block/blob/v2/docs/v2/STATUS.md
+
 ## 0.5.51
 
 - **Recover a disconnected Regenerate automatically.** With Story Block **0.9.30**, an eligible blocked battle reconnects, verifies the save and records its existing result without pressing Reconnect or replaying combat. Old Block versions retain the manual action.
