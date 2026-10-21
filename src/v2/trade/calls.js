@@ -1,4 +1,4 @@
-// RPG Battle v2, trade part: every command, query and hook of another part or of Story Block
+// RPG Battle v2, trade part: every command and query of another part or of Story Block
 // that trade uses, in one place (SPEC §7, MODULES §B1). The spec names these but not every
 // payload, so the shapes trade assumes are kept here alone, where the coordinator can change
 // them in one edit.
@@ -24,11 +24,12 @@ export function consume(ctx, stack, qty) {
 }
 
 /**
- * Put `qty` of `def` (a whole inventory def, SPEC §7) in the party's keeping; `from` is this
- * receipt (inventory.grant is internal and needs a receipt-backed cause).
+ * Put `qty` of `def` (a whole inventory def, SPEC §7) in the party's keeping, with `note` on
+ * the stack (MODULES §F5 payload { def | defId, qty, owner, note }). inventory.grant is internal:
+ * Story Block records this receipt as the stack's origin.
  */
-export function grant(ctx, def, qty) {
-    ctx.call('inventory.grant', { def, qty, owner: KEEPER, from: ctx.receiptId ?? '' });
+export function grant(ctx, def, qty, note = '') {
+    ctx.call('inventory.grant', { def, qty, owner: KEEPER, ...(note ? { note } : {}) });
 }
 
 // A query that may not be registered (its part absent): null instead of a throw.
@@ -57,22 +58,4 @@ export function pcOf(party) {
     const pc = party?.pc ? party.actors?.[party.pc] : null;
     const level = Number.isInteger(pc?.level) && pc.level > 0 ? pc.level : 1;
     return { level, name: String(pc?.name ?? '') };
-}
-
-/**
- * The chat's coins: the `currency` hook (RB-items, MODULES §B2) when the host hands a way to
- * call it, else the rules' own. Only words depend on it; every amount is in the smallest unit.
- */
-export function currencyOf(source, fallback) {
-    const hook = typeof source?.hook === 'function' ? source.hook : null;
-    if (hook) {
-        try {
-            const found = hook('currency');
-            const value = Array.isArray(found) ? found.find(Boolean) : found;
-            if (value && (Array.isArray(value.tiers) || value.single)) return { ...fallback, ...value, ...(value.tiers?.length ? {} : { mode: 'single' }) };
-        } catch {
-            // A hook that throws leaves the rules' coins.
-        }
-    }
-    return fallback;
 }

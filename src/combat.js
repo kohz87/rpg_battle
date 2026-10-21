@@ -22,6 +22,42 @@ const LABELS = {
     weaken: 'weakened', shield: 'shielded', regen: 'regenerating', guard: 'on guard',
 };
 
+/**
+ * (v2) The one table from the fight's condition names (and the words a story writes for them)
+ * to the kinds a v2 party record keeps (MODULES §B1: `poisoned`). Every other condition keeps
+ * its own words. Shared by RPG Battle v2's party and combat parts.
+ */
+export const CONDITION_KINDS = Object.freeze({
+    poison: 'poisoned', poisoning: 'poisoned',
+    burn: 'burning', burned: 'burning', burnt: 'burning',
+    bleed: 'bleeding', bled: 'bleeding',
+    stun: 'stunned',
+    slow: 'slowed',
+    weaken: 'weakened', weak: 'weakened',
+    shield: 'shielded',
+    regen: 'regenerating', regenerate: 'regenerating',
+    guard: 'guarded',
+});
+// The fight's own names, by the kind a party record keeps ("poisoned" → "poison").
+const FIGHT_NAMES = Object.freeze(Object.fromEntries(Object.entries(CONDITION_KINDS)
+    .filter(([name]) => Object.hasOwn(LABELS, name)).map(([name, kind]) => [kind, name])));
+
+/** A condition's kind as a v2 party record keeps it: "poison" is "poisoned"; anything else as written. */
+export function conditionKind(name) {
+    const text = String(name ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim().slice(0, 40);
+    return CONDITION_KINDS[text.toLowerCase()] ?? text;
+}
+
+/**
+ * The fight's name for a party record's condition kind ("poisoned" → "poison"), or null for a
+ * condition the fight has no rules for (a story's "exhausted", "dead").
+ */
+export function fightCondition(kind) {
+    const key = conditionKind(kind).toLowerCase();
+    if (FIGHT_NAMES[key]) return FIGHT_NAMES[key];
+    return Object.hasOwn(LABELS, key) ? key : null;
+}
+
 // --- small helpers ------------------------------------------------------------------------
 
 const isActive = c => Boolean(c) && !c.gone && c.hp.cur > 0;

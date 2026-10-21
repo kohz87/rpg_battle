@@ -59,10 +59,18 @@ export function revOf(ctx) {
     return 0;
 }
 
-/** The reply a story line came from (for one-a-reply rules), or null when the host does not say. */
+/**
+ * The reply a story line came from (for one-a-reply rules), or null when the host does not say:
+ * the host's `ctx.carrier` ({ index, swipe }) as `<index>:<swipe>`, or a plain key as written.
+ */
 export function replyOf(ctx, line) {
     for (const value of [ctx?.carrier, line?.carrier, line?.reply]) {
-        if (value !== undefined && value !== null && value !== '') return String(value);
+        if (value === undefined || value === null || value === '') continue;
+        if (typeof value === 'object') {
+            if (Number.isInteger(value.index)) return `${value.index}:${value.swipe ?? 0}`;
+            continue;
+        }
+        return String(value);
     }
     return null;
 }

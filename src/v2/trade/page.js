@@ -59,12 +59,12 @@ function send(api, pane, type, payload) {
 }
 
 /**
- * Draws the Trade page into `pane` from `view` ({ state, settings, hook? }); `api.command(type,
+ * Draws the Trade page into `pane` from `view` ({ state, settings, query }); `api.command(type,
  * payload)` runs trade.buy / trade.sell / craft.commission / craft.collect.
  */
 export function renderTradePage(pane, view = {}, api = {}) {
     if (!pane) return;
-    const world = worldFromState(view.state, { settings: view.settings, query: view.query ?? null, hook: view.hook ?? null });
+    const world = worldFromState(view.state, { settings: view.settings, query: view.query ?? null });
     const market = marketOf(world);
     const root = node('div', null, 'rpg-trade-page');
     const where = market.place || 'Somewhere';

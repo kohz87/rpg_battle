@@ -4,11 +4,11 @@ import { DEFAULT_RULES } from '../../../src/rules.js';
 import { describeRow } from '../../../src/items.js';
 import { itemWorth } from '../../../src/trade.js';
 import { materialAffinity } from '../../../src/craft.js';
-import { coinValue, currencyHook, defineItem, part } from '../../../src/v2/items/index.js';
+import { coinValue, defineItem, part } from '../../../src/v2/items/index.js';
 
 // What Story Block makes for a `+ item Name` it does not know (SPEC §7).
 const storyDef = (name, extra = {}) => ({ id: `story/${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, name, kind: 'goods', rarity: 'common', value: 0, stack: true, slot: null, stats: {}, effect: {}, tags: [], note: '', ...extra });
-const define = (name, note = '', opts = {}) => defineItem(storyDef(name), { note, settings: {}, ...opts });
+const define = (name, note = '', opts = {}) => defineItem(storyDef(name), { note, settings: {}, currency: null, ...opts });
 
 // v1's own reading of the same row, for parity: describeRow, and trade's itemWorth of it.
 const v1 = (name, note = '') => {
@@ -111,22 +111,34 @@ test('item.define: materials with affinities and v1 material notes', () => {
     assert.equal(essence.kind, 'material');
 });
 
-test('item.define: coins are money worth their tier in the smallest unit', () => {
-    assert.equal(define('Silver Coin').kind, 'money');
-    assert.equal(define('Silver Coin').value, 10);
-    assert.equal(define('Gold Coins').value, 100);
-    assert.equal(define('Copper Pieces').value, 1);
-    assert.equal(define('Loose Silver').value, 10);
+test('item.define: an item named for the chat\'s one currency is money, one unit each (MODULES §F1)', () => {
+    assert.equal(define('Gold Coins').kind, 'money');
+    assert.equal(define('Gold Coins').value, 1);
+    assert.equal(define('Gold').value, 1);
+    assert.equal(define('Loose Gold').value, 1);
     assert.equal(define('Coins').value, 1);
+    assert.equal(define('Money').value, 1);
+    // No tiers: silver in a gold chat is not money.
+    assert.notEqual(define('Silver Coin').kind, 'money');
     assert.equal(define('Gold Ring', 'rare · LUK +2').kind, 'equipment');
-    const custom = { currency: { mode: 'tiers', tiers: [{ name: 'bits', rate: 1 }, { name: 'marks', rate: 12 }, { name: 'crowns', rate: 20 }] } };
-    assert.equal(define('Crown', '', { settings: custom }).value, 240);
-    assert.equal(define('Marks', '', { settings: custom }).value, 12);
-    // Not this chat's coin: no money (v1 isMaterial counts a coin as a crafting part, LUK).
-    assert.notEqual(define('Silver Coin', '', { settings: custom }).kind, 'money');
-    const single = { currency: { mode: 'single', single: 'shells' } };
-    assert.equal(define('Shells', '', { settings: single }).value, 1);
-    assert.equal(coinValue('Gold', { mode: 'single', single: 'shells' }), null);
+    // The reader's currency name (Story Block's inventory.currency).
+    const gil = { currency: { name: 'Gil', short: 'G' } };
+    assert.equal(define('Gil', '', gil).kind, 'money');
+    assert.equal(define('Gil Pieces', '', gil).value, 1);
+    assert.notEqual(define('Gold Coins', '', gil).kind, 'money');
+    assert.equal(coinValue('Gold', { name: 'shells' }), null);
+    assert.equal(coinValue('Shells', { name: 'shells' }), 1);
+    // Without a currency given it asks the host, else gold.
+    const saved = globalThis.StoryBlock;
+    try {
+        globalThis.StoryBlock = { sdk: { query: name => (name === 'inventory.currency' ? { name: 'crowns', short: 'cr' } : null), settings: () => ({}) } };
+        assert.equal(defineItem(storyDef('Crowns'), { settings: {} }).kind, 'money');
+        delete globalThis.StoryBlock;
+        assert.equal(defineItem(storyDef('Gold Coins'), { settings: {} }).kind, 'money');
+    } finally {
+        if (saved === undefined) delete globalThis.StoryBlock;
+        else globalThis.StoryBlock = saved;
+    }
 });
 
 test('item.define: a new object; numbers a pack set are kept; quest things are left alone; a later rename is not re-priced here', () => {
@@ -162,21 +174,7 @@ test('the part registers the item.define hook with (def, { note, owner })', () =
     assert.equal(def.effect.mp, 20);
 });
 
-test('currency hook: the rules\' tiers and single name', () => {
-    assert.deepEqual(currencyHook({}), { tiers: [{ name: 'copper', rate: 1 }, { name: 'silver', rate: 10 }, { name: 'gold', rate: 10 }], single: 'coins' });
-    assert.deepEqual(currencyHook({ currency: { mode: 'single', single: 'shells' } }), { tiers: [], single: 'shells' });
-    assert.deepEqual(currencyHook({ rules: { currency: { tiers: [{ name: 'bits', rate: 1 }, { name: 'marks', rate: 12 }] } } }), { tiers: [{ name: 'bits', rate: 1 }, { name: 'marks', rate: 12 }], single: 'coins' });
-    // The panel's currency wins over a rules.json's, as in v1.
-    assert.deepEqual(currencyHook({ rules: { currency: { mode: 'single', single: 'beads' } }, currency: { single: 'shells' } }).single, 'shells');
-    // Without settings it asks the host, else the shipped coins.
-    const saved = globalThis.StoryBlock;
-    try {
-        globalThis.StoryBlock = { sdk: { settings: id => (id === 'rpg-battle' ? { currency: { mode: 'single', single: 'crowns' } } : null) } };
-        assert.deepEqual(part.hooks.currency(), { tiers: [], single: 'crowns' });
-        delete globalThis.StoryBlock;
-        assert.equal(part.hooks.currency().tiers.length, 3);
-    } finally {
-        if (saved === undefined) delete globalThis.StoryBlock;
-        else globalThis.StoryBlock = saved;
-    }
+test('the part has no currency hook: money is Story Block\'s one currency (MODULES §F1)', () => {
+    assert.equal(part.hooks.currency, undefined);
+    assert.deepEqual(Object.keys(part.hooks), ['item.define']);
 });

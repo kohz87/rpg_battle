@@ -13,6 +13,7 @@ import { DEFAULT_SKILLS } from '../../skills.js';
 import { DEFAULT_BESTIARY, findCreature } from '../../enemies.js';
 import { cleanCreature, combinedBestiary, creaturesToMake } from '../../templates.js';
 import { combatantFromSheet, enemiesFromRows, engagements } from '../../party.js';
+import { fightCondition } from '../../combat.js';
 import { resolveThreats } from '../../story.js';
 import { makeRng } from '../../rng.js';
 import { fightRules, foeId } from './stored.js';
@@ -53,8 +54,20 @@ function tryRead(ctx, domain) {
     }
 }
 
-// v2 condition kinds ("poisoned") as the fight's ("poison"); fight-only ones are left out.
-const CONDITIONS = { poison: 'poison', poisoned: 'poison', burn: 'burn', burning: 'burn', burned: 'burn', bleed: 'bleed', bleeding: 'bleed', stun: 'stun', stunned: 'stun', slow: 'slow', slowed: 'slow', weaken: 'weaken', weakened: 'weaken', regen: 'regen', regenerating: 'regen' };
+// The party's condition kinds ("poisoned") as the fight's ("poison"), through the one table
+// both parts share (v1 combat.js CONDITION_KINDS); a guard or shield never carries into a new
+// fight, and a story's own condition ("exhausted") is not the fight's.
+const CARRIED = new Set(['poison', 'burn', 'bleed', 'stun', 'slow', 'weaken', 'regen']);
+function fightConditionOf(entry) {
+    const name = fightCondition(entry?.kind ?? entry?.name ?? '');
+    return name && CARRIED.has(name) ? name : null;
+}
+// A party condition's `stacks` are the rounds a fight left on it; a story's (stacks 1, no
+// rounds) lasts the fight's usual 3.
+const roundsOf = entry => {
+    const stacks = Math.round(Number(entry?.stacks ?? entry?.rounds) || 0);
+    return stacks > 1 ? stacks : 3;
+};
 
 /** One row of `inventory.items` / `items.gear` as v1's item fields, its def looked up when it is only an id. */
 function itemRow(row, defs) {
@@ -84,8 +97,10 @@ function inventoryRows(ctx, owner, defs) {
 
 /** What a member wears, as v1 gear (equipped, slot, capped stats): `items.gear`, else the equipped stacks. */
 function gearRows(ctx, actorId, defs, held) {
+    // items.gear → { counted: [{ stack, name, slot, rarity, stats (capped) }], … } (MODULES §B2).
     const listed = tryQuery(ctx, 'items.gear', { actor: actorId }, null);
-    const rows = Array.isArray(listed) ? listed.map(row => itemRow(row, defs)) : held.filter(row => row.equipped);
+    const counted = Array.isArray(listed) ? listed : Array.isArray(listed?.counted) ? listed.counted : null;
+    const rows = counted ? counted.map(row => itemRow(row, defs)) : held.filter(row => row.equipped);
     return rows.filter(row => row.name && row.slot).map(row => ({ name: row.name, qty: 1, slot: row.slot, stats: row.stats, rarity: row.rarity, tags: row.tags, equipped: true, effect: null }));
 }
 
@@ -126,7 +141,7 @@ export function partyCombatants(ctx, { rules = DEFAULT_RULES } = {}) {
             stats: { ...actor.stats },
             hp: actor.hp, mp: actor.mp, sp: actor.sp,
             skills: (actor.skills ?? []).map(skill => ({ name: skill.name, mastery: skill.level ?? skill.mastery ?? 1, aside: skill.active === false })),
-            conditions: (actor.conditions ?? []).map(entry => ({ name: CONDITIONS[String(entry?.kind ?? entry?.name ?? '').toLowerCase()] ?? null, rounds: Math.max(1, Math.round(Number(entry?.rounds) || 3)) }))
+            conditions: (actor.conditions ?? []).map(entry => ({ name: fightConditionOf(entry), rounds: roundsOf(entry) }))
                 .filter(entry => entry.name),
         };
         const c = combatantFromSheet(sheet, {

@@ -62,7 +62,7 @@ export function combatNumbersOf(state, args = {}) {
     const member = party.actors?.[args?.id];
     if (!member) return null;
     const rules = rulesFrom(args?.settings ?? null);
-    const gear = gearOf(state?.domains?.inventory, member.id);
+    const gear = gearOf(state?.domains?.inventory, member.id, { pc: party.pc });
     const sheet = toSheet(member);
     const numbers = combatNumbers(sheet, { gear, rules });
     const fighter = combatantFromSheet({ ...sheet, skills: [] }, { gear, rules });

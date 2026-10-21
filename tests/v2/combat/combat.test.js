@@ -94,8 +94,10 @@ test('a fight from offer to end: started, played, settled through the owners', (
     assert.equal(world.state.domains.party.actors.ac_00000001.hp.cur, apply.actors[0].hp.cur);
     assert.ok(world.state.domains.party.actors.ac_00000001.xp > 0);
     for (const grant of ended.calls.filter(c => c.type === 'inventory.grant')) {
-        assert.deepEqual(Object.keys(grant.payload).sort(), ['def', 'note', 'owner', 'qty']);
+        // MODULES §F5 { def, qty, owner } (no note: loot of one kind stacks); the hook prices it.
+        assert.deepEqual(Object.keys(grant.payload).sort(), ['def', 'owner', 'qty']);
         assert.equal(grant.payload.owner, 'party');
+        assert.equal(grant.payload.def.value, undefined);
         assert.match(grant.payload.def.id, /^story\/[a-z0-9-]+$/);
         assert.ok(['material', 'consumable', 'equipment', 'goods'].includes(grant.payload.def.kind));
     }

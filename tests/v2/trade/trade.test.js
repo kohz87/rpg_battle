@@ -27,7 +27,7 @@ test('part shape: domain, commands, queries, settings, tab', () => {
     assert.deepEqual(Object.keys(part.queries).sort(), ['trade.market', 'trade.orders', 'trade.quote', 'trade.stock']);
     assert.equal(part.settings.section, 'Trade');
     assert.deepEqual(part.settings.defaults, { placePrices: [] });
-    assert.deepEqual(part.settings.schema.placePrices.of.level.choices, ['cheap', 'fair', 'dear']);
+    assert.deepEqual(part.settings.schema.placePrices.of.level.options, ['cheap', 'fair', 'dear']);
     assert.equal(part.tabs[0].id, 'trade');
     assert.equal(typeof part.tabs[0].render, 'function');
     assert.equal(part.context.static(), '');
@@ -62,12 +62,12 @@ test('trade.sell: who buys changes the price (an apothecary pays well for parts,
     assert.match(result.receipt.summary, /to the apothecary/);
 });
 
-test('trade.sell: NOT_ENOUGH, NOT_FOUND, worn, quest and bad counts are refused; nothing saved', () => {
+test('trade.sell: NOT_ENOUGH, NOT_FOUND, worn and quest (REFUSED), bad counts (INVALID); nothing saved', () => {
     const host = createHost(part, { state: baseState() });
     assert.match(rejected(host, 'trade.sell', { stack: 'it_00000001', qty: 6 }, 'NOT_ENOUGH').message, /only 5 Rat Tail/);
     rejected(host, 'trade.sell', { stack: 'it_nothere1', qty: 1 }, 'NOT_FOUND');
-    assert.match(rejected(host, 'trade.sell', { stack: 'it_00000004', qty: 1 }, 'INVALID').message, /Take off/);
-    rejected(host, 'trade.sell', { stack: 'it_00000006', qty: 1 }, 'INVALID');
+    assert.match(rejected(host, 'trade.sell', { stack: 'it_00000004', qty: 1 }, 'REFUSED').message, /Take off/);
+    rejected(host, 'trade.sell', { stack: 'it_00000006', qty: 1 }, 'REFUSED');
     rejected(host, 'trade.sell', { stack: 'it_00000001', qty: 0 }, 'INVALID');
     rejected(host, 'trade.sell', { stack: 'it_00000001', qty: 1.5 }, 'INVALID');
 });
@@ -83,7 +83,7 @@ test('no market (the wilds, nobody trading): every trade is refused, nothing sav
         ['trade.buy', { shop: 'general', def: 'trade/rope', qty: 1 }],
         ['craft.commission', { piece: 'Fang Charm', materials: [{ stack: 'it_00000002', qty: 1 }], crafter: 'crafter' }],
         ['craft.collect', { order: 'or_00000001' }],
-    ]) assert.match(rejected(host, type, payload, 'INVALID').message, /No market here \(Darkwood Hollow\)/);
+    ]) assert.match(rejected(host, type, payload, 'REFUSED').message, /No market here \(Darkwood Hollow\)/);
 });
 
 test('the market opens by the place name, the scene kind, a trader present, or a priced place', () => {
@@ -139,7 +139,10 @@ test('trade.buy: pays the stock price, grants the def, and the line leaves the s
     const granted = host.calls.find(call => call.type === 'inventory.grant').payload;
     assert.deepEqual(granted.def, item.def);
     assert.equal(granted.qty, 1);
-    assert.equal(granted.from, result.receipt.id);
+    // MODULES §F5: exactly { def | defId, qty, owner, note? }; the stack's origin is the receipt.
+    assert.deepEqual(Object.keys(granted).sort(), ['def', 'owner', 'qty']);
+    assert.equal(granted.owner, 'party');
+    assert.equal(Object.values(host.state.domains.inventory.stacks).find(row => row.def === item.def.id).from, result.receipt.id);
     assert.ok(host.state.domains.inventory.defs[item.def.id]);
     assert.deepEqual(host.state.domains.trade.shops[stock.shop], { day: 3, bought: [item.def.id] });
     assert.ok(!host.query('trade.stock', { kind: 'smith' }).items.some(entry => entry.def.id === item.def.id));
@@ -240,12 +243,12 @@ test('craft.commission: a specialist is faster in their own line; no clock leave
 test('craft.commission: refused for a non-crafter, no piece, no or wrong materials, too few, an empty purse', () => {
     const host = createHost(part, { state: baseState() });
     const base = { piece: 'Fang Charm', materials: [{ stack: 'it_00000002', qty: 1 }], crafter: 'smith' };
-    assert.match(rejected(host, 'craft.commission', { ...base, crafter: 'general' }, 'INVALID').message, /Only a smith/);
+    assert.match(rejected(host, 'craft.commission', { ...base, crafter: 'general' }, 'REFUSED').message, /Only a smith/);
     rejected(host, 'craft.commission', { ...base, crafter: '' }, 'INVALID');
     rejected(host, 'craft.commission', { ...base, piece: '  ' }, 'INVALID');
     rejected(host, 'craft.commission', { ...base, materials: [] }, 'INVALID');
-    assert.match(rejected(host, 'craft.commission', { ...base, materials: [{ stack: 'it_00000005', qty: 1 }] }, 'INVALID').message, /not a material/);
-    rejected(host, 'craft.commission', { ...base, materials: [{ stack: 'it_00000004', qty: 1 }] }, 'INVALID');
+    assert.match(rejected(host, 'craft.commission', { ...base, materials: [{ stack: 'it_00000005', qty: 1 }] }, 'REFUSED').message, /not a material/);
+    rejected(host, 'craft.commission', { ...base, materials: [{ stack: 'it_00000004', qty: 1 }] }, 'REFUSED');
     rejected(host, 'craft.commission', { ...base, materials: [{ stack: 'it_nothere1', qty: 1 }] }, 'NOT_FOUND');
     rejected(host, 'craft.commission', { ...base, materials: [{ stack: 'it_00000002', qty: 2 }, { stack: 'it_00000002', qty: 2 }] }, 'NOT_ENOUGH');
     const poor = createHost(part, { state: baseState({ coin: 0 }) });
@@ -259,12 +262,12 @@ test('craft.collect: only when ready by the story clock, at a market, and only o
     const order = host.state.domains.trade.orders[id];
     assert.ok(order.ready > NOW);
     assert.equal(host.query('trade.orders')[0].due, false);
-    assert.match(rejected(host, 'craft.collect', { order: id }, 'INVALID').message, /not ready yet/);
+    assert.match(rejected(host, 'craft.collect', { order: id }, 'REFUSED').message, /not ready yet/);
     // Time passes; away from a market it waits.
     host.time = order.ready;
     host.state.domains.director.time.minutes = order.ready;
     host.state.domains.scene.place = { name: 'Darkwood Hollow', kind: 'wild' };
-    rejected(host, 'craft.collect', { order: id }, 'INVALID');
+    rejected(host, 'craft.collect', { order: id }, 'REFUSED');
     host.state.domains.scene.place = { name: 'Bluewatch Village', kind: 'settlement' };
     const result = host.command('craft.collect', { order: id });
     assert.equal(result.ok, true, result.message);
@@ -342,11 +345,12 @@ test('queries: trade.market and trade.orders read the state as it is; a bad quot
     assert.equal(host.query('trade.quote', { type: 'sell', stack: 'it_00000001', qty: 9 }).code, 'NOT_ENOUGH');
 });
 
-test('coins: the currency hook words the summary; without it, the rules\' copper, silver, gold', () => {
-    const crowns = { tiers: [{ name: 'penny', rate: 1 }, { name: 'crown', rate: 100 }], single: 'coins' };
-    const host = createHost(part, { state: baseState(), hook: name => (name === 'currency' ? crowns : null) });
+test('coins: one currency (MODULES §F1), named by inventory.currency; amounts stay whole numbers', () => {
+    const host = createHost(part, { state: baseState(), currency: { name: 'crowns', short: 'cr' } });
     const result = host.command('trade.sell', { stack: 'it_00000002', qty: 3 });
-    assert.match(result.receipt.summary, /penny|crown/);
+    assert.match(result.receipt.summary, new RegExp(`for ${result.receipt.data.total} crowns`));
+    assert.ok(Number.isInteger(result.receipt.data.total));
+    assert.doesNotMatch(result.receipt.summary, /copper|silver/);
     const plain = createHost(part, { state: baseState() });
-    assert.match(plain.command('trade.sell', { stack: 'it_00000002', qty: 3 }).receipt.summary, /copper|silver|gold/);
+    assert.match(plain.command('trade.sell', { stack: 'it_00000002', qty: 3 }).receipt.summary, / gold\b/);
 });

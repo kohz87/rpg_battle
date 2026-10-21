@@ -1,0 +1,109 @@
+/* Story Block v2: the host's own furniture (src/v2/ui-host.js, src/v2/host-ui.js), on SillyTavern's theme
+   colours. The mounts' styles come from mounts.css; layouts and widgets inject their own sheets. */
+@import url('./mounts.css');
+
+:root {
+    --story-suite-line: var(--SmartThemeBorderColor, rgba(128, 128, 128, 0.35));
+    --story-suite-bg: var(--SmartThemeBlurTintColor, rgba(20, 20, 24, 0.96));
+    --story-suite-fg: var(--SmartThemeBodyColor, inherit);
+    --story-suite-accent: var(--SmartThemeQuoteColor, #e1a95f);
+}
+
+/* Screen themes (SPEC §13.3) reach the layout tokens (MODULES §F10); a layout's own tokens still win. */
+[data-ss-screen] {
+    --ss-l-accent: var(--ss-accent);
+    --ss-l-bg: var(--ss-bg);
+    --ss-l-surface: var(--ss-surface);
+    --ss-l-fg: var(--ss-fg);
+    --ss-l-muted: var(--ss-muted);
+    --ss-l-border: var(--ss-border);
+    --ss-l-radius: var(--ss-radius);
+    --ss-l-font: var(--ss-font);
+}
+
+.story-suite-muted { opacity: 0.75; font-size: 0.9em; margin: 4px 0; }
+
+/* ---- the bar above the message box ---- */
+.story-suite-bar {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    padding: 4px 8px; box-sizing: border-box; width: 100%;
+}
+.story-suite-bar .menu_button {
+    display: inline-flex; align-items: center; gap: 6px; width: auto; margin: 0;
+    padding: 4px 10px; min-height: 32px; white-space: nowrap; font-size: 0.9em;
+}
+.story-suite-bar .menu_button[hidden] { display: none; }
+.story-suite-notice {
+    display: flex; align-items: center; gap: 6px; flex: 1 1 220px; min-width: 0;
+    padding: 4px 8px; border-radius: 8px; border: 1px solid var(--story-suite-accent);
+    background: color-mix(in srgb, var(--story-suite-accent) 14%, transparent);
+}
+.story-suite-notice[hidden] { display: none; }
+.story-suite-notice-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; font-size: 0.9em; }
+.story-suite-notice .menu_button { min-height: 28px; padding: 2px 8px; }
+
+/* ---- the story panel: a bottom sheet on phones, a side sheet on wide screens ---- */
+.story-suite-sheet {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 3000;
+    max-height: 78dvh; display: flex; flex-direction: column;
+    background: var(--story-suite-bg); color: var(--story-suite-fg);
+    border-top: 1px solid var(--story-suite-line); border-radius: 14px 14px 0 0;
+    box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.35); backdrop-filter: blur(var(--SmartThemeBlurStrength, 8px));
+}
+.story-suite-sheet[hidden] { display: none; }
+.story-suite-sheet-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 8px 12px; border-bottom: 1px solid var(--story-suite-line);
+}
+.story-suite-sheet-head .menu_button { width: auto; margin: 0; min-height: 32px; padding: 4px 10px; }
+.story-suite-sheet-body { overflow: auto; padding: 8px 12px 16px; min-height: 0; }
+@media (min-width: 900px) {
+    .story-suite-sheet {
+        top: var(--topBarBlockSize, 40px); left: auto; right: 0; bottom: 0; width: min(420px, 34vw); max-height: none;
+        border-top: 0; border-left: 1px solid var(--story-suite-line); border-radius: 0;
+        box-shadow: -8px 0 28px rgba(0, 0, 0, 0.3);
+    }
+}
+
+/* ---- the tab host ---- */
+.story-suite-tabs { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 6px; border-bottom: 1px solid var(--story-suite-line); }
+.story-suite-tab {
+    display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto;
+    padding: 6px 10px; border: 1px solid transparent; border-radius: 8px;
+    background: transparent; color: inherit; cursor: pointer; font: inherit;
+}
+.story-suite-tab.active { border-color: var(--story-suite-line); background: rgba(128, 128, 128, 0.14); color: var(--story-suite-accent); }
+.story-suite-pane { padding-top: 8px; min-width: 0; }
+
+/* ---- the settings overlay ---- */
+body.story-suite-open { overflow: hidden; }
+.story-suite-overlay {
+    position: fixed; inset: 0; z-index: 3100; display: flex; flex-direction: column;
+    background: var(--story-suite-bg); color: var(--story-suite-fg);
+    backdrop-filter: blur(var(--SmartThemeBlurStrength, 8px));
+}
+.story-suite-overlay-header {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 10px 16px; border-bottom: 1px solid var(--story-suite-line);
+}
+.story-suite-overlay-header .menu_button { width: auto; margin: 0; }
+.story-suite-overlay .story-suite-panel {
+    overflow: auto; padding: 12px 16px 32px; width: 100%; max-width: 760px; margin: 0 auto; box-sizing: border-box;
+}
+.story-suite-folds { display: flex; flex-direction: column; gap: 8px; }
+.story-suite-fold { border: 1px solid var(--story-suite-line); border-radius: 10px; padding: 0 12px; }
+.story-suite-fold > summary { cursor: pointer; padding: 10px 0; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.story-suite-fold > summary small { opacity: 0.7; }
+.story-suite-fold-body { padding-bottom: 12px; }
+.story-suite-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    padding: 8px 0; border-bottom: 1px solid var(--story-suite-line);
+}
+.story-suite-row > span { display: flex; flex-direction: column; gap: 2px; flex: 1 1 200px; min-width: 0; }
+.story-suite-row > span small { opacity: 0.7; }
+.story-suite-row .text_pole { width: auto; min-width: 120px; max-width: 100%; margin: 0; }
+.story-suite-subsection { margin-top: 12px; }
+.story-suite-subsection > h4 { margin: 8px 0 4px; }
+
+.story-suite-drawer-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+.story-suite-drawer-buttons .menu_button { width: auto; display: inline-flex; gap: 6px; align-items: center; }

@@ -15,7 +15,7 @@
 
 import { act, summarize } from '../../combat.js';
 import { DEFAULT_BESTIARY } from '../../enemies.js';
-import { itemSlot, parseEffect } from '../../items.js';
+import { itemSlot, oneCurrency, parseEffect } from '../../items.js';
 import { combinedBestiary } from '../../templates.js';
 import { foesText, readEncounter, STAKES, TIERS } from './encounter.js';
 import { buildSetup, COMBAT_DEFAULTS, fightNumbers, partyCombatants } from './setup.js';
@@ -48,6 +48,13 @@ function newId(ctx, prefix) {
 
 /** meta.rev once this command is committed: the receipt's rev (MODULES §F2). */
 const nextRev = ctx => ctx.rev;
+
+/** The chat's one currency as v1's wording takes it (inventory.currency; gold when absent). */
+function chatCurrency(ctx) {
+    let found = null;
+    try { found = ctx.query('inventory.currency'); } catch { found = null; }
+    return oneCurrency(found);
+}
 
 const clip = text => (text.length > MAX_SUMMARY ? `${text.slice(0, MAX_SUMMARY - 1).trimEnd()}…` : text);
 
@@ -104,7 +111,7 @@ function lootDef(item) {
         name: item.name,
         kind,
         rarity: item.rarity ?? 'common',
-        value: 0,
+        // No value: the item.define hook prices it (inventory.grant keeps a value the caller sets).
         stack: kind !== 'equipment',
         slot: kind === 'equipment' ? item.slot ?? itemSlot(item.name, item.stats ?? {}) ?? null : null,
         stats: { ...(item.stats ?? {}) },
@@ -158,7 +165,8 @@ function start(ctx, payload) {
     return {
         summary: `A fight begins: ${partyNames(setup)} against ${foeNames(setup)}.`,
         narrate: false,
-        data: { session: id, offer: offer.id, made: made.map(entry => entry.name) },
+        // `place`: where the fight began (the return part finds the fatal fight's start by it).
+        data: { session: id, offer: offer.id, place: setup.place ?? '', made: made.map(entry => entry.name) },
     };
 }
 
@@ -220,14 +228,17 @@ function end(ctx) {
     }
 
     if (result.outcome === 'victory') {
-        for (const item of result.loot.items) ctx.call('inventory.grant', { def: lootDef(item), qty: item.qty, owner: 'party', note: `loot: ${foeNames(setup)}` });
+        // No stack note: the item.define hook would take it for the item's own words, and loot of
+        // one kind stacks; the stack's `from` is this receipt.
+        for (const item of result.loot.items) ctx.call('inventory.grant', { def: lootDef(item), qty: item.qty, owner: 'party' });
         if (result.loot.money > 0) ctx.call('wallet.receive', { owner: 'party', amount: result.loot.money, note: `loot: ${foeNames(setup)}` });
     }
 
     const foes = beatenFoes(result);
     const pcName = setup.party[0]?.name ?? 'the hero';
     const names = Object.fromEntries(fight.combatants.map(c => [c.memberId ?? c.id, c.name]));
-    const summary = endSummary(result, { pcName, rules, names });
+    // The loot's money in the chat's one currency (MODULES §F1: Story Block's inventory.currency).
+    const summary = endSummary(result, { pcName, rules, names, currency: chatCurrency(ctx) });
     const combat = ctx.draft('combat');
     if (foes.length) {
         combat.beaten.push({ rev, foes, won: result.outcome === 'victory' });
@@ -241,6 +252,7 @@ function end(ctx) {
         data: {
             session: session.id,
             outcome: session.status,
+            stakes: setup.stakes === 'death' ? 'death' : 'normal',
             foes,
             xp: { ...result.xp },
             loot: { money: result.loot.money, items: result.loot.items.map(item => ({ name: item.name, qty: item.qty, rarity: item.rarity })) },
@@ -392,7 +404,7 @@ export const part = {
         section: 'Combat',
         defaults: { ...COMBAT_DEFAULTS },
         schema: {
-            turnOrder: { type: 'choice', label: 'Turn order', choices: ['timeline', 'rounds'], help: 'Timeline: faster fighters act more often. Rounds: everyone once a round.' },
+            turnOrder: { type: 'choice', label: 'Turn order', options: ['timeline', 'rounds'], help: 'Timeline: faster fighters act more often. Rounds: everyone once a round.' },
             speedOffset: { type: 'int', label: 'Speed (AGI +)', min: 0, max: 50 },
             hitBase: { type: 'int', label: 'Hit chance base %', min: 5, max: 95 },
             hitPerPoint: { type: 'int', label: 'Hit chance per DEX–AGI point', min: 0, max: 10 },

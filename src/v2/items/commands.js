@@ -5,6 +5,8 @@
 // (`inventory.consume|equip|unequip|transfer`, `party.heal|restore`), inside the same
 // transaction, so a refusal anywhere saves nothing. The numbers are v1's: useItemOutside for a
 // dose, gearLimits for what counts, capItem for what a piece gives at the wearer's level.
+// A rule refusing (full HP, the wrong kind of thing, a slot limit) is REFUSED; a malformed
+// payload INVALID (MODULES §F4).
 
 import { capItem, formatStats, gearLimits } from '../../items.js';
 import { useItemOutside } from '../../recovery.js';
@@ -56,14 +58,14 @@ function limitWords(count, slot) {
 export function itemUse(ctx, payload) {
     const { stack, def, party } = stackFor(ctx, payload);
     if (!(stack.qty > 0)) ctx.fail('NOT_ENOUGH', `There is no ${def.name} left.`);
-    if (def.kind !== 'consumable') ctx.fail('INVALID', `The ${def.name} is not something to use.`);
-    if (!helpsOutside(def.effect)) ctx.fail('INVALID', `${def.name} can only be used in a fight.`);
+    if (def.kind !== 'consumable') ctx.fail('REFUSED', `The ${def.name} is not something to use.`);
+    if (!helpsOutside(def.effect)) ctx.fail('REFUSED', `${def.name} can only be used in a fight.`);
     const targetId = text(payload?.target) || party.pc;
     const actor = actorFor(ctx, party, targetId);
 
     const before = sheetOf(actor);
     const outcome = useItemOutside(before, { name: def.name, effect: def.effect });
-    if (!outcome.used) ctx.fail('INVALID', outcome.message);
+    if (!outcome.used) ctx.fail('REFUSED', outcome.message);
     const hp = outcome.sheet.hp.cur - before.hp.cur;
     const mp = outcome.sheet.mp.cur - before.mp.cur;
     const cured = before.conditions.filter(entry => !outcome.sheet.conditions.some(left => left.name === entry.name)).map(entry => entry.name);
@@ -96,16 +98,17 @@ export function itemUse(ctx, payload) {
 export function itemEquip(ctx, payload) {
     const { stack, def, party, inventory } = stackFor(ctx, payload);
     const slot = def.slot;
-    if (def.kind !== 'equipment' || !slot) ctx.fail('INVALID', `The ${def.name} is not something to wear or wield.`);
+    if (def.kind !== 'equipment' || !slot) ctx.fail('REFUSED', `The ${def.name} is not something to wear or wield.`);
     if (!(stack.qty > 0)) ctx.fail('NOT_ENOUGH', `There is no ${def.name} left.`);
     const wearerId = wearerOf(stack, party);
     const actor = actorFor(ctx, party, wearerId);
     const asked = text(payload?.actor);
     if (asked && asked !== wearerId) {
         const other = party.actors?.[asked];
-        ctx.fail('INVALID', other ? `${actor.name} carries the ${def.name}: give it to ${other.name} first.` : 'That companion is not in the party.');
+        if (!other) ctx.fail('NOT_FOUND', 'That companion is not in the party.');
+        ctx.fail('REFUSED', `${actor.name} carries the ${def.name}: give it to ${other.name} first.`);
     }
-    if (stack.equipped) ctx.fail('INVALID', `${actor.name} already has the ${def.name} on.`);
+    if (stack.equipped) ctx.fail('REFUSED', `${actor.name} already has the ${def.name} on.`);
 
     const rules = rulesFrom(ctx.settings());
     const worn = wornBy(inventory, party, wearerId);
@@ -115,13 +118,13 @@ export function itemEquip(ctx, payload) {
         off.push(...inSlot);
         if (slot === 'offhand') {
             const weapon = worn.find(entry => entry.stack.equipped === 'weapon' && entry.def?.tags?.includes('two-handed'));
-            if (weapon) ctx.fail('INVALID', `The ${weapon.def.name} is two-handed: put it away before taking up the ${def.name}.`);
+            if (weapon) ctx.fail('REFUSED', `The ${weapon.def.name} is two-handed: put it away before taking up the ${def.name}.`);
         }
         if (slot === 'weapon' && def.tags?.includes('two-handed')) off.push(...worn.filter(entry => entry.stack.equipped === 'offhand'));
     } else {
         const limit = gearLimits(rules)[slot];
         if (inSlot.length >= limit) {
-            ctx.fail('INVALID', limit ? `For ${actor.name} ${limitWords(limit, slot)}: take one off first.` : `In this chat's rules ${limitWords(0, slot)}.`);
+            ctx.fail('REFUSED', limit ? `For ${actor.name} ${limitWords(limit, slot)}: take one off first.` : `In this chat's rules ${limitWords(0, slot)}.`);
         }
     }
     for (const entry of off) ctx.call('inventory.unequip', { stack: entry.stack.id });
@@ -144,7 +147,7 @@ export function itemUnequip(ctx, payload) {
     const { stack, def, party } = stackFor(ctx, payload);
     const wearerId = wearerOf(stack, party);
     const actor = party.actors?.[wearerId];
-    if (!stack.equipped) ctx.fail('INVALID', `The ${def.name} is not being worn.`);
+    if (!stack.equipped) ctx.fail('REFUSED', `The ${def.name} is not being worn.`);
     ctx.call('inventory.unequip', { stack: stack.id });
     return {
         summary: `${actor?.name ?? 'The party'} takes off the ${def.name}.`,
@@ -164,7 +167,7 @@ export function itemGive(ctx, payload) {
     const qty = payload?.qty === undefined ? 1 : payload.qty;
     if (!Number.isInteger(qty) || qty < 1) ctx.fail('INVALID', 'Give at least one.');
     if (qty > stack.qty) ctx.fail('NOT_ENOUGH', stack.qty > 0 ? `There ${stack.qty === 1 ? 'is' : 'are'} only ${stack.qty} ${def.name} to give.` : `There is no ${def.name} left.`);
-    if (stack.owner === toId) ctx.fail('INVALID', `${to.name} already carries the ${def.name}.`);
+    if (stack.owner === toId) ctx.fail('REFUSED', `${to.name} already carries the ${def.name}.`);
     if (stack.equipped) ctx.call('inventory.unequip', { stack: stack.id });
     ctx.call('inventory.transfer', { stack: stack.id, to: toId, qty });
     const what = qty === 1 ? `the ${def.name}` : `${qty} ${def.name}`;

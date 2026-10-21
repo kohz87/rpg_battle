@@ -1,4 +1,4 @@
-// Syntax-checks every shipped module (index.js and everything under src/).
+// Syntax-checks every shipped module (index.js, the v1 glue in v1.js, everything under src/) and the vendored Story Block runtime.
 import { execFileSync } from 'node:child_process';
 import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -10,5 +10,5 @@ function walk(dir) {
     });
 }
 
-for (const file of ['index.js', ...walk('src')]) execFileSync(process.execPath, ['--check', file], { stdio: 'inherit' });
+for (const file of ['index.js', 'v1.js', ...walk('src'), ...walk('tests/vendor')]) execFileSync(process.execPath, ['--check', file], { stdio: 'inherit' });
 console.log('syntax ok');

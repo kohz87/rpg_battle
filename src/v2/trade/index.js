@@ -9,7 +9,7 @@
 
 import { PRICE_LEVELS } from '../../trade.js';
 import { consume, grant, pay, receive, sceneOf } from './calls.js';
-import { CODES, makeWorld, marketOf, ordersOf, planBuy, planCollect, planCommission, planSell, settingsOf, stockOf, summaryOf, worldFromState } from './core.js';
+import { CODES, currencyFrom, makeWorld, marketOf, ordersOf, planBuy, planCollect, planCommission, planSell, settingsOf, stockOf, summaryOf, worldFromState } from './core.js';
 import { renderTradePage } from './page.js';
 
 const ORDER_ID = /^or_[0-9a-z]{8}$/;
@@ -30,7 +30,7 @@ function worldFromCtx(ctx) {
         party: safeRead(ctx, 'party'),
         settings: settingsOf(ctx.settings?.()),
         now: ctx.time?.() ?? null,
-        hook: ctx.hook,
+        currency: currencyFrom(ctx.query),
     });
 }
 
@@ -132,9 +132,9 @@ const commands = {
     },
 };
 
-// A query's settings and hook: a third argument the host may hand ({ settings, query, hook }),
-// else what the args carry, else the defaults.
-const envOf = (args, env) => ({ settings: env?.settings ?? args?.settings ?? null, query: env?.query ?? null, hook: env?.hook ?? null });
+// A query's settings and query tools: the host's third argument ({ query } per MODULES §F3, and
+// the part's `settings` from src/v2/module.js), else what the args carry, else the defaults.
+const envOf = (args, env) => ({ settings: env?.settings ?? args?.settings ?? null, query: env?.query ?? null });
 
 const queries = {
     /** { open, by, place, tier, buy, sell, level, day } */
@@ -183,7 +183,7 @@ export function validateTrade(slice) {
 
 /** The tail: orders ready to collect, one line (budget ~100 tokens). */
 export function tradeTail(view) {
-    const world = worldFromState(view?.state, { settings: view?.settings, query: view?.query ?? null, hook: view?.hook ?? null });
+    const world = worldFromState(view?.state, { settings: view?.settings, query: view?.query ?? null });
     const ready = ordersOf(world).filter(order => order.due);
     if (!ready.length) return { lines: [], optional: [] };
     const named = ready.slice(0, TAIL_ORDERS).map(order => `${order.piece?.name ?? 'a piece'}${order.crafter ? ` (${order.crafter}${order.place ? `, ${order.place}` : ''})` : ''}`);
@@ -211,7 +211,7 @@ export const part = {
                 help: 'A place listed here trades at your word for it (cheap, fair or dear) and always has a market. Others read their prices from their name: a village pays less than a city.',
                 of: {
                     place: { type: 'text', label: 'Place', max: 80 },
-                    level: { type: 'choice', label: 'Prices', choices: [...PRICE_LEVELS] },
+                    level: { type: 'choice', label: 'Prices', options: [...PRICE_LEVELS] },
                 },
             },
         },

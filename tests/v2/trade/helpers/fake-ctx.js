@@ -33,7 +33,9 @@ const CORE_COMMANDS = {
         row.qty -= qty;
         if (!row.qty) delete inv.stacks[stack];
     } },
-    'inventory.grant': { owns: ['inventory'], run(ctx, { def, qty, owner, from }) {
+    // MODULES §F5: { def | defId, qty, owner, note? }; the stack's origin is the receipt.
+    'inventory.grant': { owns: ['inventory'], run(ctx, { def, qty, owner, note = '' }) {
+        const from = ctx.receiptId;
         if (!from) ctx.fail('INVALID', 'inventory.grant needs a receipt-backed cause.');
         const inv = ctx.draft('inventory');
         if (!inv.defs[def.id]) inv.defs[def.id] = copy(def);
@@ -41,7 +43,7 @@ const CORE_COMMANDS = {
         if (same) same.qty += qty;
         else {
             const id = `it_${String(Object.keys(inv.stacks).length + 1).padStart(8, '0')}`;
-            inv.stacks[id] = { id, def: def.id, qty, owner, equipped: null, note: '', from };
+            inv.stacks[id] = { id, def: def.id, qty, owner, equipped: null, note, from };
         }
     } },
     'wallet.pay': { owns: ['inventory'], run(ctx, { owner, amount }) {
@@ -58,16 +60,20 @@ const CORE_COMMANDS = {
 };
 
 const CORE_QUERIES = {
+    // MODULES §F1: the chat's one currency (Story Block's settings; gold by default).
+    'inventory.currency': (state, args, env) => copy(env?.currency ?? { name: 'gold', short: 'g' }),
     'scene.place': state => copy(state.domains.scene?.place ?? null),
     'scene.present': state => copy(state.domains.scene?.present ?? []),
 };
 
 /**
  * A host around `part`: `state` is the whole State (SPEC §2.1); `settings`, `time` (story
- * minutes or null) and `hook(name)` may be changed between commands through the returned object.
+ * minutes or null) and `currency` (inventory.currency's { name, short }) may be changed between
+ * commands through the returned object.
  */
-export function createHost(part, { state, settings = {}, time = null, hook = null } = {}) {
-    const host = { state: copy(state), settings, time, hook, receipts: [], calls: [] };
+export function createHost(part, { state, settings = {}, time = null, currency = null } = {}) {
+    const host = { state: copy(state), settings, time, currency, receipts: [], calls: [] };
+    const env = () => ({ settings: host.settings, currency: host.currency });
     let counter = 0;
     const ownDomains = Object.keys(part.domains);
 
@@ -102,9 +108,8 @@ export function createHost(part, { state, settings = {}, time = null, hook = nul
             query: (name, args) => {
                 const query = CORE_QUERIES[name] ?? part.queries[name];
                 if (!query) throw new Rejection('UNKNOWN_COMMAND', `No query ${name}.`);
-                return query(deepFreeze(copy(draft)), args, { settings: host.settings });
+                return query(deepFreeze(copy(draft)), args, env());
             },
-            ...(host.hook ? { hook: name => host.hook(name) } : {}),
         };
         return ctx;
     }
@@ -132,8 +137,13 @@ export function createHost(part, { state, settings = {}, time = null, hook = nul
         }
     };
 
-    host.query = (name, args = {}) => part.queries[name](deepFreeze(copy(host.state)), args, { settings: host.settings, hook: host.hook });
-    host.view = () => ({ state: deepFreeze(copy(host.state)), settings: host.settings, query: (name, args) => (CORE_QUERIES[name] ?? part.queries[name])(host.state, args), chat: { length: 1, lastUser: '' } });
+    // A query's tools (MODULES §F3): query over the same state, Story Block's queries included.
+    const tools = state => ({ settings: host.settings, query: (name, args) => (CORE_QUERIES[name] ?? part.queries[name])(state, args, env()) });
+    host.query = (name, args = {}) => {
+        const state = deepFreeze(copy(host.state));
+        return part.queries[name](state, args, tools(state));
+    };
+    host.view = () => ({ state: deepFreeze(copy(host.state)), settings: host.settings, query: (name, args) => (CORE_QUERIES[name] ?? part.queries[name])(host.state, args, env()), chat: { length: 1, lastUser: '' } });
     return host;
 }
 

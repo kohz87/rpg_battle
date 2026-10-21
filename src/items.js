@@ -655,6 +655,18 @@ function unitLabel(name, count) {
     return count === 1 && /[^s]s$/i.test(name) ? name.slice(0, -1) : name;
 }
 
+/**
+ * (v2, MODULES §F1) Story Suite v2 keeps one currency per chat: Story Block's
+ * `inventory.currency` query → { name, short }. This is that currency as the v1 currency object
+ * formatMoney, formatMoneyShort, tradeLine and the hand-off take: one unit, no tiers, so an
+ * amount reads "134 gold". Amounts are whole numbers of it (v1's numbers kept as they are).
+ */
+export function oneCurrency(currency = null) {
+    const name = String(currency?.name ?? '').replace(/\s+/g, ' ').trim() || 'gold';
+    const short = String(currency?.short ?? '').trim() || name[0].toLowerCase();
+    return { ...DEFAULT_RULES.currency, mode: 'single', tiers: [], single: name, singleShort: short, row: name };
+}
+
 /** An amount in the smallest unit as words: '1 gold, 3 silver, 4 copper' | '134 coins'. */
 export function formatMoney(amount, currency = DEFAULT_RULES.currency) {
     const c = currencyOf(currency);

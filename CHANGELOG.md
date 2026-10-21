@@ -4,6 +4,13 @@
 
 Story Suite v2. RPG Battle v2 module: party, items, combat and trade parts merged; integration, checks, creation, return in time, battle board and screens in progress. Status: https://github.com/kohz87/Story_block/blob/v2/docs/v2/STATUS.md
 
+- **One module for Story Block v2.** `src/v2/module.js` merges the parts (party, checks, items, combat, return, trade): domains, commands, queries, change-line kinds (the checks part keeps `check`), the prompt's fixed instructions and per-reply notes, hooks (any part's "no" holds a reply back: no character yet, a dead character), settings under each part's id (`combat.hitBase`), tabs and widgets.
+- **v2 bootstrap.** `index.js` waits for Story Block v2 and registers the module; without it, one line in the drawer. The manifest depends on Story Block and has no v1 interceptor; the v1 glue moves to `v1.js` and is not loaded.
+- **One currency.** No currency hook or coin tiers: amounts are whole numbers of Story Block's currency, worded by its `inventory.currency` (fight loot, trade lines, prices).
+- **Rule refusals are `REFUSED`** in items and trade (full HP, the wrong kind of thing, slot limits, no market, not ready); malformed requests stay `INVALID`.
+- A fight reads the party's conditions (`stacks`) through the one condition table (v1 `combat.js`), the gear `items.gear` counts, and the shared bag's worn pieces as your character's; loot is priced by the item.define hook; `inventory.grant` gets `{ def, qty, owner, note? }`.
+- Tests on the real Story Block host (`tests/vendor/story-block`, `npm run sync-testkit`): creation, an encounter fought and settled, items, checks, trade, swipe and delete rollback, death, the fixed prompt byte-identical.
+
 ## 0.5.51
 
 - **Recover a disconnected Regenerate automatically.** With Story Block **0.9.30**, an eligible blocked battle reconnects, verifies the save and records its existing result without pressing Reconnect or replaying combat. Old Block versions retain the manual action.

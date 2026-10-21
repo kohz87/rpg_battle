@@ -12,6 +12,7 @@
 
 import { DEFAULT_RULES, STATS, clampXpRate, makeRules } from '../../rules.js';
 import { DEFAULT_SKILLS } from '../../skills.js';
+import { CONDITION_KINDS, conditionKind } from '../../combat.js';
 
 // The reader's 'Character' settings (MODULES §A settings): v1's reader-tunable character rules.
 export const SETTINGS_DEFAULTS = Object.freeze({
@@ -36,25 +37,9 @@ export const SETTINGS_SCHEMA = Object.freeze({
 
 const COMBAT_CONDITIONS = ['poison', 'burn', 'bleed', 'stun', 'slow', 'weaken', 'shield', 'regen', 'guard'];
 
-// The one table from v1's fight condition names (and the words the story writes for them) to the
-// kinds a party record keeps (MODULES §B1: `poisoned`). Every other condition keeps its own words.
-export const CONDITION_KINDS = Object.freeze({
-    poison: 'poisoned', poisoning: 'poisoned',
-    burn: 'burning', burned: 'burning', burnt: 'burning',
-    bleed: 'bleeding', bled: 'bleeding',
-    stun: 'stunned',
-    slow: 'slowed',
-    weaken: 'weakened', weak: 'weakened',
-    shield: 'shielded',
-    regen: 'regenerating', regenerate: 'regenerating',
-    guard: 'guarded',
-});
-
-/** A condition's kind as the party keeps it: v1's "poison" is "poisoned"; anything else as written. */
-export function conditionKind(name) {
-    const text = String(name ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim().slice(0, 40);
-    return CONDITION_KINDS[text.toLowerCase()] ?? text;
-}
+// The one table from the fight's condition names to the kinds a party record keeps (MODULES
+// §B1: `poisoned`) lives in v1's combat.js, shared with the combat part.
+export { CONDITION_KINDS, conditionKind };
 const isCombatCondition = name => COMBAT_CONDITIONS.some(base => String(name ?? '').trim().toLowerCase().startsWith(base));
 
 const whole = (value, fallback, min, max) => {
@@ -160,13 +145,16 @@ export const v1Control = actor => (actor?.control === 'player' ? 'command' : 'au
 const V1_SLOTS = ['weapon', 'offhand', 'armour', 'worn', 'accessory'];
 
 /**
- * The equipped stacks `owner` has in Story Block's inventory domain, as v1 Items
+ * The equipped stacks `owner` has in Story Block's inventory domain (and the shared bag's when
+ * `owner` is your character, `pc`), as v1 Items
  * ({ name, equipped, slot, rarity, stats, tags }) that items.gearBonuses counts.
  */
-export function gearOf(inventory, owner) {
+export function gearOf(inventory, owner, { pc = null } = {}) {
     const out = [];
     for (const stack of Object.values(inventory?.stacks ?? {})) {
-        if (!stack || stack.owner !== owner || !stack.equipped) continue;
+        // The shared bag's worn pieces are your character's (the items part's wearer rule).
+        const worn = stack?.owner === owner || (stack?.owner === 'party' && owner && owner === pc);
+        if (!stack || !worn || !stack.equipped) continue;
         const def = inventory?.defs?.[stack.def];
         if (!def) continue;
         const slot = V1_SLOTS.includes(stack.equipped) ? stack.equipped : V1_SLOTS.includes(def.slot) ? def.slot : null;
