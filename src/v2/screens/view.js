@@ -122,7 +122,7 @@ export function conditionBadge(condition, index = 0) {
     const kind = String(condition?.kind ?? '').trim() || 'unwell';
     const [, icon, tone] = CONDITION_LOOK.find(([pattern]) => pattern.test(kind)) ?? [null, 'fa-circle-exclamation', 'neutral'];
     const stacks = int(condition?.stacks, 1);
-    return { id: `${kind}-${index}`, kind, label: capital(kind), icon, tone, counter: stacks > 1 ? stacks : null, unit: stacks > 1 ? 'turns left' : '' };
+    return { id: `${kind}-${index}`, kind, label: capital(kind), showLabel: true, icon, tone, counter: stacks > 1 ? stacks : null, unit: stacks > 1 ? 'turns left' : '' };
 }
 
 const SKILL_ICONS = Object.freeze({ physical: 'fa-hand-fist', magic: 'fa-wand-sparkles', heal: 'fa-kit-medical', buff: 'fa-shield-halved', debuff: 'fa-skull' });

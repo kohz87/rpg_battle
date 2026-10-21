@@ -34,15 +34,51 @@ each('! use at full HP uses nothing and tells the story; the state is byte-ident
     assert.equal(stacksOf(h, pot)[0].qty, 1);
 });
 
-each('! use during a fight leaves the thing in the bag (the fight\'s own Item action uses it)', () => {
-    const { h } = withHero();
-    storyItem(h, 'Minor Healing Draught', 1);
+/** A fight started against a weak bandit; the hero holding draughts. */
+function inFight(h) {
     assert.equal(h.capture({ op: '!', kind: 'encounter', name: 'Bandit', text: 'on the road', labels: { tier: 'weak' } }).ok, true);
-    assert.equal(h.command('combat.start', { offer: h.query('combat.offers').at(-1).id }).ok, true);
-    const r = h.capture({ op: '!', kind: 'use', name: 'Minor Healing Draught', labels: {} });
+    const started = h.command('combat.start', { offer: h.query('combat.offers').at(-1).id });
+    assert.equal(started.ok, true, started.message);
+}
+
+each('! use during a fight is the fight\'s item action (combat.act), which takes the dose out at use', () => {
+    const { h, pc } = withHero();
+    const pot = storyItem(h, 'Minor Healing Draught', 2);
+    inFight(h);
+    const view = h.query('combat.session');
+    assert.equal(view.actions.actor, view.combatants.find(c => c.name === 'Ren').id, 'Ren\'s turn');
+    const actions = h.state().domains.combat.session.actions.length;
+    const r = h.capture({ op: '!', kind: 'use', name: 'Minor Healing Draught', labels: { on: 'Ren' } });
     assert.equal(r.ok, true, r.message);
-    assert.equal(r.receipt.data.refused, true);
-    assert.match(r.receipt.summary, /is in a fight/);
+    assert.equal(r.receipt.data.fight, true);
+    assert.match(r.receipt.summary, /^Ren uses the Minor Healing Draught in the fight on Ren: /);
+    const session = h.state().domains.combat.session;
+    assert.equal(session.actions.length, actions + 1);
+    assert.deepEqual(session.actions.at(-1).type, 'item');
+    assert.equal(stacksOf(h, pot)[0].qty, 1, 'one dose taken out at use');
+    assert.deepEqual(h.calls.filter(call => call.top === 'capture.use').map(call => call.type).filter(type => type === 'party.heal'), [], 'never party.heal during a fight');
+    void pc;
+});
+
+each('! use during a fight with no fight action to take is a Problem and keeps the thing', () => {
+    const { h } = withHero();
+    const pot = storyItem(h, 'Minor Healing Draught', 2);
+    storyItem(h, 'Rope', 1);
+    inFight(h);
+    const before = bytes(h.state());
+    for (const [labels, name, message] of [
+        [{ by: 'Lyra' }, 'Minor Healing Draught', /^It is Ren's turn in the fight, not Lyra's: the Minor Healing Draught stays in the bag\.$/],
+        [{ qty: '2' }, 'Minor Healing Draught', /one dose is used per turn/],
+        [{}, 'Rope', /^Ren has no Rope to use in the fight: it stays in the bag\.$/],
+        [{ on: 'Mira' }, 'Minor Healing Draught', /cannot reach Mira in the fight now/],
+    ]) {
+        const r = h.capture({ op: '!', kind: 'use', name, labels });
+        assert.equal(r.ok, false, name);
+        assert.equal(r.code, 'REFUSED');
+        assert.match(r.message, message);
+        assert.equal(bytes(h.state()), before, 'nothing saved');
+    }
+    assert.equal(stacksOf(h, pot)[0].qty, 2);
 });
 
 each('carry limit: item.give to a companion who cannot carry it is refused; trade.buy too heavy pays nothing', () => {

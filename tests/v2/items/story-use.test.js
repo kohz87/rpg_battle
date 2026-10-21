@@ -69,9 +69,14 @@ test('refusals use nothing and tell the story: full HP, nothing to cure, not a c
     told(harness(), 'Ember Flask', {}, 'The Ember Flask is for a fight; it stays in the bag.');
     told(harness(), 'Elixir of Ages', {}, 'There is no Elixir of Ages among the party\'s things; nothing is used.');
     told(harness(), 'Minor Healing Draught', { on: 'Mira' }, 'Nobody of that name is in the party; the Minor Healing Draught stays in the bag.');
+    // A fight under way with no fight action to take: a Problem, nothing used.
     const fight = makeState();
     fight.domains.combat = { session: { id: 'cb_1', status: 'active' } };
-    told(harness(fight), 'Minor Healing Draught', {}, 'Ren is in a fight: the Minor Healing Draught is used on a fight turn, so it stays in the bag for now.');
+    const h = harness(fight);
+    const before = h.state();
+    const r = use(h, 'Minor Healing Draught');
+    assert.deepEqual([r.ok, r.code, r.message], [false, 'REFUSED', 'It is not the party\'s turn in the fight: the Minor Healing Draught stays in the bag.']);
+    assert.deepEqual(h.state(), before);
 });
 
 test('malformed use lines are refused (a problem): no name, a bad count, no character', () => {
@@ -112,6 +117,6 @@ test('the static line tells the story how to write a use, and never changes', ()
     assert.equal(part.context.static(), USE_STATIC);
     assert.equal(part.context.static(), USE_STATIC);
     assert.match(USE_STATIC, /`! use <item> \| on: <who>`/);
-    assert.match(part.kinds.use.grammar, /^! use <item> \| on: Name \| qty: 1/);
+    assert.match(part.kinds.use.grammar, /^! use <item> \| on: Name \| by: Name \| qty: 1/);
     assert.equal(typeof part.commands['item.use'], 'function', 'item.use stays a command');
 });

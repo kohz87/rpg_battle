@@ -10,9 +10,11 @@
 //
 // When code refuses (full HP, nothing to cure, not a consumable, not in the bag, a fight going on),
 // nothing is used and the receipt tells the story so ("Mira is at full HP; the Minor Healing
-// Draught stays in the bag."), with `data.refused` set. During a fight, the fight's own Item action
-// is the way to use something (the fight takes it out when it is used); a story `use` line then
-// leaves the thing in the bag, since the fight keeps everyone's HP until it ends.
+// Draught stays in the bag."), with `data.refused` set. While a fight is under way the party's HP
+// follows the fight (party.heal is refused then), so a story `use` line becomes the fight's own
+// item action (`combat.act`, which takes the dose out when it is used); when no fight action fits
+// (not a party member's turn, the item not among theirs), it is refused as a Problem and the thing
+// stays in the bag (commands.js fightUse).
 //
 // The `- item Name` path (Story Block's `item` kind) is Story Block's: when its line or the reply
 // says the thing was used (USED_WORDS), Story Block routes it here with `item.use { name, on, qty,

@@ -44,10 +44,10 @@ test('cards: EXP follows the reader\'s settings, and the top level shows a full 
 test('cards: condition badges carry an icon, a tone and the turns left', () => {
     const [ren] = ask(cards, makeState());
     assert.deepEqual(ren.badges, [
-        { id: 'poisoned-0', kind: 'poisoned', label: 'Poisoned', icon: 'fa-skull-crossbones', tone: 'bad', counter: 3, unit: 'turns left' },
-        { id: 'bleeding-1', kind: 'bleeding', label: 'Bleeding', icon: 'fa-droplet', tone: 'bad', counter: null, unit: '' },
+        { id: 'poisoned-0', kind: 'poisoned', label: 'Poisoned', showLabel: true, icon: 'fa-skull-crossbones', tone: 'bad', counter: 3, unit: 'turns left' },
+        { id: 'bleeding-1', kind: 'bleeding', label: 'Bleeding', showLabel: true, icon: 'fa-droplet', tone: 'bad', counter: null, unit: '' },
     ]);
-    assert.deepEqual(conditionBadge({ kind: 'shielded', stacks: 2 }), { id: 'shielded-0', kind: 'shielded', label: 'Shielded', icon: 'fa-shield-halved', tone: 'good', counter: 2, unit: 'turns left' });
+    assert.deepEqual(conditionBadge({ kind: 'shielded', stacks: 2 }), { id: 'shielded-0', kind: 'shielded', label: 'Shielded', showLabel: true, icon: 'fa-shield-halved', tone: 'good', counter: 2, unit: 'turns left' });
     assert.equal(conditionBadge({ kind: 'homesick' }).tone, 'neutral');
     assert.equal(conditionBadge({}).label, 'Unwell');
 });

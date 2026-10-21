@@ -137,8 +137,8 @@ function storyTarget(ctx, party, payload) {
  * A story's use (MODULES §F96, story-use.js): `{ name | stack, on | target, qty = 1 }`. The doses
  * that help are used (up to `qty`, at most 10) with their effect from the item's definition; the
  * receipt is told to the next reply. A refusal (nobody of that name, not in the bag, not a
- * consumable, a fight's thing, a fight going on, nothing a dose would do) uses nothing and tells
- * the story why, with `data.refused: true`.
+ * consumable, a fight's thing, nothing a dose would do) uses nothing and tells the story why, with
+ * `data.refused: true`. While a fight is under way the use is the fight's item action (fightUse).
  */
 export function storyUse(ctx, payload = {}) {
     const name = text(payload?.name);
@@ -147,9 +147,10 @@ export function storyUse(ctx, payload = {}) {
     if (!Number.isInteger(qty) || qty < 1 || qty > MAX_DOSES) ctx.fail('INVALID', `Use from 1 to ${MAX_DOSES} at once.`);
     const party = ctx.read('party');
     if (!party?.pc) ctx.fail('NOT_FOUND', 'Make your character first.');
+    if (inFight(ctx)) return fightUse(ctx, payload, { name, qty, party });
     const inventory = inventoryOf(stateOf(ctx));
     const who = storyTarget(ctx, party, payload);
-    const plan = planStoryUse({ inventory, party, name, stack: text(payload?.stack), who, qty, inFight: inFight(ctx) });
+    const plan = planStoryUse({ inventory, party, name, stack: text(payload?.stack), who, qty, inFight: false });
     if (!plan.ok) {
         const reason = plan.reason.charAt(0).toUpperCase() + plan.reason.slice(1);
         return {
@@ -186,14 +187,49 @@ export function storyUse(ctx, payload = {}) {
     };
 }
 
+/**
+ * A story's use while a fight is under way: the fight's own item action (`combat.act { action:
+ * { type: 'item', item, target } }`), which takes the dose out of the inventory when it is used and
+ * keeps everyone's HP with the fight. It fits only when it is a party member's turn (the one
+ * `by:` names, when named), that member has the thing among their fight items, one dose is asked
+ * and the one it is for is someone the item can reach; otherwise it is refused (a Problem) and the
+ * thing stays in the bag.
+ */
+function fightUse(ctx, payload, { name, qty, party }) {
+    const label = name || 'that';
+    if (qty !== 1) ctx.fail('REFUSED', `In a fight one dose is used per turn: the ${label} stays in the bag.`);
+    let view = null;
+    try { view = ctx.query('combat.session'); } catch { view = null; }
+    const turn = view?.status === 'active' ? (view.combatants ?? []).find(c => c.id === view.actions?.actor) : null;
+    if (!turn || turn.side !== 'party') ctx.fail('REFUSED', `It is not the party's turn in the fight: the ${label} stays in the bag.`);
+    const by = text(payload?.by);
+    if (by && by.toLowerCase() !== String(turn.name).toLowerCase()) ctx.fail('REFUSED', `It is ${turn.name}'s turn in the fight, not ${by}'s: the ${label} stays in the bag.`);
+    const item = (view.actions.items ?? []).find(entry => String(entry.name).toLowerCase() === label.toLowerCase());
+    if (!item) ctx.fail('REFUSED', `${turn.name} has no ${label} to use in the fight: it stays in the bag.`);
+    const targetName = text(payload?.on) || (payload?.target ? party.actors?.[text(payload.target)]?.name ?? '' : '');
+    let target = null;
+    if (targetName) {
+        const reach = new Set([turn.id, ...(view.actions.targets?.allies ?? [])]);
+        const found = (view.combatants ?? []).find(c => c.side === 'party' && String(c.name).toLowerCase() === targetName.toLowerCase());
+        if (!found || !reach.has(found.id) || (item.target === 'self' && found.id !== turn.id)) ctx.fail('REFUSED', `The ${item.name} cannot reach ${targetName} in the fight now: it stays in the bag.`);
+        target = found.id;
+    }
+    const done = ctx.call('combat.act', { action: { type: 'item', item: item.name, ...(target ? { target } : {}) } });
+    return {
+        summary: `${turn.name} uses the ${item.name} in the fight${targetName ? ` on ${targetName}` : ''}: ${done?.summary ?? 'done'}`,
+        narrate: false,
+        data: { fight: true, actor: turn.id, name: item.name, target, log: done?.data?.log ?? [], used: done?.data?.used ?? [], refused: false },
+    };
+}
+
 /** The `use` change line: `! use Minor Healing Draught | on: Mira | qty: 2` (a story's use, MODULES §F96). */
 export function applyUse(ctx, line) {
     const labels = {};
     for (const [label, value] of Object.entries(line?.labels ?? {})) labels[String(label).trim().toLowerCase()] = String(value ?? '').trim();
-    return storyUse(ctx, { name: line?.name ?? '', on: labels.on ?? labels.who ?? labels.by ?? '', qty: labels.qty ?? 1 });
+    return storyUse(ctx, { name: line?.name ?? '', on: labels.on ?? labels.who ?? '', by: labels.by ?? '', qty: labels.qty ?? 1 });
 }
 
-export const USE_GRAMMAR = '! use <item> | on: Name | qty: 1 (someone drinks, eats or applies it; code applies its effect)';
+export const USE_GRAMMAR = '! use <item> | on: Name | by: Name | qty: 1 (someone drinks, eats or applies it; code applies its effect)';
 
 /**
  * `item.equip` { stack, actor? }: the wearer puts a piece on. The wearer is whoever carries it
