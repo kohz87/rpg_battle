@@ -1,7 +1,8 @@
 // A fake command context for the checks part's tests (SPEC §3.2, MODULES §A): read, draft (own
 // domains only), call, claim, rng (sfc32 from the receipt's seed), roll, settings, time, fail,
-// receiptId, rev and query. The queries are the checks part's, the party part's and a small
-// `inventory.items` shaped as Story Block's (MODULES §F5). `run` plays Story Block's commit step
+// receiptId, rev, cause, carrier (a capture's reply, { index, swipe, key }) and query. The queries
+// are the checks part's, the party part's, a small `inventory.items` shaped as Story Block's
+// (MODULES §F5) and any extra ones a test gives (`queries`, e.g. creation.content). `run` plays Story Block's commit step
 // in miniature: the handler works on a copy, the touched domains' validators run, and a throw or
 // a validator error rejects the whole command, leaving the state passed in exactly as it was.
 
@@ -57,12 +58,17 @@ export const allQueries = { ...party.queries, ...part.queries, 'inventory.items'
 const validators = { party: party.domains.party.validate, checks: part.domains.checks.validate };
 const allCommands = { ...party.commands, ...part.commands };
 
-/** The query tools a host passes a query (MODULES §F3). */
-export const toolsFor = state => ({ query: (name, args) => {
-    const fn = allQueries[name];
+/** The query tools a host passes a query (MODULES §F3); `extra` adds or replaces queries. */
+export const toolsFor = (state, extra = {}) => ({ query: (name, args) => {
+    const fn = extra[name] ?? allQueries[name];
     if (!fn) throw new Rejection('NOT_FOUND', `No query ${name}.`);
-    return clone(fn(state, args, toolsFor(state)));
+    return clone(fn(state, args, toolsFor(state, extra)));
 } });
+
+/** A view as Story Block hands one to a tail or a hook: { state, query, settings, chat }. */
+export const viewOf = (state, { queries = {}, chat = { length: 3, lastUser: '' }, settings = {} } = {}) => ({
+    state, query: toolsFor(state, queries).query, settings: () => settings, chat,
+});
 
 /** A state with party (from its initial unless given), checks and an empty inventory. */
 export function makeState(domains = {}) {
@@ -78,13 +84,15 @@ export function makeState(domains = {}) {
     };
 }
 
-export function makeCtx(working, { seed = 1, settings = {}, own = ['checks'], rev = null, dice = null } = {}) {
+export function makeCtx(working, { seed = 1, settings = {}, own = ['checks'], rev = null, dice = null, cause = 'story', carrier = null, queries = {} } = {}) {
     const rng = sfc32(seed);
     const touched = new Set();
     const forced = dice ? [...dice] : null;
     const ctx = {
         receiptId: 'rc_test0001',
         rev: rev ?? working.meta.rev + 1,
+        cause,
+        carrier: carrier ? { swipe: 0, ...carrier, key: `${carrier.index}:${carrier.swipe ?? 0}` } : null,
         touched,
         read: domain => deepFreeze(clone(working.domains[domain])),
         draft: domain => {
@@ -115,9 +123,9 @@ export function makeCtx(working, { seed = 1, settings = {}, own = ['checks'], re
             throw new Rejection(code, message);
         },
         query: (name, args) => {
-            const fn = allQueries[name];
+            const fn = queries[name] ?? allQueries[name];
             if (!fn) throw new Rejection('NOT_FOUND', `There is no query called "${name}".`);
-            return deepFreeze(clone(fn(working, clone(args ?? {}))));
+            return deepFreeze(clone(fn(working, clone(args ?? {}), toolsFor(working, queries))));
         },
     };
     return ctx;
@@ -161,10 +169,18 @@ export function line(raw) {
     return { op, kind, name: (dash ? dash[1] : rest).trim(), text: dash ? dash[2].trim() : '', labels, raw, index: 0 };
 }
 
-/** Runs a change line through the checks part's kind, as a story command. */
+/** Runs a change line through the checks part's kind, as a story command (reply 4 unless `carrier` says). */
 export function capture(state, raw, options = {}) {
     const parsed = line(raw);
-    return run(state, (ctx, l) => part.kinds[l.kind].apply(ctx, l), parsed, options);
+    return run(state, (ctx, l) => part.kinds[l.kind].apply(ctx, l), parsed, { carrier: { index: 4 }, ...options });
+}
+
+/** Commits `checks.prepare { for }` as beforeGenerate would (cause system); `rolls` forces the dice. */
+export function prepared(state, index = 4, { rolls = null, seed = 3 } = {}) {
+    const out = run(state, 'checks.prepare', { for: index }, { seed, cause: 'system' });
+    if (!out.ok) throw new Error(out.message);
+    if (rolls) out.state.domains.checks.prepared.at(-1).rolls = [...rolls];
+    return out.state;
 }
 
 /** Runs a party command (to set the scene up) with the party domain owned. */
@@ -191,4 +207,4 @@ export function withItem(state, { id, name, owner = 'party', kind = 'goods', not
 
 export const pcOf = state => state.domains.party.actors[state.domains.party.pc];
 export const byName = (state, name) => Object.values(state.domains.party.actors).find(actor => actor.name === name);
-export const pendingOf = state => state.domains.checks.pending;
+export const logOf = state => state.domains.checks.log;

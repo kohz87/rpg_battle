@@ -55,6 +55,9 @@ export function wearerOf(stack, party) {
     return stack?.owner === 'party' ? party?.pc ?? null : stack?.owner ?? null;
 }
 
+/** The slot a worn stack's key stands for: `accessory-2` → `accessory` (item.equip gives each allowed copy its own key). */
+export const baseSlot = key => (typeof key === 'string' ? key.replace(/-\d+$/, '') : null);
+
 /** A stack as v1's Item: { name, qty, rarity, slot, equipped, stats, tags, effect, note, stack }. */
 export function itemOf(stack, def) {
     return {
@@ -62,7 +65,7 @@ export function itemOf(stack, def) {
         qty: stack?.qty ?? 0,
         category: '',
         rarity: def?.rarity ?? 'common',
-        slot: stack?.equipped || def?.slot || null,
+        slot: def?.slot || baseSlot(stack?.equipped) || null,
         equipped: Boolean(stack?.equipped),
         stats: { ...(def?.stats ?? {}) },
         tags: [...(def?.tags ?? [])],

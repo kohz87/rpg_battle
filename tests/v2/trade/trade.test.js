@@ -22,16 +22,17 @@ const rejected = (host, type, payload, code) => {
 
 test('part shape: domain, commands, queries, settings, tab', () => {
     assert.deepEqual(Object.keys(part.domains), ['trade']);
-    assert.deepEqual(part.domains.trade.initial(), { orders: {}, shops: {} });
+    assert.deepEqual(part.domains.trade.initial(), { orders: {}, shops: {}, shortages: {} });
     assert.deepEqual(Object.keys(part.commands).sort(), ['craft.collect', 'craft.commission', 'trade.buy', 'trade.sell']);
-    assert.deepEqual(Object.keys(part.queries).sort(), ['trade.market', 'trade.orders', 'trade.quote', 'trade.stock']);
+    assert.deepEqual(Object.keys(part.queries).sort(), ['trade.market', 'trade.orders', 'trade.quote', 'trade.shops', 'trade.stock']);
+    assert.deepEqual(Object.keys(part.kinds), ['market']);
     assert.equal(part.settings.section, 'Trade');
-    assert.deepEqual(part.settings.defaults, { placePrices: [] });
+    assert.deepEqual(part.settings.defaults, { placePrices: [], shortagePrices: 150 });
     assert.deepEqual(part.settings.schema.placePrices.of.level.options, ['cheap', 'fair', 'dear']);
     assert.equal(part.tabs[0].id, 'trade');
     assert.equal(typeof part.tabs[0].render, 'function');
     assert.equal(part.context.static(), '');
-    assert.equal(part.context.budget, 100);
+    assert.equal(part.context.budget, 140);
 });
 
 // ---------------------------------------------------------------------------------------
@@ -339,7 +340,7 @@ test('tail: many ready orders stay within the budget', () => {
 
 test('queries: trade.market and trade.orders read the state as it is; a bad quote type says so', () => {
     const host = createHost(part, { state: baseState() });
-    assert.deepEqual(host.query('trade.market'), { open: true, by: 'place', place: 'Bluewatch Village', tier: 'village', buy: 0.9, sell: 0.85, level: null, day: null });
+    assert.deepEqual(host.query('trade.market'), { open: true, by: 'place', place: 'Bluewatch Village', tier: 'village', buy: 0.9, sell: 0.85, level: null, day: null, shortage: null });
     assert.deepEqual(host.query('trade.orders'), []);
     assert.equal(host.query('trade.quote', { type: 'steal' }).ok, false);
     assert.equal(host.query('trade.quote', { type: 'sell', stack: 'it_00000001', qty: 9 }).code, 'NOT_ENOUGH');

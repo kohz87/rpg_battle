@@ -92,47 +92,21 @@ test('the Items tab is registered as items / Items / fa-flask', () => {
     assert.equal(typeof tab.render, 'function');
 });
 
-test('Items page: a row per party thing with Use, Equip or Take off, and Give', () => {
+test('Items page: a row per party thing with Equip or Take off, and Give; no Use (MODULES §F96)', () => {
     const { el } = page();
-    assert.deepEqual(buttons(row(el, 'it_draught1')), ['Use', 'Give']);
+    assert.deepEqual(buttons(row(el, 'it_draught1')), ['Give']);
     assert.deepEqual(buttons(row(el, 'it_blade001')), ['Equip', 'Give']);
     assert.deepEqual(buttons(row(el, 'it_dagger01')), ['Take off', 'Give']);
     assert.deepEqual(buttons(row(el, 'it_rope0001')), ['Give']);
     assert.deepEqual(buttons(row(el, 'it_flask001')), ['Give']);
+    assert.equal(row(el, 'it_draught1').querySelector('[data-act="item.use"]'), null);
     assert.equal(row(el, 'it_empty001'), null);
     assert.equal(row(el, 'it_npc00001'), null);
     assert.match(row(el, 'it_draught1').querySelector('.rb-item-name').textContent, /^Minor Healing Draught ×2 · shared$/);
     assert.match(row(el, 'it_lyradr01').textContent, /Lyra/);
-    // Use picks among the party; Give among the others.
-    assert.deepEqual(row(el, 'it_draught1').querySelector('.rb-item-target').querySelectorAll('option').map(option => option.value), [PC, LYRA]);
+    // Give among the others.
     assert.deepEqual(row(el, 'it_draught1').querySelector('.rb-item-to').querySelectorAll('option').map(option => option.value), [LYRA]);
     assert.deepEqual(row(el, 'it_lyradr01').querySelector('.rb-item-to').querySelectorAll('option').map(option => option.value), [PC]);
-});
-
-test('Items page: Use sends item.use as a ui command and stays open for another dose', async () => {
-    const { el, sent, h } = page();
-    row(el, 'it_draught1').querySelector('[data-act="item.use"]').click();
-    await settle();
-    assert.deepEqual(sent[0], { type: 'item.use', payload: { stack: 'it_draught1', target: PC }, options: { cause: 'ui' } });
-    assert.equal(el.querySelector('.rb-items-status').textContent, 'Ren uses the Minor Healing Draught: +20 HP (now 77/82 HP).');
-    // Re-rendered from the new head state: one left, the button still there.
-    assert.match(row(el, 'it_draught1').textContent, /^Minor Healing Draught · shared/);
-    row(el, 'it_draught1').querySelector('[data-act="item.use"]').click();
-    await settle();
-    assert.equal(h.state().domains.inventory.stacks.it_draught1, undefined);
-    assert.equal(row(el, 'it_draught1'), null);
-    assert.equal(el.querySelector('.rb-items-status').textContent, 'Ren uses the Minor Healing Draught: +5 HP (now 82/82 HP).');
-});
-
-test('Items page: a refusal is shown and changes nothing; a target picked is the one used on', async () => {
-    const { el, sent } = page();
-    const draught = row(el, 'it_draught1');
-    draught.querySelector('.rb-item-target').value = LYRA;
-    draught.querySelector('[data-act="item.use"]').click();
-    await settle();
-    assert.equal(sent[0].payload.target, LYRA);
-    assert.equal(el.querySelector('.rb-items-status').textContent, 'Lyra does not need the Minor Healing Draught now.');
-    assert.match(row(el, 'it_draught1').textContent, /×2/);
 });
 
 test('Items page: Equip and Give send their commands', async () => {
@@ -156,7 +130,7 @@ test('Items page: an empty party bag says so; no host and no api says Story Bloc
     assert.equal(el.querySelector('.rb-items-empty').textContent, 'The party carries nothing to use, wear or give.');
     const full = makeState();
     part.tabs[0].render(el, { state: full }, {});
-    row(el, 'it_draught1').querySelector('[data-act="item.use"]').click();
+    row(el, 'it_blade001').querySelector('[data-act="item.equip"]').click();
     await settle();
     assert.equal(el.querySelector('.rb-items-status').textContent, 'Story Block is not ready.');
 });

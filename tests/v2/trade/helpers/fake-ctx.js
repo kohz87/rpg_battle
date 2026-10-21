@@ -137,6 +137,31 @@ export function createHost(part, { state, settings = {}, time = null, currency =
         }
     };
 
+    /** A change line ({ op, kind, name, text, labels }) through the part's kind, as a story command. */
+    host.capture = line => {
+        const kind = part.kinds?.[line.kind];
+        if (!kind) return { ok: false, code: 'UNKNOWN_KIND', message: `No kind ${line.kind}.` };
+        const draft = copy(host.state);
+        counter += 1;
+        const id = `rc_${counter.toString(36).padStart(8, '0')}`;
+        try {
+            const ctx = { ...makeCtx(draft, ownDomains, id, makeRng(counter)), rev: draft.meta.rev + 1, cause: 'story' };
+            const result = kind.apply(ctx, { op: '!', text: '', labels: {}, ...line }) ?? {};
+            for (const [domain, def] of Object.entries(part.domains)) {
+                const errors = def.validate(draft.domains[domain], draft);
+                if (errors.length) return { ok: false, code: 'INVALID', message: errors.join('; ') };
+            }
+            draft.meta.rev += 1;
+            const receipt = { id, type: `capture.${line.kind}`, module: 'rpg-battle', cause: 'story', seed: counter, summary: result.summary ?? '', narrate: result.narrate !== false, data: result.data ?? {}, rev: draft.meta.rev };
+            host.state = draft;
+            host.receipts.push(receipt);
+            return { ok: true, receipt };
+        } catch (error) {
+            if (error instanceof Rejection) return { ok: false, code: error.code, message: error.message };
+            return { ok: false, code: 'FAILED', message: String(error?.stack ?? error) };
+        }
+    };
+
     // A query's tools (MODULES §F3): query over the same state, Story Block's queries included.
     const tools = state => ({ settings: host.settings, query: (name, args) => (CORE_QUERIES[name] ?? part.queries[name])(state, args, env()) });
     host.query = (name, args = {}) => {

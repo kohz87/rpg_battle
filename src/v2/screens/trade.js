@@ -1,5 +1,5 @@
 // RPG Battle v2, screen `rpg-battle/trade` (MODULES §B4 "Tab page: Trade", one-line rows as v1
-// 0.5.46): the market line (where, its prices, the purse), then Sell, Buy (one fold per trader, the
+// 0.5.46): the market line (where, its prices, a shortage the story marked, the purse), then Sell, Buy (one fold per trader, the
 // general store open), Commission and On order, every price short ("12 g") with the long words in
 // the button's title. Buttons: `trade.sell { stack, qty }`, `trade.buy { shop, def, qty }`,
 // `craft.commission { piece, materials: [{ stack, qty }], crafter }`, `craft.collect { order }`.
@@ -17,6 +17,7 @@ const template = `
     <div class="main">
       <b class="place">{{ q.trade.place }}</b>
       <small class="line">{{ q.trade.line }}</small>
+      <small class="line short" data-if="q.trade.shortage != ''"><i class="fa-solid fa-triangle-exclamation"></i>{{ q.trade.shortage }}</small>
     </div>
     <span class="purse" data-bind-attr="title: q.trade.purseTitle"><i class="fa-solid fa-coins"></i>{{ q.trade.purse }}</span>
   </header>
@@ -94,6 +95,8 @@ const css = sheet(`
 .market .main { display: grid; flex: 1 1 auto; min-width: 0; }
 .market .place, .market .line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .market .line { font-size: 0.84em; }
+.market .short { color: var(--rb-warn); }
+.market .short i { margin-right: 4px; }
 .purse { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 999px; font-weight: 700; font-variant-numeric: tabular-nums; background: color-mix(in srgb, var(--rb-warn) 18%, transparent); border: 1px solid color-mix(in srgb, var(--rb-warn) 50%, transparent); white-space: nowrap; }
 .purse i { color: var(--rb-warn); }
 

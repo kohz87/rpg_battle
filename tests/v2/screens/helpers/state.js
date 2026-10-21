@@ -1,5 +1,5 @@
 // Fixture states for the screens tests, in the shapes the v2 parts keep (SPEC §7 inventory and scene,
-// MODULES §B1 party, §B4 trade, §C1 director time, §F1 one currency, §F16 checks): Ren (your character, level 3,
+// MODULES §B1 party, §B4 trade, §C1 director time, §F1 one currency, §F80 checks): Ren (your character, level 3,
 // 3 points to spend, poisoned for 3 turns, five skills over two tiers and a story-taught one) and Lyra
 // (a companion at full health), at a settlement market, with consumables, gear, materials and two
 // orders. `query(state)` is the `tools.query` a query gets (MODULES §F3), over the real RPG Battle
@@ -87,11 +87,16 @@ export function makeState() {
                 offers: [],
             },
             checks: {
-                pending: [{
-                    id: 'ck_aaaaaaaa', actor: PC, skill: 'stealth', stat: 'DEX', dc: 20, word: 'hard', what: 'slipping past the guard', rev: 11,
-                    modifiers: [{ source: 'stat', amount: 0, reason: 'DEX' }],
+                prepared: [{ for: 12, rolls: [12, 5], rev: 11 }],
+                log: [{
+                    id: 'ck_aaaaaaaa', actor: PC, skill: 'stealth', stat: 'DEX', dc: 20, word: 'hard', what: 'slipping past the guard', rev: 12,
+                    carrier: '12:0', roll: 1, die: 12, modifiers: [{ source: 'stat', amount: 0, reason: 'DEX' }], mod: 0, total: 12,
+                    outcome: 'fail', said: 'success', mismatch: 'narrated as success, the dice say fail', note: '',
                 }],
-                log: [],
+                last: {
+                    carrier: '12:0', rev: 12,
+                    results: [{ id: 'ck_aaaaaaaa', actor: PC, name: 'Ren', text: 'stealth (slipping past the guard): Roll 1 = 12 + 0 = 12 against 20 (hard)', outcome: 'fail', outcomeText: 'fail', mismatch: 'narrated as success, the dice say fail', note: '' }],
+                },
             },
             trade: {
                 orders: {
@@ -109,7 +114,7 @@ export function emptyState() {
     const state = makeState();
     state.domains.party = { pc: null, order: [], actors: {}, custom: {}, offers: [] };
     state.domains.inventory.stacks = {};
-    state.domains.checks = { pending: [], log: [] };
+    state.domains.checks = { prepared: [], log: [], last: null };
     return state;
 }
 
@@ -123,9 +128,10 @@ const storyBlockQueries = {
 
 export const QUERIES = { ...storyBlockQueries, ...partyPart.queries, ...checksPart.queries, ...itemsPart.queries, ...tradePart.queries, ...screensPart.queries };
 
-/** `tools.query` over `state`: every query gets (state, args, tools), as the host calls them. */
-export function toolsFor(state) {
+/** `tools.query` over `state`: every query gets (state, args, tools), as the host calls them; `settings` are the module's. */
+export function toolsFor(state, settings = undefined) {
     const tools = {
+        ...(settings === undefined ? {} : { settings }),
         query(name, args = {}) {
             const fn = QUERIES[name];
             if (typeof fn !== 'function') throw new Error(`No query called "${name}".`);
@@ -136,4 +142,4 @@ export function toolsFor(state) {
 }
 
 /** The host's `query(name, args, state)` as the mounts call it. */
-export const runQuery = (name, args, state) => toolsFor(state).query(name, args);
+export const runQuery = (name, args, state, settings) => toolsFor(state, settings).query(name, args);

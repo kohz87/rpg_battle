@@ -122,7 +122,7 @@ export function conditionBadge(condition, index = 0) {
     const kind = String(condition?.kind ?? '').trim() || 'unwell';
     const [, icon, tone] = CONDITION_LOOK.find(([pattern]) => pattern.test(kind)) ?? [null, 'fa-circle-exclamation', 'neutral'];
     const stacks = int(condition?.stacks, 1);
-    return { id: `${kind}-${index}`, kind, label: capital(kind), icon, tone, counter: stacks > 1 ? stacks : null, unit: stacks > 1 ? 'turns left' : '' };
+    return { id: `${kind}-${index}`, kind, label: capital(kind), showLabel: true, icon, tone, counter: stacks > 1 ? stacks : null, unit: stacks > 1 ? 'turns left' : '' };
 }
 
 const SKILL_ICONS = Object.freeze({ physical: 'fa-hand-fist', magic: 'fa-wand-sparkles', heal: 'fa-kit-medical', buff: 'fa-shield-halved', debuff: 'fa-skull' });
@@ -233,18 +233,14 @@ export function cards(state, args = {}, tools = null) {
 }
 
 /**
- * `rpg-battle.hud({ settings? })`: { ready, pc: card | null, pending, pendingText }. `pending`
- * counts the checks waiting for a roll (MODULES §F16: the checks part's `checks.pending`, else the
- * `checks` domain as it is).
+ * `rpg-battle.hud({ settings? })`: { ready, pc: card | null }. (Checks no longer wait for the
+ * reader, MODULES §F80: they are rolled in the reply that writes them, so the HUD counts none.)
  */
 export function hud(state, args = {}, tools = null) {
     const party = partyOf(state);
     const pcId = party.pc && party.actors?.[party.pc] ? party.pc : null;
     const pc = pcId ? cards(state, args, tools).find(card => card.id === pcId) ?? null : null;
-    const asked = ask(tools, 'checks.pending', {});
-    const list = Array.isArray(asked) ? asked : Array.isArray(state?.domains?.checks?.pending) ? state.domains.checks.pending : [];
-    const pending = list.length;
-    return copy({ ready: Boolean(pc), pc, pending, pendingText: pending === 1 ? '1 check waits for a roll' : `${pending} checks wait for a roll` });
+    return copy({ ready: Boolean(pc), pc });
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -271,9 +267,10 @@ const helpsNow = effect => isRecord(effect) && (int(effect.heal) > 0 || int(effe
  * `rpg-battle.items`: { empty, people, consumables, equipment, other }. Each row has its `stack`,
  * name, quantity, who holds it, and the people it can be given to (`give`); consumables list their
  * `targets` (`helps` false when a dose would do nothing for them now, which item.use refuses), gear
- * whether it is on (`equipped`) and on whom.
+ * whether it is on (`equipped`) and on whom. `carry`: the carry limit's line (MODULES §F39, the
+ * items part's `items.carry`): { on, text, over } ("Carrying 31 of 56 · Ren 12/40 · Lyra 9/36").
  */
-export function items(state) {
+export function items(state, args = {}, tools = null) {
     const party = partyOf(state);
     const inventory = inventoryOf(state);
     const people = peopleOf(party);
@@ -299,7 +296,7 @@ export function items(state) {
         .filter(stack => isRecord(stack) && stack.qty > 0 && holders.includes(stack.owner) && defs[stack.def] && defs[stack.def].kind !== 'money')
         .sort((a, b) => holders.indexOf(a.owner) - holders.indexOf(b.owner) || String(defs[a.def].name).localeCompare(String(defs[b.def].name), 'en') || (a.id < b.id ? -1 : 1));
 
-    const out = { empty: stacks.length === 0, people: people.map(id => ({ id, name: nameOf(id) })), consumables: [], equipment: [], other: [] };
+    const out = { empty: stacks.length === 0, people: people.map(id => ({ id, name: nameOf(id) })), consumables: [], equipment: [], other: [], carry: carryText(ask(tools, 'items.carry', {})) };
     for (const stack of stacks) {
         const def = defs[stack.def];
         const holder = stack.owner === 'party' ? 'shared' : nameOf(stack.owner);
@@ -315,7 +312,7 @@ export function items(state) {
                 effect: effectText(def.effect),
                 targets: people.map(id => {
                     const ok = helpsWhom(def, id);
-                    return { id, name: nameOf(id), helps: ok, title: ok === false ? `${nameOf(id)} would not gain anything now` : `Use on ${nameOf(id)}` };
+                    return { id, name: nameOf(id), helps: ok, title: ok === false ? `${nameOf(id)} would not gain anything now` : `${nameOf(id)} would gain from a dose` };
                 }),
             });
         } else if (def.kind === 'equipment' && def.slot) {
@@ -333,6 +330,14 @@ export function items(state) {
         }
     }
     return copy(out);
+}
+
+/** The carry line from `items.carry` (no `add`): { on, text, over }; off (text '') without the limit. */
+export function carryText(view) {
+    if (!isRecord(view) || view.on !== true) return { on: false, text: '', over: false };
+    const people = (Array.isArray(view.people) ? view.people : []).map(person => `${person.name} ${int(person.load)}/${int(person.capacity)}`);
+    const text = [`Carrying ${int(view.load)} of ${int(view.capacity)}`, ...(people.length > 1 ? people : [])].join(' · ');
+    return { on: true, text, over: int(view.load) > int(view.capacity) };
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -367,8 +372,10 @@ function asV1Item(def) {
 
 /**
  * `rpg-battle.trade`: the Trade page's rows from the trade part's queries (trade.market,
- * trade.stock, trade.quote, trade.orders) and the purse (inventory.wallet, MODULES §F1):
- * { open, place, line, purse, sell, traders, crafters, materials, orders }. Prices are whole
+ * trade.shops — a pack's shops for the place stand in for the generic traders —, trade.stock,
+ * trade.quote, trade.orders) and the purse (inventory.wallet, MODULES §F1):
+ * { open, place, line, shortage, purse, sell, traders, crafters, materials, orders } (`shortage`:
+ * the line for a shortage here, MODULES §F36, else ''). Prices are whole
  * amounts of the one currency, shown short ("12 g") with the long words in each button's title.
  */
 export function trade(state, args = {}, tools = null) {
@@ -386,6 +393,7 @@ export function trade(state, args = {}, tools = null) {
         available: market !== undefined && market !== null,
         place,
         line: !market ? 'Trade is not set up in this chat.' : open ? ['Market', prices].filter(Boolean).join(' · ') : 'No market here: trade in a settlement, or with a trader on the road.',
+        shortage: market?.shortage ? `Shortage${market.shortage.reason ? `: ${market.shortage.reason}` : ''} · no restock, prices at ${int(market.shortage.prices, 150)}%${market.shortage.until ? ` until ${market.shortage.until}` : ''}` : '',
         purse: shortPrice(coin, currency),
         purseTitle: `${longPrice(coin, currency)} in the purse`,
         sell: [], traders: [], crafters: [], materials: [], orders: [],
@@ -409,7 +417,10 @@ export function trade(state, args = {}, tools = null) {
                 title: each === null ? `Sell one ${def.name}` : `Sell one ${def.name} for ${longPrice(each, currency)}`,
             });
         }
-        TRADERS.forEach((trader, index) => {
+        // The packs' shops for this place when there are any (trade.shops), else the generic traders.
+        const packed = ask(tools, 'trade.shops', {});
+        const shops = Array.isArray(packed) && packed.length ? packed.map(shop => ({ kind: shop.slug, label: shop.name })) : TRADERS;
+        shops.forEach((trader, index) => {
             const stock = ask(tools, 'trade.stock', { kind: trader.kind });
             const rows = (Array.isArray(stock?.items) ? stock.items : []).map(item => ({
                 def: String(item?.def?.id ?? ''), name: String(item?.def?.name ?? ''), note: String(item?.note ?? item?.def?.note ?? ''),

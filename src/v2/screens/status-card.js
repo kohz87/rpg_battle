@@ -5,8 +5,12 @@
 // part's `cardOnlyChanged`: `screens.cardOnlyChanged` in the module's settings, src/v2/module.js),
 // members this reply left alone are not listed.
 //
-// It reads the state, not a query: changed() knows where a value came from only for `state.…`
-// paths (query results are copies, TEMPLATES.md §1.3).
+// The checks this reply wrote (MODULES §F80) show with code's result, and a flag when the reply
+// narrated it otherwise ("narrated as success, the dice say fail"). The level and XP words are the
+// chat's terms (`party.terms`, MODULES §F25: the reader's, else a pack's, else Lv and EXP).
+//
+// It reads the state, not a query, for everything it marks: changed() knows where a value came
+// from only for `state.…` paths (query results are copies, TEMPLATES.md §1.3).
 
 import { THEME, sheet } from './style.js';
 
@@ -14,6 +18,10 @@ const actor = 'state.party.actors[id]';
 // The reader's "only what changed" setting, namespaced by the module (or bare, as a part reads it).
 const only = "(settings['screens.cardOnlyChanged'] == true || settings.cardOnlyChanged == true)";
 const all = "(settings['screens.cardOnlyChanged'] != true && settings.cardOnlyChanged != true)";
+
+// The terms' words, with v1's short forms when the chat keeps the plain ones.
+const levelWord = `<span data-if="q.terms == null || q.terms.levelName == 'Level'">Lv</span><span data-if="q.terms != null && q.terms.levelName != 'Level'">{{ q.terms.levelName }}</span>`;
+const xpWord = `<span data-if="q.terms == null || q.terms.xpName == 'XP'">EXP</span><span data-if="q.terms != null && q.terms.xpName != 'XP'">{{ q.terms.xpName }}</span>`;
 
 const template = `
 <div class="rb rb-status" data-class="quiet: ${only}">
@@ -25,19 +33,25 @@ const template = `
     <ss-widget class="pool hp" data-class="hit: changed(${actor}.hp)" name="ss.meter" data-props='{"bind":"${actor}.hp","label":"HP","icon":"fa-heart"}'></ss-widget>
     <ss-widget class="pool mp" data-class="hit: changed(${actor}.mp)" name="ss.meter" data-props='{"bind":"${actor}.mp","label":"MP","icon":"fa-droplet"}'></ss-widget>
     <span class="tags">
-      <span class="chg up" data-if="changed(${actor}.level)"><i class="fa-solid fa-arrow-up"></i>Lv {{ ${actor}.level }}</span>
-      <span class="chg" data-if="changed(${actor}.xp) && !changed(${actor}.level)"><i class="fa-solid fa-star"></i>EXP</span>
+      <span class="chg up" data-if="changed(${actor}.level)"><i class="fa-solid fa-arrow-up"></i>${levelWord} {{ ${actor}.level }}</span>
+      <span class="chg" data-if="changed(${actor}.xp) && !changed(${actor}.level)"><i class="fa-solid fa-star"></i>${xpWord}</span>
       <span class="chg" data-if="changed(${actor}.skills)"><i class="fa-solid fa-diagram-project"></i>Skills</span>
       <span class="cond" data-each="${actor}.conditions as c" data-class="new: changed(c)">{{ c.kind }}<b data-if="c.stacks > 1">{{ c.stacks }}</b></span>
     </span>
   </div>
-  <div class="changes" data-if="changed('state.inventory') || changed('state.checks.pending') || changed('state.party.offers')">
+  <div class="checks" data-if="changed('state.checks.last') && len(state.checks.last.results) > 0">
+    <div class="check" data-each="state.checks.last.results as c" data-class="pass: c.outcome == 'success' || c.outcome == 'crit' || c.outcome == 'cost'; off: c.mismatch != ''">
+      <i class="fa-solid fa-dice-d20"></i><b class="who">{{ c.name }}</b><span class="txt">{{ c.text }}</span><span class="out">{{ c.outcomeText }}</span>
+      <small class="flag" data-if="c.mismatch != ''"><i class="fa-solid fa-triangle-exclamation"></i>{{ c.mismatch }}</small>
+      <small class="note" data-if="c.note != ''">{{ c.note }}</small>
+    </div>
+  </div>
+  <div class="changes" data-if="changed('state.inventory') || changed('state.party.offers')">
     <span class="chg" data-if="changed('state.inventory.stacks')"><i class="fa-solid fa-box-open"></i>Items</span>
     <span class="chg" data-if="changed('state.inventory.wallets')"><i class="fa-solid fa-coins"></i>Coin</span>
-    <span class="chg" data-if="changed('state.checks.pending')"><i class="fa-solid fa-dice-d20"></i>Check</span>
     <span class="chg" data-if="changed('state.party.offers')"><i class="fa-solid fa-user-plus"></i>Offer</span>
   </div>
-  <p class="none calm" data-if="len(state.party.order) > 0 && !changed('state.party') && !changed('state.inventory') && !changed('state.checks')">Nothing changed for the party in this reply.</p>
+  <p class="none calm" data-if="len(state.party.order) > 0 && !changed('state.party') && !changed('state.inventory') && !changed('state.checks.last')">Nothing changed for the party in this reply.</p>
 </div>
 `;
 
@@ -65,6 +79,14 @@ const css = sheet(`
 .cond { background: var(--rb-raised); text-transform: capitalize; }
 .cond b { font-variant-numeric: tabular-nums; color: var(--rb-muted); }
 .cond.new { box-shadow: 0 0 0 1px color-mix(in srgb, var(--rb-bad) 60%, transparent); }
+.checks { display: grid; gap: 3px; padding-top: 4px; border-top: 1px dashed var(--rb-line); }
+.check { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
+.check > i { color: var(--rb-accent); }
+.check .out { font-weight: 700; color: var(--rb-bad); }
+.check.pass .out { color: var(--rb-good); }
+.check .flag { flex-basis: 100%; color: var(--rb-warn); font-weight: 600; }
+.check .flag i { margin-right: 4px; }
+.check .note { flex-basis: 100%; }
 .changes { display: flex; flex-wrap: wrap; gap: 4px; padding-top: 4px; border-top: 1px dashed var(--rb-line); }
 .calm { font-size: 0.85em; }
 @container rb-screen (max-width: 360px) {
@@ -78,6 +100,7 @@ export const statusCardScreen = Object.freeze({
     title: 'Party status',
     icon: 'fa-heart-pulse',
     mounts: Object.freeze(['card']),
+    data: Object.freeze({ terms: Object.freeze({ query: 'party.terms' }) }),
     theme: THEME,
     template,
     css,

@@ -1,19 +1,15 @@
-// The checks part's queries (MODULES §F16): the waiting checks, the last results, and what of a
-// member's own could fit a waiting check (checks.suggest). Suggestions are only that: words the
-// check and a skill, ability or item have in common; the reader decides what counts and by how
-// much. Members and items come through the party and inventory queries (MODULES §F3 tools);
-// the words of a skill's description and of an item's definition are read from the state as it
-// is (party.custom, inventory.defs), since no query gives one definition. Pure.
+// The checks part's queries (MODULES §F80): the results, the rolls handed over for the latest
+// reply, the latest reply's checks (for its card), and code's modifier table (the same rule the
+// capture uses, modifiers.js). Members and items come through the party and inventory queries
+// (MODULES §F3 tools); item tags are read from the inventory's defs as they are. Pure.
 
-import { DEFAULT_SKILLS, findSkill } from '../../skills.js';
-import { abilitiesOf, carriedBy } from './commands.js';
-import { nameKey, shared, stems } from './shared.js';
+import { memberOf, modifiersFor, rulesFor, statModifiers } from './modifiers.js';
 
 const copy = value => JSON.parse(JSON.stringify(value ?? null));
-const checksOf = state => state?.domains?.checks ?? { pending: [], log: [] };
+const checksOf = state => state?.domains?.checks ?? { prepared: [], log: [], last: null };
 
 /** A query through the host's tools, null when it is not registered or fails. */
-function asker(tools) {
+export function asker(tools) {
     return (name, args) => {
         if (typeof tools?.query !== 'function') return null;
         try {
@@ -24,56 +20,49 @@ function asker(tools) {
     };
 }
 
-/** The checks waiting for a roll, oldest first. */
-export function pending(state) {
-    return copy(checksOf(state).pending);
-}
-
 /** The last results (up to 30), oldest first. */
 export function log(state) {
-    return copy(checksOf(state).log);
+    return copy(checksOf(state).log ?? []);
 }
 
-// The skill library a member's skills come from: v1's defaults and the story-taught skills the
-// party keeps (read only; there is no query for one skill's definition).
-function skillDef(state, name) {
-    return findSkill([...DEFAULT_SKILLS, ...Object.values(state?.domains?.party?.custom ?? {})], name);
+/** `checks.rolls({ for? })` → { for, rolls, rev } handed over for that reply (else the latest), or null. */
+export function rolls(state, args = {}) {
+    const list = checksOf(state).prepared ?? [];
+    const found = (Number.isInteger(args?.for) ? list.find(entry => entry.for === args.for) : null) ?? list.at(-1) ?? null;
+    return copy(found);
+}
+
+/** `checks.last` → the latest reply's checks as its card shows them: { carrier, rev, results } or null. */
+export function last(state) {
+    return copy(checksOf(state).last ?? null);
 }
 
 /**
- * checks.suggest({ id }) → [{ source: 'skill'|'ability'|'item', name, words: [stems in common],
- * stack? }]: the member's skills, abilities and carried items that share words with the check
- * (its skill word and what is attempted), most words first. [] for an unknown check.
+ * `checks.modifiers({ actor?, skill?, stat? })`: code's modifiers. With `skill` (or `stat`), one
+ * member's (your character's when no actor is named) for that check: [{ source, amount, reason }].
+ * Without, the table for the whole party: [{ actor, name, you, stats: { STR: n, … }, extras:
+ * [{ source, name, topics, amount }] }], your character first. [] / null for nobody.
  */
-export function suggest(state, args = {}, tools = null) {
-    const check = checksOf(state).pending.find(entry => entry.id === args?.id);
-    if (!check) return [];
+export function modifiers(state, args = {}, tools = null) {
     const query = asker(tools);
-    const actor = query('party.actor', { id: check.actor });
-    if (!actor) return [];
-    const wanted = stems(check.skill, check.what);
-    const taken = new Set(check.modifiers.map(entry => `${entry.source}:${nameKey(entry.reason)}`));
-    const out = [];
-    const offer = (source, name, words, extra = {}) => {
-        if (taken.has(`${source}:${nameKey(name)}`)) return;
-        const common = shared(wanted, words);
-        if (common.length) out.push({ source, name, words: common, ...extra });
-    };
-    for (const skill of actor.skills ?? []) {
-        const def = skillDef(state, skill.name);
-        offer('skill', skill.name, stems(skill.name, def?.description, def?.type, ...(def?.tags ?? [])));
+    const defs = state?.domains?.inventory?.defs ?? {};
+    const rules = rulesFor(args?.settings ?? tools?.settings ?? null);
+    if (args?.skill || args?.stat) {
+        const actor = args.actor ? query('party.actor', { id: args.actor }) : query('party.pc', {});
+        if (!actor) return null;
+        return copy(modifiersFor(memberOf(query, actor, defs), String(args.skill ?? ''), args.stat ?? null, rules));
     }
-    for (const name of abilitiesOf(actor)) offer('ability', name, stems(name));
-    for (const item of carriedBy(query, actor.id)) {
-        const def = state?.domains?.inventory?.defs?.[item.def];
-        offer('item', item.name, stems(item.name, item.note, item.kind, def?.note, ...(def?.tags ?? [])), { stack: item.stack });
-    }
-    const rank = { skill: 0, ability: 1, item: 2 };
-    return out.sort((a, b) => b.words.length - a.words.length || rank[a.source] - rank[b.source] || a.name.localeCompare(b.name));
+    const pc = query('party.pc', {});
+    const actors = query('party.actors', {}) ?? [];
+    return copy(actors.map(actor => {
+        const member = memberOf(query, actor, defs);
+        return { actor: actor.id, name: actor.name, you: actor.id === pc?.id, stats: statModifiers(actor, rules), extras: member.extras };
+    }));
 }
 
 export const queries = {
-    'checks.pending': pending,
     'checks.log': log,
-    'checks.suggest': suggest,
+    'checks.rolls': rolls,
+    'checks.last': last,
+    'checks.modifiers': modifiers,
 };

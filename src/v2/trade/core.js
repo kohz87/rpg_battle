@@ -11,9 +11,10 @@
 import { makeRules } from '../../rules.js';
 import { formatMoney, nameKey, oneCurrency, slotFromWord } from '../../items.js';
 import {
-    COMMISSIONERS, buyerKind, commissionHours, craftFee, craftSpan, isMaterial, itemWorth, marketHere, placePrices,
+    COMMISSIONERS, buyerKind, commissionHours, craftFee, craftSpan, isMaterial, itemWorth, kindOf, marketHere, placePrices,
     pricedLevel, readyAt, readyWords, sellPrice, shopStock, tradeLine,
 } from '../../trade.js';
+import { DEFAULT_RULES } from '../../rules.js';
 import { craftPiece } from './craft-plan.js';
 import { pcOf, sceneOf } from './calls.js';
 
@@ -52,13 +53,50 @@ export function settingsOf(source, id = 'rpg-battle') {
     return value && typeof value === 'object' ? value : {};
 }
 
+// ---------------------------------------------------------------------------------------
+// Market shortages (MODULES §F36)
+//
+// The story marks a supply problem with `! market Bluewatch — blockade on the river | until: …`
+// and lifts it with `~ market Bluewatch — supplies back`. v1 had no shortage rules, so these are
+// RPG Battle's own, kept conservative: while a shortage holds at a place, its shops do not restock
+// (each keeps the stock of the day the shortage began, less what was bought since), and what they
+// sell costs `shortagePrices` percent of the usual (setting, 150 by default; commissions there cost
+// as much more, materials being short too). What they pay for the party's things is unchanged. It
+// holds until the story lifts it; `until:` is kept as the story's words, for the tail and the screen.
+
+export const SHORTAGE_PRICES = 150;
+export const MAX_SHORTAGES = 20;
+
+/** The key a shortage is kept under: its place's first part, lowercased, spaces tidied ("bluewatch"). */
+export const shortageKey = name => placeKey(name).replace(/\s+/g, ' ');
+
+/** The percent a shortage charges (settings `shortagePrices`, 100–400). */
+export function shortageRate(settings) {
+    const value = settings?.shortagePrices;
+    return Number.isInteger(value) ? Math.max(100, Math.min(400, value)) : SHORTAGE_PRICES;
+}
+
+const wordsIn = (outer, inner) => Boolean(inner) && ` ${outer} `.includes(` ${inner} `);
+
+/**
+ * The shortage that holds at `placeName`, or null: one kept under the place's key, else one whose
+ * place's words are among the place's ("Bluewatch" at "Bluewatch Village") or the other way round.
+ */
+export function shortageAt(shortages, placeName) {
+    const here = shortageKey(placeName);
+    if (!here || !shortages || typeof shortages !== 'object') return null;
+    if (shortages[here]) return { key: here, ...shortages[here] };
+    const key = Object.keys(shortages).sort().find(other => wordsIn(here, other) || wordsIn(other, here));
+    return key ? { key, ...shortages[key] } : null;
+}
+
 /**
  * The world a trade happens in. `scene`: { place: { name, kind }, present }; `inventory`,
  * `trade`, `party`: the slices; `settings`: this module's; `now`: story minutes or null;
  * `currency`: the chat's one currency, Story Block's `inventory.currency` ({ name, short };
  * gold when it is not given). Amounts are whole numbers of it; only the words depend on it.
  */
-export function makeWorld({ scene, inventory, trade, party, settings = {}, now = null, currency = null }) {
+export function makeWorld({ scene, inventory, trade, party, settings = {}, now = null, currency = null, packs = null }) {
     const rules = makeRules(settings.rules ?? null);
     const place = { name: String(scene?.place?.name ?? ''), kind: String(scene?.place?.kind ?? '') };
     const present = Array.isArray(scene?.present) ? scene.present : [];
@@ -66,7 +104,11 @@ export function makeWorld({ scene, inventory, trade, party, settings = {}, now =
     const placeText = [place.name, place.kind].filter(Boolean).join(' | ');
     // (v1 0.5.46) The reader's word for this place (cheap, fair, dear), from the settings only.
     const level = pricedLevel(place.name, settings.placePrices);
-    const prices = placePrices(placeText, { level, rules });
+    const base = placePrices(placeText, { level, rules });
+    // (MODULES §F36) A shortage here: restock paused and buying dearer until the story lifts it.
+    const shortage = shortageAt(trade?.shortages, place.name);
+    const rate = shortageRate(settings);
+    const prices = shortage ? { ...base, buy: base.buy * rate / 100, shortage: rate } : base;
     let market = marketHere(placeText, present, { rules, priced: Boolean(level) });
     if (!market.open && MARKET_KINDS.includes(place.kind.toLowerCase())) market = { open: true, by: 'place' };
     const clock = typeof now === 'number' && Number.isFinite(now) ? Math.floor(now) : null;
@@ -75,10 +117,84 @@ export function makeWorld({ scene, inventory, trade, party, settings = {}, now =
         place, present, placeText, level, prices, market, rules,
         plevel: pc.level, pcName: pc.name,
         now: clock, day: clock === null ? null : Math.floor(clock / DAY),
+        shortage,
         inventory: { defs: inventory?.defs ?? {}, stacks: inventory?.stacks ?? {} },
-        trade: { orders: trade?.orders ?? {}, shops: trade?.shops ?? {} },
+        trade: { orders: trade?.orders ?? {}, shops: trade?.shops ?? {}, shortages: trade?.shortages ?? {} },
         currency: oneCurrency(currency),
+        // The enabled packs' shops at this place (Story Block's packs.content), with their items' defs.
+        packShops: packShopsAt(packs, place.name),
     };
+}
+
+// ---------------------------------------------------------------------------------------
+// Pack shops (PACKS.md "shops")
+//
+// A pack may name the shops of a place (`{ name, kind, place, stock: [{ item: def id, qty?,
+// price? }] }`). Where the enabled packs have shops for the place the party is in, those are the
+// shops there and the generic traders (v1 shopStock) stand back; elsewhere the generic ones trade.
+// A pack shop's line costs its `price` when the pack sets one, else the item's own `value` × the
+// place's buy prices; a shortage raises both alike. `qty` is how many it has a day (one when
+// unsaid); what was bought that day is counted off. Its trader kind (what it pays for the party's
+// things) comes from its `kind` words ("general goods" → the general store, "apothecary").
+
+const DEF_FIELDS = ['id', 'name', 'kind', 'rarity', 'value', 'stack', 'slot', 'stats', 'effect', 'tags', 'note'];
+
+/** `packs.content` through a query function: { shops, items } (empty without packs). */
+export function packsFrom(query) {
+    const ask = kind => {
+        if (typeof query !== 'function') return [];
+        try {
+            const list = query('packs.content', { kind });
+            return Array.isArray(list) ? list : [];
+        } catch {
+            return [];
+        }
+    };
+    const shops = ask('shops');
+    return { shops, items: shops.length ? ask('items') : [] };
+}
+
+/** A shop's key part after the place: its slug ("watch-stores"). */
+export const shopSlug = shop => slug(shop?.slug ?? shop?.name);
+
+function packShopsAt(packs, placeName) {
+    const here = placeKey(placeName);
+    if (!here || !Array.isArray(packs?.shops) || !packs.shops.length) return [];
+    const items = new Map((packs.items ?? []).filter(item => item && typeof item.id === 'string').map(item => [item.id, item]));
+    return packs.shops.filter(shop => shop && typeof shop.place === 'string' && placeKey(shop.place) && (wordsIn(here, placeKey(shop.place)) || wordsIn(placeKey(shop.place), here)))
+        .map(shop => ({
+            name: clean(shop.name, 80), slug: shopSlug(shop), kindWords: clean(shop.kind ?? '', 60), keeper: clean(shop.keeper ?? '', 80),
+            stock: (Array.isArray(shop.stock) ? shop.stock : []).map(line => {
+                const item = items.get(typeof line === 'string' ? line : line?.item);
+                if (!item) return null;
+                const def = Object.fromEntries(DEF_FIELDS.filter(field => item[field] !== undefined).map(field => [field, JSON.parse(JSON.stringify(item[field]))]));
+                return { def, qty: Number.isInteger(line?.qty) && line.qty > 0 ? line.qty : 1, price: Number.isInteger(line?.price) && line.price >= 0 ? line.price : null };
+            }).filter(Boolean),
+        }))
+        .filter(shop => shop.name && shop.slug);
+}
+
+/** The pack shop `kind` names here: by its slug or name first, else the first of that trader kind; null when none. */
+export function packShopFor(world, kind) {
+    const said = clean(kind, 120).toLowerCase();
+    if (!world.packShops?.length || !said) return null;
+    return world.packShops.find(shop => shop.slug === slug(said) || shop.name.toLowerCase() === said)
+        ?? world.packShops.find(shop => traderKind(shop.kindWords || shop.name, world.rules) === traderKind(said, world.rules))
+        ?? null;
+}
+
+/** What a thing is worth (smallest unit): its def's own `value` when it has one, else v1's itemWorth. */
+export function worthOf(def, world) {
+    if (Number.isInteger(def?.value) && def.value > 0) return def.value;
+    return itemWorth(legacyItem(def), { level: world.plevel, rules: world.rules });
+}
+
+/** What `buyer` pays for one `def` here: its worth × v1's sell rate × the buyer's taste × the place's sell prices. */
+export function sellEach(def, buyer, world) {
+    if (!(Number.isInteger(def?.value) && def.value > 0)) return sellPrice(legacyItem(def), { buyer, prices: world.prices, level: world.plevel, rules: world.rules });
+    const t = { ...DEFAULT_RULES.trade, ...(world.rules?.trade ?? {}) };
+    const pays = t.buyers?.[buyer]?.[kindOf(legacyItem(def))] ?? 1;
+    return Math.max(1, Math.round(def.value * t.sellRate * pays * (world.prices.sell ?? 1)));
 }
 
 // The world as a query or a page sees it: a state, with the settings and query tools the host
@@ -95,6 +211,7 @@ export function worldFromState(state, env = {}) {
         settings: settingsOf(env.settings),
         now: Number.isInteger(minutes) ? minutes : null,
         currency: currencyFrom(env.query),
+        packs: packsFrom(env.query),
     });
 }
 
@@ -139,9 +256,10 @@ function noMarket(world) {
     return no(CODES.noMarket, `No market here${where}. Trade in a settlement, or with a trader on the road.`);
 }
 
-/** The market here: { open, by, place, tier, buy, sell, level, day }. */
+/** The market here: { open, by, place, tier, buy, sell, level, day, shortage: { place, reason, until, prices } | null }. */
 export function marketOf(world) {
-    return { open: world.market.open, by: world.market.by, place: world.place.name, tier: world.prices.tier, buy: world.prices.buy, sell: world.prices.sell, level: world.level, day: world.day };
+    const shortage = world.shortage ? { place: world.shortage.place, reason: world.shortage.reason, until: world.shortage.until, prices: world.prices.shortage ?? SHORTAGE_PRICES } : null;
+    return { open: world.market.open, by: world.market.by, place: world.place.name, tier: world.prices.tier, buy: world.prices.buy, sell: world.prices.sell, level: world.level, day: world.day, shortage };
 }
 
 // A stock item (v1 shopStock's) as the inventory def it is bought as. Gear's stats are sized
@@ -157,18 +275,42 @@ function stockDef(item, world) {
 }
 
 /**
- * What `kind` of trader has for sale here today: { shop, kind, day, open, items: [{ def, price,
- * note }] }, the same all day for this place and trader (v1 shopStock, seeded by place, kind
- * and story day), less what was bought from it today.
+ * What `kind` of trader has for sale here today: { shop, kind, day, open, shortage, items: [{ def,
+ * price, note }] }, the same all day for this place and trader (v1 shopStock, seeded by place,
+ * kind and story day), less what was bought from it that day. During a shortage `day` is the day
+ * it began: no restock until it is lifted.
  */
 export function stockOf(world, kind) {
+    // A shortage pauses the restock: the stock stays the one of the day it began.
+    const day = world.shortage && world.shortage.day !== null && world.shortage.day !== undefined ? world.shortage.day : world.day;
+    const packed = packShopFor(world, kind);
+    if (packed) return packStock(world, packed, day);
     const k = traderKind(kind, world.rules);
     const shop = shopKey(k, world.place.name);
-    const all = shopStock({ kind: k, prices: world.prices, seed: `${shop}|${world.day ?? ''}`, seen: [], level: world.plevel, rules: world.rules });
+    const all = shopStock({ kind: k, prices: world.prices, seed: `${shop}|${day ?? ''}`, seen: [], level: world.plevel, rules: world.rules });
     const kept = world.trade.shops[shop];
-    const bought = kept && kept.day === world.day ? kept.bought ?? [] : [];
+    const bought = kept && kept.day === day ? kept.bought ?? [] : [];
     const items = all.map(item => ({ def: stockDef(item, world), price: item.price, note: item.note })).filter(entry => !bought.includes(entry.def.id));
-    return { shop, kind: k, day: world.day, open: world.market.open, items };
+    return { shop, kind: k, day, open: world.market.open, shortage: Boolean(world.shortage), items };
+}
+
+/** A pack shop's stock today: its lines less what was bought that day, priced by the pack or by value. */
+function packStock(world, packed, day) {
+    const shop = `${placeKey(world.place.name)}|${packed.slug}`;
+    const kept = world.trade.shops[shop];
+    const bought = kept && kept.day === day ? kept.bought ?? [] : [];
+    const rate = world.prices.shortage ? world.prices.shortage / 100 : 1;
+    const items = packed.stock.map(line => {
+        const left = line.qty - bought.filter(id => id === line.def.id).length;
+        const price = line.price !== null ? Math.round(line.price * rate) : Math.round(worthOf(line.def, world) * (world.prices.buy ?? 1));
+        return { def: line.def, price: Math.max(line.price === 0 ? 0 : 1, price), note: line.def.note ?? '', left };
+    }).filter(entry => entry.left > 0);
+    return { shop, kind: traderKind(packed.kindWords || packed.name, world.rules), name: packed.name, keeper: packed.keeper, pack: true, day, open: world.market.open, shortage: Boolean(world.shortage), items };
+}
+
+/** The shops here: the packs' for this place when there are any, else null (the generic traders). */
+export function packShopsHere(world) {
+    return world.packShops?.length ? world.packShops.map(shop => ({ slug: shop.slug, name: shop.name, kind: traderKind(shop.kindWords || shop.name, world.rules) })) : null;
 }
 
 /** Selling `qty` of `stack` to `kind` (or `who`, read for their trade): what is paid. */
@@ -182,7 +324,7 @@ export function planSell(world, { stack, qty = 1, kind = null, who = '' } = {}) 
     if (def.kind === 'money' || def.kind === 'quest') return no(CODES.refused, `The ${def.name} cannot be sold.`);
     if (row.qty < qty) return no(CODES.notEnough, row.qty ? `There ${row.qty === 1 ? 'is' : 'are'} only ${row.qty} ${def.name}.` : `There is no ${def.name} left.`);
     const buyer = traderKind(kind || who, world.rules);
-    const each = sellPrice(legacyItem(def), { buyer, prices: world.prices, level: world.plevel, rules: world.rules });
+    const each = sellEach(def, buyer, world);
     const total = each * qty;
     const name = whoOf(who || kind, buyer);
     const line = tradeLine({ kind: 'sell', name: def.name, qty, total, who: name }, world.currency);
@@ -201,14 +343,15 @@ export function planBuy(world, { shop, def, qty = 1, who = '' } = {}) {
         kind = said.slice(at + 1);
     }
     const stock = stockOf(world, kind);
-    const name = whoOf(who || kind, stock.kind);
+    const name = stock.pack ? (clean(who) || stock.name) : whoOf(who || kind, stock.kind);
     const entry = stock.items.find(item => item.def.id === def);
     if (!entry) return no(CODES.notFound, `${name.charAt(0).toUpperCase()}${name.slice(1)} has none of that left today.`);
     // A piece of gear on the shelf is one piece; a supply (draughts, rope) is sold by the count.
-    if (entry.def.kind === 'equipment' && qty > 1) return no(CODES.notEnough, `There is only one ${entry.def.name}.`);
+    if (entry.def.kind === 'equipment' && qty > 1 && !stock.pack) return no(CODES.notEnough, `There is only one ${entry.def.name}.`);
+    if (stock.pack && qty > entry.left) return no(CODES.notEnough, `${name} has only ${entry.left} ${entry.def.name} left today.`);
     const total = entry.price * qty;
     const line = tradeLine({ kind: 'buy', name: qty > 1 ? `${qty} ${entry.def.name}` : entry.def.name, total, who: name }, world.currency);
-    return { ok: true, type: 'buy', shop: stock.shop, kind: stock.kind, day: stock.day, def: entry.def, qty, each: entry.price, total, who: name, line };
+    return { ok: true, type: 'buy', shop: stock.shop, kind: stock.kind, day: stock.day, def: entry.def, qty, each: entry.price, total, who: name, line, pack: Boolean(stock.pack) };
 }
 
 /**

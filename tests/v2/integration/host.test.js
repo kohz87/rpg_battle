@@ -60,7 +60,7 @@ test('character creation is mandatory: no story reply until party.create (MODULE
 });
 
 test('a reply\'s encounter line → offer → combat.start/act/end: loot and XP land in inventory and party', async () => {
-    await seeded(7, async () => {
+    await seeded(8, async () => {
         const { host, status, ended, offer } = await fought();
         try {
             assert.equal(offer.foes[0].name, 'Cellar Rat');
@@ -264,7 +264,13 @@ test('swipe and delete roll back: the offer, the fight, its loot and XP go with 
             // Deleting the reply takes the fight back with it.
             await host.store.flush();
             await host.st.deleteMessage(out.index);
-            assert.deepEqual(host.head().domains, before.domains);
+            // Everything but the dice rolled for the deleted reply (checks.prepare, a system receipt
+            // on the reply before it, MODULES §F80): the next generation rolls its own again.
+            const { checks: nowChecks, ...now } = host.head().domains;
+            const { checks: thenChecks, ...then } = before.domains;
+            assert.deepEqual(now, then);
+            assert.deepEqual(nowChecks.log, thenChecks.log);
+            assert.equal(nowChecks.prepared.at(-1).for, out.index, 'the leftover rolls are the deleted reply\'s');
             assert.equal(host.q('party.pc').xp, 0);
             assert.deepEqual(host.q('inventory.items', {}), []);
             assert.deepEqual(host.q('combat.foesBeaten', { sinceRev: 0 }), []);
@@ -366,25 +372,39 @@ test('a fight to the death that is lost stops the story (return part); deleting 
     });
 });
 
-test('a check line waits for the reader (checks part takes the check kind); unrolled checks roll before the next reply', async () => {
+test('F80: the reply gets its rolls in the tail, writes its checks, code records them; a swipe rolls again', async () => {
     await seeded(3, async () => {
         const host = await started();
         try {
-            await host.send('I sneak past.', host.reply('The guard turns away.', ['? check stealth — slipping past the guard | dc: hard', '? check climb — up the wall | dc: easy']));
-            assert.deepEqual(host.turn.problems(), []);
-            const pending = host.q('checks.pending');
-            assert.deepEqual(pending.map(check => [check.skill, check.dc]), [['stealth', 20], ['climb', 10]]);
             assert.equal(host.registry.captureOwner('check'), MODULE_ID);
-            const rolled = await host.cmd('check.roll', { id: pending[0].id });
-            assert.equal(rolled.ok, true, rolled.message);
-            assert.match(rolled.receipt.summary, /^Ren tries stealth \(slipping past the guard\): d20 \d+/);
-            // The climb is still waiting when the reader sends on: it is rolled first, and both are told.
-            await host.send('On we go.', 'They reach the yard.');
-            const told = host.tails().at(-1);
-            assert.ok(told.includes(rolled.receipt.summary));
-            assert.match(told, /Ren tries climb \(up the wall\): d20 \d+/);
-            assert.deepEqual(host.q('checks.pending'), []);
-            assert.equal(host.q('checks.log').length, 2);
+            const rolls = host.q('checks.rolls');
+            const tail = host.tails().at(-1);
+            assert.ok(tail.includes(`Dice for this reply: Roll 1 = ${rolls.rolls[0]} · Roll 2 = ${rolls.rolls[1]}`), 'the rolls in the tail');
+            assert.match(tail, /Check modifiers — Ren \(you\): STR [+−]\d+, VIT/);
+            assert.ok(host.statics()[0].includes('the first uncertain attempt takes Roll 1'));
+
+            const out = await host.send('I sneak past.', host.reply('The guard turns away; I slip by.', [
+                '? check stealth — slipping past the guard | dc: hard | roll: 1 | result: success',
+                '? check climb — up the wall | dc: easy | roll: 2 | result: success',
+                '? check lore — the sigil | dc: easy',
+            ]));
+            const handed = host.q('checks.rolls');
+            const log = host.q('checks.log');
+            assert.equal(log.length, 2);
+            assert.deepEqual(log.map(entry => [entry.skill, entry.roll, entry.die]), [['stealth', 1, handed.rolls[0]], ['climb', 2, handed.rolls[1]]]);
+            for (const entry of log) assert.equal(entry.total, entry.die + entry.mod);
+            assert.equal(host.q('checks.last').carrier, `${out.index}:0`);
+            // The third check is a problem; the static instruction never changed.
+            assert.deepEqual(host.turn.problems().map(problem => problem.code), ['REFUSED']);
+            assert.equal(new Set(host.statics()).size, 1);
+
+            // A swipe: fresh rolls, the swipe's own checks.
+            await host.swipe(host.reply('I trip on a bucket.', ['? check stealth — slipping past the guard | dc: hard | roll: 1 | result: fail']));
+            const again = host.q('checks.rolls');
+            assert.notEqual(again.rev, handed.rev);
+            assert.equal(host.q('checks.last').carrier, `${out.index}:1`);
+            assert.equal(host.q('checks.last').results.length, 1);
+            assert.equal(host.q('checks.log').at(-1).die, again.rolls[0]);
         } finally {
             host.close();
         }
