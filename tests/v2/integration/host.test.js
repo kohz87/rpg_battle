@@ -361,3 +361,28 @@ test('a fight to the death that is lost stops the story (return part); deleting 
         }
     });
 });
+
+test('a check line waits for the reader (checks part takes the check kind); unrolled checks roll before the next reply', async () => {
+    await seeded(3, async () => {
+        const host = await started();
+        try {
+            await host.send('I sneak past.', host.reply('The guard turns away.', ['? check stealth — slipping past the guard | dc: hard', '? check climb — up the wall | dc: easy']));
+            assert.deepEqual(host.turn.problems(), []);
+            const pending = host.q('checks.pending');
+            assert.deepEqual(pending.map(check => [check.skill, check.dc]), [['stealth', 20], ['climb', 10]]);
+            assert.equal(host.registry.captureOwner('check'), MODULE_ID);
+            const rolled = await host.cmd('check.roll', { id: pending[0].id });
+            assert.equal(rolled.ok, true, rolled.message);
+            assert.match(rolled.receipt.summary, /^Ren tries stealth \(slipping past the guard\): d20 \d+/);
+            // The climb is still waiting when the reader sends on: it is rolled first, and both are told.
+            await host.send('On we go.', 'They reach the yard.');
+            const told = host.tails().at(-1);
+            assert.ok(told.includes(rolled.receipt.summary));
+            assert.match(told, /Ren tries climb \(up the wall\): d20 \d+/);
+            assert.deepEqual(host.q('checks.pending'), []);
+            assert.equal(host.q('checks.log').length, 2);
+        } finally {
+            host.close();
+        }
+    });
+});

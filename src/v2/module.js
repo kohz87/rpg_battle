@@ -1,10 +1,12 @@
 // RPG Battle v2: the one module definition Story Block registers (SPEC §6), merged from its
-// parts (MODULES §A): party, items, combat, return (in time after death, §F17) and trade, in that
-// order.
+// parts (MODULES §A): party, checks (pending d20 checks, §F16), items, combat, return (in time
+// after death, §F17) and trade, in that order.
 //
 // - domains, commands and queries are put together as they are; a name two parts claim is a
 //   mistake, refused here before Story Block ever sees it.
-// - capture: every part's kinds, each line handed to the part that owns its kind.
+// - capture: every part's kinds, each line handed to the part that owns its kind. One kind is
+//   taken over on purpose: `check` is the checks part's (a pending check the reader rolls), not
+//   the party part's (which keeps its check.resolve command for compatibility).
 // - context: the statics joined in part order (each is fixed text, so the whole is byte-identical
 //   every reply), the tails concatenated in part order, the budgets summed.
 // - hooks: every part's functions of a name, called in part order (canGenerate: any "no" blocks,
@@ -22,6 +24,7 @@
 // tools (a command's ctx.query) the tools reach this module's own queries.
 
 import { part as party } from './party/index.js';
+import { part as checks } from './checks/index.js';
 import { part as items } from './items/index.js';
 import { part as combat } from './combat/index.js';
 import { part as returnPart } from './return/index.js';
@@ -32,7 +35,10 @@ export const MODULE_NAME = 'RPG Battle';
 export const VERSION = '2.0.0-alpha.1';
 
 /** The parts in their order: [part id, part]. */
-export const PARTS = Object.freeze([['party', party], ['items', items], ['combat', combat], ['return', returnPart], ['trade', trade]]);
+export const PARTS = Object.freeze([['party', party], ['checks', checks], ['items', items], ['combat', combat], ['return', returnPart], ['trade', trade]]);
+
+// Change-line kinds a later part takes over from an earlier one: kind → the part that keeps it.
+export const KIND_OVERRIDES = Object.freeze({ check: 'checks' });
 
 // The query a ctx without `rev` reads meta.rev through (the receipt's rev is one more).
 export const REV_QUERY = `${MODULE_ID}.rev`;
@@ -161,6 +167,8 @@ export function createModule({ settings = null } = {}) {
                 : localTools(state, id));
         }
         for (const [kind, spec] of Object.entries(part.kinds ?? {})) {
+            if (KIND_OVERRIDES[kind] && Object.hasOwn(owners.kind, kind) && KIND_OVERRIDES[kind] === id) delete owners.kind[kind];
+            if (KIND_OVERRIDES[kind] && Object.hasOwn(owners.kind, kind) && KIND_OVERRIDES[kind] !== id) continue;
             claim(owners.kind, kind, id, 'change-line kind');
             kinds[kind] = { part: id, grammar: spec.grammar, apply: spec.apply };
         }
