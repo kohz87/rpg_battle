@@ -6,15 +6,17 @@
 // The reader fights it (combat.start) or turns it down (combat.dismiss). A fight is stored as
 // v1 stores it: its setup and the player's actions, nothing else; every view of it is rebuilt
 // with v1's replay (combat.js), so a swipe or a deleted reply that takes the actions back takes
-// the fight back with them. combat.end settles it: HP, conditions and skill uses through
-// party.applyResult, the consumables used through inventory.consume, XP through party.grantXp,
+// the fight back with them. A draught drunk or a flask thrown is taken out of the inventory the
+// moment it is used (combat.act → inventory.consume), so it can be neither sold nor given away
+// while the fight goes on, and nothing is left to take at the end. combat.end settles it: HP,
+// conditions and skill uses through party.applyResult, XP through party.grantXp,
 // loot through inventory.grant and wallet.receive, the foes beaten kept for Story Director's
 // quests (combat.foesBeaten), and v1's hand-off as the receipt summary the next reply narrates.
 //
 // Handlers are synchronous and draw every random number from ctx.rng (the session's seed comes
 // from it); nothing outside the State is kept.
 
-import { act, summarize } from '../../combat.js';
+import { act, availableActions, summarize } from '../../combat.js';
 import { DEFAULT_BESTIARY } from '../../enemies.js';
 import { itemSlot, oneCurrency, parseEffect } from '../../items.js';
 import { combinedBestiary } from '../../templates.js';
@@ -35,7 +37,10 @@ const MAX_SUMMARY = 400;
 // grammar is added by Story Block from `kinds.encounter.grammar`.
 export const STATIC_TEXT = 'Fights are RPG Battle\'s: when one starts, write its encounter line (tier: how dangerous the foes are to the party; stakes: death only when losing means dying), then stop at the first blow. Never narrate a fight\'s blows or how it ends: the reader plays it, and the next reply is told what happened.';
 
-const GRAMMAR = '! encounter 6 Cellar Rat Swarm — boiling out of the bins | tier: weak|even|strong|deadly | stakes: normal|death';
+// v1's example (story.STORY_INSTRUCTION: "3 wolf (weak)"): a count of single foes. A swarm is one
+// foe made of many in v1's reading ("a swarm of rats"), so an example of six swarms taught the
+// model to write six whole swarms against a fresh character (the Ersveil test, QA #75).
+const GRAMMAR = '! encounter 3 Wolf — circling the camp | tier: trivial|weak|even|strong|deadly | stakes: normal|death';
 
 // --- small helpers ----------------------------------------------------------------------------
 
@@ -77,16 +82,117 @@ function activeSession(ctx) {
     return session;
 }
 
+// --- consumables taken at use ------------------------------------------------------------------
+
+function readInventory(ctx) {
+    try {
+        return ctx.read('inventory') ?? null;
+    } catch {
+        return null;
+    }
+}
+
+function readPc(ctx) {
+    try {
+        return ctx.read('party')?.pc ?? null;
+    } catch {
+        return null;
+    }
+}
+
+const byId = (a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+
+/**
+ * The stacks a fight item can come out of, best first: the stack the setup recorded, then the
+ * member's own stacks of the same item, then (your character only) the party's bag. Each as
+ * [stack id, qty available].
+ */
+function sourcesFor(inventory, item, memberId, pc) {
+    const stacks = inventory?.stacks ?? {};
+    const defs = inventory?.defs ?? {};
+    const same = stack => (item.def ? stack.def === item.def : defs[stack.def]?.name === item.name);
+    const owners = memberId === pc ? [memberId, 'party'] : [memberId];
+    const out = [];
+    const recorded = item.stack ? stacks[item.stack] : null;
+    if (recorded && recorded.qty > 0 && same(recorded) && owners.includes(recorded.owner)) out.push([item.stack, recorded.qty]);
+    for (const owner of owners) {
+        for (const [id, stack] of Object.entries(stacks).sort(byId)) {
+            if (id === item.stack || stack.owner !== owner || !(stack.qty > 0) || !same(stack)) continue;
+            out.push([id, stack.qty]);
+        }
+    }
+    return out;
+}
+
+const available = (inventory, item, memberId, pc) => sourcesFor(inventory, item, memberId, pc).reduce((sum, [, qty]) => sum + qty, 0);
+
+/**
+ * What each party member's fight items lost between two states of the fight: [{ memberId, item,
+ * qty }], item being the setup's row ({ name, stack, def? }).
+ */
+function itemsSpent(before, after) {
+    const out = [];
+    for (const member of after.combatants.filter(c => c.side === 'party')) {
+        const was = before.combatants.find(c => c.side === 'party' && c.memberId === member.memberId);
+        (member.items ?? []).forEach((item, index) => {
+            const qty = Math.round(Number(was?.items?.[index]?.qty) || 0) - Math.round(Number(item.qty) || 0);
+            if (qty > 0) out.push({ memberId: member.memberId, item, qty });
+        });
+    }
+    return out;
+}
+
+/**
+ * The consumables a played action used, taken out of the inventory now (inventory.consume, from
+ * the stacks sourcesFor names). A member on auto who drinks a draught that is no longer there
+ * (sold or given away after the fight began) drinks nothing from the inventory: what is gone is
+ * not taken twice. → [{ stack, qty }] taken, [{ name, qty }] not found.
+ */
+function consumeSpent(ctx, spent) {
+    const taken = [];
+    const missing = [];
+    if (!spent.length) return { taken, missing };
+    const pc = readPc(ctx);
+    const inventory = readInventory(ctx);
+    // What this action already took, so two uses from one stack never count it twice.
+    const out = {};
+    for (const { memberId, item, qty } of spent) {
+        let left = qty;
+        for (const [stack, had] of sourcesFor(inventory, item, memberId, pc)) {
+            const have = had - (out[stack] ?? 0);
+            if (!left) break;
+            if (have <= 0) continue;
+            const n = Math.min(left, have);
+            ctx.call('inventory.consume', { stack, qty: n });
+            out[stack] = (out[stack] ?? 0) + n;
+            taken.push({ stack, qty: n });
+            left -= n;
+        }
+        if (left) missing.push({ name: item.name, qty: left });
+    }
+    return { taken, missing };
+}
+
 /** One player action on the session: the fight rebuilt, the action played, the session updated. */
 function playAction(ctx, action) {
     const session = activeSession(ctx);
     const { fight, rules } = rebuild(session);
+    // A draught the player picks must still be in the inventory: it is taken out now.
+    if (action.type === 'item' && readInventory(ctx)) {
+        const actor = availableActions(fight, rules).actor;
+        const norm = text => String(text ?? '').trim().toLowerCase();
+        const item = (actor?.items ?? []).find(entry => norm(entry.name) === norm(action.item) && entry.effect && Number(entry.qty) > 0);
+        if (item && actor.side === 'party' && !available(readInventory(ctx), item, actor.memberId, readPc(ctx))) {
+            ctx.fail('REFUSED', `There is no ${item.name} left in the inventory.`);
+        }
+    }
     let next;
     try {
         next = act(fight, action, rules);
     } catch (error) {
         ctx.fail('REFUSED', error?.message || 'That action is not possible now.');
     }
+    const used = readInventory(ctx) ? consumeSpent(ctx, itemsSpent(fight, next)) : { taken: [], missing: [] };
     const combat = ctx.draft('combat');
     combat.session.actions.push(action);
     combat.session.status = sessionStatus(next.status);
@@ -94,7 +200,7 @@ function playAction(ctx, action) {
     return {
         summary: clip(told.join(' ') || 'The fight goes on.'),
         narrate: false,
-        data: { session: session.id, status: combat.session.status, log: told },
+        data: { session: session.id, status: combat.session.status, log: told, used: used.taken, ...(used.missing.length ? { missing: used.missing } : {}) },
     };
 }
 
@@ -182,7 +288,21 @@ function flee(ctx) {
     return playAction(ctx, { type: 'flee' });
 }
 
-/** combat.end(): a finished fight settled, once on this line of history. */
+/** The party's actor ids now (null when the party cannot be read: then nobody is skipped). */
+function partyIds(ctx) {
+    try {
+        const party = ctx.read('party');
+        return party?.actors ? new Set(Object.keys(party.actors)) : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * combat.end(): a finished fight settled, once on this line of history. It always settles: only
+ * the members still in the party get the fight's result and XP (one who is gone is skipped), XP
+ * to a member at the level cap is nothing, and the consumables were already taken at use.
+ */
 function end(ctx) {
     const session = ctx.read('combat').session;
     if (!session) ctx.fail('NOT_FOUND', 'There is no fight to finish.');
@@ -192,12 +312,15 @@ function end(ctx) {
     const setup = unpackSetup(session.setup);
     const result = summarize(fight, rules);
     const rev = nextRev(ctx);
+    const present = partyIds(ctx);
+    const here = id => !present || present.has(id);
 
     // The party's side: HP, MP, SP and lasting conditions as the fight left them, skill uses.
-    const applied = ctx.call('party.applyResult', {
+    const members = result.party.filter(member => here(member.memberId));
+    const applied = !members.length ? null : ctx.call('party.applyResult', {
         outcome: result.outcome,
         stakes: result.stakes,
-        actors: result.party.map(member => ({
+        actors: members.map(member => ({
             id: member.memberId,
             hp: { ...member.hp },
             mp: { ...member.mp },
@@ -208,25 +331,11 @@ function end(ctx) {
         })),
     });
 
-    // What was drunk or thrown comes out of the stacks it came from.
-    for (const member of setup.party) {
-        const used = result.itemsUsed?.[member.memberId] ?? {};
-        for (const [name, count] of Object.entries(used)) {
-            let left = Math.max(0, Math.round(Number(count) || 0));
-            for (const item of member.items ?? []) {
-                if (!left || item.name !== name || !item.stack) continue;
-                const qty = Math.min(left, item.qty);
-                if (qty > 0) ctx.call('inventory.consume', { stack: item.stack, qty });
-                left -= qty;
-            }
-        }
-    }
-
     // A companion who died in a fight to the death is gone from the party (MODULES §F26): no XP.
     const died = Array.isArray(applied?.data?.died) ? applied.data.died : [];
     const gone = new Set(died.map(entry => entry.id));
     for (const member of setup.party) {
-        if (gone.has(member.memberId)) continue;
+        if (gone.has(member.memberId) || !here(member.memberId)) continue;
         const xp = Math.max(0, Math.round(Number(result.xp?.[member.memberId]) || 0));
         if (xp > 0) ctx.call('party.grantXp', { actor: member.memberId, amount: xp });
     }

@@ -14,7 +14,9 @@
 // skills are learned after party.create (party.learnSkill with the pack skill as the template,
 // built by v1 skillFromTemplate into party.custom).
 
-import { STATS } from '../../rules.js';
+import { STATS, makeRules } from '../../rules.js';
+import { gearLimits } from '../../items.js';
+import { levelText } from '../../terms.js';
 import { buildCharacter, creationRules } from './build.js';
 import { STAT_LABELS, creationContent } from './content.js';
 import { BACKGROUND_LIMIT } from './persona.js';
@@ -268,9 +270,113 @@ function rollTalent(ctx, payload = {}) {
     };
 }
 
+// ---------------------------------------------------------------------------------------
+// A character from another story (MODULES §F66)
+
+const FIRST_SLOTS = ['weapon', 'armour', 'offhand'];
+
+/**
+ * The pieces a file says were worn, in the order they go on, leaving out what the rules here
+ * would refuse (item.equip): an off-hand beside a two-handed weapon, more worn pieces or
+ * accessories than v1 gearLimits allow. Those stay carried. [{ stack, def }] in, the same out.
+ */
+function wearable(worn, settings) {
+    const own = isRecord(settings) ? settings : {};
+    const custom = isRecord(own.rules) ? own.rules : {};
+    const limits = gearLimits(makeRules({ ...custom, ...(isRecord(own.gear) ? { gear: { ...(custom.gear ?? {}), ...own.gear } } : {}) }));
+    const rank = entry => (FIRST_SLOTS.includes(entry.def.slot) ? FIRST_SLOTS.indexOf(entry.def.slot) : FIRST_SLOTS.length);
+    const out = [];
+    const count = {};
+    let twoHanded = false;
+    for (const entry of [...worn].sort((a, b) => rank(a) - rank(b))) {
+        const slot = entry.def.slot;
+        if (!slot) continue;
+        if (FIRST_SLOTS.includes(slot)) {
+            if (count[slot]) continue;
+            if (slot === 'offhand' && twoHanded) continue;
+            if (slot === 'weapon' && (entry.def.tags ?? []).includes('two-handed')) twoHanded = true;
+        } else if ((count[slot] ?? 0) >= (limits[slot] ?? 0)) continue;
+        count[slot] = (count[slot] ?? 0) + 1;
+        out.push(entry);
+    }
+    return out;
+}
+
+/**
+ * creation.import { character, name?, portrait?, background? }: your character from a character
+ * file (`party.export`'s `data.character`) instead of the wizard. The party part checks the file
+ * by this chat's rules (party.import: level cap, stat cap, the points a character of that level
+ * can have, the skills) and makes the character; then what they carried comes into the party's
+ * bag through inventory.grant (priced by this chat), the worn pieces are put on (item.equip,
+ * those the rules here allow) and the purse arrives (wallet.receive). The name and background are
+ * the persona's when the opener gives them (MODULES §F22), else the file's. Nothing is saved when
+ * any part refuses.
+ */
+function importCharacter(ctx, payload = {}) {
+    const input = isRecord(payload) ? payload : {};
+    if (hasPc(readParty(ctx))) fail(ctx, 'REFUSED', 'You already have a character.');
+    if (!isRecord(input.character)) fail(ctx, 'INVALID', 'Choose a character file to import.');
+    if (input.name !== undefined && input.name !== null && typeof input.name !== 'string') fail(ctx, 'INVALID', 'The name must be text.');
+    const name = typeof input.name === 'string' && input.name.trim() ? input.name.trim() : null;
+    if (name && name.length > 40) fail(ctx, 'INVALID', 'A name can be at most 40 characters.');
+    if (input.background !== undefined && input.background !== null && typeof input.background !== 'string') fail(ctx, 'INVALID', 'The background must be text.');
+    const background = typeof input.background === 'string' && input.background.trim() ? input.background.trim().slice(0, BACKGROUND_LIMIT) : null;
+    const portrait = cleanPortrait(input.portrait);
+    if (portrait.error) fail(ctx, 'INVALID', portrait.error);
+
+    const made = ctx.call('party.import', {
+        character: input.character,
+        ...(name ? { name } : {}),
+        ...(background ? { background } : {}),
+        ...(portrait.portrait ? { portrait: portrait.portrait } : {}),
+    });
+    const actor = made?.data?.actor;
+    const party = readParty(ctx);
+    const pc = actor && party?.actors?.[actor];
+    if (!pc) fail(ctx, 'FAILED', 'Your character could not be made from that file.');
+
+    // What they carried: into the party's bag (the bag's worn pieces are your character's).
+    const worn = [];
+    let things = 0;
+    for (const entry of made.data.items ?? []) {
+        const granted = ctx.call('inventory.grant', { def: entry.def, qty: entry.qty, owner: 'party' });
+        things += entry.qty;
+        const stacks = Array.isArray(granted?.data?.stacks) ? granted.data.stacks : [];
+        const def = readInventory(ctx)?.defs?.[granted?.data?.def];
+        if (entry.equipped && def?.kind === 'equipment' && stacks.length) worn.push({ stack: stacks[0], def });
+    }
+    const equipped = [];
+    for (const entry of wearable(worn, settingsOf(ctx))) {
+        ctx.call('item.equip', { stack: entry.stack });
+        equipped.push(entry.def.name);
+    }
+    const purse = Number.isSafeInteger(made.data.purse) ? made.data.purse : 0;
+    if (purse > 0) ctx.call('wallet.receive', { owner: 'party', amount: purse, note: `${pc.name}'s purse` });
+
+    if (creationOf(domain => ctx.read(domain)).rolled.length) ctx.draft('creation').rolled = [];
+    const carried = things ? `, carrying ${plural(things, 'thing')}${equipped.length ? ` (wearing ${equipped.join(', ')})` : ''}` : '';
+    return {
+        summary: `${pc.name} arrives from another story (${levelText(pc.level, termsRules(settingsOf(ctx), pc.level))}${carried}).`,
+        data: { actor: pc.id, level: pc.level, items: things, equipped, purse },
+        narrate: false,
+    };
+}
+
+// v1's rules with only the reader's (or a pack's) terms, for the level's name.
+const termsRules = (settings, level) => makeRules({ character: { maxLevel: Math.max(99, level) }, ...(isRecord(settings?.terms) ? { terms: settings.terms } : {}) });
+
+function readInventory(ctx) {
+    try {
+        return ctx.read('inventory');
+    } catch {
+        return null;
+    }
+}
+
 export const commands = {
     'creation.finish': finish,
     'creation.rollTalent': rollTalent,
+    'creation.import': importCharacter,
 };
 
 export const queries = {

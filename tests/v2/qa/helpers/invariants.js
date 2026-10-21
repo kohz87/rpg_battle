@@ -65,8 +65,17 @@ export function conservationProblem({ type, payload, result, before, after }) {
             return goods.length === 1 && goods[0][1] === 1 && d.money === 0 ? '' : say('collecting gives exactly one piece');
         case 'item.use':
             return goods.length === 1 && goods[0][1] === -1 && d.money === 0 ? '' : say('a use takes exactly one dose');
+        case 'combat.act':
+        case 'combat.flee': {
+            // A draught drunk or a flask thrown leaves the inventory at use: exactly what `used` lists.
+            const used = (data.used ?? []).reduce((sum, entry) => sum + entry.qty, 0);
+            const lost = goods.reduce((sum, [, n]) => sum + n, 0);
+            return d.money === 0 && goods.every(([, n]) => n < 0) && -lost === used ? '' : say('a fight action takes out exactly the consumables it used');
+        }
         case 'combat.end': {
             if (d.money !== (data.loot?.money ?? 0)) return say('money must change by exactly the loot money');
+            // What was used in the fight left the inventory at use (combat.act): the end takes nothing.
+            if (goods.some(([, n]) => n < 0)) return say('the end of a fight takes nothing out');
             const loot = Object.fromEntries((data.loot?.items ?? []).map(item => [item.name, item.qty]));
             for (const [def, n] of goods) {
                 const name = nameOf(after, def) ?? nameOf(before, def);

@@ -1,7 +1,8 @@
 // QA: conservation. No item or coin is made or lost except by an explicit grant or payment with
 // a cause (a receipt): a sale swaps goods for exactly the quoted money, a purchase money for
 // exactly the quoted goods, using a dose takes one, giving and wearing move nothing in or out,
-// a fight's loot is exactly what its receipt lists. Known leaks are `todo`.
+// a fight's loot is exactly what its receipt lists, a draught drunk in a fight leaves the
+// inventory when it is drunk. Known leaks are `todo`.
 import assert from 'node:assert/strict';
 import { bytes, fightOut, holdings, stacksOf, storyCoin, storyItem, winFight, withHero, each } from './helpers/harness.js';
 
@@ -126,7 +127,7 @@ each('combat.end (lost or fled): nothing gained', () => {
     assert.deepEqual(delta(before, holdings(h.state())), { goods: {}, money: 0 });
 });
 
-// ---------- known leaks ----------
+// ---------- fixed leaks (QA #75) ----------
 
 /** A fight in which Ren drinks the party's only draught, then the draught's stack is sold. */
 function drinkThenSell() {
@@ -140,39 +141,72 @@ function drinkThenSell() {
     return { h, pot, sold };
 }
 
-each('a draught drunk in a running fight cannot also be sold before the fight ends', { todo: 'combat only takes used consumables out at combat.end; meanwhile trade.sell (or item.use / item.give) of the same stack succeeds, so one draught is both drunk and sold' }, () => {
-    const { sold } = drinkThenSell();
-    assert.equal(sold.ok, false, 'the stack is spoken for by the fight');
+each('a draught drunk in a running fight cannot also be sold before the fight ends', () => {
+    const { h, pot, sold } = drinkThenSell();
+    assert.equal(sold.ok, false, 'the draught left the inventory when it was drunk');
+    assert.deepEqual(stacksOf(h, pot), []);
 });
 
-each('a fight whose drunk draught was sold meanwhile can still be settled', { todo: 'combat.end calls inventory.consume on the gone stack → NOT_FOUND "That item is no longer in the inventory." every time: the session stays over-but-unsettled forever, no new fight can start' }, () => {
+each('a fight whose drunk draught was sold meanwhile can still be settled', () => {
     const { h } = drinkThenSell();
     fightOut(h);
     const end = h.command('combat.end');
     assert.equal(end.ok, true, `${end.code}: ${end.message}`);
 });
 
-each('a companion who leaves does not take the party\'s things into nowhere', { todo: 'party.removeCompanion deletes the actor but leaves their inventory stacks and wallet owned by an id that is no longer in the party: no query or command of the party reaches them again' }, () => {
+each('a draught sold after the fight began cannot then be drunk in it (and the fight still settles)', () => {
+    const { h, pc } = withHero({ seed: 3 });
+    const pot = storyItem(h, 'Minor Healing Draught', 1);
+    storyCoin(h, 10);
+    h.capture({ op: '!', kind: 'encounter', name: '2 Cellar Rats', text: '', labels: { tier: 'weak' } });
+    assert.equal(h.command('combat.start', { offer: h.query('combat.offers')[0].id }).ok, true);
+    const sold = h.command('trade.sell', { stack: stackOf(h, pot), qty: 1 });
+    assert.equal(sold.ok, true, sold.message);
+    const before = bytes(h.state());
+    const drink = h.command('combat.act', { action: { type: 'item', item: 'Minor Healing Draught', target: pc } });
+    assert.equal(drink.ok, false);
+    assert.equal(drink.code, 'REFUSED');
+    assert.match(drink.message, /no Minor Healing Draught left/);
+    assert.equal(bytes(h.state()), before, 'nothing saved');
+    fightOut(h);
+    assert.equal(h.command('combat.end').ok, true);
+});
+
+each('a companion who leaves does not take the party\'s things into nowhere', () => {
     const { h } = withHero();
     const lyra = h.command('party.addCompanion', { name: 'Lyra', role: 'archer' }).receipt.data.actor;
     const pot = storyItem(h, 'Minor Healing Draught', 2);
     assert.equal(h.command('item.give', { stack: stackOf(h, pot), to: lyra, qty: 2 }).ok, true);
-    assert.equal(h.command('party.removeCompanion', { actor: lyra }).ok, true);
+    assert.equal(h.command('wallet.receive', { owner: lyra, amount: 25 }, { cause: 'story' }).ok, true);
+    const before = holdings(h.state());
+    const left = h.command('party.removeCompanion', { actor: lyra });
+    assert.equal(left.ok, true, left.message);
+    assert.deepEqual(left.receipt.data.handed, { stacks: 1, coin: 25 });
     const party = h.state().domains.party;
-    const orphans = Object.values(h.state().domains.inventory.stacks).filter(stack => stack.owner !== 'party' && !party.actors[stack.owner]);
+    const inv = h.state().domains.inventory;
+    const orphans = Object.values(inv.stacks).filter(stack => stack.owner !== 'party' && !party.actors[stack.owner]);
     assert.deepEqual(orphans.map(stack => [stack.def, stack.qty, stack.owner]), []);
+    assert.equal(inv.wallets[lyra]?.coin ?? 0, 0, 'no coin left with Lyra');
+    assert.deepEqual(holdings(h.state()), before, 'nothing made or lost');
+    assert.equal(stacksOf(h, pot).find(row => row.owner === 'party')?.qty, 2);
 });
 
-each('remaking your character (party.create replace) keeps what the old one carried within reach', { todo: 'party.create { replace: true } gives the new character a new id and deletes the old one; stacks the old one owned stay with the old id, out of every party query' }, () => {
+each('remaking your character (party.create replace) keeps what the old one carried within reach', () => {
     const { h, pc } = withHero();
     const lyra = h.command('party.addCompanion', { name: 'Lyra', role: 'archer' }).receipt.data.actor;
     const sword = storyItem(h, 'Iron Sword', 1, 'ATK +2');
     assert.equal(h.command('item.give', { stack: stackOf(h, sword), to: lyra }).ok, true);
     assert.equal(h.command('item.give', { stack: stackOf(h, sword), to: pc }).ok, true);
+    assert.equal(h.command('wallet.receive', { owner: pc, amount: 40 }, { cause: 'story' }).ok, true);
+    const before = holdings(h.state());
     assert.equal(h.command('party.create', { name: 'Astra', preset: 'fighter', replace: true }).ok, true);
     const party = h.state().domains.party;
-    const orphans = Object.values(h.state().domains.inventory.stacks).filter(stack => stack.owner !== 'party' && !party.actors[stack.owner]);
+    const inv = h.state().domains.inventory;
+    const orphans = Object.values(inv.stacks).filter(stack => stack.owner !== 'party' && !party.actors[stack.owner]);
     assert.deepEqual(orphans.map(stack => stack.def), []);
+    assert.equal(inv.wallets[pc]?.coin ?? 0, 0, 'the old character\'s purse went to the bag');
+    assert.deepEqual(holdings(h.state()), before);
+    assert.equal(stacksOf(h, sword)[0].owner, 'party');
 });
 
 each('a click cannot mint money any more than it can mint items', { todo: 'Story Block refuses inventory.grant from a ui command (REFUSED) but wallet.receive has no such rule: sdk.command("wallet.receive", { owner: "party", amount: 100000 }) from any button commits "The party receives 100000 gold"' }, () => {

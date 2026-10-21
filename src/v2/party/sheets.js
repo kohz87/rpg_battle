@@ -23,6 +23,8 @@ export const SETTINGS_DEFAULTS = Object.freeze({
     maxLevel: DEFAULT_RULES.character.maxLevel,
     activeSkills: DEFAULT_RULES.character.activeSkills,
     autoSpend: true,
+    // MODULES §F48: you and this many companions at most.
+    maxCompanions: 3,
 });
 
 export const SETTINGS_SCHEMA = Object.freeze({
@@ -33,6 +35,7 @@ export const SETTINGS_SCHEMA = Object.freeze({
     maxLevel: { type: 'int', min: 1, max: 999, label: 'Level cap' },
     activeSkills: { type: 'int', min: 3, max: 12, label: 'Skills each member fights with' },
     autoSpend: { type: 'bool', label: 'Companions on auto spend their points by build' },
+    maxCompanions: { type: 'int', min: 0, max: 12, label: 'Companions beside you at most' },
 });
 
 const COMBAT_CONDITIONS = ['poison', 'burn', 'bleed', 'stun', 'slow', 'weaken', 'shield', 'regen', 'guard'];
@@ -141,6 +144,18 @@ function mergeConditions(list) {
 
 /** v1's member control word for an actor ('command' for a companion the reader commands). */
 export const v1Control = actor => (actor?.control === 'player' ? 'command' : 'auto');
+
+/**
+ * How a companion's stat points are spent (MODULES §F29): 'auto' (by build, when the setting
+ * allows) or 'manual' (the reader spends them). A record from before the toggle has none: it
+ * keeps what v1's control word meant, a companion the reader commands spends by hand.
+ */
+export const growthOf = actor => (actor?.growth === 'manual' || actor?.growth === 'auto' ? actor.growth : actor?.control === 'player' ? 'manual' : 'auto');
+
+/** The most companions beside your character (MODULES §F48), from the Character settings. */
+export function maxCompanionsOf(settings) {
+    return whole(settingsOf(settings).maxCompanions, SETTINGS_DEFAULTS.maxCompanions, 0, 12);
+}
 
 const V1_SLOTS = ['weapon', 'offhand', 'armour', 'worn', 'accessory'];
 

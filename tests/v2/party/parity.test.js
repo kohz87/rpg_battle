@@ -73,11 +73,12 @@ test('XP: same levels, points and pools as v1 gainXp, at default and tuned growt
 test('awards: same as v1 awardParty, companions settled the same', () => {
     let state = withPc();
     state = run(state, 'party.addCompanion', { name: 'Lyra', role: 'healer', level: 4 }).state;
-    state = run(state, 'party.addCompanion', { name: 'Bram', role: 'warrior', level: 2, control: 'player' }).state;
+    state = run(state, 'party.addCompanion', { name: 'Bram', role: 'warrior', level: 2, control: 'player', growth: 'manual' }).state;
     const pc = toSheet(pcOf(state));
     const members = ['Lyra', 'Bram'].map(name => {
         const actor = byName(state, name);
-        return { id: actor.id, name, control: actor.control === 'player' ? 'command' : 'auto', sheet: toSheet(actor) };
+        // v1's 'command' is a companion whose points are spent by hand (MODULES §F29: growth manual).
+        return { id: actor.id, name, control: actor.growth === 'manual' ? 'command' : 'auto', sheet: toSheet(actor) };
     });
     for (const kind of ['minor', 'major', 'milestone']) {
         for (const xpRate of [1, 3]) {

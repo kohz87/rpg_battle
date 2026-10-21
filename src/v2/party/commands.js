@@ -10,11 +10,12 @@ import { STATS, checkModifier, maxHp, maxMp, maxSp } from '../../rules.js';
 import { PRESETS, findSkill, skillFromTemplate, DEFAULT_SKILLS, canLearn } from '../../skills.js';
 import { applyResult as applyResultV1, forgetSkill as forgetV1, learnSkill as learnV1, newSheet, setSkillActive as setActiveV1, spendPoints } from '../../sheet.js';
 import { newCompanion } from '../../party.js';
-import { awardShare, gainXp, settleCompanions, xpAward } from '../../growth.js';
+import { QUEST_DIFFICULTIES, awardShare, gainXp, settleCompanions, spendByBuild, xpAward } from '../../growth.js';
 import { rest as restV1, useItemOutside } from '../../recovery.js';
 import { buildStats, cleanFocus, guessFocus, lockedReason, suggestSkills } from '../../builds.js';
 import { levelText, maxLevel, xpGainText, xpLabel } from '../../terms.js';
-import { fromSheet, gearOf, libraryOf, rulesFrom, settingsOf, toSheet, v1Control } from './sheets.js';
+import { fromSheet, gearOf, growthOf, libraryOf, maxCompanionsOf, rulesFrom, settingsOf, toSheet } from './sheets.js';
+import { exportCharacter, originIds, readCharacter } from './portable.js';
 import { OUTCOMES, dcOf, outcomeOf, statForCheck } from './checks.js';
 import { actorFrom, actorsInOrder, attempt, cleanName, cleanRole, fail, nameKey, newId, revOf } from './util.js';
 
@@ -51,13 +52,70 @@ function portraitOf(ctx, value) {
 const nameTaken = (party, name, except = null) => actorsInOrder(party).some(actor => actor.id !== except && nameKey(actor.name) === nameKey(name));
 const skillKnown = (actor, name) => (actor.skills ?? []).some(skill => nameKey(skill.name) === nameKey(name));
 
-/** v1 settleCompanions on the companions (auto ones spend their points by build when the setting allows). */
+/**
+ * v1 settleCompanions on the companions: those whose points are on auto (MODULES §F29, growthOf)
+ * spend them by build when the setting allows; v1's 'command' is a companion on manual.
+ */
 function settle(party, ids, rules, settings) {
     const members = ids.map(id => party.actors[id]).filter(actor => actor?.kind === 'companion')
-        .map(actor => ({ id: actor.id, name: actor.name, control: v1Control(actor), sheet: toSheet(actor) }));
+        .map(actor => ({ id: actor.id, name: actor.name, control: growthOf(actor) === 'manual' ? 'command' : 'auto', sheet: toSheet(actor) }));
     for (const member of settleCompanions(members, { autoSpend: settings.autoSpend !== false, rules })) {
         writeSheet(party, party.actors[member.id], member.sheet, rules);
     }
+}
+
+/**
+ * The fight that has the party now, or null: one under way, or over and not yet settled
+ * (combat.end). While there is one, nobody leaves and your character is not remade, so the
+ * fight's result always finds the people who fought it (QA #75).
+ */
+function fightOn(ctx) {
+    let combat = null;
+    try {
+        combat = ctx.read('combat');
+    } catch {
+        combat = null;
+    }
+    return combat?.session ?? null;
+}
+
+function refuseInFight(ctx, what) {
+    const session = fightOn(ctx);
+    if (!session) return;
+    fail(ctx, 'REFUSED', session.status === 'active' ? `A fight is under way: ${what} after it.` : `The last fight is not settled yet: finish it, then ${what}.`);
+}
+
+/**
+ * What someone leaving the party carried goes to the party's bag: every stack they own
+ * (inventory.transfer, which also takes worn pieces off) and the coin in their purse
+ * (wallet.pay from them, wallet.receive by the party), so nothing is left with an id that is no
+ * longer in the party. A host without the inventory commands (UNKNOWN_COMMAND) leaves it as it is.
+ * → { stacks, coin } handed over.
+ */
+function handOver(ctx, actor) {
+    const inventory = readInventory(ctx);
+    const carried = Object.entries(inventory?.stacks ?? {}).filter(([, stack]) => stack?.owner === actor.id).map(([id]) => id).sort();
+    let stacks = 0;
+    for (const stack of carried) {
+        try {
+            ctx.call('inventory.transfer', { stack, to: 'party' });
+            stacks += 1;
+        } catch (error) {
+            if (error?.code !== 'UNKNOWN_COMMAND') throw error;
+            break;
+        }
+    }
+    const coin = Number(inventory?.wallets?.[actor.id]?.coin) || 0;
+    if (coin > 0) {
+        try {
+            ctx.call('wallet.pay', { owner: actor.id, amount: coin, note: `${actor.name} leaves the party` });
+            ctx.call('wallet.receive', { owner: 'party', amount: coin, note: `from ${actor.name}` });
+        } catch (error) {
+            if (error?.code !== 'UNKNOWN_COMMAND') throw error;
+            return { stacks, coin: 0 };
+        }
+    }
+    return { stacks, coin };
 }
 
 // ---------------------------------------------------------------------------------------
@@ -74,6 +132,7 @@ function create(ctx, payload = {}) {
     const party = ctx.draft('party');
     const rules = rulesFor(ctx);
     if (party.pc && !payload.replace) fail(ctx, 'REFUSED', 'You already have a character.');
+    if (party.pc) refuseInFight(ctx, 'remake your character');
     const preset = payload.preset ? PRESETS.find(entry => entry.id === payload.preset) : null;
     if (payload.preset && !preset) fail(ctx, 'NOT_FOUND', `There is no "${payload.preset}" preset.`);
     const points = payload.points ?? preset?.points ?? {};
@@ -114,9 +173,10 @@ function create(ctx, payload = {}) {
     });
     const full = attempt(ctx, () => build(skills));
     const old = party.pc;
-    // A new id even in place of an old character: what was kept under the old one stays theirs.
+    // A new id even in place of an old character; what the old one carried goes to the party's bag.
     const id = newId(ctx, 'ac', candidate => Boolean(party.actors[candidate]));
     if (old) {
+        if (party.actors[old]) handOver(ctx, party.actors[old]);
         delete party.actors[old];
         party.offers = party.offers.filter(offer => offer.actor !== old);
     }
@@ -132,15 +192,22 @@ function create(ctx, payload = {}) {
 
 /**
  * party.addCompanion { name, role?, level?, focus?: [stats], skills?: [names], control?:
- * 'auto' | 'player', npc?, portrait? }: a companion built by v1 newCompanion at the level given
- * (else your character's), their stats spread over the focus (else the role's words), and the
- * skills given or, without any, the ones v1 suggestSkills picks for that build.
+ * 'auto' | 'player', growth?: 'auto' | 'manual', npc?, portrait? }: a companion built by v1
+ * newCompanion at the level given (else your character's), their stats spread over the focus
+ * (else the role's words), and the skills given or, without any, the ones v1 suggestSkills picks
+ * for that build. Fights on auto and points spent by build unless told otherwise (MODULES §F29,
+ * §F49); refused when the party already has as many companions as the setting allows (§F48).
  */
 function addCompanion(ctx, payload = {}) {
     const party = ctx.draft('party');
     const rules = rulesFor(ctx);
     const name = cleanName(payload.name);
     if (!name) fail(ctx, 'INVALID', 'Give the companion a name.');
+    if (payload.control !== undefined && payload.control !== null && payload.control !== 'player' && payload.control !== 'auto') fail(ctx, 'INVALID', 'Control is player or auto.');
+    if (payload.growth !== undefined && payload.growth !== null && payload.growth !== 'manual' && payload.growth !== 'auto') fail(ctx, 'INVALID', 'Stat points are spent on auto or by hand (manual).');
+    const most = maxCompanionsOf(settingsFor(ctx));
+    const companions = actorsInOrder(party).filter(actor => actor.kind === 'companion').length;
+    if (companions >= most) fail(ctx, 'REFUSED', most ? `The party is full: ${most} companion${most === 1 ? '' : 's'} beside you at most.` : 'Companions are switched off in this chat.');
     if (nameTaken(party, name)) fail(ctx, 'REFUSED', `There is already a ${name} in the party.`);
     const role = cleanRole(payload.role ?? '') || 'companion';
     const pc = party.pc ? party.actors[party.pc] : null;
@@ -155,15 +222,17 @@ function addCompanion(ctx, payload = {}) {
     const member = attempt(ctx, () => newCompanion({ name, role, control: payload.control === 'player' ? 'command' : 'auto', level, focus, skills }, { rules, existing: [], library }));
     const id = newId(ctx, 'ac', candidate => Boolean(party.actors[candidate]));
     const npc = payload.npc ? String(payload.npc).trim().slice(0, 80) || null : null;
-    writeSheet(party, { id, kind: 'companion', control: payload.control === 'player' ? 'player' : 'auto', role: member.role, npc, portrait: portraitOf(ctx, payload.portrait) }, member.sheet, rules);
+    writeSheet(party, { id, kind: 'companion', control: payload.control === 'player' ? 'player' : 'auto', growth: payload.growth === 'manual' ? 'manual' : 'auto', role: member.role, npc, portrait: portraitOf(ctx, payload.portrait) }, member.sheet, rules);
     party.order.push(id);
     return { summary: `${name} joins the party (${levelText(level, rules)}, ${member.role}).`, data: { actor: id, level }, narrate: true };
 }
 
 /**
- * party.edit { actor, name?, role?, control?, npc?, portrait? }: v1 editCompanion's rules (a
- * name cleaned for the heading, never another member's; a role, else 'companion'). Ids never
- * change in v2. Your character is always played by you.
+ * party.edit { actor, name?, role?, control?, growth?, npc?, portrait? }: v1 editCompanion's rules
+ * (a name cleaned for the heading, never another member's; a role, else 'companion'). Ids never
+ * change in v2. Your character is always played by you and spends their own points. The two
+ * per-companion toggles (MODULES §F29, §F49): `control` (fights: 'auto' or 'player') and `growth`
+ * (stat points: 'auto', spent by build at once and at every level, or 'manual').
  */
 function edit(ctx, payload = {}) {
     const party = ctx.draft('party');
@@ -182,43 +251,55 @@ function edit(ctx, payload = {}) {
         if (actor.kind === 'pc' && payload.control !== 'player') fail(ctx, 'REFUSED', 'Your character is always yours to play.');
         next.control = payload.control;
     }
+    if (payload.growth !== undefined) {
+        if (payload.growth !== 'manual' && payload.growth !== 'auto') fail(ctx, 'INVALID', 'Stat points are spent on auto or by hand (manual).');
+        if (actor.kind === 'pc') fail(ctx, 'REFUSED', 'Your character\'s points are yours to spend.');
+        next.growth = payload.growth;
+    }
     if (payload.npc !== undefined) next.npc = payload.npc ? String(payload.npc).trim().slice(0, 80) || null : null;
     if (payload.portrait !== undefined) next.portrait = portraitOf(ctx, payload.portrait);
-    if (['name', 'role', 'control', 'npc', 'portrait'].every(key => (next[key] ?? null) === (actor[key] ?? null))) fail(ctx, 'REFUSED', 'Nothing to change.');
+    const growthChanged = actor.kind === 'companion' && payload.growth !== undefined && growthOf(next) !== growthOf(actor);
+    if (!growthChanged && ['name', 'role', 'control', 'npc', 'portrait'].every(key => (next[key] ?? null) === (actor[key] ?? null))) fail(ctx, 'REFUSED', 'Nothing to change.');
     party.actors[actor.id] = next;
-    return { summary: next.name === actor.name ? `${next.name} is updated.` : `${actor.name} is now called ${next.name}.`, data: { actor: actor.id }, narrate: false };
+    // Turned to auto with points waiting: spent by build now, as at a level-up (v1 spendByBuild).
+    let spent = 0;
+    if (growthChanged && next.growth === 'auto' && next.points > 0 && settingsFor(ctx).autoSpend !== false) {
+        const rules = rulesFor(ctx);
+        const sheet = spendByBuild(toSheet(next), rules);
+        spent = next.points - sheet.points;
+        writeSheet(party, next, sheet, rules);
+    }
+    const parts = [];
+    if (next.name !== actor.name) parts.push(`${actor.name} is now called ${next.name}`);
+    if ((next.control ?? null) !== (actor.control ?? null)) parts.push(`${next.name} ${next.control === 'player' ? 'takes your orders' : 'fights on their own'} in fights`);
+    if (growthChanged) parts.push(`${next.name}'s stat points are ${next.growth === 'auto' ? `spent by build${spent ? ` (${spent} spent now)` : ''}` : 'yours to spend'}`);
+    return { summary: parts.length ? `${parts.join('; ')}.` : `${next.name} is updated.`, data: { actor: actor.id, ...(growthChanged ? { growth: next.growth, spent } : {}) }, narrate: false };
 }
 
 /**
  * A companion taken out of the party: the record, their place in the order, the offers waiting
- * for them; what they carried goes to the party (inventory.transfer, which also takes it off
- * them), so nothing is left with someone who is not there. A host without the inventory
- * commands (UNKNOWN_COMMAND) leaves the stacks as they are.
+ * for them; what they carried and their coin go to the party's bag (handOver), so nothing is left
+ * with someone who is not there. → what was handed over.
  */
 function dropMember(ctx, party, actor) {
-    const inventory = readInventory(ctx);
-    const carried = Object.entries(inventory?.stacks ?? {}).filter(([, stack]) => stack?.owner === actor.id).map(([id]) => id).sort();
-    for (const stack of carried) {
-        try {
-            ctx.call('inventory.transfer', { stack, to: 'party' });
-        } catch (error) {
-            if (error?.code !== 'UNKNOWN_COMMAND') throw error;
-            break;
-        }
-    }
+    const handed = handOver(ctx, actor);
     delete party.actors[actor.id];
     party.order = party.order.filter(id => id !== actor.id);
     party.offers = party.offers.filter(offer => offer.actor !== actor.id);
-    return carried.length;
+    return handed;
 }
 
-/** party.removeCompanion { actor }: a companion leaves (their waiting offers go too; what they carried goes to the party). */
+/**
+ * party.removeCompanion { actor }: a companion leaves (their waiting offers go too; what they
+ * carried goes to the party). Refused while a fight has the party (until combat.end settles it).
+ */
 function removeCompanion(ctx, payload = {}) {
     const party = ctx.draft('party');
     const actor = actorFrom(ctx, party, payload, { pcDefault: false });
     if (actor.kind !== 'companion') fail(ctx, 'REFUSED', 'Only a companion can leave the party.');
-    const carried = dropMember(ctx, party, actor);
-    return { summary: `${actor.name} leaves the party${carried ? '; what they carried stays with the party' : ''}.`, data: { actor: actor.id }, narrate: true };
+    refuseInFight(ctx, `${actor.name} can leave`);
+    const handed = dropMember(ctx, party, actor);
+    return { summary: `${actor.name} leaves the party${handed.stacks || handed.coin ? '; what they carried stays with the party' : ''}.`, data: { actor: actor.id, handed }, narrate: true };
 }
 
 // ---------------------------------------------------------------------------------------
@@ -473,6 +554,10 @@ function grantXp(ctx, payload = {}) {
     const given = payload.xp ?? payload.amount;
     const byKind = given === undefined && (payload.kind || payload.difficulty);
     if (given === undefined && !byKind) fail(ctx, 'INVALID', 'Say how much XP, or how big the achievement was.');
+    // A quest difficulty is one of v1's words (growth.QUEST_DIFFICULTIES); any other is refused, not read as normal.
+    if (byKind && !payload.kind && !QUEST_DIFFICULTIES.includes(String(payload.difficulty ?? '').trim().toLowerCase())) {
+        fail(ctx, 'INVALID', `"${payload.difficulty}" is not a quest difficulty (${QUEST_DIFFICULTIES.join(', ')}).`);
+    }
     const share = byKind ? awardShare({ kind: payload.kind ?? null, difficulty: payload.kind ? null : payload.difficulty }, rules) : 0;
     if (byKind && (!share || (payload.kind && !['minor', 'major', 'milestone'].includes(payload.kind)))) fail(ctx, 'INVALID', `"${payload.kind ?? payload.difficulty}" is not an XP award.`);
     const amountFor = actor => {
@@ -482,9 +567,15 @@ function grantXp(ctx, payload = {}) {
         return value;
     };
     const amounts = ids.map(id => [id, amountFor(party.actors[id])]);
-    if (amounts.every(([, xp]) => !xp)) fail(ctx, 'REFUSED', 'There is no XP to give (everyone is at the level cap, or the amount is 0).');
+    const capped = ids.every(id => party.actors[id].level >= maxLevel(rules));
+    if (!capped && amounts.every(([, xp]) => !xp)) fail(ctx, 'REFUSED', 'There is no XP to give (the amount is 0).');
     const claim = payload.claim ? String(payload.claim) : payload.quest ? `xp:quest:${payload.quest}` : null;
     if (claim && !ctx.claim(claim)) fail(ctx, 'CLAIMED', 'That XP was already given.');
+    // Everyone named is at the level cap: nothing to give, and that is no failure (a fight still settles, QA #75).
+    if (capped) {
+        const names = listNames(ids.map(id => party.actors[id].name));
+        return { summary: `${names} ${ids.length === 1 ? 'is' : 'are'} at the level cap: no ${xpLabel(rules)} to give.`, data: { gains: [] }, narrate: false };
+    }
     const out = [];
     for (const [id, xp] of amounts) {
         if (!xp) continue;
@@ -527,6 +618,85 @@ function resolveCheck(ctx, payload = {}) {
     const sign = mod < 0 ? `− ${-mod}` : `+ ${mod}`;
     const summary = `${actor.name} tries ${skill || stat}${what ? ` (${what})` : ''}: d20 ${die} ${sign} ${stat} = ${total} against ${target.dc}${target.word ? ` (${target.word})` : ''}, ${OUTCOMES[outcome]}.`;
     return { summary, data: { actor: actor.id, skill, stat, die, mod, total, dc: target.dc, outcome }, narrate: true };
+}
+
+// ---------------------------------------------------------------------------------------
+// Your character as a file (MODULES §F66)
+
+/**
+ * party.export {}: your character as a portable file (portable.exportCharacter) in the receipt's
+ * data (`data.character`, with `data.fileName`), for the screen to offer as a download. Changes
+ * nothing; also works through preview.
+ */
+function exportPc(ctx) {
+    const party = ctx.read('party');
+    const pc = party?.pc ? party.actors?.[party.pc] : null;
+    if (!pc) fail(ctx, 'NOT_FOUND', 'Make your character first.');
+    let currency = null;
+    try {
+        currency = ctx.query('inventory.currency');
+    } catch {
+        currency = null;
+    }
+    const character = exportCharacter(party, readInventory(ctx), { currency: currency?.name ?? '' });
+    const slug = String(pc.name).normalize('NFKD').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'character';
+    const things = character.items.reduce((sum, entry) => sum + entry.qty, 0);
+    return {
+        summary: `${pc.name} is written to a character file (${levelText(pc.level, rulesFor(ctx))}, ${things} thing${things === 1 ? '' : 's'} carried).`,
+        data: { actor: pc.id, character, fileName: `${slug}.rpg-battle.json` },
+        narrate: false,
+    };
+}
+
+/**
+ * party.import { character, name?, portrait?, background? } (internal, from creation.import):
+ * your character from a character file instead of the wizard, checked by this chat's Character
+ * rules (portable.readCharacter: level cap, stat cap, the points a character of that level can
+ * have, the skills). Its story-taught skills are kept in party.custom. The checked items and
+ * purse are given back in the receipt's data ({ actor, items, purse }) for the caller to grant.
+ */
+function importPc(ctx, payload = {}) {
+    const party = ctx.draft('party');
+    if (party.pc && party.actors[party.pc]) fail(ctx, 'REFUSED', 'You already have a character.');
+    if (ctx.cause === 'ui' && !ctx.caller) fail(ctx, 'REFUSED', 'A character file is read through character creation.');
+    const rules = rulesFor(ctx);
+    const file = payload.character;
+    // The race and talents the file names, as this chat knows them: what they add to the stats.
+    const ids = originIds(file?.origin);
+    let built = null;
+    if (ids && (ids.race || ids.talents.length)) {
+        try {
+            built = ctx.query('creation.build', { race: ids.race ?? '', talents: ids.talents, points: {}, settings: settingsFor(ctx) });
+        } catch {
+            built = null;
+        }
+    }
+    const bonus = Object.values(built?.bonus ?? {}).reduce((sum, value) => sum + Math.max(0, Number(value) || 0), 0);
+    const read = readCharacter(file, { rules, bonus, name: payload.name ?? null });
+    if (!read.ok) fail(ctx, read.code, read.message);
+    const character = read.character;
+    if (nameTaken(party, character.name)) fail(ctx, 'REFUSED', `There is already a ${character.name} in the party.`);
+    for (const skill of character.custom) if (!party.custom[skill.name]) party.custom[skill.name] = skill;
+    const id = newId(ctx, 'ac', candidate => Boolean(party.actors[candidate]));
+    const background = String(payload.background ?? character.background ?? '').trim().slice(0, 2000);
+    // The origin as this chat knows it, else as the file names it (when it is well formed).
+    const known = built && !(built.issues ?? []).some(issue => issue.code === 'NOT_FOUND') ? built.origin : null;
+    const named = entry => entry && typeof entry.id === 'string' && entry.id.trim() && typeof entry.name === 'string' && entry.name.trim();
+    const given = file.origin && (file.origin.race === null || named(file.origin.race)) && Array.isArray(file.origin.talents) && file.origin.talents.every(named)
+        ? { race: file.origin.race ? { id: file.origin.race.id, name: file.origin.race.name } : null, talents: file.origin.talents.map(entry => ({ id: entry.id, name: entry.name })) }
+        : null;
+    const origin = known ?? given;
+    writeSheet(party, {
+        id, kind: 'pc', control: 'player', role: character.role, npc: null, portrait: portraitOf(ctx, payload.portrait),
+        ...(background ? { background } : {}), ...(origin ? { origin } : {}),
+    }, character.sheet, rules);
+    party.pc = id;
+    party.order = [id, ...party.order.filter(entry => entry !== id)];
+    return {
+        summary: `${character.name} arrives from another story (${levelText(character.sheet.level, rules)}).`,
+        data: { actor: id, items: character.items, purse: character.purse },
+        narrate: false,
+    };
 }
 
 // ---------------------------------------------------------------------------------------
@@ -577,7 +747,7 @@ export function addOffer(ctx, party, offer) {
 
 export const handlers = {
     create, addCompanion, edit, removeCompanion, spend, learnSkill, setSkillActive, forgetSkill,
-    rest, heal, applyResult, grantXp, resolveCheck, acceptOffer, dismissOffer,
+    rest, heal, applyResult, grantXp, resolveCheck, acceptOffer, dismissOffer, exportPc, importPc,
 };
 
 export const commands = {
@@ -596,5 +766,7 @@ export const commands = {
     'party.restore': heal,
     'party.acceptOffer': acceptOffer,
     'party.dismissOffer': dismissOffer,
+    'party.export': exportPc,
+    'party.import': importPc,
     'check.resolve': resolveCheck,
 };

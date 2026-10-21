@@ -2,7 +2,9 @@
 // Built-in races and talents (used for each kind no enabled pack provides), the packs'
 // ready-made characters (the wizard's Start step, widget `rpg-battle.preset-pick`), the commands
 // `creation.finish` (the wizard's whole draft, checked, then `party.create` in the same
-// transaction) and `creation.rollTalent` (a seeded random talent, through preview and commit),
+// transaction), `creation.import` (a character file from `party.export` instead of the wizard,
+// MODULES §F66: party.import checks and makes it, then its items, worn gear and purse are granted)
+// and `creation.rollTalent` (a seeded random talent, through preview and commit),
 // the queries the wizard reads, the small `creation` domain that keeps rolled talents, and the
 // dialog wizard screen `rpg-battle/create`. The coordinator's src/v2/module.js merges this part
 // with the others; it also passes `screens` to registerModule (SPEC §13.1).
