@@ -1,0 +1,149 @@
+// The party part's change-line kinds (SPEC §4.4, MODULES §B1): wound, join, skill, check, rest.
+// Each `apply(ctx, line)` runs as a `story` command: it finds the member the line names (v1
+// story.findTarget rules), sets every number by code, and rejects what it cannot accept (the
+// host keeps those as Problems). A join or a skill line is never applied by itself: it waits in
+// party.offers for the reader's Accept (party.acceptOffer) or Dismiss. Pure apart from ctx.
+//
+// `line` is the host's parsed line: { op, kind, name, text, labels, raw, index }.
+
+import { applyWounds, describeWound, guessSkill, parseHints, parseWounds } from '../../story.js';
+import { cleanFocus, guessFocus } from '../../builds.js';
+import { findSkill, DEFAULT_SKILLS } from '../../skills.js';
+import { parseLevelLabel, maxLevel } from '../../terms.js';
+import { fromSheet, rulesFrom, settingsOf, toSheet } from './sheets.js';
+import { addOffer, handlers } from './commands.js';
+import { cleanName, cleanRole, fail, labelsOf, nameKey, replyOf, resolveName } from './util.js';
+
+// The static grammar each kind adds to the change-line instruction (SPEC §5): fixed words only,
+// so the static prompt is byte-identical every reply.
+export const GRAMMAR = Object.freeze({
+    wound: '~ wound Name — what happened | harm: scratch|wound|severe|grievous (or heal: the same words; or — poisoned to add a condition, — cure poisoned to lift one); one blow or heal per person per reply',
+    join: '+ join Name — who they are | level: <number> | role: <word> (someone asks to travel with the party; the reader decides)',
+    skill: '+ skill Name — Skill Name: what it does | taught by: <who> (someone in the party is taught a skill; the reader decides)',
+    check: '? check <skill or stat> — what is attempted | dc: easy|normal|hard|<number> | who: Name (then stop before the outcome; code rolls it)',
+    rest: '! rest short|long — where and how the party rests',
+});
+
+const rulesFor = ctx => rulesFrom(settingsOf(typeof ctx?.settings === 'function' ? ctx.settings() : null));
+
+function memberOf(ctx, party, name) {
+    const found = resolveName(party, name);
+    return found.actor ?? fail(ctx, found.error, found.message);
+}
+
+// The severity words a harm or heal label may use: v1's four, and "grave" for the worst.
+function severityWord(ctx, value) {
+    const word = String(value ?? '').trim().toLowerCase();
+    if (/^grave/.test(word)) return 'grievous';
+    if (/^(?:scratch|wound|sever|grievous)/.test(word)) return word;
+    return fail(ctx, 'INVALID', 'Harm and heal are scratch, wound, severe or grievous.');
+}
+
+/**
+ * `~ wound Ren — fell into the weir | harm: wound`, `| heal: scratch`, `~ wound Astra — cure
+ * poisoned`, `~ wound Astra — poisoned: a bite`: v1 Wounds rules (a share of max HP by the word,
+ * never a number; a condition added or lifted), at most one harm or heal per person per reply.
+ */
+function applyWound(ctx, line) {
+    const party = ctx.draft('party');
+    const rules = rulesFor(ctx);
+    const actor = memberOf(ctx, party, line.name);
+    const labels = labelsOf(line);
+    const text = String(line.text ?? '').trim();
+    let written;
+    if (labels.harm) written = `${actor.name} — ${severityWord(ctx, labels.harm)}: ${text}`;
+    else if (labels.heal) written = `${actor.name} — heal ${severityWord(ctx, labels.heal)}: ${text}`;
+    else if (labels.cure) written = `${actor.name} — cure ${labels.cure}${text ? `: ${text}` : ''}`;
+    else if (labels.condition) written = `${actor.name} — ${labels.condition}${text ? `: ${text}` : ''}`;
+    else written = `${actor.name} — ${text.replace(/^grave(?:ly)?\b/i, 'grievous')}`;
+    const [wound] = parseWounds(written);
+    if (!wound) fail(ctx, 'INVALID', `That wound line says nothing RPG Battle can use for ${actor.name}.`);
+    if (wound.kind === 'harm' || wound.kind === 'heal') {
+        const reply = replyOf(ctx, line);
+        if (reply !== null && !ctx.claim(`wound:${actor.id}:${reply}`)) fail(ctx, 'CLAIMED', `${actor.name} was already hurt or healed in this reply.`);
+    }
+    const sheet = toSheet(actor);
+    const input = actor.id === party.pc ? { pc: sheet } : { members: [{ id: actor.id, name: actor.name, sheet }] };
+    const out = applyWounds(input, [{ ...wound, name: actor.name }], rules);
+    const entry = out.applied[0];
+    if (!entry) fail(ctx, 'REFUSED', `That changes nothing for ${actor.name}.`);
+    party.actors[actor.id] = fromSheet(actor, out.pc ?? out.members[0].sheet, rules);
+    return {
+        summary: describeWound(entry),
+        data: { actor: actor.id, kind: entry.kind, severity: entry.severity, hp: entry.hp, condition: entry.condition, down: Boolean(entry.down) },
+        narrate: false,
+    };
+}
+
+const list = value => String(value ?? '').split(/\s*[,;/]\s*/).map(part => part.trim()).filter(Boolean);
+
+/** `+ join Lyra — the archer | level: 3 | role: ranger | focus: DEX, AGI | skills: Aimed Shot` → a join offer. */
+function applyJoin(ctx, line) {
+    if (line.op !== '+') fail(ctx, 'INVALID', 'Only "+ join" lines are read.');
+    const party = ctx.draft('party');
+    const rules = rulesFor(ctx);
+    const labels = labelsOf(line);
+    const name = cleanName(line.name);
+    if (!name || /^(?:you|me|myself)$/i.test(name)) fail(ctx, 'INVALID', 'A join line needs the newcomer\'s name.');
+    if (Object.values(party.actors).some(actor => nameKey(actor.name) === nameKey(name))) fail(ctx, 'REFUSED', `${name} is already in the party.`);
+    if (party.offers.some(offer => offer.kind === 'join' && nameKey(offer.name) === nameKey(name))) fail(ctx, 'REFUSED', `${name}'s offer to join is already waiting.`);
+    const text = String(line.text ?? '').trim().slice(0, 160);
+    let level = null;
+    if (labels.level) {
+        const written = parseLevelLabel(labels.level, rules) ?? Number(labels.level.match(/\d+/)?.[0]);
+        if (!(written >= 1)) fail(ctx, 'INVALID', `The level "${labels.level}" is not a level.`);
+        level = Math.min(maxLevel(rules), Math.round(written));
+    }
+    const role = cleanRole(labels.role ?? '') || cleanRole(text.replace(/^(?:an?|the)\s+/i, '').split(/[,;:.]/)[0]);
+    const focus = cleanFocus(labels.focus ? list(labels.focus).map(stat => stat.toUpperCase()) : guessFocus(role, text));
+    const skills = labels.skills ? list(labels.skills).slice(0, rules.character.starterSkills) : [];
+    const npc = labels.npc ? String(labels.npc).slice(0, 80) : null;
+    const offer = addOffer(ctx, party, { kind: 'join', name, role, level, focus, skills, npc, text });
+    return { summary: `${name} offers to join the party.`, data: { offer: offer.id, name }, narrate: false };
+}
+
+/** `+ skill Ren — Shadow Cut: a blurring slash | taught by: Kael | type: physical` → a skill offer. */
+function applySkill(ctx, line) {
+    if (line.op !== '+') fail(ctx, 'INVALID', 'Only "+ skill" lines are read.');
+    const party = ctx.draft('party');
+    const actor = memberOf(ctx, party, line.name);
+    const labels = labelsOf(line);
+    const text = String(line.text ?? '').trim();
+    const colon = text.indexOf(':');
+    const skill = cleanRole(colon >= 0 ? text.slice(0, colon) : text).slice(0, 40).trim() || cleanRole(labels.skill ?? '');
+    if (!skill) fail(ctx, 'INVALID', 'A skill line needs the skill\'s name.');
+    const words = colon >= 0 ? text.slice(colon + 1).trim().slice(0, 160) : '';
+    if (actor.skills.some(entry => nameKey(entry.name) === nameKey(skill))) fail(ctx, 'REFUSED', `${actor.name} already knows ${skill}.`);
+    if (party.offers.some(offer => offer.kind === 'skill' && offer.actor === actor.id && nameKey(offer.skill) === nameKey(skill))) fail(ctx, 'REFUSED', `${skill} is already offered to ${actor.name}.`);
+    const known = findSkill(DEFAULT_SKILLS, skill) ?? findSkill(Object.values(party.custom), skill);
+    // The template the story's words and hints suggest; code still sets every number when learned.
+    const hints = parseHints(Object.entries(labels).filter(([key]) => ['type', 'stat', 'target', 'effect', 'element'].includes(key)).map(([key, value]) => `${key}: ${value}`).join(', '));
+    const template = known ? null : guessSkill(words, { ...hints, name: skill });
+    const taughtBy = String(labels['taught by'] ?? labels.from ?? labels.by ?? '').trim().slice(0, 60);
+    const offer = addOffer(ctx, party, { kind: 'skill', actor: actor.id, skill: known?.name ?? skill, template, words, taughtBy });
+    return { summary: `${actor.name} could learn ${offer.skill}${taughtBy ? ` from ${taughtBy}` : ''}.`, data: { offer: offer.id, actor: actor.id, skill: offer.skill }, narrate: false };
+}
+
+/** `? check stealth — slipping past the guard | dc: hard | who: Lyra` → check.resolve. */
+function applyCheck(ctx, line) {
+    const labels = labelsOf(line);
+    const who = labels.who ?? labels.by ?? null;
+    return handlers.resolveCheck(ctx, { who, skill: line.name, stat: labels.stat ?? null, dc: labels.dc ?? '', what: line.text ?? '' });
+}
+
+/** `! rest long — a night at the inn` → party.rest. */
+function applyRest(ctx, line) {
+    const labels = labelsOf(line);
+    const word = `${line.name ?? ''} ${labels.kind ?? ''} ${line.text ?? ''}`.toLowerCase();
+    const kind = /^\s*long\b/.test(word) || labels.kind === 'long' ? 'long' : /^\s*short\b/.test(word) || labels.kind === 'short' ? 'short' : null;
+    if (!kind) fail(ctx, 'INVALID', 'A rest is short or long.');
+    return handlers.rest(ctx, { kind, reason: line.text ?? '' });
+}
+
+export const kinds = {
+    wound: { grammar: GRAMMAR.wound, apply: applyWound },
+    join: { grammar: GRAMMAR.join, apply: applyJoin },
+    skill: { grammar: GRAMMAR.skill, apply: applySkill },
+    check: { grammar: GRAMMAR.check, apply: applyCheck },
+    rest: { grammar: GRAMMAR.rest, apply: applyRest },
+};
