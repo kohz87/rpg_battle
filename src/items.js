@@ -534,6 +534,9 @@ export function gearSummary(items, level, rules = DEFAULT_RULES) {
  * tags, capped: [{ name, from, to }] }. `tags` (range, fire…) are the weapon's and armour's
  * tags together, for combat's elements.
  */
+/** An item's own non-zero, finite stats (a piece with none has none). */
+const writtenStats = item => Object.fromEntries(Object.entries(item?.stats ?? {}).filter(([, value]) => Number.isFinite(value) && value !== 0));
+
 export function gearBonuses(items, level, rules = DEFAULT_RULES) {
     const totals = Object.fromEntries(ITEM_STATS.map(name => [name, 0]));
     const tags = new Set();
@@ -541,7 +544,10 @@ export function gearBonuses(items, level, rules = DEFAULT_RULES) {
     const capped = [];
     const gear = equipped(items, rules);
     for (const item of [gear.weapon, gear.offhand, gear.armour, ...gear.worn, ...gear.accessory].filter(Boolean)) {
-        const result = capItem(item, level, rules);
+        // (v2) A piece whose stats are final (`final: true`: RPG Battle v2's items.gear, capped at the
+        // wearer's level, then scaled by condition and refinement) counts as it is, never capped
+        // (nor given a default main stat) again.
+        const result = item.final === true ? { stats: writtenStats(item), capped: false } : capItem(item, level, rules);
         for (const [name, value] of Object.entries(result.stats)) totals[name] = (totals[name] ?? 0) + value;
         for (const tag of item.tags ?? []) tags.add(tag);
         // (0.5.33) An element on what strikes or is worn to (weapon, off-hand, accessory) works in a fight.

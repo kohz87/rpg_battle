@@ -102,8 +102,11 @@ function gearRows(ctx, actorId, defs, held) {
     // items.gear → { counted: [{ stack, name, slot, rarity, stats (capped) }], … } (MODULES §B2).
     const listed = tryQuery(ctx, 'items.gear', { actor: actorId }, null);
     const counted = Array.isArray(listed) ? listed : Array.isArray(listed?.counted) ? listed.counted : null;
-    const rows = counted ? counted.map(row => itemRow(row, defs)) : held.filter(row => row.equipped);
-    return rows.filter(row => row.name && row.slot).map(row => ({ name: row.name, qty: 1, slot: row.slot, stats: row.stats, rarity: row.rarity, tags: row.tags, equipped: true, effect: null }));
+    // A counted row marked `final: true` (RB-gear: capped at the wearer's level, then scaled by
+    // condition and refinement) goes to the fight as it is (gearBonuses honours `final`): never
+    // capped by rarity a second time. Any other row is capped as before.
+    const rows = counted ? counted.map(row => ({ ...itemRow(row, defs), final: row?.final === true })) : held.filter(row => row.equipped);
+    return rows.filter(row => row.name && row.slot).map(row => ({ name: row.name, qty: 1, slot: row.slot, stats: row.stats, rarity: row.rarity, tags: row.tags, equipped: true, effect: null, ...(row.final === true ? { final: true } : {}) }));
 }
 
 const usable = effect => Boolean(effect && typeof effect === 'object' && (Number(effect.heal) > 0 || Number(effect.mp) > 0 || (Array.isArray(effect.cure) && effect.cure.length) || effect.damage));
