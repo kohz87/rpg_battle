@@ -285,20 +285,22 @@ const VIEW_HOOKS = new Set(['canGenerate', 'beforeGenerate']);
 function mergeHook(name, list, { viewFor, settings }) {
     if (name === 'canGenerate') {
         // MODULES §F12: the first part that says no is the answer.
-        return async view => {
+        return async (view, ...rest) => {
             for (const { part, fn } of list) {
-                const answer = await fn(viewFor(view, part));
+                const answer = await fn(viewFor(view, part), ...rest);
                 if (answer === false || (isObject(answer) && answer.ok === false)) return answer;
             }
             return { ok: true };
         };
     }
     if (name === 'beforeGenerate') {
-        return async view => {
+        // The host's second argument ({ type }: normal, swipe, regenerate, continue) is handed on,
+        // so a part can tell a Continue (keep this reply's dice) from a new reply.
+        return async (view, ...rest) => {
             const lines = [];
             const commands = [];
             for (const { part, fn } of list) {
-                const out = await fn(viewFor(view, part));
+                const out = await fn(viewFor(view, part), ...rest);
                 if (Array.isArray(out)) lines.push(...out);
                 else if (isObject(out)) {
                     lines.push(...(Array.isArray(out.lines) ? out.lines : []));
