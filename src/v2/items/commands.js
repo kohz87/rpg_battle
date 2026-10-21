@@ -5,14 +5,23 @@
 // (`inventory.consume|equip|unequip|transfer`, `party.heal|restore`), inside the same
 // transaction, so a refusal anywhere saves nothing. The numbers are v1's: useItemOutside for a
 // dose, gearLimits for what counts, capItem for what a piece gives at the wearer's level.
-// A rule refusing (full HP, the wrong kind of thing, a slot limit) is REFUSED; a malformed
-// payload INVALID (MODULES §F4).
+// A rule refusing (full HP, the wrong kind of thing, a slot limit, too heavy to carry) is
+// REFUSED; a malformed payload INVALID (MODULES §F4).
+//
+// Slots: a weapon, an off-hand, an armour (and any slot v1 does not count by number) are one each,
+// kept under the slot's own name. Worn
+// pieces and accessories may be several (v1 gearLimits: 1 worn piece, 2 accessories), so each
+// allowed copy has its own key, `accessory-1`, `accessory-2`, `worn-1`: Story Block keeps one
+// stack per owner and key, and a second ring is worn beside the first, never in its place.
 
 import { capItem, formatStats, gearLimits } from '../../items.js';
 import { useItemOutside } from '../../recovery.js';
-import { helpsOutside, inventoryOf, itemOf, partyOf, partyOwns, rulesFrom, sheetOf, stackIds, wearerOf } from './shared.js';
+import { canCarry } from './carry.js';
+import { MAX_DOSES, planStoryUse } from './story-use.js';
+import { baseSlot, helpsOutside, inventoryOf, itemOf, partyOf, partyOwns, rulesFrom, sheetOf, stackIds, wearerOf } from './shared.js';
 
-const SINGLE_SLOTS = ['weapon', 'offhand', 'armour'];
+// Slots that hold several pieces (v1 gearLimits); every other slot holds one, a new piece replacing the old.
+const MANY_SLOTS = ['worn', 'accessory'];
 
 const stateOf = ctx => ({ domains: { inventory: ctx.read('inventory'), party: ctx.read('party') } });
 const text = value => (typeof value === 'string' ? value.trim() : '');
@@ -49,48 +58,150 @@ function limitWords(count, slot) {
     return count ? `only ${count} ${word} ${count === 1 ? 'counts' : 'count'}` : `no ${word} count`;
 }
 
-/**
- * `item.use` { stack, target }: one dose of a consumable on a party member (the main character
- * when no target is named). Full HP and nothing to cure refuses without spending it, as does a
- * flask that only harms (a fight's thing). Calls `inventory.consume`, then `party.heal`
- * (HP and cures) and `party.restore` (MP) with the amounts v1's useItemOutside works out.
- */
-export function itemUse(ctx, payload) {
-    const { stack, def, party } = stackFor(ctx, payload);
-    if (!(stack.qty > 0)) ctx.fail('NOT_ENOUGH', `There is no ${def.name} left.`);
-    if (def.kind !== 'consumable') ctx.fail('REFUSED', `The ${def.name} is not something to use.`);
-    if (!helpsOutside(def.effect)) ctx.fail('REFUSED', `${def.name} can only be used in a fight.`);
-    const targetId = text(payload?.target) || party.pc;
-    const actor = actorFor(ctx, party, targetId);
-
+/** One dose of `def` from `stack` on `targetId`: consume, heal, restore. → { hp, mp, cured, message }. */
+function dose(ctx, stack, def, targetId) {
+    const actor = ctx.read('party').actors?.[targetId];
     const before = sheetOf(actor);
     const outcome = useItemOutside(before, { name: def.name, effect: def.effect });
     if (!outcome.used) ctx.fail('REFUSED', outcome.message);
     const hp = outcome.sheet.hp.cur - before.hp.cur;
     const mp = outcome.sheet.mp.cur - before.mp.cur;
     const cured = before.conditions.filter(entry => !outcome.sheet.conditions.some(left => left.name === entry.name)).map(entry => entry.name);
-
     ctx.call('inventory.consume', { stack: stack.id, qty: 1 });
     if (hp > 0 || cured.length) ctx.call('party.heal', { actor: targetId, hp, cure: cured });
     if (mp > 0) ctx.call('party.restore', { actor: targetId, mp });
+    return { hp, mp, cured, message: outcome.message, sheet: outcome.sheet };
+}
 
-    // What the party's owner made of it, for the "now" numbers (it may clamp to its own max).
+/** The "now" numbers after the doses, as the party's owner keeps them (it may clamp to its own max). */
+function nowOf(ctx, targetId, fallback) {
     const after = ctx.read('party').actors?.[targetId] ?? null;
-    const nowHp = { cur: after?.hp?.cur ?? outcome.sheet.hp.cur, max: after?.hp?.max ?? outcome.sheet.hp.max };
-    const nowMp = { cur: after?.mp?.cur ?? outcome.sheet.mp.cur, max: after?.mp?.max ?? outcome.sheet.mp.max };
-    const now = !hp && mp ? `${nowMp.cur}/${nowMp.max} MP` : `${nowHp.cur}/${nowHp.max} HP`;
     return {
-        summary: `${outcome.message.replace(/\.$/, '')} (now ${now}).`,
-        narrate: true,
-        data: { actor: targetId, stack: stack.id, def: def.id ?? stack.def, name: def.name, hp, mp, cured, now: { hp: nowHp, mp: nowMp } },
+        hp: { cur: after?.hp?.cur ?? fallback.hp.cur, max: after?.hp?.max ?? fallback.hp.max },
+        mp: { cur: after?.mp?.cur ?? fallback.mp.cur, max: after?.mp?.max ?? fallback.mp.max },
     };
 }
+
+/**
+ * `item.use` { stack, target }: one dose of a consumable on a party member (the main character
+ * when no target is named). Full HP and nothing to cure refuses without spending it, as does a
+ * flask that only harms (a fight's thing). Calls `inventory.consume`, then `party.heal`
+ * (HP and cures) and `party.restore` (MP) with the amounts v1's useItemOutside works out.
+ *
+ * With `story: true` (a story's use, MODULES §F96: from the `use` line, or Story Block routing a
+ * `- item … | used: yes` line here; not from a screen) it takes `{ stack | name, on | target, qty }`
+ * and refuses by telling the story instead of failing (storyUse).
+ */
+export function itemUse(ctx, payload) {
+    if (payload?.story === true && ctx.cause !== 'ui') return storyUse(ctx, payload);
+    const { stack, def, party } = stackFor(ctx, payload);
+    if (!(stack.qty > 0)) ctx.fail('NOT_ENOUGH', `There is no ${def.name} left.`);
+    if (def.kind !== 'consumable') ctx.fail('REFUSED', `The ${def.name} is not something to use.`);
+    if (!helpsOutside(def.effect)) ctx.fail('REFUSED', `${def.name} can only be used in a fight.`);
+    const targetId = text(payload?.target) || party.pc;
+    actorFor(ctx, party, targetId);
+
+    const done = dose(ctx, stack, def, targetId);
+    const now = nowOf(ctx, targetId, done.sheet);
+    const nowText = !done.hp && done.mp ? `${now.mp.cur}/${now.mp.max} MP` : `${now.hp.cur}/${now.hp.max} HP`;
+    return {
+        summary: `${done.message.replace(/\.$/, '')} (now ${nowText}).`,
+        narrate: true,
+        data: { actor: targetId, stack: stack.id, def: def.id ?? stack.def, name: def.name, hp: done.hp, mp: done.mp, cured: done.cured, now },
+    };
+}
+
+// A fight going on (the combat part's domain, read only): its own Item action uses things then.
+function inFight(ctx) {
+    try {
+        return ctx.read('combat')?.session?.status === 'active';
+    } catch {
+        return false;
+    }
+}
+
+/** Who a story use is for: `target` (an id), `on` (a name), else the main character; null for nobody. */
+function storyTarget(ctx, party, payload) {
+    const id = text(payload?.target);
+    if (id) return party.actors?.[id] ? id : null;
+    const name = text(payload?.on);
+    if (!name) return party.pc ?? null;
+    try {
+        return ctx.query('party.actor', { name })?.id ?? null;
+    } catch {
+        return Object.values(party.actors ?? {}).find(actor => String(actor?.name ?? '').toLowerCase() === name.toLowerCase())?.id ?? null;
+    }
+}
+
+/**
+ * A story's use (MODULES §F96, story-use.js): `{ name | stack, on | target, qty = 1 }`. The doses
+ * that help are used (up to `qty`, at most 10) with their effect from the item's definition; the
+ * receipt is told to the next reply. A refusal (nobody of that name, not in the bag, not a
+ * consumable, a fight's thing, a fight going on, nothing a dose would do) uses nothing and tells
+ * the story why, with `data.refused: true`.
+ */
+export function storyUse(ctx, payload = {}) {
+    const name = text(payload?.name);
+    if (!name && !text(payload?.stack)) ctx.fail('INVALID', 'Name the thing used: `! use Minor Healing Draught | on: Mira`.');
+    const qty = payload?.qty === undefined || payload?.qty === null || payload?.qty === '' ? 1 : Number.parseInt(String(payload.qty), 10);
+    if (!Number.isInteger(qty) || qty < 1 || qty > MAX_DOSES) ctx.fail('INVALID', `Use from 1 to ${MAX_DOSES} at once.`);
+    const party = ctx.read('party');
+    if (!party?.pc) ctx.fail('NOT_FOUND', 'Make your character first.');
+    const inventory = inventoryOf(stateOf(ctx));
+    const who = storyTarget(ctx, party, payload);
+    const plan = planStoryUse({ inventory, party, name, stack: text(payload?.stack), who, qty, inFight: inFight(ctx) });
+    if (!plan.ok) {
+        const reason = plan.reason.charAt(0).toUpperCase() + plan.reason.slice(1);
+        return {
+            summary: `${reason}.`,
+            narrate: true,
+            data: { refused: true, reason: plan.reason, name: plan.def?.name ?? name, actor: plan.actor?.id ?? null, qty },
+        };
+    }
+    const { stack, def } = plan;
+    let hp = 0;
+    let mp = 0;
+    const cured = [];
+    let last = null;
+    for (let n = 0; n < plan.doses; n++) {
+        last = dose(ctx, stack, def, who);
+        hp += last.hp;
+        mp += last.mp;
+        cured.push(...last.cured);
+    }
+    const now = nowOf(ctx, who, last.sheet);
+    const nowText = !hp && mp ? `${now.mp.cur}/${now.mp.max} MP` : `${now.hp.cur}/${now.hp.max} HP`;
+    const actor = plan.actor;
+    const what = plan.doses === 1 ? `the ${def.name}` : `${plan.doses} ${def.name}`;
+    const gives = [hp > 0 ? `+${hp} HP` : '', mp > 0 ? `+${mp} MP` : '', cured.length ? `cures ${[...new Set(cured)].join(', ')}` : ''].filter(Boolean).join(', ');
+    const had = stack.qty;
+    const left = qty - plan.doses;
+    const kept = !left ? ''
+        : plan.doses === had ? `; only ${had} ${had === 1 ? 'was' : 'were'} in the bag`
+            : `; ${left === 1 ? 'one more' : `${left} more`} would not help, so ${left === 1 ? 'it stays' : 'they stay'} in the bag`;
+    return {
+        summary: `${actor.name} uses ${what}${gives ? `: ${gives}` : ''} (now ${nowText})${kept}.`,
+        narrate: true,
+        data: { actor: who, stack: stack.id, def: def.id ?? stack.def, name: def.name, doses: plan.doses, asked: qty, hp, mp, cured: [...new Set(cured)], now, refused: false },
+    };
+}
+
+/** The `use` change line: `! use Minor Healing Draught | on: Mira | qty: 2` (a story's use, MODULES §F96). */
+export function applyUse(ctx, line) {
+    const labels = {};
+    for (const [label, value] of Object.entries(line?.labels ?? {})) labels[String(label).trim().toLowerCase()] = String(value ?? '').trim();
+    return storyUse(ctx, { name: line?.name ?? '', on: labels.on ?? labels.who ?? labels.by ?? '', qty: labels.qty ?? 1 });
+}
+
+export const USE_GRAMMAR = '! use <item> | on: Name | qty: 1 (someone drinks, eats or applies it; code applies its effect)';
 
 /**
  * `item.equip` { stack, actor? }: the wearer puts a piece on. The wearer is whoever carries it
  * (the shared bag's pieces are the main character's); a companion gets a piece by `item.give`
  * first. One weapon, off-hand and armour each: a new one replaces the old one. Worn pieces and
- * accessories up to the rules' limits (v1 gearLimits), else refused. No off-hand with a
+ * accessories up to the rules' limits (v1 gearLimits), else refused, each copy under its own key
+ * (`accessory-1`, `accessory-2`). Whatever came off is named in the summary and listed in
+ * `data.removed` (stack ids) and `data.removedNames`. No off-hand with a
  * two-handed weapon (the weapon puts the off-hand away; an off-hand is refused while one is held).
  * What the piece gives is capped by its rarity at the wearer's level (v1 capItem), and the
  * summary says so.
@@ -112,9 +223,10 @@ export function itemEquip(ctx, payload) {
 
     const rules = rulesFrom(ctx.settings());
     const worn = wornBy(inventory, party, wearerId);
-    const inSlot = worn.filter(entry => entry.stack.equipped === slot);
+    const inSlot = worn.filter(entry => baseSlot(entry.stack.equipped) === slot);
     const off = [];
-    if (SINGLE_SLOTS.includes(slot)) {
+    let key = slot;
+    if (!MANY_SLOTS.includes(slot)) {
         off.push(...inSlot);
         if (slot === 'offhand') {
             const weapon = worn.find(entry => entry.stack.equipped === 'weapon' && entry.def?.tags?.includes('two-handed'));
@@ -126,19 +238,28 @@ export function itemEquip(ctx, payload) {
         if (inSlot.length >= limit) {
             ctx.fail('REFUSED', limit ? `For ${actor.name} ${limitWords(limit, slot)}: take one off first.` : `In this chat's rules ${limitWords(0, slot)}.`);
         }
+        const taken = new Set(worn.map(entry => entry.stack.equipped));
+        let n = 1;
+        while (taken.has(`${slot}-${n}`)) n += 1;
+        key = `${slot}-${n}`;
     }
     for (const entry of off) ctx.call('inventory.unequip', { stack: entry.stack.id });
-    ctx.call('inventory.equip', { stack: stack.id, slot });
+    ctx.call('inventory.equip', { stack: stack.id, slot: key });
+
+    // What came off, by what is worn now (the pieces put away above, and anything else the
+    // inventory took off to make room): the receipt says so.
+    const now = new Set(wornBy(inventoryOf({ domains: { inventory: ctx.read('inventory') } }), party, wearerId).map(entry => entry.stack.id));
+    const removed = worn.filter(entry => !now.has(entry.stack.id));
 
     const level = Math.max(1, Math.round(Number(actor.level) || 1));
     const result = capItem({ ...itemOf(stack, def), equipped: true }, level, rules);
     const gives = formatStats(result.stats);
     const capped = result.capped ? `, capped from ${formatStats(def.stats)} at level ${level}` : '';
-    const swapped = off.length ? `; puts away the ${off.map(entry => entry.def?.name ?? 'old piece').join(' and the ')}` : '';
+    const swapped = removed.length ? `; puts away the ${removed.map(entry => entry.def?.name ?? 'old piece').join(' and the ')}` : '';
     return {
         summary: `${actor.name} equips the ${def.name}${gives ? ` (${gives}${capped})` : ''}${swapped}.`,
         narrate: false,
-        data: { actor: wearerId, stack: stack.id, slot, stats: result.stats, capped: result.capped, removed: off.map(entry => entry.stack.id) },
+        data: { actor: wearerId, stack: stack.id, slot, key, stats: result.stats, capped: result.capped, removed: removed.map(entry => entry.stack.id), removedNames: removed.map(entry => entry.def?.name ?? '') },
     };
 }
 
@@ -158,7 +279,8 @@ export function itemUnequip(ctx, payload) {
 
 /**
  * `item.give` { stack, to, qty = 1 }: hands something to a party member (a companion, or back to
- * the main character). A piece being worn is taken off first. Calls `inventory.transfer`.
+ * the main character). A piece being worn is taken off first. Refused when the taker cannot
+ * carry it (the carry limit, carry.js): it stays with the giver. Calls `inventory.transfer`.
  */
 export function itemGive(ctx, payload) {
     const { stack, def, party } = stackFor(ctx, payload);
@@ -168,6 +290,8 @@ export function itemGive(ctx, payload) {
     if (!Number.isInteger(qty) || qty < 1) ctx.fail('INVALID', 'Give at least one.');
     if (qty > stack.qty) ctx.fail('NOT_ENOUGH', stack.qty > 0 ? `There ${stack.qty === 1 ? 'is' : 'are'} only ${stack.qty} ${def.name} to give.` : `There is no ${def.name} left.`);
     if (stack.owner === toId) ctx.fail('REFUSED', `${to.name} already carries the ${def.name}.`);
+    const fits = canCarry(inventoryOf(stateOf(ctx)), party, { owner: toId, add: [{ def, qty }], move: true, settings: ctx.settings() });
+    if (!fits.ok) ctx.fail('REFUSED', fits.message);
     if (stack.equipped) ctx.call('inventory.unequip', { stack: stack.id });
     ctx.call('inventory.transfer', { stack: stack.id, to: toId, qty });
     const what = qty === 1 ? `the ${def.name}` : `${qty} ${def.name}`;

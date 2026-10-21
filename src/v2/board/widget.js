@@ -12,6 +12,7 @@
 // What the reader is in the middle of (an open skill list, the target being picked, the log's scroll
 // position, the focused button) survives an update that does not move the fight on.
 
+import { levelTag } from '../../terms.js';
 import {
     clamp, docOf, ensureStyles, findWidget, h, icon, initials, isPlain, list, num, propProblems, resolveProps, slug, str, tidy,
 } from './dom.js';
@@ -26,6 +27,10 @@ const TARGET_LABELS = { one: 'one enemy', all: 'all enemies', self: 'self', ally
 const TYPE_ICONS = { physical: 'fa-hand-fist', magic: 'fa-wand-sparkles', heal: 'fa-heart-pulse', buff: 'fa-arrow-trend-up', debuff: 'fa-arrow-trend-down' };
 // Conditions that help whoever has them (v1's names and the session view's labels).
 const HELPFUL = new Set(['shield', 'shielded', 'regen', 'regenerating', 'guard', 'on-guard']);
+
+// The rules the level tag is read with: the chat's terms (MODULES §F25) over v1's plain Lv and XP.
+const termRules = terms => ({ terms: isPlain(terms) ? terms : {}, character: { maxLevel: 999 } });
+const xpWord = terms => (isPlain(terms) && str(terms.xpName) && str(terms.xpName) !== 'XP' ? str(terms.xpName) : 'XP');
 
 const props = {
     // The fight: the fields of the combat.session (or combat.board) view. A bound view is unfolded.
@@ -49,6 +54,7 @@ const props = {
     logLines: { type: 'number', default: LOG_LINES },
     portraits: { type: 'object', default: null },   // { [combatant id or name]: image URL } for ss.portrait
     currency: { type: 'string', default: '' },      // the money's name when the view does not say
+    terms: { type: 'object', default: null },       // party.terms ({ levelName, xpName, tiers }); combat.board carries it
     label: { type: 'string', default: 'Battle' },
 };
 
@@ -348,7 +354,7 @@ function render(el, input, api) {
 
         const tags = h(doc, 'span', 'rpg-bb-tags');
         const tag = (text, extra = '') => tags.append(h(doc, 'span', `rpg-bb-tag${extra}`, text));
-        if (num(unit.level, 0) >= 1) tag(`Lv ${Math.round(num(unit.level))}`);
+        if (num(unit.level, 0) >= 1) tag(levelTag(Math.round(num(unit.level)), termRules(p.terms)));
         if (isEnemy && str(unit.threat)) tag(str(unit.threat));
         if (unit.boss) tag('boss', ' rpg-bb-boss');
         if (unit.fresh) tag('new');
@@ -567,7 +573,7 @@ function render(el, input, api) {
         if (gains.length) {
             const dl = h(doc, 'dl', 'rpg-bb-gains');
             dl.setAttribute('aria-label', 'Experience');
-            for (const [name, amount] of gains) dl.append(h(doc, 'dt', '', name), h(doc, 'dd', '', `+${amount} XP`));
+            for (const [name, amount] of gains) dl.append(h(doc, 'dt', '', name), h(doc, 'dd', '', `+${amount} ${xpWord(p.terms)}`));
             box.append(dl);
         }
 

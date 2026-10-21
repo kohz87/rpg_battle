@@ -3,6 +3,7 @@
 
 import { capItem, equipped, gearBonuses } from '../../items.js';
 import { useItemOutside } from '../../recovery.js';
+import { canCarry, carryView } from './carry.js';
 import { helpsOutside, hostSettings, inventoryOf, itemOf, partyOf, rulesFrom, sheetOf, stackIds, wearerOf } from './shared.js';
 
 const copy = value => JSON.parse(JSON.stringify(value));
@@ -59,4 +60,24 @@ export function gear(state, { actor = null, settings } = {}) {
     const unused = worn.unused.map(({ item, why }) => ({ stack: item.stack, name: item.name, slot: item.slot, rarity: item.rarity, why }));
     const { capped: _capped, ...bonuses } = gearBonuses(items, level, rules);
     return copy({ actor: id, level, counted, unused, bonuses });
+}
+
+/**
+ * `items.carry({ owner?, add?, move?, settings? })` (MODULES §F39, carry.js): with `add`
+ * ([{ def (a whole def) | defId, qty }]), whether `owner` ('party', the shared bag, by default; or
+ * a member's id) can take it on: { ok, on, weight, owner, load, capacity, partyLoad,
+ * partyCapacity, message }; `move: true` for a hand-over between the party's own. Without `add`,
+ * where the party stands: { on, size, people: [{ id, name, load, capacity }], bag, load,
+ * capacity }. Settings: `args.settings`, else the query's tools' (the items part's), else the host's.
+ */
+export function carry(state, args = {}, tools = null) {
+    const inventory = inventoryOf(state);
+    const party = partyOf(state);
+    const settings = args?.settings ?? tools?.settings ?? hostSettings();
+    if (!Array.isArray(args?.add)) return copy(carryView(inventory, party, settings));
+    const add = args.add.map(entry => ({
+        def: entry?.def && typeof entry.def === 'object' ? entry.def : inventory.defs?.[entry?.defId ?? entry?.def] ?? { name: String(entry?.defId ?? entry?.def ?? 'thing') },
+        qty: Number.isInteger(entry?.qty) ? entry.qty : 1,
+    }));
+    return copy(canCarry(inventory, party, { owner: args.owner ?? 'party', add, move: args.move === true, settings }));
 }

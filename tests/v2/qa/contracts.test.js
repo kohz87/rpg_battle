@@ -75,23 +75,45 @@ each('item.equip → inventory.equip { stack, slot } and inventory.unequip { sta
     assert.equal(r.receipt.data.actor, pc);
 });
 
-each('item.equip of one accessory → inventory.equip { slot: accessory }', () => {
+each('item.equip of one accessory → inventory.equip { slot: accessory-1 } (its own key per allowed copy)', () => {
     const { h } = withHero();
     const ring = storyItem(h, 'Silver Ring', 1, 'a ring of LUK +2');
     const r = h.command('item.equip', { stack: stackOf(h, ring) });
     assert.equal(r.ok, true, r.message);
-    assert.deepEqual(sent(h, 'item.equip', 'inventory.equip'), [{ stack: stackOf(h, ring), slot: 'accessory' }]);
+    assert.deepEqual(sent(h, 'item.equip', 'inventory.equip'), [{ stack: stackOf(h, ring), slot: 'accessory-1' }]);
+    assert.equal(r.receipt.data.slot, 'accessory');
+    assert.equal(r.receipt.data.key, 'accessory-1');
 });
 
-each('item.equip: a second accessory (rules allow 2) is worn beside the first, not in its place', { todo: 'inventory.equip keeps one stack per owner+slot name and silently puts the first ring away; items.equip counts 2 accessories (v1 gearLimits) and its summary does not say the first came off' }, () => {
+each('item.equip: a second accessory (rules allow 2) is worn beside the first, not in its place; a third is refused', () => {
     const { h } = withHero();
     const silver = storyItem(h, 'Silver Ring', 1, 'a ring of LUK +2');
     const gold = storyItem(h, 'Gold Ring', 1, 'a ring of DEX +2');
+    const jade = storyItem(h, 'Jade Ring', 1, 'a ring of INT +2');
     assert.equal(h.command('item.equip', { stack: stackOf(h, silver) }).ok, true);
     const r = h.command('item.equip', { stack: stackOf(h, gold) });
     assert.equal(r.ok, true, r.message);
-    const worn = h.query('inventory.items').filter(row => row.equipped).map(row => row.def).sort();
-    assert.deepEqual(worn, [gold, silver].sort());
+    assert.deepEqual(r.receipt.data.removed, [], 'nothing came off');
+    assert.doesNotMatch(r.receipt.summary, /puts away/);
+    const worn = h.query('inventory.items').filter(row => row.equipped);
+    assert.deepEqual(worn.map(row => [row.def, row.equipped]).sort(), [[gold, 'accessory-2'], [silver, 'accessory-1']].sort());
+    assert.equal(h.query('items.gear', {}).counted.length, 2, 'both count');
+    const third = h.command('item.equip', { stack: stackOf(h, jade) });
+    assert.equal(third.code, 'REFUSED');
+    // Taking the first off frees its key for the next.
+    assert.equal(h.command('item.unequip', { stack: stackOf(h, silver) }).ok, true);
+    assert.equal(h.command('item.equip', { stack: stackOf(h, jade) }).ok, true);
+    assert.equal(h.query('inventory.items').find(row => row.def === jade).equipped, 'accessory-1');
+});
+
+each('item.equip: a weapon swapped says what came off', () => {
+    const { h } = withHero();
+    const a = storyItem(h, 'Iron Sword', 1, 'a plain sword, ATK +2');
+    const b = storyItem(h, 'Steel Axe', 1, 'an axe, ATK +3');
+    assert.equal(h.command('item.equip', { stack: stackOf(h, a) }).ok, true);
+    const r = h.command('item.equip', { stack: stackOf(h, b) });
+    assert.match(r.receipt.summary, /; puts away the Iron Sword\.$/);
+    assert.deepEqual(r.receipt.data.removed, [stackOf(h, a)]);
 });
 
 each('item.give → inventory.transfer { stack, to, qty }: the callee moves exactly qty to that actor', () => {

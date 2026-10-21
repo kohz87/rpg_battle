@@ -59,3 +59,19 @@ export function pcOf(party) {
     const level = Number.isInteger(pc?.level) && pc.level > 0 ? pc.level : 1;
     return { level, name: String(pc?.name ?? '') };
 }
+
+/**
+ * Whether the party can carry `qty` of `def` (a whole def) into its keeping: null when it can (or
+ * when no part keeps a carry limit), else the items part's answer ({ ok: false, message }, MODULES
+ * §F39). Asked before anything is paid or taken, so a refusal loses nothing.
+ */
+export function tooHeavy(ctx, def, qty) {
+    let fits;
+    try {
+        fits = ctx.query('items.carry', { owner: KEEPER, add: [{ def, qty }] });
+    } catch (error) {
+        if (error?.code === 'NOT_FOUND' || /no query/i.test(String(error?.message ?? ''))) return null;
+        throw error;
+    }
+    return fits && fits.ok === false ? fits : null;
+}

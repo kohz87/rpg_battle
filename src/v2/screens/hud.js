@@ -1,7 +1,7 @@
 // RPG Battle v2, screen `rpg-battle/hud` (SPEC §13.4 `hud`: a thin strip above the message box, head
 // state): your character's portrait, name and level, HP and MP meters, condition badges (icons with
-// the turns left), and how many checks wait for a roll (MODULES §F16). Before a character exists it
-// says so in one line (creation is mandatory, MODULES §F12).
+// the turns left). Before a character exists it says so in one line (creation is mandatory,
+// MODULES §F12). Checks are rolled in the reply that writes them (MODULES §F80): nothing waits here.
 
 import { THEME, sheet } from './style.js';
 
@@ -19,7 +19,6 @@ const template = `
   <div class="badges" data-if="len(q.hud.pc.badges) > 0">
     <ss-widget data-each="q.hud.pc.badges as b" name="ss.badge" data-props='{"bind":"b"}'></ss-widget>
   </div>
-  <span class="checks" data-if="q.hud.pending > 0" data-bind-attr="title: q.hud.pendingText; aria-label: q.hud.pendingText"><i class="fa-solid fa-dice-d20"></i>{{ q.hud.pending }}</span>
 </div>
 <div class="rb rb-hud none-yet" data-if="!q.hud.ready"><i class="fa-solid fa-user-plus"></i>Create your character to begin the story.</div>
 `;
@@ -43,12 +42,6 @@ const css = sheet(`
 .rb .ss-w-meter { --ss-w-meter-height: 6px; gap: 1px; }
 .rb .ss-w-meter-head { font-size: 0.75em; }
 .badges { flex: 0 1 auto; flex-wrap: nowrap; overflow: hidden; }
-.checks {
-  display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; padding: 2px 8px; border-radius: 999px;
-  font-weight: 700; font-variant-numeric: tabular-nums;
-  background: color-mix(in srgb, var(--rb-accent) 22%, transparent); border: 1px solid color-mix(in srgb, var(--rb-accent) 55%, transparent);
-}
-.checks i { color: var(--rb-accent); }
 .none-yet { justify-content: center; color: var(--rb-muted); font-style: italic; }
 .none-yet i { margin-right: 6px; color: var(--rb-accent); font-style: normal; }
 @container rb-screen (max-width: 420px) {

@@ -1,9 +1,8 @@
 // RPG Battle v2, screen `rpg-battle/items` (MODULES §B2 "Tab page: Items"): what the party carries,
-// one line each. Consumables have a Use button per person who can take a dose (`item.use { stack,
-// target }`; a dashed button is someone a dose would not help now, which item.use refuses without
-// using it up); equipment has Equip or Take off (`item.equip` / `item.unequip { stack }`); anything
-// can be given to another member (`item.give { stack, to }`). Every click is one command, so two
-// clicks are two doses.
+// one line each. Consumables show what they do and who would gain from a dose now; using one is
+// the story's (MODULES §F96: `! use <item> | on: Name`), so there is no Use button. Equipment has
+// Equip or Take off (`item.equip` / `item.unequip { stack }`); anything can be given to another
+// member (`item.give { stack, to }`): bag management, told to the next reply. With the carry limit on (MODULES §F39), a line says what the party carries.
 
 import { THEME, sheet } from './style.js';
 
@@ -19,6 +18,7 @@ const rarity = "r-uncommon: r.rarity == 'uncommon'; r-rare: r.rarity == 'rare'; 
 
 const template = `
 <div class="rb rb-items">
+  <p class="carry" data-if="q.items.carry.on" data-class="over: q.items.carry.over"><i class="fa-solid fa-weight-hanging"></i>{{ q.items.carry.text }}</p>
   <p class="empty" data-if="q.items.empty"><i class="fa-solid fa-box-open"></i>The party carries nothing to use, wear or give.</p>
 
   <section class="group" data-if="len(q.items.consumables) > 0">
@@ -30,8 +30,8 @@ const template = `
           <small class="sub">{{ r.effect }} · {{ r.holder }}</small>
         </div>
         <div class="acts">
-          <span class="lbl">Use on</span>
-          <button class="btn chip" data-each="r.targets as t" data-class="idle: t.helps == false" data-bind-attr="title: t.title" data-command="item.use" data-payload='{"stack":"{{ r.stack }}","target":"{{ t.id }}"}'>{{ t.name }}</button>${give}
+          <span class="lbl">Would help</span>
+          <span class="chip who" data-each="r.targets as t" data-if="t.helps != false">{{ t.name }}</span>${give}
         </div>
       </li>
     </ul>
@@ -71,6 +71,10 @@ const template = `
 
 const css = sheet(`
 .rb-items { gap: 14px; }
+.chip.who { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px; font-size: 0.82em; background: var(--rb-raised); }
+.carry { margin: 0; font-size: 0.85em; color: var(--rb-muted); }
+.carry i { margin-right: 6px; }
+.carry.over { color: var(--rb-bad); }
 .gear.worn { background: color-mix(in srgb, var(--rb-accent) 10%, transparent); border-color: color-mix(in srgb, var(--rb-accent) 30%, transparent); }
 .gear .on { margin-right: 5px; font-size: 0.85em; color: var(--rb-good); }
 @container rb-screen (max-width: 480px) {

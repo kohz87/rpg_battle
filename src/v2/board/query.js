@@ -1,7 +1,8 @@
 // combat.board: the `combat.session` view (src/v2/combat/view.js) with what the battle board shows
 // beside it and the session view leaves out: each skill's cost, pool and cooldown, the turns a
 // condition has left, which foes will talk, where the turn stands in the order, and, once the fight
-// is over, the result Finish will apply (outcome, XP per member, loot as v1 rolls it). Pure: the fight
+// is over, the result Finish will apply (outcome, XP per member, loot as v1 rolls it), and the chat's
+// level and XP words (`terms`, from party.terms) for the tags and the result. Pure: the fight
 // is rebuilt from the State with v1's replay, like every other view of it.
 
 import { summarize } from '../../combat.js';
@@ -18,6 +19,16 @@ function currencyName(tools) {
         return typeof currency?.name === 'string' ? currency.name : '';
     } catch {
         return '';
+    }
+}
+
+/** The chat's level and XP words (party.terms, MODULES §F25), or null without the party part. */
+function termsOf(tools) {
+    try {
+        const terms = tools?.query?.('party.terms');
+        return terms && typeof terms === 'object' ? terms : null;
+    } catch {
+        return null;
     }
 }
 
@@ -80,5 +91,6 @@ export function boardView(state, args, tools) {
             }),
         },
         result: base.status === 'active' ? null : resultOf(fight, rules, currencyName(tools)),
+        terms: termsOf(tools),
     };
 }

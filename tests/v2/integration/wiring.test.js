@@ -176,7 +176,7 @@ test('screens and widgets: every part\'s registered with Story Block; no hand-bu
         const screens = host.registry.screens().filter(screen => screen.moduleId === MODULE_ID).map(screen => screen.id);
         assert.deepEqual(screens, ['rpg-battle/create', 'rpg-battle/fight', 'rpg-battle/party', 'rpg-battle/items', 'rpg-battle/trade', 'rpg-battle/hud', 'rpg-battle/status-card']);
         const widgets = host.registry.widgets().filter(widget => widget.moduleId === MODULE_ID).map(widget => widget.name);
-        assert.deepEqual(widgets, ['rpg-battle.battle-board', 'rpg-battle.check-card', 'rpg-battle.preset-pick', 'rpg-battle.return-card']);
+        assert.deepEqual(widgets, ['rpg-battle.battle-board', 'rpg-battle.preset-pick', 'rpg-battle.return-card']);
         const def = host.registry.modules().find(entry => entry.id === MODULE_ID);
         assert.deepEqual(def.tabs, []);
         // Each screen's data queries are registered.

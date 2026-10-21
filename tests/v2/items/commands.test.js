@@ -141,7 +141,7 @@ test('item.equip: a two-handed weapon puts the off-hand away; an off-hand beside
     const h = harness();
     const result = h.run('item.equip', { stack: 'it_great001' });
     assert.equal(result.ok, true);
-    assert.deepEqual(result.receipt.data.removed, ['it_dagger01', 'it_buckle01']);
+    assert.deepEqual(result.receipt.data.removed, ['it_buckle01', 'it_dagger01']);
     const stacks = h.state().domains.inventory.stacks;
     assert.equal(stacks.it_buckle01.equipped, null);
     refused(h, 'item.equip', { stack: 'it_buckle01' }, 'REFUSED', 'The Greatsword is two-handed: put it away before taking up the Oak Buckler.');

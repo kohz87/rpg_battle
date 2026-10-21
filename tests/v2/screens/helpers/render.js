@@ -58,7 +58,7 @@ export function draw(screen, state, { mount = screen.mounts[0], changes = [], se
     };
     let data = null;
     const scopeFor = (current, currentChanges) => {
-        data = resolveData(screen.data, (name, args) => runQuery(name, args, current));
+        data = resolveData(screen.data, (name, args) => runQuery(name, args, current, settings));
         if (!data.ok) throw new Error(data.message);
         return { state: current, q: data.q, draft, settings, changes: [...currentChanges], mount, index: 0, screenId: screen.id, api: {} };
     };

@@ -423,3 +423,30 @@ test('no innerHTML or other markup parsing anywhere in the board', () => {
         }
     }
 });
+
+test('the chat\'s terms (party.terms, MODULES §F25): level tags and XP rows use its words; plain Lv and XP without', () => {
+    const world = liveFight();
+    const terms = { levelName: 'Soul Class', xpName: 'Soul Growth', tiers: null };
+    // The board query carries party.terms when the tools have it.
+    const tools = { query: name => (name === 'party.terms' ? terms : name === 'inventory.currency' ? { name: 'gold', short: 'g' } : null) };
+    assert.deepEqual(boardView(world.state, {}, tools).terms, terms);
+    assert.equal(boardOf(world).terms, null, 'no party part answering: no terms, plain words');
+    const tagsOf = el => el.querySelectorAll('.rpg-bb-tag').map(node => node.textContent);
+    const plain = mount(world);
+    assert.ok(tagsOf(plain.el).includes('Lv 6'));
+    const named = mount(world, { view: w => ({ ...boardOf(w), terms }) });
+    assert.ok(tagsOf(named.el).includes('Soul Class 6'));
+    assert.ok(!tagsOf(named.el).includes('Lv 6'));
+    // Tiers: the tier title stands for the level.
+    const tiered = mount(world, { view: w => ({ ...boardOf(w), terms: { ...terms, tiers: { size: 5, numerals: 'roman' } } }) });
+    assert.ok(tagsOf(tiered.el).includes('Soul Class II'));
+    // The result's XP rows.
+    for (let n = 0; n < 200 && world.state.domains.combat.session.status === 'active'; n++) {
+        byAct(named.el, 'attack').click();
+        named.el.querySelector('.rpg-bb-pickable')?.click();
+    }
+    const won = mount(world, { view: w => ({ ...boardOf(w), terms }) });
+    const rows = won.el.querySelectorAll('.rpg-bb-gains dd').map(node => node.textContent);
+    assert.ok(rows.length >= 1);
+    assert.ok(rows.every(text => /^\+\d+ Soul Growth$/.test(text)), rows.join(', '));
+});

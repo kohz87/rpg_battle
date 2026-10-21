@@ -120,25 +120,14 @@ test('cards: a companion NSD knows gets its portrait through party.actors (MODUL
     assert.equal(actorCard(state.domains.party.actors[LYRA], state.domains.party, { portrait: 'https://example.org/x.png' }).portrait, 'https://example.org/x.png');
 });
 
-test('hud: your character, and the checks still waiting for a roll (checks.pending)', () => {
+test('hud: your character; checks no longer wait for a roll (MODULES §F80)', () => {
     const state = makeState();
     assert.deepEqual(validateChecks(state.domains.checks), [], 'the fixture is a valid checks slice');
     const view = ask(hud, state);
     assert.equal(view.ready, true);
     assert.equal(view.pc.id, PC);
-    assert.equal(view.pending, 1);
-    assert.equal(view.pendingText, '1 check waits for a roll');
-    state.domains.checks.pending.push({ ...state.domains.checks.pending[0], id: 'ck_bbbbbbbb' });
-    assert.equal(ask(hud, state).pending, 2);
-    assert.equal(ask(hud, state).pendingText, '2 checks wait for a roll');
-    // Without the checks part's query the domain is read as it is.
-    assert.equal(hud(state, {}, null).pending, 2);
-    state.domains.checks.pending = [];
-    assert.equal(ask(hud, state).pending, 0);
-    delete state.domains.checks;
-    assert.equal(hud(state, {}, null).pending, 0);
-    const none = ask(hud, emptyState());
-    assert.deepEqual(none, { ready: false, pc: null, pending: 0, pendingText: '0 checks wait for a roll' });
+    assert.deepEqual(Object.keys(view).sort(), ['pc', 'ready']);
+    assert.deepEqual(ask(hud, emptyState()), { ready: false, pc: null });
 });
 
 test('settings: the party part\'s keys as the module keeps them (party.xpBase) or bare', () => {

@@ -19,8 +19,8 @@ test('the merged module is a valid Story Block module with every part\'s pieces'
         for (const name of Object.keys(part.widgets ?? {})) assert.ok(module.widgets[name], name);
         for (const screen of part.screens ?? []) assert.ok(module.screens.includes(screen), screen.id);
     }
-    assert.deepEqual(Object.keys(module.capture.kinds).sort(), ['check', 'encounter', 'join', 'leave', 'rest', 'skill', 'wound']);
-    assert.deepEqual(Object.keys(module.widgets).sort(), ['rpg-battle.battle-board', 'rpg-battle.check-card', 'rpg-battle.preset-pick', 'rpg-battle.return-card']);
+    assert.deepEqual(Object.keys(module.capture.kinds).sort(), ['check', 'encounter', 'join', 'leave', 'market', 'rest', 'skill', 'use', 'wound']);
+    assert.deepEqual(Object.keys(module.widgets).sort(), ['rpg-battle.battle-board', 'rpg-battle.preset-pick', 'rpg-battle.return-card']);
     assert.deepEqual(module.screens.map(screen => screen.id), ['rpg-battle/create', 'rpg-battle/fight', 'rpg-battle/party', 'rpg-battle/items', 'rpg-battle/trade', 'rpg-battle/hud', 'rpg-battle/status-card']);
     assert.equal(typeof module.queries[REV_QUERY], 'function');
     // Party keeps check.resolve; the check line is the checks part's.
@@ -152,9 +152,9 @@ test('item.define: the items part\'s rules with its settings; beforeGenerate: th
     const out = module.hooks['item.define'](def, { note: 'mp 20', owner: 'party' });
     assert.equal(out.kind, 'consumable');
     assert.equal(out.effect.mp, 20);
-    const pending = { pending: [{ id: 'ck_00000001', actor: 'ac_00000001' }] };
-    const cues = await module.hooks.beforeGenerate({ state: { domains: { checks: pending, party: { actors: { ac_00000001: { name: 'Ren' } } } } }, query: () => { throw new Error('none'); } });
-    assert.deepEqual(cues, { lines: [], commands: [{ type: 'check.roll', payload: { id: 'ck_00000001' } }] });
+    // MODULES §F80: fresh rolls for the reply about to be written (module.js hands the hook the view).
+    const cues = await module.hooks.beforeGenerate({ state: { domains: { checks: { prepared: [], log: [], last: null } } }, chat: { length: 6, lastUser: '' }, query: () => { throw new Error('none'); } });
+    assert.deepEqual(cues, { lines: [], commands: [{ type: 'checks.prepare', payload: { for: 6 } }] });
 });
 
 test('index.js: registers the module with Story Block v2; without it, one drawer line and nothing else', async () => {

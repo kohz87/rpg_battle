@@ -154,24 +154,18 @@ test('party: low HP and a fallen member are marked; a second render changes noth
     assert.equal(drawn.widgets.length, before, 'no widget is drawn again when its props did not change');
 });
 
-test('items: Use on each person, Equip / Take off, Give, with the payloads the item commands take', { skip }, async () => {
+test('items: no Use button (MODULES §F96); who a dose would help; Equip / Take off, Give with their payloads', { skip }, async () => {
     const drawn = draw(itemsScreen, makeState());
     assert.deepEqual(drawn.warnings, []);
     const rows = all(drawn.el, 'li.item');
     assert.deepEqual(rows.map(row => text(row.querySelector('.nm'))), ['Mana Tonic', 'Minor Healing Draught×2', 'Antidote', 'Iron Dagger', 'Steel Blade', 'Odd <b>Name</b>', 'Rope', 'Wolf Pelt×3']);
     // Text from the story stays text.
     assert.equal(all(drawn.el, 'b').filter(node => text(node) === 'Name').length, 0);
+    assert.equal(all(drawn.el, 'button').filter(button => button.getAttribute('data-command') === 'item.use').length, 0, 'using is the story\'s');
 
     const draught = rows[1];
     assert.equal(text(draught.querySelector('.sub')), '+20 HP · shared');
-    const uses = buttons(draught, 'item.use');
-    assert.deepEqual(uses.map(button => [text(button), button.classList.contains('idle'), button.getAttribute('title')]), [
-        ['Ren', false, 'Use on Ren'], ['Lyra', true, 'Lyra would not gain anything now'],
-    ]);
-    await click(uses[0]);
-    assert.deepEqual(drawn.commands.pop(), { type: 'item.use', payload: { stack: 'it_draught1', target: PC } });
-    await click(uses[1]);
-    assert.deepEqual(drawn.commands.pop(), { type: 'item.use', payload: { stack: 'it_draught1', target: LYRA } });
+    assert.deepEqual(all(draught, '.chip.who').map(text), ['Ren'], 'Lyra would not gain from a dose now');
 
     const dagger = rows[3];
     assert.ok(dagger.classList.contains('worn'));
@@ -192,14 +186,6 @@ test('items: Use on each person, Equip / Take off, Give, with the payloads the i
     await click(buttons(rows[6], 'item.give')[0]);
     assert.deepEqual(drawn.commands.pop(), { type: 'item.give', payload: { stack: 'it_rope0001', to: LYRA } });
     assert.deepEqual(drawn.commands, []);
-});
-
-test('items: the same Use twice is two commands (two doses)', { skip }, async () => {
-    const drawn = draw(itemsScreen, makeState());
-    const use = buttons(all(drawn.el, 'li.item')[1], 'item.use')[0];
-    await click(use);
-    await click(use);
-    assert.equal(drawn.commands.filter(entry => entry.type === 'item.use').length, 2);
 });
 
 test('items: an empty bag says so', { skip }, () => {
@@ -286,7 +272,7 @@ test('trade: away from a market only the line and the orders show, with nothing 
     assert.match(text(drawn.el), /Skull Ring .*ready: collect at a market/);
 });
 
-test('hud: your HP and MP, condition badges, and the checks waiting', { skip }, () => {
+test('hud: your HP and MP and condition badges; no checks wait (MODULES §F80)', { skip }, () => {
     const drawn = draw(hudScreen, makeState());
     assert.deepEqual(drawn.warnings, []);
     const strip = drawn.el.querySelector('.rb-hud');
@@ -295,16 +281,9 @@ test('hud: your HP and MP, condition badges, and the checks waiting', { skip }, 
     assert.deepEqual(widgetsIn(strip, 'ss.meter').map(el => [propsOf(el).label, propsOf(el).value]), [['HP', { cur: 57, max: 82 }], ['MP', { cur: 30, max: 40 }]]);
     assert.deepEqual(widgetsIn(strip, 'ss.badge').map(el => propsOf(el).value.icon), ['fa-skull-crossbones', 'fa-droplet']);
     assert.deepEqual(widgetsIn(strip, 'ss.portrait').map(el => propsOf(el).size), ['sm']);
-    const checks = strip.querySelector('.checks');
-    assert.equal(text(checks), '1');
-    assert.equal(checks.getAttribute('title'), '1 check waits for a roll');
+    assert.equal(strip.querySelector('.checks'), null);
     assert.equal(drawn.el.querySelector('.none-yet'), null);
     checkProps(drawn);
-
-    const state = makeState();
-    state.domains.checks.pending = [];
-    drawn.rerender(state);
-    assert.equal(drawn.el.querySelector('.checks'), null);
 });
 
 test('hud: before creation, one line saying what to do', { skip }, () => {
@@ -348,12 +327,30 @@ test('status card: level-ups and skills are named; "only what changed" hides the
     assert.equal(drawn.el.querySelector('.changes'), null);
 });
 
-test('status card: the setting read bare works the same; a new check is named', { skip }, () => {
-    const drawn = draw(statusCardScreen, makeState(), { changes: ['/domains/checks/pending/0'], settings: { cardOnlyChanged: true } });
+test('status card: the reply\'s checks with code\'s result and the mismatch flag; only on that reply', { skip }, () => {
+    const drawn = draw(statusCardScreen, makeState(), { changes: ['/domains/checks/last'], settings: { cardOnlyChanged: true } });
     assert.deepEqual(drawn.warnings, []);
     assert.equal(all(drawn.el, '.member').length, 0);
-    assert.deepEqual(all(drawn.el, '.changes .chg').map(text), ['Check']);
+    const [check] = all(drawn.el, '.checks .check');
+    assert.equal(text(check.querySelector('.who')), 'Ren');
+    assert.equal(text(check.querySelector('.txt')), 'stealth (slipping past the guard): Roll 1 = 12 + 0 = 12 against 20 (hard)');
+    assert.equal(text(check.querySelector('.out')), 'fail');
+    assert.ok(!check.classList.contains('pass'));
+    assert.ok(check.classList.contains('off'));
+    assert.equal(text(check.querySelector('.flag')), 'narrated as success, the dice say fail');
     assert.equal(drawn.el.querySelector('.calm'), null);
+    // Another reply (that did not write these checks) does not show them.
+    drawn.rerender(makeState(), ['/domains/party/actors/ac_lyra0001/mp']);
+    assert.equal(all(drawn.el, '.checks .check').length, 0);
+});
+
+test('status card: the level and XP words are the chat\'s terms (party.terms)', { skip }, () => {
+    const plain = draw(statusCardScreen, makeState(), { changes: ['/domains/party/actors/ac_ren00001/level'] });
+    assert.match(text(plain.el.querySelector('.chg.up')), /^Lv\s*3$/);
+    const terms = draw(statusCardScreen, makeState(), { changes: ['/domains/party/actors/ac_ren00001/level'], settings: { terms: { levelName: 'Soul Class', xpName: 'Soul Growth' } } });
+    assert.match(text(terms.el.querySelector('.chg.up')), /^Soul Class\s*3$/);
+    const xp = draw(statusCardScreen, makeState(), { changes: ['/domains/party/actors/ac_ren00001/xp'], settings: { terms: { levelName: 'Soul Class', xpName: 'Soul Growth' } } });
+    assert.match(text(xp.el.querySelector('.tags .chg')), /^Soul Growth$/);
 });
 
 test('status card: a reply that changed nothing for the party says so; an older reply keeps its own marks', { skip }, () => {

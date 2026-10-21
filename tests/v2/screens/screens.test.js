@@ -77,7 +77,7 @@ test('data bindings name the view queries; the status card reads the reply\'s ow
     assert.deepEqual(byId['rpg-battle/items'].data, { items: { query: 'rpg-battle.items' } });
     assert.deepEqual(byId['rpg-battle/trade'].data, { trade: { query: 'rpg-battle.trade' } });
     assert.deepEqual(byId['rpg-battle/hud'].data, { hud: { query: 'rpg-battle.hud' } });
-    assert.equal(byId['rpg-battle/status-card'].data, undefined);
+    assert.deepEqual(byId['rpg-battle/status-card'].data, { terms: { query: 'party.terms' } });
     assert.match(byId['rpg-battle/status-card'].template, /changed\(state\.party\.actors\[id\]\.hp\)/);
     for (const screen of screens) {
         const aliases = new Set(Object.keys(screen.data ?? {}));
@@ -168,7 +168,7 @@ test('buttons run commands RPG Battle has; widgets are the standard ss.* set', (
         assert.equal((screen.template.match(/<ss-widget/g) ?? []).length, (screen.template.match(/<\/ss-widget>/g) ?? []).length, screen.id);
     }
     assert.deepEqual([...used].sort(), [
-        'craft.collect', 'craft.commission', 'item.equip', 'item.give', 'item.unequip', 'item.use',
+        'craft.collect', 'craft.commission', 'item.equip', 'item.give', 'item.unequip',
         'party.acceptOffer', 'party.dismissOffer', 'party.setSkillActive', 'party.spend', 'trade.buy', 'trade.sell',
     ]);
     const widgets = new Set(screens.flatMap(screen => [...screen.template.matchAll(WIDGET_TAG)].map(match => match[1])));
