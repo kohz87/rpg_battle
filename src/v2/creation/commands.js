@@ -319,7 +319,8 @@ function wearable(worn, settings) {
  * creation.import { character, name?, portrait?, background? }: your character from a character
  * file (`party.export`'s `data.character`) instead of the wizard. The party part checks the file
  * by this chat's rules (party.import: level cap, stat cap, the points a character of that level
- * can have, the skills) and makes the character; then what they carried comes into the party's
+ * can have, the skills; what it carries held to a count and a worth, and the purse to a cap, for
+ * its level) and makes the character; then what they carried comes into the party's
  * bag through inventory.grant (priced by this chat), the worn pieces are put on (item.equip,
  * those the rules here allow) and the purse arrives (wallet.receive). The name and background are
  * the persona's when the opener gives them (MODULES §F22), else the file's. Nothing is saved when
@@ -375,11 +376,12 @@ function importCharacter(ctx, payload = {}) {
     const carried = things ? `, carrying ${plural(things, 'thing')}${equipped.length ? ` (wearing ${equipped.join(', ')})` : ''}` : '';
     // What the file held beyond what a character may bring is left behind, and said so.
     const cut = made.data.cut ?? {};
-    const behind = [cut.things > 0 ? plural(cut.things, 'thing') : '', cut.purse > 0 ? `${cut.purse} of the purse` : ''].filter(Boolean);
+    const over = (cut.things ?? 0) + (cut.worth ?? 0);
+    const behind = [over > 0 ? plural(over, 'thing') : '', cut.purse > 0 ? `${cut.purse} of the purse` : ''].filter(Boolean);
     const left = behind.length ? ` ${behind.join(' and ')} stayed behind: more than a character of that level brings.` : '';
     return {
         summary: `${pc.name} arrives from another story (${levelText(pc.level, termsRules(settingsOf(ctx), pc.level))}${carried}).${left}`,
-        data: { actor: pc.id, level: pc.level, items: things, equipped, purse, ...(behind.length ? { cut: { things: cut.things ?? 0, purse: cut.purse ?? 0 } } : {}) },
+        data: { actor: pc.id, level: pc.level, items: things, equipped, purse, ...(behind.length ? { cut: { things: cut.things ?? 0, worth: cut.worth ?? 0, purse: cut.purse ?? 0 } } : {}) },
         narrate: false,
     };
 }

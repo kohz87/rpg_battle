@@ -19,6 +19,7 @@ import { recompute } from '../../sheet.js';
 import { maxLevel } from '../../terms.js';
 import { cleanName, cleanRole, nameKey } from './util.js';
 import { capEffect, capStats, storyRarity } from '../limits.js';
+import { itemWorth } from '../../trade.js';
 
 export const CHARACTER_FILE_VERSION = 1;
 const MAX_SKILLS = 40;
@@ -31,6 +32,13 @@ const MAX_QTY = 9999;
 export const MAX_THINGS = 300;
 export const PURSE_PER_LEVEL = 250;
 export const purseCap = level => PURSE_PER_LEVEL * level * level;
+// And what its things are worth in all (B-b3-r2-4): at most WORTH_PURSES purses of its level (a
+// level-1 file brings things worth 500 at most), each piece priced as this chat prices it. The
+// worn pieces are counted first, then the rest in the file's order; a thing that no longer fits
+// is left behind, and said so, as for the count and the purse. Identical defs in a file are one
+// def (folded, their counts added), so a file cannot make 200 "Epic Sword" defs out of one.
+export const WORTH_PURSES = 2;
+export const worthCap = level => WORTH_PURSES * purseCap(level);
 const ITEM_KINDS = ['goods', 'material', 'consumable', 'equipment', 'quest'];
 const MAX_BACKGROUND = 2000;
 const SKILL_TYPES = ['physical', 'magic', 'heal', 'buff', 'debuff'];
@@ -112,10 +120,13 @@ export function originIds(origin) {
  * chat does not know them), `penalty` what they take off each stat ({ STAT: n ≤ 0 }): no stat
  * may be below the start value less its penalty, and only what is above it is paid for (B-b4-9).
  * `name` overrides the file's (the persona's, MODULES §F22). The items are held to this chat's
- * limits (def numbers: limits.js, at the file's level; never legendary; no price), their count to
- * MAX_THINGS and the purse to purseCap(level); what is cut is in `character.cut`.
+ * limits (def numbers: limits.js, at the file's level; never legendary; no price), identical defs
+ * folded into one, their count to MAX_THINGS, their worth to worthCap(level) and the purse to
+ * purseCap(level); what is cut is in `character.cut` ({ things, worth, purse }: things over the
+ * count, things over the worth, coin over the purse). `worth(def, level)` is what one of a checked
+ * def is worth in this chat (the caller's pricing); v1's itemWorth at the file's level when not given.
  */
-export function readCharacter(file, { rules, bonus = 0, penalty = {}, name: nameOverride = null } = {}) {
+export function readCharacter(file, { rules, bonus = 0, penalty = {}, name: nameOverride = null, worth = null } = {}) {
     if (!isRecord(file) || file.rpgBattleCharacter === undefined) return refuse('INVALID', 'That is not an RPG Battle character file.');
     if (file.rpgBattleCharacter !== CHARACTER_FILE_VERSION) return refuse('INVALID', `That character file is version ${file.rpgBattleCharacter}; this RPG Battle reads version ${CHARACTER_FILE_VERSION}.`);
     const name = cleanName(nameOverride ?? file.name);
@@ -184,17 +195,41 @@ export function readCharacter(file, { rules, bonus = 0, penalty = {}, name: name
     // Items and the purse.
     if (file.items !== undefined && !Array.isArray(file.items)) return refuse('INVALID', 'Items must be a list.');
     if ((file.items ?? []).length > MAX_ITEMS) return refuse('REFUSED', `A character file holds ${MAX_ITEMS} kinds of item at most.`);
-    const items = [];
-    let room = MAX_THINGS;
-    let thingsCut = 0;
+    // Identical defs (as this chat takes them) are one: their counts added, worn when any was.
+    const folded = new Map();
     for (const entry of file.items ?? []) {
         if (!isRecord(entry) || !isRecord(entry.def) || typeof entry.def.name !== 'string' || !entry.def.name.trim()) return refuse('INVALID', 'Each item needs a definition with a name.');
         if (!isWhole(entry.qty, 1) || entry.qty > MAX_QTY) return refuse('INVALID', `${entry.def.name}: the quantity must be a whole number from 1 to ${MAX_QTY}.`);
+        const def = fileDef(entry.def, file.level, r);
+        const key = defKey(def);
+        const same = folded.get(key);
+        if (same) {
+            same.qty += entry.qty;
+            same.equipped ||= entry.equipped === true;
+        } else folded.set(key, { def, qty: entry.qty, equipped: entry.equipped === true });
+    }
+    let room = MAX_THINGS;
+    let thingsCut = 0;
+    const counted = [];
+    for (const entry of folded.values()) {
         const qty = Math.min(entry.qty, room);
         thingsCut += entry.qty - qty;
         room -= qty;
-        if (qty > 0) items.push({ def: fileDef(entry.def, file.level, r), qty, equipped: entry.equipped === true });
+        if (qty > 0) counted.push({ ...entry, qty });
     }
+    // Their worth: the worn pieces first, then the rest in the file's order, while it lasts.
+    const priceOf = typeof worth === 'function' ? worth : def => defaultWorth(def, file.level, r);
+    let budget = worthCap(file.level);
+    let worthCut = 0;
+    const keep = new Map();
+    for (const entry of [...counted.filter(item => item.equipped), ...counted.filter(item => !item.equipped)]) {
+        const each = Math.max(0, Math.round(Number(priceOf(entry.def, file.level)) || 0));
+        const qty = each > 0 ? Math.min(entry.qty, Math.floor(budget / each)) : entry.qty;
+        budget -= qty * each;
+        worthCut += entry.qty - qty;
+        keep.set(entry, qty);
+    }
+    const items = counted.filter(entry => keep.get(entry) > 0).map(entry => ({ ...entry, qty: keep.get(entry) }));
     const written = file.purse ?? 0;
     if (!isWhole(written)) return refuse('INVALID', 'The purse must be a whole number, 0 or more.');
     const purse = Math.min(written, purseCap(file.level));
@@ -209,8 +244,18 @@ export function readCharacter(file, { rules, bonus = 0, penalty = {}, name: name
         conditions: [],
         uses: Object.fromEntries(skills.filter(skill => skill.uses > 0 && skill.mastery < r.masteryMax).map(skill => [skill.name, skill.uses])),
     }, [], r);
-    const cut = { things: thingsCut, purse: written - purse };
+    const cut = { things: thingsCut, worth: worthCut, purse: written - purse };
     return { ok: true, character: { name, role, background, origin: originIds(file.origin), sheet, custom, items, purse, cut } };
+}
+
+/** A checked def as a key: two defs with the same key are the same thing (stats in any order). */
+const defKey = def => JSON.stringify({ ...def, stats: Object.fromEntries(Object.entries(def.stats).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) });
+
+/** What one of a checked def is worth by v1's itemWorth at `level` (when the caller gives no pricing). */
+function defaultWorth(def, level, rules) {
+    if (def.kind === 'quest') return 0;
+    const effect = Object.keys(def.effect ?? {}).length ? def.effect : null;
+    return itemWorth({ name: def.name, kind: def.kind, rarity: def.rarity, slot: def.slot, stats: def.stats, effect, tags: def.tags, note: def.note }, { level, rules });
 }
 
 const text = (value, max) => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, max) : '');
