@@ -8,7 +8,9 @@
 // with v1's replay (combat.js), so a swipe or a deleted reply that takes the actions back takes
 // the fight back with them. A draught drunk or a flask thrown is taken out of the inventory the
 // moment it is used (combat.act → inventory.consume), so it can be neither sold nor given away
-// while the fight goes on, and nothing is left to take at the end. combat.end settles it: HP,
+// while the fight goes on, and nothing is left to take at the end. The party's HP, MP and SP
+// follow the fight action by action (party.fightPools), so every view shows the board's numbers.
+// combat.end settles it: HP,
 // conditions and skill uses through party.applyResult, XP through party.grantXp,
 // loot through inventory.grant and wallet.receive, the foes beaten kept for Story Director's
 // quests (combat.foesBeaten), and v1's hand-off as the receipt summary the next reply narrates.
@@ -44,8 +46,13 @@ const GRAMMAR = '! encounter 3 Wolf — circling the camp | tier: trivial|weak|e
 
 // --- small helpers ----------------------------------------------------------------------------
 
-/** An `<prefix>_<8 base36>` id drawn from the receipt's dice. */
+/**
+ * An `<prefix>_<8 base36>` id: the host's ctx.id (its own stream from the receipt's seed, so an id
+ * never moves the dice a fight is fought with), else drawn from the receipt's dice.
+ */
 function newId(ctx, prefix) {
+    const given = typeof ctx.id === 'function' ? ctx.id(prefix) : null;
+    if (typeof given === 'string' && new RegExp(`^${prefix}_[0-9a-z]{8}$`).test(given)) return given;
     let text = '';
     for (let i = 0; i < 8; i++) text += Math.floor(ctx.rng() * 36).toString(36);
     return `${prefix}_${text}`;
@@ -173,6 +180,33 @@ function consumeSpent(ctx, spent) {
     return { taken, missing };
 }
 
+/**
+ * The party's HP, MP and SP as the fight has them now (party.fightPools), so every view (the
+ * Party screen, the HUD, the status card) shows what the battle board shows while a fight runs.
+ * Only members whose numbers moved are sent; nothing is sent when none did.
+ */
+function syncPools(ctx, fight) {
+    let party = null;
+    try {
+        party = ctx.read('party');
+    } catch {
+        party = null;
+    }
+    if (!party?.actors) return;
+    const moved = [];
+    for (const c of fight.combatants.filter(entry => entry.side === 'party')) {
+        const actor = party.actors[c.memberId];
+        if (!actor) continue;
+        const pools = {};
+        for (const key of ['hp', 'mp', 'sp']) {
+            const cur = Math.round(Number(c[key]?.cur));
+            if (Number.isFinite(cur) && actor[key] && cur !== actor[key].cur) pools[key] = cur;
+        }
+        if (Object.keys(pools).length) moved.push({ id: c.memberId, ...pools });
+    }
+    if (moved.length) ctx.call('party.fightPools', { actors: moved });
+}
+
 /** One player action on the session: the fight rebuilt, the action played, the session updated. */
 function playAction(ctx, action) {
     const session = activeSession(ctx);
@@ -193,6 +227,7 @@ function playAction(ctx, action) {
         ctx.fail('REFUSED', error?.message || 'That action is not possible now.');
     }
     const used = readInventory(ctx) ? consumeSpent(ctx, itemsSpent(fight, next)) : { taken: [], missing: [] };
+    syncPools(ctx, next);
     const combat = ctx.draft('combat');
     combat.session.actions.push(action);
     combat.session.status = sessionStatus(next.status);
@@ -227,6 +262,60 @@ function lootDef(item) {
     };
 }
 
+/** A query that may not be registered (or may refuse): its answer, or null. */
+function ask(ctx, name, args) {
+    try {
+        return ctx.query(name, args) ?? null;
+    } catch {
+        return null;
+    }
+}
+
+const kindOf = item => (['material', 'consumable', 'equipment'].includes(item.kind) ? item.kind : 'goods');
+
+/**
+ * What a loot drop is granted as: an item the chat already has of that name (its def, so the drop
+ * joins that stack), else a pack's item of that name (Story Block's packs.item; granted by name,
+ * so the pack's def is used), else the same for the name with the foe's extra words taken off the
+ * front ("Starved Crag Wolf Pelt" → "Crag Wolf Pelt" → "Wolf Pelt": the base creature's part),
+ * always of the drop's own kind. Null when nothing matches: the drop is a new story item (lootDef).
+ * → { defId } | { name } with `shown`, the name the receipt tells.
+ */
+function lootTarget(ctx, item) {
+    const words = String(item.name ?? '').trim().split(/\s+/).filter(Boolean);
+    const kind = kindOf(item);
+    for (let start = 0; start <= words.length - (start ? 2 : 1); start++) {
+        const name = words.slice(start).join(' ');
+        const found = ask(ctx, 'inventory.find', { name });
+        const def = found?.status === 'found' ? found.defs?.[0] : null;
+        if (def && def.kind === kind) return { defId: def.id, shown: def.name };
+        const packed = ask(ctx, 'packs.item', { name });
+        if (packed && typeof packed.id === 'string' && packed.name && (packed.kind ?? 'goods') === kind) return { name: packed.name, shown: packed.name };
+    }
+    return null;
+}
+
+/**
+ * The victory's drops granted (inventory.grant to the party, the receipt as their cause), each
+ * as the item lootTarget finds; drops that turn out to be one item are told once, added up.
+ * → [{ name, qty, rarity }] as granted.
+ */
+function grantLoot(ctx, items) {
+    const told = [];
+    for (const item of items) {
+        const target = lootTarget(ctx, item);
+        // No stack note: the item.define hook would take it for the item's own words, and loot of
+        // one kind stacks; the stack's `from` is this receipt.
+        const payload = target?.defId ? { defId: target.defId } : target?.name ? { name: target.name } : { def: lootDef(item) };
+        ctx.call('inventory.grant', { ...payload, qty: item.qty, owner: 'party' });
+        const shown = target?.shown ?? item.name;
+        const same = told.find(entry => entry.name === shown);
+        if (same) same.qty += item.qty;
+        else told.push({ name: shown, qty: item.qty, rarity: item.rarity ?? 'common' });
+    }
+    return told;
+}
+
 // --- commands ---------------------------------------------------------------------------------
 
 /** combat.start({ offer }): the offer becomes the fight; the session holds its setup. */
@@ -250,11 +339,15 @@ function start(ctx, payload) {
     const { setup, made } = built;
     // Rebuilt once now: a setup that cannot be fought is refused before anything is kept.
     let status;
+    let opening;
     try {
-        status = sessionStatus(rebuild({ setup: packSetup(setup), actions: [] }).fight.status);
+        opening = rebuild({ setup: packSetup(setup), actions: [] }).fight;
+        status = sessionStatus(opening.status);
     } catch (error) {
         ctx.fail('INVALID', `That fight cannot start: ${error?.message ?? 'its setup does not hold.'}`);
     }
+    // The foes' first blows (automatic turns before the first choice) show on the party at once.
+    syncPools(ctx, opening);
     const rev = nextRev(ctx);
     if (made.length) {
         const bestiary = ctx.draft('bestiary');
@@ -341,9 +434,8 @@ function end(ctx) {
     }
 
     if (result.outcome === 'victory') {
-        // No stack note: the item.define hook would take it for the item's own words, and loot of
-        // one kind stacks; the stack's `from` is this receipt.
-        for (const item of result.loot.items) ctx.call('inventory.grant', { def: lootDef(item), qty: item.qty, owner: 'party' });
+        // The drops under the names they were granted as (the summary and receipt tell those).
+        result.loot.items = grantLoot(ctx, result.loot.items);
         if (result.loot.money > 0) ctx.call('wallet.receive', { owner: 'party', amount: result.loot.money, note: `loot: ${foeNames(setup)}` });
     }
 

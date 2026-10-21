@@ -405,3 +405,39 @@ test('settings: a new fight takes the turn system and hit numbers; a running one
     assert.deepEqual(setup.hit, { base: 90, perPoint: 1 });
     assert.equal(setup.speedOffset, 4);
 });
+
+test('loot a pack defines for the base creature is granted by that name (the pack\'s def), never as a new "Starved …" item', () => {
+    const pack = { 'crag wolf pelt': { id: 'pack.ersveil/crag-wolf-pelt', name: 'Crag Wolf Pelt', kind: 'material' }, 'crag wolf fang': { id: 'pack.ersveil/crag-wolf-fang', name: 'Crag Wolf Fang', kind: 'material' } };
+    const extraQueries = {
+        'packs.item': (_state, { name } = {}) => pack[String(name).toLowerCase()] ?? null,
+        'inventory.find': () => ({ status: 'none', defs: [], stacks: [] }),
+    };
+    // Story Block grants a pack item by name with the pack's def (item.resolve).
+    const extraCommands = {
+        'inventory.grant'(ctx, { def, name, qty, owner }) {
+            const inv = ctx.draft('inventory');
+            const made = name ? { ...pack[name.toLowerCase()], rarity: 'common', value: 7, stack: true, slot: null, stats: {}, effect: {}, tags: [], note: '' } : def;
+            inv.defs[made.id] ??= structuredClone(made);
+            const stack = it(100 + Object.keys(inv.stacks).length);
+            inv.stacks[stack] = { id: stack, def: made.id, qty, owner, equipped: null, note: '', from: ctx.receiptId };
+            return { summary: '' };
+        },
+    };
+    let seen = 0;
+    for (let seed = 1; seed <= 30 && !seen; seed++) {
+        const [world, offer] = offered('Starved Crag Wolf', { tier: 'trivial' }, { seed, extraQueries, extraCommands });
+        assert.equal(world.run('combat.start', { offer }).ok, true);
+        fightOut(world);
+        const end = world.run('combat.end');
+        assert.equal(end.ok, true, end.message);
+        const grants = end.calls.filter(c => c.type === 'inventory.grant').map(c => c.payload);
+        for (const grant of grants) assert.doesNotMatch(grant.name ?? grant.def?.name ?? '', /Starved/);
+        const parts = grants.filter(grant => grant.name);
+        if (!parts.length) continue;
+        assert.ok(parts.every(grant => /^Crag Wolf (?:Pelt|Fang)$/.test(grant.name)));
+        assert.ok(end.receipt.data.loot.items.every(item => !/Starved/.test(item.name)));
+        assert.match(end.receipt.summary, /Loot: .*crag wolf (?:pelt|fang)/i);
+        seen += 1;
+    }
+    assert.ok(seen, 'some seed drops a part');
+});

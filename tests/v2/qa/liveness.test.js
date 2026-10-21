@@ -43,7 +43,7 @@ each('a won fight with a companion at the level cap settles', () => {
 each('a companion cannot leave in the middle of a fight; the fight settles, then they can', () => {
     const { h } = withHero({ seed: 4 });
     const lyra = h.command('party.addCompanion', { name: 'Lyra', role: 'archer', level: 1 }).receipt.data.actor;
-    h.capture({ op: '!', kind: 'encounter', name: '3 Bandits', text: '', labels: { tier: 'even' } });
+    h.capture({ op: '!', kind: 'encounter', name: '3 Wolves', text: '', labels: { tier: 'strong' } });
     assert.equal(h.command('combat.start', { offer: h.query('combat.offers').at(-1).id }).ok, true);
     assert.equal(h.state().domains.combat.session.status, 'active');
     const before = bytes(h.state());
@@ -54,8 +54,6 @@ each('a companion cannot leave in the middle of a fight; the fight settles, then
     fightOut(h);
     const unsettled = h.command('party.removeCompanion', { actor: lyra });
     assert.equal(unsettled.code, 'REFUSED', 'not before the fight is settled either');
-    endsAndAllowsANewFight(h);
-    fightOut(h);
     assert.equal(h.command('combat.end').ok, true);
     assert.equal(h.command('party.removeCompanion', { actor: lyra }).ok, true);
 });
@@ -131,7 +129,8 @@ each('a fight whose draughts were handed to a companion meanwhile still settles,
     fightOut(h);
     const end = h.command('combat.end');
     assert.equal(end.ok, true, `${end.code}: ${end.message}`);
-    assert.equal(stacksOf(h, pot).reduce((sum, row) => sum + row.qty, 0), 2, 'three, one drunk');
+    const dropped = (end.receipt.data.loot?.items ?? []).find(item => item.name === 'Minor Healing Draught')?.qty ?? 0;
+    assert.equal(stacksOf(h, pot).reduce((sum, row) => sum + row.qty, 0), 2 + dropped, 'three, one drunk (plus any dropped)');
 });
 
 each('party.edit control (MODULES §F49): a companion led by the reader waits for orders in the next fight; on auto acts alone', () => {

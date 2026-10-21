@@ -184,7 +184,9 @@ each('combat.act → inventory.consume { stack, qty }: a draught drunk in the fi
     const end = h.command('combat.end');
     assert.equal(end.ok, true, end.message);
     assert.deepEqual(sent(h, 'combat.end', 'inventory.consume'), []);
-    assert.equal(stacksOf(h, pot)[0].qty, 1);
+    // One left, plus any the foes dropped.
+    const dropped = (end.receipt.data.loot.items.find(item => item.name === 'Minor Healing Draught')?.qty) ?? 0;
+    assert.equal(stacksOf(h, pot).reduce((sum, row) => sum + row.qty, 0), 1 + dropped);
 });
 
 each('combat.start reads items.gear({ actor }) → { counted: [{ stack, name, slot, rarity, stats }] }: the capped numbers', () => {
