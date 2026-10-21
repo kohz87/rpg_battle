@@ -43,11 +43,29 @@ export function decodeEntities(text) {
     });
 }
 
-/** Parse template HTML into nodes. */
-export function parseHtml(source) {
+// How deep elements may nest. Every step after parsing (the allow-list, compiling, drawing) walks the
+// tree one level per call, so a deeper template would end in "Maximum call stack size exceeded" at
+// every draw; packs refuse one (packs/validate.js), and the parser flattens what lies deeper.
+export const MAX_DEPTH = 64;
+
+/** True when `source` nests elements deeper than MAX_DEPTH (what parseHtml would flatten). */
+export function tooDeep(source) {
+    const info = { flattened: 0 };
+    parseHtml(source, null, info);
+    return info.flattened > 0;
+}
+
+/**
+ * Parse template HTML into nodes. `warnings`, when given, collects a plain sentence for each attribute
+ * that was skipped because a browser could not set it (`<img """>`, `<p a="1""b">`), and one when
+ * elements nested past MAX_DEPTH were flattened (their tags left out, their content kept);
+ * `info.flattened` counts those tags.
+ */
+export function parseHtml(source, warnings = null, info = null) {
     const html = String(source ?? '');
     const root = { type: 'element', tag: '#root', svg: false, attrs: [], children: [] };
     const stack = [root];
+    let excess = 0;   // open tags left out below MAX_DEPTH, whose end tags are skipped too
     const current = () => stack[stack.length - 1];
     const inSvg = () => stack.some(node => node.tag === 'svg');
     const pushText = text => {
@@ -98,6 +116,10 @@ export function parseHtml(source) {
                 continue;
             }
             at += match[0].length;
+            if (excess) {
+                excess -= 1;
+                continue;
+            }
             const name = match[1].toLowerCase();
             const tag = inSvg() ? SVG_TAG_CASE.get(name) ?? name : name;
             closeTo(tag);
@@ -110,9 +132,16 @@ export function parseHtml(source) {
             continue;
         }
         at += open[0].length;
-        const { attrs, selfClosing, end } = readAttributes(html, at);
+        const { attrs, selfClosing, end, junk } = readAttributes(html, at);
+        if (junk.length && Array.isArray(warnings)) warnings.push(`Skipped ${junk.map(name => name.slice(0, 40)).join(' ')} in <${open[1].toLowerCase()}>: not an attribute name a browser can set.`);
         at = end;
         const lower = open[1].toLowerCase();
+        if (stack.length > MAX_DEPTH && !VOID.has(lower) && !RAW.has(lower) && !RCDATA.has(lower) && !selfClosing) {
+            if (!excess && !info?.flattened && Array.isArray(warnings)) warnings.push(`Elements nested more than ${MAX_DEPTH} deep were flattened: their tags were left out, their content kept.`);
+            excess += 1;
+            if (info) info.flattened = (info.flattened ?? 0) + 1;
+            continue;
+        }
         const svg = inSvg() || lower === 'svg';
         const tag = svg ? SVG_TAG_CASE.get(lower) ?? lower : lower;
         const element = { type: 'element', tag, svg, attrs: fixAttrCase(attrs, svg), children: [] };
@@ -174,32 +203,42 @@ function fixAttrCase(attrs, svg) {
     });
 }
 
-/** Read attributes after a tag name; returns `{ attrs, selfClosing, end }` (end is after `>`). */
+// What a browser's setAttribute takes as a name; anything else a tag holds is junk to skip.
+const ATTR_NAME = /^[^\s"'<>/=\u0000-\u001f\u007f-\u009f]+$/;
+
+/**
+ * Read attributes after a tag name like a browser's tokenizer: a name runs to whitespace, `/`, `>` or `=`
+ * (a leading `=` and stray quotes stay in it); a value is quoted, or runs to whitespace or `>`. Names a
+ * browser could not set (`"""`, `'x'`, the `"b"` of `a="1""b"`) are skipped and listed in `junk`.
+ * Returns `{ attrs, selfClosing, end, junk }` (end is after `>`); never throws.
+ */
 function readAttributes(html, start) {
     const attrs = [];
+    const junk = [];
     const seen = new Set();
     let at = start;
     let selfClosing = false;
     while (at < html.length) {
-        while (/[\s]/.test(html[at] ?? '')) at += 1;
+        while (/\s/.test(html[at] ?? '')) at += 1;
         const char = html[at];
         if (char === undefined) break;
         if (char === '>') {
             at += 1;
-            return { attrs, selfClosing, end: at };
+            return { attrs, selfClosing, end: at, junk };
         }
         if (char === '/') {
             at += 1;
             if (html[at] === '>') {
                 selfClosing = true;
                 at += 1;
-                return { attrs, selfClosing, end: at };
+                return { attrs, selfClosing, end: at, junk };
             }
             continue;
         }
-        const nameMatch = /^[^\s"'>/=]+|^=[^\s"'>/=]*/.exec(html.slice(at));
-        const name = nameMatch[0].toLowerCase();
-        at += nameMatch[0].length;
+        const nameMatch = /^=?[^\s>/=]*/.exec(html.slice(at, at + 1024));
+        const raw = nameMatch[0] || char;
+        const name = raw.toLowerCase();
+        at += raw.length;
         while (/\s/.test(html[at] ?? '')) at += 1;
         let value = '';
         if (html[at] === '=') {
@@ -216,12 +255,13 @@ function readAttributes(html, start) {
                 at += raw.length;
             }
         }
-        if (!seen.has(name)) {
+        if (!ATTR_NAME.test(name)) junk.push(raw);
+        else if (!seen.has(name)) {
             seen.add(name);
             attrs.push([name, decodeEntities(value)]);
         }
     }
-    return { attrs, selfClosing, end: html.length };
+    return { attrs, selfClosing, end: html.length, junk };
 }
 
 const escapeText = text => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/ /g, '&nbsp;');

@@ -48,10 +48,20 @@ export async function seeded(seed, fn) {
  * (st, settings). As live, `globalThis.StoryBlock.sdk` is the host's sdk while it is open (the
  * items part's item.define hook asks it for the currency); `close()` takes it away again.
  */
+// A tiny module that sends one of RPG Battle's internal commands (party.grantXp, party.addCompanion…)
+// as another part would: through its own ctx.call, so the callee sees a calling module. Story Block's
+// sdk runs every command as the reader's click (cause 'ui'), which those commands refuse.
+const CALLER = {
+    id: 'rb-test-caller',
+    name: 'RPG Battle test caller',
+    version: '0.0.0',
+    commands: { 'rbtest.call': (ctx, { type, payload } = {}) => ctx.call(type, payload ?? {}) },
+};
+
 export async function rpgHost(options = {}) {
     let sdk = null;
     const module = createModule({ settings: () => sdk?.settings(MODULE_ID) ?? {} });
-    const host = await createHost({ ...options, modules: [module, ...(options.modules ?? [])] });
+    const host = await createHost({ ...options, modules: [module, CALLER, ...(options.modules ?? [])] });
     sdk = host.sdk;
     const saved = globalThis.StoryBlock;
     globalThis.StoryBlock = { apiVersion: 2, ready: Promise.resolve(sdk), sdk };
@@ -64,6 +74,8 @@ export async function rpgHost(options = {}) {
     };
     host.q = (name, args) => sdk.query(name, args);
     host.cmd = (type, payload = {}, opts) => sdk.command(type, payload, opts);
+    /** One of RPG Battle's internal commands, sent as another module sends it (CALLER). */
+    host.internal = (type, payload = {}) => sdk.command('rbtest.call', { type, payload });
     /** A reply with a <Changes> block of `lines`. */
     host.reply = (text, lines = []) => (lines.length ? `${text}\n\n<Changes>\n${lines.join('\n')}\n</Changes>` : text);
     /** The static prompt texts set so far (non-empty), in order. */

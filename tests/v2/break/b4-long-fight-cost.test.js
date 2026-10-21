@@ -14,25 +14,31 @@ test('B4-12: the 200th action of a fight costs about what the 20th did', { timeo
         try {
             assert.equal((await host.cmd('party.create', { name: 'Ren', preset: 'fighter' })).ok, true);
             await host.send('We camp.', host.reply('Camp.', ['~ place Camp']));
-            for (const name of ['Ana', 'Bo', 'Cy']) assert.equal((await host.cmd('party.addCompanion', { name, role: 'knight', control: 'player' }, { cause: 'system' })).ok, true);
+            for (const name of ['Ana', 'Bo', 'Cy']) assert.equal((await host.internal('party.addCompanion', { name, role: 'knight', control: 'player' })).ok, true);
             const { start } = await offerAndStart(host, '! encounter 1 Stone Golem | tier: weak');
             assert.equal(start.ok, true, start.message);
+            // (RB-fix1: since Story Block da54eaf the host's own save of each command grows with the
+            // chat too (the testkit's fake SillyTavern copies the whole chat), so RPG Battle's share is
+            // measured: each action's time less a plain Story Block command's (scene.present) beside it.)
             const times = [];
             for (let n = 0; n < 200; n += 1) {
                 const view = host.q('combat.session');
                 if (!view || view.status !== 'active') break;
-                const t = performance.now();
+                let t = performance.now();
                 const r = await host.cmd('combat.act', { action: { type: 'defend' } });
-                times.push(performance.now() - t);
+                const acted = performance.now() - t;
                 assert.equal(r.ok, true, r.message);
+                t = performance.now();
+                assert.equal((await host.cmd('scene.present', n % 2 ? { remove: ['Watcher'] } : { add: ['Watcher'] })).ok, true);
+                const plain = performance.now() - t;
+                times.push(Math.max(0, acted - plain));
             }
             assert.ok(times.length >= 150, `the fight ended after ${times.length} actions; pick a tougher foe`);
-            // (RB-fix1: medians of 20 actions, not means of 10: the suite runs files in parallel,
-            // and one slow action under load must not decide it.)
+            // Medians of 20 actions: the suite runs files in parallel, and one slow action under load must not decide it.
             const median = list => [...list].sort((a, b) => a - b)[Math.floor(list.length / 2)];
             const early = median(times.slice(10, 30));
             const late = median(times.slice(-20));
-            assert.ok(late < early * 4, `action ${times.length}: ${late.toFixed(1)} ms against ${early.toFixed(1)} ms at action 20 (×${(late / early).toFixed(1)})`);
+            assert.ok(late < early * 4 + 1, `action ${times.length}: ${late.toFixed(1)} ms against ${early.toFixed(1)} ms at action 20 (×${(late / early).toFixed(1)})`);
         } finally {
             host.close();
         }

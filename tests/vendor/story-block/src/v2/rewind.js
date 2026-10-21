@@ -13,6 +13,10 @@
 // 3. the `/branch-create <index>` slash command through ctx.executeSlashCommandsWithOptions (same function
 //    behind it).
 // Each of them leaves the branch open as the current chat (CHAT_CHANGED fires, the turn rebuilds).
+//
+// Nothing is branched unless the changes can be taken back (B-b2-timeline-8): the truncation is worked
+// out on the chat as it is first (store.truncate's dry run). If it still fails on the branch, the chat
+// the reader was in is opened again (`reopen`, SillyTavern's openCharacterChat / openGroupChat).
 
 const BOOKMARKS = '/scripts/bookmarks.js';
 
@@ -33,13 +37,23 @@ export function stBranch(ctx, { importer = path => import(path) } = {}) {
     };
 }
 
+/** SillyTavern's way back to chat `name`: (name) → Promise. */
+export function stReopen(ctx, { live = () => globalThis.SillyTavern?.getContext?.() ?? ctx } = {}) {
+    return async name => {
+        const c = live() ?? ctx;
+        if (c?.groupId !== undefined && c?.groupId !== null && c?.groupId !== '' && typeof c.openGroupChat === 'function') return c.openGroupChat(c.groupId, name);
+        if (typeof c?.openCharacterChat === 'function') return c.openCharacterChat(name);
+        throw new Error('This SillyTavern has no way to open a chat again that Story Block knows of.');
+    };
+}
+
 const fail = (code, message) => ({ ok: false, code, message });
 
 /**
- * createRewind({ ctx, store, events?, branch? }) → rewind({ index, beforeRev }) → Promise<
+ * createRewind({ ctx, store, events?, branch?, reopen? }) → rewind({ index, beforeRev }) → Promise<
  * { ok: true, branch, index, rev, dropped } | { ok: false, code, message }>.
  */
-export function createRewind({ ctx, store, events = null, branch = stBranch(ctx) }) {
+export function createRewind({ ctx, store, events = null, branch = stBranch(ctx), reopen = stReopen(ctx) }) {
     let running = false;
     return async function rewind({ index, beforeRev } = {}) {
         if (running) return fail('STALE', 'The story is already going back in time.');
@@ -52,19 +66,41 @@ export function createRewind({ ctx, store, events = null, branch = stBranch(ctx)
         if (!record || !Array.isArray(record.receipts)) return fail('NOT_FOUND', 'That reply holds no story changes to go back from.');
         running = true;
         try {
+            // Worked out first on the messages the branch will hold (chat[0..index]); nothing is written.
+            let plan;
+            try {
+                plan = store.truncate(index, beforeRev, { dryRun: true, chat: chat.slice(0, index + 1) });
+            } catch (error) {
+                return fail('FAILED', `The changes could not be taken back, so no branch was made: ${error?.message ?? error}`);
+            }
+            if (!plan.dropped.length) return fail('NOT_FOUND', 'That reply holds no changes from there on to take back; no branch was made.');
             await store.flush();
+            const from = typeof ctx.getCurrentChatId === 'function' ? ctx.getCurrentChatId() : ctx.chatId;
             let name;
             try { name = await branch(index); } catch (error) {
                 return fail('FAILED', `The chat could not be branched: ${error?.message ?? error}`);
             }
             if (!name) return fail('FAILED', 'SillyTavern did not create the branch.');
+            // On the branch something still went wrong: back to the chat the reader was in.
+            const back = async why => {
+                let where = `the branch "${name}" is open`;
+                try {
+                    if (from) {
+                        await reopen(from);
+                        where = `you are back in "${from}" (the branch "${name}" was kept)`;
+                    }
+                } catch (error) {
+                    where = `the branch "${name}" is open; "${from}" could not be opened again: ${error?.message ?? error}`;
+                }
+                return fail('FAILED', `${why}; nothing was taken back, and ${where}.`);
+            };
             // The branch is the current chat now; its last message is the carrier we branched at.
             const at = (ctx.chat ?? []).length - 1;
-            if (at !== index) return fail('FAILED', `The branch ends at message ${at}, not ${index}; nothing was taken back.`);
+            if (at !== index) return back(`The branch ends at message ${at}, not ${index}`);
             store.rebuild();
             let result;
             try { result = store.truncate(index, beforeRev); } catch (error) {
-                return fail('FAILED', `The branch was made (${name}) but the changes could not be taken back: ${error?.message ?? error}`);
+                return back(`The changes could not be taken back on the branch: ${error?.message ?? error}`);
             }
             await store.flush();
             store.rebuild();

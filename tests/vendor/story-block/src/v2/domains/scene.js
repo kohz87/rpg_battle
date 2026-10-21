@@ -51,20 +51,48 @@ function field(ctx, value, what) {
     return text;
 }
 
-// A new place clears its kind (a village is not a dungeon) but keeps the region unless told.
-function setPlace(ctx, { name, kind, region }) {
+// Who came along to a new place: `with` as a name, a comma list or a list of names.
+function companions(ctx, value) {
+    const names = [];
+    for (const raw of nameList(value).flatMap(item => (typeof item === 'string' ? item.split(',') : [item]))) {
+        if (typeof raw !== 'string') ctx.fail('INVALID', 'Say who comes along by name.');
+        const name = cleanName(raw);
+        if (!name) continue;
+        if (name.length > MAX_NAME) ctx.fail('INVALID', `A name is at most ${MAX_NAME} characters.`);
+        if (!names.some(other => other.toLowerCase() === name.toLowerCase())) names.push(name);
+    }
+    if (names.length > MAX_PRESENT) ctx.fail('INVALID', `At most ${MAX_PRESENT} people can be listed as present.`);
+    return names;
+}
+
+// A place keeps the stored kind and region unless the line says otherwise: a move line without
+// `kind:` keeps it (Story Director's map knows the place's kind; a model often leaves it out), and only
+// an explicit empty value (`kind:` with nothing after it) clears it. Who was
+// present stays behind: after a move only the people named in `with` (they came along) are here, and
+// the story adds whoever it meets there (`+ present`). The same place keeps everyone; `with` adds to them.
+function setPlace(ctx, { name, kind, region, with: along }) {
     const scene = ctx.draft('scene');
     const placeName = field(ctx, name, 'name');
     if (!placeName) ctx.fail('INVALID', 'A place needs a name.');
     const moved = placeName.toLowerCase() !== scene.place.name.toLowerCase();
+    const came = companions(ctx, along);
     scene.place = {
         name: placeName,
-        kind: field(ctx, kind, 'kind') ?? (moved ? '' : scene.place.kind),
+        kind: field(ctx, kind, 'kind') ?? scene.place.kind,
         region: field(ctx, region, 'region') ?? scene.place.region,
     };
+    const keys = list => new Set(list.map(person => person.toLowerCase()));
+    const cameKeys = keys(came);
+    const left = moved ? scene.present.filter(person => !cameKeys.has(person.toLowerCase())) : [];
+    const staying = moved ? scene.present.filter(person => cameKeys.has(person.toLowerCase())) : [...scene.present];
+    const stayingKeys = keys(staying);
+    const present = [...staying, ...came.filter(person => !stayingKeys.has(person.toLowerCase()))];
+    if (present.length > MAX_PRESENT) ctx.fail('INVALID', `At most ${MAX_PRESENT} people can be listed as present.`);
+    if (present.length !== scene.present.length || present.some((person, at) => person !== scene.present[at])) scene.present = present;
+    const withWho = came.length ? ` with ${came.join(', ')}` : '';
     return {
-        summary: moved ? `The scene moves to ${placeName}.` : `${placeName} is described anew.`,
-        data: { ...scene.place, moved },
+        summary: moved ? `The scene moves to ${placeName}${withWho}.` : `${placeName} is described anew.`,
+        data: { ...scene.place, moved, present: [...scene.present], left },
         narrate: told(ctx),
     };
 }
@@ -74,10 +102,16 @@ function changePresent(ctx, { add, remove }) {
     const index = name => scene.present.findIndex(other => other.toLowerCase() === name.toLowerCase());
     const added = [];
     const removed = [];
+    const missing = [];
     for (const raw of nameList(remove)) {
         const name = typeof raw === 'string' ? cleanName(raw) : '';
         if (!name) ctx.fail('INVALID', 'Say who leaves.');
         const at = index(name);
+        // The story often says who stays behind after a move, which already left them: nothing to undo.
+        if (at < 0 && ctx.cause === 'story') {
+            missing.push(name);
+            continue;
+        }
         if (at < 0) ctx.fail('NOT_FOUND', `${name} is not in the scene.`);
         removed.push(scene.present[at]);
         scene.present.splice(at, 1);
@@ -93,26 +127,32 @@ function changePresent(ctx, { add, remove }) {
     const parts = [];
     if (added.length) parts.push(`${added.join(', ')} ${added.length === 1 ? 'is' : 'are'} here`);
     if (removed.length) parts.push(`${removed.join(', ')} ${removed.length === 1 ? 'leaves' : 'leave'}`);
+    const away = missing.length ? `${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not here.` : '';
     return {
-        summary: parts.length ? `${parts.join('; ')}.` : 'No one arrives or leaves.',
-        data: { added, removed, present: [...scene.present] },
+        summary: parts.length ? `${parts.join('; ')}.` : away || 'No one arrives or leaves.',
+        data: { added, removed, present: [...scene.present], ...(missing.length ? { missing } : {}) },
         narrate: told(ctx) && parts.length > 0,
     };
 }
 
 export const sceneCommands = {
-    // { name, kind?, region? }
+    // { name, kind?, region?, with?: name | name[] } (a move leaves behind everyone not named in `with`)
     'scene.place': (ctx, payload = {}) => setPlace(ctx, payload),
     // { add?: name | name[], remove?: name | name[] }
     'scene.present': (ctx, payload = {}) => changePresent(ctx, payload),
 };
 
-/** `~ place Name | kind | region` (or `+ place`). */
+/** `~ place Name | kind | region | with: who came along` (or `+ place`). */
 export function capturePlace(ctx, line) {
     if (line?.op !== '~' && line?.op !== '+') {
         ctx.fail('INVALID', `"${line?.op} place" is not a change the scene understands; use ~ place Name.`);
     }
-    return setPlace(ctx, { name: cleanName(line.name), kind: labelOf(line, 'kind', 'type'), region: labelOf(line, 'region', 'area') });
+    return setPlace(ctx, {
+        name: cleanName(line.name),
+        kind: labelOf(line, 'kind', 'type'),
+        region: labelOf(line, 'region', 'area'),
+        with: labelOf(line, 'with', 'present'),
+    });
 }
 
 /** `+ present Name`, `- present Name` (several names may be separated by commas). */

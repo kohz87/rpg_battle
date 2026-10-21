@@ -11,12 +11,17 @@ import { LIMITS } from './limits.js';
 // SPEC §13.2 list, plus `style`: a screen's CSS goes in its own `css` field). Inline SVG and
 // forms are allowed, a form's `action` is not.
 const UNSAFE_TAG = /<\s*\/?\s*(?:script|iframe|frame|frameset|object|embed|applet|link|meta|style|base)\b|<\s*form\b[^>]*\saction\s*=/i;
-// An event attribute inside a tag: `<img src=x onerror=…>`. The `(?!=)` keeps
-// conditions like `a<b && online == 1` from counting as one.
-const EVENT_ATTR = /<[a-z][^>]*?[\s"'/]on[a-z]+\s*=(?!=)/i;
-// Schemes that run code. Checked after entities, whitespace and control characters
-// are removed, because browsers ignore those inside a scheme (`java&#x09;script:`).
-const CODE_SCHEME = /(?:java|vb|live)script:|data:text\/html|data:image\/svg/i;
+// Event attributes and link targets are found by reading each tag's attributes the way a browser
+// does (tagScan below), not with a regex: a quoted value may hold `>` (`<img alt=">" onerror=…>`).
+// Schemes that run code or open a document, anywhere in the text. Checked after entities, whitespace
+// and control characters are removed, because browsers ignore those inside a scheme
+// (`java&#x09;script:`). A data: URL is a document unless it is a raster image (PNG, JPEG, GIF, WebP):
+// `data:text/html`, `data:application/xhtml+xml`, `data:text/xml`, `data:image/svg+xml` … are refused.
+const RASTER = 'image\\/(?:png|jpeg|gif|webp)[;,]';
+const CODE_SCHEME = new RegExp(`(?:java|vb|live)script:|data:(?!${RASTER})(?:text|application|image|audio|video|font|model|multipart|message)\\/|\\]\\(data:(?!${RASTER})`, 'i');
+// Attributes whose value the browser loads or follows. Inside a tag their data: URLs must be raster images.
+const LINK_ATTRS = new Set(['href', 'src', 'xlink:href', 'action', 'formaction', 'data', 'poster', 'background', 'lowsrc', 'dynsrc', 'codebase', 'cite', 'longdesc', 'ping', 'srcset', 'usemap', 'manifest', 'to', 'from', 'values', 'by']);
+const RASTER_DATA = new RegExp(`^data:${RASTER}`, 'i');
 // Keys whose value is a link or an image source: only https and plain image data URLs (§13.2).
 const URL_KEYS = new Set(['src', 'href', 'url', 'image', 'img', 'background']);
 const SAFE_URL = /^(?:https:\/\/[^\s"'<>]+|data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+)$/i;
@@ -37,9 +42,74 @@ function decodeEntities(text) {
 /** Why a string is unsafe for a pack, or '' when it is fine. */
 export function unsafeText(text) {
     if (UNSAFE_TAG.test(text)) return 'has an HTML tag that can run code (script, iframe, style, form action …)';
-    if (EVENT_ATTR.test(text)) return 'has an HTML event attribute (on…=)';
-    const squeezed = decodeEntities(text).replace(/[\s\u0000-\u001f\u007f]+/g, '');
-    if (CODE_SCHEME.test(squeezed)) return 'has a script link (javascript:, data:text/html …)';
+    const tags = tagScan(text);
+    if (tags) return tags;
+    if (CODE_SCHEME.test(squeeze(text))) return 'has a script link (javascript:, data:text/html …)';
+    return '';
+}
+
+/** Entities decoded, whitespace and control characters removed: what a browser acts on in a URL. */
+const squeeze = text => decodeEntities(text).replace(/[\s\u0000-\u001f\u007f]+/g, '');
+
+// An `on…` attribute name, after any junk a browser keeps in the name (`"onerror` is not one, but
+// counting it costs nothing).
+const EVENT_NAME = /^[^a-z0-9]*on[a-z]+$/i;
+// Whitespace between attributes. Wider than HTML's (it adds \v and the Unicode spaces), so a name is
+// never missed by reading it as part of another.
+const SPACE = /\s/;
+
+/**
+ * Reads every tag in `text` (`<` and a letter) like a browser's tokenizer: attribute names run to
+ * whitespace, `/`, `>` or `=`; values are quoted (to the same quote, `>` included) or run to whitespace or
+ * `>`. Returns why the text is unsafe ('' when fine): an `on…=` attribute with a value, or a link
+ * attribute holding a data: URL that is not a raster image. A quoted value that holds `<` is read again
+ * as text of its own (a renderer might draw it), at most two levels deep. Linear in the text's length.
+ */
+function tagScan(text, depth = 0) {
+    let at = text.indexOf('<');
+    while (at >= 0 && at < text.length) {
+        if (!/[a-z]/i.test(text[at + 1] ?? '')) {
+            at = text.indexOf('<', at + 1);
+            continue;
+        }
+        at += 1;
+        while (at < text.length && !SPACE.test(text[at]) && text[at] !== '/' && text[at] !== '>') at += 1;   // the tag name
+        while (at < text.length && text[at] !== '>') {
+            const char = text[at];
+            if (SPACE.test(char) || char === '/') { at += 1; continue; }
+            const start = at;
+            at += 1;   // a name may start with "=" (a browser keeps it in the name)
+            while (at < text.length && !SPACE.test(text[at]) && !'/>='.includes(text[at])) at += 1;
+            const name = text.slice(start, at).toLowerCase();
+            let probe = at;
+            while (probe < text.length && SPACE.test(text[probe])) probe += 1;
+            if (text[probe] !== '=') continue;
+            at = probe + 1;
+            while (at < text.length && SPACE.test(text[at])) at += 1;
+            let value;
+            const quote = text[at];
+            if (quote === '"' || quote === '\'') {
+                const close = text.indexOf(quote, at + 1);
+                value = text.slice(at + 1, close < 0 ? text.length : close);
+                at = close < 0 ? text.length : close + 1;
+            } else {
+                const begin = at;
+                while (at < text.length && !SPACE.test(text[at]) && text[at] !== '>') at += 1;
+                value = text.slice(begin, at);
+            }
+            // `online == 1` in a condition reads as online="=": not code.
+            if (EVENT_NAME.test(name) && !value.startsWith('=')) return 'has an HTML event attribute (on…=)';
+            if (LINK_ATTRS.has(name)) {
+                const url = squeeze(value).toLowerCase();
+                if (url.startsWith('data:') && !RASTER_DATA.test(url)) return 'links to a data: document (only PNG, JPEG, GIF and WebP data images are allowed)';
+            }
+            if (depth < 2 && (quote === '"' || quote === '\'') && value.includes('<')) {
+                const inner = tagScan(value, depth + 1);
+                if (inner) return inner;
+            }
+        }
+        at = text.indexOf('<', at);
+    }
     return '';
 }
 

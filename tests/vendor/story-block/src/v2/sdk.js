@@ -3,19 +3,54 @@
 // settings under extension_settings.storySuite, the view modules read, ids, and adding a late
 // module's initial state. No SillyTavern import (turn.js wires SillyTavern).
 
-import { INIT_PREFIX } from './registry.js';
+import { INIT_PREFIX, normalizeField } from './registry.js';
 
 // sdk.check comes from check.js (SB-commands); the sdk still loads without it.
 const checkModule = await import('./check.js').catch(() => null);
 
 export const EVENTS = Object.freeze(['committed', 'head', 'turn']);
-export const HOST_SETTINGS_DEFAULTS = Object.freeze({ tailBudget: 1500 });
+// The most change lines one reply's block may hold; the rest are one Problem (turn.js).
+export const MAX_CHANGE_LINES = 150;
+export const HOST_SETTINGS_DEFAULTS = Object.freeze({ tailBudget: 1500, maxChangeLines: MAX_CHANGE_LINES });
 export const HOST_SETTINGS_SCHEMA = Object.freeze({
     tailBudget: Object.freeze({
         type: 'int', min: 100, max: 20000, label: 'Notes per reply (tokens)',
         help: 'The most Story Suite adds to the end of each reply\'s prompt, about four characters a token.',
     }),
+    maxChangeLines: Object.freeze({
+        type: 'int', min: 10, max: 1000, label: 'Change lines per reply',
+        help: 'The most change lines one reply may hold; any after them are not used and the Problems list says so.',
+    }),
 });
+
+/**
+ * A value as `field` (a settings schema entry) allows it: text is text, cut at `max` characters; a
+ * whole number is kept inside min/max (null when it is not one); a choice must be one of its options
+ * (null when not). Other types pass unchanged.
+ */
+export function settingValue(field, value) {
+    if (!field) return value;
+    const f = normalizeField(field);
+    if (f.type === 'text') {
+        if (value === undefined || value === null) return '';
+        const text = typeof value === 'string' ? value : String(value);
+        return Number.isInteger(f.max) && f.max >= 0 && text.length > f.max ? text.slice(0, f.max) : text;
+    }
+    if (f.type === 'int') {
+        const n = typeof value === 'number' ? value : Number(String(value ?? '').trim());
+        if (value === '' || value === null || value === undefined || !Number.isFinite(n)) return null;
+        let out = Math.round(n);
+        if (Number.isInteger(f.min)) out = Math.max(f.min, out);
+        if (Number.isInteger(f.max)) out = Math.min(f.max, out);
+        return out;
+    }
+    if (f.type === 'bool') return Boolean(value);
+    if (f.type === 'choice' && Array.isArray(f.options) && f.options.length) {
+        const options = (f.options ?? []).map(option => String(option && typeof option === 'object' ? option.value : option));
+        return options.includes(String(value)) ? String(value) : null;
+    }
+    return value;
+}
 
 const isObject = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const ID_PREFIX = /^[a-z][a-z0-9]*$/;
@@ -59,8 +94,10 @@ export function createEvents() {
 /**
  * Settings under `root().storySuite` (`root`: () => SillyTavern's extension_settings):
  * `settings(id)` → the module's values over its defaults (a plain copy); `settings()` → the
- * host's ({ tailBudget }). `settings.set(id, key, value)` stores one value (id null: the host's)
- * and calls `save` (saveSettingsDebounced). `settings.stored(id)` is the stored object itself.
+ * host's ({ tailBudget, maxChangeLines }). `settings.set(id, key, value)` stores one value (id null:
+ * the host's) as its schema field allows it (settingValue: text cut at `max`, numbers inside min/max;
+ * a value the field cannot take is not stored) and calls `save` (saveSettingsDebounced). Returns the
+ * value stored, or undefined. `settings.stored(id)` is the stored object itself.
  */
 export function createSettings({ root, registry, save = () => {} }) {
     function bucket() {
@@ -82,9 +119,16 @@ export function createSettings({ root, registry, save = () => {} }) {
         return structuredClone({ ...defaults, ...stored(id) });
     }
     settings.stored = stored;
+    const fieldOf = (id, key) => {
+        const schema = id === undefined || id === null ? HOST_SETTINGS_SCHEMA : registry.module(id)?.settings?.schema;
+        return schema && Object.hasOwn(schema, key) ? schema[key] : null;
+    };
     settings.set = (id, key, value) => {
-        stored(id)[key] = structuredClone(value);
+        const next = settingValue(fieldOf(id, key), value);
+        if (next === null && value !== null) return undefined;
+        stored(id)[key] = structuredClone(next);
         save();
+        return next;
     };
     return settings;
 }
@@ -128,23 +172,40 @@ export function makeView({ store, registry, settings, chat = [] }) {
     });
 }
 
-/** The registered modules whose domains the head state lacks (enabled after the chat began). */
+/**
+ * The registered modules whose domains the head state lacks (enabled after the chat began, or a
+ * newer version with a domain more): [{ def, missing: [domain names] }], in module-id order.
+ */
 export function missingModules(registry, state) {
     const domains = state?.domains ?? {};
-    return registry.modules().filter(def => Object.keys(def.domains ?? {}).some(name => !Object.hasOwn(domains, name)));
+    return registry.modules()
+        .map(def => ({ def, missing: Object.keys(def.domains ?? {}).filter(name => !Object.hasOwn(domains, name)) }))
+        .filter(entry => entry.missing.length);
 }
 
+// Set-up failures already logged, per registry: a domain whose initial() keeps failing is tried
+// again at every turn, and told once.
+const toldFailures = new WeakMap();
+
 /**
- * Adds each late module's initial slices with a `system` receipt on the head carrier (§2.6).
- * Does nothing without a head carrier. Returns the command results.
+ * Adds the missing initial slices of each module (only those: a domain the chat already has keeps
+ * its data) with a `system` receipt on the head carrier (§2.6). Does nothing without a head carrier
+ * or before the chat has its state (a module registering at boot, before CHAT_CHANGED). Returns the
+ * command results.
  */
 export async function ensureModules({ store, bus, registry, events = null }) {
-    if (store.headIndex() < 0) return [];
+    if (store.headIndex() < 0 || !store.head()) return [];
+    if (!toldFailures.has(registry)) toldFailures.set(registry, new Set());
+    const told = toldFailures.get(registry);
     const results = [];
-    for (const def of missingModules(registry, store.head())) {
-        const result = await bus.command(`${INIT_PREFIX}${def.id}`, {}, { cause: 'system' });
+    for (const { def, missing } of missingModules(registry, store.head())) {
+        const result = await bus.command(`${INIT_PREFIX}${def.id}`, { domains: missing }, { cause: 'system' });
         if (result?.ok) events?.emit('committed', { receipt: result.receipt });
-        else console.warn(`[Story Suite] ${def.name ?? def.id} could not be set up in this chat: ${result?.message ?? 'unknown error'}`);
+        else {
+            const message = `${def.name ?? def.id} could not be set up in this chat: ${result?.message ?? 'unknown error'}`;
+            if (!told.has(message)) console.warn(`[Story Suite] ${message}`);
+            told.add(message);
+        }
         results.push(result);
     }
     return results;
@@ -153,14 +214,23 @@ export async function ensureModules({ store, bus, registry, events = null }) {
 /**
  * The public sdk. `deps`: { store, bus, registry, settings (createSettings), events
  * (createEvents), chat?: () => Message[], check?, onRegister?(def) (after each registerModule),
- * rewind?({ index, beforeRev }) (src/v2/rewind.js), substitute?(text), dialog?(screenId, opts) }. Returns { sdk, events, markReady }:
+ * rewind?({ index, beforeRev }) (src/v2/rewind.js), substitute?(text), dialog?(screenId, opts), reread?(index) (turn.js) }.
+ * Returns { sdk, events, markReady }:
  * `sdk.ready` resolves to the sdk once the host calls markReady().
  */
-export function createSdk({ store, bus, registry, settings, events = createEvents(), chat = () => [], check = checkModule, onRegister = null, rewind = null, substitute = text => String(text ?? ''), dialog = null }) {
+export function createSdk({ store, bus, registry, settings, events = createEvents(), chat = () => [], check = checkModule, onRegister = null, rewind = null, substitute = text => String(text ?? ''), dialog = null, reread = null }) {
     let markReady;
     const ready = new Promise(resolve => { markReady = () => resolve(sdk); });
+    const refused = message => ({ ok: false, code: 'REFUSED', message });
     const committed = result => {
         if (result?.ok) events.emit('committed', { receipt: result.receipt });
+        return result;
+    };
+    // The reader's action is saved at once, before the result comes back (B-b2-timeline-1): a chat
+    // opened right after it can no longer take it along. A failed save is told and tried again by the
+    // store; the action itself stands.
+    const saved = async result => {
+        if (result?.ok) await store.saveSoon?.();
         return result;
     };
     const sdk = Object.freeze({
@@ -175,9 +245,21 @@ export function createSdk({ store, bus, registry, settings, events = createEvent
             await ensureModules({ store, bus, registry, events });
             return sdk;
         },
-        command: async (type, payload, options = {}) => committed(await bus.command(type, payload, { cause: 'ui', ...options })),
-        preview: async (type, payload) => bus.preview(type, payload),
-        commit: async token => committed(await bus.commit(token)),
+        /**
+         * Runs a command as the reader's own action (cause 'ui', SPEC §3.1). Screens, widgets, layouts
+         * and modules all come through here, so nothing here can raise the cause (the host's own story
+         * and system steps go to the command bus directly) or name an internal command (registry.js).
+         */
+        command: async (type, payload, options = {}) => {
+            const cause = isObject(options) && options.cause !== undefined ? options.cause : 'ui';
+            if (cause !== 'ui') return refused(`A command sent from a screen, widget or module runs as the reader's action ("ui"); "${cause}" is kept for Story Block itself.`);
+            if (registry.isInternal?.(type)) return refused(`"${type}" is a step Story Block takes itself; it cannot be sent as an action.`);
+            return saved(committed(await bus.command(type, payload, { cause: 'ui' })));
+        },
+        preview: async (type, payload) => (registry.isInternal?.(type)
+            ? refused(`"${type}" is a step Story Block takes itself; it cannot be sent as an action.`)
+            : bus.preview(type, payload)),
+        commit: async token => saved(committed(await bus.commit(token))),
         query: (name, args) => runQuery(registry, store.head(), name, args, { receipts: () => store.receipts?.() ?? [] }),
         /** The stored receipts on the current line of history, in chat order: [{ index, receipt }]. */
         receipts: () => store.receipts?.() ?? [],
@@ -186,6 +268,12 @@ export function createSdk({ store, bus, registry, settings, events = createEvent
          * that carrier's receipts from `beforeRev` on, opened as the current chat. → Promise<{ ok, … }>.
          */
         rewind: async options => (typeof rewind === 'function' ? rewind(options) : { ok: false, code: 'FAILED', message: 'Going back in time is not available here.' }),
+        /**
+         * Re-read (F40): reply `index`'s <Changes> block read again from its shown swipe, replacing the
+         * story changes stored on it (the reader's actions on it stay). → Promise<{ ok, receipts, problems }
+         * | { ok: false, code, message }> (turn.js reread).
+         */
+        reread: async index => (typeof reread === 'function' ? reread(index) : { ok: false, code: 'FAILED', message: 'Re-read is not available here.' }),
         /** The view tabs and contexts get: { state, query, settings, chat }. */
         view: () => makeView({ store, registry, settings, chat: chat() }),
         on: (name, fn) => events.on(name, fn),

@@ -4,7 +4,10 @@
 // (MODULES §F11): the screen asks `npc.known` first, and without NSD that answer is null, so the
 // portraits are left out and the names stand alone.
 
+import { STRINGS, html } from '../strings.js';
 import { BASE_CSS } from './style.js';
+
+const S = STRINGS.scene;
 
 export const SCENE_SCREEN_ID = 'story-block/scene';
 
@@ -18,7 +21,7 @@ const TEMPLATE = `
     <i class="fa-solid fa-location-dot pin" aria-hidden="true"></i>
     <div class="where">
       <h3 data-if="q.place.name">{{ q.place.name }}</h3>
-      <h3 class="muted" data-if="!q.place.name">Somewhere not yet named</h3>
+      <h3 class="muted" data-if="!q.place.name">${html(S.unnamed)}</h3>
       <p class="sub muted">
         <span class="kind" data-if="q.place.kind">{{ q.place.kind }}</span>
         <span class="region" data-if="q.place.region">{{ q.place.region }}</span>
@@ -27,8 +30,8 @@ const TEMPLATE = `
     </div>
   </header>
   <section class="present panel" data-class="moved: changed('state.scene.present')">
-    <h4><i class="fa-solid fa-users" aria-hidden="true"></i> Here <span class="count" data-if="len(q.present) > 0">{{ len(q.present) }}</span></h4>
-    <p class="nobody muted" data-if="len(q.present) == 0">No one else is here.</p>
+    <h4><i class="fa-solid fa-users" aria-hidden="true"></i> ${html(S.here)} <span class="count" data-if="len(q.present) > 0">{{ len(q.present) }}</span></h4>
+    <p class="nobody muted" data-if="len(q.present) == 0">${html(S.nobody)}</p>
     <ul class="cast" data-class="faces: q.cast != null">
       <li class="who" data-each="q.present as p">
         <ss-widget name="ss.portrait" class="face" data-if="q.cast != null" data-props='${PORTRAIT_PROPS}'></ss-widget>
@@ -45,6 +48,7 @@ const CSS = `${BASE_CSS}
 .where h3 { margin: 0; font-size: 1.15em; }
 .sub { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 2px 0 0; font-size: 0.85em; }
 .kind { text-transform: capitalize; }
+.panel { transition: border-color 0.3s ease; }
 .moved { border-color: var(--sb-accent); }
 .count { min-width: 1.4em; padding: 0 5px; border-radius: 9px; text-align: center; background: var(--sb-surface); color: var(--sb-fg); }
 .cast { display: flex; flex-wrap: wrap; gap: 6px 14px; }
@@ -55,7 +59,7 @@ const CSS = `${BASE_CSS}
 
 export const sceneScreen = Object.freeze({
     id: SCENE_SCREEN_ID,
-    title: 'Scene',
+    title: S.title,
     icon: 'fa-map-location-dot',
     mounts: Object.freeze(['tab', 'screen']),
     data: Object.freeze({

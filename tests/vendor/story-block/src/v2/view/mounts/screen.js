@@ -1,7 +1,8 @@
 // Story Suite v2: the `screen` mount (SPEC §13.4), a full-screen game view over the chat. It has its own
 // navigation between the usable screens that allow 'screen' (a bottom bar on narrow widths, a side bar on
-// wide ones; mounts.css does the switch), a close button, and Escape closes it. It shows the head state
-// and redraws when the head changes while it is open.
+// wide ones; mounts.css does the switch), in navigation order (Home first, see screens.js screenOrder),
+// with a fade on the edge where more items are scrolled out of sight (scroll-cue.js), a close button, and
+// Escape closes it. It shows the head state and redraws when the head changes while it is open.
 //
 // deps (see common.js) plus:
 //   container   () → element the view is added to (optional, default document.body)
@@ -9,11 +10,12 @@
 // → { mount(el, screenId, opts) → handle, open(screenId?) → bool, close(), isOpen(), current(), update(), destroy() }
 
 import { button, documentOf, icon, make, mountHead, onHead, screensFor } from './common.js';
+import { scrollCue } from '../scroll-cue.js';
 
 export function createScreenMount(deps) {
     if (typeof deps?.render !== 'function') throw new TypeError('The screen mount needs a render(el, screen, scope) function.');
     const doc = documentOf(deps);
-    let view = null;          // { root, nav, title, body, handle, screenId, before }
+    let view = null;          // { root, nav, cue, title, body, handle, screenId, before }
 
     function mount(el, screenId, opts = {}) {
         return mountHead(deps, 'screen', el, screenId, opts);
@@ -39,6 +41,7 @@ export function createScreenMount(deps) {
             item.addEventListener('click', () => show(entry.id));
             view.nav.appendChild(item);
         }
+        view.cue?.update();
         return entries;
     }
 
@@ -78,7 +81,8 @@ export function createScreenMount(deps) {
         root.append(main, nav);
         (deps.container?.() ?? doc.body).appendChild(root);
 
-        view = { root, nav, title, body, handle: null, screenId: target, before: doc.activeElement ?? null, off: onHead(deps, update) };
+        view = { root, nav, cue: null, title, body, handle: null, screenId: target, before: doc.activeElement ?? null, off: onHead(deps, update) };
+        view.cue = scrollCue(nav, { win: doc.defaultView ?? globalThis });
         doc.addEventListener?.('keydown', onKey, true);
         show(target);
         closer.focus?.();
@@ -87,9 +91,10 @@ export function createScreenMount(deps) {
 
     function close() {
         if (!view) return;
-        const { root, handle, before, off } = view;
+        const { root, handle, before, off, cue } = view;
         view = null;
         off();
+        cue?.destroy();
         doc.removeEventListener?.('keydown', onKey, true);
         handle?.unmount();
         root.remove();

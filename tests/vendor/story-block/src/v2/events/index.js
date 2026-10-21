@@ -8,11 +8,11 @@
 //   command → globalThis.StoryBlock.sdk.command
 //   query   → globalThis.StoryBlock.sdk.query                  (for events.status outside a view)
 
-import { FIRE, createEngine, fireEvent } from './engine.js';
+import { FIRE, createEngine, createFireEvent } from './engine.js';
 import { renderEventsSection } from './section.js';
 
 export { CALLS, LIMITS, compile, evaluate, evaluateCondition, parse, tokenize } from './condition.js';
-export { FIRE, claimKey, createEngine, fireEvent, inspect, normalizeEvents } from './engine.js';
+export { FIRE, claimKey, createEngine, createFireEvent, fireEvent, inspect, normalizeEvents, repeatKey } from './engine.js';
 export { renderEventsSection, summaryLine } from './section.js';
 
 const sdk = () => globalThis.StoryBlock?.sdk ?? null;
@@ -43,10 +43,10 @@ export function createEventsPart({
     const status = (state, args, tools) => engine.status(state, typeof tools?.query === 'function' ? { state, query: tools.query } : null);
     return {
         domains: {},
-        commands: { [FIRE]: fireEvent },
+        commands: { [FIRE]: createFireEvent(events) },
         queries: { 'events.status': status },
         kinds: {},
-        hooks: { beforeGenerate: view => engine.beforeGenerate(view) },
+        hooks: { beforeGenerate: (view, info) => engine.beforeGenerate(view, info) },
         settings: {
             section: 'Events',
             defaults: {},

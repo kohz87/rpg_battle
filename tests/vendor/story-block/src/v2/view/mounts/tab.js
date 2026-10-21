@@ -22,7 +22,7 @@ export function createTabMount(deps) {
         removers = [];
     }
 
-    /** Adds one tab per tab screen, in screen-id order; calling it again replaces the earlier set. */
+    /** Adds one tab per tab screen, in navigation order (`order`); calling it again replaces the earlier set. */
     function register() {
         if (typeof deps.addTab !== 'function') throw new TypeError('The tab mount needs an addTab function from the tab host.');
         unregister();
@@ -32,6 +32,7 @@ export function createTabMount(deps) {
                 id: entry.id,
                 title: entry.screen.title ?? entry.id,
                 icon: entry.screen.icon ?? 'fa-table-columns',
+                ...(entry.screen.order !== undefined ? { order: entry.screen.order } : {}),
                 render: (el, view, api) => mount(el, entry.id, {
                     ...(view?.state ? { state: view.state } : {}),
                     ...(api ? { api } : {}),

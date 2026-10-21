@@ -18,11 +18,13 @@ export const LIMITS = Object.freeze({
 // Content kinds a pack may carry (SPEC §9). Each is a list of records.
 // races and talents are choices for the character creation wizard (MODULES §F12); skills are
 // RPG Battle skill templates and presets ready-made characters for that wizard; places and
-// routes are the map Story Director's atlas reads.
-export const CONTENT_KINDS = Object.freeze(['items', 'creatures', 'shops', 'recipes', 'events', 'quests', 'races', 'talents', 'skills', 'presets', 'places', 'routes']);
+// routes are the map Story Director's atlas reads; terms are the words a world uses for levels and XP
+// (MODULES §F25), which RPG Battle reads under the reader's own; ranks are a ladder of quest ranks
+// (Story Director's `quest.ranks`, RPG Battle's foe strength).
+export const CONTENT_KINDS = Object.freeze(['items', 'creatures', 'shops', 'recipes', 'events', 'quests', 'races', 'talents', 'skills', 'presets', 'places', 'routes', 'terms', 'ranks']);
 // Kinds added after the first pack format: a normalized pack has them only when the file gives
 // them, so what older packs list (counts) stays as it was.
-export const OPTIONAL_KINDS = Object.freeze(['skills', 'presets', 'places', 'routes']);
+export const OPTIONAL_KINDS = Object.freeze(['skills', 'presets', 'places', 'routes', 'terms', 'ranks']);
 
 // Top-level fields of pack.json; anything else is refused so a typo is not silently ignored.
 export const PACK_FIELDS = Object.freeze(['id', 'version', 'name', 'author', 'description', 'requires', 'currency', 'calendar', 'content', 'start', 'layouts', 'screens', 'theme']);
@@ -43,8 +45,22 @@ export const PRESET_FIELDS = Object.freeze(['id', 'name', 'note', 'race', 'talen
 // A stat name as creation and items use it: STR, DEX … (short capital letters).
 export const STAT_NAME = /^[A-Z]{2,12}$/;
 // Map data for Story Director's atlas (coordinates in map units, distances in km).
-export const PLACE_FIELDS = Object.freeze(['name', 'slug', 'aliases', 'region', 'kind', 'layer', 'x', 'y', 'note']);
+// `hidden: true` (or its alias `secret: true`): the map keeps the place off until the story goes there.
+export const PLACE_FIELDS = Object.freeze(['name', 'slug', 'aliases', 'region', 'kind', 'layer', 'x', 'y', 'note', 'hidden', 'secret']);
 export const ROUTE_FIELDS = Object.freeze(['slug', 'from', 'to', 'kind', 'km', 'hours', 'corridor', 'note']);
+// Display terms a pack suggests (MODULES §F25): `{ id?, name?, levelName?, xpName?, tiers? }`, `tiers`
+// being `true` or `{ size?, numerals?, enabled? }`. A term is a label in RPG Battle's blocks
+// (`Soul Class: III (Lv 24)`), so it may not hold what separates fields there.
+export const TERMS_FIELDS = Object.freeze(['id', 'name', 'levelName', 'xpName', 'tiers']);
+export const TERMS_TIER_FIELDS = Object.freeze(['size', 'numerals', 'enabled']);
+export const TERMS_NUMERALS = Object.freeze(['roman', 'arabic']);
+export const TERMS_LIMITS = Object.freeze({ records: 4, term: 30, tierSize: 999 });
+export const TERM_SEPARATORS = /[|:#<>\r\n]/;
+// A ladder of ranks, lowest first: `{ id: 'F', title?, levels?: [lo, hi], reward?: [lo, hi] }`, the
+// reward in whole units of the chat's one currency.
+export const RANK_FIELDS = Object.freeze(['id', 'title', 'levels', 'reward']);
+export const RANK_ID = /^[\p{L}\p{N}+-]{1,8}$/u;
+export const RANKS_LIMITS = Object.freeze({ records: 12, title: 30, level: 999 });
 // A calendar for the story clock: { era, months: [{ name, days }], start: { year, month, day, hour, minute } }.
 export const CALENDAR_FIELDS = Object.freeze(['era', 'months', 'start']);
 export const CALENDAR_START_FIELDS = Object.freeze(['year', 'month', 'day', 'hour', 'minute']);

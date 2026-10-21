@@ -5,6 +5,9 @@
 // `budget` is the points left *now*, with the stepper at `value`. Each step up costs `cost` points and
 // each step down refunds them, so + is disabled when the budget is spent. When the dialog passes new
 // props (a recomputed budget after any stepper changed), the stepper starts counting from them.
+// Instead of `budget`, a shared pool: `pool` is every point the steppers may spend together and
+// `spent` what they spend now, this one included (`"spent": {{ sum(draft.points) }}`), so the budget is
+// `pool − spent` without a query to work it out.
 
 import { clamp, fmt, h, num, setTone, shell, str } from './dom.js';
 import { defineWidget, resolveProps } from './props.js';
@@ -18,6 +21,8 @@ const props = {
     max: { type: 'number', default: null },                     // null: no maximum
     step: { type: 'number', default: 1 },
     budget: { type: 'number', default: null },                  // null: no budget
+    pool: { type: 'number', default: null },                    // shared budget, used when `budget` is null
+    spent: { type: 'number', default: 0 },                      // points spent from the pool, this stepper's included
     cost: { type: 'number', default: 1 },                       // points per step up
     label: { type: 'string', default: '' },
     budgetLabel: { type: 'string', default: 'Points left' },
@@ -42,6 +47,13 @@ export function stepperLimits({ value, min, max, step, budget, cost }) {
         hi = Math.min(hi, Math.max(value, value + steps * s));
     }
     return { lo, hi, step: s, cost: c };
+}
+
+/** The points left now: `budget` when given, else `pool − spent`, else null (no budget). */
+export function stepperBudget({ budget = null, pool = null, spent = 0 } = {}) {
+    if (budget !== null && budget !== undefined) return budget;
+    if (pool === null || pool === undefined) return null;
+    return tidy(num(pool, 0) - num(spent, 0));
 }
 
 /** A typed or stepped value snapped to the step grid from `lo` and clamped into [lo, hi]. */
@@ -104,6 +116,7 @@ function render(el, input, api) {
 
         function update(next) {
             p = resolveProps(props, next);
+            p.budget = stepperBudget(p);
             const name = str(p.label) || str(p.name) || 'Value';
             setTone(root, p.tone);
             root.setAttribute('aria-label', name);

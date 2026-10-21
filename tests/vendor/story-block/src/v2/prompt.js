@@ -9,19 +9,23 @@
 //
 // Budgets are tokens estimated at four characters each. A module's optional lines go first when
 // it is over its own budget, then its last lines; past the host's total budget the same happens
-// from the last module back. The [Happened] lines are never dropped: they are what the reply
-// must tell. Pure: no DOM, no SillyTavern.
+// from the last module back. The first [Happened] lines are never dropped: they are what the reply
+// must tell. Past half the total budget (and the first MIN_HAPPENED of them) the rest are told as one
+// counted line, "…and N more things happened." Names (`{{user}}`, `{{char}}`) are filled in before
+// anything is counted, so a long name cannot push a text past its budget. Pure: no DOM, no SillyTavern.
 
 export const TAIL_ORDER = Object.freeze(['scene', 'inventory', 'party', 'combat', 'trade', 'director']);
 export const DEFAULT_TAIL_BUDGET = 1500;
 export const HAPPENED = '[Happened]';
+// [Happened] lines always kept, however long they are; the rest share half the tail budget.
+export const MIN_HAPPENED = 5;
 // The static header's first line; turn.js looks for it to tell whether SillyTavern sent it.
 export const STATIC_MARKER = '[Story Suite: how this story is kept]';
 
 const HEADER = [
     STATIC_MARKER,
     'Code keeps this story\'s facts and numbers; you narrate.',
-    `When the last note starts with ${HAPPENED}, those things have just happened: tell them as they happen in the scene and keep their numbers. Do not write them again as changes.`,
+    `When a note starts with ${HAPPENED}, those things have just happened: tell them as they happen in the scene and keep their numbers. Do not write them again as changes.`,
 ].join('\n');
 
 const CHANGES_HEADER = [
@@ -32,6 +36,7 @@ const CHANGES_HEADER = [
     'op: + new or gained, - gone or lost, ~ changed, ! happened, ? asks code to decide (a check, a roll).',
     'Use only the kinds below. Leave out what did not change, and the whole block when nothing did.',
     'This is the only block you write: no state, inventory or party blocks; code keeps those and shows them to you.',
+    'Write it outside any thinking, once. It does not count toward any reply length limit.',
     'Kinds:',
 ].join('\n');
 
@@ -40,7 +45,7 @@ export const estimateTokens = text => Math.ceil(String(text ?? '').length / 4);
 
 const linesOf = value => (Array.isArray(value) ? value : [])
     .filter(line => typeof line === 'string')
-    .map(line => line.replace(/\s+$/, ''))
+    .map(line => line.trimEnd())
     .filter(line => line.trim());
 
 function attempt(fn, fallback, problems, what) {
@@ -89,38 +94,63 @@ function fit(section, budget) {
     return dropped;
 }
 
+// The [Happened] lines that fit `budget` tokens (at least the first MIN_HAPPENED), the rest told as
+// one counted line.
+function happenedLines(lines, budget) {
+    const out = [HAPPENED];
+    let cost = estimateTokens(HAPPENED);
+    for (let i = 0; i < lines.length; i += 1) {
+        const left = lines.length - i;
+        const next = estimateTokens(lines[i]) + 1;
+        // Room is kept for the closing line whenever lines would be left over.
+        const closing = left > 1 ? estimateTokens(`…and ${left - 1} more things happened.`) + 1 : 0;
+        if (i >= MIN_HAPPENED && cost + next + closing > budget) {
+            out.push(left === 1 ? '…and 1 more thing happened.' : `…and ${left} more things happened.`);
+            return out;
+        }
+        out.push(lines[i]);
+        cost += next;
+    }
+    return out;
+}
+
 /**
  * Builds both texts for the next reply.
  * - `registry`: createRegistry() result; `view`: { state, query, settings, chat } (§6).
  * - `untold`: receipts to tell (oldest first); only those with narrate !== false and a summary.
  * - `settings`: the host settings ({ tailBudget } in tokens, default 1500).
  * - `cues` (optional): { [moduleId]: string[] } extra required tail lines (beforeGenerate hooks).
+ * - `substitute` (optional): text → text, run on every text before it is counted (turn.js fills in
+ *   `{{user}}` and `{{char}}` with it).
  * Returns { staticText, tailText, parts: [{ module, label, place, text, tokens, dropped? }],
  * problems }. `parts` is what the What's-sent preview lists, in prompt order.
  */
-export function assemble({ registry, view, untold = [], settings = {}, cues = {} }) {
+export function assemble({ registry, view, untold = [], settings = {}, cues = {}, substitute = null }) {
     const problems = [];
-    const statics = staticParts(registry, problems);
+    const fill = typeof substitute === 'function' ? text => String(substitute(text) ?? '') : text => text;
+    const statics = staticParts(registry, problems).map(part => ({ ...part, text: fill(part.text) }));
     const staticText = statics.map(part => part.text).join('\n\n');
+    const total = Number.isInteger(settings?.tailBudget) && settings.tailBudget > 0 ? settings.tailBudget : DEFAULT_TAIL_BUDGET;
 
     const happened = untold
         .filter(receipt => receipt && receipt.narrate !== false && typeof receipt.summary === 'string' && receipt.summary.trim())
-        .map(receipt => receipt.summary.trim().replace(/\s*\n\s*/g, ' '));
-    const head = happened.length ? { module: 'story-suite', label: 'Happened', text: [HAPPENED, ...happened].join('\n') } : null;
+        .map(receipt => fill(receipt.summary).trim().split(/\n/).map(part => part.trim()).filter(Boolean).join(' '));
+    const head = happened.length
+        ? { module: 'story-suite', label: 'Happened', text: happenedLines(happened, Math.floor(total / 2)).join('\n') }
+        : null;
 
     const sections = [];
     for (const context of tailOrder(registry.contexts())) {
         const extra = linesOf(cues?.[context.moduleId]);
         let tail = null;
         if (typeof context.tail === 'function') tail = attempt(() => context.tail(view), null, problems, `${context.name}: this reply`);
-        const section = { context, lines: [...extra, ...linesOf(tail?.lines)], optional: linesOf(tail?.optional), dropped: 0 };
+        const section = { context, lines: linesOf([...extra, ...linesOf(tail?.lines)].map(fill)), optional: linesOf(linesOf(tail?.optional).map(fill)), dropped: 0 };
         if (!section.lines.length && !section.optional.length) continue;
         if (context.budget) section.dropped += fit(section, context.budget);
         sections.push(section);
     }
 
     // The host's total: what the sections may spend after [Happened] (and the line breaks).
-    const total = Number.isInteger(settings?.tailBudget) && settings.tailBudget > 0 ? settings.tailBudget : DEFAULT_TAIL_BUDGET;
     const tailText = () => [head?.text, ...sections.map(section => [...section.lines, ...section.optional].join('\n'))]
         .filter(Boolean).join('\n');
     for (const pass of ['optional', 'lines']) {

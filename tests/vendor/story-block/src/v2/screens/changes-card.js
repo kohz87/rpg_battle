@@ -9,10 +9,17 @@
 // completely is gone from the reply's state, so only the header (which sees the state before) names it.
 // Pure: no DOM.
 
+import { STRINGS, fill, html } from '../strings.js';
 import { BASE_CSS } from './style.js';
 
 export const CHANGES_CARD_SCREEN_ID = 'story-block/changes-card';
 
+const C = STRINGS.card;
+const T = STRINGS.summary;
+
+// `refused` is not a state path: the host puts the reply's refused change lines in the card's scope
+// (ui-host.js, from the turn's problems for that reply: [{ line, reason }]). A screen drawn without it
+// (another host, a test) simply has none.
 const TEMPLATE = `
 <div class="chg">
   <ul class="lines">
@@ -20,25 +27,31 @@ const TEMPLATE = `
         data-class="eq: s.equipped != null">
       <i class="fa-solid fa-box-open" aria-hidden="true"></i>
       <span class="name">{{ state.inventory.defs[s.def].name }}</span>
-      <span class="now muted">now ×{{ s.qty }}</span>
-      <span class="chip" data-if="s.equipped">equipped: {{ s.equipped }}</span>
+      <span class="now muted">${html(C.itemNow, { qty: '{{ s.qty }}' })}</span>
+      <span class="chip" data-if="s.equipped">${html(C.equipped, { slot: '{{ s.equipped }}' })}</span>
     </li>
     <li class="line coin" data-if="changed('state.inventory.wallets.party')">
       <i class="fa-solid fa-coins" aria-hidden="true"></i>
-      <span>Wallet: now <b>{{ state.inventory.wallets.party.coin }}</b> {{ q.currency.name }}</span>
+      <span>${html(C.wallet, { coin: '<b>{{ state.inventory.wallets.party.coin }}</b>', money: '<span data-if="state.inventory.wallets.party.coin == 1">{{ q.currency.name }}</span><span data-if="state.inventory.wallets.party.coin != 1">{{ q.currency.plural }}</span>' })}</span>
     </li>
     <li class="line place" data-if="changed('state.scene.place')">
       <i class="fa-solid fa-location-dot" aria-hidden="true"></i>
-      <span data-if="state.scene.place.name">Now at <b>{{ state.scene.place.name }}</b></span>
-      <span data-if="!state.scene.place.name">The place was cleared</span>
+      <span data-if="state.scene.place.name">${html(C.nowAt, { place: '<b>{{ state.scene.place.name }}</b>' })}</span>
+      <span data-if="!state.scene.place.name">${html(C.placeCleared)}</span>
     </li>
     <li class="line present" data-if="changed('state.scene.present')">
       <i class="fa-solid fa-users" aria-hidden="true"></i>
-      <span data-if="len(state.scene.present) > 0">Here now: {{ state.scene.present }}</span>
-      <span data-if="len(state.scene.present) == 0">No one else is here now</span>
+      <span data-if="len(state.scene.present) > 0">${html(C.hereNow, { names: '{{ state.scene.present }}' })}</span>
+      <span data-if="len(state.scene.present) == 0">${html(C.nobodyNow)}</span>
     </li>
   </ul>
-  <p class="none muted" data-if="!changed('state.inventory') && !changed('state.scene')">Nothing changed in the inventory or the scene.</p>
+  <p class="none muted" data-if="!changed('state.inventory') && !changed('state.scene')">${html(C.nothing)}</p>
+  <ul class="refused" data-if="len(refused) > 0">
+    <li class="line" data-each="refused as r">
+      <i class="fa-solid fa-ban" aria-hidden="true"></i>
+      <span><span class="label">${html(C.notApplied)}</span> <span class="raw">{{ r.line }}</span><span class="why" data-if="r.reason"> — {{ r.reason }}</span></span>
+    </li>
+  </ul>
 </div>`;
 
 const CSS = `${BASE_CSS}
@@ -46,13 +59,22 @@ const CSS = `${BASE_CSS}
 .lines { display: grid; gap: 2px; }
 .line { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
 .line > i { width: 1.1em; text-align: center; color: var(--sb-accent); }
+/* One text after the icon (the wallet, the place, who is here): it wraps beside the icon, never under it. */
+.coin, .place, .present { flex-wrap: nowrap; }
+.coin > span, .place > span, .present > span { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; }
 .name { font-weight: 600; }
 .none { margin: 0; }
+.refused { display: grid; gap: 2px; margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--sb-border);
+           color: var(--sb-em); opacity: 0.75; font-size: 0.95em; }
+.refused .line { flex-wrap: nowrap; }
+.refused .line > i { color: var(--sb-em); }
+.refused .line > span { flex: 1 1 0; min-width: 0; }
+.refused .raw { font-family: var(--monoFontFamily, monospace); font-size: 0.95em; overflow-wrap: anywhere; }
 `;
 
 export const changesCardScreen = Object.freeze({
     id: CHANGES_CARD_SCREEN_ID,
-    title: 'Changed this reply',
+    title: C.title,
     icon: 'fa-list-check',
     mounts: Object.freeze(['card']),
     // Shown under every reply until the reader turns it off (MODULES §F24).
@@ -159,31 +181,42 @@ export function changesDigest({ state = null, before = null, changes = [] } = {}
 
 function itemList(entries, sign) {
     const shown = entries.slice(0, MAX_ITEMS).map(entry => `${sign}${entry.qty} ${entry.name}`);
-    return entries.length > MAX_ITEMS ? [...shown, `${entries.length - MAX_ITEMS} more`] : shown;
+    return entries.length > MAX_ITEMS ? [...shown, fill(T.more, { n: entries.length - MAX_ITEMS })] : shown;
 }
 
-const people = names => (names.length <= 2 ? names.join(' and ') : `${names.slice(0, 2).join(', ')} and ${names.length - 2} more`);
+function people(names) {
+    if (names.length <= 1) return names.join('');
+    if (names.length === 2) return fill(T.two, { a: names[0], b: names[1] });
+    return fill(T.many, { first: names.slice(0, 2).join(', '), n: names.length - 2 });
+}
 
 /**
  * The card's collapsed one-line summary, in plain words: "+1 Moonveil Trout, −1 Rope · +30 gold ·
  * to Bluewatch Village · Fenna arrived", or "No changes" ("No item, coin or place changes" when only
  * another module's state moved). `currency` is `inventory.currency`'s
- * `{ name }` (default gold). Takes the same fields as changesDigest, or a digest as `digest`.
+ * `{ name }` (default gold). `refused` is how many of the reply's change lines were not applied
+ * (MODULES §F41): "… · 1 line not applied". Takes the same fields as changesDigest, or a digest as `digest`.
  */
-export function changesSummary({ state = null, before = null, changes = [], currency = null, digest = null } = {}) {
+export function changesSummary({ state = null, before = null, changes = [], currency = null, digest = null, refused = 0 } = {}) {
     const d = digest ?? changesDigest({ state, before, changes });
-    const money = typeof currency?.name === 'string' && currency.name ? currency.name : 'gold';
+    // The currency word for an amount: its name for exactly 1, else its plural (MODULES §F1).
+    const name = typeof currency?.name === 'string' && currency.name ? currency.name : T.defaultMoney;
+    const plural = typeof currency?.plural === 'string' && currency.plural ? currency.plural : name;
+    const money = n => (Math.abs(n) === 1 ? name : plural);
     const parts = [];
     const items = [...itemList(d.gained, '+'), ...itemList(d.lost, '−')];
     if (items.length) parts.push(items.join(', '));
-    if (d.held.length) parts.push(d.held.slice(0, MAX_ITEMS).map(entry => `${entry.name} ×${entry.qty}`).join(', ')
-        + (d.held.length > MAX_ITEMS ? `, ${d.held.length - MAX_ITEMS} more` : ''));
-    if (d.coin !== null) parts.push(`${d.coin > 0 ? '+' : '−'}${Math.abs(d.coin)} ${money}`);
-    else if (d.coinNow !== null) parts.push(`${d.coinNow} ${money} now`);
-    if (d.place !== null) parts.push(d.place ? `to ${d.place}` : 'place cleared');
-    if (d.arrived.length) parts.push(`${people(d.arrived)} arrived`);
-    if (d.left.length) parts.push(`${people(d.left)} left`);
-    if (d.presentNow) parts.push(d.presentNow.length ? `here: ${people(d.presentNow)}` : 'no one else here');
-    if (parts.length) return parts.join(' · ');
-    return d.other ? 'No item, coin or place changes' : 'No changes';
+    if (d.held.length) parts.push(d.held.slice(0, MAX_ITEMS).map(entry => fill(T.held, { name: entry.name, qty: entry.qty })).join(', ')
+        + (d.held.length > MAX_ITEMS ? fill(T.moreTail, { n: d.held.length - MAX_ITEMS }) : ''));
+    if (d.coin !== null) parts.push(`${d.coin > 0 ? '+' : '−'}${Math.abs(d.coin)} ${money(d.coin)}`);
+    else if (d.coinNow !== null) parts.push(fill(T.coinNow, { n: d.coinNow, money: money(d.coinNow) }));
+    if (d.place !== null) parts.push(d.place ? fill(T.to, { place: d.place }) : T.placeCleared);
+    if (d.arrived.length) parts.push(fill(T.arrived, { names: people(d.arrived) }));
+    if (d.left.length) parts.push(fill(T.left, { names: people(d.left) }));
+    if (d.presentNow) parts.push(d.presentNow.length ? fill(T.here, { names: people(d.presentNow) }) : T.nobody);
+    const count = Number.isSafeInteger(refused) && refused > 0 ? refused : 0;
+    const notApplied = count === 0 ? null : count === 1 ? T.refusedOne : fill(T.refusedMany, { n: count });
+    if (parts.length) return [...parts, ...(notApplied ? [notApplied] : [])].join(' · ');
+    const nothing = d.other ? T.otherOnly : T.none;
+    return notApplied ? `${nothing} · ${notApplied}` : nothing;
 }

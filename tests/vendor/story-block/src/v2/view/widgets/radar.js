@@ -1,6 +1,7 @@
 // radar: a polygon chart over several axes (stats, affinities), with an optional "before" series drawn
 // under the current one (a level-up preview, gear compared). The chart is SVG; a visually hidden list
-// carries the same numbers for screen readers.
+// carries the same numbers for screen readers. The axis labels scale with the chart but never show
+// smaller than LABEL_MIN_PX on screen (the chart's drawn width is watched where ResizeObserver exists).
 
 import { clamp, fmt, h, num, s, setTone, shell, str } from './dom.js';
 import { defineWidget, resolveProps } from './props.js';
@@ -8,6 +9,18 @@ import { defineWidget, resolveProps } from './props.js';
 const RADIUS = 100;
 const LABEL_GAP = 14;
 const MAX_AXES = 24;
+const VIEW_WIDTH = 2 * RADIUS + 120;
+export const LABEL_MIN_PX = 11;
+
+/**
+ * The axis label size in the chart's own units for a chart drawn `width` px wide: LABEL_MIN_PX units
+ * (which grow with a big chart), more when the chart is drawn small, so a label never shows under
+ * LABEL_MIN_PX on screen.
+ */
+export function labelUnits(width) {
+    if (!(Number.isFinite(width) && width > 0)) return LABEL_MIN_PX;
+    return Math.max(LABEL_MIN_PX, Math.ceil((LABEL_MIN_PX * VIEW_WIDTH / width) * 10) / 10);
+}
 
 const props = {
     axes: { type: 'array', required: true, default: Object.freeze([]) },   // [{ label, value, max, before }]
@@ -52,10 +65,10 @@ export function radarPoints(ratios) {
 }
 
 function render(el, input) {
-    return shell(el, 'figure', 'radar', ({ doc, root }) => {
+    return shell(el, 'figure', 'radar', ({ doc, root, cleanup }) => {
         const svg = s(doc, 'svg', {
             class: 'ss-w-radar-svg',
-            viewBox: `${-RADIUS - 60} ${-RADIUS - 24} ${2 * RADIUS + 120} ${2 * RADIUS + 48}`,
+            viewBox: `${-RADIUS - 60} ${-RADIUS - 24} ${VIEW_WIDTH} ${2 * RADIUS + 48}`,
             'aria-hidden': 'true',
             focusable: 'false',
         });
@@ -63,6 +76,17 @@ function render(el, input) {
         const caption = h(doc, 'figcaption', 'ss-w-radar-caption');
         const empty = h(doc, 'p', 'ss-w-empty-note', 'Nothing to chart.');
         root.append(caption, svg, list, empty);
+        // Readable labels at any size: the size in chart units follows the width the chart is drawn at.
+        const fit = () => {
+            const width = svg.getBoundingClientRect?.().width ?? 0;
+            if (width > 0) svg.style?.setProperty?.('--ss-w-radar-label', String(labelUnits(width)));
+        };
+        const Observer = doc.defaultView?.ResizeObserver;
+        if (typeof Observer === 'function') {
+            const observer = new Observer(fit);
+            observer.observe(svg);
+            cleanup(() => observer.disconnect());
+        }
 
         function update(next) {
             const p = resolveProps(props, next);
