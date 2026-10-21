@@ -7,7 +7,7 @@
 // portraits, HP/MP/SP meters and conditions; the turn order; the acting member's actions with
 // target selection and the numbers an attack would do; the last lines of the log; and, once the
 // fight is over, the result with Finish. Every click is a command through `api.command`
-// (`combat.act { action, session, logLength }`, `combat.end { session }`); the board never touches the state.
+// (`combat.act { action, session, board, logLength }`, `combat.end { session }`); the board never touches the state.
 //
 // What the reader is in the middle of (an open skill list, the target being picked, the log's scroll
 // position, the focused button) survives an update that does not move the fight on.
@@ -47,6 +47,7 @@ const props = {
     actions: { type: 'object', default: null },
     log: { type: 'array', default: [] },
     logLength: { type: 'number', default: 0 },
+    board: { type: 'string', default: '' },        // the view's moment token (combat.act refuses a stale one)
     result: { type: 'object', default: null },
     // The whole view as one prop, for a caller that does not bind it.
     session: { type: 'object', default: null },
@@ -227,6 +228,7 @@ function render(el, input, api) {
     const shown = () => ({
         ...(typeof p.id === 'string' && p.id ? { session: p.id } : {}),
         ...(Number.isInteger(p.logLength) && p.logLength > 0 ? { logLength: p.logLength } : {}),
+        ...(typeof p.board === 'string' && p.board ? { board: p.board } : {}),
     });
     const act = action => send('combat.act', { action, ...shown() });
 
@@ -676,7 +678,7 @@ function render(el, input, api) {
     }
 
     /** What a new view must match for the reader's open list or picking to carry over. */
-    const keyOf = () => [p.id, num(p.logLength, list(p.log).length), p.actions?.actor ?? p.turn?.actor ?? '', p.status].join('|');
+    const keyOf = () => [p.id, typeof p.board === 'string' ? p.board : '', num(p.logLength, list(p.log).length), p.actions?.actor ?? p.turn?.actor ?? '', p.status].join('|');
 
     function update(next) {
         if (!alive) return;

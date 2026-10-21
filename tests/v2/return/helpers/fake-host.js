@@ -157,11 +157,14 @@ export function createHost({ withReceipts = true, withChat = true, withRewind = 
         query,
         async command(type, payload, options = {}) {
             calls.command.push({ type, payload, options });
+            // As Story Block's sdk.command: a module's command is the reader's action, never another cause.
+            const cause = options?.cause !== undefined ? options.cause : 'ui';
+            if (cause !== 'ui') return { ok: false, code: 'REFUSED', message: `"${cause}" is kept for Story Block itself.` };
             const handler = returnPart.commands[type];
             if (!handler) return { ok: false, code: 'UNKNOWN_COMMAND', message: `No command ${type}.` };
             const out = runCommand(head, handler, payload, { own: [], commands: returnPart.commands });
             if (!out.ok) return out;
-            const receipt = { id: `rc_${String(out.state.meta.rev).padStart(8, '0')}`, type, module: 'rpg-battle', cause: options.cause ?? 'ui', seed: 1, ...out.result, rev: out.state.meta.rev };
+            const receipt = { id: `rc_${String(out.state.meta.rev).padStart(8, '0')}`, type, module: 'rpg-battle', cause, seed: 1, ...out.result, rev: out.state.meta.rev };
             chat[lastCarrier()].extra.storySuite.receipts.push(receipt);
             after.set(out.state.meta.rev, out.state);
             head = out.state;

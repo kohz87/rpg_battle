@@ -2,9 +2,10 @@
 // the death has left your character dead, generation stops (canGenerate) and the reader is
 // offered Return: the chat goes back, as a SillyTavern branch so the old timeline is kept, to
 // the reply where the fatal fight began, without that fight (Story Block's sdk.rewind drops
-// the reply's receipts from the fight's combat.start on). On the new branch a `system` receipt
-// tells the next reply, once (claim `return:<fight id>`), that you are back at that moment,
-// alive. No memory rules are imposed.
+// the reply's receipts from the fight's combat.start on). On the new branch a receipt (the
+// reader's own action, cause `ui`: Story Block's sdk keeps `system` for itself, B4r2-6) tells the
+// next reply, once (claim `return:<fight id>`), that you are back at that moment, alive. No
+// memory rules are imposed.
 //
 // Host API this part needs (from Story Block):
 //   sdk.rewind({ index, beforeRev }) → Promise<{ ok: true } | { ok: false, code, message }>:
@@ -53,7 +54,7 @@ export function canGenerate(view) {
 }
 
 /**
- * return.cue({ fight, place }) (cause `system`, after the rewind): the next reply is told you
+ * return.cue({ fight, place }) (sent as the reader's action, after the rewind): the next reply is told you
  * are back at the moment before the fight, alive. Told once per fight on a line of history
  * (CLAIMED after); refused where your character is still dead (the return did not happen).
  */
@@ -94,7 +95,9 @@ export async function returnInTime(sdk) {
     if (rewound && rewound.ok === false) {
         return { ok: false, code: rewound.code ?? 'FAILED', message: rewound.message ?? 'The return did not work.', point };
     }
-    const told = await sdk.command('return.cue', { fight: point.fight, place: point.place }, { cause: 'system' });
+    // An ordinary command (cause `ui`): Story Block's sdk refuses any other cause from a module.
+    // Told once per fight on a line of history by its claim, so a second click changes nothing.
+    const told = await sdk.command('return.cue', { fight: point.fight, place: point.place });
     if (!told?.ok) return { ok: false, code: told?.code ?? 'FAILED', message: told?.message ?? 'The return was made but could not be told.', point, rewound: true };
     return { ok: true, point, receipt: told.receipt };
 }
