@@ -8,7 +8,8 @@
 // enemiesFromRows and engagements (party.js) for the foes and the waves after the first. Pure
 // apart from ctx.
 
-import { DEFAULT_RULES, suggestRank } from '../../rules.js';
+import { DEFAULT_RULES, suggestRank, threatStep } from '../../rules.js';
+import { maxLevel } from '../../terms.js';
 import { DEFAULT_SKILLS } from '../../skills.js';
 import { DEFAULT_BESTIARY, findCreature } from '../../enemies.js';
 import { cleanCreature, combinedBestiary, creaturesToMake } from '../../templates.js';
@@ -170,19 +171,115 @@ export function partyCombatants(ctx, { rules = DEFAULT_RULES } = {}) {
     });
 }
 
+// A tier is a threat budget for the whole offer (B-b4-11), not for each foe: "weak" means a fresh
+// character wins, however many foes the story wrote. A lone foe keeps v1's level for its tier
+// (story.threatPower: v1 parity is kept for lone foes only). In a group each foe's level moves by
+// GROUP_SHIFT[tier][headcount − 1] levels, the headcount being the foes per party member who can
+// fight; fractions of a level, and levels below 1, make a smaller foe as v1 does below level 1 (HP
+// and attack × perLevelBelowOne per level short, here down to GROUP_MIN_SCALE). Counted in levels,
+// the same budget holds at any level. The shifts were calibrated with scripts/balance-sim.mjs for a
+// fresh level-1 character of every creation preset on auto, against the bestiary's foes and a
+// made-up one, aiming at: trivial won ≥ 98 %, weak ≥ 90 %, even 50–75 %, strong 20–50 %, deadly
+// < 20 % (even and strong as the presets' middle: the presets themselves differ by more than those
+// bands). Two even foes are a little stronger than two of v1's.
+export const GROUP_SHIFT = Object.freeze({
+    trivial: Object.freeze([0, 0, -2, -4, -5, -6, -7, -8, -9]),
+    weak: Object.freeze([0, 0, -4, -5, -6, -7, -8, -9, -10]),
+    even: Object.freeze([0, 2, 0, -1.5, -3, -4.75, -5.75, -7, -8.25]),
+    strong: Object.freeze([0, -1, -3, -5, -6.25, -8, -9.25, -10.5, -11.5]),
+    deadly: Object.freeze([0, -2.25, -5.5, -7.25, -8.25, -8.75, -9, -9.75, -10.5]),
+});
+// The most foes a tier fields (trim the count): past four, a group of even, strong or deadly foes
+// small enough for the budget is one that a sweep across all foes wins and a single blade loses
+// (the fighter against nine strong wolves 100 %, the skirmisher 5 %), so the rest hang back.
+export const GROUP_MIN_SCALE = 0.15;
+// The most foes one offer fields; more hang back (an offer row holds 9 at most, rows add up).
+export const MAX_HEADCOUNT = 9;
+export const MAX_FIELDED = Object.freeze({ even: 4, strong: 4, deadly: 4 });
+// The most foes that can stun a fight of a "you win" tier fields (trim the count): stunned on every
+// turn, a lone character cannot fight back however small the foes are (three or four swift Cellar
+// Rat Swarms with Pounce, B-b4-11). Other tiers field them all.
+export const MAX_STUNNERS = Object.freeze({ trivial: 2, weak: 3 });
+
+/** How many levels a tier's foe moves in a group of `headcount` (GROUP_SHIFT; 0 alone). */
+export function headcountShift(tier, headcount) {
+    const table = GROUP_SHIFT[tier];
+    if (!table || headcount < 2) return 0;
+    return table[Math.min(MAX_HEADCOUNT, headcount) - 1];
+}
+
+/**
+ * A tier row's level for a group of `headcount` foes (headcountShift), from the character's level:
+ * at least 1, and below 1 a smaller foe (`scale`, `xpLevel`) by v1's rule; fractions of a level as
+ * a scale too (level 3.5 is a level-4 foe × perLevelBelowOne^0.5). A lone foe, a row with a rank of
+ * its own or with no tier is left as resolveThreats made it.
+ */
+export function groupPower(row, headcount, pcLevel, rules = DEFAULT_RULES) {
+    if (!row?.threat || row.rank || headcount < 2) return row;
+    const shift = headcountShift(row.threat, headcount);
+    if (!shift) return row;
+    const t = { ...DEFAULT_RULES.threat, ...(rules?.threat ?? {}) };
+    const offset = Number(t.offsets?.[row.threat]);
+    if (!Number.isFinite(offset)) return row;
+    const base = Math.max(1, Math.round(Number(pcLevel) || 1));
+    const raw = base + offset * threatStep(rules) + shift;
+    const level = Math.min(maxLevel(rules), Math.max(1, Math.ceil(raw - 1e-9)));
+    const { scale: _scale, xpLevel: _xpLevel, ...rest } = row;
+    const per = Number(t.perLevelBelowOne) > 0 ? Number(t.perLevelBelowOne) : DEFAULT_RULES.threat.perLevelBelowOne;
+    const scale = Math.max(GROUP_MIN_SCALE, per ** (level - raw));
+    const out = { ...rest, level };
+    if (scale < 0.9995) out.scale = Math.round(scale * 1000) / 1000;
+    if (raw < 1) out.xpLevel = Math.round(raw * 100) / 100;
+    return out;
+}
+
+/**
+ * The offer's rows with no more foes in all than it fields: MAX_HEADCOUNT, or the least
+ * MAX_FIELDED of its tiers for each member who can fight (the last rows give way first).
+ */
+function fielded(rows, partySize = 1) {
+    let room = Math.min(MAX_HEADCOUNT, ...rows.map(row => (MAX_FIELDED[row.threat] ?? MAX_HEADCOUNT) * partySize));
+    return rows.map(row => {
+        const count = Math.max(0, Math.min(Math.max(1, Math.round(Number(row.count) || 1)), room));
+        room -= count;
+        return { ...row, count };
+    }).filter(row => row.count > 0);
+}
+
+const stuns = enemy => (enemy.skills ?? []).some(skill => Number(skill?.effect?.stun) > 0);
+
+/** The foes with no more stunners than the tier allows each member (MAX_STUNNERS): the last ones hang back. */
+function lessStunners(enemies, partySize = 1) {
+    const kept = [];
+    const used = {};
+    for (const enemy of enemies) {
+        const most = MAX_STUNNERS[enemy.threat] === undefined ? undefined : MAX_STUNNERS[enemy.threat] * partySize;
+        if (most !== undefined && stuns(enemy)) {
+            used[enemy.threat] = (used[enemy.threat] ?? 0) + 1;
+            if (used[enemy.threat] > most) continue;
+        }
+        kept.push(enemy);
+    }
+    return kept;
+}
+
 /**
  * The rows of an offer with their power settled (v1 rankedRows): a tier word made a level from
  * the character's; a row without one keeps a creature's own power, else the fair rank.
  * `makeAt` is the level a creature made up for the row is made at.
  */
-export function offerRows(offer, { pcLevel = 1, bestiary, rules = DEFAULT_RULES } = {}) {
+export function offerRows(offer, { pcLevel = 1, bestiary, rules = DEFAULT_RULES, partySize = 1 } = {}) {
     const rows = (offer?.foes ?? []).map(foe => ({
         name: foe.name, count: foe.count, rank: null, role: null, boss: Boolean(foe.boss),
         ...(foe.tier ? { threat: foe.tier } : {}),
         ...(foe.wave ? { wave: foe.wave } : {}),
     }));
     const fair = suggestRank(pcLevel, rules);
-    return resolveThreats(rows, pcLevel, rules).map(row => {
+    const members = Math.max(1, Math.round(Number(partySize) || 1));
+    const field = fielded(rows, members);
+    // The budget is the party's: foes per member who can fight (two against four is two each).
+    const headcount = Math.ceil(field.reduce((sum, row) => sum + row.count, 0) / members);
+    return resolveThreats(field, pcLevel, rules).map(row => groupPower(row, headcount, pcLevel, rules)).map(row => {
         const level = Number(row.level) >= 1 ? Math.round(Number(row.level)) : null;
         const rank = level ? null : row.rank || (findCreature(bestiary, row.name) ? null : fair);
         return { ...row, level, rank, makeAt: level ?? rules.ranks[rank ?? fair]?.level ?? pcLevel };
@@ -201,12 +298,14 @@ export function buildSetup({ id, seed, offer, party, chatBestiary = [], numbers 
     if (!party.some(c => c.hp.cur > 0)) throw new Error('Nobody in the party is standing to fight.');
     const pcLevel = party[0].level;
     const lookup = combinedBestiary(chatBestiary, DEFAULT_BESTIARY);
-    const ranked = offerRows(offer, { pcLevel, bestiary: lookup, rules });
+    const partySize = party.filter(c => c.hp.cur > 0).length;
+    const ranked = offerRows(offer, { pcLevel, bestiary: lookup, rules, partySize });
     const made = creaturesToMake(ranked.map(row => ({ ...row, level: row.makeAt })), { chatBestiary, defaults: DEFAULT_BESTIARY, rules, seed: String(seed) })
         .map(entry => cleanCreature(entry, rules)).filter(Boolean);
     const bestiary = combinedBestiary([...chatBestiary, ...made], DEFAULT_BESTIARY);
     const madeNames = new Set(made.map(entry => entry.name.toLowerCase()));
-    const all = enemiesFromRows(ranked, { bestiary, library: DEFAULT_SKILLS, rules, rng: makeRng(`${seed}:enemies`) })
+    const projected = enemiesFromRows(ranked, { bestiary, library: DEFAULT_SKILLS, rules, rng: makeRng(`${seed}:enemies`) });
+    const all = lessStunners(projected, partySize)
         .map((enemy, index) => ({
             ...enemy,
             id: foeId(index + 1),
@@ -225,5 +324,7 @@ export function buildSetup({ id, seed, offer, party, chatBestiary = [], numbers 
         ...(numbers.xpRate ? { xpRate: numbers.xpRate } : {}),
         ...(offer.place ? { place: offer.place } : {}),
     };
-    return { setup, made, rules };
+    // The foes the offer named that hang back (past MAX_HEADCOUNT, or stunners past MAX_STUNNERS).
+    const named = (offer?.foes ?? []).reduce((sum, foe) => sum + Math.max(1, Math.round(Number(foe.count) || 1)), 0);
+    return { setup, made, rules, heldBack: Math.max(0, named - all.length) };
 }
