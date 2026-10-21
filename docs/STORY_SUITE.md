@@ -94,6 +94,12 @@ the automatic award path from awarding twice when message indexes shift or metad
 flags disappear. Journal metadata must survive archive/export; missing anchors or edited
 interiors require recovery. No independent XP database or server plugin is installed.
 
+A finished fight with an incomplete journal stays in the Battle tab's recovery screen.
+When Block 0.9.29 offers a narrow legacy Regenerate repair, **Reconnect regenerated reply**
+requires a click, verifies that link, then resumes the same stored fight. It never replays
+combat or copies the discarded branch's rewards. Without a trustworthy repair target,
+restore the original history; uncertain saves require reload. No automatic journal reset.
+
 ```js
 import { storySuite, isSourceOfTruth } from './src/suite.js';
 const suite = storySuite();
