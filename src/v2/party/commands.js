@@ -273,7 +273,7 @@ function rest(ctx, payload = {}) {
         const actor = party.actors[id];
         if (!actor) fail(ctx, 'NOT_FOUND', 'That person is not in the party.');
         const sheet = toSheet(actor);
-        const next = restV1(sheet, kind, { gear: gearOf(inventory, id), rules });
+        const next = restV1(sheet, kind, { gear: gearOf(inventory, id, { pc: party.pc }), rules });
         const after = writeSheet(party, actor, next, rules);
         const gain = gains(actor, after);
         data[id] = gain;

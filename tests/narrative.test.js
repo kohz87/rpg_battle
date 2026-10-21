@@ -90,12 +90,12 @@ test('bands come from rules.json; missing or odd input never throws', () => {
     assert.equal(stateWords({ hp: { cur: 10, max: 0 } }, R).hp, 'unhurt');
 });
 
-// index.js is SillyTavern glue and cannot be imported here, so its kept-block notes are read
+// v1.js (the v1 glue) is SillyTavern glue and cannot be imported here, so its kept-block notes are read
 // from the source: Story Block refuses a promptNote over 300 characters.
 // 0.4: one Party block, one note for your character and the companions.
 test('the Party prompt note points at the State lines and fits Story Block', async () => {
     const { readFile } = await import('node:fs/promises');
-    const source = await readFile(new URL('../index.js', import.meta.url), 'utf8');
+    const source = await readFile(new URL('../v1.js', import.meta.url), 'utf8');
     assert.doesNotMatch(source, /const CHARACTER_NOTE/, 'no separate Character note any more');
     for (const name of ['PARTY_NOTE']) {
         const match = source.match(new RegExp(`const ${name} = '((?:[^'\\\\]|\\\\.)*)';`));

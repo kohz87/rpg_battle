@@ -11,14 +11,13 @@ export const MODULE_ID = 'rpg-battle';
 /**
  * The rules in force: v1's DEFAULT_RULES with the reader's settings over them. Settings are
  * RPG Battle's module settings (SPEC §6); as in v1, `rules` holds a rules.json's overrides and
- * the Combat panel's own `currency` and `gear` win over it.
+ * the panel's own `gear` wins over it. Money is Story Block's one currency, not the rules'.
  */
 export function rulesFrom(settings = null) {
     const own = settings && typeof settings === 'object' ? settings : {};
     const custom = own.rules && typeof own.rules === 'object' ? own.rules : {};
     return makeRules({
         ...custom,
-        ...(own.currency && typeof own.currency === 'object' ? { currency: { ...(custom.currency ?? {}), ...own.currency } } : {}),
         ...(own.gear && typeof own.gear === 'object' ? { gear: { ...(custom.gear ?? {}), ...own.gear } } : {}),
     });
 }
@@ -28,6 +27,16 @@ export function hostSettings() {
     try {
         const sdk = globalThis.StoryBlock?.sdk;
         return typeof sdk?.settings === 'function' ? sdk.settings(MODULE_ID) ?? null : null;
+    } catch {
+        return null;
+    }
+}
+
+/** The chat's one currency (Story Block's `inventory.currency`, MODULES §F1) when the host is up, else null. */
+export function hostCurrency() {
+    try {
+        const sdk = globalThis.StoryBlock?.sdk;
+        return typeof sdk?.query === 'function' ? sdk.query('inventory.currency') ?? null : null;
     } catch {
         return null;
     }

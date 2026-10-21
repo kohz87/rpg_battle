@@ -9,13 +9,13 @@
 // itemWorth, placePrices, marketHere, sellPrice, craftFee, shopStock, commissionHours).
 
 import { makeRules } from '../../rules.js';
-import { formatMoney, nameKey, slotFromWord } from '../../items.js';
+import { formatMoney, nameKey, oneCurrency, slotFromWord } from '../../items.js';
 import {
     COMMISSIONERS, buyerKind, commissionHours, craftFee, craftSpan, isMaterial, itemWorth, marketHere, placePrices,
     pricedLevel, readyAt, readyWords, sellPrice, shopStock, tradeLine,
 } from '../../trade.js';
 import { craftPiece } from './craft-plan.js';
-import { currencyOf, pcOf, sceneOf } from './calls.js';
+import { pcOf, sceneOf } from './calls.js';
 
 export const DAY = 24 * 60;
 /** The trader kinds the page offers (v1 0.5.38). */
@@ -27,8 +27,12 @@ const MARKET_KINDS = ['settlement'];
 // The most of one thing bought at once.
 const MOST = 99;
 
-/** The error codes trade rejects with (SPEC §12): no market and not ready are INVALID requests. */
-export const CODES = Object.freeze({ noMarket: 'INVALID', notReady: 'INVALID', invalid: 'INVALID', notFound: 'NOT_FOUND', notEnough: 'NOT_ENOUGH', claimed: 'CLAIMED' });
+/**
+ * The error codes trade rejects with (SPEC §12, MODULES §F4): a rule refusing (no market here,
+ * not ready yet, a piece still worn, a thing that cannot be sold, a trader who takes no
+ * commissions) is REFUSED; a malformed request (a count that is no count, a missing name) INVALID.
+ */
+export const CODES = Object.freeze({ noMarket: 'REFUSED', notReady: 'REFUSED', refused: 'REFUSED', invalid: 'INVALID', notFound: 'NOT_FOUND', notEnough: 'NOT_ENOUGH', claimed: 'CLAIMED' });
 
 const no = (code, message) => ({ ok: false, code, message });
 const isCount = (value, max = Infinity) => Number.isInteger(value) && value >= 1 && value <= max;
@@ -50,9 +54,11 @@ export function settingsOf(source, id = 'rpg-battle') {
 
 /**
  * The world a trade happens in. `scene`: { place: { name, kind }, present }; `inventory`,
- * `trade`, `party`: the slices; `settings`: this module's; `now`: story minutes or null.
+ * `trade`, `party`: the slices; `settings`: this module's; `now`: story minutes or null;
+ * `currency`: the chat's one currency, Story Block's `inventory.currency` ({ name, short };
+ * gold when it is not given). Amounts are whole numbers of it; only the words depend on it.
  */
-export function makeWorld({ scene, inventory, trade, party, settings = {}, now = null, hook = null }) {
+export function makeWorld({ scene, inventory, trade, party, settings = {}, now = null, currency = null }) {
     const rules = makeRules(settings.rules ?? null);
     const place = { name: String(scene?.place?.name ?? ''), kind: String(scene?.place?.kind ?? '') };
     const present = Array.isArray(scene?.present) ? scene.present : [];
@@ -71,12 +77,13 @@ export function makeWorld({ scene, inventory, trade, party, settings = {}, now =
         now: clock, day: clock === null ? null : Math.floor(clock / DAY),
         inventory: { defs: inventory?.defs ?? {}, stacks: inventory?.stacks ?? {} },
         trade: { orders: trade?.orders ?? {}, shops: trade?.shops ?? {} },
-        currency: currencyOf({ hook }, rules.currency),
+        currency: oneCurrency(currency),
     };
 }
 
-// The world as a query or a page sees it: a state, with the settings and hook the host gives.
-// The story clock is the Director's (MODULES §C1 `director.time.minutes`) when it is there.
+// The world as a query or a page sees it: a state, with the settings and query tools the host
+// gives (the currency from `inventory.currency` through them). The story clock is the
+// Director's (MODULES §C1 `director.time.minutes`) when it is there.
 export function worldFromState(state, env = {}) {
     const domains = state?.domains ?? {};
     const minutes = domains.director?.time?.minutes;
@@ -87,11 +94,21 @@ export function worldFromState(state, env = {}) {
         party: domains.party,
         settings: settingsOf(env.settings),
         now: Number.isInteger(minutes) ? minutes : null,
-        hook: env.hook ?? null,
+        currency: currencyFrom(env.query),
     });
 }
 
-/** The money words of the chat's coins: '1 silver, 3 copper'. */
+/** The chat's currency through a query function (`inventory.currency`), or null without one. */
+export function currencyFrom(query) {
+    if (typeof query !== 'function') return null;
+    try {
+        return query('inventory.currency') ?? null;
+    } catch {
+        return null;
+    }
+}
+
+/** The money words of the chat's one currency: '13 gold'. */
 export const money = (world, amount) => formatMoney(amount, world.currency);
 
 /** What a trade line is told as: "Ren sold 5 Rat Tail to the general store for 3 silver." */
@@ -161,8 +178,8 @@ export function planSell(world, { stack, qty = 1, kind = null, who = '' } = {}) 
     const row = world.inventory.stacks[stack];
     const def = row ? world.inventory.defs[row.def] : null;
     if (!row || !def) return no(CODES.notFound, 'That is not in the inventory.');
-    if (row.equipped) return no(CODES.invalid, `Take off the ${def.name} before selling it.`);
-    if (def.kind === 'money' || def.kind === 'quest') return no(CODES.invalid, `The ${def.name} cannot be sold.`);
+    if (row.equipped) return no(CODES.refused, `Take off the ${def.name} before selling it.`);
+    if (def.kind === 'money' || def.kind === 'quest') return no(CODES.refused, `The ${def.name} cannot be sold.`);
     if (row.qty < qty) return no(CODES.notEnough, row.qty ? `There ${row.qty === 1 ? 'is' : 'are'} only ${row.qty} ${def.name}.` : `There is no ${def.name} left.`);
     const buyer = traderKind(kind || who, world.rules);
     const each = sellPrice(legacyItem(def), { buyer, prices: world.prices, level: world.plevel, rules: world.rules });
@@ -204,7 +221,7 @@ export function planCommission(world, { piece, materials, crafter } = {}) {
     const who = clean(crafter);
     if (!who) return no(CODES.invalid, 'Say who makes it.');
     const kind = traderKind(who, world.rules);
-    if (!COMMISSIONERS.includes(kind)) return no(CODES.invalid, 'Only a smith, a crafter (bone-carver, tanner…) or an apothecary takes commissions.');
+    if (!COMMISSIONERS.includes(kind)) return no(CODES.refused, 'Only a smith, a crafter (bone-carver, tanner…) or an apothecary takes commissions.');
     const name = clean(typeof piece === 'string' ? piece : piece?.name, 60);
     if (!name) return no(CODES.invalid, 'Name the piece first.');
     const slot = typeof piece === 'object' && piece?.slot ? slotFromWord(piece.slot) : null;
@@ -220,7 +237,7 @@ export function planCommission(world, { piece, materials, crafter } = {}) {
         const row = world.inventory.stacks[stack];
         const def = row ? world.inventory.defs[row.def] : null;
         if (!row || !def) return no(CODES.notFound, 'One of those materials is not in the inventory.');
-        if (row.equipped || !isMaterial(legacyItem(def))) return no(CODES.invalid, `The ${def.name} is not a material a piece can be made from.`);
+        if (row.equipped || !isMaterial(legacyItem(def))) return no(CODES.refused, `The ${def.name} is not a material a piece can be made from.`);
         if (row.qty < qty) return no(CODES.notEnough, `There ${row.qty === 1 ? 'is' : 'are'} only ${row.qty} ${def.name}.`);
         parts.push({ stack, def, qty });
     }

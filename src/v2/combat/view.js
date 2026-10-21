@@ -4,6 +4,7 @@
 
 import { availableActions, replay } from '../../combat.js';
 import { buildHandoff, grouped, HANDOFF_HEADER } from '../../handoff.js';
+import { oneCurrency } from '../../items.js';
 import { fightRules, unpackSetup } from './stored.js';
 import { foesText } from './encounter.js';
 
@@ -64,10 +65,11 @@ export function sessionView(session) {
 
 /**
  * What the next reply tells of a finished fight, as one line: v1's hand-off (outcome, everyone's
- * state, key moments, who fell or fled, loot and XP) without its header.
+ * state, key moments, who fell or fled, loot and XP) without its header. `currency` is the
+ * chat's one currency as v1 words it (items.oneCurrency).
  */
-export function endSummary(result, { pcName, rules, names }) {
-    const text = buildHandoff(result, { names, currency: rules.currency, stakes: result.stakes, pcName, rules });
+export function endSummary(result, { pcName, rules, names, currency = oneCurrency() }) {
+    const text = buildHandoff(result, { names, currency, stakes: result.stakes, pcName, rules });
     return text.split('\n').filter(line => line && line !== HANDOFF_HEADER).join(' ');
 }
 

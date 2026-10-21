@@ -1,4 +1,4 @@
-// RPG Battle v2, items part: the `item.define` and `currency` hooks (SPEC §6, MODULES §B2). Pure.
+// RPG Battle v2, items part: the `item.define` hook (SPEC §6, MODULES §B2). Pure.
 //
 // When the story brings in an item Story Block does not know (`+ item Moonveil Trout | note: …`),
 // Story Block makes a `story/<slug>` def with plain defaults (goods, common, worth 0) and asks
@@ -6,28 +6,16 @@
 // unchanged: describeRow says whether it is gear (slot, rarity, stats, tags) or a potion (its
 // effect, by the note or, as v1 0.5.35, by its name), materialAffinity what a material would lend
 // a crafted piece (`uncommon material · MDEF, poison`), and trade's itemWorth what it is worth in
-// the smallest coin. A word like "minor" or "strong" in a potion's name is its size, as in v1
-// (Minor Healing Draught heals 20), never a foe's threat. Coins are money, worth their tier.
+// the chat's one currency (v1's numbers kept as they are, MODULES §F1). A word like "minor" or
+// "strong" in a potion's name is its size, as in v1 (Minor Healing Draught heals 20), never a
+// foe's threat. An item named for the currency is money, one unit each.
 
-import { DEFAULT_RULES } from '../../rules.js';
 import { describeRow, nameKey } from '../../items.js';
 import { materialAffinity } from '../../craft.js';
 import { isMaterial, itemWorth, kindOf } from '../../trade.js';
-import { hostSettings, rulesFrom } from './shared.js';
+import { hostCurrency, hostSettings, rulesFrom } from './shared.js';
 
 const SLOTS = ['weapon', 'offhand', 'armour', 'worn', 'accessory'];
-
-const currencyOf = currency => ({ ...DEFAULT_RULES.currency, ...(currency ?? {}) });
-
-// Each tier's worth in the smallest unit (tiers are smallest first; `rate` is how many of the
-// previous one make one of this).
-function tierValues(currency) {
-    let value = 1;
-    return (currency.tiers ?? []).map((tier, index) => {
-        if (index > 0) value *= Math.max(1, Math.round(Number(tier.rate)) || 1);
-        return { name: String(tier.name), value };
-    });
-}
 
 const forms = name => {
     const n = String(name).toLowerCase();
@@ -35,20 +23,17 @@ const forms = name => {
 };
 
 /**
- * What one of a coin item is worth in the smallest unit, or null for a thing that is no coin:
- * "Silver", "Gold Coins", "Copper Pieces", "Loose Silver" are their tier; the one coin of a
- * single-coin chat ("Crowns") and plain "Coins" or "Money" are one smallest unit.
+ * What one of a coin item is worth, in the chat's one currency (MODULES §F1), or null for a thing
+ * that is no coin: an item named for the currency ("Gold", "Gold Coins", "Loose Gil") and plain
+ * "Coins" or "Money" are one unit each. `currency` is Story Block's `inventory.currency`
+ * ({ name, short }); gold when not given. There are no tiers: "Silver" in a gold chat is goods.
  */
-export function coinValue(name, currency = DEFAULT_RULES.currency) {
-    const c = currencyOf(currency);
+export function coinValue(name, currency = null) {
+    const unit = String(currency?.name ?? '').trim().toLowerCase() || 'gold';
     const key = nameKey(name);
     const bare = key.replace(/^loose\s+/, '').replace(/\s+(?:coins?|pieces?|bits?)$/, '').trim();
-    if (c.mode !== 'single') {
-        const tier = tierValues(c).find(entry => forms(entry.name).includes(bare));
-        if (tier) return tier.value;
-    }
-    if (forms(c.single || 'coins').includes(bare) || forms(c.single || 'coins').includes(key)) return 1;
-    return /^(?:coins?|money)$/.test(key) ? 1 : null;
+    if (forms(unit).includes(bare) || forms(unit).includes(key)) return 1;
+    return /^(?:(?:loose\s+)?coins?|money)$/.test(key) ? 1 : null;
 }
 
 // v1 loot's note for a material that lends something (0.5.34): `uncommon material · MDEF, poison`.
@@ -73,13 +58,14 @@ function effectShape(effect) {
  * material's element) set by v1's rules. A new object; `def` is not changed.
  *
  * `note` is the note the story wrote (else the def's own); `owner` who holds it (not used by
- * the rules yet). Optional: `settings` (RPG Battle's settings; else the host's), `level` (the
- * level a piece's worth is reckoned at, default 1).
+ * the rules yet). Optional: `settings` (RPG Battle's settings; else the host's), `currency`
+ * (Story Block's `inventory.currency`; else the host's), `level` (the level a piece's worth is
+ * reckoned at, default 1).
  *
  * What the story said wins; where it said nothing the def keeps what it had (a pack's numbers),
  * except Story Block's plain defaults, which are only placeholders: `goods`, `common`, worth 0.
  */
-export function defineItem(def, { note, owner = null, settings, level = 1 } = {}) {
+export function defineItem(def, { note, owner = null, settings, currency, level = 1 } = {}) {
     void owner;
     const rules = rulesFrom(settings === undefined ? hostSettings() : settings);
     const name = String(def?.name ?? '').trim();
@@ -88,7 +74,7 @@ export function defineItem(def, { note, owner = null, settings, level = 1 } = {}
     // A quest's thing is the story's own: no price, no rules.
     if (def?.kind === 'quest') return { ...base, note: text };
 
-    const coin = coinValue(name, rules.currency);
+    const coin = coinValue(name, currency === undefined ? hostCurrency() : currency);
     if (coin !== null || def?.kind === 'money') {
         return { ...base, kind: 'money', rarity: 'common', value: coin ?? whole(def?.value), stack: true, slot: null, stats: {}, effect: {}, tags: [], note: text };
     }
@@ -125,17 +111,4 @@ export function defineItem(def, { note, owner = null, settings, level = 1 } = {}
     const priced = { name, rarity, kind, slot: out.slot, stats: out.stats, note: out.note, effect: kind === 'consumable' ? out.effect : null };
     const value = whole(def?.value) > 0 ? whole(def.value) : itemWorth(priced, { level: Math.max(1, whole(level) || 1), rules });
     return { ...base, ...out, kind, rarity, value };
-}
-
-/**
- * The `currency` hook: the chat's coins from the rules (v1 `rules.currency`), smallest first,
- * `rate` = how many of the one before make one of this. `tiers` is empty when the reader counts
- * in one coin, named `single`.
- */
-export function currencyHook(settings) {
-    const c = currencyOf(rulesFrom(settings === undefined ? hostSettings() : settings).currency);
-    const single = String(c.single || 'coins');
-    if (c.mode === 'single') return { tiers: [], single };
-    const tiers = (c.tiers ?? []).map((tier, index) => ({ name: String(tier.name), rate: index === 0 ? 1 : Math.max(1, Math.round(Number(tier.rate)) || 1) }));
-    return { tiers, single };
 }

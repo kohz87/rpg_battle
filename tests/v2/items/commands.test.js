@@ -63,18 +63,18 @@ test('item.use cures a companion\'s poison with the party\'s antidote', () => {
 
 test('item.use at full HP refuses without consuming anything', () => {
     const h = harness();
-    refused(h, 'item.use', { stack: 'it_draught1', target: LYRA }, 'INVALID', 'Lyra does not need the Minor Healing Draught now.');
+    refused(h, 'item.use', { stack: 'it_draught1', target: LYRA }, 'REFUSED', 'Lyra does not need the Minor Healing Draught now.');
     assert.deepEqual(h.calls, [], 'no sub-command ran');
     const mpFull = makeState();
     mpFull.domains.party.actors[PC].mp.cur = 40;
-    refused(harness(mpFull), 'item.use', { stack: 'it_tonic001', target: PC }, 'INVALID', 'Ren does not need the Mana Tonic now.');
+    refused(harness(mpFull), 'item.use', { stack: 'it_tonic001', target: PC }, 'REFUSED', 'Ren does not need the Mana Tonic now.');
 });
 
 test('item.use refuses what is not a consumable, a fight-only flask, an empty or unknown stack, a stranger', () => {
     const h = harness();
-    refused(h, 'item.use', { stack: 'it_rope0001', target: PC }, 'INVALID', 'The Rope is not something to use.');
-    refused(h, 'item.use', { stack: 'it_blade001', target: PC }, 'INVALID', 'The Steel Blade is not something to use.');
-    refused(h, 'item.use', { stack: 'it_flask001', target: PC }, 'INVALID', 'Ember Flask can only be used in a fight.');
+    refused(h, 'item.use', { stack: 'it_rope0001', target: PC }, 'REFUSED', 'The Rope is not something to use.');
+    refused(h, 'item.use', { stack: 'it_blade001', target: PC }, 'REFUSED', 'The Steel Blade is not something to use.');
+    refused(h, 'item.use', { stack: 'it_flask001', target: PC }, 'REFUSED', 'Ember Flask can only be used in a fight.');
     refused(h, 'item.use', { stack: 'it_empty001', target: PC }, 'NOT_ENOUGH', 'There is no Minor Healing Draught left.');
     refused(h, 'item.use', { stack: 'it_nothing1', target: PC }, 'NOT_FOUND');
     refused(h, 'item.use', {}, 'NOT_FOUND');
@@ -144,13 +144,13 @@ test('item.equip: a two-handed weapon puts the off-hand away; an off-hand beside
     assert.deepEqual(result.receipt.data.removed, ['it_dagger01', 'it_buckle01']);
     const stacks = h.state().domains.inventory.stacks;
     assert.equal(stacks.it_buckle01.equipped, null);
-    refused(h, 'item.equip', { stack: 'it_buckle01' }, 'INVALID', 'The Greatsword is two-handed: put it away before taking up the Oak Buckler.');
+    refused(h, 'item.equip', { stack: 'it_buckle01' }, 'REFUSED', 'The Greatsword is two-handed: put it away before taking up the Oak Buckler.');
 });
 
 test('item.equip keeps to the rules\' limits for accessories and worn pieces (v1 gearLimits)', () => {
     const h = harness();
-    refused(h, 'item.equip', { stack: 'it_charm001' }, 'INVALID', 'For Ren only 2 accessories count: take one off first.');
-    refused(h, 'item.equip', { stack: 'it_helm0001' }, 'INVALID', 'For Ren only 1 worn piece counts: take one off first.');
+    refused(h, 'item.equip', { stack: 'it_charm001' }, 'REFUSED', 'For Ren only 2 accessories count: take one off first.');
+    refused(h, 'item.equip', { stack: 'it_helm0001' }, 'REFUSED', 'For Ren only 1 worn piece counts: take one off first.');
     // Taking a ring off makes room.
     assert.equal(h.run('item.unequip', { stack: 'it_ring0002' }).ok, true);
     assert.equal(h.run('item.equip', { stack: 'it_charm001' }).ok, true);
@@ -159,15 +159,15 @@ test('item.equip keeps to the rules\' limits for accessories and worn pieces (v1
     assert.equal(roomy.run('item.equip', { stack: 'it_charm001' }).ok, true);
     assert.equal(roomy.run('item.equip', { stack: 'it_helm0001' }).ok, true);
     const none = harness(makeState(), { rules: { gear: { accessories: 0 } } });
-    refused(none, 'item.equip', { stack: 'it_charm001' }, 'INVALID', 'In this chat\'s rules no accessories count.');
+    refused(none, 'item.equip', { stack: 'it_charm001' }, 'REFUSED', 'In this chat\'s rules no accessories count.');
 });
 
 test('item.equip refuses what is not gear, is already worn, is someone else\'s, or is gone', () => {
     const h = harness();
-    refused(h, 'item.equip', { stack: 'it_draught1' }, 'INVALID', 'The Minor Healing Draught is not something to wear or wield.');
-    refused(h, 'item.equip', { stack: 'it_dagger01' }, 'INVALID', 'Ren already has the Iron Dagger on.');
-    refused(h, 'item.equip', { stack: 'it_blade001', actor: LYRA }, 'INVALID', 'Ren carries the Steel Blade: give it to Lyra first.');
-    refused(h, 'item.equip', { stack: 'it_blade001', actor: 'ac_nobody01' }, 'INVALID', 'That companion is not in the party.');
+    refused(h, 'item.equip', { stack: 'it_draught1' }, 'REFUSED', 'The Minor Healing Draught is not something to wear or wield.');
+    refused(h, 'item.equip', { stack: 'it_dagger01' }, 'REFUSED', 'Ren already has the Iron Dagger on.');
+    refused(h, 'item.equip', { stack: 'it_blade001', actor: LYRA }, 'REFUSED', 'Ren carries the Steel Blade: give it to Lyra first.');
+    refused(h, 'item.equip', { stack: 'it_blade001', actor: 'ac_nobody01' }, 'NOT_FOUND', 'That companion is not in the party.');
     refused(h, 'item.equip', { stack: 'it_nothing1' }, 'NOT_FOUND');
 });
 
@@ -177,7 +177,7 @@ test('item.unequip takes a piece off; refuses one not worn', () => {
     assert.equal(result.ok, true);
     assert.equal(result.receipt.summary, 'Ren takes off the Iron Dagger.');
     assert.deepEqual(h.calls, [{ type: 'inventory.unequip', payload: { stack: 'it_dagger01' } }]);
-    refused(h, 'item.unequip', { stack: 'it_dagger01' }, 'INVALID', 'The Iron Dagger is not being worn.');
+    refused(h, 'item.unequip', { stack: 'it_dagger01' }, 'REFUSED', 'The Iron Dagger is not being worn.');
     refused(h, 'item.unequip', { stack: 'it_nothing1' }, 'NOT_FOUND');
 });
 
@@ -202,7 +202,7 @@ test('item.give: several of a stack, and every refusal', () => {
     const h = harness();
     const result = h.run('item.give', { stack: 'it_draught1', to: LYRA, qty: 2 });
     assert.equal(result.receipt.summary, 'Lyra takes 2 Minor Healing Draught.');
-    refused(h, 'item.give', { stack: 'it_draught1', to: LYRA }, 'INVALID', 'Lyra already carries the Minor Healing Draught.');
+    refused(h, 'item.give', { stack: 'it_draught1', to: LYRA }, 'REFUSED', 'Lyra already carries the Minor Healing Draught.');
     refused(h, 'item.give', { stack: 'it_tonic001', to: LYRA, qty: 2 }, 'NOT_ENOUGH', 'There is only 1 Mana Tonic to give.');
     refused(h, 'item.give', { stack: 'it_tonic001', to: LYRA, qty: 0 }, 'INVALID', 'Give at least one.');
     refused(h, 'item.give', { stack: 'it_tonic001', to: LYRA, qty: 1.5 }, 'INVALID');
