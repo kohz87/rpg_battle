@@ -51,6 +51,7 @@ function checkActor(errors, id, actor) {
         errors.push(`${where}: each condition needs a kind and stacks from 1.`);
     }
     if (actor.npc !== null && !isText(actor.npc, 80)) errors.push(`${where}: npc must be a name or null.`);
+    if (actor.portrait !== undefined && actor.portrait !== null && !isText(actor.portrait, 2048)) errors.push(`${where}: portrait must be an image path or null.`);
 }
 
 function checkOffer(errors, offer, index, actors) {

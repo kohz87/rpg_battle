@@ -35,6 +35,17 @@ function writeSheet(party, actor, sheet, rules) {
     return party.actors[actor.id];
 }
 
+/**
+ * A portrait (MODULES §F11): the persona avatar for your character, an NPC's for a companion, as
+ * the image path or URL SillyTavern gives; null for none. No script URLs.
+ */
+function portraitOf(ctx, value) {
+    if (value === undefined || value === null || value === '') return null;
+    const text = String(value).trim();
+    if (!text || text.length > 2048 || /^\s*(?:javascript|vbscript):/i.test(text)) fail(ctx, 'INVALID', 'That portrait is not an image path or address.');
+    return text;
+}
+
 const nameTaken = (party, name, except = null) => actorsInOrder(party).some(actor => actor.id !== except && nameKey(actor.name) === nameKey(name));
 const skillKnown = (actor, name) => (actor.skills ?? []).some(skill => nameKey(skill.name) === nameKey(name));
 
@@ -52,9 +63,10 @@ function settle(party, ids, rules, settings) {
 
 /**
  * party.create { name, points: { STR: n, … } | preset: 'fighter', skills?: [names], role?,
- * replace?: true }: your character, by v1 newSheet (every stat at the start value plus the points,
- * which spend exactly the start points; a name; the stat cap). Skills are optional library names
- * the built stats allow, at most rules.character.starterSkills.
+ * portrait?, replace?: true }: your character, the only way one is made (MODULES §F12), by v1
+ * newSheet (every stat at the start value plus the points, which spend exactly the start points;
+ * a name; the stat cap). Skills are optional library names the built stats allow, at most
+ * rules.character.starterSkills. `portrait` is the persona avatar.
  */
 function create(ctx, payload = {}) {
     const party = ctx.draft('party');
@@ -85,7 +97,7 @@ function create(ctx, payload = {}) {
         delete party.actors[old];
         party.offers = party.offers.filter(offer => offer.actor !== old);
     }
-    writeSheet(party, { id, kind: 'pc', control: 'player', role: cleanRole(payload.role ?? ''), npc: null }, full, rules);
+    writeSheet(party, { id, kind: 'pc', control: 'player', role: cleanRole(payload.role ?? ''), npc: null, portrait: portraitOf(ctx, payload.portrait) }, full, rules);
     party.pc = id;
     party.order = [id, ...party.order.filter(entry => entry !== old && entry !== id)];
     return { summary: `${name} is ready.`, data: { actor: id }, narrate: false };
@@ -93,9 +105,9 @@ function create(ctx, payload = {}) {
 
 /**
  * party.addCompanion { name, role?, level?, focus?: [stats], skills?: [names], control?:
- * 'auto' | 'player', npc? }: a companion built by v1 newCompanion at the level given (else your
- * character's), their stats spread over the focus (else the role's words), and the skills given
- * or, without any, the ones v1 suggestSkills picks for that build.
+ * 'auto' | 'player', npc?, portrait? }: a companion built by v1 newCompanion at the level given
+ * (else your character's), their stats spread over the focus (else the role's words), and the
+ * skills given or, without any, the ones v1 suggestSkills picks for that build.
  */
 function addCompanion(ctx, payload = {}) {
     const party = ctx.draft('party');
@@ -116,15 +128,15 @@ function addCompanion(ctx, payload = {}) {
     const member = attempt(ctx, () => newCompanion({ name, role, control: payload.control === 'player' ? 'command' : 'auto', level, focus, skills }, { rules, existing: [], library }));
     const id = newId(ctx, 'ac', candidate => Boolean(party.actors[candidate]));
     const npc = payload.npc ? String(payload.npc).trim().slice(0, 80) || null : null;
-    writeSheet(party, { id, kind: 'companion', control: payload.control === 'player' ? 'player' : 'auto', role: member.role, npc }, member.sheet, rules);
+    writeSheet(party, { id, kind: 'companion', control: payload.control === 'player' ? 'player' : 'auto', role: member.role, npc, portrait: portraitOf(ctx, payload.portrait) }, member.sheet, rules);
     party.order.push(id);
     return { summary: `${name} joins the party (${levelText(level, rules)}, ${member.role}).`, data: { actor: id, level }, narrate: true };
 }
 
 /**
- * party.edit { actor, name?, role?, control?, npc? }: v1 editCompanion's rules (a name cleaned for
- * the heading, never another member's; a role, else 'companion'). Ids never change in v2. Your
- * character is always played by you.
+ * party.edit { actor, name?, role?, control?, npc?, portrait? }: v1 editCompanion's rules (a
+ * name cleaned for the heading, never another member's; a role, else 'companion'). Ids never
+ * change in v2. Your character is always played by you.
  */
 function edit(ctx, payload = {}) {
     const party = ctx.draft('party');
@@ -144,7 +156,8 @@ function edit(ctx, payload = {}) {
         next.control = payload.control;
     }
     if (payload.npc !== undefined) next.npc = payload.npc ? String(payload.npc).trim().slice(0, 80) || null : null;
-    if (['name', 'role', 'control', 'npc'].every(key => next[key] === actor[key])) fail(ctx, 'REFUSED', 'Nothing to change.');
+    if (payload.portrait !== undefined) next.portrait = portraitOf(ctx, payload.portrait);
+    if (['name', 'role', 'control', 'npc', 'portrait'].every(key => (next[key] ?? null) === (actor[key] ?? null))) fail(ctx, 'REFUSED', 'Nothing to change.');
     party.actors[actor.id] = next;
     return { summary: next.name === actor.name ? `${next.name} is updated.` : `${actor.name} is now called ${next.name}.`, data: { actor: actor.id }, narrate: false };
 }
@@ -315,17 +328,44 @@ function normalResult(result, pc) {
     return { ...result, party: (result.party ?? []).map(entry => ({ ...entry, memberId: id(entry.memberId) })), xp: keyed(result.xp), uses: keyed(result.uses) };
 }
 
+const poolOf = value => (Number.isFinite(value) ? { cur: value } : value && typeof value === 'object' ? { ...value } : undefined);
+
 /**
- * party.applyResult { result, stakes? } (internal, from combat.end): v1 combat summarize's
- * result applied to each member it names (v1 applyResult: HP/MP/SP and lasting conditions as the
- * fight left them, XP with level-ups, skill mastery), companions on auto then spending by build.
- * A fight to the death that is lost leaves your character dead. Member ids are actor ids ('pc'
- * is read as your character).
+ * combat.end's payload ({ outcome, stakes, actors: [{ id, hp, mp, sp?, down, conditions: [{ kind,
+ * rounds }], uses: { [skill]: n } }] }) as the v1 summarize result v1 applyResult reads. XP is not
+ * in it: combat gives that through party.grantXp.
+ */
+function resultFromActors(payload) {
+    const actors = payload.actors.filter(entry => entry && typeof entry === 'object');
+    return {
+        outcome: payload.outcome ?? null,
+        stakes: payload.stakes ?? null,
+        party: actors.map(entry => ({
+            memberId: entry.id,
+            hp: poolOf(entry.hp),
+            mp: poolOf(entry.mp),
+            ...(entry.sp !== undefined ? { sp: poolOf(entry.sp) } : {}),
+            down: Boolean(entry.down),
+            conditions: (Array.isArray(entry.conditions) ? entry.conditions : []).map(cond => ({ name: String(cond?.kind ?? cond?.name ?? ''), rounds: Number.isInteger(cond?.rounds) ? cond.rounds : cond?.stacks ?? null })).filter(cond => cond.name),
+        })),
+        xp: {},
+        uses: Object.fromEntries(actors.map(entry => [entry.id, entry.uses && typeof entry.uses === 'object' ? entry.uses : {}])),
+    };
+}
+
+/**
+ * party.applyResult (internal, from combat.end): combat's { outcome, stakes, actors: [{ id, hp,
+ * mp, sp?, down, conditions: [{ kind, rounds }], uses }] }, or { result, stakes? } with v1 combat
+ * summarize's result as it is. Applied to each member it names by v1 applyResult (HP/MP/SP and
+ * lasting conditions as the fight left them, kept as party kinds: poison → poisoned; XP with
+ * level-ups when the result carries any; skill mastery), companions on auto then spending by
+ * build. A fight to the death that is lost leaves your character dead. Member ids are actor ids
+ * ('pc' is read as your character).
  */
 function applyResult(ctx, payload = {}) {
     const party = ctx.draft('party');
     const rules = rulesFor(ctx);
-    const raw = payload.result;
+    const raw = Array.isArray(payload.actors) ? resultFromActors(payload) : payload.result;
     if (!raw || typeof raw !== 'object' || !Array.isArray(raw.party)) fail(ctx, 'INVALID', 'That is not a fight result.');
     const result = normalResult(raw, party.pc);
     const named = new Set([...result.party.map(entry => entry.memberId), ...Object.keys(result.xp), ...Object.keys(result.uses)]);
@@ -337,7 +377,7 @@ function applyResult(ctx, payload = {}) {
         const actor = party.actors[id];
         const applied = applyResultV1(toSheet(actor), id, result, rules);
         let sheet = applied.sheet;
-        if (id === party.pc && (payload.stakes ?? result.stakes) === 'death' && result.outcome === 'defeat') {
+        if (id === party.pc && (payload.stakes ?? result.stakes) === 'death' && (result.outcome === 'defeat' || result.outcome === 'lost')) {
             sheet = { ...sheet, hp: { ...sheet.hp, cur: 0 }, conditions: [{ name: 'dead', rounds: null }] };
         }
         writeSheet(party, actor, sheet, rules);

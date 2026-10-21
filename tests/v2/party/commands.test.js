@@ -278,7 +278,7 @@ test('party.applyResult writes the fight to each member, levels them and settles
     assert.equal(ren.xp, 20);
     assert.equal(ren.points, 4);
     assert.equal(ren.hp.cur, 12 + 4, 'a level-up raises current HP by what max HP grew');
-    assert.deepEqual(ren.conditions, [{ kind: 'poison', stacks: 2 }]);
+    assert.deepEqual(ren.conditions, [{ kind: 'poisoned', stacks: 2 }], 'v1 poison is kept as poisoned');
     assert.deepEqual(ren.skills[0], { name: 'Power Strike', level: 2, uses: 1, active: true });
     const after = out.state.domains.party.actors[lyra.id];
     assert.equal(after.level, 2);
@@ -441,4 +441,87 @@ test('sub-commands through ctx.call share the transaction', () => {
 test('handlers draft only the party domain', () => {
     const out = run(withPc(), ctx => ctx.draft('inventory'));
     assert.equal(out.code, 'NOT_OWNER');
+});
+
+test('party.applyResult takes combat.end\'s actors payload', () => {
+    let state = withPc({ name: 'Ren', preset: 'fighter' });
+    state = run(state, 'party.addCompanion', { name: 'Lyra', role: 'archer' }).state;
+    const [pc, lyra] = state.domains.party.order;
+    const story = structuredClone(state);
+    story.domains.party.actors[pc].conditions = [{ kind: 'cursed', stacks: 1 }, { kind: 'poisoned', stacks: 1 }];
+    const out = run(story, 'party.applyResult', {
+        outcome: 'victory', stakes: 'normal',
+        actors: [
+            { id: pc, hp: { cur: 9, max: pcOf(state).hp.max }, mp: { cur: 1, max: pcOf(state).mp.max }, sp: { cur: 2, max: pcOf(state).sp.max }, down: false, conditions: [{ kind: 'poison', rounds: 3 }, { kind: 'bleed', rounds: 1 }], uses: { Sweep: 5 } },
+            { id: lyra, hp: { cur: 0, max: byName(state, 'Lyra').hp.max }, mp: byName(state, 'Lyra').mp, down: true, conditions: [], uses: {} },
+        ],
+    });
+    assert.ok(out.ok, out.message);
+    const ren = pcOf(out.state);
+    assert.equal(ren.hp.cur, 9);
+    assert.equal(ren.sp.cur, 2);
+    assert.deepEqual(ren.conditions, [{ kind: 'poisoned', stacks: 3 }, { kind: 'bleeding', stacks: 1 }, { kind: 'cursed', stacks: 1 }], 'fight conditions replace the old ones; story ones stay');
+    assert.equal(ren.skills.find(skill => skill.name === 'Sweep').level, 2);
+    assert.equal(ren.xp, 0, 'XP comes through party.grantXp');
+    assert.equal(out.state.domains.party.actors[lyra].hp.cur, 0);
+    assert.equal(out.state.domains.party.actors[lyra].sp.cur, byName(state, 'Lyra').sp.cur, 'no sp: kept');
+    const lost = run(state, 'party.applyResult', { outcome: 'defeat', stakes: 'death', actors: [{ id: pc, hp: { cur: 0, max: 1 }, mp: { cur: 0, max: 1 }, down: true, conditions: [], uses: {} }] });
+    assert.deepEqual(pcOf(lost.state).conditions, [{ kind: 'dead', stacks: 1 }]);
+    rejects(run(state, 'party.applyResult', { outcome: 'victory', actors: [{ id: 'ac_nobody00', hp: { cur: 1, max: 1 } }] }), 'NOT_FOUND');
+});
+
+test('the condition table: v1 fight names are kept as party kinds', async () => {
+    const { conditionKind, CONDITION_KINDS } = await import('../../../src/v2/party/sheets.js');
+    assert.equal(conditionKind('poison'), 'poisoned');
+    assert.equal(conditionKind('Burn'), 'burning');
+    assert.equal(conditionKind('bleed'), 'bleeding');
+    assert.equal(conditionKind('stun'), 'stunned');
+    assert.equal(conditionKind('poisoned'), 'poisoned');
+    assert.equal(conditionKind('exhausted'), 'exhausted');
+    for (const name of ['poison', 'burn', 'bleed', 'stun', 'slow', 'weaken', 'shield', 'regen', 'guard']) assert.ok(CONDITION_KINDS[name], name);
+});
+
+test('§F5 payloads exactly: party.heal { actor, hp, cure }, party.restore { actor, mp?, sp? }', () => {
+    const base = withPc();
+    const pc = base.domains.party.pc;
+    const state = structuredClone(base);
+    Object.assign(state.domains.party.actors[pc], { hp: { ...pcOf(base).hp, cur: 10 }, mp: { ...pcOf(base).mp, cur: 0 }, sp: { ...pcOf(base).sp, cur: 0 }, conditions: [{ kind: 'poisoned', stacks: 1 }] });
+    const healed = run(state, 'party.heal', { actor: pc, hp: 15, cure: ['poison'] });
+    assert.ok(healed.ok, healed.message);
+    assert.equal(pcOf(healed.state).hp.cur, 25);
+    assert.deepEqual(pcOf(healed.state).conditions, []);
+    const cureOnly = run(state, 'party.heal', { actor: pc, hp: 0, cure: ['poison'] });
+    assert.ok(cureOnly.ok, cureOnly.message);
+    assert.equal(pcOf(run(state, 'party.restore', { actor: pc, mp: 6 }).state).mp.cur, 6);
+    assert.equal(pcOf(run(state, 'party.restore', { actor: pc, sp: 4 }).state).sp.cur, 4);
+    rejects(run(base, 'party.restore', { actor: pc, mp: 6 }), 'REFUSED');
+});
+
+test('portraits: kept on the record, given at creation or by edit, NPC ones through NSD', () => {
+    const made = run(makeState(), 'party.create', { name: 'Ren', preset: 'fighter', portrait: '/User Avatars/ren.png' });
+    assert.ok(made.ok, made.message);
+    assert.equal(pcOf(made.state).portrait, '/User Avatars/ren.png');
+    assert.equal(part.queries['party.pc'](made.state).portrait, '/User Avatars/ren.png');
+    rejects(run(makeState(), 'party.create', { name: 'Ren', preset: 'fighter', portrait: 'javascript:alert(1)' }), 'INVALID');
+    let state = run(made.state, 'party.addCompanion', { name: 'Lyra', npc: 'Lyra' }).state;
+    const lyra = byName(state, 'Lyra');
+    assert.equal(lyra.portrait, null);
+    const tools = { query: (name, args) => (name === 'npc.portrait' && args.name === 'Lyra' ? '/characters/lyra.png' : null) };
+    assert.equal(part.queries['party.actor'](state, { id: lyra.id }, tools).portrait, '/characters/lyra.png');
+    assert.deepEqual(part.queries['party.actors'](state, {}, tools).map(actor => actor.portrait), ['/User Avatars/ren.png', '/characters/lyra.png']);
+    assert.equal(part.queries['party.actor'](state, { id: lyra.id }, { query: () => { throw new Error('no NSD'); } }).portrait, null);
+    state = run(state, 'party.edit', { actor: lyra.id, portrait: 'https://example.org/lyra.webp' }).state;
+    assert.equal(part.queries['party.actor'](state, { id: lyra.id }, tools).portrait, 'https://example.org/lyra.webp');
+    assert.deepEqual(part.domains.party.validate(state.domains.party), []);
+    const broken = structuredClone(state.domains.party);
+    broken.actors[lyra.id].portrait = 42;
+    assert.ok(part.domains.party.validate(broken).some(error => /portrait/.test(error)));
+});
+
+test('canGenerate: no story reply until your character is made (§F12)', () => {
+    const { canGenerate } = part.hooks;
+    assert.deepEqual(canGenerate({ state: makeState() }), { ok: false, reason: 'Create your character first.' });
+    assert.deepEqual(canGenerate({ state: { domains: {} } }), { ok: false, reason: 'Create your character first.' });
+    assert.deepEqual(canGenerate(null), { ok: false, reason: 'Create your character first.' });
+    assert.deepEqual(canGenerate({ state: withPc() }), { ok: true });
 });

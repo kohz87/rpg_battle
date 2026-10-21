@@ -35,6 +35,26 @@ export const SETTINGS_SCHEMA = Object.freeze({
 });
 
 const COMBAT_CONDITIONS = ['poison', 'burn', 'bleed', 'stun', 'slow', 'weaken', 'shield', 'regen', 'guard'];
+
+// The one table from v1's fight condition names (and the words the story writes for them) to the
+// kinds a party record keeps (MODULES §B1: `poisoned`). Every other condition keeps its own words.
+export const CONDITION_KINDS = Object.freeze({
+    poison: 'poisoned', poisoning: 'poisoned',
+    burn: 'burning', burned: 'burning', burnt: 'burning',
+    bleed: 'bleeding', bled: 'bleeding',
+    stun: 'stunned',
+    slow: 'slowed',
+    weaken: 'weakened', weak: 'weakened',
+    shield: 'shielded',
+    regen: 'regenerating', regenerate: 'regenerating',
+    guard: 'guarded',
+});
+
+/** A condition's kind as the party keeps it: v1's "poison" is "poisoned"; anything else as written. */
+export function conditionKind(name) {
+    const text = String(name ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim().slice(0, 40);
+    return CONDITION_KINDS[text.toLowerCase()] ?? text;
+}
 const isCombatCondition = name => COMBAT_CONDITIONS.some(base => String(name ?? '').trim().toLowerCase().startsWith(base));
 
 const whole = (value, fallback, min, max) => {
@@ -118,8 +138,20 @@ export function fromSheet(actor, sheet, rules = DEFAULT_RULES) {
             const level = Math.min(top, int(skill.mastery, 1));
             return { name: skill.name, level, uses: level >= top ? 0 : int(sheet.uses?.[skill.name]), active: !skill.aside };
         }),
-        conditions: (sheet.conditions ?? []).map(entry => ({ kind: String(entry.name), stacks: int(entry.rounds, 1) })),
+        conditions: mergeConditions((sheet.conditions ?? []).map(entry => ({ kind: conditionKind(entry.name), stacks: int(entry.rounds, 1) }))),
     };
+}
+
+// A kind written twice (a fight's "poison" over a story's "poisoned") is one condition, the most stacks.
+function mergeConditions(list) {
+    const out = [];
+    for (const entry of list) {
+        if (!entry.kind) continue;
+        const same = out.find(other => other.kind.toLowerCase() === entry.kind.toLowerCase());
+        if (same) same.stacks = Math.max(same.stacks, entry.stacks);
+        else out.push(entry);
+    }
+    return out;
 }
 
 /** v1's member control word for an actor ('command' for a companion the reader commands). */

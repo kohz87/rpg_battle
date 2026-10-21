@@ -12,6 +12,15 @@ import { SETTINGS_DEFAULTS, SETTINGS_SCHEMA } from './sheets.js';
 import { initialParty, validateParty } from './validate.js';
 import { tabs } from './tab.js';
 
+/**
+ * canGenerate(view) (MODULES §F12): character creation is mandatory, so no story reply is
+ * written until party.create has made your character.
+ */
+export function canGenerate(view) {
+    const party = view?.state?.domains?.party;
+    return party?.pc && party.actors?.[party.pc] ? { ok: true } : { ok: false, reason: 'Create your character first.' };
+}
+
 export const part = {
     domains: {
         party: { initial: initialParty, validate: slice => validateParty(slice) },
@@ -20,7 +29,7 @@ export const part = {
     queries,
     kinds,
     context,
-    hooks: {},
+    hooks: { canGenerate },
     settings: { section: 'Character', defaults: { ...SETTINGS_DEFAULTS }, schema: SETTINGS_SCHEMA },
     tabs,
 };
