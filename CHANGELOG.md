@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.51
+
+- **Recover a disconnected Regenerate automatically.** With Story Block **0.9.30**, an eligible blocked battle reconnects, verifies the save and records its existing result without pressing Reconnect or replaying combat. Old Block versions retain the manual action.
+- Battle results wait until reply callbacks finish, allowing Director to record injected Take on choices before battle evidence and XP are saved. Chat changes during reconnection cannot settle the old fight in another chat.
+
 ## 0.5.50
 
 - **A blocked battle waits for recovery.** An incomplete quest journal now keeps the finished battle on a recovery screen instead of repeatedly attempting to save its evidence. Its stored actions remain available, and XP/loot are not applied while the evidence is blocked.

@@ -2146,9 +2146,10 @@ const RENDERERS = {
     recovery(root, view, handlers) {
         root.append(el('p', { className: 'rpg-battle-empty', text: 'Battle result needs recovery.' }),
             el('p', { className: 'rpg-battle-hint', text: view.recovery
-                ? 'Regenerate removed the saved reply link. Reconnect this reply as its replacement to record the battle. Previous variants stay separate.'
+                ? view.automatic ? 'Reconnecting the regenerated reply and saving the battle result…'
+                    : 'Regenerate removed the saved reply link. Reconnect this reply as its replacement to record the battle. Previous variants stay separate.'
                 : view.reason || 'Restore the original chat branch before retrying.' }));
-        if (view.recovery) root.append(button('Reconnect regenerated reply', 'rpg-battle-primary rpg-battle-recover-replacement', {
+        if (view.recovery && !view.automatic) root.append(button('Reconnect regenerated reply', 'rpg-battle-primary rpg-battle-recover-replacement', {
             disabled: view.busy, onClick: () => emit(handlers, 'onRecoverReplacement', view.recovery),
         }));
     },
