@@ -16,6 +16,7 @@ import { buildStats, cleanFocus, guessFocus, lockedReason, suggestSkills } from 
 import { levelText, maxLevel, xpGainText, xpLabel } from '../../terms.js';
 import { fromSheet, gearOf, growthOf, libraryOf, maxCompanionsOf, rulesFrom, settingsOf, toSheet } from './sheets.js';
 import { exportCharacter, originIds, readCharacter } from './portable.js';
+import { defineItem } from '../items/define.js';
 import { OUTCOMES, dcOf, outcomeOf, statForCheck } from './checks.js';
 import { actorFrom, actorsInOrder, attempt, cleanName, cleanRole, fail, nameKey, newId, revOf } from './util.js';
 
@@ -719,6 +720,33 @@ function exportPc(ctx) {
 }
 
 /**
+ * What one of a character file's (checked) defs is worth in this chat, as creation.import will
+ * bring it in (B-b3-r2-4): a def id this chat has is that def (its own value); any other is a new
+ * thing the item.define hook prices, reckoned here at the file's level (at least what the hook
+ * makes it at level 1), so its name cannot make goods a potion the count does not see.
+ */
+function chatWorth(ctx) {
+    const defs = readInventory(ctx)?.defs ?? {};
+    let currency = null;
+    try {
+        currency = ctx.query('inventory.currency');
+    } catch {
+        currency = null;
+    }
+    const settings = typeof ctx?.settings === 'function' ? ctx.settings() ?? null : null;
+    const valueOf = (def, level) => {
+        const value = Number(defineItem(def, { settings, currency, level }).value);
+        return Number.isFinite(value) && value > 0 ? value : 0;
+    };
+    return (def, level) => {
+        const known = typeof def.id === 'string' ? defs[def.id] : null;
+        if (known) return Number.isInteger(known.value) && known.value > 0 ? known.value : valueOf(known, level);
+        const { id: _id, ...given } = def;
+        return Math.max(valueOf(given, 1), valueOf(given, level));
+    };
+}
+
+/**
  * party.import { character, name?, portrait?, background? } (internal, from creation.import):
  * your character from a character file instead of the wizard, checked by this chat's Character
  * rules (portable.readCharacter: level cap, stat cap, the points a character of that level can
@@ -744,7 +772,7 @@ function importPc(ctx, payload = {}) {
     const bonus = Object.values(built?.bonus ?? {}).reduce((sum, value) => sum + Math.max(0, Number(value) || 0), 0);
     // What the race and talents take off a stat: the most a stat may be below the start value.
     const penalty = Object.fromEntries(Object.entries(built?.bonus ?? {}).map(([stat, value]) => [stat, Math.min(0, Number(value) || 0)]));
-    const read = readCharacter(file, { rules, bonus, penalty, name: payload.name ?? null });
+    const read = readCharacter(file, { rules, bonus, penalty, name: payload.name ?? null, worth: chatWorth(ctx) });
     if (!read.ok) fail(ctx, read.code, read.message);
     const character = read.character;
     if (nameTaken(party, character.name)) fail(ctx, 'REFUSED', `There is already a ${character.name} in the party.`);

@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { hash, offerAndStart, playOut, rpgHost, seeded, started } from './helpers.js';
 import { MODULE_ID } from '../../../src/v2/module.js';
 import { clearRebuilt, rebuild } from '../../../src/v2/combat/view.js';
-import { CHARACTER_FILE_VERSION, MAX_THINGS, purseCap } from '../../../src/v2/party/portable.js';
+import { CHARACTER_FILE_VERSION, MAX_THINGS, purseCap, worthCap } from '../../../src/v2/party/portable.js';
 import { MAX_OFFERS_PER_KIND } from '../../../src/v2/party/commands.js';
 import { LINE_LIMITS, clipLine } from '../../../src/v2/lines.js';
 
@@ -190,10 +190,13 @@ test('B-b3-15: a character file brings at most purseCap(level) and MAX_THINGS th
             const items = [{ def: { id: 'pack.nowhere/elixir', name: 'Elixir of Ages', kind: 'consumable', rarity: 'legendary', effect: { heal: 999999 } }, qty: MAX_THINGS + 50 }];
             const r = await host.cmd('creation.import', { character: { ...FILE, items, purse: 1e9 } });
             assert.equal(r.ok, true, r.message);
-            assert.deepEqual(r.receipt.data.cut, { things: 50, purse: 1e9 - purseCap(1) });
-            assert.match(r.receipt.summary, /50 things and \d+ of the purse stayed behind/);
+            // Only a few epic elixirs fit worthCap(1) (B-b3-r2-4): the rest of the 300 stay behind too.
             const inv = host.head().domains.inventory;
             const elixir = Object.values(inv.defs).find(def => def.name === 'Elixir of Ages');
+            const kept = Object.values(inv.stacks).filter(stack => stack.def === elixir.id).reduce((sum, stack) => sum + stack.qty, 0);
+            assert.ok(kept >= 1 && kept * elixir.value <= worthCap(1), `${kept} kept at ${elixir.value} each`);
+            assert.deepEqual(r.receipt.data.cut, { things: 50, worth: MAX_THINGS - kept, purse: 1e9 - purseCap(1) });
+            assert.match(r.receipt.summary, new RegExp(`${MAX_THINGS + 50 - kept} things and \\d+ of the purse stayed behind`));
             assert.ok(!elixir.id.startsWith('pack.'), 'a def id this chat does not have is dropped');
             assert.equal(elixir.rarity, 'epic');
             assert.ok(elixir.effect.heal <= 250);
