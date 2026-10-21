@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.52
+
+- **Steps aside next to Story Block 2.** RPG Battle 0.5.52 is for Story Block 1. On a page where Story Block 2 is installed it no longer throws on load or on every reply; it says once that RPG Battle 2 is needed and runs as if Story Block were absent.
+
 ## 0.5.51
 
 - **Recover a disconnected Regenerate automatically.** With Story Block **0.9.30**, an eligible blocked battle reconnects, verifies the save and records its existing result without pressing Reconnect or replaying combat. Old Block versions retain the manual action.

@@ -72,7 +72,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.51';
+const VERSION = '0.5.52';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -208,9 +208,20 @@ function versionAtLeast(text, wanted) {
     return true;
 }
 
+// Story Block 2 is a different host (an sdk, no blocks): this RPG Battle is for Story Block 1.
+// It says so once and runs as if Story Block were not there.
+let warnedNewHost = false;
 function storyBlock() {
     const api = globalThis.StoryBlock;
-    return api && Number(api.apiVersion) >= 1 && versionAtLeast(api.version, MIN_STORY_BLOCK_VERSION) ? api : null;
+    if (!api) return null;
+    if (Number(api.apiVersion) >= 2 || typeof api.registerBlock !== 'function') {
+        if (!warnedNewHost && Number(api.apiVersion) >= 2) {
+            warnedNewHost = true;
+            globalThis.toastr?.warning?.('This RPG Battle is for Story Block 1. With Story Block 2, install RPG Battle 2.', 'RPG Battle');
+        }
+        return null;
+    }
+    return Number(api.apiVersion) >= 1 && versionAtLeast(api.version, MIN_STORY_BLOCK_VERSION) ? api : null;
 }
 
 function chatIdOf(ctx) {
