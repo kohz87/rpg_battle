@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/*.test.js",
+    "test": "node --test \"tests/*.test.js\" \"tests/v2/**/*.test.js\"",
     "check": "node scripts/check.mjs"
   }
 }
