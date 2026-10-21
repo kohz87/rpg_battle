@@ -78,11 +78,21 @@ kept as before, and its instruction points the model at NPC State Delta's cards.
 - `busy()`, `parseCoins(text, currency)`, `formatCoins(amount, currency)`.
 - `reconcile(base, returnedText, plan)`: apply omitted payment/delivery once; accept echoed
   effects, preserve unrelated rows and throw on ambiguity.
+- `rewardVersion: 1`, `prepareAward(record)`: calculate `{changes, xp}` without writing;
+  changes contain the prepared Party block, and XP records quest identity/member gains.
+  Director commits these with its settlement. Inventory's `rewardRevision` also freezes
+  Party, growth rules and auto-spend settings when queuing the turn-in.
 
 Production fights/stages persist `extra.rpgBattleEvidence = {version:1, owner, events}`
 through Block transaction v1. Events contain `id`, `planId`, `outcome`, and individual
 `defeated: [{id, name}]` using canonical names. IDs deduplicate stages/aggregates; queries
 return copies after the cursor, never inferred prose. Director owns terms and claims.
+With Block `journalVersion: 1`, queries include proven archived ancestors. Full Party
+state shares that journal with Inventory and proof. `rpgBattleAwards` stores stable story
+XP receipts; coordinated quest XP is recorded on Director's receipt instead. Both prevent
+the automatic award path from awarding twice when message indexes shift or metadata offer
+flags disappear. Journal metadata must survive archive/export; missing anchors or edited
+interiors require recovery. No independent XP database or server plugin is installed.
 
 ```js
 import { storySuite, isSourceOfTruth } from './src/suite.js';
