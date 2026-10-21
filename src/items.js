@@ -1202,4 +1202,79 @@ export function useItems(inventoryText, used = {}, scope = null) {
     return lines.join(eol);
 }
 
+// Quest checks are deliberately stricter than combat's forgiving display parser.
+// Unknown or fractional quantities never become a free item.
+const UNHELD = /\b(?:shop|stock|offers?|orders?|uncollected|for sale)\b/i;
+
+export function questInventory(text, currency = DEFAULT_RULES.currency, scope = null) {
+    const rows = scan(String(text ?? '').split(/\r?\n/)).rows.filter(row => inScope(row, scope));
+    const held = rows.filter(row => !moneyCellOf(row, currencyOf(currency))
+        && !UNHELD.test(row.category));
+    const items = held.map(row => {
+        const raw = row.qty.trim().replace(/,(?=\d{3}\b)/g, '');
+        const qty = /^\d+$/.test(raw) && Number.isSafeInteger(Number(raw)) ? Number(raw) : null;
+        return { name: row.name, qty, category: row.category };
+    });
+    const money = purseOf(text, currency, scope)?.total ?? 0;
+    const validRows = rows.every(row => {
+        const cell = moneyCellOf(row, currencyOf(currency));
+        if (!cell) return true;
+        const amount = cell === 'note' ? row.note : row.qty;
+        return /\d/.test(amount) && !/[-−]\s*\d|\d+\.\d/.test(amount);
+    });
+    return { items, money, validMoney: validRows && Number.isSafeInteger(money) && money >= 0 };
+}
+
+/** A complete coin expression, with an exact configured unit; unknown words are not copper. */
+export function questCoins(text, currency = DEFAULT_RULES.currency) {
+    const c = currencyOf(currency);
+    const match = /^(\d+)\s+(.+)$/u.exec(String(text ?? '').trim());
+    if (!match || !Number.isSafeInteger(Number(match[1]))) return null;
+    const key = nameKey(match[2]);
+    const forms = name => [nameKey(name), `${nameKey(name)}s`, nameKey(name).replace(/s$/, '')];
+    const unit = c.mode === 'single' ? (forms(c.single).includes(key) ? 1 : null)
+        : tierValues(c).find(tier => forms(tier.name).includes(key))?.value;
+    const amount = unit == null ? null : Number(match[1]) * unit;
+    return Number.isSafeInteger(amount) && amount >= 0 ? amount : null;
+}
+
+// Accept omitted or echoed resource deltas; refuse ambiguity and preserve unrelated rows.
+export function settleQuestInventory(base, returned, { payment = 0, consume = null } = {}, currency = DEFAULT_RULES.currency, scope = null) {
+    if (!Number.isSafeInteger(payment) || payment < 0) throw new Error('Invalid payment.');
+    const before = questInventory(base, currency, scope);
+    const current = questInventory(returned, currency, scope);
+    if (!before.validMoney || !current.validMoney || !Number.isSafeInteger(before.money + payment)) throw new Error('Invalid purse amount.');
+    if (![before.money, before.money + payment].includes(current.money)) throw new Error('Purse changed ambiguously during turn-in.');
+    let next = String(returned ?? '');
+    if (consume) {
+        const keys = new Set((consume.names ?? []).map(nameKey));
+        const count = inventory => inventory.items.filter(item => keys.has(nameKey(item.name))).reduce((sum, item) => {
+            if (item.qty === null) throw new Error('Invalid delivery quantity.');
+            return sum + item.qty;
+        }, 0);
+        const have = count(before);
+        const now = count(current);
+        if (!Number.isSafeInteger(consume.qty) || consume.qty <= 0 || have < consume.qty) throw new Error('Delivery goods unavailable.');
+        if (![have, have - consume.qty].includes(now)) throw new Error('Delivery goods changed ambiguously during turn-in.');
+        if (now === have) {
+            const lines = next.split(/\r?\n/);
+            let left = consume.qty;
+            for (const row of scan(lines).rows) {
+                if (!keys.has(row.key) || !inScope(row, scope) || UNHELD.test(row.category)) continue;
+                // questInventory has already validated these quantities.
+                const qty = Number(row.qty.replace(/,/g, '').trim());
+                const used = Math.min(left, qty);
+                left -= used;
+                lines[row.index] = qty === used ? null : rewriteQty(lines[row.index], row, String(qty - used));
+                if (!left) break;
+            }
+            if (left) throw new Error('Delivery goods disappeared.');
+            next = lines.filter(line => line !== null).join(eolOf(next));
+        }
+    }
+    if (current.money === before.money && payment) next = addLoot(next, { money: payment }, currency, scope);
+    if ((purseOf(next, currency, scope)?.total ?? 0) !== before.money + payment) throw new Error('Payment could not be reconciled.');
+    return next;
+}
+
 export { SLOTS, SLOT_NAMES, ITEM_STATS };

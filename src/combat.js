@@ -992,7 +992,7 @@ export function summarize(fight, rules = DEFAULT_RULES) {
             down: c.gone === 'down' || c.hp.cur <= 0,
             conditions: c.conditions.filter(cond => !FIGHT_ONLY.has(cond.name)).map(cond => ({ name: cond.name, rounds: cond.rounds })),
         })),
-        enemies: enemies.map(c => ({ id: c.id, name: c.name, gone: c.gone, xp: c.xp, level: c.level, rank: c.rank })),
+        enemies: enemies.map(c => ({ id: c.id, name: c.name, ...(c.questName ? { questName: c.questName } : {}), gone: c.gone, xp: c.xp, level: c.level, rank: c.rank })),
         defeated: defeated.map(c => c.name),
         fled: gone('fled').map(c => c.name),
         parleyed: parleyed.map(c => c.name),

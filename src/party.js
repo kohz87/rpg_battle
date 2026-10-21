@@ -102,7 +102,7 @@ export function enemiesFromRows(rows, { bestiary, library, rules, rng }) {
             const wave = Math.max(0, Math.round(Number(row.wave) || 0));
             // The story's threat word goes along for the fight card ("Lv 1 · weak · skirmisher").
             const threat = String(row.threat ?? '').trim();
-            enemies.push({ ...enemy, id, name: count > 1 ? `${name} ${String.fromCharCode(64 + n)}` : name, ...(threat ? { threat } : {}), ...(wave ? { wave } : {}) });
+            enemies.push({ ...enemy, id, questName: name, name: count > 1 ? `${name} ${String.fromCharCode(64 + n)}` : name, ...(threat ? { threat } : {}), ...(wave ? { wave } : {}) });
         }
     }
     return enemies;

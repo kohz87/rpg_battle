@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.48
+
+- **Battle evidence for quest completion.** Each resolved fight or stage records its actual downed enemies with stable identities on the owning reply and swipe. Story Director can count eligible defeats after acceptance without parsing narration or the battle injection. Escaped foes, parley, unreached stages and duplicate results do not count; older prose fights are not backfilled.
+- **Verified Inventory turn-ins.** Quest helpers read whole quantities from the player's held Inventory, exclude companion/shop/uncollected stock, reconcile exact coin payments, and remove deliveries across duplicate rows without removing possession targets.
+- Used by Story Director **0.9.43**, with Story Block **0.9.26** providing coordinated saves and swipe ownership.
+
 ## 0.5.47
 
 - **Use applies the item at once again.** Since 0.5.38 **Use** put *\*uses the Minor Healing Draught\** in your message box and the item worked only with the reply. Now it works on the click, as before: the HP onto the sheet, the item off the Inventory, written into the latest reply (deleting or swiping that reply takes it back). Your next reply is told what happened with the exact numbers, so the story doesn't contradict it; nothing goes in your message.
