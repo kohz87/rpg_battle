@@ -7,12 +7,14 @@
 // v1 stores it: its setup and the player's actions, nothing else; every view of it is rebuilt
 // with v1's replay (combat.js), so a swipe or a deleted reply that takes the actions back takes
 // the fight back with them. A draught drunk or a flask thrown is taken out of the inventory the
-// moment it is used (combat.act → inventory.consume), so it can be neither sold nor given away
-// while the fight goes on, and nothing is left to take at the end. The party's HP, MP and SP
+// moment it is used (combat.act → inventory.consume), so nothing is left to take at the end; one
+// sold, dropped or given away mid-fight is cut from the fight's items before the next action (the
+// action's `stock`, replayed with it), so nobody drinks what is gone. The party's HP, MP and SP
 // follow the fight action by action (party.fightPools), so every view shows the board's numbers.
 // combat.end settles it: HP,
 // conditions and skill uses through party.applyResult, XP through party.grantXp,
-// loot through inventory.grant and wallet.receive, the foes beaten kept for Story Director's
+// loot through inventory.grant (what the party cannot carry, items.carry F39, is left behind and
+// told) and wallet.receive, the foes beaten kept for Story Director's
 // quests (combat.foesBeaten), and v1's hand-off as the receipt summary the next reply narrates.
 //
 // Handlers are synchronous and draw every random number from ctx.rng (the session's seed comes
@@ -24,8 +26,9 @@ import { itemSlot, oneCurrency, parseEffect } from '../../items.js';
 import { combinedBestiary } from '../../templates.js';
 import { foesText, readEncounter, STAKES, TIERS } from './encounter.js';
 import { buildSetup, COMBAT_DEFAULTS, fightNumbers, partyCombatants } from './setup.js';
-import { bestiaryList, creatureSlug, fightRules, packCreature, packSetup, sessionStatus, unpackSetup } from './stored.js';
-import { beatenFoes, endSummary, foeNames, partyNames, rebuild, sessionView, tailLines } from './view.js';
+import { bestiaryList, creatureSlug, fightRules, latinSlug, packCreature, packSetup, sessionStatus, unpackSetup } from './stored.js';
+import { clipped } from '../lines.js';
+import { applyStock, beatenFoes, endSummary, foeNames, partyNames, rebuild, sessionView, tailLines } from './view.js';
 
 export const MAX_OFFERS = 10;
 export const MAX_BEATEN = 200;
@@ -82,9 +85,22 @@ function cleanAction(action) {
     return out;
 }
 
-function activeSession(ctx) {
+/**
+ * The fight a command names (`payload.session`, the board's fight id) must be the one under way: an
+ * action from a board that still shows an older fight (a second window, a click across a
+ * combat.end and a combat.start) is refused, never played on another fight. Without a session id
+ * (an older caller) the fight under way is meant.
+ */
+function sameSession(ctx, session, payload) {
+    const named = payload?.session;
+    if (named === undefined || named === null) return;
+    if (typeof named !== 'string' || named !== session.id) ctx.fail('REFUSED', 'That was meant for another fight: the board was out of date. Look again and choose.');
+}
+
+function activeSession(ctx, payload) {
     const session = ctx.read('combat').session;
     if (!session) ctx.fail('NOT_FOUND', 'There is no fight under way.');
+    sameSession(ctx, session, payload);
     if (session.status !== 'active') ctx.fail('REFUSED', 'That fight is over: finish it to see the result.');
     return session;
 }
@@ -132,6 +148,31 @@ function sourcesFor(inventory, item, memberId, pc) {
 }
 
 const available = (inventory, item, memberId, pc) => sourcesFor(inventory, item, memberId, pc).reduce((sum, [, qty]) => sum + qty, 0);
+
+/**
+ * The fight items the inventory no longer holds as many of (sold, dropped or given away since the
+ * fight began): [{ member, item (index in the member's fight items), left }]. A member's rows of
+ * one item share what the inventory has, in order. Recorded with the action (`stock`), so the action
+ * is played, and replayed, with what was really there (B-b4-1): nobody on auto drinks a draught that
+ * is gone.
+ */
+function stockCuts(fight, inventory, pc) {
+    const cuts = [];
+    for (const member of fight.combatants.filter(c => c.side === 'party')) {
+        const left = new Map();
+        (member.items ?? []).forEach((item, index) => {
+            const qty = Math.max(0, Math.round(Number(item.qty) || 0));
+            if (!qty) return;
+            const key = item.def ? `def:${item.def}` : `name:${String(item.name ?? '').toLowerCase()}`;
+            if (!left.has(key)) left.set(key, available(inventory, item, member.memberId, pc));
+            const have = left.get(key);
+            const keep = Math.min(qty, have);
+            left.set(key, have - keep);
+            if (keep < qty) cuts.push({ member: member.memberId, item: index, left: keep });
+        });
+    }
+    return cuts;
+}
 
 /**
  * What each party member's fight items lost between two states of the fight: [{ memberId, item,
@@ -208,12 +249,22 @@ function syncPools(ctx, fight) {
 }
 
 /** One player action on the session: the fight rebuilt, the action played, the session updated. */
-function playAction(ctx, action) {
-    const session = activeSession(ctx);
-    const { fight, rules } = rebuild(session);
-    // A draught the player picks must still be in the inventory: it is taken out now.
-    if (action.type === 'item' && readInventory(ctx)) {
-        const actor = availableActions(fight, rules).actor;
+function playAction(ctx, action, payload = {}) {
+    const session = activeSession(ctx, payload);
+    const rebuilt = rebuild(session);
+    const { rules } = rebuilt;
+    // `logLength`: how long the fight's log was on the board the action was chosen on; a second
+    // click on the same board (the fight moved on) is refused rather than played on the next turn.
+    if (payload?.logLength !== undefined && payload.logLength !== null && payload.logLength !== rebuilt.fight.log.length) {
+        ctx.fail('REFUSED', 'The fight moved on since that was chosen: look again and choose.');
+    }
+    const inventory = readInventory(ctx);
+    const stock = inventory ? stockCuts(rebuilt.fight, inventory, readPc(ctx)) : [];
+    const fight = stock.length ? applyStock(structuredClone(rebuilt.fight), stock) : rebuilt.fight;
+    // A draught the player picks must still be in the inventory: it is taken out now. (Looked up
+    // in the fight as it stood, before the stock cuts, to say plainly why it cannot be used.)
+    if (action.type === 'item' && inventory) {
+        const actor = availableActions(rebuilt.fight, rules).actor;
         const norm = text => String(text ?? '').trim().toLowerCase();
         const item = (actor?.items ?? []).find(entry => norm(entry.name) === norm(action.item) && entry.effect && Number(entry.qty) > 0);
         if (item && actor.side === 'party' && !available(readInventory(ctx), item, actor.memberId, readPc(ctx))) {
@@ -229,7 +280,7 @@ function playAction(ctx, action) {
     const used = readInventory(ctx) ? consumeSpent(ctx, itemsSpent(fight, next)) : { taken: [], missing: [] };
     syncPools(ctx, next);
     const combat = ctx.draft('combat');
-    combat.session.actions.push(action);
+    combat.session.actions.push(stock.length ? { ...action, stock } : action);
     combat.session.status = sessionStatus(next.status);
     const told = next.log.slice(fight.log.length).map(entry => entry.text);
     return {
@@ -279,7 +330,7 @@ const kindOf = item => (['material', 'consumable', 'equipment'].includes(item.ki
  * so the pack's def is used), else the same for the name with the foe's extra words taken off the
  * front ("Starved Crag Wolf Pelt" → "Crag Wolf Pelt" → "Wolf Pelt": the base creature's part),
  * always of the drop's own kind. Null when nothing matches: the drop is a new story item (lootDef).
- * → { defId } | { name } with `shown`, the name the receipt tells.
+ * → { defId } | { name, def (the pack's) } with `shown`, the name the receipt tells.
  */
 function lootTarget(ctx, item) {
     const words = String(item.name ?? '').trim().split(/\s+/).filter(Boolean);
@@ -290,30 +341,55 @@ function lootTarget(ctx, item) {
         const def = found?.status === 'found' ? found.defs?.[0] : null;
         if (def && def.kind === kind) return { defId: def.id, shown: def.name };
         const packed = ask(ctx, 'packs.item', { name });
-        if (packed && typeof packed.id === 'string' && packed.name && (packed.kind ?? 'goods') === kind) return { name: packed.name, shown: packed.name };
+        if (packed && typeof packed.id === 'string' && packed.name && (packed.kind ?? 'goods') === kind) return { name: packed.name, shown: packed.name, def: packed };
     }
     return null;
 }
 
 /**
+ * Whether the party can carry `qty` of a drop (the items part's `items.carry`, MODULES §F39): true
+ * when it can, or when no part keeps a carry limit.
+ */
+function canCarryLoot(ctx, carried, qty) {
+    let fits = null;
+    try {
+        fits = ctx.query('items.carry', { add: [{ ...carried, qty }] });
+    } catch {
+        return true;
+    }
+    return !(fits && fits.ok === false);
+}
+
+/**
  * The victory's drops granted (inventory.grant to the party, the receipt as their cause), each
- * as the item lootTarget finds; drops that turn out to be one item are told once, added up.
- * → [{ name, qty, rarity }] as granted.
+ * as the item lootTarget finds; drops that turn out to be one item are told once, added up. A drop
+ * the party cannot carry (items.carry, F39) is not granted: it is left behind, and told so.
+ * → { items: [{ name, qty, rarity }] as granted, left: [{ name, qty, rarity }] left behind }.
  */
 function grantLoot(ctx, items) {
     const told = [];
+    const left = [];
+    const add = (list, name, item) => {
+        const same = list.find(entry => entry.name === name);
+        if (same) same.qty += item.qty;
+        else list.push({ name, qty: item.qty, rarity: item.rarity ?? 'common' });
+    };
     for (const item of items) {
         const target = lootTarget(ctx, item);
         // No stack note: the item.define hook would take it for the item's own words, and loot of
         // one kind stacks; the stack's `from` is this receipt.
         const payload = target?.defId ? { defId: target.defId } : target?.name ? { name: target.name } : { def: lootDef(item) };
-        ctx.call('inventory.grant', { ...payload, qty: item.qty, owner: 'party' });
         const shown = target?.shown ?? item.name;
-        const same = told.find(entry => entry.name === shown);
-        if (same) same.qty += item.qty;
-        else told.push({ name: shown, qty: item.qty, rarity: item.rarity ?? 'common' });
+        // What it weighs: the chat's def, a pack's (asked again by name), else the drop's own.
+        const carried = target?.defId ? { defId: target.defId } : { def: target?.def ?? lootDef(item) };
+        if (!canCarryLoot(ctx, carried, item.qty)) {
+            add(left, shown, item);
+            continue;
+        }
+        ctx.call('inventory.grant', { ...payload, qty: item.qty, owner: 'party' });
+        add(told, shown, item);
     }
-    return told;
+    return { items: told, left };
 }
 
 // --- commands ---------------------------------------------------------------------------------
@@ -369,16 +445,20 @@ function start(ctx, payload) {
     };
 }
 
-/** combat.act({ action }): one player action, then every automatic turn up to the next choice. */
+/**
+ * combat.act({ action, session?, logLength? }): one player action, then every automatic turn up to
+ * the next choice. `session` (the fight's id) and `logLength` (its log's length as shown) say which
+ * fight, and which moment of it, the action was chosen for: anything else is refused.
+ */
 function actCommand(ctx, payload) {
     const action = cleanAction(payload?.action);
     if (!action) ctx.fail('INVALID', 'Choose an action: attack, a skill, an item, defend, flee, parley or auto.');
-    return playAction(ctx, action);
+    return playAction(ctx, action, payload);
 }
 
-/** combat.flee(): the player whose turn it is tries to get the party away (v1's flee chance). */
-function flee(ctx) {
-    return playAction(ctx, { type: 'flee' });
+/** combat.flee({ session?, logLength? }): the player whose turn it is tries to get the party away (v1's flee chance). */
+function flee(ctx, payload) {
+    return playAction(ctx, { type: 'flee' }, payload);
 }
 
 /** The party's actor ids now (null when the party cannot be read: then nobody is skipped). */
@@ -396,9 +476,10 @@ function partyIds(ctx) {
  * the members still in the party get the fight's result and XP (one who is gone is skipped), XP
  * to a member at the level cap is nothing, and the consumables were already taken at use.
  */
-function end(ctx) {
+function end(ctx, payload) {
     const session = ctx.read('combat').session;
     if (!session) ctx.fail('NOT_FOUND', 'There is no fight to finish.');
+    sameSession(ctx, session, payload);
     if (session.status === 'active') ctx.fail('REFUSED', 'The fight is not over yet.');
     if (!ctx.claim(`combat:${session.id}:end`)) ctx.fail('CLAIMED', 'That fight was already settled.');
     const { fight, rules } = rebuild(session);
@@ -408,16 +489,18 @@ function end(ctx) {
     const present = partyIds(ctx);
     const here = id => !present || present.has(id);
 
-    // The party's side: HP, MP, SP and lasting conditions as the fight left them, skill uses.
+    // The party's side: HP, MP, SP and lasting conditions as the fight left them, skill uses. Only
+    // the current numbers: each member's maxima are the party's own now (points spent or a level
+    // gained mid-fight raised them, B-b4-4), and the current ones are held to those.
     const members = result.party.filter(member => here(member.memberId));
     const applied = !members.length ? null : ctx.call('party.applyResult', {
         outcome: result.outcome,
         stakes: result.stakes,
         actors: members.map(member => ({
             id: member.memberId,
-            hp: { ...member.hp },
-            mp: { ...member.mp },
-            ...(member.sp ? { sp: { ...member.sp } } : {}),
+            hp: { cur: member.hp.cur },
+            mp: { cur: member.mp.cur },
+            ...(member.sp ? { sp: { cur: member.sp.cur } } : {}),
             down: member.down,
             conditions: member.conditions.map(cond => ({ kind: cond.name, rounds: cond.rounds })),
             uses: { ...(result.uses?.[member.memberId] ?? {}) },
@@ -433,9 +516,12 @@ function end(ctx) {
         if (xp > 0) ctx.call('party.grantXp', { actor: member.memberId, amount: xp });
     }
 
+    let leftBehind = [];
     if (result.outcome === 'victory') {
         // The drops under the names they were granted as (the summary and receipt tell those).
-        result.loot.items = grantLoot(ctx, result.loot.items);
+        const granted = grantLoot(ctx, result.loot.items);
+        result.loot.items = granted.items;
+        leftBehind = granted.left;
         if (result.loot.money > 0) ctx.call('wallet.receive', { owner: 'party', amount: result.loot.money, note: `loot: ${foeNames(setup)}` });
     }
 
@@ -447,7 +533,8 @@ function end(ctx) {
     const terms = ctx.settings()?.terms;
     const shown = terms && typeof terms === 'object' ? { ...rules, terms: { ...rules.terms, ...terms } } : rules;
     const lost = died.length ? ` ${died.map(entry => entry.name).join(', ').replace(/, ([^,]*)$/, ' and $1')} died and ${died.length === 1 ? 'is' : 'are'} gone from the party for good.` : '';
-    const summary = `${endSummary(result, { pcName, rules: shown, names, currency: chatCurrency(ctx) })}${lost}`;
+    const behind = leftBehind.length ? ` Left behind, too heavy to carry: ${leftBehind.map(item => (item.qty > 1 ? `${item.name} ×${item.qty}` : item.name)).join(', ')}.` : '';
+    const summary = `${endSummary(result, { pcName, rules: shown, names, currency: chatCurrency(ctx) })}${behind}${lost}`;
     const combat = ctx.draft('combat');
     if (foes.length) {
         combat.beaten.push({ rev, foes, won: result.outcome === 'victory' });
@@ -465,7 +552,11 @@ function end(ctx) {
             died: died.map(entry => ({ ...entry })),
             foes,
             xp: { ...result.xp },
-            loot: { money: result.loot.money, items: result.loot.items.map(item => ({ name: item.name, qty: item.qty, rarity: item.rarity })) },
+            loot: {
+                money: result.loot.money,
+                items: result.loot.items.map(item => ({ name: item.name, qty: item.qty, rarity: item.rarity })),
+                ...(leftBehind.length ? { left: leftBehind.map(item => ({ name: item.name, qty: item.qty, rarity: item.rarity })) } : {}),
+            },
         },
     };
 }
@@ -508,6 +599,10 @@ function captureEncounter(ctx, line) {
 const isInt = (value, min = 0) => Number.isInteger(value) && value >= min;
 const isText = (value, max = 400) => typeof value === 'string' && value.length <= max;
 
+// An action's `stock` (combat.act): absent, or [{ member, item, left }] with whole numbers.
+const validStock = stock => stock === undefined || (Array.isArray(stock) && stock.length <= 200
+    && stock.every(entry => isText(entry?.member, 40) && isInt(entry?.item) && isInt(entry?.left)));
+
 export function validateCombat(slice) {
     const errors = [];
     if (!slice || typeof slice !== 'object') return ['The combat record is missing.'];
@@ -532,7 +627,7 @@ export function validateCombat(slice) {
     if (s !== null && s !== undefined) {
         if (!isText(s.id, 20) || !/^fi_[0-9a-z]{8}$/.test(s.id)) errors.push('combat.session.id must be a fight id like fi_k3f9a2qz.');
         if (!s.setup || typeof s.setup !== 'object' || !Array.isArray(s.setup.party) || !Array.isArray(s.setup.enemies)) errors.push('combat.session.setup must hold the party and the foes.');
-        if (!Array.isArray(s.actions) || s.actions.some(action => !cleanAction(action))) errors.push('combat.session.actions must be a list of actions.');
+        if (!Array.isArray(s.actions) || s.actions.some(action => !cleanAction(action) || !validStock(action.stock))) errors.push('combat.session.actions must be a list of actions.');
         if (!STATUSES.includes(s.status)) errors.push(`combat.session.status must be ${STATUSES.join(', ')}.`);
     } else if (s === undefined) errors.push('combat.session must be a fight or null.');
     if (!Array.isArray(slice.beaten)) errors.push('combat.beaten must be a list.');
@@ -558,7 +653,8 @@ export function validateBestiary(slice) {
     for (const key of keys) {
         const entry = slice.creatures[key];
         if (!isText(entry?.name, 60) || !entry.name.trim()) errors.push(`bestiary.creatures.${key} has no name.`);
-        else if (creatureSlug(entry.name) !== key) errors.push(`bestiary.creatures.${key} is filed under the wrong name (${entry.name}).`);
+        // A chat saved before B-b4-5 keeps a creature under its Latin-only key.
+        else if (creatureSlug(entry.name) !== key && latinSlug(entry.name) !== key) errors.push(`bestiary.creatures.${key} is filed under the wrong name (${entry.name}).`);
         if (!isInt(entry?.level, 1)) errors.push(`bestiary.creatures.${key}.level must be a whole number, 1 or more.`);
     }
     return errors;
@@ -602,7 +698,7 @@ export const part = {
         'bestiary.creatures': state => bestiaryList(state?.domains?.bestiary).map(entry => ({ name: entry.name, level: entry.level, template: entry.template ?? null, look: entry.look ?? '' })),
     },
     kinds: {
-        encounter: { grammar: GRAMMAR, apply: captureEncounter },
+        encounter: { grammar: GRAMMAR, apply: clipped(captureEncounter) },
     },
     context: {
         static: () => STATIC_TEXT,

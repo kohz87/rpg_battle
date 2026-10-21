@@ -42,8 +42,12 @@ export function itemWorth(item, { level = 1, rules = DEFAULT_RULES } = {}) {
     const factor = t.rarityFactor[rarity] ?? 1;
     const kind = kindOf(item);
     if (kind === 'equipment') {
-        const { cost, budget } = capItem({ ...item, slot: item.slot }, level, rules);
-        return Math.max(1, Math.round((cost || budget) * t.gearPerPoint * factor));
+        // Priced by the stats it keeps once capped to its rarity's budget at this level, never by
+        // what was written (a note's "ATK +9999" is worth what a capped piece is worth).
+        const piece = { ...item, slot: item.slot };
+        const { capped, stats, cost, budget } = capItem(piece, level, rules);
+        const kept = capped ? capItem({ ...piece, stats }, level, rules).cost : cost;
+        return Math.max(1, Math.round((kept || budget) * t.gearPerPoint * factor));
     }
     if (kind === 'consumable') {
         const e = item.effect ?? {};

@@ -61,12 +61,15 @@ export function revOf(ctx) {
 
 /**
  * The reply a story line came from (for one-a-reply rules), or null when the host does not say:
- * the host's `ctx.carrier` ({ index, swipe }) as `<index>:<swipe>`, or a plain key as written.
+ * the reply's record id (`ctx.carrier.sid`, which a middle delete never moves: B-b2-timeline-10) as
+ * `sid:<sid>`, else the host's `ctx.carrier` ({ index, swipe }) as `<index>:<swipe>`, or a plain
+ * key as written.
  */
 export function replyOf(ctx, line) {
     for (const value of [ctx?.carrier, line?.carrier, line?.reply]) {
         if (value === undefined || value === null || value === '') continue;
         if (typeof value === 'object') {
+            if (typeof value.sid === 'string' && value.sid) return `sid:${value.sid.slice(0, 60)}`;
             if (Number.isInteger(value.index)) return `${value.index}:${value.swipe ?? 0}`;
             continue;
         }
@@ -77,9 +80,22 @@ export function replyOf(ctx, line) {
 
 export const nameKey = name => String(name ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
 
-/** A member's name as the Party heading keeps it (v1 headingText): no bars, dashes or brackets. */
-export const cleanName = value => headingText(value, 40);
-export const cleanRole = value => headingText(value, 30);
+// What a label value or a written name is cut to before any pattern reads it (B-b5b-robust-13): the
+// model's text can be any length, and some patterns are slow on a long run of spaces.
+export const MAX_LABEL = 200;
+
+/** Text from the model, cut to `max` characters before anything else reads it. */
+export const clipText = (value, max = MAX_LABEL) => String(value ?? '').slice(0, max);
+
+// SillyTavern's macros ({{char}}, {{user}}, <USER>, <BOT>): never part of a name (B-b4-14).
+const MACROS = /\{\{[^{}]{0,40}\}\}|<\s*(?:user|bot|char)\s*>/gi;
+
+/**
+ * A member's name as the Party heading keeps it (v1 headingText): no bars, dashes or brackets, no
+ * SillyTavern macro; '' when nothing is left.
+ */
+export const cleanName = value => headingText(clipText(value).replace(MACROS, ' '), 40);
+export const cleanRole = value => headingText(clipText(value).replace(MACROS, ' '), 30);
 
 /** The actors in display order (pc first). */
 export function actorsInOrder(party) {
@@ -91,7 +107,8 @@ export function actorsInOrder(party) {
  * character before the companions; "you", "me" are your character), or { error } when no one or
  * more than one person fits.
  */
-export function resolveName(party, name) {
+export function resolveName(party, written) {
+    const name = clipText(written);
     const list = actorsInOrder(party);
     if (meansYou(name)) {
         const pc = party?.pc ? party.actors[party.pc] : null;
@@ -122,10 +139,13 @@ export function actorFrom(ctx, party, payload, { pcDefault = true } = {}) {
     return fail(ctx, 'NOT_FOUND', 'Make your character first.');
 }
 
-/** Lower-case label keys with spaces and underscores as one: `Taught by` and `taught_by` are `taught by`. */
+/**
+ * Lower-case label keys with spaces and underscores as one: `Taught by` and `taught_by` are `taught
+ * by`. Keys and values are cut to MAX_LABEL characters before anything reads them.
+ */
 export function labelsOf(line) {
     const out = {};
-    for (const [key, value] of Object.entries(line?.labels ?? {})) out[nameKey(key).replace(/[_-]+/g, ' ')] = String(value ?? '').trim();
+    for (const [key, value] of Object.entries(line?.labels ?? {})) out[nameKey(clipText(key, 60)).replace(/[_-]+/g, ' ')] = String(value ?? '').trim().slice(0, MAX_LABEL).trim();
     return out;
 }
 

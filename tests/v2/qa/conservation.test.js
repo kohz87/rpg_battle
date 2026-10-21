@@ -79,7 +79,7 @@ each('craft.commission takes the materials and the fee; craft.collect gives exac
 
 each('item.use takes exactly one dose; item.give, item.equip, item.unequip move nothing in or out', () => {
     const { h, pc } = withHero();
-    const lyra = h.command('party.addCompanion', { name: 'Lyra', role: 'archer' }).receipt.data.actor;
+    const lyra = h.command('party.addCompanion', { name: 'Lyra', role: 'archer' }, { cause: 'system' }).receipt.data.actor;
     const pot = storyItem(h, 'Minor Healing Draught', 3);
     const sword = storyItem(h, 'Iron Sword', 1, 'ATK +2');
     h.capture({ op: '~', kind: 'wound', name: 'Ren', text: 'a fall', labels: { harm: 'wound' } });
@@ -174,7 +174,7 @@ each('a draught sold after the fight began cannot then be drunk in it (and the f
 
 each('a companion who leaves does not take the party\'s things into nowhere', () => {
     const { h } = withHero();
-    const lyra = h.command('party.addCompanion', { name: 'Lyra', role: 'archer' }).receipt.data.actor;
+    const lyra = h.command('party.addCompanion', { name: 'Lyra', role: 'archer' }, { cause: 'system' }).receipt.data.actor;
     const pot = storyItem(h, 'Minor Healing Draught', 2);
     assert.equal(h.command('item.give', { stack: stackOf(h, pot), to: lyra, qty: 2 }).ok, true);
     assert.equal(h.command('wallet.receive', { owner: lyra, amount: 25 }, { cause: 'story' }).ok, true);
@@ -193,7 +193,7 @@ each('a companion who leaves does not take the party\'s things into nowhere', ()
 
 each('remaking your character (party.create replace) keeps what the old one carried within reach', () => {
     const { h, pc } = withHero();
-    const lyra = h.command('party.addCompanion', { name: 'Lyra', role: 'archer' }).receipt.data.actor;
+    const lyra = h.command('party.addCompanion', { name: 'Lyra', role: 'archer' }, { cause: 'system' }).receipt.data.actor;
     const sword = storyItem(h, 'Iron Sword', 1, 'ATK +2');
     assert.equal(h.command('item.give', { stack: stackOf(h, sword), to: lyra }).ok, true);
     assert.equal(h.command('item.give', { stack: stackOf(h, sword), to: pc }).ok, true);

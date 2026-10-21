@@ -13,8 +13,9 @@ import { cleanFocus, guessFocus } from '../../builds.js';
 import { findSkill, DEFAULT_SKILLS } from '../../skills.js';
 import { parseLevelLabel, maxLevel } from '../../terms.js';
 import { fromSheet, rulesFrom, settingsOf, toSheet } from './sheets.js';
-import { addOffer, handlers } from './commands.js';
-import { cleanName, cleanRole, fail, labelsOf, nameKey, replyOf, resolveName } from './util.js';
+import { COMPANION_LEVELS_ABOVE, addOffer, fightOn, handlers } from './commands.js';
+import { clipped } from '../lines.js';
+import { MAX_LABEL, cleanName, cleanRole, fail, labelsOf, nameKey, replyOf, resolveName } from './util.js';
 
 // The static grammar each kind adds to the change-line instruction (SPEC §5): fixed words only,
 // so the static prompt is byte-identical every reply.
@@ -51,6 +52,9 @@ function applyWound(ctx, line) {
     const party = ctx.draft('party');
     const rules = rulesFor(ctx);
     const actor = memberOf(ctx, party, line.name);
+    // While a fight has the party its HP and conditions are the fight's (party.fightPools, then
+    // combat.end): a story's blow or heal would be put back by the next fight action (B-b4-6).
+    if (fightOn(ctx)) fail(ctx, 'REFUSED', `${actor.name} is in a fight: what happens to them there is the fight's, played on the battle board.`);
     const labels = labelsOf(line);
     const text = String(line.text ?? '').trim();
     let written;
@@ -78,7 +82,9 @@ function applyWound(ctx, line) {
     };
 }
 
-const list = value => String(value ?? '').split(/\s*[,;/]\s*/).map(part => part.trim()).filter(Boolean);
+// A list label ("DEX, AGI", "Slash; Parry"): labelsOf has cut it to MAX_LABEL already; a plain
+// split and trim (a split on /\s*[,;/]\s*/ is slow on a long run of spaces, B-b5b-robust-13).
+const list = value => String(value ?? '').slice(0, MAX_LABEL).split(/[,;/]/).map(part => part.trim()).filter(Boolean);
 
 /** `+ join Lyra — the archer | level: 3 | role: ranger | focus: DEX, AGI | skills: Aimed Shot` → a join offer. */
 function applyJoin(ctx, line) {
@@ -96,7 +102,9 @@ function applyJoin(ctx, line) {
     if (labels.level) {
         const written = parseLevelLabel(labels.level, rules) ?? Number(labels.level.match(/\d+/)?.[0]);
         if (!(written >= 1)) fail(ctx, 'INVALID', `The level "${labels.level}" is not a level.`);
-        level = Math.min(maxLevel(rules), Math.round(written));
+        // Held near your character's level (B-b3-16); party.addCompanion holds it there again.
+        const pc = party.pc ? party.actors[party.pc] : null;
+        level = Math.max(1, Math.min(maxLevel(rules), Math.max(1, pc?.level ?? 1) + COMPANION_LEVELS_ABOVE, Math.round(written)));
     }
     const role = cleanRole(labels.role ?? '') || cleanRole(text.replace(/^(?:an?|the)\s+/i, '').split(/[,;:.]/)[0]);
     const focus = cleanFocus(labels.focus ? list(labels.focus).map(stat => stat.toUpperCase()) : guessFocus(role, text));
@@ -151,20 +159,22 @@ function applyCheck(ctx, line) {
     return handlers.resolveCheck(ctx, { who, skill: line.name, stat: labels.stat ?? null, dc: labels.dc ?? '', what: line.text ?? '' });
 }
 
-/** `! rest long — a night at the inn` → party.rest. */
+/** `! rest long — a night at the inn` → party.rest; one rest a reply (B1-3: the rest is narrated). */
 function applyRest(ctx, line) {
     const labels = labelsOf(line);
     const word = `${line.name ?? ''} ${labels.kind ?? ''} ${line.text ?? ''}`.toLowerCase();
     const kind = /^\s*long\b/.test(word) || labels.kind === 'long' ? 'long' : /^\s*short\b/.test(word) || labels.kind === 'short' ? 'short' : null;
     if (!kind) fail(ctx, 'INVALID', 'A rest is short or long.');
+    const reply = replyOf(ctx, line);
+    if (reply !== null && !ctx.claim(`rest:${reply}`)) fail(ctx, 'CLAIMED', 'The party already rested in this reply.');
     return handlers.rest(ctx, { kind, reason: line.text ?? '' });
 }
 
 export const kinds = {
-    wound: { grammar: GRAMMAR.wound, apply: applyWound },
-    join: { grammar: GRAMMAR.join, apply: applyJoin },
-    skill: { grammar: GRAMMAR.skill, apply: applySkill },
-    check: { grammar: GRAMMAR.check, apply: applyCheck },
-    rest: { grammar: GRAMMAR.rest, apply: applyRest },
-    leave: { grammar: GRAMMAR.leave, apply: applyLeave },
+    wound: { grammar: GRAMMAR.wound, apply: clipped(applyWound) },
+    join: { grammar: GRAMMAR.join, apply: clipped(applyJoin) },
+    skill: { grammar: GRAMMAR.skill, apply: clipped(applySkill) },
+    check: { grammar: GRAMMAR.check, apply: clipped(applyCheck) },
+    rest: { grammar: GRAMMAR.rest, apply: clipped(applyRest) },
+    leave: { grammar: GRAMMAR.leave, apply: clipped(applyLeave) },
 };

@@ -18,7 +18,7 @@ const partyPools = h => Object.fromEntries(Object.values(h.state().domains.party
 
 each('while a fight runs, the party\'s HP and MP are the fight\'s after every action', () => {
     const { h, pc } = withHero({ seed: 4 });
-    h.command('party.addCompanion', { name: 'Lyra', role: 'archer', level: 1 });
+    h.command('party.addCompanion', { name: 'Lyra', role: 'archer', level: 1 }, { cause: 'system' });
     start(h, '3 Wolves', 'strong');
     assert.equal(Object.keys(fightPools(h)).length, 2);
     for (const [id, pool] of Object.entries(fightPools(h))) assert.deepEqual(partyPools(h)[id], pool, 'from the first blows on');

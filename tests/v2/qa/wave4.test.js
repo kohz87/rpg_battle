@@ -83,7 +83,7 @@ each('! use during a fight with no fight action to take is a Problem and keeps t
 
 each('carry limit: item.give to a companion who cannot carry it is refused; trade.buy too heavy pays nothing', () => {
     const { h } = withHero({ settings: { 'items.carrySize': 10 } });
-    const joined = h.command('party.addCompanion', { name: 'Lyra', role: 'archer' });
+    const joined = h.command('party.addCompanion', { name: 'Lyra', role: 'archer' }, { cause: 'system' });
     assert.equal(joined.ok, true, joined.message);
     const axe = storyItem(h, 'Great Axe', 1, 'two-handed, ATK +5');
     const before = bytes(h.state());

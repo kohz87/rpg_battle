@@ -890,7 +890,15 @@ export function availableActions(fight, rules = DEFAULT_RULES) {
  */
 export function act(fight, action, rules = DEFAULT_RULES) {
     if (fight?.status !== 'active') throw new Error('The fight is over.');
-    const f = structuredClone(fight);
+    return actInPlace(structuredClone(fight), action, rules);
+}
+
+/**
+ * act on a fight this caller owns, changing it in place (replay's step: one copy for the whole
+ * replay, not one per action, so a long fight is not rebuilt at a cost that grows with its log).
+ */
+export function actInPlace(f, action, rules = DEFAULT_RULES) {
+    if (f?.status !== 'active') throw new Error('The fight is over.');
     const actor = current(f);
     if (!actor) throw new Error('No player-controlled combatant is waiting to act.');
     if (action?.actor != null && action.actor !== actor.id) throw new Error(`It is ${actor.name}'s turn.`);
@@ -934,10 +942,19 @@ export function previewStrike(actor, target, skill = null, rules = DEFAULT_RULES
     };
 }
 
-/** The fight again from its setup and the player's actions: identical, roll for roll. */
-export function replay({ setup, actions = [] }, rules = DEFAULT_RULES) {
-    let f = startFight({ ...setup, rules });
-    for (const action of actions) f = act(f, action, rules);
+/**
+ * The fight again from its setup and the player's actions: identical, roll for roll. `before(f,
+ * action)`, when given, may adjust the fight just before each action is played (v2 records what the
+ * inventory still held then, so the replay plays with what the live fight had).
+ */
+export function replay({ setup, actions = [] }, rules = DEFAULT_RULES, { before = null } = {}) {
+    // startFight keeps its own copy of the setup, but its combatants may share nested objects with
+    // it: one copy here, then every action is played on that copy (actInPlace).
+    const f = structuredClone(startFight({ ...setup, rules }));
+    for (const action of actions) {
+        if (before) before(f, action);
+        actInPlace(f, action, rules);
+    }
     return f;
 }
 

@@ -119,7 +119,8 @@ export const LOOT_TABLES = Object.freeze({
     wyvern: [drop('Wyvern Scale', 60, [1, 3], 'material'), drop('Venom Sac', 40, [1, 1], 'material'), gear('Scale Mail', 8, 'rare', { DEF: 10, AGI: -1 })],
 });
 
-const key = name => String(name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+// Letters and digits of any script (a creature named "狼" or "Волк" is found again by its name).
+const key = name => String(name ?? '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 // "Goblin 2", "Goblin #3" and "goblin (b)" are the second and third goblins of a row.
 const baseName = name => key(String(name ?? '').replace(/\s*(#?\d+|\([a-z0-9]\)|\b[a-z]\b)\s*$/i, ''));
 

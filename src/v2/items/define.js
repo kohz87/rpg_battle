@@ -8,12 +8,18 @@
 // a crafted piece (`uncommon material · MDEF, poison`), and trade's itemWorth what it is worth in
 // the chat's one currency (v1's numbers kept as they are, MODULES §F1). A word like "minor" or
 // "strong" in a potion's name is its size, as in v1 (Minor Healing Draught heals 20), never a
-// foe's threat. An item named for the currency is money, one unit each.
+// foe's threat. An item named for the currency is money, one unit each. What the note's words give
+// is held to code's limits (B1-5): stats to the rarity's budget (and priced capped), a potion to the largest
+// built-in one, and never legendary (STORY_EFFECT_MAX, storyRarity).
 
 import { describeRow, nameKey } from '../../items.js';
 import { materialAffinity } from '../../craft.js';
 import { isMaterial, itemWorth, kindOf } from '../../trade.js';
+import { maxLevel } from '../../terms.js';
 import { hostCurrency, hostSettings, rulesFrom } from './shared.js';
+import { capEffect, capStats, storyRarity } from '../limits.js';
+
+export { STORY_EFFECT_MAX, capEffect, capStats, storyRarity } from '../limits.js';
 
 const SLOTS = ['weapon', 'offhand', 'armour', 'worn', 'accessory'];
 
@@ -82,9 +88,12 @@ export function defineItem(def, { note, owner = null, settings, currency, level 
     // A pack's piece already says it is gear; the story's plain `goods` says nothing.
     const category = def?.kind === 'equipment' ? 'Equipment' : '';
     const described = describeRow({ name, category, note: text });
-    const rarity = described.rarity !== 'common' ? described.rarity : def?.rarity ?? 'common';
+    // The story's words never make a thing legendary; a def's own rarity (a pack's, a loot drop's) stays.
+    const rarity = described.rarity !== 'common' ? storyRarity(described.rarity) : def?.rarity ?? 'common';
     const slot = described.slot ?? (SLOTS.includes(def?.slot) ? def.slot : null);
-    const written = Object.keys(described.stats ?? {}).length ? described.stats : null;
+    // Stats the note wrote are held to the most the rarity allows at all (its budget at the level
+    // cap: a wearer's own level caps them again when worn, items.gear), and priced capped at `level`.
+    const written = Object.keys(described.stats ?? {}).length ? capStats(described.stats, { slot, rarity, level: maxLevel(rules), rules }) : null;
 
     let kind;
     let out;
@@ -96,7 +105,9 @@ export function defineItem(def, { note, owner = null, settings, currency, level 
         out = { slot, stats, tags, effect: {}, stack: false, note: text };
     } else if (described.effect || def?.kind === 'consumable') {
         kind = 'consumable';
-        out = { slot: null, stats: {}, tags: [], effect: effectShape(described.effect ?? def?.effect), stack: true, note: text };
+        // An effect the note wrote is held to the largest built-in potion's; a def's own (a pack's) stays.
+        const effect = described.effect ? capEffect(effectShape(described.effect)) : effectShape(def?.effect);
+        out = { slot: null, stats: {}, tags: [], effect, stack: true, note: text };
     } else {
         const item = { name, note: text, slot: null, effect: null, ...(def?.kind === 'material' ? { kind: 'material' } : {}) };
         kind = kindOf(item) === 'material' || isMaterial(item) ? 'material' : 'goods';

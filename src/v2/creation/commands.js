@@ -20,6 +20,7 @@ import { levelText } from '../../terms.js';
 import { buildCharacter, creationRules } from './build.js';
 import { STAT_LABELS, creationContent } from './content.js';
 import { BACKGROUND_LIMIT } from './persona.js';
+import { cleanName } from '../party/util.js';
 
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -172,6 +173,18 @@ function setup(ctx) {
 }
 
 /**
+ * The character's name from the persona's, cleaned as the party keeps a name (party/util cleanName:
+ * no bars, brackets or SillyTavern macros such as {{user}}) BEFORE it is checked (B-b4-14): a
+ * persona whose name cleans to nothing is told to rename the persona, never left blocked.
+ */
+function personaName(ctx, written) {
+    const name = cleanName(written);
+    if (name) return name;
+    if (!written) fail(ctx, 'INVALID', 'Your character is named after your persona: set a name in SillyTavern\'s Persona Management first.');
+    return fail(ctx, 'INVALID', `Your character is named after your persona, and "${written}" leaves no name once brackets, bars and macros such as {{user}} are left out: rename the persona in SillyTavern's Persona Management first.`);
+}
+
+/**
  * creation.finish { name, background?, race?, talents?: [ids], points: { STAT: n }, portrait?,
  * preset? }: your character from the wizard's draft (name and background from the persona). Every
  * rule is checked here (buildCharacter), then party.create makes the character in the same
@@ -181,9 +194,9 @@ function setup(ctx) {
 function finish(ctx, payload = {}) {
     const draft = isRecord(payload) ? payload : {};
     if (hasPc(readParty(ctx))) fail(ctx, 'REFUSED', 'You already have a character.');
-    const name = typeof draft.name === 'string' ? draft.name.trim() : '';
-    if (!name) fail(ctx, 'INVALID', 'Your character is named after your persona: set a name in SillyTavern\'s Persona Management first.');
-    if (name.length > 40) fail(ctx, 'INVALID', 'A name can be at most 40 characters.');
+    const written = typeof draft.name === 'string' ? draft.name.trim() : '';
+    if (written.length > 40) fail(ctx, 'INVALID', 'A name can be at most 40 characters.');
+    const name = personaName(ctx, written);
     if (draft.background !== undefined && draft.background !== null && typeof draft.background !== 'string') fail(ctx, 'INVALID', 'The background must be text.');
     // The persona description, as SillyTavern has it; longer ones are cut to the limit.
     const background = String(draft.background ?? '').trim().slice(0, BACKGROUND_LIMIT);
@@ -317,8 +330,9 @@ function importCharacter(ctx, payload = {}) {
     if (hasPc(readParty(ctx))) fail(ctx, 'REFUSED', 'You already have a character.');
     if (!isRecord(input.character)) fail(ctx, 'INVALID', 'Choose a character file to import.');
     if (input.name !== undefined && input.name !== null && typeof input.name !== 'string') fail(ctx, 'INVALID', 'The name must be text.');
-    const name = typeof input.name === 'string' && input.name.trim() ? input.name.trim() : null;
-    if (name && name.length > 40) fail(ctx, 'INVALID', 'A name can be at most 40 characters.');
+    const given = typeof input.name === 'string' && input.name.trim() ? input.name.trim() : null;
+    if (given && given.length > 40) fail(ctx, 'INVALID', 'A name can be at most 40 characters.');
+    const name = given ? personaName(ctx, given) : null;
     if (input.background !== undefined && input.background !== null && typeof input.background !== 'string') fail(ctx, 'INVALID', 'The background must be text.');
     const background = typeof input.background === 'string' && input.background.trim() ? input.background.trim().slice(0, BACKGROUND_LIMIT) : null;
     const portrait = cleanPortrait(input.portrait);
@@ -338,8 +352,12 @@ function importCharacter(ctx, payload = {}) {
     // What they carried: into the party's bag (the bag's worn pieces are your character's).
     const worn = [];
     let things = 0;
+    // A def id this chat has is that def; any other is dropped, so the thing is a new one of this
+    // chat's, priced and held to its limits by the item.define hook (B-b3-15).
+    const known = readInventory(ctx)?.defs ?? {};
     for (const entry of made.data.items ?? []) {
-        const granted = ctx.call('inventory.grant', { def: entry.def, qty: entry.qty, owner: 'party' });
+        const { id, ...given } = entry.def ?? {};
+        const granted = ctx.call('inventory.grant', { ...(typeof id === 'string' && known[id] ? { defId: id } : { def: given }), qty: entry.qty, owner: 'party' });
         things += entry.qty;
         const stacks = Array.isArray(granted?.data?.stacks) ? granted.data.stacks : [];
         const def = readInventory(ctx)?.defs?.[granted?.data?.def];
@@ -355,9 +373,13 @@ function importCharacter(ctx, payload = {}) {
 
     if (creationOf(domain => ctx.read(domain)).rolled.length) ctx.draft('creation').rolled = [];
     const carried = things ? `, carrying ${plural(things, 'thing')}${equipped.length ? ` (wearing ${equipped.join(', ')})` : ''}` : '';
+    // What the file held beyond what a character may bring is left behind, and said so.
+    const cut = made.data.cut ?? {};
+    const behind = [cut.things > 0 ? plural(cut.things, 'thing') : '', cut.purse > 0 ? `${cut.purse} of the purse` : ''].filter(Boolean);
+    const left = behind.length ? ` ${behind.join(' and ')} stayed behind: more than a character of that level brings.` : '';
     return {
-        summary: `${pc.name} arrives from another story (${levelText(pc.level, termsRules(settingsOf(ctx), pc.level))}${carried}).`,
-        data: { actor: pc.id, level: pc.level, items: things, equipped, purse },
+        summary: `${pc.name} arrives from another story (${levelText(pc.level, termsRules(settingsOf(ctx), pc.level))}${carried}).${left}`,
+        data: { actor: pc.id, level: pc.level, items: things, equipped, purse, ...(behind.length ? { cut: { things: cut.things ?? 0, purse: cut.purse ?? 0 } } : {}) },
         narrate: false,
     };
 }

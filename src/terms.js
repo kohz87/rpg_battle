@@ -102,6 +102,9 @@ export function parseRoman(text) {
 }
 
 const clampLevel = (level, terms) => Math.min(terms.cap, Math.max(1, Math.round(level)));
+// The level a label shows: the character's own, even above a cap lowered after they reached it
+// (B-b4-13: a level-20 character under a cap of 3 is still "Lv 20", not "Lv 3").
+const shownLevel = level => Math.max(1, Math.round(level));
 
 /** The tier (1, 2, …) a level is in; 1 when tiers are off. */
 export function tierOf(level, rules = DEFAULT_RULES) {
@@ -123,7 +126,7 @@ export function tierStart(tier, rules = DEFAULT_RULES) {
 /** 'Level 4', 'Soul Power 4', or with tiers 'Soul Class III'. */
 export function levelLabel(level, rules = DEFAULT_RULES) {
     const terms = termsOf(rules);
-    const lv = clampLevel(num(level) ?? 1, terms);
+    const lv = shownLevel(num(level) ?? 1);
     if (!terms.tiers) return `${terms.levelName} ${lv}`;
     return `${terms.levelName} ${numeral(Math.ceil(lv / terms.tiers.size), terms.tiers.numerals)}`;
 }
@@ -131,7 +134,7 @@ export function levelLabel(level, rules = DEFAULT_RULES) {
 /** levelLabel with the exact level when a tier hides it: 'Soul Class III (Lv 24)', 'Level 4'. */
 export function levelText(level, rules = DEFAULT_RULES) {
     const terms = termsOf(rules);
-    const lv = clampLevel(num(level) ?? 1, terms);
+    const lv = shownLevel(num(level) ?? 1);
     return terms.tiers ? `${levelLabel(lv, rules)} (Lv ${lv})` : levelLabel(lv, rules);
 }
 
@@ -141,7 +144,7 @@ export function levelText(level, rules = DEFAULT_RULES) {
  */
 export function levelTag(level, rules = DEFAULT_RULES) {
     const terms = termsOf(rules);
-    return terms.custom ? levelLabel(level, rules) : `Lv ${clampLevel(num(level) ?? 1, terms)}`;
+    return terms.custom ? levelLabel(level, rules) : `Lv ${shownLevel(num(level) ?? 1)}`;
 }
 
 /** The XP term: 'XP', 'Soul Growth'. */

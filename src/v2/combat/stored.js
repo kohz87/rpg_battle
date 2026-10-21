@@ -78,10 +78,35 @@ export function sessionStatus(fightStatus) {
     return 'active';
 }
 
-/** A short lower-case slug for a bestiary key: "Cellar Rat Swarm" → "cellar-rat-swarm". */
-export function creatureSlug(name) {
+/** The slug before B-b4-5: Latin letters and digits only ('creature' when none are left). */
+export function latinSlug(name) {
     return String(name ?? '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
         .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'creature';
+}
+
+// FNV-1a of a name, base 36: the same name always gives the same few letters.
+function nameHash(text) {
+    let hash = 0x811c9dc5;
+    for (const char of text) {
+        hash ^= char.codePointAt(0);
+        hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+    return hash.toString(36);
+}
+
+/**
+ * A short lower-case slug for a bestiary key: "Cellar Rat Swarm" → "cellar-rat-swarm". A name with
+ * letters or digits outside a–z ("狼", "Волк", "Λύκος 2") gets a hash of the whole name after its
+ * Latin part ("creature-1x2k3a", "2-9fq0d1"), so creatures named in another script each keep their
+ * own entry (B-b4-5) and the key stays ASCII, as item ids are (Story Block's slugify).
+ */
+export function creatureSlug(name) {
+    const latin = latinSlug(name);
+    const key = String(name ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
+    const plain = key.normalize('NFKD').replace(/[̀-ͯ]/g, '');
+    if (!/[^\x00-\x7f]/.test(plain) || !/[\p{L}\p{N}]/u.test(plain.replace(/[a-z0-9]/g, ''))) return latin;
+    const tag = nameHash(key);
+    return `${latin === 'creature' ? 'creature' : latin.slice(0, 50).replace(/-+$/, '')}-${tag}`;
 }
 
 /** The chat's creatures as v1's list (templates.js), oldest first (`rev`, then slug). */

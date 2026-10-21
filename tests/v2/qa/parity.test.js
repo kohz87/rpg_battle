@@ -60,7 +60,7 @@ each('party.grantXp = v1 gainXp: XP, level-ups and points for fixed amounts', ()
     for (const amount of [5, 99, 100, 1000, 25000]) {
         const { h } = withHero();
         const before = v1Sheet(pcOf(h));
-        const r = h.command('party.grantXp', { actor: pcOf(h).id, amount });
+        const r = h.command('party.grantXp', { actor: pcOf(h).id, amount }, { cause: 'system' });
         assert.equal(r.ok, true, r.message);
         const v1 = gainXp(before, amount, DEFAULT_RULES).sheet;
         const me = pcOf(h);

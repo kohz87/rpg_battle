@@ -158,7 +158,7 @@ test('the reader\'s terms (§F25) word the summaries and the party screen', asyn
     const host = await rpgHost({ settings: { modules: { [MODULE_ID]: { terms } } } });
     try {
         assert.equal((await host.cmd('party.create', { name: 'Ren', preset: 'fighter' })).ok, true);
-        const gained = await host.cmd('party.grantXp', { amount: 120, reason: 'the culvert' });
+        const gained = await host.cmd('party.grantXp', { amount: 120, reason: 'the culvert' }, { cause: 'system' });
         assert.equal(gained.ok, true, gained.message);
         assert.match(gained.receipt.summary, /^the culvert: Ren Soul Growth \+120, reaches Soul Class I \(Lv 2\)\.$/);
         assert.deepEqual(host.q('party.terms'), terms);

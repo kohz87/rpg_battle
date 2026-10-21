@@ -69,7 +69,7 @@ function settle(party, ids, rules, settings) {
  * (combat.end). While there is one, nobody leaves and your character is not remade, so the
  * fight's result always finds the people who fought it (QA #75).
  */
-function fightOn(ctx) {
+export function fightOn(ctx) {
     let combat = null;
     try {
         combat = ctx.read('combat');
@@ -78,6 +78,21 @@ function fightOn(ctx) {
     }
     return combat?.session ?? null;
 }
+
+/** Is this actor dead (a lost fight to the death: party.applyResult's `dead` mark)? */
+export const isDead = actor => (actor?.conditions ?? []).some(entry => (entry?.kind ?? entry?.name) === 'dead');
+
+/**
+ * Commands only another part may send (MODULES §B1: from combat.end, quests, item.use, an accepted
+ * offer), never a button: a click with no calling module is refused, as party.fightPools and
+ * party.import are.
+ */
+function internalOnly(ctx, why) {
+    if (ctx.cause === 'ui' && !ctx.caller) fail(ctx, 'REFUSED', why);
+}
+
+// The most offers of one kind (join, skill, leave) that wait for the reader at once (B1-12).
+export const MAX_OFFERS_PER_KIND = 10;
 
 function refuseInFight(ctx, what) {
     const session = fightOn(ctx);
@@ -196,9 +211,17 @@ function create(ctx, payload = {}) {
  * newCompanion at the level given (else your character's), their stats spread over the focus
  * (else the role's words), and the skills given or, without any, the ones v1 suggestSkills picks
  * for that build. Fights on auto and points spent by build unless told otherwise (MODULES §F29,
- * §F49); refused when the party already has as many companions as the setting allows (§F48).
+ * §F49); refused when the party already has as many companions as the setting allows (§F48). The
+ * level is held to at most COMPANION_LEVELS_ABOVE above your character's. Internal (an accepted
+ * join offer, another part): refused from a click.
  */
 function addCompanion(ctx, payload = {}) {
+    internalOnly(ctx, 'A companion joins from the story (an accepted join offer), not from a button.');
+    return joinParty(ctx, payload);
+}
+
+/** addCompanion's work, for an accepted join offer too (a click on Accept: no calling module). */
+function joinParty(ctx, payload = {}) {
     const party = ctx.draft('party');
     const rules = rulesFor(ctx);
     const name = cleanName(payload.name);
@@ -213,7 +236,10 @@ function addCompanion(ctx, payload = {}) {
     const pc = party.pc ? party.actors[party.pc] : null;
     const asked = Number(payload.level);
     if (payload.level !== undefined && payload.level !== null && !(Number.isInteger(asked) && asked >= 1)) fail(ctx, 'INVALID', 'The level must be a whole number from 1.');
-    const level = Math.min(maxLevel(rules), payload.level ? asked : Math.max(1, pc?.level ?? 1));
+    // Never more than two levels above your character (B-b3-16): the level a story line or a caller
+    // asks for is held there, whatever it says.
+    const top = Math.min(maxLevel(rules), Math.max(1, pc?.level ?? 1) + COMPANION_LEVELS_ABOVE);
+    const level = Math.max(1, Math.min(top, payload.level ? asked : Math.max(1, pc?.level ?? 1)));
     const focus = cleanFocus(payload.focus?.length ? payload.focus : guessFocus(role, payload.text ?? ''));
     const library = libraryOf(party);
     const skills = Array.isArray(payload.skills) && payload.skills.length
@@ -226,6 +252,9 @@ function addCompanion(ctx, payload = {}) {
     party.order.push(id);
     return { summary: `${name} joins the party (${levelText(level, rules)}, ${member.role}).`, data: { actor: id, level }, narrate: true };
 }
+
+// How far above your character's level a companion may join.
+export const COMPANION_LEVELS_ABOVE = 2;
 
 /**
  * party.edit { actor, name?, role?, control?, growth?, npc?, portrait? }: v1 editCompanion's rules
@@ -397,14 +426,17 @@ function rest(ctx, payload = {}) {
     const kind = payload.kind;
     if (kind !== 'short' && kind !== 'long') fail(ctx, 'INVALID', 'A rest is short or long.');
     if (fightOn(ctx)?.status === 'active') fail(ctx, 'REFUSED', 'There is no resting in the middle of a fight.');
-    const ids = Array.isArray(payload.actors) ? payload.actors : party.order;
-    if (!ids.length) fail(ctx, 'NOT_FOUND', 'There is nobody in the party yet.');
+    const asked = Array.isArray(payload.actors) ? payload.actors : party.order;
+    if (!asked.length) fail(ctx, 'NOT_FOUND', 'There is nobody in the party yet.');
+    for (const id of asked) if (!party.actors[id]) fail(ctx, 'NOT_FOUND', 'That person is not in the party.');
+    // The dead do not rest back to life (B-b4-12).
+    const ids = asked.filter(id => !isDead(party.actors[id]));
+    if (!ids.length) fail(ctx, 'REFUSED', `${listNames(asked.map(id => party.actors[id].name))} ${asked.length === 1 ? 'is' : 'are'} dead: no rest brings the dead back.`);
     const inventory = readInventory(ctx);
     const parts = [];
     const data = {};
     for (const id of ids) {
         const actor = party.actors[id];
-        if (!actor) fail(ctx, 'NOT_FOUND', 'That person is not in the party.');
         const sheet = toSheet(actor);
         const next = restV1(sheet, kind, { gear: gearOf(inventory, id, { pc: party.pc }), rules });
         const after = writeSheet(party, actor, next, rules);
@@ -428,12 +460,14 @@ function whole(ctx, value, what) {
  * party.heal / party.restore { actor, hp?, mp?, sp?, cure?: [conditions], item? } (internal, from
  * item.use): HP, MP and SP back, never above max, and conditions cured (v1 useItemOutside: a cure
  * lifts every condition whose name starts with the word). Rejected when it would change nothing,
- * so an item is never spent for nothing.
+ * so an item is never spent for nothing, for the dead, and from a click (internal).
  */
 function heal(ctx, payload = {}) {
+    internalOnly(ctx, 'HP and MP come back by using something (item.use) or resting, not from a button.');
     const party = ctx.draft('party');
     const rules = rulesFor(ctx);
     const actor = actorFrom(ctx, party, payload, { pcDefault: false });
+    if (isDead(actor)) fail(ctx, 'REFUSED', `${actor.name} is dead: nothing brings the dead back.`);
     // In a fight, HP follows the fight (party.fightPools): a draught is drunk there, as a fight action.
     if (fightOn(ctx)?.status === 'active') fail(ctx, 'REFUSED', 'A fight is under way: use it in the fight.');
     const hp = whole(ctx, payload.hp, 'HP');
@@ -469,7 +503,7 @@ function fightPools(ctx, payload = {}) {
     const changed = [];
     for (const entry of payload.actors) {
         const actor = party.actors[entry?.id];
-        if (!actor) continue;
+        if (!actor || isDead(actor)) continue;
         for (const key of ['hp', 'mp', 'sp']) {
             if (entry[key] === undefined) continue;
             if (!Number.isInteger(entry[key]) || entry[key] < 0) fail(ctx, 'INVALID', `${key.toUpperCase()} must be a whole number, 0 or more.`);
@@ -526,6 +560,7 @@ function resultFromActors(payload) {
  * they carried goes to the party). Member ids are actor ids ('pc' is read as your character).
  */
 function applyResult(ctx, payload = {}) {
+    internalOnly(ctx, 'A fight\'s result is written by the fight (combat.end), not from a button.');
     const party = ctx.draft('party');
     const rules = rulesFor(ctx);
     const raw = Array.isArray(payload.actors) ? resultFromActors(payload) : payload.result;
@@ -572,10 +607,12 @@ function applyResult(ctx, payload = {}) {
  * kind?: 'minor'|'major'|'milestone', claim?, reason? }. No actor: the whole party. A kind or a
  * quest difficulty is v1's award (a share of each member's next level at the reader's XP rate,
  * growth.xpAward); an amount is given as it is. Companions on auto then spend by build. With
- * `claim` (or `quest`, claimed as `xp:quest:<quest>`) the award is given once on this line of
- * history (CLAIMED after).
+ * `claim` (claimed as `xp:<claim>`, so it can never be another rule's key) or `quest` (claimed as
+ * `xp:quest:<quest>`) the award is given once on this line of history (CLAIMED after). Internal:
+ * refused from a click.
  */
 function grantXp(ctx, payload = {}) {
+    internalOnly(ctx, 'XP comes from fights, quests and the story, not from a button.');
     const party = ctx.draft('party');
     const rules = rulesFor(ctx);
     const ids = Array.isArray(payload.actors) ? payload.actors : payload.actor ? [payload.actor] : [...party.order];
@@ -599,7 +636,10 @@ function grantXp(ctx, payload = {}) {
     const amounts = ids.map(id => [id, amountFor(party.actors[id])]);
     const capped = ids.every(id => party.actors[id].level >= maxLevel(rules));
     if (!capped && amounts.every(([, xp]) => !xp)) fail(ctx, 'REFUSED', 'There is no XP to give (the amount is 0).');
-    const claim = payload.claim ? String(payload.claim) : payload.quest ? `xp:quest:${payload.quest}` : null;
+    // An XP claim lives in its own key space: a caller's key can never take another rule's claim
+    // (`combat:<id>:end`, a quest's payment), B-b3-11.
+    const key = payload.claim ? String(payload.claim) : payload.quest ? `quest:${payload.quest}` : null;
+    const claim = key === null ? null : key.startsWith('xp:') ? key : `xp:${key}`;
     if (claim && !ctx.claim(claim)) fail(ctx, 'CLAIMED', 'That XP was already given.');
     // Everyone named is at the level cap: nothing to give, and that is no failure (a fight still settles, QA #75).
     if (capped) {
@@ -702,7 +742,9 @@ function importPc(ctx, payload = {}) {
         }
     }
     const bonus = Object.values(built?.bonus ?? {}).reduce((sum, value) => sum + Math.max(0, Number(value) || 0), 0);
-    const read = readCharacter(file, { rules, bonus, name: payload.name ?? null });
+    // What the race and talents take off a stat: the most a stat may be below the start value.
+    const penalty = Object.fromEntries(Object.entries(built?.bonus ?? {}).map(([stat, value]) => [stat, Math.min(0, Number(value) || 0)]));
+    const read = readCharacter(file, { rules, bonus, penalty, name: payload.name ?? null });
     if (!read.ok) fail(ctx, read.code, read.message);
     const character = read.character;
     if (nameTaken(party, character.name)) fail(ctx, 'REFUSED', `There is already a ${character.name} in the party.`);
@@ -724,7 +766,7 @@ function importPc(ctx, payload = {}) {
     party.order = [id, ...party.order.filter(entry => entry !== id)];
     return {
         summary: `${character.name} arrives from another story (${levelText(character.sheet.level, rules)}).`,
-        data: { actor: id, items: character.items, purse: character.purse },
+        data: { actor: id, items: character.items, purse: character.purse, cut: { ...character.cut } },
         narrate: false,
     };
 }
@@ -746,7 +788,7 @@ function acceptOffer(ctx, payload = {}) {
     party.offers = party.offers.filter(entry => entry.id !== offer.id);
     if (offer.kind === 'leave') return removeCompanion(ctx, { actor: offer.actor });
     if (offer.kind === 'join') {
-        return addCompanion(ctx, {
+        return joinParty(ctx, {
             name: offer.name, role: offer.role, level: offer.level ?? undefined, npc: offer.npc, text: offer.text,
             focus: payload.focus ?? offer.focus, skills: payload.skills ?? offer.skills, control: payload.control,
         });
@@ -769,6 +811,11 @@ const listNames = names => (names.length < 2 ? names.join('') : `${names.slice(0
 
 /** Adds an offer to the party (used by the join, skill and leave kinds). */
 export function addOffer(ctx, party, offer) {
+    const waiting = party.offers.filter(entry => entry.kind === offer.kind).length;
+    if (waiting >= MAX_OFFERS_PER_KIND) {
+        const what = offer.kind === 'join' ? 'offers to join' : offer.kind === 'leave' ? 'companions leaving' : 'skills offered';
+        fail(ctx, 'REFUSED', `${MAX_OFFERS_PER_KIND} ${what} already wait for the reader: accept or dismiss some first.`);
+    }
     const id = newId(ctx, 'of', candidate => party.offers.some(entry => entry.id === candidate));
     const full = { id, ...offer, rev: revOf(ctx) };
     party.offers.push(full);

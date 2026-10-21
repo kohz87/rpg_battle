@@ -67,8 +67,17 @@ test('party.create with replace makes a new character in place of the old', () =
     assert.equal(party.order.length, 2);
 });
 
-test('party.addCompanion builds a companion at the level given, else yours', () => {
-    const out = run(withPc(), 'party.addCompanion', { name: 'Lyra', role: 'healer', level: 6 });
+/** withPc with your character at `level` (only the number: what a companion's level is held to). */
+function pcAtLevel(level) {
+    const state = withPc();
+    pcOf(state).level = level;
+    return state;
+}
+
+test('party.addCompanion builds a companion at the level given, else yours, never more than two above yours', () => {
+    const held = run(withPc(), 'party.addCompanion', { name: 'Lyra', role: 'healer', level: 6 });
+    assert.equal(byName(held.state, 'Lyra').level, 3, 'two levels above a level-1 character at most (B-b3-16)');
+    const out = run(pcAtLevel(5), 'party.addCompanion', { name: 'Lyra', role: 'healer', level: 6 });
     assert.ok(out.ok, out.message);
     const lyra = byName(out.state, 'Lyra');
     assert.equal(lyra.kind, 'companion');

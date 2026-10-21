@@ -113,7 +113,7 @@ each('party.import is creation\'s: a click cannot make a character from a file p
 
 each('a file made in a chat with more companions keeps only your character: companions do not travel', () => {
     const { h } = travelled();
-    const lyra = h.command('party.addCompanion', { name: 'Lyra', role: 'archer' }).receipt.data.actor;
+    const lyra = h.command('party.addCompanion', { name: 'Lyra', role: 'archer' }, { cause: 'system' }).receipt.data.actor;
     const pelt = storyItem(h, 'Wolf Pelt', 2);
     assert.equal(h.command('item.give', { stack: stacksOf(h, pelt)[0].stack, to: lyra, qty: 2 }).ok, true);
     const file = exported(h);

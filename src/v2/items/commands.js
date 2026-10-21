@@ -188,12 +188,24 @@ export function storyUse(ctx, payload = {}) {
 }
 
 /**
+ * The reply a story line came from: its record id (`sid:<sid>`, which a middle delete never
+ * moves), else `<index>:<swipe>` (or the host's key), else null.
+ */
+function carrierOf(ctx) {
+    const carrier = ctx?.carrier;
+    if (typeof carrier?.sid === 'string' && carrier.sid) return `sid:${carrier.sid.slice(0, 60)}`;
+    if (typeof carrier?.key === 'string') return carrier.key;
+    if (Number.isInteger(carrier?.index)) return `${carrier.index}:${Number.isInteger(carrier.swipe) ? carrier.swipe : 0}`;
+    return null;
+}
+
+/**
  * A story's use while a fight is under way: the fight's own item action (`combat.act { action:
  * { type: 'item', item, target } }`), which takes the dose out of the inventory when it is used and
  * keeps everyone's HP with the fight. It fits only when it is a party member's turn (the one
  * `by:` names, when named), that member has the thing among their fight items, one dose is asked
- * and the one it is for is someone the item can reach; otherwise it is refused (a Problem) and the
- * thing stays in the bag.
+ * and the one it is for is someone the item can reach, and no other line of the same reply played
+ * a fight turn (one a reply); otherwise it is refused (a Problem) and the thing stays in the bag.
  */
 function fightUse(ctx, payload, { name, qty, party }) {
     const label = name || 'that';
@@ -214,7 +226,11 @@ function fightUse(ctx, payload, { name, qty, party }) {
         if (!found || !reach.has(found.id) || (item.target === 'self' && found.id !== turn.id)) ctx.fail('REFUSED', `The ${item.name} cannot reach ${targetName} in the fight now: it stays in the bag.`);
         target = found.id;
     }
-    const done = ctx.call('combat.act', { action: { type: 'item', item: item.name, ...(target ? { target } : {}) } });
+    // One fight turn a reply (B-b4-7): the story may not play the fight, and each of its use lines
+    // would be the reader's turn and every foe turn after it.
+    const reply = carrierOf(ctx);
+    if (reply !== null && !ctx.claim(`fightuse:${reply}`)) ctx.fail('CLAIMED', `This reply already used something in the fight: the ${item.name} stays in the bag.`);
+    const done = ctx.call('combat.act', { action: { type: 'item', item: item.name, ...(target ? { target } : {}) }, ...(typeof view.id === 'string' ? { session: view.id } : {}) });
     return {
         summary: `${turn.name} uses the ${item.name} in the fight${targetName ? ` on ${targetName}` : ''}: ${done?.summary ?? 'done'}`,
         narrate: false,
