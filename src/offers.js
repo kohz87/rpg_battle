@@ -109,7 +109,7 @@ export function questOffers({ index, quests = [], pc = null, rules = DEFAULT_RUL
         return {
             key: `${index}:quest:${quest.id ?? quest.name}`, kind: 'quest',
             text: `Quest done: ${String(quest.name).trim()} (${difficulty}). Award ${xpText(share, pc, rules)}?`, accept: 'Award',
-            data: { share, done: `Quest done: ${String(quest.name).trim()} (${difficulty}) · ${xpText(share, pc, rules)}` },
+            data: { share, questId: quest.id ?? quest.name, done: `Quest done: ${String(quest.name).trim()} (${difficulty}) · ${xpText(share, pc, rules)}` },
         };
     }).filter(offer => offer.data.share > 0);
 }

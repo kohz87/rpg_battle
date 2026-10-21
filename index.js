@@ -58,7 +58,7 @@ import { combatantFromSheet, combatNumbers, editCompanion, enemiesFromRows, enga
 import { recoverOverTime, restAfter, useItemOutside } from './src/recovery.js';
 import { applyWounds, describeWound, encounterSummary, findTarget, foughtAlready, parsePlan, parseStakes, parseWounds, resolveThreats, storyFight } from './src/story.js';
 import { liveOffers, questOffers, storyOffers } from './src/offers.js';
-import { awardParty, settleCompanions } from './src/growth.js';
+import { awardParty, awardShare, settleCompanions } from './src/growth.js';
 import { guessFocus } from './src/builds.js';
 import { fallbackKit, kitPrompt, kitTemplate, namedKit, parseKit, usableKit } from './src/kit.js';
 import { cleanParty, exportParty } from './src/partyfile.js';
@@ -72,7 +72,7 @@ import { DEFAULT_TERMS, levelText, maxLevel, termsOf } from './src/terms.js';
 import { storySuite } from './src/suite.js';
 import { announcement, manageApi, partyMembers, sheetNotice, sources, suiteOverlay, suiteSignature, tokenEstimate, truthChoices } from './src/handshake.js';
 
-const VERSION = '0.5.48';
+const VERSION = '0.5.49';
 const SETTINGS_KEY = 'rpgBattle';
 // Two tabs: Party, always there while RPG Battle is on, and Battle, only while there is a battle.
 const TAB_ID = 'rpg-battle';
@@ -640,10 +640,14 @@ async function writeBlock(tag, text) {
  * written, the block carries it and the old record goes.
  */
 async function writeSheets(pc, members) {
+    await writeBlock(settings().partyTag, sheetsText(pc, members));
+    dropLegacyUses();
+}
+
+function sheetsText(pc, members) {
     // (0.5.40) A member with an Inventory section keeps their gear there: no Equipped line anew.
     const list = (members ?? []).map(member => (hasSection(member, members) ? { ...member, gear: [] } : member));
-    await writeBlock(settings().partyTag, formatPartyBlock(pc, list, rules()));
-    dropLegacyUses();
+    return formatPartyBlock(pc, list, rules());
 }
 
 async function writeSheet(sheet) {
@@ -1423,7 +1427,7 @@ async function writePlan(sb, index, plan, story) {
     const before = plan.before || plan.members.length ? formatPartyBlock(plan.before, plan.members, r) : null;
     const next = has ? formatPartyBlock(plan.pc, plan.party, r) : null;
     const current = blockAt(sb, index, own.partyTag);
-    if (current !== null && textHash(current) !== ours.party) return { ok: false, written: {} };
+    if (current !== null && textHash(current) !== ours.party && current !== before?.trim()) return { ok: false, written: {} };
     const written = { party: null };
     if (next !== null) {
         const changed = current !== null ? current !== next.trim() : next !== before || Boolean(plan.legacy);
@@ -1882,7 +1886,20 @@ function currentOffers(ctx = context(), state = chatState(ctx)) {
     const seen = new Set();
     // A reply's offers last while it is the latest reply and no fight has started since.
     const foughtSince = Boolean(state.foughtAt && state.foughtAt.index === latest && state.foughtAt.text === replyStamp(sb, latest));
-    return liveOffers(offers, { latest, foughtSince }).filter(offer => !away.has(offer.key) && !seen.has(offer.key) && seen.add(offer.key));
+    return liveOffers(offers, { latest, foughtSince }).filter(offer => !away.has(offer.key) && !awardRecorded(offer)
+        && !seen.has(offer.key) && seen.add(offer.key));
+}
+
+const awardIdentity = offer => String(offer.key).replace(/^\d+:/, '');
+function awardRecorded(offer) {
+    const sb = storyBlock();
+    const message = context()?.chat?.[offer.index];
+    const owner = sb?.messageIdentity?.(offer.index);
+    if (!owner) return false;
+    const paid = message?.extra?.rpgBattleAwards;
+    if (paid?.owner === owner && paid.awards?.some(entry => entry.key === awardIdentity(offer))) return true;
+    return offer.kind === 'quest' && message?.extra?.storyDirectorQuest?.receipts?.some(receipt => receipt.owner === owner
+        && receipt.xp?.version === 1 && receipt.xp.quest === offer.data.questId);
 }
 
 /** An offer taken or put away: the opening message's are kept apart, so they are never offered again. */
@@ -1900,7 +1917,23 @@ function putAway(offer) {
 /** An XP award written to the sheets and put away: who reached a new level, in words. */
 async function awardOffer(offer, { pc, members, rules: r, autoSpend }) {
     const out = awardParty({ pc, members }, offer.data.share, { autoSpend, rules: r });
-    await writeSheets(out.pc, out.members);
+    const sb = storyBlock();
+    const ctx = context();
+    if (sb?.journalVersion === 1 && sb.messageIdentity(offer.index)) {
+        if (awardRecorded(offer)) return [];
+        const message = ctx.chat[offer.index];
+        const owner = sb.messageIdentity(offer.index);
+        const paid = message.extra?.rpgBattleAwards;
+        const result = await sb.commitBlocks({
+            id: `xp:${owner}:${awardIdentity(offer)}`, chatId: chatIdOf(ctx), messageIndex: offer.index,
+            expectedText: message.mes, expectedExtra: JSON.stringify(message.extra ?? {}),
+            changes: [{ tag: settings().partyTag, text: sheetsText(out.pc, out.members) }],
+            namespace: 'rpgBattleAwards', value: { version: 1, owner,
+                awards: [...(paid?.owner === owner ? paid.awards : []), { key: awardIdentity(offer), gains: out.gains }] },
+        });
+        if (result.status !== 'durable') throw new Error(`XP save needs recovery: ${result.reason}`);
+        dropLegacyUses();
+    } else await writeSheets(out.pc, out.members);
     putAway(offer);
     return out.gains.filter(gain => gain.levelsGained).map(gain => `${gain.name} reaches ${levelText((gain.memberId === 'pc' ? out.pc : out.members.find(member => member.id === gain.memberId)?.sheet)?.level ?? 1, r)}`);
 }
@@ -1974,10 +2007,12 @@ async function awardQuests(offers = currentOffers()) {
 // reply) is awarded on the next refresh; the badge asks on every one, so it is scheduled here.
 let questsScheduled = false;
 function scheduleQuestAwards(offers) {
+    if (storyBlock()?.replyBusy?.()) return;
     if (questsScheduled || !offers.some(offer => autoAwarded(offer) && !questsFailed.has(offer.key) && !questsAwarding.has(offer.key))) return;
     questsScheduled = true;
     setTimeout(() => {
         questsScheduled = false;
+        if (storyBlock()?.replyBusy?.()) return;
         void awardQuests().then(() => storyBlock()?.refresh?.());
     }, 0);
 }
@@ -2296,13 +2331,17 @@ function questHistory() {
     const ctx = context();
     const chat = ctx?.chat ?? [];
     const sb = storyBlock();
-    if (!questHistoryCache || questHistoryCache.chat !== chat || questHistoryCache.length !== chat.length || questHistoryCache.chatId !== chatIdOf(ctx)) {
+    const history = sb?.journalVersion === 1 ? sb.journal() : null;
+    if (history && history.availability !== 'available') return null;
+    if (!questHistoryCache || questHistoryCache.chat !== chat || questHistoryCache.length !== chat.length
+        || questHistoryCache.chatId !== chatIdOf(ctx) || questHistoryCache.prefix !== history?.key) {
         questHistoryCache = {
-            chat, length: chat.length, chatId: chatIdOf(ctx),
-            history: chat.map((message, index) => ({
+            chat, length: chat.length, chatId: chatIdOf(ctx), prefix: history?.key,
+            history: [...(history?.prefix ?? []).map(node => ({ owner: node.owner, ledger: node.extra.rpgBattleEvidence ?? null })),
+                ...chat.map((message, index) => ({
                 owner: sb?.messageIdentity?.(index),
                 ledger: message.extra?.rpgBattleEvidence ?? null,
-            })),
+            }))],
         };
     }
     return questHistoryCache.history;
@@ -2332,6 +2371,14 @@ async function recordQuestEvidence(id, result, origin, planId = null) {
 
 const QUEST_API = Object.freeze({
     version: 1,
+    rewardVersion: 1,
+    prepareAward(record) {
+        const { pc, members } = currentSheets();
+        const out = pc ? awardParty({ pc, members }, awardShare({ difficulty: record.fields?.difficulty }, rules()),
+            { autoSpend: settings().autoSpend !== false, rules: rules() }) : { gains: [] };
+        return { changes: pc ? [{ tag: settings().partyTag, text: sheetsText(out.pc, out.members) }] : [],
+            xp: { version: 1, quest: record.id, gains: out.gains } };
+    },
     cursor(index) {
         if (!settings().enabled || storyBlock()?.transactionVersion !== 1) return null;
         const owner = storyBlock().messageIdentity(index);
@@ -2340,7 +2387,8 @@ const QUEST_API = Object.freeze({
     },
     evidence(cursor) {
         if (!settings().enabled) return { availability: 'unavailable', events: [], revision: '' };
-        return queryEvidence(questHistory(), cursor);
+        const history = questHistory();
+        return history ? queryEvidence(history, cursor) : { availability: 'incomplete', events: [], revision: '' };
     },
     busy() {
         const state = chatState();
@@ -2356,6 +2404,8 @@ const QUEST_API = Object.freeze({
             availability: found ? 'available' : 'unavailable',
             tag, text, scope, currency, ...questInventory(text, currency, scope),
             revision: JSON.stringify([text, scope, currency]),
+            rewardRevision: JSON.stringify([storyBlock()?.getBlock?.(settings().partyTag, { beforeIndex })?.text ?? '',
+                textHash(JSON.stringify(rules())), settings().autoSpend !== false]),
         };
     },
     parseCoins: questCoins,
@@ -3961,7 +4011,8 @@ function registerWithStoryBlock() {
         badge: () => (currentFight() || chatState().plan || encounterOffer() ? 1 : 0),
         render: pane => renderBattle(pane),
     });
-    sb.onReply?.(payload => void afterReply(payload));
+    sb.onReply?.(payload => afterReply(payload), { priority: -10 });
+    sb.onReply?.(() => awardQuests(), { priority: 10 });
     // Story Block's settings can change under us (its Character Sheet switched on or off).
     sb.onUpdate?.(() => {
         questHistoryCache = null;

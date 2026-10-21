@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.49
+
+- **Quest proof survives long chats.** Defeat queries include the active branch's archived records from Story Block's shared chat journal. Hidden replies and prefix archival retain proof; future and sibling-branch fights do not contribute.
+- **Quest XP joins the turn-in transaction.** Story Director can prepare Party XP using the existing growth rules and save it with the coins, delivery and quest receipt. Stable XP receipts prevent duplicate awards after reload or shifted message numbers. Full Party snapshots preserve level, points and companion growth on rollback.
+- Reply updates finish before Director settlement; later automatic awards wait for the reply pipeline. Use with Story Block **0.9.27** and Story Director **0.9.45** for shared checkpoints and coordinated rewards.
+
 ## 0.5.48
 
 - **Battle evidence for quest completion.** Each resolved fight or stage records its actual downed enemies with stable identities on the owning reply and swipe. Story Director can count eligible defeats after acceptance without parsing narration or the battle injection. Escaped foes, parley, unreached stages and duplicate results do not count; older prose fights are not backfilled.

@@ -21,7 +21,7 @@ globalThis.StoryBlock = {
     version: '0.9.1',
     registerBlock: () => ({ ok: true }),
     registerTab: tab => { hooks.tabs[tab.id] = tab; },
-    onReply: callback => { hooks.reply = callback; },
+    onReply: (callback, { priority = 0 } = {}) => { if (priority <= 0) hooks.reply = callback; },
     onUpdate: callback => { hooks.update = callback; },
     refresh: () => {},
     blockInText: (text, tag) => {
@@ -651,6 +651,59 @@ test('a plan to the death lost at stage 2 is a fight lost to the death; stage 1\
 
 const sent = (text, date) => ({ ...reply(text), send_date: date, swipe_id: 0 });
 const partyOffers = () => findAll(drawTab('rpg-party'), '.rpg-battle-offer-text').map(node => node.textContent);
+
+test('quest XP is prepared without mutation and its settlement receipt prevents re-awarding after index shifts', async t => {
+    const sb = globalThis.StoryBlock;
+    const quests = storySuite().api('rpg-battle').quests;
+    const ready = REN.replace('XP: 31/100', 'XP: 99/100');
+    openChat('atomic-quest-xp', [reply(`<Party>\n${ready}\n\n${LYRA}\n</Party>`), reply('Quest report.')]);
+    const before = partyText();
+    const award = quests.prepareAward({ id: 'long hunt', fields: { difficulty: 'hard' } });
+    assert.equal(partyText(), before, 'preparation must not write sheets');
+    assert.equal(award.changes[0].tag, 'Party');
+    assert.ok(award.xp.gains.some(gain => gain.memberId === 'pc' && gain.levelsGained > 0));
+    ctx.chat[1].extra = { owner: 'paid-owner', storyDirectorQuest: { receipts: [{ owner: 'paid-owner', xp: award.xp }] } };
+    await sb.setBlockText(1, 'Party', award.changes[0].text);
+    const paid = partyText();
+    const previous = globalThis.StoryDirector;
+    globalThis.StoryDirector = { apiVersion: 1, questsDoneAt: () => [{ id: 'long hunt', name: 'Long hunt', difficulty: 'hard' }] };
+    t.after(() => { globalThis.StoryDirector = previous; delete sb.messageIdentity; });
+    sb.messageIdentity = index => ctx.chat[index]?.extra?.owner;
+    for (const shift of [false, true]) {
+        if (shift) { ctx.chat.shift(); delete ctx.chatMetadata.rpgBattle; }
+        await hooks.reply({ messageIndex: ctx.chat.length - 1 });
+        await settle();
+        assert.equal(partyText(), paid, 'the stable XP receipt survives a shifted message index and missing metadata offer flags');
+        assert.ok(!partyOffers().some(text => text.includes('Long hunt')));
+    }
+});
+
+test('story XP saves Party and its stable receipt once even when metadata flags disappear', async t => {
+    const sb = globalThis.StoryBlock;
+    sb.journalVersion = 1;
+    sb.messageIdentity = index => ctx.chat[index]?.extra?.owner;
+    let writes = 0;
+    sb.commitBlocks = async request => {
+        writes++;
+        assert.equal(request.namespace, 'rpgBattleAwards');
+        assert.equal(request.changes[0].tag, 'Party');
+        const message = ctx.chat[request.messageIndex];
+        assert.equal(request.expectedText, message.mes);
+        await sb.setBlockText(request.messageIndex, 'Party', request.changes[0].text);
+        message.extra[request.namespace] = structuredClone(request.value);
+        return { status: 'durable' };
+    };
+    t.after(() => { delete sb.journalVersion; delete sb.messageIdentity; delete sb.commitBlocks; });
+    openChat('durable-story-xp', [reply(`<Party>\n${REN}\n</Party>`), { ...reply('<XP>minor: found the cellar</XP>'), extra: { owner: 'story-xp' } }]);
+    await hooks.reply({ messageIndex: 1 });
+    const paid = partyText();
+    assert.equal(writes, 1);
+    assert.equal(ctx.chat[1].extra.rpgBattleAwards.owner, 'story-xp');
+    delete ctx.chatMetadata.rpgBattle;
+    await hooks.reply({ messageIndex: 1 });
+    assert.equal(partyText(), paid);
+    assert.equal(writes, 1);
+});
 
 test('a fight rolled back with its reply leaves no trace: the identical reply sent again offers it again, and Not now goes back too', async () => withClock(async () => {
     const offerText = 'A rat bolts from the sacks.\n<Encounter>giant rat (trivial)</Encounter>\n<XP>minor: found the cellar</XP>';
