@@ -126,14 +126,14 @@ test('Return: rewinds to the point, then tells the cue once on the new branch', 
     // The new branch: the fight is gone, your character lives, the clicks before it stay.
     assert.equal(isDead(host.head), false);
     assert.deepEqual(host.chat[point.index].extra.storySuite.receipts.map(entry => entry.type), ['encounter', 'item.use', 'item.equip', 'return.cue']);
-    // The cue: a system receipt the next reply is told, claimed for this fight.
-    assert.deepEqual(host.calls.command, [{ type: 'return.cue', payload: { fight: FIGHT, place: 'the Old Weir' }, options: { cause: 'system' } }]);
-    assert.equal(result.receipt.cause, 'system');
+    // The cue: the reader's own action (B4r2-6: the sdk refuses 'system'), told to the next reply, claimed for this fight.
+    assert.deepEqual(host.calls.command, [{ type: 'return.cue', payload: { fight: FIGHT, place: 'the Old Weir' }, options: {} }]);
+    assert.equal(result.receipt.cause, 'ui');
     assert.equal(result.receipt.narrate, true);
     assert.equal(result.receipt.summary, '{{user}} is back at the moment before the fight at the Old Weir, alive.');
     assert.equal(host.head.meta.claims[`return:${FIGHT}`], true);
     // Told once: the same cue again on this branch is refused, nothing more is written.
-    const again = await host.sdk.command('return.cue', { fight: FIGHT, place: 'the Old Weir' }, { cause: 'system' });
+    const again = await host.sdk.command('return.cue', { fight: FIGHT, place: 'the Old Weir' });
     assert.equal(again.ok, false);
     assert.equal(again.code, 'CLAIMED');
     assert.equal(host.chat[point.index].extra.storySuite.receipts.length, 4);

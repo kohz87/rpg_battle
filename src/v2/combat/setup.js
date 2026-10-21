@@ -172,11 +172,12 @@ export function partyCombatants(ctx, { rules = DEFAULT_RULES } = {}) {
 }
 
 // A tier is a threat budget for the whole offer (B-b4-11), not for each foe: "weak" means a fresh
-// character wins, however many foes the story wrote. A lone foe keeps v1's level for its tier
-// (story.threatPower: v1 parity is kept for lone foes only). In a group each foe's level moves by
-// GROUP_SHIFT[tier][headcount − 1] levels, the headcount being the foes per party member who can
-// fight; fractions of a level, and levels below 1, make a smaller foe as v1 does below level 1 (HP
-// and attack × perLevelBelowOne per level short, here down to GROUP_MIN_SCALE). Counted in levels,
+// character wins, however many foes the story wrote. Each tier is a budget of its own (B4r2-3).
+// A lone foe keeps v1's level for its tier (story.threatPower: v1 parity is kept for lone foes
+// only), and so does a boss. In a group each foe's level moves by GROUP_SHIFT[tier][headcount − 1]
+// levels, the headcount being the foes of that tier per party member who can fight; fractions of
+// a level, and levels below 1, make a smaller foe as v1 does below level 1 (HP and attack ×
+// perLevelBelowOne per level short, here down to GROUP_MIN_SCALE). Counted in levels,
 // the same budget holds at any level. The shifts were calibrated with scripts/balance-sim.mjs for a
 // fresh level-1 character of every creation preset on auto, against the bestiary's foes and a
 // made-up one, aiming at: trivial won ≥ 98 %, weak ≥ 90 %, even 50–75 %, strong 20–50 %, deadly
@@ -277,9 +278,14 @@ export function offerRows(offer, { pcLevel = 1, bestiary, rules = DEFAULT_RULES,
     const fair = suggestRank(pcLevel, rules);
     const members = Math.max(1, Math.round(Number(partySize) || 1));
     const field = fielded(rows, members);
-    // The budget is the party's: foes per member who can fight (two against four is two each).
-    const headcount = Math.ceil(field.reduce((sum, row) => sum + row.count, 0) / members);
-    return resolveThreats(field, pcLevel, rules).map(row => groupPower(row, headcount, pcLevel, rules)).map(row => {
+    // Each tier is a budget of its own (B4r2-3): a row moves by the headcount of its tier's rows
+    // only, so trivial fodder beside a deadly foe never makes the deadly one small. The budget is
+    // the party's: foes per member who can fight (two against four is two each). A boss keeps its
+    // tier's level (it still counts in its tier's headcount, so the foes with it are smaller).
+    const counts = {};
+    for (const row of field) if (row.threat) counts[row.threat] = (counts[row.threat] ?? 0) + row.count;
+    const headcount = row => Math.ceil((counts[row.threat] ?? row.count) / members);
+    return resolveThreats(field, pcLevel, rules).map(row => (row.boss ? row : groupPower(row, headcount(row), pcLevel, rules))).map(row => {
         const level = Number(row.level) >= 1 ? Math.round(Number(row.level)) : null;
         const rank = level ? null : row.rank || (findCreature(bestiary, row.name) ? null : fair);
         return { ...row, level, rank, makeAt: level ?? rules.ranks[rank ?? fair]?.level ?? pcLevel };

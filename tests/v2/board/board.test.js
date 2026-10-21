@@ -11,7 +11,7 @@ import { battleBoard, part, WIDGET_NAME, boardView } from '../../../src/v2/board
 
 const sessionOf = world => world.query('combat.session');
 // What the board sent, without the fight id and log length it stamps every action with (checked once below).
-const plain = sent => sent.map(([type, { session: _session, logLength: _length, ...rest }]) => [type, rest]);
+const plain = sent => sent.map(([type, { session: _session, logLength: _length, board: _board, ...rest }]) => [type, rest]);
 
 test('the part: the widget under its namespaced name, the board query, the Fight screen', () => {
     assert.equal(WIDGET_NAME, 'rpg-battle.battle-board');
@@ -133,7 +133,7 @@ test('action buttons send combat.act with the combat part\'s payloads', () => {
         const shown = sessionOf(world);
         byAct(el, kind).click();
         assert.deepEqual(plain(sent), [['combat.act', { action }]], kind);
-        assert.deepEqual([sent[0][1].session, sent[0][1].logLength], [shown.id, shown.logLength], 'the action names the fight and the moment it was chosen for');
+        assert.deepEqual([sent[0][1].session, sent[0][1].board, sent[0][1].logLength], [shown.id, shown.board, shown.logLength], 'the action names the fight and the moment it was chosen for');
         assert.equal(world.receipts.at(-1).type, 'combat.act', `${kind} was played`);
         assert.deepEqual(world.state.domains.combat.session.actions.at(-1), action);
     }

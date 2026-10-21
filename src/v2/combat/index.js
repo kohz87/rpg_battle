@@ -28,7 +28,7 @@ import { foesText, readEncounter, STAKES, TIERS } from './encounter.js';
 import { buildSetup, COMBAT_DEFAULTS, fightNumbers, partyCombatants } from './setup.js';
 import { bestiaryList, creatureSlug, fightRules, latinSlug, packCreature, packSetup, sessionStatus, unpackSetup } from './stored.js';
 import { clipped } from '../lines.js';
-import { applyStock, beatenFoes, endSummary, foeNames, partyNames, rebuild, sessionView, tailLines } from './view.js';
+import { applyStock, beatenFoes, boardToken, endSummary, foeNames, partyNames, rebuild, sessionView, tailLines } from './view.js';
 
 export const MAX_OFFERS = 10;
 export const MAX_BEATEN = 200;
@@ -253,11 +253,13 @@ function playAction(ctx, action, payload = {}) {
     const session = activeSession(ctx, payload);
     const rebuilt = rebuild(session);
     const { rules } = rebuilt;
-    // `logLength`: how long the fight's log was on the board the action was chosen on; a second
-    // click on the same board (the fight moved on) is refused rather than played on the next turn.
-    if (payload?.logLength !== undefined && payload.logLength !== null && payload.logLength !== rebuilt.fight.log.length) {
-        ctx.fail('REFUSED', 'The fight moved on since that was chosen: look again and choose.');
-    }
+    // `board`: which moment of the fight the board showed when the action was chosen (the view's
+    // `board`, boardToken: the actions played, B4r2-2); `logLength`, how long its log was (an older
+    // caller's). A second click on the same board (the fight moved on), or a board from before a
+    // swipe or delete, is refused rather than played on another moment.
+    const moved = () => ctx.fail('REFUSED', 'The fight moved on since that was chosen: look again and choose.');
+    if (payload?.board !== undefined && payload.board !== null && payload.board !== boardToken(session)) moved();
+    if (payload?.logLength !== undefined && payload.logLength !== null && payload.logLength !== rebuilt.fight.log.length) moved();
     const inventory = readInventory(ctx);
     const stock = inventory ? stockCuts(rebuilt.fight, inventory, readPc(ctx)) : [];
     const fight = stock.length ? applyStock(structuredClone(rebuilt.fight), stock) : rebuilt.fight;
@@ -413,6 +415,18 @@ function start(ctx, payload) {
         ctx.fail('REFUSED', error?.message || 'That fight cannot start.');
     }
     const { setup, made, heldBack = 0 } = built;
+    // The party as it stands before the opening (the automatic turns before the first choice,
+    // B4r2-1): its fight items held to what the inventory has, as an action's stock cuts hold
+    // them, so nobody in the opening drinks a draught that is not there.
+    const inventory = readInventory(ctx);
+    const ready = { combatants: (setup.party ?? []).map(c => ({ side: 'party', memberId: c.memberId ?? c.id, items: c.items ?? [] })) };
+    if (inventory) {
+        for (const cut of stockCuts(ready, inventory, readPc(ctx))) {
+            const item = setup.party.find(c => (c.memberId ?? c.id) === cut.member)?.items?.[cut.item];
+            if (item && Number(item.qty) > cut.left) item.qty = cut.left;
+        }
+    }
+    const before = structuredClone(ready);
     // Rebuilt once now: a setup that cannot be fought is refused before anything is kept.
     let status;
     let opening;
@@ -422,7 +436,9 @@ function start(ctx, payload) {
     } catch (error) {
         ctx.fail('INVALID', `That fight cannot start: ${error?.message ?? 'its setup does not hold.'}`);
     }
-    // The foes' first blows (automatic turns before the first choice) show on the party at once.
+    // What the opening used comes out of the inventory now (as combat.act does for its turns),
+    // and the foes' first blows show on the party at once.
+    if (inventory) consumeSpent(ctx, itemsSpent(before, opening));
     syncPools(ctx, opening);
     const rev = nextRev(ctx);
     if (made.length) {
@@ -446,9 +462,10 @@ function start(ctx, payload) {
 }
 
 /**
- * combat.act({ action, session?, logLength? }): one player action, then every automatic turn up to
- * the next choice. `session` (the fight's id) and `logLength` (its log's length as shown) say which
- * fight, and which moment of it, the action was chosen for: anything else is refused.
+ * combat.act({ action, session?, board?, logLength? }): one player action, then every automatic turn
+ * up to the next choice. `session` (the fight's id) and `board` (the view's moment token; or the
+ * older `logLength`, its log's length as shown) say which fight, and which moment of it, the action
+ * was chosen for: anything else is refused.
  */
 function actCommand(ctx, payload) {
     const action = cleanAction(payload?.action);
@@ -456,7 +473,7 @@ function actCommand(ctx, payload) {
     return playAction(ctx, action, payload);
 }
 
-/** combat.flee({ session?, logLength? }): the player whose turn it is tries to get the party away (v1's flee chance). */
+/** combat.flee({ session?, board?, logLength? }): the player whose turn it is tries to get the party away (v1's flee chance). */
 function flee(ctx, payload) {
     return playAction(ctx, { type: 'flee' }, payload);
 }

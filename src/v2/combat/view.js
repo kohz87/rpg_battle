@@ -91,6 +91,23 @@ export function rebuild(session, { fresh = false } = {}) {
 
 const pool = value => (value ? { cur: value.cur, max: value.max } : null);
 
+/**
+ * Which moment of a fight a board shows (B4r2-2): how many actions were played and a short hash
+ * of them (with the fight's seed), "12.k3x9q0". The log's length alone can come round again after
+ * a swipe or a delete takes actions back and others are played; the same actions on the same
+ * fight are the same moment (replay is deterministic). combat.act compares it to refuse a stale board.
+ */
+export function boardToken(session) {
+    const actions = Array.isArray(session?.actions) ? session.actions : [];
+    const text = JSON.stringify([session?.setup?.seed ?? null, actions]);
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < text.length; i += 1) {
+        hash ^= text.charCodeAt(i);
+        hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+    return `${actions.length}.${hash.toString(36)}`;
+}
+
 /** The rebuilt fight as plain data: who is in it, whose turn it is, what they can do, the log. */
 export function sessionView(session) {
     if (!session) return null;
@@ -131,6 +148,7 @@ export function sessionView(session) {
         },
         log: fight.log.slice(-LOG_SHOWN).map(entry => ({ round: entry.round, text: entry.text, kind: entry.kind, important: entry.important })),
         logLength: fight.log.length,
+        board: boardToken(session),
     };
 }
 
