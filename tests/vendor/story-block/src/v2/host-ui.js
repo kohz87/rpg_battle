@@ -11,6 +11,7 @@
 
 import { normalizeField } from './registry.js';
 import { HOST_SETTINGS_SCHEMA } from './sdk.js';
+import { scrollCue } from './view/scroll-cue.js';
 
 export const OPEN_CLASS = 'story-suite-open';
 export const HOST_FOLD = 'story-suite';
@@ -96,8 +97,14 @@ function control(doc, field, value, onChange, id) {
     if (f.type === 'list') return listControl(doc, f, Array.isArray(value) ? value : [], onChange, id);
     const input = el(doc, f.multiline ? 'textarea' : 'input', 'text_pole');
     if (!f.multiline) input.type = 'text';
+    // A text field's `max` holds for typing and pasting alike (settings.set cuts it there too).
+    const max = Number.isInteger(f.max) && f.max >= 0 ? f.max : null;
+    if (max !== null) input.maxLength = max;
     input.value = String(value ?? '');
-    input.addEventListener('change', () => onChange(input.value));
+    input.addEventListener('change', () => {
+        if (max !== null && input.value.length > max) input.value = input.value.slice(0, max);
+        onChange(input.value);
+    });
     return input;
 }
 
@@ -263,6 +270,8 @@ export function createTabHost(root, { registry, view, api = null, doc = globalTh
     const pane = el(doc, 'div', 'story-suite-pane');
     pane.setAttribute('role', 'tabpanel');
     root.replaceChildren(bar, pane);
+    // Tabs that do not fit scroll sideways; the edge with more of them fades (scroll-cue.js).
+    const cue = scrollCue(bar, { win: doc.defaultView ?? globalThis });
 
     function draw() {
         const tabs = registry.tabs();
@@ -282,6 +291,7 @@ export function createTabHost(root, { registry, view, api = null, doc = globalTh
             node.addEventListener('click', () => select(tab.id));
             bar.appendChild(node);
         }
+        cue.update();
         pane.replaceChildren();
         const tab = tabs.find(item => item.id === current);
         pane.dataset.tabId = tab?.id ?? '';

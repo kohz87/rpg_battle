@@ -176,18 +176,53 @@ export function inspect(view, list, problems = []) {
     };
 }
 
+// A repeating event's claim for one reply (`at` = the index of the reply being written; a swipe or a
+// regenerate writes the same index again, so it does not pay again): once per reply.
+export const repeatKey = (id, at) => `event:${id}:${at}`;
+
 /**
- * The `events.fire` handler (SPEC §3.2): claim, run `then`, tell the cue.
- * Payload `{ id, cue, once, then }`, as `beforeGenerate` builds it from a checked event.
+ * The `events.fire` handler (SPEC §3.2), for the event definitions `events(view)` gives (the enabled
+ * packs'): claim, run `then`, tell the cue. Payload `{ id, at }` as `beforeGenerate` sends it; the cue,
+ * `once` and `then` always come from the pack's own definition, never from the payload (B3-1). Runs only
+ * as the host's own `system` cue at the top (REFUSED otherwise, and for an id no enabled pack defines or
+ * whose condition is not met), and is marked internal for the registry. Its steps run with
+ * ctx.caller `event:<id>`. A once event claims `event:<id>`; a repeating one `event:<id>:<at>`
+ * (`at` = the index of the reply being written), so it pays at most once per reply (B3-9).
  */
-export function fireEvent(ctx, payload) {
-    const fire = normalizeFire(payload);
-    if (fire.why) ctx.fail('INVALID', fire.why);
-    const { id, cue, once, then } = fire.value;
-    if (once && !ctx.claim(claimKey(id))) ctx.fail('CLAIMED', `The event "${id}" has already happened on this line of the story.`);
-    for (const step of then) ctx.call(step.command, step.payload);
-    return { summary: cue, narrate: true, data: { event: id, then: then.map(step => step.command) } };
+export function createFireEvent(events = () => []) {
+    function fireEvent(ctx, payload) {
+        if (ctx.cause !== 'system' || ctx.caller) ctx.fail('REFUSED', 'An event happens only when Story Block checks the events before a reply, never from a button, a change line or another command.');
+        const idProblem = checkId(payload?.id, 'An event');
+        if (idProblem) ctx.fail('INVALID', idProblem);
+        // The condition is checked again here, on the transaction's state: its domains are read as asked.
+        const domains = new Proxy({}, {
+            get: (_, name) => (typeof name === 'string' ? ctx.read(name) ?? undefined : undefined),
+            getOwnPropertyDescriptor: (_, name) => {
+                const value = typeof name === 'string' ? ctx.read(name) : null;
+                return value === null || value === undefined ? undefined : { value, enumerable: true, configurable: true, writable: false };
+            },
+            has: (_, name) => typeof name === 'string' && ctx.read(name) !== null,
+        });
+        const view = { state: { domains }, query: (name, args) => ctx.query(name, args) };
+        let list;
+        try { list = events(view); } catch { list = []; }
+        const def = normalizeEvents(Array.isArray(list) ? list : []).defs.find(entry => entry.id === payload.id);
+        if (!def) ctx.fail('REFUSED', `No enabled pack has an event "${payload.id}".`);
+        const met = evaluateCondition(def.when, view);
+        if (met.error || !met.met) ctx.fail('REFUSED', `The event "${def.id}" is not due: its condition is not met.`);
+        const at = Number.isSafeInteger(payload.at) && payload.at >= 0 ? payload.at : null;
+        if (def.once && !ctx.claim(claimKey(def.id))) ctx.fail('CLAIMED', `The event "${def.id}" has already happened on this line of the story.`);
+        if (!def.once && at !== null && !ctx.claim(repeatKey(def.id, at))) ctx.fail('CLAIMED', `The event "${def.id}" has already happened for this reply.`);
+        for (const step of def.then) ctx.call(step.command, step.payload, { as: `event:${def.id}` });
+        return { summary: def.cue, narrate: true, data: { event: def.id, then: def.then.map(step => step.command) } };
+    }
+    // An internal command (registry.js): the bus refuses it with cause 'ui' and the public sdk never sends it.
+    Object.defineProperty(fireEvent, 'internal', { value: true, enumerable: true });
+    return fireEvent;
 }
+
+/** events.fire with no events to fire (every id is refused); createEventsPart builds the real one. */
+export const fireEvent = createFireEvent();
 
 const isThenable = value => value !== null && (typeof value === 'object' || typeof value === 'function') && typeof value.then === 'function';
 
@@ -237,11 +272,16 @@ export function createEngine({ events, command, query } = {}) {
         return inspect(view, list, problems);
     }
 
-    /** SPEC §4.1 step 3. Commits the due events; returns nothing for the tail (or a promise of nothing). */
-    function beforeGenerate(view) {
+    /**
+     * SPEC §4.1 step 3. Commits the due events; returns nothing for the tail (or a promise of nothing).
+     * `info.type` is the generation's ('normal', 'swipe', …): a swipe writes the last message again.
+     */
+    function beforeGenerate(view, info = {}) {
         const result = report(view);
         const dueIds = new Set(result.due);
         const due = result.defs.filter(def => dueIds.has(def.id));
+        // A Continue or a dry run commits nothing (turn.js says so with commit: false).
+        if (info?.commit === false || info?.dryRun === true || info?.type === 'continue') return undefined;
         const run = { fired: [], failed: [] };
         lastRun = run;
         if (!due.length) return undefined;
@@ -249,7 +289,9 @@ export function createEngine({ events, command, query } = {}) {
             run.failed = due.map(def => ({ id: def.id, code: 'FAILED', message: 'There is no command bus to commit events through.' }));
             return undefined;
         }
-        const steps = due.map(def => () => command(FIRE, { id: def.id, cue: def.cue, once: def.once, then: def.then }, { cause: 'system' }));
+        const length = Number.isInteger(view?.chat?.length) ? view.chat.length : null;
+        const at = length === null ? null : info?.type === 'swipe' || info?.type === 'continue' ? length - 1 : length;
+        const steps = due.map(def => () => command(FIRE, { id: def.id, ...(at === null ? {} : { at }) }, { cause: 'system' }));
         const done = sequence(steps, (index, result) => {
             const { id } = due[index];
             if (result?.ok) run.fired.push(id);

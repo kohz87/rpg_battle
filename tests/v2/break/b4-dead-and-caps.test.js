@@ -29,7 +29,7 @@ test('B4-8: the level shown is the character\'s level, also after the cap is low
         const host = await rpgHost({ settings: { modules: { [MODULE_ID]: { 'party.maxLevel': 20 } } } });
         try {
             assert.equal((await host.cmd('party.create', { name: 'Ren', preset: 'fighter' })).ok, true);
-            await host.cmd('party.grantXp', { amount: 5000 }, { cause: 'system' });
+            await host.internal('party.grantXp', { amount: 5000 });
             const level = host.q('party.pc').level;
             assert.ok(level > 3);
             host.settings.set(MODULE_ID, 'party.maxLevel', 3);

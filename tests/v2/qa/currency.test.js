@@ -34,11 +34,13 @@ each('Story Block\'s own money lines use the one currency: coins found, paid, re
     const { h } = crowns();
     const found = storyCoin(h, 30);
     assert.match(found.receipt.summary, /30 crowns/);
-    const paid = h.command('wallet.pay', { owner: 'party', amount: 12, note: 'the ferry' });
+    // (wallet.pay is Story Block's internal command: since Story Block #76 a click is refused.)
+    const paid = h.command('wallet.pay', { owner: 'party', amount: 12, note: 'the ferry' }, { cause: 'system' });
     assert.equal(paid.ok, true, paid.message);
     assert.match(paid.receipt.summary, /12 crowns/);
     assert.doesNotMatch(paid.receipt.summary, TIER_WORDS);
-    assert.deepEqual(h.query('inventory.currency'), { name: 'crowns', short: 'c' });
+    const currency = h.query('inventory.currency');
+    assert.deepEqual([currency.name, currency.short], ['crowns', 'c']);
 });
 
 each('wallets stay one whole number per owner under `coin` through trades and loot', () => {
@@ -79,8 +81,15 @@ each('an item the story names after the one currency is money worth 1 each; tier
     const { h } = crowns();
     const coins = h.capture({ op: '+', kind: 'item', name: 'Crowns', labels: { qty: '5' } });
     assert.equal(coins.ok, true, coins.message);
-    const def = h.state().domains.inventory.defs[coins.receipt.data.def];
-    assert.deepEqual([def.kind, def.value], ['money', 1]);
+    // Story Block since da54eaf takes a thing named for the currency into the wallet itself; before,
+    // it was a money def (RPG Battle's item.define hook) worth 1 each.
+    if (coins.receipt.data.def) {
+        const def = h.state().domains.inventory.defs[coins.receipt.data.def];
+        assert.deepEqual([def.kind, def.value], ['money', 1]);
+    } else {
+        assert.equal(coins.receipt.data.amount, 5);
+        assert.equal(h.state().domains.inventory.wallets.party.coin, 5);
+    }
     const silver = h.capture({ op: '+', kind: 'item', name: 'Silver Coins', labels: { qty: '2' } });
     assert.equal(silver.ok, true, silver.message);
     assert.notEqual(h.state().domains.inventory.defs[silver.receipt.data.def].kind, 'money', 'no tier coins in a one-currency chat');

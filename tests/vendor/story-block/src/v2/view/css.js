@@ -6,10 +6,38 @@
 // * `@import`, `@charset`, `@namespace`, `@page` and unknown at-rules are dropped;
 // * `position: fixed`, `behavior`, `-moz-binding`, `expression(…)`, `javascript:`/`vbscript:` and any
 //   `url()` that is not `data:` or `https:` drop their declaration; `@font-face` stays with those URLs;
-// * more than 64 KB is refused whole.
+// * `#id` selectors get the screen's template id prefix (templateIdPrefix), as the drawn ids do;
+// * a quoted URL that is not `data:`/`https:` drops its declaration wherever it stands, custom properties
+//   included, and `image-set()`/`image()`/`cross-fade()`/`src()` may not take a value from `var()`;
+// * more than 64 KB is refused whole;
+// * `@media`/`@supports`/… nested more than MAX_AT_DEPTH deep are dropped with a warning (a deep sheet
+//   would cost time at every level; packs refuse one, packs/validate.js unsafeCss).
 // Returns `{ css, warnings }`; warnings are plain sentences for the overlay. Pure.
 
 export const MAX_CSS_BYTES = 64 * 1024;
+// How deep group at-rules (@media, @supports, …) may nest inside each other.
+export const MAX_AT_DEPTH = 8;
+
+/** The deepest `{` nesting in a stylesheet (comments and strings skipped): `a { }` is 1. Linear. */
+export function cssDepth(source) {
+    const text = String(source ?? '');
+    let depth = 0;
+    let deepest = 0;
+    let quote = null;
+    for (let i = 0; i < text.length; i += 1) {
+        const char = text[i];
+        if (quote) {
+            if (char === '\\') i += 1;
+            else if (char === quote) quote = null;
+        } else if (char === '"' || char === '\'') quote = char;
+        else if (char === '/' && text[i + 1] === '*') {
+            const end = text.indexOf('*/', i + 2);
+            i = end < 0 ? text.length : end + 1;
+        } else if (char === '{') deepest = Math.max(deepest, ++depth);
+        else if (char === '}') depth = Math.max(0, depth - 1);
+    }
+    return deepest;
+}
 
 const SCOPE_ALIASES = /^(?::root|html|body|:host|:scope)(?![\w-])/i;
 const GROUPS = new Set(['media', 'supports', 'container', 'layer', 'document']);
@@ -23,6 +51,15 @@ export function screenSelector(id) {
 /** The prefix a screen's keyframes get (`ss-rpg-battle-party-`). */
 export function keyframePrefix(id) {
     return `ss-${String(id).replace(/[^A-Za-z0-9_-]+/g, '-')}-`;
+}
+
+/**
+ * The prefix every `id` in a screen's template gets when it is drawn (`ss-t-rpg-battle-party-`), so a
+ * template can never reuse or clobber one of SillyTavern's ids (`#send_textarea`, `#chat`, …) or another
+ * screen's. The screen's CSS `#id` selectors, `for`, `aria-*` id lists, `href="#id"` and `url(#id)` get it too.
+ */
+export function templateIdPrefix(id) {
+    return `ss-t-${String(id ?? '').replace(/[^A-Za-z0-9_-]+/g, '-')}-`;
 }
 
 /** UTF-8 length of a string. */
@@ -151,9 +188,36 @@ export function isSafeCssUrl(url) {
     return flat.startsWith('https:') || flat.startsWith('data:');
 }
 
+// Functions whose arguments the browser loads (url() is read on its own above). Their strings must be
+// data:/https: URLs, and they may not take a value from var(), attr() or env(): a custom property can
+// hold any URL as a plain string (`--a: "http://…"`), and `image-set(var(--a) 1x)` would load it.
+const LOADERS = /(?:^|[^\w-])((?:-webkit-|-moz-)?(?:image-set|image|cross-fade|src|url))\s*\(/gi;
+const STRING = /"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'/g;
+// A quoted string that names a URL: a scheme with `//`, a protocol-relative `//`, or a scheme that loads
+// or runs. Only data: and https: ones are kept, wherever they stand (custom properties included).
+const URLISH = /^(?:[a-z][a-z0-9+.-]*:\/\/|\/\/|(?:javascript|vbscript|livescript|data|blob|file|filesystem):)/i;
+
+/** The arguments of the call whose `(` is at `open`, up to its matching `)` (strings respected). */
+function callArgs(text, open) {
+    let depth = 0;
+    let quote = null;
+    for (let i = open; i < text.length; i += 1) {
+        const char = text[i];
+        if (quote) {
+            if (char === '\\') i += 1;
+            else if (char === quote) quote = null;
+        } else if (char === '"' || char === '\'') quote = char;
+        else if (char === '(') depth += 1;
+        else if (char === ')' && --depth === 0) return text.slice(open + 1, i);
+    }
+    return text.slice(open + 1);
+}
+
 /**
  * Why a declaration value is refused, or '' when it is fine. Looks at the decoded value: script URLs,
- * `expression(`, `url()` that is not data:/https:, `image-set()`/`image()` strings that are not either.
+ * `expression(`, `url()` that is not data:/https:, strings in `image-set()`/`image()`/`cross-fade()`/`src()`
+ * that are not either, those functions fed from `var()`/`attr()`/`env()`, and any quoted URL that is not
+ * data:/https: (so a custom property cannot carry one to a loader elsewhere).
  */
 export function valueProblem(value) {
     const plain = decodeEscapes(String(value));
@@ -166,11 +230,18 @@ export function valueProblem(value) {
         if (!isSafeCssUrl(url)) return `the URL "${url.trim().slice(0, 60)}"`;
     }
     if (/url\(/i.test(plain) && !/url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\s*\)/i.test(plain)) return 'an unclosed url(';
-    for (const match of plain.matchAll(/(?:-webkit-)?image(?:-set)?\(([^)]*)\)/gi)) {
-        for (const string of match[1].matchAll(/"([^"]*)"|'([^']*)'/g)) {
+    for (const match of plain.matchAll(LOADERS)) {
+        const name = match[1].toLowerCase();
+        const args = callArgs(plain, match.index + match[0].length - 1);
+        if (/(?:^|[^\w-])(?:var|attr|env)\s*\(/i.test(args)) return `${name}() fed from var(), attr() or env()`;
+        for (const string of args.matchAll(STRING)) {
             const url = string[1] ?? string[2];
             if (!isSafeCssUrl(url)) return `the URL "${url.slice(0, 60)}"`;
         }
+    }
+    for (const string of plain.matchAll(STRING)) {
+        const url = (string[1] ?? string[2]).replace(/[\u0000-\u0020\u007f]+/g, '');
+        if (URLISH.test(url) && !isSafeCssUrl(url)) return `the URL "${url.slice(0, 60)}"`;
     }
     return '';
 }
@@ -222,16 +293,37 @@ export function filterDeclarations(body, { keyframes = null, where = 'style' } =
 // ---------------------------------------------------------------------------------------------------
 // Selectors
 
-function scopeSelector(selector, scope) {
-    const text = selector.trim();
+/** `#name` in a selector becomes `#<prefix>name` (outside strings and `[…]`), matching the drawn ids. */
+function prefixIds(selector, prefix) {
+    if (!prefix || !selector.includes('#')) return selector;
+    let out = '';
+    let quote = null;
+    let bracket = 0;
+    for (let i = 0; i < selector.length; i += 1) {
+        const char = selector[i];
+        out += char;
+        if (quote) {
+            if (char === '\\' && i + 1 < selector.length) out += selector[++i];
+            else if (char === quote) quote = null;
+        } else if (char === '"' || char === '\'') quote = char;
+        else if (char === '\\' && i + 1 < selector.length) out += selector[++i];
+        else if (char === '[') bracket += 1;
+        else if (char === ']') bracket = Math.max(0, bracket - 1);
+        else if (char === '#' && !bracket && /[-\w\\\u0080-\uffff]/.test(selector[i + 1] ?? '')) out += prefix;
+    }
+    return out;
+}
+
+function scopeSelector(selector, scope, idPrefix = '') {
+    const text = prefixIds(selector.trim(), idPrefix);
     if (!text) return '';
     const alias = SCOPE_ALIASES.exec(text);
     if (alias) return `${scope}${text.slice(alias[0].length)}`;
     return `${scope} ${text}`;
 }
 
-function scopeSelectorList(prelude, scope) {
-    return splitTop(prelude, ',').map(part => scopeSelector(part, scope)).filter(Boolean).join(', ');
+function scopeSelectorList(prelude, scope, idPrefix = '') {
+    return splitTop(prelude, ',').map(part => scopeSelector(part, scope, idPrefix)).filter(Boolean).join(', ');
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -252,17 +344,21 @@ export function scopeCss(source, screenId) {
     const clean = stripComments(text);
     if (/<\/?style|<\/?script/i.test(clean)) warnings.push('Markup inside the stylesheet was ignored.');
     const keyframes = new Map();
-    collectKeyframes(readItems(clean), prefix, keyframes);
-    const css = scopeItems(readItems(clean), { scope, keyframes, warnings }).join('\n');
+    const items = readItems(clean);
+    collectKeyframes(items, prefix, keyframes);
+    const css = scopeItems(items, { scope, keyframes, warnings, idPrefix: templateIdPrefix(screenId), depth: 0 }).join('\n');
     return { css, warnings };
 }
 
-function collectKeyframes(items, prefix, keyframes) {
+// Each group's items are read once (kept on the item for scopeItems), so a sheet is read once per level.
+const groupItems = item => (item.items ??= readItems(item.body));
+
+function collectKeyframes(items, prefix, keyframes, depth = 0) {
     for (const item of items) {
         if (item.type !== 'rule' || item.prelude[0] !== '@') continue;
         const at = /^@(-webkit-|-moz-)?keyframes\s+(-?[A-Za-z_][\w-]*)/i.exec(item.prelude);
         if (at) keyframes.set(at[2], `${prefix}${at[2]}`);
-        else if (GROUPS.has(atName(item.prelude))) collectKeyframes(readItems(item.body), prefix, keyframes);
+        else if (GROUPS.has(atName(item.prelude)) && depth < MAX_AT_DEPTH) collectKeyframes(groupItems(item), prefix, keyframes, depth + 1);
     }
 }
 
@@ -273,7 +369,7 @@ function atName(prelude) {
 const indent = block => block.split('\n').map(line => `  ${line}`).join('\n');
 
 function scopeItems(items, context) {
-    const { scope, keyframes, warnings } = context;
+    const { scope, keyframes, warnings, idPrefix } = context;
     const out = [];
     for (const item of items) {
         if (item.prelude[0] === '@') {
@@ -309,12 +405,17 @@ function scopeItems(items, context) {
                 continue;
             }
             if (GROUPS.has(name)) {
+                if (context.depth >= MAX_AT_DEPTH) {
+                    warnings.push(`Dropped @${name}: at-rules nest at most ${MAX_AT_DEPTH} deep in a screen.`);
+                    continue;
+                }
                 const condition = item.prelude.slice(1 + vendor.length + name.length).trim();
                 if (valueProblem(condition)) {
                     warnings.push(`Dropped @${name} ${condition.slice(0, 60)}: it names a URL.`);
                     continue;
                 }
-                const inner = scopeItems(readItems(item.body), context);
+                // Each level indents what is inside it again: bounded, as the levels are (MAX_AT_DEPTH).
+                const inner = scopeItems(groupItems(item), { ...context, depth: context.depth + 1 });
                 if (inner.length) out.push(`@${vendor}${name}${condition ? ` ${condition}` : ''} {\n${inner.map(indent).join('\n')}\n}`);
                 continue;
             }
@@ -329,7 +430,7 @@ function scopeItems(items, context) {
             warnings.push(`Dropped the rule "${item.prelude.slice(0, 60)}".`);
             continue;
         }
-        const selector = scopeSelectorList(item.prelude, scope);
+        const selector = scopeSelectorList(item.prelude, scope, idPrefix);
         const filtered = filterDeclarations(item.body, { keyframes, where: item.prelude.slice(0, 60) });
         warnings.push(...filtered.warnings);
         if (selector && filtered.text) out.push(`${selector} { ${filtered.text} }`);

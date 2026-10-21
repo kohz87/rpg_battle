@@ -65,7 +65,7 @@ export const widgetCss = `
 :where(.ss-w-radar-dot) { fill: var(--ss-w-tone); }
 :where(.ss-w-radar-dot.ss-w-up) { fill: var(--ss-w-good); }
 :where(.ss-w-radar-dot.ss-w-down) { fill: var(--ss-w-bad); }
-:where(.ss-w-radar-label) { fill: var(--ss-w-fg); font-size: 11px; }
+:where(.ss-w-radar-label) { fill: var(--ss-w-fg); font-size: calc(var(--ss-w-radar-label, 11) * 1px); }
 :where(.ss-w-radar-value) { fill: var(--ss-w-muted); }
 
 /* map */

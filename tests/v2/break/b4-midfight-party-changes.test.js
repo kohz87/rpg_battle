@@ -11,7 +11,7 @@ test('B4-4: points spent mid-fight still count after combat.end (max HP follows 
     await seeded(41, async () => {
         const host = await started();
         try {
-            assert.equal((await host.cmd('party.grantXp', { amount: 300 }, { cause: 'system' })).ok, true);
+            assert.equal((await host.internal('party.grantXp', { amount: 300 })).ok, true);
             const before = host.q('party.pc');
             assert.ok(before.points > 0);
             await offerAndStart(host, '! encounter 2 Wolf | tier: weak');

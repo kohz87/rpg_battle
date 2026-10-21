@@ -10,7 +10,8 @@
 // Interface for the other parts:
 // * query `packs.list` → installed packs for display (`installed.js` list()).
 // * query `packs.content({ kind, pack? })` → records of one kind from enabled packs (places and
-//   routes are the map Story Director's atlas reads).
+//   routes are the map Story Director's atlas reads; `terms` the level and XP words RPG Battle reads; `ranks` a
+//   ladder of quest ranks for Story Director's `quest.ranks` and RPG Battle's foe strength).
 // * query `packs.calendar` → the first enabled pack's calendar for the story clock, or null.
 // * query `packs.item({ name })` and hook `item.resolve(name)` → the pack item def a story
 //   name means (`pack.<packId>/<slug>`, SPEC §7 shape) or null. Inventory capture calls it

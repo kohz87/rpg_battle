@@ -8,7 +8,12 @@
 //   `action`, `formaction`, `srcdoc`, `srcset`, `ping`;
 // * URLs: `src` (images) `https:` or `data:image/…`; links `https:` or `#…`; SVG `href` `#…` (and on an
 //   SVG `<image>`, images as above); anything else drops the attribute;
+// * SVG paint and reference attributes (`fill`, `stroke`, `clip-path`, `mask`, `marker-start|mid|end`,
+//   `filter`) hold a colour or keyword, or `url(#fragment)` only: an outside SVG resource is never loaded;
 // * `style` attributes are filtered like screen CSS (css.js), and `{{ }}` is never read inside them;
+// * classes SillyTavern's own delegated handlers or DOM queries act on (RESERVED_CLASSES) are dropped, so a
+//   button in a template cannot edit, swipe or delete a message; a control `name` SillyTavern's settings
+//   read (RESERVED_NAMES) is dropped. Ids are prefixed per screen when drawn (render.js, css.js);
 // * inputs keep safe types (`password`, `file`, `image` become text or go); links that open a new tab get
 //   `rel="noopener noreferrer"`.
 // `strictSanitize(html)` is the DOMPurify-shaped fallback (string in, string out).
@@ -79,6 +84,70 @@ const SVG_ATTRS = new Set([
     'marker-start', 'marker-mid', 'marker-end', 'markerWidth', 'markerHeight', 'refX', 'refY', 'orient',
     'shape-rendering', 'paint-order',
 ]);
+// SVG attributes read as CSS paint or a reference to another element: `url(#id)` only (SPEC §13.2).
+const PAINT_ATTRS = new Set(['fill', 'stroke', 'clip-path', 'mask', 'marker-start', 'marker-mid', 'marker-end', 'filter']);
+
+/**
+ * Classes a template may not use: SillyTavern binds delegated handlers to them on the whole document
+ * (`$(document).on('click', '.mes_edit', …)` edits the message the button sits in, and cards are drawn
+ * inside messages) or counts and finds messages by them (`.mes`, `.last_mes`, `.mes_text`). The list:
+ * message structure `mes`, `last_mes`, `mes_block`, `mes_text`, `mes_buttons`, `mes_button`, `mesAvatarWrapper`,
+ * `extraMesButtonsHint`, `extraMesButtons`, `edit_textarea`, `del_checkbox`; swipes `swipe_left`, `swipe_right`,
+ * `swipes-counter`, `mes_img_swipe_left`, `mes_img_swipe_right`; message actions `mes_edit`,
+ * `mes_edit_done`, `mes_edit_cancel`, `mes_edit_delete`, `mes_edit_copy`, `mes_edit_up`, `mes_edit_down`,
+ * `mes_edit_add_reasoning`, `mes_hide`, `mes_unhide`, `mes_bookmark`, `mes_create_bookmark`,
+ * `mes_create_branch`, `mes_translate`, `mes_narrate`, `mes_prompt`, `mes_copy`, `mes_delete`, `mes_stop`,
+ * `mes_reasoning_edit`, `mes_reasoning_edit_done`, `mes_reasoning_edit_cancel`, `mes_reasoning_copy`,
+ * `mes_reasoning_delete`, `mes_img_enlarge`, `mes_img_delete`, `mes_file_open`, `mes_file_delete`;
+ * chats and characters `select_chat_block`, `character_select`, `group_select`, `bogus_folder_select`,
+ * `dragClose`. (`menu_button` is SillyTavern's button look, with no handler of its own: it stays usable.)
+ */
+export const RESERVED_CLASSES = Object.freeze(new Set([
+    'mes', 'last_mes', 'mes_block', 'mes_text', 'mes_buttons', 'mes_button', 'mesAvatarWrapper', 'extraMesButtonsHint',
+    'extraMesButtons', 'edit_textarea', 'del_checkbox',
+    'swipe_left', 'swipe_right', 'swipes-counter', 'mes_img_swipe_left', 'mes_img_swipe_right',
+    'mes_edit', 'mes_edit_done', 'mes_edit_cancel', 'mes_edit_delete', 'mes_edit_copy', 'mes_edit_up', 'mes_edit_down',
+    'mes_edit_add_reasoning', 'mes_hide', 'mes_unhide', 'mes_bookmark', 'mes_create_bookmark', 'mes_create_branch',
+    'mes_translate', 'mes_narrate', 'mes_prompt', 'mes_copy', 'mes_delete', 'mes_stop', 'mes_reasoning_edit',
+    'mes_reasoning_edit_done', 'mes_reasoning_edit_cancel', 'mes_reasoning_copy', 'mes_reasoning_delete',
+    'mes_img_enlarge', 'mes_img_delete', 'mes_file_open', 'mes_file_delete',
+    'select_chat_block', 'character_select', 'group_select', 'bogus_folder_select', 'dragClose',
+]));
+/**
+ * Control names of SillyTavern 1.19's own radio groups (read with `input[name="…"]:checked`): a template radio
+ * with one of these names outside a form would join SillyTavern's group. `avatar_style` and `chat_display`
+ * (select ids in 1.19, radio names in older versions) are kept; they cost nothing.
+ */
+export const RESERVED_NAMES = Object.freeze(new Set([
+    'character_names', 'continue_postfix', 'extension_default_position', 'extension_floating_char_position',
+    'extension_floating_position', 'avatar_style', 'chat_display',
+]));
+
+/** A class list without the reserved classes: `{ value, dropped }`. */
+export function cleanClasses(value) {
+    const kept = [];
+    const dropped = [];
+    for (const name of String(value ?? '').split(/\s+/).filter(Boolean)) (RESERVED_CLASSES.has(name) ? dropped : kept).push(name);
+    return { value: kept.join(' '), dropped };
+}
+
+/** True when `name` may be a class a template sets (data-class, bound class lists). */
+export const classAllowed = name => !RESERVED_CLASSES.has(String(name));
+
+/**
+ * Whether an SVG paint or reference value is safe: a colour or keyword, or `url(#fragment)`; never another
+ * document, a loader function, a variable or a CSS escape (which could spell any of these).
+ */
+export function paintAllowed(value) {
+    const flat = String(value ?? '').replace(/[\u0000-\u0020\u007f]+/g, '').toLowerCase();
+    if (flat.includes('\\') || /javascript:|vbscript:|expression\(/.test(flat)) return false;
+    if (/(?:image-set|image|cross-fade|src|element|var|attr|env)\(/.test(flat)) return false;
+    for (const match of flat.matchAll(/url\(/g)) {
+        if (!/^url\(['"]?#/.test(flat.slice(match.index))) return false;
+    }
+    return true;
+}
+
 const INPUT_TYPES = new Set(['text', 'number', 'range', 'checkbox', 'radio', 'search', 'color', 'hidden', 'submit', 'reset', 'button', 'email', 'tel', 'date', 'time']);
 
 /** The DOMPurify options Story Block passes (`sanitize(html, PURIFY_CONFIG)`); the allow-list runs after. */
@@ -113,6 +182,7 @@ export const isLinkUrl = url => {
  * are checked here; the template renderer calls it again for every bound value.
  */
 export function urlAllowed(tag, name, value) {
+    if (PAINT_ATTRS.has(String(name).toLowerCase())) return paintAllowed(value);
     if (name === 'src') return isImageUrl(value);
     if (name === 'href' || name === 'xlink:href') {
         if (tag === 'a') return isLinkUrl(value);
@@ -122,8 +192,8 @@ export function urlAllowed(tag, name, value) {
     return true;
 }
 
-/** True for attribute names whose value is a URL. */
-export const isUrlAttr = name => name === 'src' || name === 'href' || name === 'xlink:href';
+/** True for attribute names whose value is a URL (or, for SVG paint and references, may hold one). */
+export const isUrlAttr = name => name === 'src' || name === 'href' || name === 'xlink:href' || PAINT_ATTRS.has(String(name).toLowerCase());
 
 /** Whether an element may have an attribute of this name (values are checked separately). */
 export function attrAllowed(tag, svg, name) {
@@ -170,7 +240,19 @@ function filterAttrs(tag, svg, attrs, warnings) {
             continue;
         }
         if (isUrlAttr(name) && !urlAllowed(tag, name, value)) {
-            warnings.push(`Removed ${name} from <${tag}>: only https: (and data: images) are allowed.`);
+            warnings.push(PAINT_ATTRS.has(name.toLowerCase())
+                ? `Removed ${name} from <${tag}>: only a colour or url(#id) is allowed.`
+                : `Removed ${name} from <${tag}>: only https: (and data: images) are allowed.`);
+            continue;
+        }
+        if (name === 'class' && !value.includes('{{')) {   // a class list with {{ }} is checked when drawn
+            const classes = cleanClasses(value);
+            if (classes.dropped.length) warnings.push(`Removed the class ${classes.dropped.join(', ')} from <${tag}>: SillyTavern acts on it.`);
+            if (classes.value) out.push([name, classes.value]);
+            continue;
+        }
+        if (name === 'name' && tag !== 'ss-widget' && RESERVED_NAMES.has(value.trim())) {
+            warnings.push(`Removed name="${value.trim()}" from <${tag}>: SillyTavern reads controls by that name.`);
             continue;
         }
         if (name === 'style') {
@@ -207,7 +289,8 @@ function filterAttrs(tag, svg, attrs, warnings) {
 
 /** Parse and filter template HTML: `{ nodes, warnings }`. */
 export function sanitizeNodes(html) {
-    return filterNodes(parseHtml(html));
+    const warnings = [];
+    return filterNodes(parseHtml(html, warnings), warnings);
 }
 
 /** The strict allow-list as a DOMPurify-shaped function: HTML text in, safe HTML text out. */

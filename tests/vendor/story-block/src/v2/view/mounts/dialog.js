@@ -4,6 +4,9 @@
 // command's handler) enforces every rule. A Random button asks for a `preview` and shows its receipt;
 // Accept commits exactly that preview's token, so the roll shown is the roll kept.
 //
+// The backdrop dims and blurs the page and takes every click outside the dialog; Tab and Shift+Tab go
+// round the topmost dialog's own controls, and focus that lands outside it is brought back.
+//
 // deps (see common.js); `api` must have command(type, payload, { cause }), preview(type, payload) and
 // commit(token) (plain results or promises).
 //
@@ -17,16 +20,43 @@
 
 import { button, documentOf, drawScreen, headIndexOf, headState, icon, make, plainCopy } from './common.js';
 
+const FOCUSABLE = 'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+/** The controls in `root` Tab can reach, in document order (hidden and disabled ones left out). */
+export function focusablesIn(root) {
+    return Array.from(root?.querySelectorAll?.(FOCUSABLE) ?? []).filter(node => !node.disabled && !node.hidden && !node.closest?.('[hidden]'));
+}
+
 export function createDialogMount(deps) {
     if (typeof deps?.render !== 'function') throw new TypeError('The dialog mount needs a render(el, screen, scope) function.');
     const doc = documentOf(deps);
     const open = [];          // handles, the topmost last
 
     const onKey = event => {
-        if (event.key !== 'Escape' || !open.length) return;
-        event.preventDefault?.();
-        event.stopPropagation?.();
-        open[open.length - 1].close();
+        if (!open.length) return;
+        const top = open[open.length - 1];
+        if (event.key === 'Escape') {
+            event.preventDefault?.();
+            event.stopPropagation?.();
+            top.close();
+            return;
+        }
+        if (event.key !== 'Tab') return;
+        // Tab stays inside the topmost dialog: past its last control to its first, and back.
+        const nodes = focusablesIn(top.root);
+        if (!nodes.length) return;
+        const at = nodes.indexOf(doc.activeElement);
+        const next = event.shiftKey ? (at <= 0 ? nodes.at(-1) : null) : (at === -1 || at === nodes.length - 1 ? nodes[0] : null);
+        if (next) {
+            event.preventDefault?.();
+            next.focus?.();
+        }
+    };
+    // Focus that lands outside the topmost dialog (a click on the page behind, a script) goes back in.
+    const onFocus = event => {
+        const top = open[open.length - 1];
+        if (!top || !event.target || top.root.contains?.(event.target)) return;
+        (focusablesIn(top.root)[0] ?? top.root).focus?.();
     };
 
     function mount(el, screenId, opts = {}) {
@@ -46,6 +76,7 @@ export function createDialogMount(deps) {
         const root = make(doc, 'div', 'ss-dialog');
         root.setAttribute('role', 'dialog');
         root.setAttribute('aria-modal', 'true');
+        root.setAttribute('tabindex', '-1');
         const head = make(doc, 'header', 'ss-dialog-head');
         const title = make(doc, 'h2', 'ss-dialog-title', screen?.title ?? screenId);
         const closer = button(doc, 'ss-dialog-close', '', 'Close');
@@ -130,7 +161,10 @@ export function createDialogMount(deps) {
             closed = true;
             const i = open.indexOf(handle);
             if (i >= 0) open.splice(i, 1);
-            if (!open.length) doc.removeEventListener?.('keydown', onKey, true);
+            if (!open.length) {
+                doc.removeEventListener?.('keydown', onKey, true);
+                doc.removeEventListener?.('focusin', onFocus, true);
+            }
             backdrop.remove();
             opts.onClose?.(result);
             resolveClosed(result);
@@ -228,6 +262,7 @@ export function createDialogMount(deps) {
 
         const handle = {
             el: backdrop,
+            root,
             screenId,
             draft,
             step: () => at,
@@ -246,7 +281,10 @@ export function createDialogMount(deps) {
 
         (el ?? doc.body).appendChild(backdrop);
         open.push(handle);
-        if (open.length === 1) doc.addEventListener?.('keydown', onKey, true);
+        if (open.length === 1) {
+            doc.addEventListener?.('keydown', onKey, true);
+            doc.addEventListener?.('focusin', onFocus, true);
+        }
         root.setAttribute('aria-label', screen?.title ?? screenId);
         drawStep();
         closer.focus?.();

@@ -327,7 +327,8 @@ test('one currency: Story Block\'s name words trade and loot; amounts are whole 
     await seeded(7, async () => {
         const { host } = await fought({ settings: { modules: { 'story-block': { currency: 'crowns' } } } });
         try {
-            assert.deepEqual(host.q('inventory.currency'), { name: 'crowns', short: 'c' });
+            const currency = host.q('inventory.currency');
+            assert.deepEqual([currency.name, currency.short], ['crowns', 'c']);
             const tails = host.q('inventory.items', {}).find(item => item.name === 'Cellar Rat Tail');
             const sold = await host.cmd('trade.sell', { stack: tails.stack, qty: 1 });
             assert.match(sold.receipt.summary, / crowns?\.$/);
@@ -393,7 +394,9 @@ test('F80: the reply gets its rolls in the tail, writes its checks, code records
             assert.equal(log.length, 2);
             assert.deepEqual(log.map(entry => [entry.skill, entry.roll, entry.die]), [['stealth', 1, handed.rolls[0]], ['climb', 2, handed.rolls[1]]]);
             for (const entry of log) assert.equal(entry.total, entry.die + entry.mod);
-            assert.equal(host.q('checks.last').carrier, `${out.index}:0`);
+            // The reply's key is its record id (ctx.carrier.sid, B-b2-timeline-10), which a middle delete never moves.
+            const first = host.q('checks.last').carrier;
+            assert.match(first, /^s:/);
             // The third check is a problem; the static instruction never changed.
             assert.deepEqual(host.turn.problems().map(problem => problem.code), ['REFUSED']);
             assert.equal(new Set(host.statics()).size, 1);
@@ -402,7 +405,8 @@ test('F80: the reply gets its rolls in the tail, writes its checks, code records
             await host.swipe(host.reply('I trip on a bucket.', ['? check stealth — slipping past the guard | dc: hard | roll: 1 | result: fail']));
             const again = host.q('checks.rolls');
             assert.notEqual(again.rev, handed.rev);
-            assert.equal(host.q('checks.last').carrier, `${out.index}:1`);
+            assert.match(host.q('checks.last').carrier, /^s:/);
+            assert.notEqual(host.q('checks.last').carrier, first, 'the swipe is its own reply');
             assert.equal(host.q('checks.last').results.length, 1);
             assert.equal(host.q('checks.log').at(-1).die, again.rolls[0]);
         } finally {

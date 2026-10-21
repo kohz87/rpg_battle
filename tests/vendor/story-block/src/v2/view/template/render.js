@@ -4,16 +4,61 @@
 // when the order changed, `data-if` adds or removes its element, widgets are given new props only when
 // they changed. So rendering again with the same scope changes nothing, and inputs keep their focus.
 //
-// Text is only ever set with textContent; attributes with setAttribute after the allow-list; URLs are
-// checked again after binding. Event handlers are added by the renderer itself (click, input, change,
-// submit), never from the template.
+// Text is only ever set with textContent; attributes with setAttribute after the allow-list; URLs (and SVG
+// paint references) are checked again after binding. Event handlers are added by the renderer itself
+// (click, input, change, submit), never from the template; every <form> gets a submit listener that stops
+// the browser's own submission (which would reload SillyTavern's page), and runs data-submit's command.
+//
+// SillyTavern's page is shared, so a template keeps to its own names: every `id` is drawn as
+// `ss-t-<screen>-<id>` (css.js templateIdPrefix; the screen's CSS `#id` selectors get the same prefix), and
+// the attributes that point at ids follow (`for`, `headers`, `aria-labelledby` and the other id lists,
+// `href="#id"`, `url(#id)` in SVG paint); a form's `name` is prefixed too (document.<name> would clobber
+// the page's own), and so is every control's (a <form> is [LegacyOverrideBuiltIns]: `form.classList`,
+// `form.setAttribute`, `form.disabled` … would be its control named so). The renderer also reads the DOM
+// members it uses past any such control (`dom()` / `call()` below), so even a name that slips through
+// cannot stop a form drawing or leave it busy. Classes SillyTavern acts on (sanitize.js RESERVED_CLASSES)
+// are never set, bound or toggled.
 
 import { escapeKey } from '../../ops.js';
 import {
     evalExpr, interpolate, isLoopName, isScope, makeScope, pathKeys, pointerOf, resolvePath, setIn, toText, valueAtKeys,
     withDraft, withItem,
 } from '../bind.js';
-import { cssVarValue } from '../css.js';
+import { cssVarValue, templateIdPrefix } from '../css.js';
+
+// A DOM member as the element's own interface has it, never a <form>'s control of that name or id: the
+// prototype chain first (the browser's members live there), then the element's own property (the test
+// DOM keeps some on the instance).
+function descriptorOf(el, name) {
+    for (let proto = Object.getPrototypeOf(el); proto && proto !== Object.prototype; proto = Object.getPrototypeOf(proto)) {
+        const found = Object.getOwnPropertyDescriptor(proto, name);
+        if (found) return found;
+    }
+    return Object.getOwnPropertyDescriptor(el, name) ?? null;
+}
+function dom(el, name) {
+    const found = descriptorOf(el, name);
+    if (!found) return undefined;
+    return found.get ? found.get.call(el) : found.value;
+}
+function setDom(el, name, value) {
+    const found = descriptorOf(el, name);
+    if (found?.set) found.set.call(el, value);
+    else el[name] = value;
+}
+const call = (el, name, ...args) => dom(el, name).apply(el, args);
+
+// A control the reader cannot use (`:disabled`, so a disabled fieldset counts); a <form> never is.
+function isDisabled(el) {
+    try {
+        const matches = dom(el, 'matches');
+        if (typeof matches === 'function') return Boolean(matches.call(el, ':disabled'));
+    } catch { /* a DOM without :disabled (the tests'): the property below */ }
+    return dom(el, 'disabled') === true;
+}
+
+// The elements a control `name` is prefixed on (the form-associated ones a <form> exposes by name).
+const CONTROLS = new Set(['input', 'select', 'textarea', 'button', 'fieldset', 'output', 'object']);
 
 /** Set a value in a draft the host holds, creating records on the way (frozen ones are copied). */
 function writeInPlace(target, keys, value) {
@@ -36,7 +81,40 @@ function withItems(scope, names) {
     return next;
 }
 import { fillJson } from './json.js';
-import { isUrlAttr, urlAllowed } from './sanitize.js';
+import { RESERVED_NAMES, classAllowed, cleanClasses, isUrlAttr, urlAllowed } from './sanitize.js';
+
+// Attributes whose value is one id, or a space-separated list of ids, in the same template.
+const ID_LISTS = new Set(['for', 'headers', 'aria-labelledby', 'aria-describedby', 'aria-controls', 'aria-owns', 'aria-activedescendant', 'aria-details', 'aria-errormessage', 'aria-flowto']);
+const PAINT_REFS = new Set(['fill', 'stroke', 'clip-path', 'mask', 'marker-start', 'marker-mid', 'marker-end', 'filter']);
+
+/** The id prefix for the screen a scope belongs to (`ss-t-` alone when no screen is named). */
+const idPrefixOf = screenId => (typeof screenId === 'string' && screenId ? templateIdPrefix(screenId) : 'ss-t-');
+
+/**
+ * The value an attribute is set to in the page: ids and references to them get the screen's prefix, class
+ * lists lose reserved classes, reserved control names go. `null` leaves the attribute out.
+ */
+function pageValue(view, tag, name, value) {
+    const lower = name.toLowerCase();
+    const prefix = view.idPrefix;
+    if (lower === 'id') return value.trim() ? `${prefix}${value.trim()}` : null;
+    if (ID_LISTS.has(lower)) return value.split(/\s+/).filter(Boolean).map(id => `${prefix}${id}`).join(' ');
+    if ((lower === 'href' || lower === 'xlink:href') && /^\s*#./.test(value)) return value.replace(/^\s*#/, `#${prefix}`);
+    if (PAINT_REFS.has(lower)) return value.replace(/url\(\s*(['"]?)\s*#/gi, (_, quote) => `url(${quote}#${prefix}`);
+    if (lower === 'class') {
+        const classes = cleanClasses(value);
+        if (classes.dropped.length) view.warn(`The class ${classes.dropped.join(', ')} was left off <${tag}>: SillyTavern acts on it.`);
+        return classes.value;
+    }
+    if (lower === 'name' && tag !== 'ss-widget') {
+        if (RESERVED_NAMES.has(value.trim())) {
+            view.warn(`name="${value.trim()}" was left off <${tag}>: SillyTavern reads controls by that name.`);
+            return null;
+        }
+        if (tag === 'form' || CONTROLS.has(tag)) return value.trim() ? `${prefix}${value.trim()}` : null;
+    }
+    return value;
+}
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const VIEWS = new WeakMap();
@@ -51,7 +129,8 @@ const SKIP = Symbol('skip');
  * * `onResult(result, { type, payload })` — told when a command finishes; `onWarn(message)`;
  * * `onSubmit(type, draft)` — when given, data-submit hands the draft here instead of running the command
  *   (a dialog that runs its own submit, e.g. "Next" on a wizard's earlier steps);
- * * `api` — extra widget api (`query`, `preview`, `commit`, `on`), `formatters` — for a scope built here.
+ * * `api` — extra widget api (`query`, `preview`, `commit`, `on`), `formatters` — for a scope built here;
+ * * `screenId` — the screen whose id prefix the template's ids get (default: the scope's `screenId`).
  * `scope` is a scope from bind.js `makeScope`, or the fields makeScope takes (`{ state, q, draft, … }`);
  * a mount's scope `api` (`{ command, preview, commit, query, on }`) is used when `api` / `command` are not given.
  * Returns the view: `{ el, warnings, draft(), update(scope), destroy() }`.
@@ -90,6 +169,7 @@ class View {
         this.draftValue = {};
         this.base = null;
         this.blocks = null;
+        this.idPrefix = null;
     }
 
     warn(message) {
@@ -134,6 +214,13 @@ class View {
         if (this.destroyed) return;
         this.base = scope;
         const current = this.scopeFor(scope);
+        const prefix = idPrefixOf(this.options.screenId ?? scope?.screenId);
+        if (this.blocks && prefix !== this.idPrefix) {
+            // Drawn for another screen: its ids are another screen's, so build again.
+            for (const block of this.blocks) block.destroy();
+            this.blocks = null;
+        }
+        this.idPrefix = prefix;
         if (!this.blocks) {
             this.el.replaceChildren();
             this.blocks = this.compiled.nodes.map(node => makeBlock(node, this));
@@ -227,7 +314,7 @@ class IfBlock {
         if (show && !this.inner) {
             this.inner = this.node.widget ? new WidgetBlock(this.node, this.view) : new ElementBlock(this.node, this.view);
             const parent = this.anchor.parentNode;
-            for (const dom of this.inner.nodes()) parent?.insertBefore(dom, this.anchor);
+            for (const node of this.inner.nodes()) if (parent) call(parent, 'insertBefore', node, this.anchor);
         } else if (!show && this.inner) {
             this.inner.destroy();
             this.inner = null;
@@ -279,7 +366,7 @@ class EachBlock {
         const parent = this.anchor.parentNode;
         const moved = order.length !== this.order.length || order.some((key, index) => key !== this.order[index]);
         if (moved && parent) {
-            for (const key of order) for (const dom of next.get(key).nodes()) parent.insertBefore(dom, this.anchor);
+            for (const key of order) for (const node of next.get(key).nodes()) call(parent, 'insertBefore', node, this.anchor);
         }
         this.items = next;
         this.order = order;
@@ -314,15 +401,22 @@ class ElementBlock {
         this.scope = null;
         const el = createElement(view.doc, node);
         this.el = el;
-        for (const [name, value] of node.attrs) el.setAttribute(attrName(name), value);
+        for (const [name, value] of node.attrs) {
+            const shown = pageValue(view, node.tag, name, value);
+            if (shown !== null) call(el, 'setAttribute', attrName(name), shown);
+        }
         this.children = node.children.map(child => makeBlock(child, view));
-        for (const child of this.children) for (const dom of child.nodes()) el.appendChild(dom);
-        if (node.command) el.addEventListener('click', event => this.onCommand(event));
-        if (node.submit) el.addEventListener(node.tag === 'form' ? 'submit' : 'click', event => this.onSubmit(event));
+        for (const child of this.children) for (const node of child.nodes()) call(el, 'appendChild', node);
+        const listen = (type, fn) => call(el, 'addEventListener', type, fn);
+        if (node.command) listen('click', event => this.onCommand(event));
+        const form = node.tag === 'form' && !node.svg;
+        if (node.submit) listen(form ? 'submit' : 'click', event => this.onSubmit(event));
+        // A form without data-submit still never submits: the browser would load the page again.
+        else if (form) listen('submit', event => event?.preventDefault?.());
         if (node.draft) {
             const handler = () => this.onInput();
-            el.addEventListener('input', handler);
-            el.addEventListener('change', handler);
+            listen('input', handler);
+            listen('change', handler);
         }
     }
     nodes() { return [this.el]; }
@@ -337,12 +431,15 @@ class ElementBlock {
     setAttr(name, value) {
         const { el, node } = this;
         if (value !== null && isUrlAttr(name) && !urlAllowed(node.tag, name, value)) {
-            this.view.warn(`A bound ${name} on <${node.tag}> was not https: (or a data: image) and was left out.`);
+            this.view.warn(PAINT_REFS.has(name.toLowerCase())
+                ? `A bound ${name} on <${node.tag}> was not a colour or url(#id) and was left out.`
+                : `A bound ${name} on <${node.tag}> was not https: (or a data: image) and was left out.`);
             value = null;
         }
+        if (value !== null) value = pageValue(this.view, node.tag, name, value);
         if (!this.changed(`attr:${name}`, value)) return;
-        if (value === null) el.removeAttribute(attrName(name));
-        else el.setAttribute(attrName(name), value);
+        if (value === null) call(el, 'removeAttribute', attrName(name));
+        else call(el, 'setAttribute', attrName(name), value);
     }
 
     update(scope) {
@@ -358,20 +455,24 @@ class ElementBlock {
             if (boolean) {
                 const on = Boolean(value);
                 this.setAttr(name, on ? '' : null);
-                if (name === 'checked' || name === 'selected' || name === 'disabled') el[name] = on;
+                if (name === 'checked' || name === 'selected' || name === 'disabled') setDom(el, name, on);
             } else this.setAttr(name, value === null || value === undefined || value === false ? null : toText(value));
         }
         for (const { name, expr } of node.vars) {
             const value = cssVarValue(read(expr));
-            if (this.changed(`var:${name}`, value)) el.style.setProperty(name, value);
+            if (this.changed(`var:${name}`, value)) dom(el, 'style').setProperty(name, value);
         }
         for (const { name, expr } of node.classes) {
+            if (!classAllowed(name)) {
+                warn(`data-class cannot toggle ${name}: SillyTavern acts on it.`);
+                continue;
+            }
             const on = Boolean(read(expr));
-            if (this.changed(`class:${name}`, on)) el.classList.toggle(name, on);
+            if (this.changed(`class:${name}`, on)) dom(el, 'classList').toggle(name, on);
         }
         if (node.bindText) {
             const text = toText(read(node.bindText));
-            if (this.changed('text', text)) el.textContent = text;
+            if (this.changed('text', text)) setDom(el, 'textContent', text);
         }
         for (const child of this.children) child.update(scope);
         if (node.draft) this.showDraft(scope);
@@ -450,24 +551,28 @@ class ElementBlock {
 
     // --- commands ----------------------------------------------------------------------------------
 
+    // Marking the element busy is inside the try, so a mark that fails can never leave it busy for good.
     async busy(fn) {
         if (this.running) return;
-        this.running = true;
-        this.el.classList.add('ss-busy');
-        this.el.setAttribute('aria-busy', 'true');
+        const { el } = this;
         try {
+            this.running = true;
+            dom(el, 'classList').add('ss-busy');
+            call(el, 'setAttribute', 'aria-busy', 'true');
             await fn();
         } finally {
             this.running = false;
-            this.el.classList.remove('ss-busy');
-            this.el.removeAttribute('aria-busy');
+            try {
+                dom(el, 'classList').remove('ss-busy');
+                call(el, 'removeAttribute', 'aria-busy');
+            } catch { /* the element is gone */ }
         }
     }
 
     onCommand(event) {
         event?.preventDefault?.();
         event?.stopPropagation?.();
-        if (!this.scope || this.el.disabled) return undefined;
+        if (!this.scope || isDisabled(this.el)) return undefined;
         const { node, view } = this;
         let payload = {};
         if (node.payload) {
@@ -484,7 +589,7 @@ class ElementBlock {
     onSubmit(event) {
         event?.preventDefault?.();
         event?.stopPropagation?.();
-        if (!this.scope || this.el.disabled) return undefined;
+        if (!this.scope || isDisabled(this.el)) return undefined;
         const draft = structuredClone(this.view.draftValue);
         const onSubmit = this.view.options.onSubmit;
         if (typeof onSubmit === 'function') {
@@ -500,7 +605,8 @@ class ElementBlock {
 
     destroy() {
         for (const child of this.children) child.destroy();
-        this.el.remove?.();
+        const remove = dom(this.el, 'remove');
+        if (typeof remove === 'function') remove.call(this.el);
     }
 }
 

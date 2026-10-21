@@ -35,17 +35,23 @@ export const CORE_STATIC = 'Code keeps the inventory, the wallet, the place and 
 export const CORE_KINDS = Object.freeze({
     item: Object.freeze({ grammar: '+ item Name | qty: 1 | note: short detail (- item Name | qty: 1 when used up or lost; ~ item Name | note: … when it changes)' }),
     coin: Object.freeze({ grammar: '+ coin 30 | from: who (- coin 5 | to: who when paid; one number, in the wallet\'s currency)' }),
-    place: Object.freeze({ grammar: '~ place Name | kind: settlement|wild|dungeon|… | region: wider area' }),
+    place: Object.freeze({ grammar: '~ place Name | kind: settlement|wild|dungeon|… | region: wider area | with: who came along (the rest stay behind)' }),
     present: Object.freeze({ grammar: '+ present Name when someone arrives, - present Name when they leave' }),
 });
 
-// The chat's one currency (MODULES.md F1): its name, renamable by the reader, never a second one.
+// The chat's one currency (MODULES.md F1): its name (singular) and plural, renamable by the reader,
+// never a second one.
 export const CORE_SETTINGS = Object.freeze({
     section: 'Story Block',
-    defaults: Object.freeze({ currency: DEFAULT_CURRENCY.name, currencyShort: '' }),
+    defaults: Object.freeze({ currency: DEFAULT_CURRENCY.name, currencyPlural: '', currencyShort: '', storyCoinPerReply: 0 }),
     schema: Object.freeze({
-        currency: Object.freeze({ type: 'text', label: 'Currency', max: 24 }),
+        currency: Object.freeze({ type: 'text', label: 'Currency (one coin: mark, crown, gold)', max: 24 }),
+        currencyPlural: Object.freeze({ type: 'text', label: 'Currency, plural (blank: the name with an s)', max: 24 }),
         currencyShort: Object.freeze({ type: 'text', label: 'Currency, short form (blank: its first letter)', max: 6 }),
+        storyCoinPerReply: Object.freeze({
+            type: 'int', min: 0, max: 1000000000, label: 'Money one reply may give',
+            help: 'The most + coin lines of one reply may pay, in whole coins. 0: the top quest reward for the player character\'s rank (or 1000 per level).',
+        }),
     }),
 });
 
@@ -54,18 +60,30 @@ export const CORE_SETTINGS = Object.freeze({
  * tabs }), for a host that merges parts. `hooks(name) → fn[]` in module-id order (the registry's
  * `hooks`); `settings()` → this module's settings. Without them no hooks run and the currency is gold.
  */
-export function createCorePart({ hooks = () => [], settings = () => ({}) } = {}) {
+export function createCorePart({ hooks = () => [], settings = () => ({}), hookEntries = null, problem = null } = {}) {
     const hookList = name => {
         const fns = hooks(name);
         return Array.isArray(fns) ? fns.filter(fn => typeof fn === 'function') : [];
     };
-    const env = { hooks: hookList, settings: () => settings() ?? {} };
+    // `hookEntries(name)` → [{ moduleId, fn }] (the registry's) names the module a failing hook comes
+    // from; `problem(entry)` adds to the Problems list (turn.js report).
+    const entries = name => {
+        const list = typeof hookEntries === 'function' ? hookEntries(name) : null;
+        return Array.isArray(list) ? list.filter(entry => typeof entry?.fn === 'function') : hookList(name).map(fn => ({ moduleId: null, fn }));
+    };
+    const env = {
+        hooks: hookList,
+        hookEntries: entries,
+        settings: () => settings() ?? {},
+        problem: entry => { try { problem?.(entry); } catch { /* the Problems list is not essential */ } },
+    };
     const currency = () => currencyOf(env.settings());
     const kind = (grammar, apply) => ({ grammar, apply });
     return {
         domains: {
             scene: { initial: initialScene, validate: slice => validateScene(slice) },
-            inventory: { initial: initialInventory, validate: slice => validateInventory(slice) },
+            // Coin and stack sizes are counts: a replay after a deleted reply adds each change to them.
+            inventory: { initial: initialInventory, validate: slice => validateInventory(slice), counters: ['wallets/*/coin', 'stacks/*/qty'] },
         },
         commands: { ...createInventoryCommands(env), ...sceneCommands },
         queries: { ...createInventoryQueries(env), ...sceneQueries },
@@ -159,8 +177,8 @@ export function mergeParts(parts) {
  * what the events part commits and asks through (default: the public sdk, looked up lazily);
  * `assist`: the assist part (pre-roll classifier, after-reply extractor; both off by default).
  */
-export function createCoreModule({ hooks = () => [], settings = () => ({}), version = '2.0.0-alpha.1', packs = livePacks, command, query, assist = null } = {}) {
-    const core = createCorePart({ hooks, settings });
+export function createCoreModule({ hooks = () => [], settings = () => ({}), version = '2.0.0-alpha.1', packs = livePacks, command, query, assist = null, hookEntries = null, problem = null } = {}) {
+    const core = createCorePart({ hooks, settings, hookEntries, problem });
     const events = createEventsPart({
         ...(command ? { command } : {}),
         ...(query ? { query } : {}),

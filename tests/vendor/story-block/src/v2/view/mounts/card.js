@@ -1,6 +1,7 @@
-// Story Suite v2: the `card` mount (SPEC §13.4). An inline card under each carrier message (the greeting
-// and every non-user reply), drawn from **that reply's** state (`stateAt(index)`, never the head) and the
-// paths its ops changed, so a template's `changed(path)` can show "only what changed".
+// Story Suite v2: the `card` mount (SPEC §13.4). An inline card under each carrier message that gets
+// cards (`hasCard`: the host leaves out the greeting and replies with no v2 record), drawn from **that
+// reply's** state (`stateAt(index)`, never the head) and the paths its ops changed, so a template's
+// `changed(path)` can show "only what changed".
 //
 // * Cards are off until the reader turns them on, per screen (`screens.setCards`). Each card starts
 //   collapsed: a header with the screen's title and a one-line summary slot. Its body is drawn the first
@@ -12,6 +13,7 @@
 //
 // deps (see common.js) plus:
 //   carriers        () → indexes of the carrier messages (required)
+//   hasCard         (index) → whether that carrier gets cards (default: every carrier does)
 //   messageElement  (index) → SillyTavern's `.mes[mesid=index]` element (default: a document query)
 //   swipeAt         (index) → the message's swipe_id (default 0)
 //   summary         (screen, { index, state, changes, before }) → the header's one-line text (optional)
@@ -28,10 +30,14 @@ import { button, dispose, documentOf, drawScreen, icon, make, onHead, screensFor
 
 const META = /^\/meta(\/|$)/;
 
-/** "No changes", "1 change", "3 changes": the default summary, from the carrier's changed paths. */
+/**
+ * The default header summary, from the carrier's changed paths: "No changes" when nothing but the meta
+ * moved, else nothing (a count of changed paths means nothing to a reader; a screen that wants a line
+ * gets one from the mount's `summary`).
+ */
 export function changeSummary(changes) {
     const count = (changes ?? []).filter(path => !META.test(path)).length;
-    return count === 0 ? 'No changes' : count === 1 ? '1 change' : `${count} changes`;
+    return count === 0 ? 'No changes' : '';
 }
 
 const indexOf = value => (typeof value === 'number' ? value : Number(value?.messageId ?? value?.index ?? value));
@@ -45,6 +51,7 @@ export function createCardMount(deps) {
     const swipeAt = deps.swipeAt ?? (() => 0);
     const changesAt = deps.changesAt ?? (() => []);
     const opsAt = deps.opsAt ?? (() => []);
+    const hasCard = deps.hasCard ?? (() => true);
     // The state at the carrier before `index` (null for the first carrier).
     const beforeOf = index => {
         const earlier = deps.carriers().filter(at => at < index);
@@ -149,7 +156,7 @@ export function createCardMount(deps) {
         const message = messageElement(index);
         if (!message) return;
         let box = boxOf(message);
-        const entries = deps.carriers().includes(index) ? screensFor(deps, 'card') : [];
+        const entries = deps.carriers().includes(index) && hasCard(index) ? screensFor(deps, 'card') : [];
         if (!entries.length) {
             box?.remove();
             return;

@@ -23,7 +23,9 @@ export function itemDef(item) {
 /**
  * Records of one kind from every enabled pack, in pack order then file order.
  * `kind`: a content kind (items, creatures, shops, recipes, events, quests, races, talents,
- * skills, presets, places, routes),
+ * skills, presets, places, routes, terms: `{ id, slug, pack, name?, levelName?, xpName?, tiers? }`, the
+ * words a world uses for levels and XP, MODULES §F25; ranks: `{ id, pack, title?, levels?, reward? }`,
+ * each pack's ladder lowest first, so a reader takes one pack's ranks),
  * `currency` (one `{ pack, name, short }` per pack that suggests one), `layouts`,
  * `screens` (each with its `pack`), or `theme` (one `{ pack, tokens }` per pack that has a
  * theme). Unknown kinds give [].

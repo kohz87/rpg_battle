@@ -13,7 +13,6 @@ import { MAX_OFFERS_PER_KIND } from '../../../src/v2/party/commands.js';
 import { LINE_LIMITS, clipLine } from '../../../src/v2/lines.js';
 
 const DRAUGHT = 'Minor Healing Draught';
-const SYSTEM = { cause: 'system' };
 
 test('B-b4-8: the cached fight is the fight rebuilt from scratch, action by action, stock cuts included', async () => {
     await seeded(21, async () => {
@@ -121,8 +120,8 @@ test('the party\'s internal commands are refused from a click, nothing saved; fr
                 assert.equal(r.code, 'REFUSED', type);
             }
             assert.equal(hash(host.head().domains), head);
-            assert.equal((await host.cmd('party.grantXp', { amount: 10 }, SYSTEM)).ok, true);
-            const brann = await host.cmd('party.addCompanion', { name: 'Brann', level: 50 }, SYSTEM);
+            assert.equal((await host.internal('party.grantXp', { amount: 10 })).ok, true);
+            const brann = await host.internal('party.addCompanion', { name: 'Brann', level: 50 });
             assert.equal(brann.receipt.data.level, pc.level + 2, 'two levels above your character at most');
         } finally {
             host.close();

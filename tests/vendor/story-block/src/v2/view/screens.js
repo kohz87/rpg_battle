@@ -11,7 +11,16 @@
 // * Data bindings (`data: { alias: { query, args } }`) run in dependency order: an argument written as
 //   `$alias.path` takes the value of an earlier binding. An unknown alias or a cycle is an error.
 //
+// * Navigation order (the game view, the Story panel's tabs): a screen may say `order` (a number, lower
+//   first); without one, `screenOrder` gives the usual ones (Party, Quests, Scene, Inventory, Map) a
+//   place and puts the rest after them. Home is always first: no order a module gives can move it down.
+//
+// * A theme's values pass the same checks the page applies (css.js themeVars: one CSS value each, nothing
+//   that loads or runs anything but data:/https:); a screen with one unsafe value is skipped as a whole.
+//
 // Pure: no DOM, no SillyTavern. Reader settings come in and go out through injected functions.
+
+import { themeVars } from './css.js';
 
 export const MOUNTS = Object.freeze(['tab', 'screen', 'card', 'hud', 'dialog']);
 export const SOURCES = Object.freeze(['reader', 'card', 'pack', 'module']);
@@ -25,6 +34,32 @@ const BINDING_KEYS = new Set(['query', 'args']);
 const STEP_KEYS = new Set(['id', 'title', 'template', 'layout']);
 
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+/** The game view's landing page: always the first screen and the first tab. */
+export const HOME_ID = 'story-block/home';
+// Where the usual screens go when they give no `order`, by the last part of their id ('rpg-battle/party').
+export const DEFAULT_ORDER = Object.freeze({ party: 10, quests: 20, scene: 30, inventory: 40, map: 50 });
+export const REST_ORDER = 100;
+
+/**
+ * A screen's (or a tab's) place in the navigation, lower first: 0 for Home, else its own `order` (at
+ * least 1, so nothing goes before Home), else DEFAULT_ORDER by the id's last part, else REST_ORDER.
+ */
+export function screenOrder(id, order = null) {
+    const text = String(id ?? '');
+    if (text === HOME_ID) return 0;
+    if (typeof order === 'number' && Number.isFinite(order)) return Math.max(1, order);
+    const name = text.split('/').pop().toLowerCase();
+    return Object.hasOwn(DEFAULT_ORDER, name) ? DEFAULT_ORDER[name] : REST_ORDER;
+}
+
+/** `list` sorted for navigation: by screenOrder, ties kept in the order given. `idOf` / `orderOf` read an entry. */
+export function byNavOrder(list, idOf = entry => entry.id, orderOf = entry => entry.order) {
+    return list
+        .map((entry, at) => ({ entry, at, rank: screenOrder(idOf(entry), orderOf(entry)) }))
+        .sort((a, b) => a.rank - b.rank || a.at - b.at)
+        .map(item => item.entry);
+}
 const utf8 = new TextEncoder();
 const label = def => (typeof def?.id === 'string' && def.id ? `Screen "${def.id}"` : 'The screen');
 
@@ -41,6 +76,7 @@ export function validateScreen(def, { id = null } = {}) {
     if (def.title !== undefined && typeof def.title !== 'string') errors.push(`${name}: the title must be text.`);
     if (def.defaultOn !== undefined && typeof def.defaultOn !== 'boolean') errors.push(`${name}: defaultOn must be true or false.`);
     if (def.icon !== undefined && typeof def.icon !== 'string') errors.push(`${name}: the icon must be text.`);
+    if (def.order !== undefined && !(typeof def.order === 'number' && Number.isFinite(def.order))) errors.push(`${name}: order must be a number (lower comes first).`);
 
     const mounts = Array.isArray(def.mounts) ? def.mounts : null;
     if (!mounts || !mounts.length) errors.push(`${name} must list where it may appear (mounts: ${MOUNTS.join(', ')}).`);
@@ -61,6 +97,8 @@ export function validateScreen(def, { id = null } = {}) {
                 if (!PROPERTY.test(key)) errors.push(`${name}: theme key "${key}" is not a CSS custom property (--name).`);
                 else if (typeof value !== 'string' && !(typeof value === 'number' && Number.isFinite(value))) {
                     errors.push(`${name}: theme value for ${key} must be text or a number.`);
+                } else {
+                    for (const warning of themeVars({ [key]: value }).warnings) errors.push(`${name}: ${warning}`);
                 }
             }
         }
@@ -317,9 +355,13 @@ export function createScreens({ reader = () => ({}), saveReader = () => {} } = {
 
         resolve,
         ids,
-        /** Usable screens that may appear in `mount`, by id: [{ id, screen, source, origin, fallbacks }]. */
+        /**
+         * Usable screens that may appear in `mount`, in navigation order (screenOrder, then id):
+         * [{ id, screen, source, origin, fallbacks }].
+         */
         list(mount = null) {
-            return ids().map(resolve).filter(entry => entry?.screen && (mount === null || entry.screen.mounts.includes(mount)));
+            const usable = ids().map(resolve).filter(entry => entry?.screen && (mount === null || entry.screen.mounts.includes(mount)));
+            return byNavOrder(usable, entry => entry.id, entry => entry.screen.order);
         },
         /** Every skipped definition and why, for the overlay: [{ id, source, origin, reason }]. */
         problems() {
