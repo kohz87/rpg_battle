@@ -197,6 +197,13 @@ export function createStore({
             return lastCarrier(list());
         },
 
+        // Carrier `index`'s own ops (frozen copies), [] for a message with no record.
+        opsAt(index) {
+            const arr = list();
+            if (!Number.isInteger(index) || index < 0 || index >= arr.length) return [];
+            return deepFreeze(structuredClone(readRecord(arr[index])?.ops ?? []));
+        },
+
         // The JSON Pointers carrier `index`'s ops touched, in first-touched order (for a card's
         // "only what changed" and changed(path)). [] for a message with no record.
         changesAt(index) {
@@ -318,6 +325,64 @@ export function createStore({
             writeRecord(message, { ...record, narrated: [...new Set(ids)], ...(rev === undefined ? {} : { rev }) });
             saver.touch();
             if (atHead) retain(arr, head.state, head.problems);
+        },
+
+        // Every stored receipt on the current line of history, in chat order: [{ index, receipt }]
+        // (the carriers the head is built from; frozen copies).
+        receipts() {
+            const arr = list();
+            const out = [];
+            let started = false;
+            for (const i of carrierIndexes(arr)) {
+                const record = readRecord(arr[i]);
+                if (record?.checkpoint) started = true;
+                if (!started || !record) continue;
+                for (const receipt of record.receipts) if (isObject(receipt)) out.push({ index: i, receipt });
+            }
+            return deepFreeze(structuredClone(out));
+        },
+
+        // Return in time (MODULES §F17): drops the head carrier's receipts with rev >= beforeRev and
+        // their ops, so the head is the state just before the first of them. Each receipt's ops end with
+        // its `/meta/rev` op, which is where they are cut. Only the head carrier (nothing after it holds
+        // state that depends on it). Returns { dropped: receipt ids, rev }.
+        truncate(index, beforeRev) {
+            const arr = list();
+            if (index !== lastCarrier(arr)) throw new RangeError(`Message ${index} is not the last reply that keeps the story, so its changes cannot be taken back alone.`);
+            if (!Number.isInteger(beforeRev) || beforeRev < 1) throw new TypeError('beforeRev must be a whole number of 1 or more.');
+            const message = carrierAt(arr, index);
+            const record = readRecord(message);
+            if (!record) return { dropped: [], rev: revOf(current().state) };
+            const chunks = [];
+            let start = 0;
+            record.ops.forEach((op, at) => {
+                if (op?.path === '/meta/rev') {
+                    chunks.push({ ops: record.ops.slice(start, at + 1), rev: op.value });
+                    start = at + 1;
+                }
+            });
+            if (start < record.ops.length) chunks.push({ ops: record.ops.slice(start), rev: null });
+            const cut = chunks.findIndex(chunk => chunk.rev === null || chunk.rev >= beforeRev);
+            const kept = cut < 0 ? chunks : chunks.slice(0, cut);
+            const keptRevs = new Set(kept.map(chunk => chunk.rev));
+            const receipts = record.receipts.filter(receipt => keptRevs.has(receipt?.rev));
+            const dropped = record.receipts.filter(receipt => !keptRevs.has(receipt?.rev)).map(receipt => receipt?.id);
+            const base = record.checkpoint ? checkpointState(record.checkpoint) : stateBefore(arr, index);
+            if (!base) throw new Error('This chat has no story state yet.');
+            const ops = kept.flatMap(chunk => chunk.ops);
+            const state = step(base, ops);
+            const byRev = new Map(receipts.map(receipt => [receipt.rev, receipt]));
+            writeRecord(message, {
+                ...record,
+                ops,
+                receipts,
+                spans: kept.map(chunk => ({ n: chunk.ops.length, story: byRev.get(chunk.rev)?.cause === 'story' })),
+                narrated: record.narrated.filter(id => !dropped.includes(id)),
+                rev: revOf(state),
+            });
+            saver.touch();
+            retain(arr, state, []);
+            return { dropped, rev: revOf(state) };
         },
 
         untold() {

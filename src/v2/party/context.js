@@ -34,7 +34,9 @@ export function tail(view) {
     const lines = actorsInOrder(party).map(actor => `Party: ${actorLine(actor, { pc: actor.id === party.pc, rules })}`);
     const waiting = (party.offers ?? []).map(offer => (offer.kind === 'join'
         ? `${offer.name} asked to join`
-        : `${party.actors?.[offer.actor]?.name ?? 'someone'} may learn ${offer.skill}`));
+        : offer.kind === 'leave'
+            ? `${party.actors?.[offer.actor]?.name ?? 'someone'} may leave`
+            : `${party.actors?.[offer.actor]?.name ?? 'someone'} may learn ${offer.skill}`));
     const optional = waiting.length ? [`Party, waiting on the reader: ${waiting.join('; ')} (do not write these lines again).`] : [];
     return { lines, optional };
 }

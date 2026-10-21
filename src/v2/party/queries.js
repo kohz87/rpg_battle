@@ -4,7 +4,8 @@
 
 import { combatNumbers, combatantFromSheet } from '../../party.js';
 import { gearOf, rulesFrom, toSheet } from './sheets.js';
-import { actorsInOrder, plainCopy, resolveName } from './util.js';
+import { termsOf } from '../../terms.js';
+import { actorsInOrder, offerText, plainCopy, resolveName } from './util.js';
 
 /**
  * A member's record with its `portrait` (MODULES §F11): the one kept on the record (your
@@ -46,9 +47,24 @@ export function pc(state, args = {}, tools = null) {
     return plainCopy(withPortrait(party.pc ? party.actors?.[party.pc] ?? null : null, tools));
 }
 
-/** The join and skill offers waiting for the reader, oldest first. */
+/**
+ * The join, skill and leave offers waiting for the reader, oldest first, each with `text`: the
+ * plain sentence a screen shows beside Accept and Dismiss.
+ */
 export function offers(state) {
-    return plainCopy(partyOf(state).offers ?? []);
+    const party = partyOf(state);
+    return plainCopy((party.offers ?? []).map(offer => ({ ...offer, text: offerText(offer, party) })));
+}
+
+/**
+ * `party.terms({ settings? })` → the display terms in use (MODULES §F25): { levelName, xpName,
+ * tiers: { size, numerals } | null }: the reader's own, else what an enabled pack suggests, else
+ * Level and XP. For screens and other modules that word levels and XP.
+ */
+export function terms(state, args = {}, tools = null) {
+    const settings = args?.settings ?? (tools?.settings && typeof tools.settings === 'object' ? tools.settings : null);
+    const { levelName, xpName, tiers } = termsOf(rulesFrom(settings));
+    return plainCopy({ levelName, xpName, tiers });
 }
 
 /**
@@ -74,5 +90,6 @@ export const queries = {
     'party.actor': actor,
     'party.pc': pc,
     'party.offers': offers,
+    'party.terms': terms,
     'party.combatNumbers': combatNumbersOf,
 };

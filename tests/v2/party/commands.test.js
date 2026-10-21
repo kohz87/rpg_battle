@@ -313,14 +313,14 @@ test('party.grantXp: amounts, awards by kind or difficulty, claims, the cap', ()
     const major = run(state, 'party.grantXp', { kind: 'major', reason: 'saved the caravan' });
     assert.ok(major.ok, major.message);
     assert.equal(pcOf(major.state).xp, 25);
-    assert.equal(major.result.summary, 'saved the caravan: Ren +25 XP; Lyra +25 XP.');
+    assert.equal(major.result.summary, 'saved the caravan: Ren XP +25; Lyra XP +25.');
     const quest = run(state, 'party.grantXp', { difficulty: 'hard', actors: [state.domains.party.pc] });
     assert.equal(pcOf(quest.state).xp, 15);
     assert.equal(quest.state.domains.party.actors[lyra.id].xp, 0);
     const each = run(state, 'party.grantXp', { xp: { [lyra.id]: 250 } });
     assert.equal(each.state.domains.party.actors[lyra.id].level, 3);
     assert.equal(each.state.domains.party.actors[lyra.id].xp, 50);
-    assert.match(each.result.summary, /Lyra \+250 XP, reaches Level 3/);
+    assert.match(each.result.summary, /Lyra XP \+250, reaches Level 3/);
     const rate = run(state, 'party.grantXp', { kind: 'minor' }, { settings: { xpRate: 2 } });
     assert.equal(pcOf(rate.state).xp, 20);
     const once = run(state, 'party.grantXp', { xp: 5, claim: 'quest:q_ab12cd34:xp' });

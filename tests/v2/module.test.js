@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { definitionProblems } from '../vendor/story-block/src/v2/registry.js';
-import { KIND_OVERRIDES, MODULE_ID, PARTS, REV_QUERY, VERSION, createModule, partSettings } from '../../src/v2/module.js';
+import { KIND_OVERRIDES, MODULE_ID, PARTS, REV_QUERY, SHARED_SETTINGS, VERSION, createModule, mergeTerms, packTerms, partSettings, withTerms } from '../../src/v2/module.js';
 
 const module = createModule({ settings: () => ({}) });
 
@@ -11,16 +11,17 @@ test('the merged module is a valid Story Block module with every part\'s pieces'
     assert.deepEqual(definitionProblems(module), []);
     assert.equal(module.id, MODULE_ID);
     assert.equal(module.version, VERSION);
-    assert.deepEqual(PARTS.map(([id]) => id), ['party', 'checks', 'items', 'combat', 'return', 'trade']);
-    assert.deepEqual(Object.keys(module.domains).sort(), ['bestiary', 'checks', 'combat', 'party', 'trade']);
+    assert.deepEqual(PARTS.map(([id]) => id), ['party', 'creation', 'checks', 'items', 'combat', 'board', 'return', 'trade', 'screens']);
+    assert.deepEqual(Object.keys(module.domains).sort(), ['bestiary', 'checks', 'combat', 'creation', 'party', 'trade']);
     for (const [, part] of PARTS) {
         for (const type of Object.keys(part.commands ?? {})) assert.equal(typeof module.commands[type], 'function', type);
         for (const name of Object.keys(part.queries ?? {})) assert.equal(typeof module.queries[name], 'function', name);
-        for (const tab of part.tabs ?? []) assert.ok(module.tabs.some(entry => entry.id === tab.id), tab.id);
         for (const name of Object.keys(part.widgets ?? {})) assert.ok(module.widgets[name], name);
+        for (const screen of part.screens ?? []) assert.ok(module.screens.includes(screen), screen.id);
     }
-    assert.deepEqual(Object.keys(module.capture.kinds).sort(), ['check', 'encounter', 'join', 'rest', 'skill', 'wound']);
-    assert.deepEqual(Object.keys(module.widgets).sort(), ['rpg-battle.check-card', 'rpg-battle.return-card']);
+    assert.deepEqual(Object.keys(module.capture.kinds).sort(), ['check', 'encounter', 'join', 'leave', 'rest', 'skill', 'wound']);
+    assert.deepEqual(Object.keys(module.widgets).sort(), ['rpg-battle.battle-board', 'rpg-battle.check-card', 'rpg-battle.preset-pick', 'rpg-battle.return-card']);
+    assert.deepEqual(module.screens.map(screen => screen.id), ['rpg-battle/create', 'rpg-battle/fight', 'rpg-battle/party', 'rpg-battle/items', 'rpg-battle/trade', 'rpg-battle/hud', 'rpg-battle/status-card']);
     assert.equal(typeof module.queries[REV_QUERY], 'function');
     // Party keeps check.resolve; the check line is the checks part's.
     assert.equal(typeof module.commands['check.resolve'], 'function');
@@ -48,6 +49,80 @@ test('settings: each part\'s keys under its part id, labelled with its section; 
     assert.deepEqual(partSettings(all, 'combat'), { rules: { gear: {} }, xpRate: 2, turnOrder: 'timeline', speedOffset: 10, hitBase: 60, hitPerPoint: 3 });
     assert.equal(partSettings(all, 'party').hitBase, undefined);
     assert.equal(partSettings(all, 'party').xpRate, 2);
+});
+
+test('tabs: a hand-built tab a screen covers gives way to it; every screen and widget is merged once', () => {
+    // Party, Items and Trade are the screens part's; Fight is the board part's screen.
+    assert.deepEqual(module.tabs.map(tab => tab.id), []);
+    const tabbed = module.screens.filter(screen => screen.mounts.includes('tab')).map(screen => screen.id);
+    assert.deepEqual(tabbed, ['rpg-battle/fight', 'rpg-battle/party', 'rpg-battle/items', 'rpg-battle/trade']);
+    const ids = module.screens.map(screen => screen.id);
+    assert.equal(new Set(ids).size, ids.length);
+});
+
+test('a screen or a widget two parts claim is refused', () => {
+    const board = PARTS.find(([id]) => id === 'board')[1];
+    const trade = PARTS.find(([id]) => id === 'trade')[1];
+    trade.screens = [board.screens[0]];
+    try {
+        assert.throws(() => createModule(), /the screen "rpg-battle\/fight" is in two parts \(board and trade\)/);
+    } finally {
+        delete trade.screens;
+    }
+    trade.widgets = { 'rpg-battle.battle-board': board.widgets['rpg-battle.battle-board'] };
+    try {
+        assert.throws(() => createModule(), /the widget "rpg-battle\.battle-board" is in two parts \(board and trade\)/);
+    } finally {
+        delete trade.widgets;
+    }
+});
+
+test('settings: creation reads the Character points budget as party.startPoints and party.statCap', () => {
+    assert.deepEqual(SHARED_SETTINGS, { creation: { party: ['startPoints', 'statCap'] } });
+    const all = { ...module.settings.defaults, 'party.startPoints': 12, 'party.statCap': 20, 'creation.maxTalents': 1 };
+    const own = partSettings(all, 'creation');
+    assert.equal(own['party.startPoints'], 12);
+    assert.equal(own['party.statCap'], 20);
+    assert.equal(own.maxTalents, 1);
+    assert.equal(own.startPoints, undefined, 'never bare: a part\'s bare keys are its own');
+    assert.equal(partSettings(all, 'combat')['party.startPoints'], undefined);
+    // The creation query's rules through the merged module.
+    const content = module.queries['creation.content']({ v: 2, meta: { rev: 0, claims: {} }, domains: {} }, { settings: all });
+    assert.equal(content.rules.startPoints, 12);
+    assert.equal(content.rules.statCap, 20);
+});
+
+test('terms (§F25): a pack\'s suggestion under the reader\'s own, field by field; read defensively', () => {
+    const query = list => (name, args) => {
+        assert.equal(name, 'packs.content');
+        assert.deepEqual(args, { kind: 'terms' });
+        return list;
+    };
+    assert.equal(packTerms(null), null);
+    assert.equal(packTerms(() => { throw new Error('no packs part'); }), null);
+    assert.equal(packTerms(query([])), null);
+    assert.equal(packTerms(query('nonsense')), null);
+    assert.deepEqual(packTerms(query([{ pack: 'a' }, { pack: 'ersveil', levelName: ' Soul  Class ', xp: 'Soul Growth', tiers: { size: 10, numerals: 'roman' }, cap: 50 }])),
+        { levelName: 'Soul Class', xpName: 'Soul Growth', tiers: { size: 10, numerals: 'roman' } });
+    assert.deepEqual(packTerms(query([{ pack: 'p', terms: { levelName: 'Rank', tiers: true } }])), { levelName: 'Rank', tiers: { size: 10, numerals: 'roman' } });
+    const pack = { levelName: 'Soul Class', xpName: 'Soul Growth', tiers: { size: 10, numerals: 'roman' } };
+    assert.deepEqual(mergeTerms(undefined, pack), pack);
+    assert.deepEqual(mergeTerms({ levelName: 'Circle', xpName: '' }, pack), { levelName: 'Circle', xpName: 'Soul Growth', tiers: pack.tiers });
+    assert.deepEqual(mergeTerms({ tiers: { enabled: false } }, pack).tiers, { enabled: false });
+    assert.equal(mergeTerms(undefined, null), undefined);
+    const settings = { xpRate: 1 };
+    assert.equal(withTerms(settings, query([])), settings, 'unchanged when no pack suggests any');
+    assert.deepEqual(withTerms({ terms: { xpName: 'Growth' } }, query([pack])).terms, { xpName: 'Growth', levelName: 'Soul Class', tiers: pack.tiers });
+});
+
+test('terms reach a part through its ctx, its view and its query tools', () => {
+    const pack = [{ pack: 'ersveil', levelName: 'Soul Class', xpName: 'Soul Growth' }];
+    const host = name => (name === 'packs.content' ? pack : null);
+    const state = { v: 2, meta: { rev: 0, claims: {} }, domains: {} };
+    assert.deepEqual(module.queries['party.terms'](state, {}, { query: host }), { levelName: 'Soul Class', xpName: 'Soul Growth', tiers: null });
+    assert.deepEqual(module.queries['party.terms'](state, {}, { query: () => [] }), { levelName: 'Level', xpName: 'XP', tiers: null });
+    const reader = createModule({ settings: () => ({ terms: { xpName: 'Power Growth' } }) });
+    assert.deepEqual(reader.queries['party.terms'](state, {}, { query: host }), { levelName: 'Soul Class', xpName: 'Power Growth', tiers: null }, 'the reader\'s own word wins');
 });
 
 test('a name two parts claim is refused when the module is built', async () => {

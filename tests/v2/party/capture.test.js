@@ -95,7 +95,9 @@ test('join rejections', () => {
     const offered = capture(state, '+ join Lyra — an archer').state;
     rejects(capture(offered, '+ join Lyra — an archer'), 'REFUSED', /already waiting/);
     rejects(capture(state, '+ join Ren — himself'), 'REFUSED', /already in the party/);
-    rejects(capture(state, '- join Lyra — went home'), 'INVALID');
+    // `- join` is a companion leaving (MODULES §F26): someone not in the party cannot.
+    rejects(capture(state, '- join Lyra — went home'), 'NOT_FOUND');
+    rejects(capture(state, '~ join Lyra — an archer'), 'INVALID');
     rejects(capture(state, '+ join you — me'), 'INVALID');
     rejects(capture(state, '+ join Lyra — an archer | level: high'), 'INVALID', /not a level/);
 });

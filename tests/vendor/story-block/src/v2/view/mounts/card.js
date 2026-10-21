@@ -14,7 +14,8 @@
 //   carriers        () → indexes of the carrier messages (required)
 //   messageElement  (index) → SillyTavern's `.mes[mesid=index]` element (default: a document query)
 //   swipeAt         (index) → the message's swipe_id (default 0)
-//   summary         (screen, { index, state, changes }) → the header's one-line text (optional)
+//   summary         (screen, { index, state, changes, before }) → the header's one-line text (optional)
+//   opsAt           (index) → the carrier's own ops (optional; cards get them as `replyOps`)
 //   IntersectionObserver  the class to use (default globalThis.IntersectionObserver; null turns it off)
 //   eventSource, eventTypes   SillyTavern's, to follow swipes, edits, deletes and renders (optional)
 //   cacheLimit      how many drawn cards to keep (default 200)
@@ -43,6 +44,13 @@ export function createCardMount(deps) {
     const messageElement = deps.messageElement ?? (index => doc.querySelector(`.mes[mesid="${index}"]`));
     const swipeAt = deps.swipeAt ?? (() => 0);
     const changesAt = deps.changesAt ?? (() => []);
+    const opsAt = deps.opsAt ?? (() => []);
+    // The state at the carrier before `index` (null for the first carrier).
+    const beforeOf = index => {
+        const earlier = deps.carriers().filter(at => at < index);
+        if (!earlier.length) return null;
+        try { return deps.stateAt(earlier.at(-1)); } catch { return null; }
+    };
     const cacheLimit = deps.cacheLimit ?? 200;
     const Observer = deps.IntersectionObserver === undefined ? globalThis.IntersectionObserver : deps.IntersectionObserver;
 
@@ -76,6 +84,8 @@ export function createCardMount(deps) {
             state: merged.stateAt(index),
             changes: changesAt(index) ?? [],
             index,
+            // What the reply took away is gone from its state: the state before it and its ops say what.
+            extra: { before: beforeOf(index), replyOps: opsAt(index) ?? [] },
         });
         let result = draw();
         return {
@@ -106,7 +116,7 @@ export function createCardMount(deps) {
         node.setAttribute('data-ss-card', entry.id);
         const head = button(doc, 'ss-card-head');
         head.setAttribute('aria-expanded', 'false');
-        const summary = make(doc, 'span', 'ss-card-summary', deps.summary?.(entry.screen, { index, state, changes }) ?? changeSummary(changes));
+        const summary = make(doc, 'span', 'ss-card-summary', deps.summary?.(entry.screen, { index, state, changes, before: beforeOf(index) }) ?? changeSummary(changes));
         summary.setAttribute('data-slot', 'summary');
         const chevron = icon(doc, 'fa-chevron-down');
         chevron.classList.add('ss-card-chevron');

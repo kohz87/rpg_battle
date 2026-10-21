@@ -16,7 +16,8 @@
 //   on             (event, fn) → unsubscribe; 'head' and 'committed' redraw head mounts (optional)
 //   document       the document to build in (optional, default globalThis.document)
 //
-// The scope given to the renderer: { state, q, draft, settings, changes, mount, index, screenId, api }.
+// The scope given to the renderer: { state, q, draft, settings, changes, mount, index, screenId, api, query },
+// and for cards also { before, replyOps } (the state before the reply, the reply's own ops).
 
 import { resolveData } from '../screens.js';
 
@@ -91,7 +92,7 @@ function problem(el, doc, message) {
  * ctx: { deps, state, changes = [], draft = null, index = null, screen = <override, e.g. a wizard step> }
  * → { ok: true, screen, scope, problems } | { ok: false, message }
  */
-export function drawScreen(el, screenId, mount, { deps, state, changes = [], draft = null, index = null, screen: override = null }) {
+export function drawScreen(el, screenId, mount, { deps, state, changes = [], draft = null, index = null, screen: override = null, extra = null }) {
     const doc = documentOf(deps);
     const resolved = deps.screens.resolve(screenId);
     if (!resolved?.screen) {
@@ -116,12 +117,16 @@ export function drawScreen(el, screenId, mount, { deps, state, changes = [], dra
         state,
         q: data.q,
         draft,
-        settings: typeof deps.settings === 'function' ? deps.settings() : (deps.settings ?? {}),
+        // The settings of the module the screen belongs to (its id's namespace, `rpg-battle/party`).
+        settings: typeof deps.settings === 'function' ? deps.settings(screenId) : (deps.settings ?? {}),
         changes: [...changes],
         mount,
         index,
         screenId,
         api: deps.api ?? {},
+        // Templates call query(name, args) themselves (e.g. a portrait per person), at this state.
+        query: (name, args) => deps.query(name, args, state),
+        ...(extra ?? {}),
     };
     dispose(el);
     try {

@@ -19,6 +19,15 @@ export const CREATE_SCREEN_ID = 'rpg-battle/create';
 // The live preview of the draft (creation.build), as a template expression.
 const LIVE = 'query("creation.build", { draft: draft, settings: settings })';
 
+const START = `
+<section class="cc-step cc-start">
+  <p class="cc-none" data-if="!q.c.hasPresets">This story has no ready-made characters. Go on to make your own.</p>
+  <div data-if="q.c.hasPresets">
+    <p class="cc-lead">Start from a ready-made character, or make your own. A ready-made one fills in race, talents and points (you can still change them) and brings its skills; your name and background stay your persona's.</p>
+    <ss-widget name="rpg-battle.preset-pick" data-props='{"bind":"q.c.presets"}'></ss-widget>
+  </div>
+</section>`;
+
 const RACE = `
 <section class="cc-step cc-race">
   <p class="cc-none" data-if="!q.c.hasRaces">This story has no races to choose from. Go on to the next step.</p>
@@ -122,11 +131,21 @@ const CSS = `
 .cc-summary { margin: 0; opacity: .85; }
 .cc-problem { margin: 0; min-height: 1.2em; color: var(--ss-w-warn, #d9a441); font-size: .9em; }
 .cc-go { justify-self: end; }
+.rpg-presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 15em), 1fr)); gap: var(--cc-gap); }
+.rpg-preset { display: grid; gap: 3px; padding: 6px 8px; border-radius: 8px;
+  border: 1px solid var(--SmartThemeBorderColor, rgba(127, 127, 127, .4));
+  background: var(--SmartThemeBlurTintColor, rgba(127, 127, 127, .08)); }
+.rpg-preset-chosen { border-color: var(--ss-accent, var(--SmartThemeQuoteColor)); }
+.rpg-preset-name { font-weight: bold; }
+.rpg-preset-origin, .rpg-preset-skills { font-size: .85em; color: var(--ss-accent, var(--SmartThemeQuoteColor)); }
+.rpg-preset-note { font-size: .85em; opacity: .8; }
+.rpg-preset-go, .rpg-preset-own { justify-self: start; }
 @media (max-width: 600px) { .cc-left { float: none; display: block; } .cc-you-row { flex-direction: column; } }
 `;
 
-/** The wizard's steps (SPEC §13.6): Race, Talents, Stats, You (the persona's name, background and portrait; submits). */
+/** The wizard's steps (SPEC §13.6): Start (a pack's ready-made character), Race, Talents, Stats, You (the persona's name, background and portrait; submits). */
 export const CREATE_STEPS = Object.freeze([
+    Object.freeze({ id: 'start', title: 'Start', template: START.trim() }),
     Object.freeze({ id: 'race', title: 'Race', template: RACE.trim() }),
     Object.freeze({ id: 'talents', title: 'Talents', template: TALENTS.trim() }),
     Object.freeze({ id: 'stats', title: 'Stats', template: STATS.trim() }),

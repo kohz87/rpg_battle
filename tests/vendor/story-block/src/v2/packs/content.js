@@ -22,7 +22,8 @@ export function itemDef(item) {
 
 /**
  * Records of one kind from every enabled pack, in pack order then file order.
- * `kind`: a content kind (items, creatures, shops, recipes, events, quests, races, talents),
+ * `kind`: a content kind (items, creatures, shops, recipes, events, quests, races, talents,
+ * skills, presets, places, routes),
  * `currency` (one `{ pack, name, short }` per pack that suggests one), `layouts`,
  * `screens` (each with its `pack`), or `theme` (one `{ pack, tokens }` per pack that has a
  * theme). Unknown kinds give [].
@@ -31,10 +32,20 @@ export function itemDef(item) {
 export function contentOf(packs, kind, { pack = null } = {}) {
     if (kind === 'currency') return copy(packs.filter(entry => entry.currency && (!pack || entry.id === pack)).map(entry => ({ pack: entry.id, ...entry.currency })));
     const chosen = pack ? packs.filter(entry => entry.id === pack) : packs;
-    if (CONTENT_KINDS.includes(kind)) return copy(chosen.flatMap(entry => entry.content[kind]));
+    if (CONTENT_KINDS.includes(kind)) return copy(chosen.flatMap(entry => entry.content[kind] ?? []));
     if (kind === 'layouts' || kind === 'screens') return copy(chosen.flatMap(entry => entry[kind]));
     if (kind === 'theme') return copy(chosen.filter(entry => Object.keys(entry.theme).length).map(entry => ({ pack: entry.id, tokens: entry.theme })));
     return [];
+}
+
+/**
+ * The calendar for the story clock: the first enabled pack (in list order) that has one, as
+ * `{ pack, era, months: [{ name, days }], start: { year, month, day, hour, minute } | null }`,
+ * or null. `start.month` is the month's name. Calendars are not mixed across packs.
+ */
+export function calendarOf(packs) {
+    const pack = packs.find(entry => entry.calendar);
+    return pack ? copy({ pack: pack.id, ...pack.calendar }) : null;
 }
 
 /**

@@ -130,3 +130,14 @@ export function labelsOf(line) {
 }
 
 export const plainCopy = value => (value === undefined ? null : JSON.parse(JSON.stringify(value)));
+
+/**
+ * A waiting offer in one plain sentence for the reader (screens, the tab, the prompt's notes):
+ * "Lyra asks to join (ranger).", "Ren could learn Shadow Cut.", "Lyra means to leave the party: parts ways at the ford."
+ */
+export function offerText(offer, party) {
+    if (offer?.kind === 'join') return `${offer.name} asks to join${offer.role ? ` (${offer.role})` : ''}.`;
+    const who = party?.actors?.[offer?.actor]?.name ?? offer?.name ?? 'Someone';
+    if (offer?.kind === 'leave') return `${who} means to leave the party${offer.text ? `: ${offer.text}` : ''}.`;
+    return `${who} could learn ${offer?.skill}.`;
+}

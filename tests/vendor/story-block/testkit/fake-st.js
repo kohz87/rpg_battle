@@ -135,6 +135,20 @@ export function createFakeContext(options = {}) {
         extension_prompt_types: EXTENSION_PROMPT_TYPES,
         extension_prompt_roles: EXTENSION_PROMPT_ROLES,
         getCurrentChatId: () => ctx.chatId,
+        // SillyTavern's branchChat (bookmarks.js; not on the real getContext()): chat[0..mesId] becomes a
+        // new chat that is opened; the old one is kept in `fake.chats` with the branch named on its message.
+        async branchChat(mesId) {
+            const index = Number(mesId);
+            if (!Number.isInteger(index) || index < 0 || index >= ctx.chat.length) return null;
+            const name = `${ctx.chatId} - Branch #${Object.keys(fake.chats).length + 1}`;
+            const message = ctx.chat[index];
+            message.extra = message.extra ?? {};
+            (message.extra.branches ??= []).push(name);
+            fake.chats[ctx.chatId] = clone(ctx.chat);
+            const branch = clone(ctx.chat.slice(0, index + 1));
+            await fake.loadChat(branch, name);
+            return name;
+        },
         substituteParams: text => String(text ?? '').replace(/\{\{user\}\}/gi, ctx.name1).replace(/\{\{char\}\}/gi, ctx.name2)
             .replace(/<USER>/gi, ctx.name1).replace(/<BOT>|<CHAR>/gi, ctx.name2),
         async saveChat() {
@@ -268,6 +282,8 @@ export function createFakeContext(options = {}) {
             if (Array.isArray(message.swipes)) message.swipes[message.swipe_id ?? 0] = message.mes;
             await emit(EVENT_TYPES.MESSAGE_EDITED, index);
         },
+        /** Chats left behind by a branch: { [chatId]: messages as they were }. */
+        chats: {},
         /** Opens another chat (or reopens this one from what was saved). */
         async loadChat(chat, id = ctx.chatId) {
             ctx.chat = clone(chat);

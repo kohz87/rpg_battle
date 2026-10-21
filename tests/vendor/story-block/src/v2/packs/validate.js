@@ -12,7 +12,7 @@
 // `capabilities` (the capability names this Story Block has, or null when unknown: then
 // requires.capabilities is checked for form only).
 
-import { CHOICE_FIELDS, CONTENT_KINDS, COMMAND, DEF_ID, EVENT_FIELDS, EVENT_LIMITS, ITEM_FIELDS, ITEM_KINDS, LIMITS, MOUNTS, PACK_FIELDS, PACK_ID, RARITIES, SCREEN_FIELDS, SCREEN_ID, SEMVER, SLUG, START_FIELDS } from './limits.js';
+import { CALENDAR_FIELDS, CALENDAR_LIMITS, CALENDAR_START_FIELDS, CHOICE_FIELDS, CONTENT_KINDS, COMMAND, DEF_ID, EVENT_FIELDS, EVENT_LIMITS, ITEM_FIELDS, ITEM_KINDS, LIMITS, MOUNTS, PACK_FIELDS, PACK_ID, PLACE_FIELDS, PRESET_FIELDS, RARITIES, ROUTE_FIELDS, SCREEN_FIELDS, SCREEN_ID, SEMVER, SKILL_FIELDS, SKILL_TARGETS, SKILL_TYPES, SLUG, START_FIELDS, STAT_NAME } from './limits.js';
 import { byteLength, checkPlain } from './safety.js';
 import { parseRange, satisfies } from './version.js';
 import { foldKey, oneLine } from '../../text.js';
@@ -75,6 +75,7 @@ function normalize(raw, { add, hostVersion, capabilities, limits }) {
 
     const requires = checkRequires(raw.requires, { add, hostVersion, capabilities });
     const currency = raw.currency === undefined ? null : checkCurrency(raw.currency, add);
+    const calendar = raw.calendar === undefined ? null : checkCalendar(raw.calendar, add);
 
     const content = {};
     if (raw.content !== undefined && !isObject(raw.content)) add('BAD_CONTENT', 'content', 'content must be an object of lists: { "items": [ … ], "events": [ … ] }.');
@@ -92,6 +93,17 @@ function normalize(raw, { add, hostVersion, capabilities, limits }) {
     content.races = records(given.races, 'races', { add, packId, check: (record, path, label) => checkChoice(record, path, label, add), slugField: 'id', named: true });
     content.talents = records(given.talents, 'talents', { add, packId, check: (record, path, label) => checkChoice(record, path, label, add), slugField: 'id', named: true });
     linkEvents(content.events, packId, add);
+    // Kinds added later are kept only when given, so older packs normalize as they always did.
+    if (given.skills !== undefined) content.skills = records(given.skills, 'skills', { add, packId, check: (record, path, label) => checkSkill(record, path, label, add) });
+    if (given.presets !== undefined) {
+        const choose = { race: choiceRefs(content.races), talent: choiceRefs(content.talents), skill: choiceRefs(content.skills ?? []) };
+        content.presets = records(given.presets, 'presets', { add, packId, check: (record, path, label) => checkPreset(record, path, label, add, choose), slugField: 'id', named: true });
+    }
+    if (given.places !== undefined) content.places = records(given.places, 'places', { add, packId, check: (record, path, label) => checkPlace(record, path, label, add) });
+    if (given.routes !== undefined) {
+        const place = placeRefs(content.places ?? []);
+        content.routes = records(given.routes, 'routes', { add, packId, check: (record, path) => checkRoute(record, path, add, place), named: false, autoSlug: routeSlug });
+    }
 
     const start = raw.start === undefined ? null : checkStart(raw.start, add, ref);
     let layouts = [];
@@ -110,6 +122,7 @@ function normalize(raw, { add, hostVersion, capabilities, limits }) {
         description: String(raw.description ?? ''),
         requires,
         currency,
+        calendar,
         content,
         start,
         layouts,
@@ -143,8 +156,9 @@ function checkRequires(requires, { add, hostVersion, capabilities }) {
 
 // One content list: every record an object, a unique slug, the record's own check.
 // `slugField`: the record's own slug field (`slug`, or `id` for events, races and talents);
-// `named`: the record needs a name (always for `slug` records).
-function records(list, kind, { add, packId, check, slugField = 'slug', named = slugField === 'slug' }) {
+// `named`: the record needs a name (always for `slug` records); `autoSlug(record)`: the slug of a
+// record without a name (routes) when it gives none.
+function records(list, kind, { add, packId, check, slugField = 'slug', named = slugField === 'slug', autoSlug = null }) {
     if (list === undefined) return [];
     if (!Array.isArray(list)) {
         add('BAD_CONTENT', `content.${kind}`, `content.${kind} must be a list.`);
@@ -161,9 +175,12 @@ function records(list, kind, { add, packId, check, slugField = 'slug', named = s
         }
         const given = record[slugField];
         let slug;
-        if (given !== undefined || !named) {
+        if (given !== undefined || (!named && !autoSlug)) {
             if (typeof given !== 'string' || !SLUG.test(given)) return add('BAD_RECORD', `${path}.${slugField}`, `${label}: ${slugField} must be lowercase letters, digits and dashes (like "iron-sword").`);
             slug = given;
+        } else if (!named) {
+            slug = autoSlug(record);
+            if (!slug) return add('BAD_RECORD', path, `${label}: give a "${slugField}".`);
         } else {
             slug = slugify(record.name);
             if (!slug) return add('BAD_RECORD', `${path}.name`, `${label}: the name needs at least one letter or digit, or give a "slug".`);
@@ -408,6 +425,175 @@ function checkStart(start, add, ref) {
         else out.inventory.money = money;
     }
     return out;
+}
+
+const isText = (value, max) => typeof value === 'string' && value.length <= max;
+const isNumber = value => typeof value === 'number' && Number.isFinite(value);
+
+// A skill template for RPG Battle (v1 skillFromTemplate): what it is, never its numbers, which
+// RPG Battle's rules set at the level it is learned.
+function checkSkill(record, path, label, add) {
+    let ok = true;
+    const say = (field, message, code = 'BAD_RECORD') => { ok = false; add(code, `${path}.${field}`, `${label}: ${message}`); };
+    for (const key of Object.keys(record)) if (!SKILL_FIELDS.includes(key)) say(key, `"${key}" is not a skill field (expected ${SKILL_FIELDS.join(', ')}).`, 'UNKNOWN_FIELD');
+    const type = record.type ?? 'physical';
+    if (!SKILL_TYPES.includes(type)) say('type', `type must be one of ${SKILL_TYPES.join(', ')}.`);
+    const stat = record.stat ?? null;
+    if (stat !== null && (typeof stat !== 'string' || !STAT_NAME.test(stat))) say('stat', 'stat must be a stat name like "DEX".');
+    const target = record.target ?? 'one';
+    if (!SKILL_TARGETS.includes(target)) say('target', `target must be one of ${SKILL_TARGETS.join(', ')}.`);
+    const element = record.element ?? null;
+    if (element !== null && (typeof element !== 'string' || !/^[a-z]{1,24}$/.test(element))) say('element', 'element must be one short lowercase word, like "fire", or left out.');
+    const note = record.note ?? '';
+    if (!isText(note, 500)) say('note', 'note must be text of at most 500 characters.');
+    const tags = record.tags ?? [];
+    if (!Array.isArray(tags) || tags.some(tag => typeof tag !== 'string' || !tag.trim() || tag.length > 40)) say('tags', 'tags must be a list of short words.');
+    if (!ok) return null;
+    return { name: oneLine(record.name, LIMITS.name), type, stat, target, element, note, tags: tags.map(tag => tag.trim()) };
+}
+
+// How a preset names a race, talent or skill of this pack: its id or slug, its name, or its
+// full id (`pack.<id>/<slug>`). Returns the full id or null.
+function choiceRefs(list) {
+    const byKey = new Map();
+    for (const record of list) {
+        for (const key of [record.id, record.slug, foldKey(record.name)]) if (!byKey.has(key)) byKey.set(key, record.id);
+    }
+    return value => {
+        if (typeof value !== 'string' || !value.trim()) return null;
+        return byKey.get(value) ?? byKey.get(foldKey(value)) ?? null;
+    };
+}
+
+// A ready-made character for the creation wizard: a race, talents and the points spent on each
+// stat (on top of the race and talents), plus skills to offer. The name and background come
+// from the persona; creation checks the point budget, this only checks the form.
+function checkPreset(record, path, label, add, choose) {
+    let ok = true;
+    const say = (field, message, code = 'BAD_RECORD') => { ok = false; add(code, `${path}.${field}`, `${label}: ${message}`); };
+    for (const key of Object.keys(record)) if (!PRESET_FIELDS.includes(key)) say(key, `"${key}" is not a preset field (expected ${PRESET_FIELDS.join(', ')}).`, 'UNKNOWN_FIELD');
+    const note = record.note ?? '';
+    if (!isText(note, 500)) say('note', 'note must be text of at most 500 characters.');
+    let race = null;
+    if (record.race !== undefined && record.race !== null) {
+        race = choose.race(record.race);
+        if (!race) say('race', `"${record.race}" is not a race of this pack.`, 'UNKNOWN_REF');
+    }
+    const refs = (field, ref, word) => {
+        const list = record[field] ?? [];
+        if (!Array.isArray(list)) { say(field, `${field} must be a list of ${word} ids or names of this pack.`); return []; }
+        const out = [];
+        list.forEach((entry, index) => {
+            const id = ref(entry);
+            if (!id) say(`${field}[${index}]`, `"${entry}" is not a ${word} of this pack.`, 'UNKNOWN_REF');
+            else if (out.includes(id)) say(`${field}[${index}]`, `"${entry}" is listed twice.`, 'DUPLICATE');
+            else out.push(id);
+        });
+        return out;
+    };
+    const talents = refs('talents', choose.talent, 'talent');
+    const skills = refs('skills', choose.skill, 'skill');
+    const points = record.points ?? {};
+    if (!isObject(points) || Object.entries(points).some(([stat, n]) => !STAT_NAME.test(stat) || !isInt(n))) say('points', 'points must map stat names to whole numbers of 0 or more: { "DEX": 3 }.');
+    if (!ok) return null;
+    return { name: oneLine(record.name, LIMITS.name), note, race, talents, points: { ...points }, skills };
+}
+
+// A place on the map: a name, coordinates in map units (x east, y north) and what it is.
+function checkPlace(record, path, label, add) {
+    let ok = true;
+    const say = (field, message, code = 'BAD_RECORD') => { ok = false; add(code, `${path}.${field}`, `${label}: ${message}`); };
+    for (const key of Object.keys(record)) if (!PLACE_FIELDS.includes(key)) say(key, `"${key}" is not a place field (expected ${PLACE_FIELDS.join(', ')}).`, 'UNKNOWN_FIELD');
+    for (const axis of ['x', 'y']) if (!isNumber(record[axis]) || Math.abs(record[axis]) > 1e6) say(axis, `${axis} must be a number (map units).`);
+    for (const field of ['region', 'kind', 'layer']) if (record[field] !== undefined && !isText(record[field], LIMITS.name)) say(field, `${field} must be text of at most ${LIMITS.name} characters.`);
+    const aliases = record.aliases ?? [];
+    if (!Array.isArray(aliases) || aliases.some(alias => typeof alias !== 'string' || !alias.trim() || alias.length > LIMITS.name)) say('aliases', 'aliases must be a list of other names for the place.');
+    const note = record.note ?? '';
+    if (!isText(note, 500)) say('note', 'note must be text of at most 500 characters.');
+    if (!ok) return null;
+    return {
+        name: oneLine(record.name, LIMITS.name), aliases: [...new Set(aliases.map(alias => oneLine(alias, LIMITS.name)))],
+        region: oneLine(record.region ?? '', LIMITS.name), kind: oneLine(record.kind ?? '', LIMITS.name), layer: oneLine(record.layer ?? '', LIMITS.name),
+        x: record.x, y: record.y, note,
+    };
+}
+
+// A route names two places of this pack by name, alias or slug; it is stored with their names.
+function placeRefs(places) {
+    const byKey = new Map();
+    for (const place of places) for (const key of [place.slug, ...[place.name, ...place.aliases].map(foldKey)]) if (!byKey.has(key)) byKey.set(key, place.name);
+    return value => (typeof value === 'string' && value.trim() ? byKey.get(value) ?? byKey.get(foldKey(value)) ?? null : null);
+}
+
+const routeSlug = record => slugify(`${record.from ?? ''} ${record.to ?? ''} ${record.kind ?? ''}`);
+
+function checkRoute(record, path, add, place) {
+    const label = typeof record.from === 'string' && typeof record.to === 'string' ? `Route "${record.from}" to "${record.to}"` : path;
+    let ok = true;
+    const say = (field, message, code = 'BAD_RECORD') => { ok = false; add(code, `${path}.${field}`, `${label}: ${message}`); };
+    for (const key of Object.keys(record)) if (!ROUTE_FIELDS.includes(key)) say(key, `"${key}" is not a route field (expected ${ROUTE_FIELDS.join(', ')}).`, 'UNKNOWN_FIELD');
+    const from = place(record.from);
+    const to = place(record.to);
+    if (!from) say('from', `"${record.from ?? ''}" is not a place of this pack.`, 'UNKNOWN_REF');
+    if (!to) say('to', `"${record.to ?? ''}" is not a place of this pack.`, 'UNKNOWN_REF');
+    if (from && to && from === to) say('to', 'a route joins two different places.');
+    if (typeof record.kind !== 'string' || !record.kind.trim() || record.kind.length > 40) say('kind', 'kind must say what the route is, like "road" or "river" (at most 40 characters).');
+    for (const field of ['km', 'hours']) if (record[field] !== undefined && (!isNumber(record[field]) || record[field] <= 0 || record[field] > 1e6)) say(field, `${field} must be a number above 0, or left out.`);
+    if (record.corridor !== undefined && !isText(record.corridor, LIMITS.name)) say('corridor', `corridor must be text of at most ${LIMITS.name} characters.`);
+    const note = record.note ?? '';
+    if (!isText(note, 500)) say('note', 'note must be text of at most 500 characters.');
+    if (!ok) return null;
+    return { from, to, kind: oneLine(record.kind, 40), km: record.km ?? null, hours: record.hours ?? null, corridor: oneLine(record.corridor ?? '', LIMITS.name), note };
+}
+
+// The story clock's calendar: an era word, the months in order with their days, and the moment
+// a new story starts. `start.month` is a month name or its number (1 = the first month); it is
+// kept as the name.
+function checkCalendar(calendar, add) {
+    const problems = [];
+    const say = (path, message) => problems.push([path, message]);
+    if (!isObject(calendar)) say('calendar', 'calendar must be { "era": …, "months": [{ "name": …, "days": … }], "start": { … } }.');
+    else {
+        for (const key of Object.keys(calendar)) if (!CALENDAR_FIELDS.includes(key)) say(`calendar.${key}`, `"${key}" is not a calendar field (expected ${CALENDAR_FIELDS.join(', ')}).`);
+        if (calendar.era !== undefined && !isText(calendar.era, CALENDAR_LIMITS.era)) say('calendar.era', `era must be text of at most ${CALENDAR_LIMITS.era} characters, like "CY".`);
+        const months = calendar.months;
+        const seen = new Set();
+        if (!Array.isArray(months) || !months.length || months.length > CALENDAR_LIMITS.months) say('calendar.months', `months must be a list of 1 to ${CALENDAR_LIMITS.months} { "name": …, "days": … }.`);
+        else months.forEach((month, index) => {
+            const at = `calendar.months[${index}]`;
+            if (!isObject(month) || Object.keys(month).some(key => key !== 'name' && key !== 'days')
+                || typeof month.name !== 'string' || !month.name.trim() || month.name.length > CALENDAR_LIMITS.monthName
+                || !isInt(month.days, 1) || month.days > CALENDAR_LIMITS.days) return say(at, `${at} must be { "name": …, "days": 1 to ${CALENDAR_LIMITS.days} } with a name of at most ${CALENDAR_LIMITS.monthName} characters.`);
+            if (seen.has(foldKey(month.name))) return say(at, `two months are called "${month.name}".`);
+            seen.add(foldKey(month.name));
+        });
+        if (calendar.start !== undefined && !problems.length) {
+            const start = calendar.start;
+            const at = 'calendar.start';
+            if (!isObject(start) || Object.keys(start).some(key => !CALENDAR_START_FIELDS.includes(key))) say(at, `${at} must be { "year", "month", "day", "hour", "minute" }.`);
+            else {
+                const index = typeof start.month === 'string' ? months.findIndex(month => foldKey(month.name) === foldKey(start.month))
+                    : isInt(start.month, 1) ? start.month - 1 : -1;
+                if (!Number.isSafeInteger(start.year)) say(`${at}.year`, 'year must be a whole number.');
+                if (index < 0 || index >= months.length) say(`${at}.month`, 'month must be one of the months, by name or by number (1 is the first).');
+                else if (!isInt(start.day, 1) || start.day > months[index].days) say(`${at}.day`, `day must be a whole number from 1 to ${months[index].days}.`);
+                if (start.hour !== undefined && (!isInt(start.hour) || start.hour > 23)) say(`${at}.hour`, 'hour must be a whole number from 0 to 23.');
+                if (start.minute !== undefined && (!isInt(start.minute) || start.minute > 59)) say(`${at}.minute`, 'minute must be a whole number from 0 to 59.');
+            }
+        }
+    }
+    if (problems.length) {
+        for (const [path, message] of problems) add('BAD_CALENDAR', path, message);
+        return null;
+    }
+    const months = calendar.months.map(month => ({ name: oneLine(month.name, CALENDAR_LIMITS.monthName), days: month.days }));
+    const start = calendar.start;
+    const index = start === undefined ? -1 : typeof start.month === 'string' ? months.findIndex(month => foldKey(month.name) === foldKey(start.month)) : start.month - 1;
+    return {
+        era: oneLine(calendar.era ?? '', CALENDAR_LIMITS.era),
+        months,
+        start: start === undefined ? null : { year: start.year, month: months[index].name, day: start.day, hour: start.hour ?? 0, minute: start.minute ?? 0 },
+    };
 }
 
 // Themes are CSS custom properties (SPEC §13.3): `{ "--ss-accent": "#7c5cff" }`.

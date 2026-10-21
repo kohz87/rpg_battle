@@ -116,6 +116,25 @@ test('party: Use and Set aside send party.setSkillActive for that skill', { skip
     assert.deepEqual(drawn.commands.pop(), { type: 'party.setSkillActive', payload: { actor: PC, name: 'Power Strike', active: false } });
 });
 
+test('party: the offers waiting for the reader, each with Accept and Dismiss', { skip }, async () => {
+    const state = makeState();
+    state.domains.party.offers = [
+        { id: 'of_aaaaaaaa', kind: 'join', name: 'Kael', role: 'scout', level: 2, focus: [], skills: [], npc: null, text: '', rev: 1 },
+        { id: 'of_bbbbbbbb', kind: 'leave', actor: LYRA, text: 'parts ways at the ford', rev: 2 },
+    ];
+    const drawn = draw(partyScreen, state);
+    assert.deepEqual(drawn.warnings, []);
+    const rows = all(drawn.el, 'li.offer');
+    assert.deepEqual(rows.map(row => text(row.querySelector('.nm'))), ['Kael asks to join (scout).', 'Lyra means to leave the party: parts ways at the ford.']);
+    assert.ok(rows[1].classList.contains('leave'));
+    await click(buttons(rows[1], 'party.acceptOffer')[0]);
+    assert.deepEqual(drawn.commands.pop(), { type: 'party.acceptOffer', payload: { offer: 'of_bbbbbbbb' } });
+    await click(buttons(rows[0], 'party.dismissOffer')[0]);
+    assert.deepEqual(drawn.commands.pop(), { type: 'party.dismissOffer', payload: { offer: 'of_aaaaaaaa' } });
+    // None waiting: no section.
+    assert.equal(all(draw(partyScreen, makeState()).el, 'section.offers').length, 0);
+});
+
 test('party: before creation it says so', { skip }, () => {
     const drawn = draw(partyScreen, emptyState());
     assert.deepEqual(drawn.warnings, []);

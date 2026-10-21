@@ -1,8 +1,10 @@
-// The party part's change-line kinds (SPEC §4.4, MODULES §B1): wound, join, skill, check, rest.
+// The party part's change-line kinds (SPEC §4.4, MODULES §B1): wound, join, skill, check, rest,
+// leave (MODULES §F26).
 // Each `apply(ctx, line)` runs as a `story` command: it finds the member the line names (v1
 // story.findTarget rules), sets every number by code, and rejects what it cannot accept (the
-// host keeps those as Problems). A join or a skill line is never applied by itself: it waits in
-// party.offers for the reader's Accept (party.acceptOffer) or Dismiss. Pure apart from ctx.
+// host keeps those as Problems). A join, skill or leave line is never applied by itself: it waits in
+// party.offers for the reader's Accept (party.acceptOffer) or Dismiss. A companion leaving is
+// `- leave Lyra — parts ways at the ford`, or `- join Lyra — leaves`. Pure apart from ctx.
 //
 // `line` is the host's parsed line: { op, kind, name, text, labels, raw, index }.
 
@@ -22,6 +24,7 @@ export const GRAMMAR = Object.freeze({
     skill: '+ skill Name — Skill Name: what it does | taught by: <who> (someone in the party is taught a skill; the reader decides)',
     check: '? check <skill or stat> — what is attempted | dc: easy|normal|hard|<number> | who: Name (then stop before the outcome; code rolls it)',
     rest: '! rest short|long — where and how the party rests',
+    leave: '- leave Name — why they go (a companion parts ways with the party; the reader decides)',
 });
 
 const rulesFor = ctx => rulesFrom(settingsOf(typeof ctx?.settings === 'function' ? ctx.settings() : null));
@@ -79,7 +82,8 @@ const list = value => String(value ?? '').split(/\s*[,;/]\s*/).map(part => part.
 
 /** `+ join Lyra — the archer | level: 3 | role: ranger | focus: DEX, AGI | skills: Aimed Shot` → a join offer. */
 function applyJoin(ctx, line) {
-    if (line.op !== '+') fail(ctx, 'INVALID', 'Only "+ join" lines are read.');
+    if (line.op === '-') return applyLeave(ctx, line);
+    if (line.op !== '+') fail(ctx, 'INVALID', 'Only "+ join" lines (and "- join Name — leaves") are read.');
     const party = ctx.draft('party');
     const rules = rulesFor(ctx);
     const labels = labelsOf(line);
@@ -100,6 +104,22 @@ function applyJoin(ctx, line) {
     const npc = labels.npc ? String(labels.npc).slice(0, 80) : null;
     const offer = addOffer(ctx, party, { kind: 'join', name, role, level, focus, skills, npc, text });
     return { summary: `${name} offers to join the party.`, data: { offer: offer.id, name }, narrate: false };
+}
+
+/**
+ * `- leave Lyra — parts ways at the ford` (or `- join Lyra — leaves`) → an offer to take that
+ * companion out of the party (MODULES §F26): the reader accepts (party.removeCompanion) or keeps
+ * them. Your character never leaves this way.
+ */
+function applyLeave(ctx, line) {
+    if (line.op !== '-' && line.op !== '!') fail(ctx, 'INVALID', 'A companion leaving is written "- leave Name — why".');
+    const party = ctx.draft('party');
+    const actor = memberOf(ctx, party, line.name);
+    if (actor.kind !== 'companion') fail(ctx, 'REFUSED', 'Only a companion can leave the party.');
+    if (party.offers.some(offer => offer.kind === 'leave' && offer.actor === actor.id)) fail(ctx, 'REFUSED', `${actor.name}'s leaving is already waiting for the reader.`);
+    const text = String(line.text ?? '').trim().replace(/^leaves\.?$/i, '').slice(0, 160);
+    const offer = addOffer(ctx, party, { kind: 'leave', actor: actor.id, text });
+    return { summary: `${actor.name} means to leave the party.`, data: { offer: offer.id, actor: actor.id }, narrate: false };
 }
 
 /** `+ skill Ren — Shadow Cut: a blurring slash | taught by: Kael | type: physical` → a skill offer. */
@@ -146,4 +166,5 @@ export const kinds = {
     skill: { grammar: GRAMMAR.skill, apply: applySkill },
     check: { grammar: GRAMMAR.check, apply: applyCheck },
     rest: { grammar: GRAMMAR.rest, apply: applyRest },
+    leave: { grammar: GRAMMAR.leave, apply: applyLeave },
 };

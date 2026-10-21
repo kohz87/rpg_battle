@@ -6,7 +6,7 @@
 
 import { STATS } from '../../rules.js';
 import { PRESETS } from '../../skills.js';
-import { actorsInOrder } from './util.js';
+import { actorsInOrder, offerText } from './util.js';
 
 function make(doc, tag, { text = '', className = '', attrs = {} } = {}) {
     const node = doc.createElement(tag);
@@ -47,7 +47,7 @@ export function renderPartyTab(el, view, api) {
 
     for (const offer of party.offers ?? []) {
         const row = make(doc, 'div', { className: 'rpg-party-offer', attrs: { 'data-offer': offer.id } });
-        const who = offer.kind === 'join' ? `${offer.name} asks to join${offer.role ? ` (${offer.role})` : ''}.` : `${party.actors?.[offer.actor]?.name ?? 'Someone'} could learn ${offer.skill}.`;
+        const who = offerText(offer, party);
         row.append(make(doc, 'span', { text: who }),
             button(doc, 'Accept', 'rpg-party-accept', () => run('party.acceptOffer', { offer: offer.id })),
             button(doc, 'Dismiss', 'rpg-party-dismiss', () => run('party.dismissOffer', { offer: offer.id })));

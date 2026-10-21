@@ -91,12 +91,16 @@ export function createSettings({ root, registry, save = () => {} }) {
 
 /**
  * Runs a registered query on `state`; the answer is a plain copy. Throws for an unknown query.
- * A query is called (state, args, tools) with tools.query(name, args) over the same state.
+ * A query is called (state, args, tools) with tools.query(name, args) over the same state and
+ * tools.receipts() → [{ index, receipt }], the stored receipts in chat order (`receipts` option).
  */
-export function runQuery(registry, state, name, args) {
+export function runQuery(registry, state, name, args, { receipts = () => [] } = {}) {
     const query = registry.query(name);
     if (!query) throw new Error(`Story Suite: no module answers the query "${name}".`);
-    const tools = Object.freeze({ query: (other, otherArgs) => runQuery(registry, state, other, otherArgs) });
+    const tools = Object.freeze({
+        query: (other, otherArgs) => runQuery(registry, state, other, otherArgs, { receipts }),
+        receipts: () => receipts() ?? [],
+    });
     const answer = query(state, args === undefined ? undefined : structuredClone(args), tools);
     return answer === undefined ? undefined : structuredClone(answer);
 }
@@ -106,7 +110,7 @@ export function runQuery(registry, state, name, args) {
  * state, so a card asks against its own reply's state and the registry's queries still get
  * (state, args, tools). A query that throws is the mount's to report (resolveData gives null).
  */
-export const mountQuery = registry => (name, args, state) => runQuery(registry, state, name, args);
+export const mountQuery = (registry, receipts = () => []) => (name, args, state) => runQuery(registry, state, name, args, { receipts });
 
 /**
  * What modules read (§6): { state (frozen head), query(name, args), settings(id), chat: { length,
@@ -118,7 +122,7 @@ export function makeView({ store, registry, settings, chat = [] }) {
     const lastUser = [...messages].reverse().find(message => message?.is_user);
     return Object.freeze({
         state,
-        query: (name, args) => runQuery(registry, state, name, args),
+        query: (name, args) => runQuery(registry, state, name, args, { receipts: () => store.receipts?.() ?? [] }),
         settings,
         chat: Object.freeze({ length: messages.length, lastUser: String(lastUser?.mes ?? '') }),
     });
@@ -148,10 +152,11 @@ export async function ensureModules({ store, bus, registry, events = null }) {
 
 /**
  * The public sdk. `deps`: { store, bus, registry, settings (createSettings), events
- * (createEvents), chat?: () => Message[], check?, onRegister?(def) (after each registerModule) }. Returns { sdk, events, markReady }:
+ * (createEvents), chat?: () => Message[], check?, onRegister?(def) (after each registerModule),
+ * rewind?({ index, beforeRev }) (src/v2/rewind.js), substitute?(text), dialog?(screenId, opts) }. Returns { sdk, events, markReady }:
  * `sdk.ready` resolves to the sdk once the host calls markReady().
  */
-export function createSdk({ store, bus, registry, settings, events = createEvents(), chat = () => [], check = checkModule, onRegister = null }) {
+export function createSdk({ store, bus, registry, settings, events = createEvents(), chat = () => [], check = checkModule, onRegister = null, rewind = null, substitute = text => String(text ?? ''), dialog = null }) {
     let markReady;
     const ready = new Promise(resolve => { markReady = () => resolve(sdk); });
     const committed = result => {
@@ -173,10 +178,24 @@ export function createSdk({ store, bus, registry, settings, events = createEvent
         command: async (type, payload, options = {}) => committed(await bus.command(type, payload, { cause: 'ui', ...options })),
         preview: async (type, payload) => bus.preview(type, payload),
         commit: async token => committed(await bus.commit(token)),
-        query: (name, args) => runQuery(registry, store.head(), name, args),
+        query: (name, args) => runQuery(registry, store.head(), name, args, { receipts: () => store.receipts?.() ?? [] }),
+        /** The stored receipts on the current line of history, in chat order: [{ index, receipt }]. */
+        receipts: () => store.receipts?.() ?? [],
+        /**
+         * Return in time (MODULES §F17): a SillyTavern branch of the chat at carrier `index`, without
+         * that carrier's receipts from `beforeRev` on, opened as the current chat. → Promise<{ ok, … }>.
+         */
+        rewind: async options => (typeof rewind === 'function' ? rewind(options) : { ok: false, code: 'FAILED', message: 'Going back in time is not available here.' }),
         /** The view tabs and contexts get: { state, query, settings, chat }. */
         view: () => makeView({ store, registry, settings, chat: chat() }),
         on: (name, fn) => events.on(name, fn),
+        /** `{{user}}` / `{{char}}` in a text → the persona's and the character's names (for tabs, screens). */
+        substitute: text => substitute(text),
+        /**
+         * Dialogs and wizards (SPEC §13.6): `open(screenId, opts)` → the dialog handle, or null where no
+         * page is shown (opts as the dialog mount's: draft, submit, random, onDone, onClose…).
+         */
+        dialog: Object.freeze({ open: (screenId, opts = {}) => (typeof dialog === 'function' ? dialog(screenId, opts) : null) }),
         id: newId,
         check: check ? Object.freeze({ ...check }) : null,
         settings: id => settings(id),

@@ -16,11 +16,16 @@ export const LIMITS = Object.freeze({
 });
 
 // Content kinds a pack may carry (SPEC §9). Each is a list of records.
-// races and talents are choices for the character creation wizard (MODULES §F12).
-export const CONTENT_KINDS = Object.freeze(['items', 'creatures', 'shops', 'recipes', 'events', 'quests', 'races', 'talents']);
+// races and talents are choices for the character creation wizard (MODULES §F12); skills are
+// RPG Battle skill templates and presets ready-made characters for that wizard; places and
+// routes are the map Story Director's atlas reads.
+export const CONTENT_KINDS = Object.freeze(['items', 'creatures', 'shops', 'recipes', 'events', 'quests', 'races', 'talents', 'skills', 'presets', 'places', 'routes']);
+// Kinds added after the first pack format: a normalized pack has them only when the file gives
+// them, so what older packs list (counts) stays as it was.
+export const OPTIONAL_KINDS = Object.freeze(['skills', 'presets', 'places', 'routes']);
 
 // Top-level fields of pack.json; anything else is refused so a typo is not silently ignored.
-export const PACK_FIELDS = Object.freeze(['id', 'version', 'name', 'author', 'description', 'requires', 'currency', 'content', 'start', 'layouts', 'screens', 'theme']);
+export const PACK_FIELDS = Object.freeze(['id', 'version', 'name', 'author', 'description', 'requires', 'currency', 'calendar', 'content', 'start', 'layouts', 'screens', 'theme']);
 
 // Item definitions follow Story Block's inventory def (SPEC §7).
 export const ITEM_KINDS = Object.freeze(['goods', 'material', 'consumable', 'equipment', 'quest', 'money']);
@@ -30,6 +35,20 @@ export const EVENT_FIELDS = Object.freeze(['id', 'when', 'cue', 'once', 'after',
 // The events part's own limits (src/v2/events), so a pack that passes here also runs there.
 export const EVENT_LIMITS = Object.freeze({ when: 500, cue: 500, then: 8 });
 export const CHOICE_FIELDS = Object.freeze(['id', 'name', 'note', 'stats', 'tags']);
+// RPG Battle's skill template (v1 skillFromTemplate): the numbers come from its rules.
+export const SKILL_FIELDS = Object.freeze(['name', 'slug', 'type', 'stat', 'target', 'element', 'note', 'tags']);
+export const SKILL_TYPES = Object.freeze(['physical', 'magic', 'heal', 'buff', 'debuff']);
+export const SKILL_TARGETS = Object.freeze(['one', 'all', 'self', 'ally', 'allies']);
+export const PRESET_FIELDS = Object.freeze(['id', 'name', 'note', 'race', 'talents', 'points', 'skills']);
+// A stat name as creation and items use it: STR, DEX … (short capital letters).
+export const STAT_NAME = /^[A-Z]{2,12}$/;
+// Map data for Story Director's atlas (coordinates in map units, distances in km).
+export const PLACE_FIELDS = Object.freeze(['name', 'slug', 'aliases', 'region', 'kind', 'layer', 'x', 'y', 'note']);
+export const ROUTE_FIELDS = Object.freeze(['slug', 'from', 'to', 'kind', 'km', 'hours', 'corridor', 'note']);
+// A calendar for the story clock: { era, months: [{ name, days }], start: { year, month, day, hour, minute } }.
+export const CALENDAR_FIELDS = Object.freeze(['era', 'months', 'start']);
+export const CALENDAR_START_FIELDS = Object.freeze(['year', 'month', 'day', 'hour', 'minute']);
+export const CALENDAR_LIMITS = Object.freeze({ era: 24, months: 60, monthName: 40, days: 400 });
 export const START_FIELDS = Object.freeze(['scene', 'inventory']);
 // Screens (SPEC §13.1) a pack adds or overrides by id.
 export const SCREEN_FIELDS = Object.freeze(['id', 'title', 'icon', 'mounts', 'template', 'layout', 'css', 'theme', 'data', 'steps']);

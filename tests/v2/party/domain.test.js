@@ -53,7 +53,10 @@ test('the validator catches broken records', () => {
     broken(slice => { slice.order.reverse(); }, /must start with the pc/);
     broken(slice => { slice.order.pop(); }, /every actor once/);
     broken(slice => { slice.custom.Zap = { name: 'Zop' }; }, /custom.Zap/);
-    broken(slice => { slice.offers[0].kind = 'leave'; }, /join or skill/);
+    broken(slice => { slice.offers[0].kind = 'farewell'; }, /join, skill or leave/);
+    broken(slice => { slice.offers[0].kind = 'leave'; slice.offers[0].actor = slice.pc; }, /leave offer is for a companion/);
+    broken(slice => { slice.actors[pc].background = 7; }, /background must be text/);
+    broken(slice => { slice.actors[pc].origin = { race: 'elf', talents: [] }; }, /origin must be/);
     broken(slice => { slice.offers[0].id = 'bad'; }, /not an offer id/);
     broken(slice => { slice.offers[0].rev = -1; }, /rev must be/);
     broken(slice => { slice.offers.push({ ...slice.offers[0] }); }, /id twice/);

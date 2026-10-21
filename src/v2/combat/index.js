@@ -1,4 +1,5 @@
-// RPG Battle v2, part `combat` (MODULES §B3): fights the story starts, played in the Fight tab,
+// RPG Battle v2, part `combat` (MODULES §B3): fights the story starts, played on the Fight screen
+// (the board part's `rpg-battle/fight`),
 // their results applied through the owners of the party and the inventory.
 //
 // The story writes `! encounter …` and stops at the first blow; capture keeps it as an offer.
@@ -21,7 +22,6 @@ import { foesText, readEncounter, STAKES, TIERS } from './encounter.js';
 import { buildSetup, COMBAT_DEFAULTS, fightNumbers, partyCombatants } from './setup.js';
 import { bestiaryList, creatureSlug, fightRules, packCreature, packSetup, sessionStatus, unpackSetup } from './stored.js';
 import { beatenFoes, endSummary, foeNames, partyNames, rebuild, sessionView, tailLines } from './view.js';
-import { renderFightTab } from './tab.js';
 
 export const MAX_OFFERS = 10;
 export const MAX_BEATEN = 200;
@@ -194,7 +194,7 @@ function end(ctx) {
     const rev = nextRev(ctx);
 
     // The party's side: HP, MP, SP and lasting conditions as the fight left them, skill uses.
-    ctx.call('party.applyResult', {
+    const applied = ctx.call('party.applyResult', {
         outcome: result.outcome,
         stakes: result.stakes,
         actors: result.party.map(member => ({
@@ -222,7 +222,11 @@ function end(ctx) {
         }
     }
 
+    // A companion who died in a fight to the death is gone from the party (MODULES §F26): no XP.
+    const died = Array.isArray(applied?.data?.died) ? applied.data.died : [];
+    const gone = new Set(died.map(entry => entry.id));
     for (const member of setup.party) {
+        if (gone.has(member.memberId)) continue;
         const xp = Math.max(0, Math.round(Number(result.xp?.[member.memberId]) || 0));
         if (xp > 0) ctx.call('party.grantXp', { actor: member.memberId, amount: xp });
     }
@@ -238,7 +242,11 @@ function end(ctx) {
     const pcName = setup.party[0]?.name ?? 'the hero';
     const names = Object.fromEntries(fight.combatants.map(c => [c.memberId ?? c.id, c.name]));
     // The loot's money in the chat's one currency (MODULES §F1: Story Block's inventory.currency).
-    const summary = endSummary(result, { pcName, rules, names, currency: chatCurrency(ctx) });
+    // In the reader's terms (or a pack's, MODULES §F25): the fight's own numbers stay its setup's.
+    const terms = ctx.settings()?.terms;
+    const shown = terms && typeof terms === 'object' ? { ...rules, terms: { ...rules.terms, ...terms } } : rules;
+    const lost = died.length ? ` ${died.map(entry => entry.name).join(', ').replace(/, ([^,]*)$/, ' and $1')} died and ${died.length === 1 ? 'is' : 'are'} gone from the party for good.` : '';
+    const summary = `${endSummary(result, { pcName, rules: shown, names, currency: chatCurrency(ctx) })}${lost}`;
     const combat = ctx.draft('combat');
     if (foes.length) {
         combat.beaten.push({ rev, foes, won: result.outcome === 'victory' });
@@ -253,6 +261,7 @@ function end(ctx) {
             session: session.id,
             outcome: session.status,
             stakes: setup.stakes === 'death' ? 'death' : 'normal',
+            died: died.map(entry => ({ ...entry })),
             foes,
             xp: { ...result.xp },
             loot: { money: result.loot.money, items: result.loot.items.map(item => ({ name: item.name, qty: item.qty, rarity: item.rarity })) },
@@ -410,5 +419,6 @@ export const part = {
             hitPerPoint: { type: 'int', label: 'Hit chance per DEX–AGI point', min: 0, max: 10 },
         },
     },
-    tabs: [{ id: 'fight', title: 'Fight', icon: 'fa-khanda', render: renderFightTab }],
+    // The Fight tab is the board part's screen `rpg-battle/fight` (SPEC §13.1).
+    tabs: [],
 };

@@ -21,8 +21,9 @@ const TALENTS_STEP = CREATE_STEPS.findIndex(step => step.id === 'talents');
 
 /**
  * The wizard's starting draft: the persona's name, background and avatar (MODULES §F22: never
- * typed in the wizard), no race or talents, every stat at 0 points. `prefill` (a pack's
- * ready-made character, or a draft being reopened) sets race, talents, points and portrait only.
+ * typed in the wizard), no ready-made character, race or talents, every stat at 0 points.
+ * `prefill` (a pack's ready-made character, or a draft being reopened) sets preset, race,
+ * talents, points and portrait only.
  */
 export function startDraft(view = null, { prefill = null, persona = null } = {}) {
     const who = persona ?? personaFor(view);
@@ -31,6 +32,7 @@ export function startDraft(view = null, { prefill = null, persona = null } = {})
     return {
         name: who.name,
         background: who.background,
+        preset: typeof given.preset === 'string' ? given.preset : '',
         race: typeof given.race === 'string' ? given.race : '',
         talents: Array.isArray(given.talents) ? given.talents.filter(id => typeof id === 'string') : [],
         points,

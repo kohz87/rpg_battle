@@ -39,6 +39,7 @@ export function validateScreen(def, { id = null } = {}) {
         errors.push(`${name} was given for screen "${id}".`);
     }
     if (def.title !== undefined && typeof def.title !== 'string') errors.push(`${name}: the title must be text.`);
+    if (def.defaultOn !== undefined && typeof def.defaultOn !== 'boolean') errors.push(`${name}: defaultOn must be true or false.`);
     if (def.icon !== undefined && typeof def.icon !== 'string') errors.push(`${name}: the icon must be text.`);
 
     const mounts = Array.isArray(def.mounts) ? def.mounts : null;
@@ -336,7 +337,12 @@ export function createScreens({ reader = () => ({}), saveReader = () => {} } = {
         clearChoice(id) { writeReader(next => { delete next.screens[id]; }); },
 
         /** Inline cards are off until the reader turns them on, per screen. */
-        cardsOn: id => readerSettings().cards?.[id] === true,
-        setCards(id, on) { writeReader(next => { if (on) next.cards[id] = true; else delete next.cards[id]; }); },
+        // The reader's own on/off wins; without one a card screen is on when it says `defaultOn: true`.
+        cardsOn(id) {
+            const choice = readerSettings().cards?.[id];
+            if (choice === true || choice === false) return choice;
+            return resolve(id)?.screen?.defaultOn === true;
+        },
+        setCards(id, on) { writeReader(next => { next.cards[id] = Boolean(on); }); },
     };
 }

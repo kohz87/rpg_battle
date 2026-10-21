@@ -1,4 +1,5 @@
-// The choices character creation offers (MODULES §F12, §F14): races and talents. Each record has
+// The choices character creation offers (MODULES §F12, §F14): races and talents, and the packs'
+// ready-made characters (presets, with the pack skills they start with). Each record has
 // the pack shape (PACKS.md "races, talents": `{ id, name, note, stats, tags }`, nothing else), so a
 // pack can replace them one for one. RPG Battle ships a small set of its own, used for a kind when
 // no enabled pack gives any records of that kind; with none at all, creation is a name and stat
@@ -98,9 +99,15 @@ function fromPacks(tools, kind) {
     return Array.isArray(list) ? list : null;
 }
 
+// A built-in record is offered under a namespaced id, `rpg-battle/<slug>`, as a pack's comes as
+// `pack.<pack>/<slug>` (Story Block's packs.content): the party keeps it on your character's origin,
+// and Story Block reads any `id` field in the state as an ID (a record id or a namespaced slug).
+export const BUILT_IN_PREFIX = 'rpg-battle/';
+const builtInRecord = record => ({ ...record, id: `${BUILT_IN_PREFIX}${record.id}` });
+
 function choicesOf(tools, kind, builtIn) {
     const packed = fromPacks(tools, kind);
-    const records = packed?.length ? packed : builtIn;
+    const records = packed?.length ? packed : builtIn.map(builtInRecord);
     const source = packed?.length ? 'packs' : 'built-in';
     const seen = new Set();
     const out = [];
@@ -113,14 +120,71 @@ function choicesOf(tools, kind, builtIn) {
     return out;
 }
 
+const SKILL_TYPES = ['physical', 'magic', 'heal', 'buff', 'debuff'];
+const SKILL_TARGETS = ['one', 'all', 'self', 'ally', 'allies'];
+
+// A pack skill (PACKS kind `skills`: { id, name, type, stat, target, element, note }) as a
+// template the party part builds with v1 skillFromTemplate: words only, the rules set the numbers.
+function skillChoice(record) {
+    if (!isRecord(record)) return null;
+    const id = text(record.id, 120);
+    const name = text(record.name, 60);
+    if (!id || !name) return null;
+    return {
+        id, name,
+        type: SKILL_TYPES.includes(record.type) ? record.type : 'physical',
+        stat: STATS.includes(record.stat) ? record.stat : null,
+        target: SKILL_TARGETS.includes(record.target) ? record.target : 'one',
+        element: typeof record.element === 'string' && /^[a-z]{1,24}$/.test(record.element) ? record.element : null,
+        note: text(record.note, 300),
+    };
+}
+
+/**
+ * The packs' ready-made characters (PACKS kind `presets`: { id, name, note, race, talents,
+ * points, skills }, references as full pack ids), each checked against what is on offer: a race
+ * or talent creation does not offer is left out, so is a skill no pack has. A preset fills the
+ * wizard's race, talents and points only (MODULES §F22: the name and background stay the
+ * persona's); its skills are learned when the character is made.
+ */
+function presetsOf(tools, races, talents) {
+    const records = fromPacks(tools, 'presets') ?? [];
+    if (!records.length) return [];
+    const skills = (fromPacks(tools, 'skills') ?? []).map(skillChoice).filter(Boolean);
+    const seen = new Set();
+    const out = [];
+    for (const record of records) {
+        if (!isRecord(record)) continue;
+        const id = text(record.id, 120);
+        const name = text(record.name, 80);
+        if (!id || !name || seen.has(id)) continue;
+        seen.add(id);
+        const race = races.find(entry => entry.id === record.race) ?? null;
+        const picked = (Array.isArray(record.talents) ? record.talents : []).map(ref => talents.find(entry => entry.id === ref)).filter(Boolean);
+        const taught = (Array.isArray(record.skills) ? record.skills : []).map(ref => skills.find(entry => entry.id === ref)).filter(Boolean);
+        const points = {};
+        for (const stat of STATS) {
+            const value = record.points?.[stat];
+            if (Number.isInteger(value) && value > 0) points[stat] = value;
+        }
+        out.push({
+            id, name, note: text(record.note, 500),
+            race: race?.id ?? '', talents: picked.map(entry => entry.id), points, skills: taught,
+            raceName: race?.name ?? '', talentNames: picked.map(entry => entry.name).join(', '),
+            skillNames: taught.map(entry => entry.name).join(', '), source: 'packs',
+        });
+    }
+    return out;
+}
+
 /**
  * The races and talents on offer: the enabled packs' (Story Block's `packs.content` query) for each
  * kind that has any, otherwise RPG Battle's built-in ones. `builtIn: false` turns the built-ins off
- * (a story with no races and talents at all). `tools` is `{ query }` (a query's tools or a ctx).
+ * (a story with no races and talents at all). `presets`: the packs' ready-made characters (none
+ * built in). `tools` is `{ query }` (a query's tools or a ctx).
  */
 export function creationContent(tools, { builtIn = true } = {}) {
-    return {
-        races: choicesOf(tools, 'races', builtIn ? BUILT_IN_RACES : []),
-        talents: choicesOf(tools, 'talents', builtIn ? BUILT_IN_TALENTS : []),
-    };
+    const races = choicesOf(tools, 'races', builtIn ? BUILT_IN_RACES : []);
+    const talents = choicesOf(tools, 'talents', builtIn ? BUILT_IN_TALENTS : []);
+    return { races, talents, presets: presetsOf(tools, races, talents) };
 }
