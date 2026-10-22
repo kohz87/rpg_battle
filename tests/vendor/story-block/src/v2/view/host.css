@@ -198,6 +198,8 @@ body.story-suite-open { overflow: hidden; }
 .story-suite-row[data-type="bool"] { grid-template-columns: minmax(0, 1fr) auto; }
 .story-suite-row[data-type="bool"] > input { justify-self: end; margin: 0; }
 .story-suite-row[data-type="list"] { grid-template-columns: minmax(0, 1fr); }
+/* A read-only field (`readOnly`): its value and help shown, its controls disabled. */
+.story-suite-row-readonly :disabled { opacity: 0.75; cursor: not-allowed; }
 .story-suite-subsection { margin-top: 12px; }
 .story-suite-subsection > h4 { margin: 8px 0 4px; }
 @media (max-width: 560px) {
@@ -268,6 +270,13 @@ body.story-suite-open { overflow: hidden; }
 .story-suite-size-total { border-top: 1px solid var(--story-suite-line); padding-top: 4px; }
 .story-suite-size-table { width: 100%; border-collapse: collapse; margin: 6px 0 2px; font-size: 0.9em; }
 .story-suite-size-table caption { text-align: left; opacity: 0.75; padding-bottom: 2px; }
+.story-suite-size-own > span { font-style: italic; }
+/* "Show what's sent": each part's exact text, wrapped, scrolling inside its own box. */
+.story-suite-sent { margin-top: 8px; }
+.story-suite-sent-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 4px 0 6px; }
+.story-suite-sent-section h5 { margin: 8px 0 4px; }
+.story-suite-sent-head { margin: 6px 0 2px; overflow-wrap: anywhere; }
+.story-suite-sent-text { margin: 0; padding: 6px 8px; max-height: 16em; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.85em; border: 1px solid var(--story-suite-line); border-radius: 4px; }
 .story-suite-size-table th, .story-suite-size-table td { padding: 3px 6px; border-bottom: 1px solid var(--story-suite-line); text-align: right; font-variant-numeric: tabular-nums; }
 .story-suite-size-table th:first-child { text-align: left; font-weight: normal; overflow-wrap: anywhere; }
 .story-suite-size-table thead th { font-weight: bold; opacity: 0.8; }

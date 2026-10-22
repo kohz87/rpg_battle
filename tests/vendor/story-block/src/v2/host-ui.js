@@ -2,7 +2,8 @@
 //
 // - the settings host: one centred column of folds. Story Suite's own (the tail budget and the prompt
 //   size: what Story Suite adds to the prompt, per module, against the tail budget, counted with
-//   SillyTavern's tokenizer when there is one), the modules' own folds (Story Block's Packs), Features,
+//   SillyTavern's tokenizer when there is one, with what a module sends on its own as a row of its own,
+//   and "Show what's sent": the exact text of each part, with Copy), the modules' own folds (Story Block's Packs), Features,
 //   one fold per module with settings, Versions. Inside a module's fold: one line saying how many of its
 //   features are on (it opens the Features fold there), its custom `section` right there (no sub-fold of
 //   its own), then a sub-fold per settings group (a field's `group`, else its label's "Group: …" prefix,
@@ -37,6 +38,8 @@ export const HOST_FOLD = 'story-suite';
 export const FEATURES_FOLD = 'story-suite-features';
 export const VERSIONS_FOLD = 'story-suite-versions';
 export const DIAGNOSTICS_FOLD = 'story-suite-diagnostics';
+// "Show what's sent", a sub-fold of Story Suite's own under the prompt size.
+export const SENT_FOLD = 'story-suite::sent';
 // Story Block's Packs fold (its `settings.folds`), second after Story Suite's; Home's "Import a pack" opens it.
 export const PACKS_FOLD = 'story-block/packs';
 // A sub-fold's key: its module's id, this, and the part ("rpg-battle::features", "story-director::group:Calendar").
@@ -89,6 +92,28 @@ export const SETTINGS_TEXT = Object.freeze({
         share: 'Story Suite\'s share',
         shareValue: '{share} of {room} tokens ({percent}%)',
         contextUnknown: 'The context size is shown after the next reply.',
+        // A module's own prompt (its `ownPrompt` hook): sent by the module itself, counted here and in the share.
+        own: '{name}, sent by itself',
+    }),
+    // "Show what's sent": the exact text the next reply would get, per module, with Copy. Read-only.
+    sent: Object.freeze({
+        title: 'Show what\'s sent',
+        hint: 'the exact text',
+        help: 'The exact text Story Suite would add to the prompt of the next reply, built now from this chat. Nothing is sent from here.',
+        static: 'Instructions (the same every reply)',
+        tail: 'This reply\'s part',
+        own: 'Sent by the modules themselves',
+        part: '{name}: {label}',
+        tokens: '{n} tokens',
+        about: 'about {n} tokens',
+        dropped: '{n} lines left out to fit the budget.',
+        droppedOne: '1 line left out to fit the budget.',
+        nothing: 'Nothing (no module adds text here now).',
+        copy: 'Copy',
+        copyTitle: 'Copy all of the text below',
+        copied: 'Copied.',
+        copyFailed: 'It could not be copied here: the text is selected, so copy it by hand (Ctrl+C, or long-press on a phone).',
+        textLabel: 'What is sent: {part}',
     }),
 });
 // The Diagnostics fold (diagnostics.js builds the report).
@@ -437,9 +462,38 @@ function listControl(doc, field, items, onChange, id, memo = null) {
     return root;
 }
 
+/**
+ * Whether a schema field is read-only now (SPEC §6): its `readOnly` is `true`, or a function of the
+ * module's current values (`settings(id)`) that returns true. A function that throws counts as false.
+ */
+export function fieldReadOnly(field, values) {
+    const flag = normalizeField(field)?.readOnly;
+    if (typeof flag !== 'function') return flag === true;
+    try { return Boolean(flag(values)); } catch { return false; }
+}
+
+/**
+ * The value a settings row shows: the stored value (else the default, else the field's empty value); a
+ * read-only field with `shows(values)` shows what that returns instead, for display only (the stored value
+ * is kept, so it is back when the field is editable again). A `shows` that throws or returns undefined
+ * shows the stored value.
+ */
+export function rowValue(key, field, values) {
+    const stored = Object.hasOwn(values, key) ? values[key] : emptyValue(field);
+    const shows = normalizeField(field)?.shows;
+    if (typeof shows !== 'function' || !fieldReadOnly(field, values)) return stored;
+    try {
+        const value = shows(values);
+        return value === undefined ? stored : value;
+    } catch {
+        return stored;
+    }
+}
+
 // `label.story-suite-row`: the label and its help on the left, the control on the right (stacked on a
-// phone, host.css). A list's row is a `div` whose list group is named by the label.
-function fieldRow(doc, key, field, value, onChange, prefix, memo = null) {
+// phone, host.css). A list's row is a `div` whose list group is named by the label. A read-only row
+// shows its value and help with every control in it disabled, and stores nothing.
+function fieldRow(doc, key, field, value, onChange, prefix, memo = null, readOnly = false) {
     const f = normalizeField(field);
     // A type this Story Block does not know (a newer module's): hidden, its value left alone.
     if (!FIELD_TYPES.includes(f?.type)) {
@@ -461,10 +515,18 @@ function fieldRow(doc, key, field, value, onChange, prefix, memo = null) {
     const note = f.type === 'profile' ? profileNote(doc, value) : null;
     if (note) text.appendChild(note);
     row.appendChild(text);
-    const input = control(doc, f, value, onChange, id, memo);
+    const input = control(doc, f, value, readOnly ? () => {} : onChange, id, memo);
     input.id = id;
     if (f.type === 'list') input.setAttribute('aria-labelledby', name.id);
     row.appendChild(input);
+    if (readOnly) {
+        row.classList.add('story-suite-row-readonly');
+        row.dataset.readonly = 'true';
+        for (const node of [input, ...input.querySelectorAll('input, select, textarea, button')]) {
+            node.disabled = true;
+            node.setAttribute('aria-disabled', 'true');
+        }
+    }
     return row;
 }
 
@@ -515,10 +577,12 @@ export function groupFields(schema) {
 
 /**
  * What Story Suite adds to the prompt, counted per module: `parts` as prompt.js assemble() gives them
- * ({ module, place, text }), `tokensOf(text)` → a number. → { modules: [{ id, name, static, tail }],
- * static, tail, total, budget }. The totals count the texts as sent (joined), the rows their own parts.
+ * ({ module, place, text }), `tokensOf(text)` → a number, `own` what modules send on their own (turn.js
+ * previewFit's `own`: { module, label, text }). → { modules: [{ id, name, static, tail }], static, tail,
+ * own: [{ id, name, tokens }], total, budget }. The totals count the texts as sent (joined), the rows
+ * their own parts; `total` takes in the modules' own prompts.
  */
-export function promptSize(parts, { tokensOf = estimateTokens, names = id => id, budget = DEFAULT_TAIL_BUDGET } = {}) {
+export function promptSize(parts, { tokensOf = estimateTokens, names = id => id, budget = DEFAULT_TAIL_BUDGET, own = [] } = {}) {
     const list = Array.isArray(parts) ? parts.filter(part => part && typeof part.text === 'string') : [];
     const rows = new Map();
     for (const part of list) {
@@ -530,7 +594,38 @@ export function promptSize(parts, { tokensOf = estimateTokens, names = id => id,
     const tailText = list.filter(part => part.place !== 'static').map(part => part.text).filter(Boolean).join('\n');
     const stat = staticText ? tokensOf(staticText) : 0;
     const tail = tailText ? tokensOf(tailText) : 0;
-    return { modules: [...rows.values()], static: stat, tail, total: stat + tail, budget };
+    const ownRows = new Map();
+    for (const part of ownParts(own)) {
+        const id = String(part.module ?? '');
+        if (!ownRows.has(id)) ownRows.set(id, { id, name: names(id), tokens: 0 });
+        ownRows.get(id).tokens += tokensOf(part.text);
+    }
+    const ownTotal = [...ownRows.values()].reduce((sum, row) => sum + row.tokens, 0);
+    return { modules: [...rows.values()], static: stat, tail, own: [...ownRows.values()], total: stat + tail + ownTotal, budget };
+}
+
+// turn.js previewFit's `own` list, its parts with text only.
+const ownParts = own => (Array.isArray(own) ? own.filter(part => part && typeof part.text === 'string' && part.text) : []);
+
+/**
+ * The texts the next reply would get, as "Show what's sent" lists them: { static: [part], tail: [part],
+ * own: [part] } (each part { module, label, text, dropped }, empty texts left out unless lines were
+ * dropped), and `copy`, all of it as one text: each section's heading, then its parts as sent (the
+ * static ones joined by a blank line, the tail's by a line break, as prompt.js joins them).
+ */
+export function sentText(parts, own = [], { names = id => id } = {}) {
+    const list = Array.isArray(parts) ? parts.filter(part => part && typeof part.text === 'string') : [];
+    const T = SETTINGS_TEXT.sent;
+    const stat = list.filter(part => part.place === 'static' && part.text);
+    const tail = list.filter(part => part.place !== 'static' && (part.text || part.dropped));
+    const titled = part => ({ module: String(part.module ?? ''), title: String(part.label ?? names(part.module)), text: part.text, dropped: Number(part.dropped) || 0 });
+    const mine = ownParts(own).map(part => ({ ...titled(part), title: fill(T.part, { name: names(part.module), label: String(part.label ?? '') }) }));
+    const sections = [
+        [T.static, stat.map(part => part.text).join('\n\n')],
+        [T.tail, tail.map(part => part.text).filter(Boolean).join('\n')],
+        ...mine.map(part => [part.title, part.text]),
+    ].filter(([, text]) => text);
+    return { static: stat.map(titled), tail: tail.map(titled), own: mine, copy: sections.map(([head, text]) => `[${head}]\n${text}`).join('\n\n') };
 }
 
 // One feature's row: its switch, label, description and (when it changes the static prompt) the hint.
@@ -723,6 +818,21 @@ export function renderSettingsHost(root, { registry, settings, doc = globalThis.
         const { details, body } = fold(doc, def.moduleId, def.name, def.title !== def.name ? def.title : def.moduleId);
         const values = settings(def.moduleId);
         const subs = [];
+        // The rows whose `readOnly` is a function of the values: drawn again (value, help, disabled) after
+        // any other field of this module changes, so switching Calendar to Custom makes its fields editable.
+        const follows = [];
+        const rowOf = (key, field, now) => fieldRow(doc, key, field, rowValue(key, field, now), next => {
+            settings.set(def.moduleId, key, next);
+            if (!follows.length) return;
+            const fresh = settings(def.moduleId);
+            for (const item of follows) {
+                if (item.key === key || !item.row.parentNode) continue;
+                const row = rowOf(item.key, item.field, fresh);
+                item.row.before(row);
+                item.row.remove();
+                item.row = row;
+            }
+        }, `story_suite_${def.moduleId}`, openState, fieldReadOnly(field, now));
         // Its features are switched in the Features fold; here one line says how many are on and goes there.
         if (own.length) body.appendChild(featureLink(def, own));
         const shown = Object.fromEntries(Object.entries(def.schema).filter(([, field]) => !hiddenByFeature(field)));
@@ -735,8 +845,9 @@ export function renderSettingsHost(root, { registry, settings, doc = globalThis.
                 hint: settingsCount(visible.length),
                 draw: into => {
                     for (const { key, field } of group.fields) {
-                        const value = Object.hasOwn(values, key) ? values[key] : emptyValue(field);
-                        into.appendChild(fieldRow(doc, key, field, value, next => settings.set(def.moduleId, key, next), `story_suite_${def.moduleId}`, openState));
+                        const item = { key, field, row: rowOf(key, field, values) };
+                        if (typeof normalizeField(field)?.readOnly === 'function' || typeof normalizeField(field)?.shows === 'function') follows.push(item);
+                        into.appendChild(item.row);
                     }
                 },
             });
@@ -780,7 +891,81 @@ export function renderSettingsHost(root, { registry, settings, doc = globalThis.
         const value = settings()?.tailBudget;
         return Number.isInteger(value) && value > 0 ? value : DEFAULT_TAIL_BUDGET;
     };
-    function paintSize(block, size, exact, fit = null) {
+    // "Show what's sent" (a sub-fold under the prompt size): every part's exact text, by place, with its
+    // size, and Copy (the clipboard, else the text is selected for copying by hand). It only reads. The
+    // texts are drawn only while it is open (they are long, and the size is drawn again on every change).
+    function sentFold(parts, own, tokensOf, exact) {
+        const T = SETTINGS_TEXT.sent;
+        const { details, body } = fold(doc, SENT_FOLD, T.title, T.hint, 'story-suite-subfold');
+        details.classList.add('story-suite-sent');
+        const draw = () => {
+            if (!details.open || body.children.length) return;
+            drawSent(body, sentText(parts, own, { names: moduleName }), tokensOf, exact);
+        };
+        details.addEventListener('toggle', draw);
+        remember(details);
+        draw();
+        return details;
+    }
+    function drawSent(body, text, tokensOf, exact) {
+        const T = SETTINGS_TEXT.sent;
+        body.appendChild(el(doc, 'p', 'story-suite-muted', T.help));
+        const actions = el(doc, 'div', 'story-suite-sent-actions');
+        const copy = button(doc, 'menu_button story-suite-sent-copy', '', T.copyTitle);
+        const glyph = el(doc, 'i', 'fa-solid fa-copy');
+        glyph.setAttribute('aria-hidden', 'true');
+        copy.append(glyph, el(doc, 'span', '', T.copy));
+        const status = el(doc, 'span', 'story-suite-sent-status');
+        status.setAttribute('role', 'status');
+        actions.append(copy, status);
+        body.appendChild(actions);
+        const texts = el(doc, 'div', 'story-suite-sent-texts');
+        const sections = [['static', T.static, text.static], ['tail', T.tail, text.tail]];
+        if (text.own.length) sections.push(['own', T.own, text.own]);
+        for (const [place, heading, list] of sections) {
+            const section = el(doc, 'section', 'story-suite-sent-section');
+            section.dataset.place = place;
+            section.appendChild(el(doc, 'h5', '', heading));
+            if (!list.length) section.appendChild(el(doc, 'p', 'story-suite-muted', T.nothing));
+            for (const part of list) {
+                const item = el(doc, 'div', 'story-suite-sent-part');
+                item.dataset.module = part.module;
+                const n = part.text ? tokensOf(part.text) : 0;
+                const head = el(doc, 'p', 'story-suite-sent-head');
+                head.append(el(doc, 'b', '', part.title), doc.createTextNode(' · '), el(doc, 'small', '', fill(exact ? T.tokens : T.about, { n: n.toLocaleString('en-US') })));
+                item.appendChild(head);
+                if (part.text) {
+                    const pre = el(doc, 'pre', 'story-suite-sent-text', part.text);
+                    pre.tabIndex = 0;
+                    pre.setAttribute('aria-label', fill(T.textLabel, { part: part.title }));
+                    item.appendChild(pre);
+                }
+                if (part.dropped) item.appendChild(el(doc, 'p', 'story-suite-muted story-suite-sent-dropped', part.dropped === 1 ? T.droppedOne : fill(T.dropped, { n: part.dropped })));
+                section.appendChild(item);
+            }
+            texts.appendChild(section);
+        }
+        body.appendChild(texts);
+        copy.addEventListener('click', async () => {
+            const clipboard = (doc.defaultView ?? globalThis).navigator?.clipboard;
+            try {
+                if (typeof clipboard?.writeText !== 'function') throw new Error('no clipboard');
+                await clipboard.writeText(text.copy);
+                status.textContent = T.copied;
+            } catch {
+                const win = doc.defaultView ?? globalThis;
+                const range = doc.createRange?.();
+                const selection = win.getSelection?.();
+                if (range && selection) {
+                    range.selectNodeContents(texts);
+                    selection.removeAllRanges();
+                    selection.addRange(range);
+                }
+                status.textContent = T.copyFailed;
+            }
+        });
+    }
+    function paintSize(block, size, exact, fit = null, sent = null) {
         const T = SETTINGS_TEXT.size;
         const amount = n => fill(exact ? T.exact : T.about, { n: n.toLocaleString('en-US') });
         const num = n => Number(n).toLocaleString('en-US');
@@ -806,6 +991,11 @@ export function renderSettingsHost(root, { registry, settings, doc = globalThis.
         meter.setAttribute('aria-label', T.tail);
         tail.appendChild(meter);
         if (size.tail > size.budget) tail.classList.add('story-suite-size-over');
+        // What modules send on their own (NPC State Delta's dossiers): a row each, counted in the total.
+        for (const row of size.own ?? []) {
+            const item = line(fill(T.own, { name: row.name }), amount(row.tokens), 'story-suite-size-own');
+            item.dataset.module = row.id;
+        }
         line(T.total, amount(size.total), 'story-suite-size-total');
         const table = el(doc, 'table', 'story-suite-size-table');
         table.appendChild(el(doc, 'caption', '', T.perModule));
@@ -838,16 +1028,19 @@ export function renderSettingsHost(root, { registry, settings, doc = globalThis.
             table,
             fit ? null : el(doc, 'p', 'story-suite-muted story-suite-size-context-unknown', T.contextUnknown),
             el(doc, 'p', 'story-suite-muted story-suite-size-how', exact ? T.howExact : T.howAbout),
+            sent ? sentFold(sent.parts, sent.own, sent.tokensOf, exact) : null,
         ].filter(Boolean));
     }
     function drawSize(block) {
         const run = ++sizeRun;
         let parts = null;
         let fit = null;
+        let own = [];
         try {
             const got = promptParts();
             parts = Array.isArray(got) ? got : got?.parts;
             fit = Array.isArray(got) ? null : got?.fit ?? null;
+            own = Array.isArray(got?.own) ? got.own : [];
         } catch { parts = null; }
         if (!Array.isArray(parts)) {
             block.replaceChildren(el(doc, 'h4', '', SETTINGS_TEXT.size.title), el(doc, 'p', 'story-suite-muted', SETTINGS_TEXT.size.none));
@@ -856,19 +1049,21 @@ export function renderSettingsHost(root, { registry, settings, doc = globalThis.
         // A small context cuts the tail's budget (prompt.js contextFit).
         const budget = Number.isInteger(fit?.budget) ? fit.budget : tailBudget();
         const names = moduleName;
-        paintSize(block, promptSize(parts, { names, budget }), false, fit);
+        paintSize(block, promptSize(parts, { names, budget, own }), false, fit, { parts, own, tokensOf: estimateTokens });
         if (typeof countTokens !== 'function') return;
         // SillyTavern's tokenizer: every text counted once, then the same sums with its numbers.
         const texts = [...new Set([
             ...parts.map(part => String(part?.text ?? '')),
             parts.filter(part => part?.place === 'static').map(part => part.text).join('\n\n'),
             parts.filter(part => part?.place !== 'static').map(part => part.text).filter(Boolean).join('\n'),
+            ...ownParts(own).map(part => part.text),
         ])];
         Promise.all(texts.map(text => Promise.resolve().then(() => countTokens(text))))
             .then(counts => {
                 if (run !== sizeRun || !counts.every(n => Number.isFinite(n) && n >= 0)) return;
                 const known = new Map(texts.map((text, at) => [text, Math.round(counts[at])]));
-                paintSize(block, promptSize(parts, { names, budget, tokensOf: text => known.get(text) ?? estimateTokens(text) }), true, fit);
+                const tokensOf = text => known.get(text) ?? estimateTokens(text);
+                paintSize(block, promptSize(parts, { names, budget, own, tokensOf }), true, fit, { parts, own, tokensOf });
             })
             .catch(() => { /* the estimate stays */ });
     }
