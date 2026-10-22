@@ -230,3 +230,29 @@ test('the merged module declares the feature and marks what it owns (MODULES §F
     for (const name of ['party.ranks', 'party.toSpend', 'party.combatNumbers']) assert.equal(rpgBattleModule.queries[name].feature, undefined, name);
     assert.equal(rpgBattleModule.domains.effects.initial().active && true, true);
 });
+
+test('encumbered (Story Block\'s inventory.encumbrance): −2 on AGI and DEX checks and fight stats; nothing without the query', async () => {
+    const { encumbered } = await import('../../../src/v2/party/queries.js');
+    const state = party();
+    const ren = pcOf(state);
+    const lyra = byName(state, 'Lyra');
+    const heavy = { encumbered: true, party: false, who: [{ id: ren.id, name: 'Ren', load: 90, capacity: 60 }], penalty: -2, stats: ['AGI', 'DEX'] };
+    const toolsWith = found => ({ query: (name, args) => (name === 'inventory.encumbrance' ? found : part.queries[name]?.(state, args) ?? null) });
+    const query = (name, args) => toolsWith(heavy).query(name, args);
+    const mods = modifiersFor(memberOf(query, ren, {}), 'stealth');
+    assert.deepEqual(mods.find(entry => entry.reason === 'Encumbered'), { source: 'effect', amount: -2, reason: 'Encumbered' });
+    assert.equal(modifiersFor(memberOf(query, ren, {}), 'climb').some(entry => entry.reason === 'Encumbered'), false, 'climb is STR');
+    assert.equal(modifiersFor(memberOf(query, lyra, {}), 'stealth').some(entry => entry.reason === 'Encumbered'), false, 'Lyra is not named');
+    assert.match(tableLine(memberOf(query, ren, {}), {}), /−2 AGI checks \(Encumbered\), −2 DEX checks \(Encumbered\)\.$/);
+    const whole = (name, args) => toolsWith({ ...heavy, who: [], party: true }).query(name, args);
+    assert.ok(modifiersFor(memberOf(whole, lyra, {}), 'stealth').some(entry => entry.reason === 'Encumbered'), 'the whole party over: everyone');
+    const plain = combatNumbersOf(state, { id: ren.id });
+    const burdened = combatNumbersOf(state, { id: ren.id }, toolsWith(heavy));
+    assert.equal(burdened.stats.AGI, plain.stats.AGI - 2);
+    assert.equal(burdened.stats.DEX, plain.stats.DEX - 2);
+    assert.deepEqual(encumbered(state, { actor: ren.id }, toolsWith(heavy)), { penalty: -2, stats: ['AGI', 'DEX'], text: 'Encumbered: AGI and DEX checks −2' });
+    assert.equal(encumbered(state, { actor: ren.id }, toolsWith({ ...heavy, encumbered: false })), null);
+    assert.equal(encumbered(state, { actor: ren.id }, { query: () => { throw new Error('no such query'); } }), null);
+    assert.equal(encumbered(state, { actor: ren.id }, null), null);
+    assert.equal(modifiersFor(memberOf(() => null, ren, {}), 'stealth').some(entry => entry.reason === 'Encumbered'), false);
+});

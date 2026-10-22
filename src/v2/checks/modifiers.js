@@ -25,6 +25,10 @@
 //    member (or on everyone) whose `on` is `all`, the check's stat, or one of its topics adds its
 //    amount (code's: ±1 to ±3 by its word band), each effect once; all of them together move a
 //    check by at most ±3 (EFFECT_CAP), on top of the stat and the extras.
+// 5. **Encumbered** (Story Block's `inventory.encumbrance`, its feature `story-block.encumbrance`):
+//    a member over their own carry capacity, or everyone when the party's whole load is over its
+//    capacity, has its `penalty` (−2) on checks of its `stats` (AGI, DEX), outside every cap. Without
+//    the query, nothing.
 
 import { DEFAULT_RULES, STATS, checkModifier } from '../../rules.js';
 import { statForCheck } from '../party/checks.js';
@@ -159,6 +163,9 @@ export function modifiersFor(member, skill, stat = null, rules = DEFAULT_RULES) 
         left -= amount;
         out.push({ source: extra.source, amount, reason: extra.name });
     }
+    // Encumbered: the host's penalty on checks of its stats, outside the caps.
+    const burden = member?.burden;
+    if (burden && burden.stats.includes(used)) out.push({ source: 'effect', amount: burden.penalty, reason: 'Encumbered' });
     // Effects: each that matches once, all together within ±EFFECT_CAP.
     let up = EFFECT_CAP;
     let down = EFFECT_CAP;
@@ -225,9 +232,28 @@ export function effectsOf(query, actor) {
         .map(effect => ({ name: String(effect.name), checks: effect.checks.map(entry => ({ on: entry.on, amount: entry.amount })) }));
 }
 
-/** A member as the rule reads them: { actor, extras, effects }. `defs`: the inventory's defs (for item tags). */
+/**
+ * Whether Story Block says `actor` is encumbered (`inventory.encumbrance`: they are named in `who`,
+ * or the whole party is over its capacity): { penalty (a whole number below 0), stats: [STAT] }, or
+ * null (not encumbered, no such query, or an answer that is not one).
+ */
+export function encumbranceOf(query, actorId) {
+    const found = actorId ? ask(query, 'inventory.encumbrance', {}) : null;
+    if (!found || typeof found !== 'object' || found.encumbered !== true) return null;
+    const penalty = Number(found.penalty);
+    if (!Number.isInteger(penalty) || penalty >= 0) return null;
+    const named = Array.isArray(found.who) && found.who.some(person => person?.id === actorId);
+    if (!named && found.party !== true) return null;
+    const stats = (Array.isArray(found.stats) ? found.stats : []).filter(stat => STATS.includes(stat));
+    return stats.length ? { penalty: Math.max(-10, penalty), stats } : null;
+}
+
+/** A member as the rule reads them: { actor, extras, effects, burden }. `defs`: the inventory's defs (for item tags). */
 export function memberOf(query, actor, defs = {}) {
-    return { actor, extras: extrasOf({ actor, talents: talentsOf(query, actor), items: itemsOf(query, actor, defs) }), effects: effectsOf(query, actor) };
+    return {
+        actor, extras: extrasOf({ actor, talents: talentsOf(query, actor), items: itemsOf(query, actor, defs) }), effects: effectsOf(query, actor),
+        burden: encumbranceOf(query, actor?.id),
+    };
 }
 
 /** The rules checks read: v1's, with a rules file's `checks` numbers (settings `rules.checks`) over them. */
@@ -247,6 +273,7 @@ export function tableLine(member, { you = false, rules = DEFAULT_RULES } = {}) {
     const head = `${member.actor?.name ?? 'Someone'}${you ? ' (you)' : ''}: ${STATS.map(stat => `${stat} ${signed(stats[stat])}`).join(', ')}`;
     const extras = member.extras.map(extra => `${signed(extra.amount)} ${extra.topics.join('/')} (${extra.name})`);
     const effects = (member.effects ?? []).flatMap(effect => effect.checks.map(entry => `${signed(entry.amount)} ${entry.on === 'all' ? 'all checks' : STATS.includes(entry.on) ? `${entry.on} checks` : entry.on} (${effect.name})`));
-    const more = [...extras, ...effects];
+    const burden = member.burden ? member.burden.stats.map(stat => `${signed(member.burden.penalty)} ${stat} checks (Encumbered)`) : [];
+    const more = [...extras, ...effects, ...burden];
     return `${head}${more.length ? `; ${more.join(', ')}` : ''}.`;
 }
