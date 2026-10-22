@@ -20,6 +20,7 @@
 // the command bus (their interfaces are docs/v2/SPEC.md §12).
 
 import { continuation, cutLine, defangMarker, extractBlock, grammarHeads, hideBlock, parseChanges, strayLines, stripBlock } from './capture.js';
+import { readDisplayLine } from './extras.js';
 import { hash, readRecord } from './persist.js';
 import { CAPTURE_PREFIX } from './registry.js';
 import { STATIC_MARKER, assemble, contextNotice } from './prompt.js';
@@ -555,6 +556,8 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
         // A Re-read (a2-3): the reply as it stands now, for bookkeeping its kept blocks wrote (ctx.standing).
         let standing = null;
         if (base) { try { standing = store.at(index); } catch { standing = null; } }
+        // How many lines of each display kind this reply has shown so far (their cap per reply).
+        const shown = new Map();
         for (const line of lines) {
             const entry = registry.capture(line.kind);
             if (!entry) {
@@ -570,6 +573,14 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
             if (entry.off && !again) {
                 const label = registry.feature?.(entry.feature)?.label ?? entry.feature;
                 found.push(problem({ module: entry.moduleId, index, line: line.raw, code: 'FEATURE_OFF', quiet: true, message: `"${line.raw}" was not used: ${label} is turned off (feature off).` }));
+                continue;
+            }
+            // A display kind (Choices, Inner chatter; extras.js): read for the reader alone. No command
+            // runs and nothing is stored; what is shown is read again from the reply's hidden block, by
+            // the same rule (readDisplayLine), so only what the rule refuses is told here.
+            if (entry.display) {
+                const read = readDisplayLine(entry, line, shown);
+                if (!read.ok) found.push(problem({ module: entry.moduleId, index, line: line.raw, code: read.code, message: `"${line.raw}" was not used: ${read.message}.` }));
                 continue;
             }
             let result;

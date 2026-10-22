@@ -18,6 +18,7 @@ import { renderInventoryTab } from '../ui/inventory-tab.js';
 import { renderSceneTab } from '../ui/scene-tab.js';
 import { FEATURE_TEXT, createAssistPart } from '../assist/index.js';
 import { CORE_FEATURE } from '../features.js';
+import { EXTRA_KINDS, answeredReply, chatterTail } from '../extras.js';
 import { STRINGS } from '../strings.js';
 import { createEventsPart } from '../events/index.js';
 import { standardWidgets } from '../view/widgets/index.js';
@@ -45,6 +46,8 @@ export const CORE_KINDS = Object.freeze({
     present: Object.freeze({ grammar: '+ present Name when someone arrives, - present Name when they leave' }),
     // MODULES §F100: off, the kind and its grammar line are left out (a host without Features keeps it).
     loot: Object.freeze({ grammar: '? loot Thing, Other Thing x2 — where it lies (things the party could pick up; the reader chooses what to take)', feature: FEATURE.loot }),
+    // MODULES §F115: display kinds, read for the reader alone (src/v2/extras.js); each under its feature.
+    ...EXTRA_KINDS,
 });
 
 // Story Block's own optional pieces as features (MODULES §F100): the status strip and the cards under
@@ -60,13 +63,16 @@ export const CORE_FEATURES = Object.freeze([
     // The state inspector is for testers and pack authors (off); save points are for every reader (on).
     Object.freeze({ id: CORE_FEATURE.inspector, label: STRINGS.features.inspector, describe: STRINGS.features.inspectorDescribe, default: false }),
     Object.freeze({ id: CORE_FEATURE.savepoints, label: STRINGS.features.savepoints, describe: STRINGS.features.savepointsDescribe, default: true }),
+    // Choices and Inner chatter (MODULES §F115): off; on, each adds its grammar line to the static part.
+    Object.freeze({ id: CORE_FEATURE.choices, label: STRINGS.features.choices, describe: STRINGS.features.choicesDescribe, default: false }),
+    Object.freeze({ id: CORE_FEATURE.chatter, label: STRINGS.features.chatter, describe: STRINGS.features.chatterDescribe, default: false }),
 ]);
 
 // The chat's one currency (MODULES.md F1): its name (singular) and plural, renamable by the reader,
 // never a second one.
 export const CORE_SETTINGS = Object.freeze({
     section: 'Story Block',
-    defaults: Object.freeze({ currency: DEFAULT_CURRENCY.name, currencyPlural: '', currencyShort: '', storyCoinPerReply: 0, economyScale: '0', coins: Object.freeze([]), coinDisplay: 'mixed' }),
+    defaults: Object.freeze({ currency: DEFAULT_CURRENCY.name, currencyPlural: '', currencyShort: '', storyCoinPerReply: 0, economyScale: '0', coins: Object.freeze([]), coinDisplay: 'mixed', chatterInPrompt: false }),
     schema: Object.freeze({
         currency: Object.freeze({ type: 'text', label: 'Currency (one coin: mark, crown, gold)', max: 24 }),
         currencyPlural: Object.freeze({ type: 'text', label: 'Currency, plural (blank: the name with an s)', max: 24 }),
@@ -94,6 +100,8 @@ export const CORE_SETTINGS = Object.freeze({
             ]),
             help: 'How amounts are shown when the world has coins.',
         }),
+        // MODULES §F115: chatter stays out of later prompts unless the reader asks (it would steer the story).
+        chatterInPrompt: Object.freeze({ type: 'bool', group: 'Inner chatter', label: STRINGS.extras.inPrompt, help: STRINGS.extras.inPromptHelp, feature: CORE_FEATURE.chatter }),
     }),
 });
 
@@ -226,6 +234,23 @@ export function mergeParts(parts) {
 }
 
 /**
+ * The tail part of Inner chatter (MODULES §F115): with the reader's `chatterInPrompt` on, the thoughts
+ * of the reply the reader's latest message answered, as one optional line (dropped first when the tail
+ * is full). Off (the default), nothing: chatter never reaches a later prompt. `extras`: { chat() →
+ * SillyTavern's chat, display(mes) → displayLines' answer }; without it, nothing.
+ */
+export function chatterBack(settings, extras) {
+    let on = false;
+    try { on = settings()?.chatterInPrompt === true; } catch { on = false; }
+    if (!on || typeof extras?.chat !== 'function' || typeof extras.display !== 'function') return { lines: [], optional: [] };
+    const chat = extras.chat();
+    const at = answeredReply(chat);
+    if (at < 0) return { lines: [], optional: [] };
+    const line = chatterTail(extras.display(String(chat[at]?.mes ?? '')).chatter);
+    return { lines: [], optional: line ? [line] : [] };
+}
+
+/**
  * The core module definition for `sdk.registerModule` (§6): the core part (scene, inventory), the
  * packs part (item.resolve before story defs, the start state, pack queries and its settings
  * section) and the events part (beforeGenerate, events.fire, events.status, its debug section).
@@ -245,7 +270,7 @@ export function readerLadder(hooks) {
     return null;
 }
 
-export function createCoreModule({ hooks = () => [], settings = () => ({}), version = '2.0.0-alpha.1', packs = livePacks, command, query, assist = null, hookEntries = null, problem = null } = {}) {
+export function createCoreModule({ hooks = () => [], settings = () => ({}), version = '2.0.0-alpha.1', packs = livePacks, command, query, assist = null, hookEntries = null, problem = null, extras = null } = {}) {
     const core = createCorePart({ hooks, settings, hookEntries, problem, economy: () => (typeof packs.economy === 'function' ? packs.economy() : null) });
     const events = createEventsPart({
         ...(command ? { command } : {}),
@@ -296,6 +321,8 @@ export function createCoreModule({ hooks = () => [], settings = () => ({}), vers
                 return { lines, optional };
             },
             budget: merged.budget || CORE_BUDGET,
+            // Inner chatter back to the story, only while the reader's setting asks for it (MODULES §F115).
+            parts: [Object.freeze({ feature: CORE_FEATURE.chatter, tail: () => chatterBack(settings, extras) })],
         },
         hooks: merged.hooks,
         settings: {

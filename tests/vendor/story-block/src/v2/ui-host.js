@@ -12,6 +12,8 @@
 // * The notes under replies (src/v2/reply-notes.js, MODULES §F40): a reply that came without change lines,
 //   a reply edited since, each with Re-read when the runtime offers one. The changes card gets the reply's
 //   refused lines in its scope as `refused` (§F41).
+// * Choices and Inner chatter under replies (src/v2/extras-ui.js, MODULES §F115): the latest reply's
+//   choices as buttons that only fill the message box, each reply's chatter in a folded strip.
 // * The tab panel: the tab host (src/v2/host-ui.js) with every module tab and every `tab` screen, a
 //   side sheet on wide screens and a bottom sheet on phones. Redrawn from the head on every change.
 // * The Story Block drawer in Extensions: version, modules, the same buttons.
@@ -36,6 +38,8 @@ import { formatStoryTime, storyCalendar } from './view/clock.js';
 import { byNavOrder, createScreens } from './view/screens.js';
 import { CHANGES_CARD_SCREEN_ID, HOME_SCREEN_ID, changesSummary } from './screens/index.js';
 import { createReplyNotes } from './reply-notes.js';
+import { createReplyExtras } from './extras-ui.js';
+import { displayLines } from './extras.js';
 import { STRINGS, fill } from './strings.js';
 import { readRecord } from './persist.js';
 import { CORE_FEATURE } from './features.js';
@@ -114,7 +118,7 @@ function readerStore(ctx) {
 /**
  * mountUi({ runtime, ctx, doc?, version? }) → { refresh(), blocked(reason, moduleId), clearBlocked(),
  * openPanel(), closePanel(), openSettings(), toggleGameView(), setHud(on), hudOn(), screens, mounts,
- * renderer, notes, savePoints, inspector, syncScreens(), destroy() }.
+ * renderer, notes, extras, savePoints, inspector, syncScreens(), destroy() }.
  * Re-read uses `sdk.reread(index)` (or `runtime.turn.reread(index)`) when the runtime has one.
  */
 export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' }) {
@@ -261,6 +265,16 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
             } catch { return false; }
         },
         onChanged: index => mounts?.card?.refresh?.(index, { force: true }),
+    });
+    // Choices and Inner chatter under replies (MODULES §F115), read from each reply's own text.
+    const extras = createReplyExtras({
+        ctx,
+        doc,
+        events,
+        display: typeof runtime.display === 'function' ? runtime.display : mes => displayLines(mes, { entryOf: word => registry.capture(word) }),
+        featureOn: id => registry.featureOn?.(id) === true,
+        // NPC State Delta knows the name: its dossier opens from the chip (without it, the plain name).
+        query: (name, args) => (registry.query(name) ? sdk.query(name, args) : null),
     });
     // What the Inspector lists as a reply's problems: blocks its replay skipped, and what the turn met
     // reading it in this session (change lines not used, with why); the refused lines the notes keep
@@ -485,6 +499,7 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
         if (hudCheck) hudCheck.checked = hudOn(ctx.extensionSettings);
         mounts.screen.update();
         notes.refreshAll();
+        extras.refreshAll();
     }
 
     /**
@@ -550,6 +565,7 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
         mounts,
         renderer,
         notes,
+        extras,
         savePoints,
         inspector,
         destroy() {
@@ -557,6 +573,7 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
             doc.removeEventListener?.('keydown', onKey);
             offs.splice(0).forEach(off => off?.());
             notes.destroy();
+            extras.destroy();
         },
     };
 }
