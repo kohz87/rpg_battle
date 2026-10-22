@@ -139,13 +139,21 @@ function blankAfter(text, at) {
 // the end of a line: one in the middle of a line (`note: the </Changes> tag`) is part of that
 // line, so the lines after it are still read (and anything that is not a change line among them
 // becomes a Problem), never dropped without a word.
-function findBlocks(mes, tag) {
+// `openAt` (a Continue of a reply cut off inside its block, see continuation()): the search starts
+// there, inside a block already open (its `start` and body start there).
+function findBlocks(mes, tag, openAt = -1) {
     const text = String(mes ?? '');
     const blocks = [];
     const re = tagRe(tag);
     let depth = 0;
     let start = 0;
     let bodyStart = 0;
+    if (openAt >= 0) {
+        re.lastIndex = openAt;
+        depth = 1;
+        start = openAt;
+        bodyStart = openAt;
+    }
     let match;
     while ((match = re.exec(text))) {
         if (!match[1]) {
@@ -213,16 +221,29 @@ export function withoutReasoning(mes) {
 const maskReasoning = text => replacePairs(text, reasoningPairs(text), blank);
 // The bare blocks of `mes` (not hidden in Story Suite's comment, not inside closed reasoning), at
 // their places in `mes`.
-const bareBlocks = (mes, tag) => {
+const bareBlocks = (mes, tag, openAt = -1) => {
     const text = String(mes ?? '');
-    return findBlocks(maskReasoning(replacePairs(text, hiddenPairs(text), blank)), tag);
+    return findBlocks(maskReasoning(replacePairs(text, hiddenPairs(text), blank)), tag, openAt);
 };
-// The bare blocks a Continue added: from the `skip`th bare block on, starting at or after `from`.
-const laterBlocks = (mes, tag, { from = 0, skip = 0 } = {}) => bareBlocks(mes, tag).filter((block, i) => i >= skip && block.start >= from);
+// The bare blocks a Continue added: from the `skip`th bare block on, ending after `from` (C2-2: a
+// block whose open tag was cut, "<Chan" + "ges>…", starts before the Continue's text). With `tail`
+// the Continue's text starts inside the block the reply was cut off in (continuation()).
+const laterBlocks = (mes, tag, { from = 0, skip = 0, tail = false } = {}) => (tail
+    ? bareBlocks(mes, tag, from)
+    : bareBlocks(mes, tag).filter((block, i) => i >= skip && block.end > from));
+
+// The word after the hidden comment's marker when the reply was cut off inside its (last) block.
+const CUT_MARK = 'open';
+// `text` ends with a hidden comment written for a block left open (hideBlock).
+function endsInOpenBlock(text) {
+    const last = hiddenPairs(text).at(-1);
+    if (!last || text.slice(last.end).trim()) return false;
+    return new RegExp(`^[ \\t]+${CUT_MARK}\\b`).test(text.slice(last.bodyStart, last.bodyEnd));
+}
 
 /**
  * Where a Continue's own text starts in `mes` (the reply after the Continue), given `base` (the reply
- * as it was before it) → { from, skip } for extractBlock, cutLine and hideBlock.
+ * as it was before it) → { from, skip, tail? } for extractBlock, cutLine and hideBlock.
  * SillyTavern writes a continued reply again from its copy of the old text plus what was added, and
  * cleans the whole of it up (spaces at line ends and at the start dropped, blank lines collapsed when
  * that is set, the reader's regex scripts), so the old text can come back shorter than it was. A
@@ -232,11 +253,16 @@ const laterBlocks = (mes, tag, { from = 0, skip = 0 } = {}) => bareBlocks(mes, t
  * whole bare blocks `base` already had (edited in by hand, never read): those are never read here,
  * even when `from` stopped early. Only bare blocks count: a hidden one was read before.
  */
+//
+// C2-2: when the reply was cut off inside its block (its hidden comment says so, see hideBlock) and the
+// Continue's text goes on with it (a close tag comes before any open one, or its first line is a change
+// line), `tail` is set: that text is the rest of the block. Story text that goes on is left as it is.
 export function continuation(base, mes, tag = 'Changes') {
     const before = String(base ?? '');
     const after = String(mes ?? '');
     const skip = bareBlocks(before, tag).filter(block => !block.open).length;
-    if (after.startsWith(before)) return { from: before.length, skip };
+    const at = from => (endsInOpenBlock(before) && goesOn(after, tag, from) ? { from, skip, tail: true } : { from, skip });
+    if (after.startsWith(before)) return at(before.length);
     let i = 0;
     let j = 0;
     while (i < before.length) {
@@ -246,7 +272,16 @@ export function continuation(base, mes, tag = 'Changes') {
         i += 1;
         j += 1;
     }
-    return { from: j, skip };
+    return i < before.length ? { from: j, skip } : at(j);
+}
+
+// Does the text from `from` go on with a block left open: a close tag first, or a change line first?
+function goesOn(mes, tag, from) {
+    const first = bareBlocks(mes, tag, from)[0];
+    if (!first) return false;
+    if (!first.open) return true;
+    const line = first.body.trimStart().split('\n')[0].trim();
+    return !!line && !parseLine(line).error;
 }
 
 /**
@@ -280,17 +315,20 @@ const commentSafe = text => text.replace(/-(?=-)/g, '- ');
 /**
  * `mes` with its bare <Changes> blocks moved into one hidden comment at the end, so
  * SillyTavern shows nothing of them and Re-read can still find them. Already hidden: unchanged.
- * `from`, `skip` (continuation()): only blocks that start at or after `from`, from the `skip`th bare
- * block on (a Continue's own text), are moved; the ones before are left as they are.
+ * `from`, `skip`, `tail` (continuation()): only blocks that end after `from`, from the `skip`th bare
+ * block on (a Continue's own text), are moved; the ones before are left as they are. A block left
+ * open is kept with the word `open` after the marker, so a Continue can tell it goes on with it.
  */
-export function hideBlock(mes, tag = 'Changes', { from = 0, skip = 0, stopped = false } = {}) {
+export function hideBlock(mes, tag = 'Changes', { from = 0, skip = 0, tail = false, stopped = false } = {}) {
     const text = String(mes ?? '');
-    const bare = laterBlocks(text, tag, { from, skip });
+    const bare = laterBlocks(text, tag, { from, skip, tail });
     if (!bare.length) return text;
     let story = text;
     for (const block of [...bare].reverse()) story = story.slice(0, block.start) + story.slice(block.end);
     const kept = bare.map(block => `<${tag}>\n${commentSafe(blockBody(wholeLines(block, stopped).body))}\n</${tag}>`).join('\n');
-    return `${trimEnd(story)}\n\n<!-- ${HIDDEN_MARKER}\n${kept}\n-->`;
+    // A block left open (the reply was cut off in it) is said so, for a Continue (continuation()).
+    const mark = bare.at(-1).open ? ` ${CUT_MARK}` : '';
+    return `${trimEnd(story)}\n\n<!-- ${HIDDEN_MARKER}${mark}\n${kept}\n-->`;
 }
 
 // A bullet, number or quote mark in front of a line is decoration. A hyphen counts as one only

@@ -185,13 +185,63 @@ export function foeNames(setup) {
     return grouped(all.map(c => c.name)) || 'the foes';
 }
 
+// A foe's rank as the fight's tail line says it (MODULES §F91): the rank its offer was read with
+// (encounter.rankFoe), kept on the session when the fight starts (foeRanks). A rank is pack or
+// reader text: one plain line, cut by code points.
+const RANK_SHOWN = 16;
+const NAME_SHOWN = 48;
+const MAX_RANKED = 6;
+const flat = (text, max) => [...String(text ?? '').replace(/[\r\n|<>[\]]/g, ' ').replace(/\s+/g, ' ').trim()].slice(0, max).join('').trim();
+const foeKey = name => flat(String(name ?? '').trim().replace(/\s+[A-Z]$/, ''), NAME_SHOWN).toLowerCase();
+
+/**
+ * The ranks an offer's foes were read with, as the session keeps them: [{ name, rank }], one per
+ * foe name, at most MAX_RANKED; empty when no foe has a rank (no `rank:` written, or no ladder to
+ * read it on: then nothing about ranks is said).
+ */
+export function foeRanks(foes) {
+    const out = [];
+    for (const foe of Array.isArray(foes) ? foes : []) {
+        const name = flat(foe?.name, NAME_SHOWN);
+        const rank = flat(foe?.rank, RANK_SHOWN);
+        if (name && rank && !out.some(entry => foeKey(entry.name) === foeKey(name))) out.push({ name, rank });
+    }
+    return out.slice(0, MAX_RANKED);
+}
+
+/**
+ * The foes of a session for the tail: foeNames, with each ranked foe's rank, "Bandit ×3 (rank
+ * Silver), Wolf"; foes all of one rank say it once, "Bandit ×3, Wolf (all rank Silver)". The same
+ * words as foeNames when no foe has a rank.
+ */
+export function rankedFoeNames(session) {
+    const setup = session?.setup;
+    const ranks = new Map((Array.isArray(session?.ranks) ? session.ranks : []).slice(0, MAX_RANKED)
+        .map(entry => [foeKey(entry?.name), flat(entry?.rank, RANK_SHOWN)]).filter(([name, rank]) => name && rank));
+    if (!ranks.size) return foeNames(setup);
+    const groups = new Map();
+    for (const c of [...(setup?.enemies ?? []), ...(setup?.waves ?? []).flatMap(wave => wave.enemies ?? [])]) {
+        const name = String(c?.name ?? '').trim().replace(/\s+[A-Z]$/, '');
+        if (!name) continue;
+        const group = groups.get(name) ?? { count: 0, rank: '' };
+        group.count += 1;
+        group.rank ||= ranks.get(foeKey(c.questName ?? name)) ?? '';
+        groups.set(name, group);
+    }
+    if (!groups.size) return foeNames(setup);
+    const named = [...groups].map(([name, group]) => [group.count > 1 ? `${name} ×${group.count}` : name, group.rank]);
+    const one = new Set(named.map(([, rank]) => rank));
+    if (named.length > 1 && one.size === 1 && named[0][1]) return `${named.map(([text]) => text).join(', ')} (all rank ${named[0][1]})`;
+    return named.map(([text, rank]) => (rank ? `${text} (rank ${rank})` : text)).join(', ');
+}
+
 /** The tail for the combat domain: { lines, optional }. */
 export function tailLines(combat) {
     const lines = [];
     const optional = [];
     const session = combat?.session;
     if (session?.status === 'active') {
-        lines.push(`[Fight] Under way: ${partyNames(session.setup)} against ${foeNames(session.setup)}. The reader is playing it in RPG Battle: narrate no blows and no outcome.`);
+        lines.push(`[Fight] Under way: ${partyNames(session.setup)} against ${rankedFoeNames(session)}. The reader is playing it in RPG Battle: narrate no blows and no outcome.`);
     } else if (session) {
         lines.push(`[Fight] Over (${session.status}), being settled in RPG Battle: narrate no outcome until it is told.`);
     }

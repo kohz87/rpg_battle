@@ -538,7 +538,8 @@ function readParty(ctx) {
 // there (a two-handed weapon also puts away the off-hand; an off-hand is refused while a two-handed
 // weapon is held); for accessories and worn pieces, once the count is full, the oldest one (the lowest
 // key: keys are renumbered in the order the pieces went on, the new one last). A piece someone else
-// wears comes off them first. Handing it over follows the carry limit like any hand-over.
+// wears comes off them first. Handing it over follows the carry limit like any hand-over, and so does
+// what goes back into their carry (refused with the reason when it does not fit).
 function equipOn(ctx, payload) {
     const inv = ctx.draft('inventory');
     const stack = stackIn(ctx, inv, payload.stack);
@@ -577,7 +578,17 @@ function equipOn(ctx, payload) {
         if (base === 'weapon' && def.tags?.includes('two-handed')) off.push(...worn.filter(other => baseSlot(other.equipped) === 'offhand'));
         for (const other of off) other.equipped = null;
     }
-    // Back into the wearer's own carry (a piece of the shared bag the main character wore too).
+    // Back into the wearer's own carry (a piece of the shared bag the main character wore too). C3-7:
+    // that is a hand-over too, so the carry limit counts it along with the new piece.
+    const coming = off.filter(other => other.owner !== actor);
+    if (coming.length) {
+        const add = [...(from !== actor ? [{ defId: def.id, qty: stack.qty }] : []), ...coming.map(other => ({ defId: other.def, qty: other.qty }))];
+        const fits = carryFits(ctx, add, actor, true);
+        if (fits && !fits.ok) {
+            const names = joinNames(coming.map(other => inv.defs[other.def]?.name ?? other.id));
+            ctx.fail('REFUSED', `${capitalize(who)} cannot take ${def.name} with ${names} going back into ${who}'s own pack: ${fits.message}`);
+        }
+    }
     for (const other of off) other.owner = actor;
     stack.owner = actor;
     stack.equipped = key;

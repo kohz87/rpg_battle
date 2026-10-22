@@ -83,7 +83,7 @@ export function createStore({
     let frozenCheckpoints = new WeakMap();
     const checkpointBytesOf = new WeakMap();
     let cache = null;          // { key, state, problems }
-    let lastWrite = null;      // { message, swipe, rev } of the last record written, for save verification
+    let lastWrite = null;      // { message, swipe, sid, rev } of the last record written, for save verification
     let holding = 0;           // inside batch(): swipe_info copies wait until it ends
     const held = new Set();
     let known = null;          // the carriers (message objects) the last good head was built from
@@ -98,7 +98,7 @@ export function createStore({
         const keep = keeps(message);
         const stored = writeRecord(message, record, { mirror: !holding && keep });
         if (!keep) dropCopy(message);
-        lastWrite = { message, swipe: stored.swipe, rev: stored.rev };
+        lastWrite = { message, swipe: stored.swipe, sid: stored.sid, rev: stored.rev };
         unsaved.set(message, { index: list().indexOf(message), chatId: chatId(), n: ++writes });
         return stored;
     }
@@ -149,7 +149,15 @@ export function createStore({
             if (index < 0) return '';   // deleted, or another chat: nothing of this one to check
             const message = token.message;
             const extra = swipeOf(message) === token.swipe ? message.extra : message.swipe_info?.[token.swipe]?.extra;
-            const rev = extra?.[KEY]?.rev;
+            let rev = extra?.[KEY]?.rev;
+            // C1-2: an earlier swipe deleted since moved the record to another index (restamp): it is
+            // found by its record ID, shown or in its swipe's copy.
+            if (rev !== token.rev && typeof token.sid === 'string' && extra?.[KEY]?.sid !== token.sid) {
+                const held = [message.extra, ...(Array.isArray(message.swipe_info) ? message.swipe_info.map(info => info?.extra) : [])]
+                    .map(where => where?.[KEY]).filter(record => isObject(record) && record.sid === token.sid);
+                if (held.some(record => record.rev === token.rev)) return '';
+                if (held.length) rev = held[0].rev;
+            }
             if (rev === token.rev) return '';
             if (lastWrite === token) lastWrite = null;
             return `The story was saved, but message ${index} no longer holds its latest changes (change ${rev ?? 'none'} instead of ${token.rev ?? 'none'}); the story stays marked unsaved.`;
@@ -455,10 +463,21 @@ export function createStore({
     function spansOf(record) {
         const spans = Array.isArray(record.spans) ? record.spans : null;
         const total = spans?.reduce((sum, span) => sum + (Number.isInteger(span?.n) ? span.n : NaN), 0);
-        if (spans && total === record.ops.length) return spans;
+        if (spans && total === record.ops.length) return spans.some(span => span?.mixed) ? null : spans;
         // A record without usable spans: fine as one kept block if it holds no story receipts.
         if (!record.receipts.some(receipt => receipt?.cause === 'story')) return [{ n: record.ops.length, story: false }];
         return null;
+    }
+
+    // C1-1: the spans a new block is added after. A record whose spans do not add up is replayed as one
+    // block (blocksOf); it stays one block, `mixed` (its story changes cannot be told apart, so Re-read
+    // still refuses it), and the new block is one of its own, so a bad op in the old ones cannot take it
+    // with them on the next rebuild.
+    function spansFor(record) {
+        const spans = Array.isArray(record.spans) ? record.spans : null;
+        const total = spans?.reduce((sum, span) => sum + (Number.isInteger(span?.n) && span.n >= 0 ? span.n : NaN), 0);
+        if (spans && total === record.ops.length) return spans;
+        return spansOf(record) ?? (record.ops.length ? [{ n: record.ops.length, story: true, mixed: true }] : []);
     }
 
     // The record's ops in the blocks they were stored in: one per append (one receipt), one for a
@@ -598,7 +617,7 @@ export function createStore({
                 ...record,
                 ops: [...record.ops, ...added],
                 receipts: receipt ? [...record.receipts, structuredClone(receipt)] : record.receipts,
-                spans: [...(spansOf(record) ?? []), { n: added.length, story: receipt?.cause === 'story' }],
+                spans: [...spansFor(record), { n: added.length, story: receipt?.cause === 'story' }],
                 rev: revOf(next),
             });
             saver.touch();
@@ -749,14 +768,20 @@ export function createStore({
             const base = record.checkpoint ? checkpointState(record.checkpoint) : stateBefore(arr, index);
             if (!base) throw new Error('This chat has no story state yet.');
             const ops = kept.flatMap(chunk => chunk.ops);
-            const state = step(base, ops);
-            if (dryRun) return { dropped, rev: revOf(state) };
             const byRev = new Map(receipts.map(receipt => [receipt.rev, receipt]));
+            const spans = kept.map(chunk => ({ n: chunk.ops.length, story: byRev.get(chunk.rev)?.cause === 'story' }));
+            // C1-3: the kept changes are replayed as a rebuild replays them (block by block, by the
+            // replay rules: a remove of what a deleted reply added is passed over), so a chat that
+            // replays fine is not refused. A kept block that still does not apply refuses the rewind.
+            const problems = [];
+            const state = replayRecord(base, { ...record, ops, spans }, index, problems);
+            if (problems.length) throw new Error(problems[0].why);
+            if (dryRun) return { dropped, rev: revOf(state) };
             write(message, {
                 ...record,
                 ops,
                 receipts,
-                spans: kept.map(chunk => ({ n: chunk.ops.length, story: byRev.get(chunk.rev)?.cause === 'story' })),
+                spans,
                 narrated: record.narrated.filter(id => !dropped.includes(id)),
                 rev: revOf(state),
             });

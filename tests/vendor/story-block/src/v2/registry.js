@@ -46,6 +46,7 @@ const DOMAIN = /^[a-z][a-zA-Z0-9_-]*$/;
 const COMMAND = /^[a-z][a-zA-Z0-9_-]*(?:\.[a-zA-Z0-9_-]+)*$/;
 const KIND = /^[a-z][a-z0-9_-]*$/;
 const TAB_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
+const FOLD_ID = /^[a-z0-9][a-z0-9_-]*$/;
 // Screen ids are namespaced like `rpg-battle/party` (§13.1); widget names like `rpg-battle.battle-board`.
 const SCREEN_ID = /^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/;
 const WIDGET_NAME = /^[a-z0-9][a-z0-9_-]*(?:\.[a-z0-9][a-z0-9_-]*)+$/;
@@ -201,7 +202,7 @@ export function definitionProblems(def) {
     }
     if (map(def.hooks, 'hooks')) for (const [name, hook] of Object.entries(def.hooks)) fn(hook, `hook "${name}"`);
     if (map(def.settings, 'settings')) {
-        const { defaults, schema, section, render } = def.settings;
+        const { defaults, schema, section, render, folds } = def.settings;
         if (defaults !== undefined) {
             if (!isObject(defaults)) problems.push('settings.defaults is not an object');
             else { const problem = jsonProblem(defaults, 'settings.defaults'); if (problem) problems.push(problem); }
@@ -217,6 +218,18 @@ export function definitionProblems(def) {
         // in `render(el, api)` (MODULES §A).
         if (section !== undefined && typeof section !== 'string') fn(section, 'settings.section');
         if (render !== undefined) fn(render, 'settings.render');
+        // `folds`: panels of their own at the top of the settings, after Story Suite's (Story Block's Packs).
+        if (folds !== undefined) {
+            if (!Array.isArray(folds)) problems.push('settings.folds is not a list');
+            else folds.forEach((item, index) => {
+                const where = `settings fold ${index + 1}`;
+                if (!isObject(item)) { problems.push(`${where} is not an object`); return; }
+                if (typeof item.id !== 'string' || !FOLD_ID.test(item.id)) problems.push(`${where} has no usable id`);
+                if (typeof item.title !== 'string' || !item.title.trim()) problems.push(`${where} has no title`);
+                if (item.hint !== undefined && typeof item.hint !== 'string') problems.push(`${where}'s hint is not text`);
+                fn(item.render, `${where} render`);
+            });
+        }
     }
     if (def.tabs !== undefined) {
         if (!Array.isArray(def.tabs)) problems.push('tabs is not a list');
@@ -271,7 +284,7 @@ export function definitionWarnings(def) {
     }
     out.push(...featureWarnings(def));
     if (isObject(def.settings)) {
-        for (const key of Object.keys(def.settings)) if (!['defaults', 'schema', 'section', 'render'].includes(key)) out.push(`"settings.${key}" is not a settings field this Story Block knows; it is ignored`);
+        for (const key of Object.keys(def.settings)) if (!['defaults', 'schema', 'section', 'render', 'folds'].includes(key)) out.push(`"settings.${key}" is not a settings field this Story Block knows; it is ignored`);
         const fields = isObject(def.settings.schema) ? Object.entries(def.settings.schema) : [];
         for (const [key, field] of fields) {
             const subs = fieldType(field) === 'list' && isObject(field?.of) ? Object.entries(field.of).map(([sub, inner]) => [`${key}.${sub}`, inner]) : [];
@@ -307,6 +320,9 @@ function neededVersion(range, version) {
  */
 export function createRegistry({ hostVersion = null, warn = message => console.warn(`[Story Suite] ${message}`), featureValue = () => undefined } = {}) {
     const defs = new Map();
+    // C3-5: each module's features as they were when it registered (module id → [declaration]): a
+    // definition changed afterwards (a label set to a number, a feature pushed later) changes nothing.
+    const declared = new Map();
     const owners = { domain: new Map(), command: new Map(), query: new Map(), kind: new Map(), tab: new Map(), screen: new Map(), widget: new Map(), feature: new Map() };
     // Every capture kind and alias → its canonical kind.
     const canonical = new Map();
@@ -377,6 +393,14 @@ export function createRegistry({ hostVersion = null, warn = message => console.w
             for (const alias of spec.aliases ?? []) canonical.set(alias, kind);
         }
         defs.set(id, def);
+        declared.set(id, Object.freeze((def.features ?? []).map(feature => Object.freeze({
+            id: feature.id,
+            label: feature.label.trim(),
+            describe: typeof feature.describe === 'string' ? feature.describe.trim() : '',
+            default: feature.default !== false,
+            prompt: affectsStatic(def, feature.id),
+            needs: needsOf(feature),
+        }))));
         refusals.delete(id);
         for (const message of definitionWarnings(def)) warn(`${def.name ?? id}: ${message}.`);
     }
@@ -387,17 +411,18 @@ export function createRegistry({ hostVersion = null, warn = message => console.w
         const owner = owners.feature.get(String(id ?? ''));
         if (!owner) return null;
         const def = defs.get(owner);
-        const feature = def.features.find(item => item.id === id);
-        const needs = needsOf(feature);
+        const feature = declared.get(owner)?.find(item => item.id === id);
+        if (!feature) return null;
+        const { needs } = feature;
         const available = availableFor(needs);
         return Object.freeze({
             id: feature.id,
-            moduleId: def.id,
-            moduleName: def.name ?? def.id,
-            label: feature.label.trim(),
-            describe: typeof feature.describe === 'string' ? feature.describe.trim() : '',
-            default: feature.default !== false,
-            prompt: affectsStatic(def, feature.id),
+            moduleId: owner,
+            moduleName: typeof def?.name === 'string' && def.name ? def.name : owner,
+            label: feature.label,
+            describe: feature.describe,
+            default: feature.default,
+            prompt: feature.prompt,
             needs,
             available,
             why: available ? '' : needs.why,
@@ -639,7 +664,7 @@ export function createRegistry({ hostVersion = null, warn = message => console.w
          * available, why }], module-id order. `available` is false while what it `needs` is not registered
          * (it is then off, whatever the reader chose); `why` says so for the overlay.
          */
-        features: () => sorted().flatMap(def => (def.features ?? []).map(feature => featureDecl(feature.id))),
+        features: () => sorted().flatMap(def => (declared.get(def.id) ?? []).map(feature => featureDecl(feature.id))),
         /** One declared feature, or null. */
         feature: featureDecl,
         /** Whether feature `id` is on (the reader's choice, else its default); false for an id no module declares. */
@@ -647,9 +672,10 @@ export function createRegistry({ hostVersion = null, warn = message => console.w
         /** The feature command `type` belongs to, or null; the bus refuses it with FEATURE_OFF while that is off. */
         commandFeature,
         /**
-         * [{ moduleId, name, title, defaults, schema, section }] for modules with settings, in module-id
-         * order. `section` is the custom panel function (from either form) or null; `title` the
-         * section's title when one was given as text, else the module's name.
+         * [{ moduleId, name, title, defaults, schema, section, folds }] for modules with settings, in
+         * module-id order. `section` is the custom panel function (from either form) or null; `title` the
+         * section's title when one was given as text, else the module's name; `folds` the module's own
+         * top-level panels, [{ id, title, hint, render }] (empty when it has none).
          */
         settingsDefs: () => sorted().filter(def => def.settings).map(def => ({
             moduleId: def.id,
@@ -658,6 +684,8 @@ export function createRegistry({ hostVersion = null, warn = message => console.w
             schema: def.settings.schema ?? {},
             title: typeof def.settings.section === 'string' && def.settings.section.trim() ? def.settings.section.trim() : def.name ?? def.id,
             section: typeof def.settings.section === 'function' ? def.settings.section : def.settings.render ?? null,
+            folds: (Array.isArray(def.settings.folds) ? def.settings.folds : [])
+                .map(item => ({ id: item.id, title: item.title.trim(), hint: typeof item.hint === 'string' ? item.hint : '', render: item.render })),
         })),
         /** [{ moduleId, name, domains, kinds: [{ kind, grammar }], static, tail, budget }] in module-id order. */
         // Kinds and context (parts) under a feature that is off are left out (MODULES §F100).
