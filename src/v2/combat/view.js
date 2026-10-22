@@ -26,8 +26,13 @@ export function applyStock(fight, stock) {
     return fight;
 }
 
+// How many stored actions the rebuilds below have played since the module loaded: the work a fight
+// view costs, counted rather than timed (B4-12: a click or a board read plays only what is new).
+export const replayWork = { played: 0 };
+
 /** One stored action played on a copy of `fight` (its stock cuts first): the next fight. */
 export function playStored(fight, action, rules) {
+    replayWork.played += 1;
     const { stock, ...played } = action;
     const start = stock?.length ? applyStock(structuredClone(fight), stock) : fight;
     return act(start, played, rules);
@@ -40,6 +45,7 @@ export function playStored(fight, action, rules) {
  * under its own fight, stored.js, so this is a guard, never the rule).
  */
 export function replayStored(setup, actions, rules) {
+    replayWork.played += actions.length;
     try {
         return replay({ setup, actions: actions.map(({ stock: _stock, ...played }) => played) }, rules, {
             before: (fight, _played) => {

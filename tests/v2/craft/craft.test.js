@@ -136,8 +136,8 @@ test('companions learn and craft with their own stats', async t => {
 test('a craft takes the reply\'s roll by its place among the reply\'s checks and crafts (F80); naming another is noted', async t => {
     const host = await withSword(t);
     try {
-        // (Roll 2 is not a 1: a 1 is also "Roll 1" by its value, and then nothing needs noting.)
-        const die = await replyWhen(host, 'I sneak, then forge.', die => die !== 1, () => [
+        // Whatever Roll 2's die is: `roll: 1` names Roll 1 (the grammar's roll number), never a die of 1.
+        const die = await replyWhen(host, 'I sneak, then forge.', () => true, () => [
             '? check stealth — slipping in | dc: easy | roll: 1 | result: success',
             '! craft Iron Sword | roll: 1 | result: made',
         ], { place: 2 });

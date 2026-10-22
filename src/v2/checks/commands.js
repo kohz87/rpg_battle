@@ -201,8 +201,9 @@ export function pickRoll(prepared, written, used, place, rollCode) {
     let note = '';
     if (!Number.isInteger(number)) note = `no roll was named: Roll ${roll} taken`;
     else if (number >= 1 && number <= rolls.length) {
-        // A roll number; a die value that is also a roll number counts as the die when it is this one.
-        if (number !== roll && die !== number) note = `the line named Roll ${number}, but this is the reply's ${ORDINALS[roll - 1] ?? `${roll}th`} check: Roll ${roll} taken`;
+        // A roll number (the grammar's `roll: <1 or 2>`), never read as a die: a line naming the other
+        // roll is noted whatever this roll's die is (a die of 1 or 2 hid it, 1 run in 10).
+        if (number !== roll) note = `the line named Roll ${number}, but this is the reply's ${ORDINALS[roll - 1] ?? `${roll}th`} check: Roll ${roll} taken`;
     } else if (number !== die) {
         note = rolls.includes(number)
             ? `the line named ${number}, Roll ${rolls.indexOf(number) + 1}'s die, but this is the reply's ${ORDINALS[roll - 1] ?? `${roll}th`} check: Roll ${roll} taken`

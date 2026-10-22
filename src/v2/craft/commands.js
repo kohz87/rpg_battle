@@ -250,7 +250,8 @@ function dieFor(ctx, craft, written) {
     const nth = ORDINALS[place - 1] ?? `${place}th`;
     if (!Number.isInteger(number)) note = `no roll was named: Roll ${place} taken`;
     else if (number >= 1 && number <= rolls.length) {
-        if (number !== place && die !== number) note = `the line named Roll ${number}, but this is the reply's ${nth} uncertain attempt: Roll ${place} taken`;
+        // A roll number (the grammar's `roll: <1 or 2>`), never read as a die: noted whatever the die is.
+        if (number !== place) note = `the line named Roll ${number}, but this is the reply's ${nth} uncertain attempt: Roll ${place} taken`;
     } else if (number !== die) note = `${number} is not a roll that was handed over: Roll ${place} taken`;
     return { roll: place, die, note, key };
 }
