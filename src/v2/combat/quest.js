@@ -7,7 +7,7 @@
 
 import { LOOT_TABLES, findCreature } from '../../enemies.js';
 
-// The most foes a quest-sized row brings (the field takes them in waves), and a row's own cap.
+// The most quest foes a quest-sized fight brings in all (the field takes them in waves), and a row's own cap.
 export const QUEST_MAX_FOES = 24;
 export const ROW_MAX = 9;
 // A fight brings at least this share of the quest's whole goal (what is still missing at most).
@@ -71,35 +71,50 @@ function questItemOf(target, foeName, bestiary) {
 }
 
 /**
- * The offer's foes sized for the active quests (questTargets): a foe written without a count that
- * a quest counts (a kill) or drops a quest item (a collection) comes as many as a third of the
- * goal at least (what is still missing at most, QUEST_MAX_FOES), split into rows of ROW_MAX; a quest
- * item is marked on the foe (`questItem`) so it drops from each one (setup.reliableLoot). Returns
- * { foes, sized: [{ quest, name, from, to }] }.
+ * The offer's foes sized for the active quests (questTargets), per fight: a foe written without a
+ * count that a quest counts (a kill) or drops a quest item (a collection) is the one more of them
+ * come as. What the fight brings toward a quest is reckoned over all its rows: about a third of the
+ * goal at least (what is still missing at most), the foes the story wrote counted in it; the whole
+ * fight's quest foes at most QUEST_MAX_FOES, and each tier at most `room(tier)` more (what the tier
+ * can hold, setup.tierRoom). Sized rows are split into rows of ROW_MAX; a quest item is marked on
+ * the foe (`questItem`) so it drops from each one (setup.reliableLoot). Returns { foes, sized: [{
+ * quest, name, from, to }] }.
  */
-export function questSized(foes, targets, bestiary) {
+export function questSized(foes, targets, bestiary, { room = () => Infinity } = {}) {
     if (!targets.length) return { foes, sized: [] };
+    const rows = foes.map(foe => {
+        const target = targets.find(entry => (entry.kind === 'foes' ? nounNames(entry.noun, foe.name) : questItemOf(entry, foe.name, bestiary)));
+        if (!target || foe.boss) return { foe };
+        const item = target.kind === 'items' ? questItemOf(target, foe.name, bestiary) : null;
+        // The story wrote how many (or a rank): kept as written (the drops are still sure).
+        return { foe: { ...foe, quest: target.id, ...(item ? { questItem: item.name } : {}) }, target, per: item ? item.qty : 1, fixed: Boolean(foe.counted || foe.rank) };
+    });
+    // What each quest still wants from this fight (in its own units: kills, or items), less what the
+    // rows bring as written; and how many more quest foes the fight may bring.
+    const want = Object.fromEntries(targets.map(target => [target.id, Math.min(target.left, Math.ceil(Math.max(target.need * QUEST_SHARE, 1)))]));
+    let more = QUEST_MAX_FOES;
+    for (const row of rows) {
+        if (!row.target) continue;
+        want[row.target.id] -= row.foe.count * row.per;
+        more -= row.foe.count;
+    }
+    const added = {};
     const out = [];
     const sized = [];
-    for (const foe of foes) {
-        const target = targets.find(entry => (entry.kind === 'foes' ? nounNames(entry.noun, foe.name) : questItemOf(entry, foe.name, bestiary)));
-        if (!target || foe.boss) {
-            out.push(foe);
+    for (const row of rows) {
+        if (!row.target || row.fixed) {
+            out.push(row.foe);
             continue;
         }
-        const item = target.kind === 'items' ? questItemOf(target, foe.name, bestiary) : null;
-        const marked = { ...foe, quest: target.id, ...(item ? { questItem: item.name } : {}) };
-        if (foe.counted || foe.rank) {
-            // The story wrote how many: kept as written (the drops are still sure).
-            out.push(marked);
-            continue;
-        }
-        const per = item ? item.qty : 1;
-        const want = Math.ceil(Math.max(target.need * QUEST_SHARE, 1) / per);
-        const most = Math.ceil(target.left / per);
-        const count = Math.max(foe.count, Math.min(QUEST_MAX_FOES, most, want));
-        for (let left = count; left > 0; left -= ROW_MAX) out.push({ ...marked, count: Math.min(ROW_MAX, left) });
-        if (count !== foe.count) sized.push({ quest: target.id, name: foe.name, from: foe.count, to: count });
+        const tier = row.foe.tier ?? '';
+        const free = Math.max(0, Math.floor(Number(room(tier)) - (added[tier] ?? 0)) || 0);
+        const add = Math.max(0, Math.min(more, free, Math.ceil(Math.max(0, want[row.target.id]) / row.per)));
+        const count = row.foe.count + add;
+        more -= add;
+        added[tier] = (added[tier] ?? 0) + add;
+        want[row.target.id] -= add * row.per;
+        for (let left = count; left > 0; left -= ROW_MAX) out.push({ ...row.foe, count: Math.min(ROW_MAX, left) });
+        if (add) sized.push({ quest: row.target.id, name: row.foe.name, from: row.foe.count, to: count });
     }
     return { foes: out, sized };
 }

@@ -3,7 +3,9 @@
 // with createElement and textContent only; nothing from the state is read as markup.
 //
 // render(el, props, api) adds one root and returns { update, destroy }. `props.point` may carry a
-// return.point answer; otherwise it is asked of `api.query`. The Return button rewinds through
+// return.point answer; otherwise it is asked of `api.query`. A screen that places it binds
+// `return.status` (`{"bind":"q.ret"}` → `props.value`: { dead, point }), so the host draws it again
+// when your character dies or comes back (a widget whose props stay the same is not drawn again). The Return button rewinds through
 // `api.rewind` when the host gives widgets one, else through the sdk the part was given.
 
 import { cleanPlace, isFightId } from './point.js';
@@ -56,10 +58,11 @@ export function renderReturnCard(el, props, api, { host = null, returnInTime } =
     function draw(current) {
         root.textContent = '';
         const pc = ask(api, 'party.pc');
-        const dead = isObject(pc) && Array.isArray(pc.conditions) && pc.conditions.some(entry => entry?.kind === 'dead');
+        const given = isObject(current) && isObject(current.value) && typeof current.value.dead === 'boolean' ? current.value : null;
+        const dead = given ? given.dead : isObject(pc) && Array.isArray(pc.conditions) && pc.conditions.some(entry => entry?.kind === 'dead');
         root.hidden = !dead;
         if (!dead) return;
-        const point = pointOf(isObject(current) && current.point !== undefined ? current.point : ask(api, 'return.point'));
+        const point = pointOf(given ? given.point : isObject(current) && current.point !== undefined ? current.point : ask(api, 'return.point'));
         const name = typeof pc.name === 'string' && pc.name.trim() ? pc.name.trim() : 'Your character';
         root.append(make(doc, 'div', { className: 'rpg-return-title', text: 'You died' }));
         root.append(make(doc, 'div', {

@@ -645,9 +645,13 @@ export function createStore({
 
         // Re-read: the carrier's `story` receipts and their ops are replaced; ui and system receipts stay,
         // after the new story ops. A kept block whose rev (its `/meta/rev` op and its receipt) is not after
-        // the new story ops' last one is numbered on from it, so no two receipts on the carrier share one. Later carriers are replayed on top so their checkpoints stay true; if any
+        // the new story ops' last one is numbered on from it, so no two receipts on the carrier share one.
+        // A kept system step marked `replan` (its receipt's `replan: { payload }`, B-a1-13: planned from the
+        // story state, like a story-time heal) is not applied again as it was: `rerun(state, receipt)` runs
+        // it again on the state as it now stands at its place (→ { ok, ops, receipt }); when it is not
+        // done, its block goes. Later carriers are replayed on top so their checkpoints stay true; if any
         // later change no longer applies, nothing is written and this throws.
-        replaceStory(index, { ops, receipts = [] } = {}) {
+        replaceStory(index, { ops, receipts = [], rerun = null } = {}) {
             const arr = list();
             const message = carrierAt(arr, index);
             if (!Array.isArray(receipts) || receipts.some(receipt => !isObject(receipt) || receipt.cause !== 'story')) {
@@ -660,44 +664,73 @@ export function createStore({
             const { record } = take(arr, index, before);
             const spans = spansOf(record);
             if (!spans) throw new Error('The story changes on this reply cannot be told apart from the others.');
-            const kept = [];
-            const keptSpans = [];
+            // The kept blocks, each with its receipt when they line up one to one (every append stores one).
+            const blocks = [];
             let at = 0;
             for (const span of spans) {
-                if (!span.story) {
-                    kept.push(...record.ops.slice(at, at + span.n));
-                    keptSpans.push({ n: span.n, story: false });
-                }
+                if (!span.story) blocks.push(record.ops.slice(at, at + span.n));
                 at += span.n;
             }
-            const fresh = asOps(ops);
-            // The kept blocks' revs follow the new story ops' last one (they ran after the old ones).
             const keptReceipts = record.receipts.filter(receipt => receipt?.cause !== 'story').map(receipt => structuredClone(receipt));
-            let rev = [...fresh].reverse().find(op => op?.path === '/meta/rev' && Number.isInteger(op.value))?.value ?? revOf(base);
-            const renumbered = new Map();
-            const keptOps = kept.map(op => {
-                if (op?.path !== '/meta/rev' || !Number.isInteger(op.value)) return op;
-                if (op.value > rev) {
-                    rev = op.value;   // already after the new story ops: kept as it is
-                    return op;
-                }
-                rev += 1;
-                renumbered.set(op.value, rev);
-                return { ...op, value: rev };
-            });
-            for (const receipt of keptReceipts) if (renumbered.has(receipt.rev)) receipt.rev = renumbered.get(receipt.rev);
-            kept.splice(0, kept.length, ...keptOps);
-            const nextOps = [...fresh, ...kept];
+            const paired = keptReceipts.length === blocks.length;
+            const fresh = asOps(ops);
             let state;
+            const fail = error => new Error(`The new story changes and this reply's other changes do not fit together: ${error?.message ?? error}`);
             try {
-                state = step(base, nextOps);
+                state = step(base, fresh);
             } catch (error) {
-                throw new Error(`The new story changes and this reply's other changes do not fit together: ${error?.message ?? error}`);
+                throw fail(error);
+            }
+            // The kept blocks' revs follow the new story ops' last one (they ran after the old ones).
+            let rev = [...fresh].reverse().find(op => op?.path === '/meta/rev' && Number.isInteger(op.value))?.value ?? revOf(base);
+            const nextOps = [...fresh];
+            const nextReceipts = [];
+            const keptSpans = [];
+            const moved = new Map();
+            for (const [n, block] of blocks.entries()) {
+                const receipt = paired ? keptReceipts[n] : null;
+                let blockOps;
+                let kept = receipt;
+                if (receipt?.replan && typeof rerun === 'function') {
+                    let out = null;
+                    try { out = rerun(deepFreeze(structuredClone(state)), receipt); } catch { out = null; }
+                    if (!out?.ok) continue;
+                    blockOps = asOps(out.ops);
+                    kept = { ...structuredClone(out.receipt), id: receipt.id };
+                    const own = [...blockOps].reverse().find(op => op?.path === '/meta/rev' && Number.isInteger(op.value))?.value;
+                    if (Number.isInteger(own)) rev = Math.max(rev, own);
+                } else {
+                    let renumbered = null;
+                    blockOps = block.map(op => {
+                        if (op?.path !== '/meta/rev' || !Number.isInteger(op.value)) return op;
+                        if (op.value > rev) {
+                            rev = op.value;   // already after the new story ops: kept as it is
+                            return op;
+                        }
+                        rev += 1;
+                        renumbered = [op.value, rev];
+                        moved.set(op.value, rev);
+                        return { ...op, value: rev };
+                    });
+                    if (renumbered && kept?.rev === renumbered[0]) kept.rev = renumbered[1];
+                }
+                try {
+                    state = step(state, blockOps);
+                } catch (error) {
+                    throw fail(error);
+                }
+                nextOps.push(...blockOps);
+                keptSpans.push({ n: blockOps.length, story: false });
+                if (kept) nextReceipts.push(kept);
+            }
+            if (!paired) {
+                for (const receipt of keptReceipts) if (moved.has(receipt.rev)) receipt.rev = moved.get(receipt.rev);
+                nextReceipts.push(...keptReceipts);
             }
             const writes = [[message, {
                 ...record,
                 ops: nextOps,
-                receipts: [...structuredClone(receipts), ...keptReceipts],
+                receipts: [...structuredClone(receipts), ...nextReceipts],
                 spans: [{ n: fresh.length, story: true }, ...keptSpans],
                 rev: revOf(state),
             }]];

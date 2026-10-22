@@ -197,7 +197,7 @@ test('canGenerate: no story reply while your character is dead', () => {
 
 test('the part has the shape the module merges (MODULES §A)', () => {
     assert.deepEqual(Object.keys(part.commands), ['return.cue']);
-    assert.deepEqual(Object.keys(part.queries), ['return.point']);
+    assert.deepEqual(Object.keys(part.queries), ['return.point', 'return.status']);
     assert.deepEqual(Object.keys(part.widgets), ['rpg-battle.return-card']);
     assert.equal(typeof part.widgets['rpg-battle.return-card'].render, 'function');
     assert.equal(part.domains, undefined, 'no domain of its own');

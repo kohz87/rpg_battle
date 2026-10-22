@@ -23,11 +23,11 @@
 import { act, availableActions, summarize } from '../../combat.js';
 import { DEFAULT_BESTIARY } from '../../enemies.js';
 import { itemSlot, oneCurrency, parseEffect } from '../../items.js';
-import { combinedBestiary } from '../../templates.js';
-import { foesCard, foesText, rankContext, readEncounter, STAKES, TIERS } from './encounter.js';
+import { cleanCreature, combinedBestiary } from '../../templates.js';
+import { cutText, foesCard, foesText, MAX_ENCOUNTER_FOES, rankContext, readEncounter, STAKES, TIERS } from './encounter.js';
 import { questSized, questTargets } from './quest.js';
 import { rulesFrom } from '../party/sheets.js';
-import { buildSetup, COMBAT_DEFAULTS, COMBAT_LIMITS, fightNumbers, moneyScale, partyCombatants, scaledMoney } from './setup.js';
+import { buildSetup, COMBAT_DEFAULTS, COMBAT_LIMITS, fieldCap, fightNumbers, heldText, heldToTiers, moneyScale, partyCombatants, scaledMoney, tierRoom } from './setup.js';
 import { beatenOf, bestiaryList, byRev, draftSession, dropSession, sessionOf, creatureSlug, fightRules, lastOf, latinSlug, offersOf, packCreature, packSetup, sessionStatus, unpackSetup, valuesOf } from './stored.js';
 export { beatenOf, lastOf, offersOf } from './stored.js';
 import { clipped } from '../lines.js';
@@ -39,6 +39,38 @@ import { applyStock, beatenFoes, boardToken, endSummary, foeNames, foeRanks, par
 export { MAX_BEATEN, MAX_OFFERS } from './stored.js';
 import { MAX_BEATEN, MAX_OFFERS } from './stored.js';
 export const MAX_CREATURES = 200;
+// The most creatures read from the enabled packs (packs.content creatures) for one fight or offer.
+export const MAX_PACK_CREATURES = 200;
+
+/**
+ * The enabled packs' creatures (PACKS.md: records for RPG Battle's bestiary), cleaned as any imported
+ * creature (templates.cleanCreature: their level, moves, loot and look kept), with their aliases: so a
+ * pack's River Drake is fought as the pack wrote it and drops its loot. [] without packs.
+ */
+export function packBestiary(ctx, rules) {
+    let list;
+    try { list = ctx.query('packs.content', { kind: 'creatures' }); } catch { return []; }
+    const out = [];
+    for (const raw of Array.isArray(list) ? list.slice(0, MAX_PACK_CREATURES) : []) {
+        const entry = cleanCreature(raw, rules);
+        if (!entry) continue;
+        const aliases = (Array.isArray(raw.aliases) ? raw.aliases : []).map(alias => String(alias ?? '').replace(/[\r\n|<>#]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60)).filter(Boolean).slice(0, 8);
+        out.push(aliases.length ? { ...entry, aliases } : entry);
+    }
+    return out;
+}
+
+/** The creatures a fight's names are looked up in before the shipped ones: the chat's own, then the packs'. */
+const fightBestiary = (ctx, rules) => [...bestiaryList(ctx.read('bestiary')), ...packBestiary(ctx, rules)];
+
+/** How many of the party can fight now (HP above 0), from party.actors; at least 1. */
+function fighters(ctx) {
+    let listed = null;
+    try { listed = ctx.query('party.actors'); } catch { listed = null; }
+    const actors = (Array.isArray(listed) ? listed : Object.values(listed ?? {})).filter(actor => actor && typeof actor === 'object');
+    const standing = actors.filter(actor => !(Number.isFinite(Number(actor.hp?.cur)) && Number(actor.hp.cur) <= 0)).length;
+    return Math.max(1, standing);
+}
 // Bookkeeping later replies write is keyed (B-b1r2-13, SPEC §2): an offer under its id, a settled
 // fight's foes under the fight's id, a made creature under its key, never a list position or a
 // field of an entry an earlier reply made. The oldest are pruned past MAX_OFFERS, MAX_BEATEN and
@@ -444,12 +476,17 @@ function start(ctx, payload) {
     foldStoryTime(ctx);
     const numbers = fightNumbers(ctx.settings() ?? {});
     const party = partyCombatants(ctx, { rules: fightRules(numbers) });
-    const chatBestiary = bestiaryList(ctx.read('bestiary'));
+    // The chat's creatures, then the packs' (packBestiary): a pack's creature is fought as written.
+    const chatBestiary = fightBestiary(ctx, fightRules(numbers));
     const id = newId(ctx, 'fi');
     const seed = Math.floor(ctx.rng() * 4294967296) >>> 0;
+    // The offer's foes held to what each tier can hold for the party as it stands now (B-a2-9): a
+    // member down since the offer makes the same foes more dangerous. What stays out is told.
+    const held = heldToTiers(offer.foes, { pcLevel: party[0]?.level ?? 1, members: party.filter(c => c.hp.cur > 0).length || 1, field: numbers.field, rules: fightRules(numbers) });
+    const fought = held.cut.length ? { ...offer, foes: held.foes } : offer;
     let built;
     try {
-        built = buildSetup({ id, seed, offer, party, chatBestiary, numbers, money: moneyScale(ctx) });
+        built = buildSetup({ id, seed, offer: fought, party, chatBestiary, numbers, money: moneyScale(ctx) });
     } catch (error) {
         ctx.fail('REFUSED', error?.message || 'That fight cannot start.');
     }
@@ -504,6 +541,7 @@ function start(ctx, payload) {
         narrate: false,
         // `place`: where the fight began (the return part finds the fatal fight's start by it).
         data: { session: id, offer: offer.id, place: setup.place ?? '', made: made.map(entry => entry.name), ...(later ? { later } : {}) },
+        ...(held.cut.length ? { problem: heldText(held.cut) } : {}),
     };
 }
 
@@ -670,12 +708,26 @@ function cardContext(tools) {
 
 /** `! encounter …`: an offer, or a plain reason it cannot be one. */
 function captureEncounter(ctx, line) {
-    const bestiary = combinedBestiary(bestiaryList(ctx.read('bestiary')), DEFAULT_BESTIARY);
+    const numbers = fightNumbers(ctx.settings() ?? {});
+    const rules = fightRules(numbers);
+    // The chat's creatures, then the packs' (packBestiary), then the shipped ones.
+    const bestiary = combinedBestiary(fightBestiary(ctx, rules), DEFAULT_BESTIARY);
     // A `rank:` is read on the suite's ladder for the character's level now (MODULES §F91).
-    const read = readEncounter(line, { bestiary, ...rankContext(ctx) });
+    const ranks = rankContext(ctx);
+    const read = readEncounter(line, { bestiary, ...ranks });
     if (!read.ok) ctx.fail('INVALID', read.message);
-    // A fight against the foes an active quest is about is sized for real progress (combat/quest.js).
-    const quest = questSized(read.foes, questTargets(ctx), bestiary);
+    // Every foe written is fought, in waves; what a fight cannot hold is told (B-a2-4, B-a2-9): past
+    // MAX_ENCOUNTER_FOES, and past what each tier can hold for the party (heldToTiers).
+    const written = [...read.foes, ...(read.cut ?? [])].reduce((sum, foe) => sum + foe.count, 0);
+    const hold = { pcLevel: ranks.pcLevel, members: fighters(ctx), field: numbers.field, rules };
+    const held = heldToTiers(read.foes, hold);
+    // A fight against the foes an active quest is about is sized for real progress (combat/quest.js),
+    // never past what its tier can hold, nor past MAX_ENCOUNTER_FOES in all.
+    const total = held.foes.reduce((sum, foe) => sum + foe.count, 0);
+    const room = tier => Math.min(MAX_ENCOUNTER_FOES - total,
+        tierRoom(tier, { ...hold, cap: fieldCap(hold.members, hold.field) }) - held.foes.filter(foe => foe.tier === tier && !foe.rank).reduce((sum, foe) => sum + foe.count, 0));
+    const quest = questSized(held.foes, questTargets(ctx), bestiary, { room });
+    const problem = [cutText(read.cut, written), heldText(held.cut)].filter(Boolean).join(' ');
     let place = read.place;
     if (!place) {
         try { place = String(ctx.read('scene')?.place?.name ?? '').trim().slice(0, 60); } catch { place = ''; }
@@ -691,6 +743,7 @@ function captureEncounter(ctx, line) {
         summary: `A fight is offered: ${foesText(offer.foes)}${offer.stakes === 'death' ? ', to the death' : ''}.${quest.sized.length ? ` Sized for the quest: ${quest.sized.map(entry => `${entry.name} ${entry.from} → ${entry.to}`).join(', ')} (in waves past the field).` : ''}`,
         narrate: false,
         data: { offer: id },
+        ...(problem ? { problem } : {}),
     };
 }
 

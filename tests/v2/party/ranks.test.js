@@ -36,7 +36,9 @@ test('uniform tiers make one rank per tier, titled in the terms', () => {
         { id: 'III', title: 'Soul Class III', levels: [21, 30] },
         { id: 'IV', title: 'Soul Class IV', levels: [31, 35] },
     ]);
-    assert.deepEqual(ladder.map(rank => rank.reward), [0, 1, 2, 3].map(index => rankReward(index)));
+    // Tiers re-band the levels: each pays what the built-in ladder pays at its first level (B-a2-1), never
+    // by its place: I (1) F, II (11) E, III (21) C, IV (31) B.
+    assert.deepEqual(ladder.map(rank => rank.reward), [0, 1, 3, 4].map(index => rankReward(index)));
     const arabic = rankLadder(withTerms({ tiers: { size: 1 } }));
     assert.equal(arabic.length, MAX_RANKS, 'a ladder of tiers of one level stops at MAX_RANKS');
 });

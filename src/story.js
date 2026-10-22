@@ -421,6 +421,9 @@ function parseGroup(raw, bestiary, rules) {
     // (v2) Whether the story wrote how many (a number, a number word, "a pack of 5"): a quest-sized
     // fight keeps a count the story wrote (combat/encounter.js).
     if (counted) Object.defineProperty(row, 'counted', { value: true, enumerable: false });
+    // (v2) A count written past MAX_COUNT ("12 cellar rats"): v2 fights them all in waves
+    // (combat/encounter.js), so it keeps the number written (at most 999) beside the row's count.
+    if (Math.round(count) > MAX_COUNT) Object.defineProperty(row, 'written', { value: Math.min(999, Math.round(count)), enumerable: false });
     if (level !== null) row.level = level;
     // A power written outright is the power; the threat word only stands in for a missing one.
     else if (threat && !rank) row.threat = threat;

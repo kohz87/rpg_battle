@@ -45,8 +45,8 @@ import { part as returnPart } from './return/index.js';
 import { part as trade } from './trade/index.js';
 import { part as craft } from './craft/index.js';
 import { part as screens } from './screens/index.js';
-import { foldReaderTerms, ladderPreview, readerLadderLines, withTerms } from '../terms.js';
-import { LEVELS_PER_RANK_HELP } from './party/sheets.js';
+import { foldReaderTerms, ladderPreview, mergeTerms, packTerms, readerLadderBands, termsOf, withTerms } from '../terms.js';
+import { LEVELS_PER_RANK_HELP, rulesFrom } from './party/sheets.js';
 
 export { TERM_FIELDS, foldReaderTerms, mergeTerms, packTerms, readerRanks, withTerms } from '../terms.js';
 
@@ -260,8 +260,20 @@ export function createModule({ settings = null, query = null } = {}) {
     const mergedHooks = {};
     for (const [name, list] of Object.entries(hooks)) mergedHooks[name] = mergeHook(name, list, { viewFor, settings: id => partSettings(moduleSettings(), id) });
     // terms2 (MODULES §F105): the reader's rank ladder lines for Story Block, which answers
-    // packs.content's ranks with them, so every module bands ranks the same way.
-    mergedHooks['ranks.reader'] = () => readerLadderLines(moduleSettings());
+    // packs.content's ranks with them, so every module bands ranks the same way. Each line carries the
+    // first level RPG Battle bands it at (readerLadderBands, B-a2-8): its level cap and tiers (the
+    // reader's terms over the pack's; the ladder itself is this answer, so it is not asked for here).
+    mergedHooks['ranks.reader'] = () => {
+        const all = moduleSettings();
+        const own = partSettings(all, 'party');
+        // The pack's terms (its tiers) are asked for only when a ladder with no levels is spread by them.
+        const tierSize = () => {
+            let pack = null;
+            try { pack = packTerms(staticQuery); } catch { pack = null; }
+            return termsOf(rulesFrom(pack ? { ...own, terms: mergeTerms(own.terms, pack) } : own)).tiers?.size ?? null;
+        };
+        return readerLadderBands(all, { cap: termsOf(rulesFrom(own)).cap, tierSize });
+    };
     // The Levels per rank field's help ends with a read-only preview of the ladder in use (its levels),
     // worked out each time the settings are drawn: "Soul Class I: Lv 1–10 · II: 11–20 · …".
     const perRank = schema['party.levelsPerRank'];

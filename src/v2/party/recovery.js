@@ -11,7 +11,7 @@
 // Bookkeeping (SPEC §2.2): `party.rested` is the story minute the party has recovered up to, a
 // count (PARTY_COUNTERS), and every heal is a change of the pools' `lost` counts (pools.js). Story
 // time is folded in (party.recover) before each new reply (the beforeGenerate cue, kept with the
-// reply whose time it was), and before anything else that writes a member's HP: a story wound or
+// reply whose time it was; a Re-read of that reply plans it again, `replan`), and before anything else that writes a member's HP: a story wound or
 // heal, a rest, an item, a fight starting. So a reply's time heals what was there before the lines
 // after it, and a replay after a deleted reply adds each heal and each move of `rested` to what is
 // there, as Story Director's own clock moves.
@@ -179,10 +179,13 @@ export function recoveryText(party, fold) {
  */
 export function recover(ctx) {
     if (ctx.cause === 'ui' && !ctx.caller) ctx.fail('REFUSED', 'HP and MP come back as story time passes, not from a button.');
+    // `replan` (B-a1-13): the fold is planned from the reply's clock, so a Re-read of the reply it is
+    // kept on runs it again on the new story changes (Story Block store.replaceStory): time edited out
+    // of the reply heals nothing and leaves `rested` where it was.
     const fold = foldStoryTime(ctx, { markOnly: true });
-    if (!fold) return { summary: 'No story time to recover from.', data: { kind: null }, narrate: false };
+    if (!fold) return { summary: 'No story time to recover from.', data: { kind: null }, narrate: false, replan: true };
     const party = ctx.read('party');
-    return { summary: recoveryText(party, fold), data: { kind: fold.plan.kind, hours: fold.plan.hours, rested: fold.plan.rested, gains: fold.gains }, narrate: false };
+    return { summary: recoveryText(party, fold), data: { kind: fold.plan.kind, hours: fold.plan.hours, rested: fold.plan.rested, gains: fold.gains }, narrate: false, replan: true };
 }
 
 /**

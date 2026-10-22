@@ -747,7 +747,10 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
             if (live[index] !== message || message.swipe_id !== swipe || String(message.mes ?? '') !== mes || session) {
                 return refusal('CONFLICT', 'The chat changed while the reply was read again (a message was deleted, swiped, edited or added); nothing was changed. Press Re-read again.');
             }
-            store.replaceStory(index, { ops, receipts });
+            // A kept system step marked `replan` (B-a1-13) runs again on the new story changes, as it ran
+            // before: a system step, its own seed.
+            const rerun = (state, receipt) => bus.run(receipt.type, receipt.replan?.payload ?? {}, { cause: 'system', state, seed: receipt.seed });
+            store.replaceStory(index, { ops, receipts, rerun });
         } catch (error) {
             return refusal('CONFLICT', `${error?.message ?? error}`);
         }

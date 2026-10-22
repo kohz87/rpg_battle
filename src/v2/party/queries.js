@@ -4,7 +4,7 @@
 
 import { combatNumbers, combatantFromSheet } from '../../party.js';
 import { rulesFrom, toSheet, wornGear } from './sheets.js';
-import { moneyScale, packRanks, rankLadder, termsOf } from '../../terms.js';
+import { moneyScale, packOwnRanks, packRanks, rankLadder, termsOf } from '../../terms.js';
 import { actorsInOrder, offerText, plainCopy, resolveName, waitingOffers } from './util.js';
 import { encumbranceOf } from '../checks/modifiers.js';
 import { clockOf, fitParty, lapsed, POOLS } from './pools.js';
@@ -79,12 +79,13 @@ const queryOf = tools => (typeof tools?.query === 'function' ? (name, args) => t
  * `party.ranks({ settings? })` → the rank ladder (MODULES §F86, §F91; terms.js rankLadder):
  * `[{ id, title, levels: [lo, hi], reward: [lo, hi] }]`, lowest first: the reader's own named
  * ranks, else the first enabled pack's `ranks`, else uniform tiers, else F to S. The rewards: a
- * pack's as written; the others by place times the pack's money scale (`inventory.economy`, F104).
+ * pack's as written; the built-in F to S by place times the pack's money scale (`inventory.economy`,
+ * F104); the reader's and the tiers by level on the pack's own ranks, else on F to S (rankLadder).
  * Story Director's `quest.ranks` reads it; a foe line's `rank:` is read on it.
  */
 export function ranks(state, args = {}, tools = null) {
     const query = queryOf(tools);
-    return plainCopy(rankLadder(rulesFrom(settingsFrom(args, tools)), { pack: packRanks(query), scale: moneyScale(query) }));
+    return plainCopy(rankLadder(rulesFrom(settingsFrom(args, tools)), { pack: packRanks(query), base: packOwnRanks(query), scale: moneyScale(query) }));
 }
 
 /**

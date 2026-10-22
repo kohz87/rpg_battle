@@ -19,9 +19,13 @@
 // * **Things that carry** (MODULES §F106): a pack item's `carry` (Story Block keeps it only on `pack.`
 //   defs; the story never sets it), or the reader's own list (`carryItems`: "Spatial Ring: 100", by the
 //   item's name), adds that capacity while the thing is owned: a member's to that member, the shared
-//   bag's (a cart, a barge's hold) to the party's; equipment only while it is worn. The bonus is not
-//   scaled by `carrySize`. Something taken on counts its own bonus (a mule carries itself). Losing it
-//   lowers the capacity; nothing is dropped, the party is encumbered.
+//   bag's (a cart, a barge's hold) to the party's; equipment only while it is worn. The bonus counts
+//   once per kind of thing (by name) for each owner, whatever the count and however it is stacked:
+//   three Backpacks in the bag add one Backpack's room, as one stack or split in three (B-a2-3), and a
+//   second one bought or found adds nothing more (B-a2-10). Things of different kinds add up. The bonus
+//   is not scaled by `carrySize`. Something taken on counts the room it adds (a mule carries itself;
+//   a second mule of the same kind adds none). Losing the last of a kind lowers the capacity; nothing is
+//   dropped, the party is encumbered.
 
 export const DEFAULTS = Object.freeze({ carryLimit: true, carrySize: 100, carryItems: Object.freeze([]) });
 // The most one thing adds (as Story Block's def check holds it).
@@ -78,26 +82,54 @@ export function carryOf(def, settings = null, list = carryList(settings)) {
     return typeof def?.id === 'string' && def.id.startsWith('pack.') && Number.isInteger(own) && own >= 1 ? Math.min(CARRY_MAX, own) : 0;
 }
 
+/** The kind a thing's carry bonus counts by (carryBonuses: once per kind and owner): its folded name. */
+const kindKey = def => foldName(def?.name) || String(def?.id ?? '');
+
 /**
  * What every owner's things add to carrying: { bonus: { [owner]: n }, bonuses: [{ stack, carry, owner,
  * counts }] }: equipment counts only while worn (`counts: false` otherwise, for the screens to say so).
- * A stack adds its bonus once, whatever its count (a stack of backpacks is one backpack's worth).
+ * Each kind of thing (by name) adds its bonus once for each owner, whatever its count and however many
+ * stacks it is in (a stack of backpacks, or three stacks of one, is one backpack's worth): the stack that
+ * counts is the one adding the most (the first by id on a tie); the others are listed `counts: false`.
  */
 export function carryBonuses(inventory, settings = null) {
     const list = carryList(settings);
-    const bonus = {};
+    const best = new Map();
     const bonuses = [];
-    for (const stack of Object.values(inventory?.stacks ?? {})) {
-        if (!isRecord(stack) || !(stack.qty > 0)) continue;
+    const stacks = Object.values(inventory?.stacks ?? {}).filter(stack => isRecord(stack) && stack.qty > 0)
+        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    for (const stack of stacks) {
         const def = inventory?.defs?.[stack.def];
         const carry = carryOf(def, settings, list);
         if (!carry) continue;
-        const counts = def?.kind !== 'equipment' || Boolean(stack.equipped);
-        bonuses.push({ stack: stack.id, carry, owner: stack.owner, counts });
-        if (counts) bonus[stack.owner] = (bonus[stack.owner] ?? 0) + carry;
+        const entry = { stack: stack.id, carry, owner: stack.owner, counts: def?.kind !== 'equipment' || Boolean(stack.equipped) };
+        bonuses.push(entry);
+        if (!entry.counts) continue;
+        const key = `${stack.owner}\u0000${kindKey(def)}`;
+        const held = best.get(key);
+        if (!held || entry.carry > held.carry) {
+            if (held) held.counts = false;
+            best.set(key, entry);
+        } else entry.counts = false;
     }
-    bonuses.sort((a, b) => (a.stack < b.stack ? -1 : a.stack > b.stack ? 1 : 0));
+    const bonus = {};
+    for (const entry of best.values()) bonus[entry.owner] = (bonus[entry.owner] ?? 0) + entry.carry;
     return { bonus, bonuses };
+}
+
+/** The room `def` would add to `owner` on top of what that owner's things of its kind add now (carryBonuses). */
+function roomAdded(inventory, owner, def, settings, list) {
+    const carry = def?.kind === 'equipment' ? 0 : carryOf(def, settings, list);
+    if (!carry) return 0;
+    const key = kindKey(def);
+    let have = 0;
+    for (const stack of Object.values(inventory?.stacks ?? {})) {
+        if (!isRecord(stack) || !(stack.qty > 0) || stack.owner !== owner) continue;
+        const own = inventory?.defs?.[stack.def];
+        if (kindKey(own) !== key || (own?.kind === 'equipment' && !stack.equipped)) continue;
+        have = Math.max(have, carryOf(own, settings, list));
+    }
+    return Math.max(0, carry - have);
 }
 
 /** A member's capacity: (20 + 4 × STR) × size ÷ 100, rounded down. */
@@ -151,10 +183,17 @@ const plural = (qty, name) => (qty === 1 ? `the ${name}` : `${qty} ${name}`);
 export function canCarry(inventory, party, { owner = 'party', add = [], move = false, settings = null } = {}) {
     const view = carryView(inventory, party, settings);
     const weight = (Array.isArray(add) ? add : []).reduce((sum, entry) => sum + weightOf(entry?.def) * Math.max(0, whole(entry?.qty, 1)), 0);
-    // A thing taken on that carries (not gear: that only counts once worn) adds its own room: a mule
-    // carries itself. A hand-over moves it from one owner to another, so the party's whole stays.
+    // A thing taken on that carries (not gear: that only counts once worn) adds the room it would add
+    // there (roomAdded: a mule carries itself; a second of the same kind adds nothing, as carryBonuses
+    // counts it). A hand-over moves it from one owner to another, so the party's whole stays.
     const list = carryList(settings);
-    const brings = (Array.isArray(add) ? add : []).reduce((sum, entry) => sum + (entry?.def?.kind === 'equipment' ? 0 : carryOf(entry?.def, settings, list)), 0);
+    const kinds = new Map();
+    for (const entry of Array.isArray(add) ? add : []) {
+        const room = roomAdded(inventory, owner, entry?.def, settings, list);
+        const key = kindKey(entry?.def);
+        if (room > (kinds.get(key) ?? 0)) kinds.set(key, room);
+    }
+    const brings = [...kinds.values()].reduce((sum, room) => sum + room, 0);
     if (brings) {
         const person = owner === 'party' ? null : view.people.find(entry => entry.id === owner);
         if (person) person.capacity += brings;

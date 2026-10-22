@@ -10,10 +10,10 @@
 // condition, which has no rounds in v1, is stacks 1, and stacks 1 reads back as no rounds: the
 // v1 rules this part calls go by a condition's name, never its rounds).
 
-import { DEFAULT_RULES, STATS, clampXpRate, makeRules } from '../../rules.js';
+import { DEFAULT_RULES, STATS, clampXpRate, makeRules, maxHp, maxMp, maxSp, xpToNext } from '../../rules.js';
 import { DEFAULT_SKILLS } from '../../skills.js';
 import { CONDITION_KINDS, conditionKind } from '../../combat.js';
-import { fitActor, storedPool } from './pools.js';
+import { STEPS_KEPT, fitActor, levelSteps, stepKey, storedPool } from './pools.js';
 
 // The reader's 'Character' settings (MODULES §A settings): v1's reader-tunable character rules.
 export const SETTINGS_DEFAULTS = Object.freeze({
@@ -140,12 +140,16 @@ const int = (value, min = 0) => Math.max(min, Math.round(Number(value) || 0));
 export function fromSheet(actor, sheet, rules = DEFAULT_RULES, { filled = [], at = null } = {}) {
     const top = rules.masteryMax ?? DEFAULT_RULES.masteryMax;
     const pool = (name, entry) => storedPool(entry, { full: filled.includes(name) });
+    const level = int(sheet.level, 1);
+    const xp = int(sheet.xp);
     return {
-        ...actor,
+        ...withoutSteps(actor),
+        ...levelBook(actor, sheet, level, xp, rules),
         name: String(sheet.name ?? actor.name),
-        level: int(sheet.level, 1),
-        xp: int(sheet.xp),
-        points: int(sheet.points),
+        level,
+        xp,
+        // Unspent points below 0 are owed (pools.js): kept, and paid first by the next level's points.
+        points: Math.round(Number(sheet.points) || 0),
         hp: pool('hp', sheet.hp),
         mp: pool('mp', sheet.mp),
         sp: pool('sp', sheet.sp ?? fitActor(actor).sp),
@@ -155,6 +159,36 @@ export function fromSheet(actor, sheet, rules = DEFAULT_RULES, { filled = [], at
             return { name: skill.name, level, uses: level >= top ? 0 : int(sheet.uses?.[skill.name]), active: !skill.aside };
         }),
         conditions: mergeConditions((sheet.conditions ?? []).flatMap(entry => conditionRecord(entry, at))),
+    };
+}
+
+const withoutSteps = actor => Object.fromEntries(Object.entries(actor ?? {}).filter(([key]) => !/^up\d{1,4}$/.test(key)));
+
+/**
+ * The XP book a sheet's write keeps (pools.js, confirm C-2): the level steps kept (`up<N>`: the latest
+ * STEPS_KEPT up to the level, one added for each level this write reached: the XP it took, the points
+ * and the pool growth it gave) and `earned` (the XP shown plus what the kept steps took).
+ */
+function levelBook(actor, sheet, level, xp, rules) {
+    const before = fitActor(actor);
+    const steps = new Map(levelSteps(before, level));
+    const was = Math.max(1, int(before?.level, 1));
+    const per = rules?.character?.pointsPerLevel ?? DEFAULT_RULES.character.pointsPerLevel;
+    // Only a member who was there before levels up (a new or imported one starts at its level).
+    for (let reached = was + 1; reached <= level && Number.isInteger(actor?.level); reached += 1) {
+        const stats = sheet.stats ?? before.stats ?? {};
+        steps.set(reached, {
+            xp: xpToNext(reached - 1, rules),
+            points: per,
+            hp: Math.max(0, maxHp(stats, reached, rules) - maxHp(stats, reached - 1, rules)),
+            mp: Math.max(0, maxMp(stats, reached, rules) - maxMp(stats, reached - 1, rules)),
+            sp: Math.max(0, maxSp(stats, reached, rules) - maxSp(stats, reached - 1, rules)),
+        });
+    }
+    const kept = [...steps].filter(([at]) => at > level - STEPS_KEPT).sort((a, b) => a[0] - b[0]);
+    return {
+        earned: xp + kept.reduce((sum, [, step]) => sum + step.xp, 0),
+        ...Object.fromEntries(kept.map(([at, step]) => [stepKey(at), { ...step }])),
     };
 }
 

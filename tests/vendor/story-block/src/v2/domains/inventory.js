@@ -195,6 +195,7 @@ export function validateInventory(slice) {
             errors.push(`${label} has a condition of ${stack.cond}; it is a whole number from 0 to ${COND_MAX}.`);
         }
         if (stack.key !== undefined && stack.key !== true) errors.push(`${label} is marked as a key item with something other than true.`);
+        if (stack.story !== undefined && stack.story !== true) errors.push(`${label} is marked as the story's with something other than true.`);
     }
     for (const [owner, wallet] of Object.entries(wallets)) {
         if (!OWNER_RE.test(owner)) errors.push(`A wallet belongs to "${owner}", who is neither the party nor an actor ID.`);
@@ -297,9 +298,14 @@ function takeAcross(inv, stacks, qty) {
 // that buys things back or counts what they are worth (RPG Battle's trade and crafting) counts it as 0.
 // It never joins another stack, nor another stack it (looseMatch, inventory.merge), and the part of it
 // that is given away or split off stays a key stack.
-function addStack(ctx, inv, def, qty, owner, note, key = false) {
+// The story's own (`story: true` on its stack, B-a2-2): what a story line (`+ item`) gave, whatever its
+// def (a pack's item named in the story too). Its worth was counted in that reply's goods budget, so a
+// module that buys things back holds what it pays for it to its worth at the sell rate (RPG Battle's
+// trade). It stacks with the rest of that item; a stack it joins, or that joins it, is the story's too,
+// and the part of it that is given away or split off stays the story's.
+function addStack(ctx, inv, def, qty, owner, note, key = false, story = false) {
     const id = newId(ctx, 'it', taken => Boolean(inv.stacks[taken]));
-    inv.stacks[id] = { id, def, qty, owner, equipped: null, note, from: typeof ctx.receiptId === 'string' ? ctx.receiptId : '', ...(key ? { key: true } : {}) };
+    inv.stacks[id] = { id, def, qty, owner, equipped: null, note, from: typeof ctx.receiptId === 'string' ? ctx.receiptId : '', ...(key ? { key: true } : {}), ...(story ? { story: true } : {}) };
     return id;
 }
 
@@ -309,23 +315,27 @@ function looseMatch(inv, def, owner, note, except = null, cond = COND_MAX) {
         .find(stack => stack.id !== except && stack.def === def && stack.owner === owner && stack.equipped === null && stack.note === note && condOf(stack, inv) === cond && stack.key !== true) ?? null;
 }
 
-/** Puts `qty` of a def with an owner: onto a matching loose stack when it stacks, else new stacks (a key item always its own). */
-function grantInto(ctx, inv, def, qty, owner, note, key = false) {
+/**
+ * Puts `qty` of a def with an owner: onto a matching loose stack when it stacks, else new stacks (a key
+ * item always its own). `story`: a story line gave it (addStack), and a stack it joins is the story's.
+ */
+function grantInto(ctx, inv, def, qty, owner, note, key = false, story = false) {
     if (key) {
-        if (def.stack) return [addStack(ctx, inv, def.id, qty, owner, note, true)];
+        if (def.stack) return [addStack(ctx, inv, def.id, qty, owner, note, true, story)];
         if (qty > MAX_UNSTACKED) ctx.fail('INVALID', `${def.name} does not stack; at most ${MAX_UNSTACKED} can be given at once.`);
-        return Array.from({ length: qty }, () => addStack(ctx, inv, def.id, 1, owner, note, true));
+        return Array.from({ length: qty }, () => addStack(ctx, inv, def.id, 1, owner, note, true, story));
     }
     if (def.stack) {
         const same = looseMatch(inv, def.id, owner, note);
         if (same) {
             same.qty += qty;
+            if (story) same.story = true;
             return [same.id];
         }
-        return [addStack(ctx, inv, def.id, qty, owner, note)];
+        return [addStack(ctx, inv, def.id, qty, owner, note, false, story)];
     }
     if (qty > MAX_UNSTACKED) ctx.fail('INVALID', `${def.name} does not stack; at most ${MAX_UNSTACKED} can be given at once.`);
-    return Array.from({ length: qty }, () => addStack(ctx, inv, def.id, 1, owner, note));
+    return Array.from({ length: qty }, () => addStack(ctx, inv, def.id, 1, owner, note, false, story));
 }
 
 function ambiguous(inv, name, ids) {
@@ -993,9 +1003,10 @@ export function createInventoryCommands(env) {
                 take(inv, stack, qty);
                 if (target) {
                     target.qty += qty;
+                    if (stack.story === true) target.story = true;
                     moved = target.id;
                 } else {
-                    moved = addStack(ctx, inv, def.id, qty, to, note, stack.key === true);
+                    moved = addStack(ctx, inv, def.id, qty, to, note, stack.key === true, stack.story === true);
                     if (cond < COND_MAX) condWrite(ctx, inv, inv.stacks[moved], cond - COND_MAX);
                 }
             }
@@ -1063,7 +1074,7 @@ export function createInventoryCommands(env) {
             const qty = payload.qty;
             if (!isCount(qty, 1) || qty >= stack.qty) ctx.fail('INVALID', `Split off between 1 and ${stack.qty - 1} ${def.name}.`);
             stack.qty -= qty;
-            const made = addStack(ctx, inv, def.id, qty, stack.owner, stack.note, stack.key === true);
+            const made = addStack(ctx, inv, def.id, qty, stack.owner, stack.note, stack.key === true, stack.story === true);
             const cond = condOf(stack, inv);
             if (cond < COND_MAX) condWrite(ctx, inv, inv.stacks[made], cond - COND_MAX);
             return {
@@ -1088,6 +1099,7 @@ export function createInventoryCommands(env) {
             if (condOf(stack, inv) !== condOf(into, inv)) ctx.fail('REFUSED', `These ${def.name} are in different condition.`);
             if ((stack.key === true) !== (into.key === true)) ctx.fail('REFUSED', `One ${def.name} is a key item, kept apart from the rest.`);
             into.qty += stack.qty;
+            if (stack.story === true) into.story = true;
             delete inv.stacks[stack.id];
             return {
                 summary: `${def.name} put together (${into.qty}).`,
@@ -1468,7 +1480,8 @@ export function captureItem(ctx, line, env) {
         // Asked before the stacks change: `add` is weight on top of what is carried now.
         const heavy = storyCarry(ctx, def, held.qty, 'party');
         // The notable item is given as a key item, a stack of its own (addStack): usable, never sold.
-        const stacks = grantInto(ctx, inv, def, held.qty, 'party', note, held.notable);
+        // Given by a story line: the story's own whatever its def (B-a2-2), for what it sells for.
+        const stacks = grantInto(ctx, inv, def, held.qty, 'party', note, held.notable, true);
         return {
             summary: (held.notable
                 ? `The party gains ${itemText(def.name, held.qty)}, given as a key item (outside this reply's goods budget; it can't be sold).`
@@ -1623,6 +1636,7 @@ export function listItems(inventory, owner = null, carry = null) {
                 slot: def.slot, qty: stack.qty, owner: stack.owner, equipped: stack.equipped, note: stack.note, from: stack.from,
                 ...(condOf(stack, inventory) < COND_MAX ? { cond: condOf(stack, inventory) } : {}),
                 ...(stack.key === true ? { key: true } : {}),
+                ...(stack.story === true ? { story: true } : {}),
                 ...(carryOfStack(stack, def, carry) ? { carry: carryOfStack(stack, def, carry) } : {}),
             };
         })

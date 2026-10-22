@@ -6,7 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createModule } from '../../src/v2/module.js';
 import { STATIC, staticText } from '../../src/v2/party/context.js';
-import { foldReaderTerms, levelText, parseLevelLabel, powerOptions, rankLadder, rankNamed, readerRanks, withTerms } from '../../src/terms.js';
+import { foldReaderTerms, levelText, parseLevelLabel, powerOptions, rankLadder, rankNamed, rankReward, readerRanks, withTerms } from '../../src/terms.js';
 import { makeRules } from '../../src/rules.js';
 import { canCarry, carryBonuses, carryView } from '../../src/v2/items/carry.js';
 import { carryText } from '../../src/v2/screens/view.js';
@@ -82,10 +82,11 @@ test('the Rank ladder (via Story Block\'s packs.content) is the terms\' ranks: s
     assert.deepEqual(nine.map(rank => rank.id), LETTERS);
     assert.deepEqual([nine[0].levels, nine[8].levels], [[1, 11], [89, 99]]);
     assert.equal(levelText(95, letters), 'SSS (Lv 95)');
-    // The rewards: the pack's at a place when Story Block kept them, else by place times the money scale.
+    // The rewards (B-a2-1): by level, what the built-in ladder pays (× the money scale) at each rank's first
+    // level; a reward Story Block kept only ever lowers it. Two bare ranks spread to the cap: I 1–49, II 50–99.
     const kept = rankLadder(makeRules({ terms: { ranks: [{ id: 'I', title: 'Soul Class I', reward: [50, 400] }, { id: 'II', title: 'Soul Class II' }] } }), { scale: 8 });
-    assert.deepEqual(kept[0].reward, [50, 400]);
-    assert.deepEqual(kept[1].reward, [400, 1840], 'by place (50–230) × 8');
+    assert.deepEqual(kept[0].reward, [50, 400], 'F × 8 is 80–400: the kept 50–400 is lower');
+    assert.deepEqual(kept[1].reward, rankReward(5, 8), 'level 50 is A: by level × 8, not by place');
 });
 
 test('on the host (no Story Director): party.ranks, the Party screen and the tail use the reader\'s ladder and words', async t => {

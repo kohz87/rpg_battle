@@ -354,16 +354,24 @@ export const worthNothing = def => def?.value === 0 && typeof def?.id === 'strin
 export const storyMade = def => typeof def?.id === 'string' && def.id.startsWith('story/');
 
 /**
+ * Whether a stack is the story's own whatever its def (B-a2-2): Story Block marks what a story line gave
+ * `story: true` (a pack item the story names gets the pack's def, counted in the same goods budget by
+ * worth), or its def is the story's (storyMade). Such a stack sells as the story's own does.
+ */
+export const storyStack = (row, def) => row?.story === true || storyMade(def);
+
+/**
  * What `buyer` pays for one `def` here: its worth (worthOf: a built-in one times the money scale) × v1's
  * sell rate × the buyer's taste × the place's sell prices × its environment factor for that kind of thing
- * (0 for a thing worth nothing; at most its worth × the sell rate for the story's own, storyMade).
+ * (0 for a thing worth nothing; at most its worth × the sell rate for the story's own: storyMade, or a
+ * stack a story line gave, `story`: storyStack).
  */
-export function sellEach(def, buyer, world) {
+export function sellEach(def, buyer, world, { story: given = false } = {}) {
     if (worthNothing(def)) return 0;
     const t = { ...DEFAULT_RULES.trade, ...(world.rules?.trade ?? {}) };
     const pays = t.buyers?.[buyer]?.[kindOf(legacyItem(def))] ?? 1;
     const worth = worthOf(def, world);
-    const story = storyMade(def);
+    const story = given === true || storyMade(def);
     const place = world.prices.sell ?? 1;
     const goods = goodsAt(def, world);
     const each = Math.max(1, Math.round(worth * t.sellRate * pays * (story ? Math.min(1, place) : place) * (story ? Math.min(1, goods) : goods)));
@@ -527,7 +535,7 @@ export function planSell(world, { stack, qty = 1, kind = null, who = '' } = {}) 
     // A thing bought (or commissioned) never sells for more than was paid for it (B-b3-13, -14).
     const paid = Object.hasOwn(world.trade.paid ?? {}, def.id) ? world.trade.paid[def.id] : undefined;
     // A piece sells for the condition it kept since its last proper repair and its refinement (TRS 1, 9).
-    const fetched = gearResale(world, stack, def, sellEach(def, buyer, world));
+    const fetched = gearResale(world, stack, def, sellEach(def, buyer, world, { story: storyStack(row, def) }));
     const each = Number.isInteger(paid) ? Math.min(fetched, paid) : fetched;
     const total = each * qty;
     const name = whoOf(who || kind, buyer);
@@ -586,7 +594,7 @@ export function planCommission(world, { piece, materials, crafter } = {}) {
         if (!row || !def) return no(CODES.notFound, 'One of those materials is not in the inventory.');
         if (row.equipped || !isMaterial(legacyItem(def))) return no(CODES.refused, `The ${def.name} is not a material a piece can be made from.`);
         if (row.qty < qty) return no(CODES.notEnough, `There ${row.qty === 1 ? 'is' : 'are'} only ${row.qty} ${def.name}.`);
-        parts.push({ stack, def, qty, key: isKeyItem(row) });
+        parts.push({ stack, def, qty, key: isKeyItem(row), story: storyStack(row, def) });
     }
     const made = craftPiece({ name, slot, parts }, { level: world.plevel, rules: world.rules });
     const fee = scaled(craftFee(made, { prices: world.prices, level: world.plevel, rules: world.rules }), world);
@@ -602,7 +610,7 @@ export function planCommission(world, { piece, materials, crafter } = {}) {
     // what was paid for it when it is collected), so a commission mints nothing.
     // A key item counts as worth 0 (isKeyItem).
     const inputs = parts.reduce((sum, part) => sum + (part.key ? 0 : worthOf(part.def, world) * part.qty), 0);
-    const raw = parts.reduce((sum, part) => sum + (part.key ? 0 : Math.min(...TRADER_KINDS.map(buyer => sellEach(part.def, buyer, world))) * part.qty), 0);
+    const raw = parts.reduce((sum, part) => sum + (part.key ? 0 : Math.min(...TRADER_KINDS.map(buyer => sellEach(part.def, buyer, world, { story: part.story }))) * part.qty), 0);
     const def = {
         name: made.name, kind: 'equipment', rarity: made.rarity, value: Math.max(1, inputs + fee), stack: false,
         slot: made.slot, stats: { ...made.stats }, effect: {}, tags: [...(made.tags ?? [])], note,
