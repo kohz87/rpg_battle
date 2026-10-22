@@ -64,10 +64,13 @@ function fightConditionOf(entry) {
     return name && CARRIED.has(name) ? name : null;
 }
 // A party condition's `stacks` are the rounds a fight left on it; a story's (stacks 1, no
-// rounds) lasts the fight's usual 3.
-const roundsOf = entry => {
+// rounds) lasts the fight's usual 3. Either way no longer than the same condition from a blow in a
+// fight (rules.generated.effectRounds: a stun 1, a poison 3), so a story's "stunned" costs one turn
+// at most and model text never sets a longer one (rx-combat: it came in as three stunned turns).
+const roundsOf = (entry, name, rules = DEFAULT_RULES) => {
     const stacks = Math.round(Number(entry?.stacks ?? entry?.rounds) || 0);
-    return stacks > 1 ? stacks : 3;
+    const most = Math.round(Number(rules?.generated?.effectRounds?.[name] ?? DEFAULT_RULES.generated.effectRounds[name])) || 3;
+    return Math.max(1, Math.min(most, stacks > 1 ? stacks : 3));
 };
 
 /** One row of `inventory.items` / `items.gear` as v1's item fields, its def looked up when it is only an id. */
@@ -102,8 +105,11 @@ function gearRows(ctx, actorId, defs, held) {
     // items.gear → { counted: [{ stack, name, slot, rarity, stats (capped) }], … } (MODULES §B2).
     const listed = tryQuery(ctx, 'items.gear', { actor: actorId }, null);
     const counted = Array.isArray(listed) ? listed : Array.isArray(listed?.counted) ? listed.counted : null;
-    const rows = counted ? counted.map(row => itemRow(row, defs)) : held.filter(row => row.equipped);
-    return rows.filter(row => row.name && row.slot).map(row => ({ name: row.name, qty: 1, slot: row.slot, stats: row.stats, rarity: row.rarity, tags: row.tags, equipped: true, effect: null }));
+    // A counted row marked `final: true` (RB-gear: capped at the wearer's level, then scaled by
+    // condition and refinement) goes to the fight as it is (gearBonuses honours `final`): never
+    // capped by rarity a second time. Any other row is capped as before.
+    const rows = counted ? counted.map(row => ({ ...itemRow(row, defs), final: row?.final === true })) : held.filter(row => row.equipped);
+    return rows.filter(row => row.name && row.slot).map(row => ({ name: row.name, qty: 1, slot: row.slot, stats: row.stats, rarity: row.rarity, tags: row.tags, equipped: true, effect: null, ...(row.final === true ? { final: true } : {}) }));
 }
 
 const usable = effect => Boolean(effect && typeof effect === 'object' && (Number(effect.heal) > 0 || Number(effect.mp) > 0 || (Array.isArray(effect.cure) && effect.cure.length) || effect.damage));
@@ -112,6 +118,24 @@ const usable = effect => Boolean(effect && typeof effect === 'object' && (Number
 function fightItems(rows) {
     return rows.filter(row => row.name && row.qty > 0 && row.kind === 'consumable' && usable(row.effect))
         .map(row => ({ name: row.name, qty: row.qty, kind: 'consumable', effect: structuredClone(row.effect), ...(row.stack ? { stack: row.stack } : {}), ...(row.def ? { def: row.def } : {}) }));
+}
+
+/**
+ * The money scale of the chat's packs (F104: Story Block's `inventory.economy` → { scale }): a
+ * positive number, else 1 (no such query, no packs, or nonsense). RPG Battle's own default money
+ * (a foe's coin, rules.moneyByRank) is multiplied by it; what a pack writes stays as written.
+ */
+export function moneyScale(ctx) {
+    const answer = tryQuery(ctx, 'inventory.economy', undefined, null);
+    const scale = Number(answer?.scale);
+    return Number.isFinite(scale) && scale > 0 ? Math.min(1e6, Math.max(1e-6, scale)) : 1;
+}
+
+/** Default money × the pack's scale: whole, at least 1 (no money stays none). */
+export function scaledMoney(amount, scale = 1) {
+    const money = Math.max(0, Math.round(Number(amount) || 0));
+    if (!money || !(Number(scale) > 0) || Number(scale) === 1) return money;
+    return Math.max(1, Math.round(money * Number(scale)));
 }
 
 const pool = (value, computed) => {
@@ -143,7 +167,8 @@ export function partyCombatants(ctx, { rules = DEFAULT_RULES } = {}) {
             stats: { ...actor.stats },
             hp: actor.hp, mp: actor.mp, sp: actor.sp,
             skills: (actor.skills ?? []).map(skill => ({ name: skill.name, mastery: skill.level ?? skill.mastery ?? 1, aside: skill.active === false })),
-            conditions: (actor.conditions ?? []).map(entry => ({ name: fightConditionOf(entry), rounds: roundsOf(entry) }))
+            conditions: (actor.conditions ?? []).map(entry => ({ name: fightConditionOf(entry), entry })).filter(({ name }) => name)
+                .map(({ name, entry }) => ({ name, rounds: roundsOf(entry, name, rules) }))
                 .filter(entry => entry.name),
         };
         const c = combatantFromSheet(sheet, {
@@ -298,7 +323,7 @@ export function offerRows(offer, { pcLevel = 1, bestiary, rules = DEFAULT_RULES,
  * chat's own creatures (v1 list, oldest first). Throws an Error with a plain message when there is
  * nobody to fight with or nobody to fight.
  */
-export function buildSetup({ id, seed, offer, party, chatBestiary = [], numbers }) {
+export function buildSetup({ id, seed, offer, party, chatBestiary = [], numbers, money = 1 }) {
     const rules = fightRules(numbers);
     if (!party.length) throw new Error('Make your character first: there is nobody to fight.');
     if (!party.some(c => c.hp.cur > 0)) throw new Error('Nobody in the party is standing to fight.');
@@ -329,6 +354,8 @@ export function buildSetup({ id, seed, offer, party, chatBestiary = [], numbers 
         hit: { ...numbers.hit },
         ...(numbers.xpRate ? { xpRate: numbers.xpRate } : {}),
         ...(offer.place ? { place: offer.place } : {}),
+        // The pack's money scale as the fight began (moneyScale, F104): its loot coin is paid by it.
+        ...(Number(money) > 0 && Number(money) !== 1 ? { moneyScale: Number(money) } : {}),
     };
     // The foes the offer named that hang back (past MAX_HEADCOUNT, or stunners past MAX_STUNNERS).
     const named = (offer?.foes ?? []).reduce((sum, foe) => sum + Math.max(1, Math.round(Number(foe.count) || 1)), 0);

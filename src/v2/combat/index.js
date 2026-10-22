@@ -25,7 +25,7 @@ import { DEFAULT_BESTIARY } from '../../enemies.js';
 import { itemSlot, oneCurrency, parseEffect } from '../../items.js';
 import { combinedBestiary } from '../../templates.js';
 import { foesText, rankContext, readEncounter, STAKES, TIERS } from './encounter.js';
-import { buildSetup, COMBAT_DEFAULTS, fightNumbers, partyCombatants } from './setup.js';
+import { buildSetup, COMBAT_DEFAULTS, fightNumbers, moneyScale, partyCombatants, scaledMoney } from './setup.js';
 import { beatenOf, bestiaryList, byRev, creatureSlug, fightRules, lastOf, latinSlug, offersOf, packCreature, packSetup, sessionStatus, unpackSetup, valuesOf } from './stored.js';
 export { beatenOf, lastOf, offersOf } from './stored.js';
 import { clipped } from '../lines.js';
@@ -437,7 +437,7 @@ function start(ctx, payload) {
     const seed = Math.floor(ctx.rng() * 4294967296) >>> 0;
     let built;
     try {
-        built = buildSetup({ id, seed, offer, party, chatBestiary, numbers });
+        built = buildSetup({ id, seed, offer, party, chatBestiary, numbers, money: moneyScale(ctx) });
     } catch (error) {
         ctx.fail('REFUSED', error?.message || 'That fight cannot start.');
     }
@@ -530,6 +530,8 @@ function end(ctx, payload) {
     const { fight, rules } = rebuild(session);
     const setup = unpackSetup(session.setup);
     const result = summarize(fight, rules);
+    // The foes' coin is RPG Battle's default money (rules.moneyByRank): × the pack's scale the fight began with (F104).
+    result.loot.money = scaledMoney(result.loot.money, setup.moneyScale ?? 1);
     const rev = nextRev(ctx);
     const present = partyIds(ctx);
     const here = id => !present || present.has(id);
