@@ -29,6 +29,7 @@ import { buildSetup, COMBAT_DEFAULTS, fightNumbers, moneyScale, partyCombatants,
 import { beatenOf, bestiaryList, byRev, draftSession, dropSession, sessionOf, creatureSlug, fightRules, lastOf, latinSlug, offersOf, packCreature, packSetup, sessionStatus, unpackSetup, valuesOf } from './stored.js';
 export { beatenOf, lastOf, offersOf } from './stored.js';
 import { clipped } from '../lines.js';
+import { lastParts, partsProblems } from '../board/parts.js';
 import { fitParty } from '../party/pools.js';
 import { applyStock, beatenFoes, boardToken, endSummary, foeNames, foeRanks, partyNames, rebuild, sessionView, tailLines } from './view.js';
 
@@ -611,7 +612,9 @@ function end(ctx, payload) {
         prune(beaten, MAX_BEATEN, session.id);
     }
     // Written whole (a one-entry list is one replace): the newest result left on the chat's line wins.
-    combat.last = [{ summary, moments: [...result.keyMoments], outcome: session.status, rev }];
+    // `parts`: the same summary in parts, for the Fight screen (board/parts.js); the text stays as it was.
+    const parts = lastParts(result, { names, pcName, rules: shown, currency: chatCurrency(ctx), notes: [behind, lost, worn] });
+    combat.last = [{ summary, moments: [...result.keyMoments], outcome: session.status, rev, parts }];
     dropSession(combat, session.id);
     return {
         summary,
@@ -742,6 +745,7 @@ export function validateCombat(slice) {
     const last = Array.isArray(slice.last) ? slice.last[0] ?? null : slice.last;
     if (last !== null && last !== undefined) {
         if (!isText(last.summary, 4000) || !Array.isArray(last.moments) || last.moments.some(moment => typeof moment !== 'string')) errors.push('combat.last must be { summary, moments }.');
+        if (last.parts !== undefined) errors.push(...partsProblems(last.parts));
     } else if (last === undefined) errors.push('combat.last must be a result or null.');
     return errors;
 }

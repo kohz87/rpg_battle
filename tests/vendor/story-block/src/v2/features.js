@@ -144,8 +144,10 @@ export function affectsStatic(def, id) {
     const declared = (Array.isArray(def?.features) ? def.features : []).find(feature => feature?.id === id);
     if (declared?.prompt === true) return true;
     if (Object.values(isObject(def?.capture?.kinds) ? def.capture.kinds : {}).some(spec => featureOf(spec) === id)) return true;
-    if (featureOf(def?.context) === id && typeof def.context.static === 'function') return true;
-    return (Array.isArray(def?.context?.parts) ? def.context.parts : []).some(part => featureOf(part) === id && typeof part?.static === 'function');
+    const parts = Array.isArray(def?.context?.parts) ? def.context.parts : [];
+    // C3-1: a feature that owns the whole context turns all of it off, its parts' static text too.
+    if (featureOf(def?.context) === id && (typeof def.context.static === 'function' || parts.some(part => typeof part?.static === 'function'))) return true;
+    return parts.some(part => featureOf(part) === id && typeof part?.static === 'function');
 }
 
 /**

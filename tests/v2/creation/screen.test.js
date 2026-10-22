@@ -6,7 +6,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { CREATED_EVENT, CREATE_SCREEN_ID, CREATE_STEPS, FILE_LIMIT, characterFrom, createScreen, onBlocked, openCreation, part, startDraft } from '../../../src/v2/creation/index.js';
+import {
+    CREATED_EVENT, CREATE_SCREEN_ID, CREATE_STEPS, FILE_LIMIT, cardImage, characterFrom, createScreen, createdNotice, creationContent, onBlocked, openCreation, part, startDraft, toggled,
+} from '../../../src/v2/creation/index.js';
 import { makeHost, points } from './helpers/fake-host.js';
 import { installDom } from '../screens/helpers/dom.js';
 import { PACKS } from './helpers/packs.js';
@@ -115,15 +117,24 @@ test('start step says so when no pack has ready-made characters', { skip: NO_REN
     assert.match(el.querySelector('.cc-none').textContent, /no ready-made characters/);
 });
 
-test('race step: one card per race; picking fills draft.race', { skip: NO_RENDERER }, async () => {
+test('race step: one button per race; a click picks it, a second click on it clears it', { skip: NO_RENDERER }, async () => {
     const draft = startDraft(null, { persona: { name: 'Ren', background: '', avatar: '' } });
     const { el, view } = await draw('race', { draft });
-    const radios = el.querySelectorAll('input[type="radio"]');
-    assert.equal(radios.length, 6);
+    const cards = () => el.querySelectorAll('button.cc-card');
+    assert.equal(cards().length, 6);
+    assert.equal(el.querySelectorAll('input').length, 0, 'no radios: SillyTavern\'s sanitiser drops their type');
+    assert.equal(el.querySelectorAll('img').length, 0, 'no picture box for a race without a real image');
     assert.equal(el.querySelectorAll('.cc-card-name').map(node => node.textContent).join(','), 'Human,Elf,Dwarf,Hearthling,Tuskborn,Starborn');
-    radios[1].checked = true;
-    radios[1].dispatch('change');
+    assert.ok(cards().every(card => card.getAttribute('aria-pressed') === 'false'));
+    cards()[1].click();
     assert.equal(view.draft().race, 'rpg-battle/elf');
+    assert.deepEqual(cards().map(card => card.getAttribute('aria-pressed')), ['false', 'true', 'false', 'false', 'false', 'false']);
+    cards()[2].click();
+    assert.equal(view.draft().race, 'rpg-battle/dwarf', 'another card moves the pick');
+    cards()[2].click();
+    assert.equal(view.draft().race, '', 'the picked card again: back to no race');
+    assert.ok(cards().every(card => card.getAttribute('aria-pressed') === 'false'));
+    assert.doesNotMatch(el.textContent, /rpg-battle\//, 'never a raw id on the page');
 });
 
 test('race and talent steps say so when the story has none', { skip: NO_RENDERER }, async () => {
@@ -147,16 +158,22 @@ test('talents step: costs, the live points left, rolled talents kept and not off
     const rolled = roll.receipt.data.talent;
     const draft = { ...startDraft(), talents: ['rpg-battle/keen-eyes'], points: points({ STR: 2 }) };
     const { el, view } = await draw('talents', { draft, host });
-    assert.equal(el.querySelectorAll('.cc-talent').length, 11, 'the rolled talent is listed as kept, not as a box');
+    assert.equal(el.querySelectorAll('.cc-talent-list button.cc-card').length, 11, 'the rolled talent is listed as kept, not as a card');
     assert.equal(el.querySelectorAll('.cc-rolled li').length, 1);
     assert.match(el.querySelector('.cc-rolled li').textContent, new RegExp(roll.receipt.data.name));
     // 10 − 1 (Keen Eyes) − the rolled talent's cost − 2 on STR
     assert.equal(el.querySelector('.cc-left b').textContent, String(10 - 1 - roll.receipt.data.cost - 2));
-    const box = el.querySelectorAll('.cc-talent input').find(input => input.getAttribute('value') === 'rpg-battle/iron-gut');
-    box.checked = true;
-    box.dispatch('change');
+    const card = id => el.querySelectorAll('.cc-talent-list button.cc-card').find(node => node.getAttribute('data-choice') === id);
+    assert.equal(card('rpg-battle/keen-eyes').getAttribute('aria-pressed'), 'true');
+    card('rpg-battle/iron-gut').click();
     assert.deepEqual(view.draft().talents, ['rpg-battle/keen-eyes', 'rpg-battle/iron-gut']);
+    assert.equal(card('rpg-battle/iron-gut').getAttribute('aria-pressed'), 'true');
     assert.equal(el.querySelector('.cc-left b').textContent, String(10 - 2 - roll.receipt.data.cost - 2));
+    // A second click takes it off again, and the points come back.
+    card('rpg-battle/keen-eyes').click();
+    assert.deepEqual(view.draft().talents, ['rpg-battle/iron-gut']);
+    assert.equal(card('rpg-battle/keen-eyes').getAttribute('aria-pressed'), 'false');
+    assert.equal(el.querySelector('.cc-left b').textContent, String(10 - 1 - roll.receipt.data.cost - 2));
     assert.notEqual(rolled, 'rpg-battle/iron-gut');
 });
 
@@ -397,4 +414,152 @@ test('Import character: a refusal that quotes a long text is clipped in the stat
     assert.equal(characterFrom(JSON.stringify({ rpgBattleCharacter: 2 })).error, 'That character file is version 2; this RPG Battle reads version 1.');
     assert.match(characterFrom(JSON.stringify({ rpgBattleParty: 1, character: { name: 'Old' } })).error, /^That is an RPG Battle 1 party file/);
     assert.deepEqual(characterFrom(JSON.stringify({ rpgBattleCharacter: 1, name: 'Ren' })), { character: { rpgBattleCharacter: 1, name: 'Ren' } });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// The live test's fixes (ux3): cards that un-pick, no broken pictures, a summary, and "<Name> is ready".
+
+test('no template input relies on a type: SillyTavern\'s DOMPurify drops it (radios showed the raw race id)', { skip: NO_RENDERER }, async () => {
+    for (const step of CREATE_STEPS) assert.doesNotMatch(step.template, /type="(?:radio|checkbox)"/, step.id);
+    // With a sanitiser that strips every `type`, as SillyTavern's does, the race step still picks.
+    const r = await renderer();
+    const doc = r.installFakeDom();
+    const host = makeHost();
+    const stripType = html => html.replace(/\stype="[^"]*"/g, '');
+    const compiled = r.compileTemplate(CREATE_STEPS.find(step => step.id === 'race').template, { sanitize: stripType });
+    const el = doc.createElement('div');
+    doc.body.appendChild(el);
+    const scope = { state: host.state, q: { c: host.query('creation.content', {}) }, draft: startDraft(), settings: part.settings.defaults, query: host.query };
+    const view = r.renderTemplate(el, compiled, scope, { evaluate: r.evaluate, widgets: { ...r.standardWidgets, ...part.widgets } });
+    assert.equal(el.querySelectorAll('input').length, 0);
+    el.querySelectorAll('button.cc-card')[0].click();
+    assert.equal(view.draft().race, 'rpg-battle/human');
+});
+
+test('talents step: a talent the points left cannot pay for, or past the most talents, cannot be added; a taken one can come off', { skip: NO_RENDERER }, async () => {
+    // 10 points: 9 on STR leaves 1, so only 1-point talents can be added.
+    const draft = { ...startDraft(), points: points({ STR: 9 }) };
+    const { el, view } = await draw('talents', { draft });
+    const card = id => el.querySelectorAll('.cc-talent-list button.cc-card').find(node => node.getAttribute('data-choice') === id);
+    assert.equal(card('rpg-battle/silver-tongue').disabled, true, '2 points, 1 left');
+    assert.match(card('rpg-battle/silver-tongue').title, /Not enough points/);
+    assert.equal(card('rpg-battle/keen-eyes').disabled, false);
+    card('rpg-battle/keen-eyes').click();
+    assert.deepEqual(view.draft().talents, ['rpg-battle/keen-eyes']);
+    assert.equal(card('rpg-battle/iron-gut').disabled, true, 'no points left');
+    assert.equal(card('rpg-battle/keen-eyes').disabled, false, 'the taken one can always come off');
+    card('rpg-battle/keen-eyes').click();
+    assert.deepEqual(view.draft().talents, []);
+    assert.equal(el.querySelector('.cc-left b').textContent, '1');
+
+    // The most talents (2 by default): with two taken, the rest wait.
+    const two = { ...startDraft(), talents: ['rpg-battle/keen-eyes', 'rpg-battle/iron-gut'] };
+    const again = await draw('talents', { draft: two });
+    const others = again.el.querySelectorAll('.cc-talent-list button.cc-card').filter(node => node.getAttribute('aria-pressed') === 'false');
+    assert.ok(others.length > 0 && others.every(node => node.disabled), 'every other talent waits');
+    assert.match(others[0].title, /most talents/);
+});
+
+test('start step: the chosen ready-made character clicked again is cleared, as My own', { skip: NO_RENDERER }, async () => {
+    const draft = startDraft(null, { persona: { name: 'Wessel', background: '', avatar: '' } });
+    const { el, view } = await draw('start', { draft, host: makeHost({ packs: PACKS }) });
+    const go = () => el.querySelectorAll('.rpg-preset-go')[0];
+    assert.equal(go().getAttribute('aria-pressed'), 'false');
+    go().click();
+    assert.equal(view.draft().preset, 'pack.ersveil/wessel-kit');
+    assert.equal(go().getAttribute('aria-pressed'), 'true');
+    assert.equal(el.querySelector('.rpg-preset-own').getAttribute('aria-pressed'), 'false');
+    go().click();
+    assert.equal(view.draft().preset, '');
+    assert.equal(view.draft().race, '');
+    assert.deepEqual(view.draft().talents, []);
+    assert.deepEqual(view.draft().points, points());
+    assert.equal(go().getAttribute('aria-pressed'), 'false');
+    assert.equal(el.querySelector('.rpg-preset-own').getAttribute('aria-pressed'), 'true');
+});
+
+test('cards show a picture only for a real image address; a pack id or a broken one shows no box', { skip: NO_RENDERER }, async () => {
+    assert.equal(cardImage('pack.ersveil-bluewatch/human'), '');
+    assert.equal(cardImage('/img/elf.png'), '');
+    assert.equal(cardImage('javascript:alert(1)'), '');
+    assert.equal(cardImage('data:image/svg+xml,<svg/>'), '');
+    assert.equal(cardImage('https://example.org/elf.png'), 'https://example.org/elf.png');
+    assert.equal(cardImage('data:image/png;base64,AAAA'), 'data:image/png;base64,AAAA');
+    const races = [
+        { ...PACKS.races[0], image: 'pack.ersveil/human' },
+        { ...PACKS.races[1], image: 'https://example.org/elf.png' },
+    ];
+    const packs = { ...PACKS, races, presets: [{ ...PACKS.presets[0], image: 'pack.ersveil/wessel' }] };
+    const content = creationContent({ query: (name, args) => packs[args.kind] ?? [] });
+    assert.equal(content.races[0].image, undefined, 'an id is not an image');
+    assert.equal(content.races[1].image, 'https://example.org/elf.png');
+    assert.equal(content.presets[0].image, undefined);
+    const { el } = await draw('race', { draft: startDraft(), host: makeHost({ packs }) });
+    const imgs = el.querySelectorAll('.cc-card img');
+    assert.equal(imgs.length, 1);
+    assert.equal(imgs[0].getAttribute('alt'), '', 'never alt text in place of a picture');
+    imgs[0].dispatch('error');
+    assert.equal(el.querySelectorAll('.cc-card img').length, 0, 'a picture that fails to load leaves no box');
+    assert.doesNotMatch(el.textContent, /pack\.ersveil/);
+});
+
+test('toggled: one choice un-picks on a second click; a list adds and takes off', () => {
+    assert.equal(toggled('', 'a', false), 'a');
+    assert.equal(toggled('a', 'a', false), '');
+    assert.equal(toggled('a', 'b', false), 'b');
+    assert.deepEqual(toggled([], 'a', true), ['a']);
+    assert.deepEqual(toggled(['a', 'b'], 'a', true), ['b']);
+    assert.deepEqual(toggled(null, 'a', true), ['a']);
+});
+
+test('you step: a summary of name, race, talents and the final stats before Create', { skip: NO_RENDERER }, async () => {
+    const draft = { ...startDraft(null, { persona: { name: 'Ren Avel' } }), race: 'rpg-battle/elf', talents: ['rpg-battle/keen-eyes', 'rpg-battle/iron-gut'], points: points({ STR: 4, DEX: 4 }) };
+    const { el } = await draw('you', { draft });
+    const text = selector => el.querySelector(selector).textContent.replace(/\s+/g, ' ').trim();
+    assert.equal(text('.cc-review-name'), 'Ren Avel');
+    assert.equal(text('.cc-review-race'), 'Elf');
+    assert.equal(text('.cc-review-talents'), 'Keen Eyes and Iron Gut');
+    // 5 + points, then Elf (+2 DEX, +1 INT, −1 VIT) and the talents (+1 DEX, +1 VIT).
+    assert.deepEqual(el.querySelectorAll('.cc-review-stats li').map(node => node.textContent.replace(/\s+/g, ' ').trim()),
+        ['STR 9', 'VIT 5', 'AGI 5', 'DEX 12', 'INT 6', 'LUK 5', 'CHA 5']);
+    const bare = await draw('you', { draft: { ...startDraft(null, { persona: { name: 'Ren' } }) } });
+    assert.equal(bare.el.querySelector('.cc-review-race').textContent.trim(), 'None');
+    assert.equal(bare.el.querySelector('.cc-review-talents').textContent.trim(), 'None');
+});
+
+test('openCreation: Create that worked says "<Name> is ready" once; a refusal or closing says nothing', () => {
+    const told = [];
+    const notify = (title, text) => told.push({ title, text });
+    const { api, opened } = fakeDialogApi();
+    openCreation(api, { notify });
+    const handle = opened[0];
+    assert.equal(typeof handle.opts.onDone, 'function');
+    handle.opts.onDone({ ok: false, message: 'Spend every point.' });
+    assert.equal(told.length, 0);
+    handle.opts.onDone({ ok: true, receipt: { summary: 'Ren (Elf; Keen Eyes) is ready.' } });
+    handle.opts.onDone({ ok: true, receipt: { summary: 'again' } });
+    assert.deepEqual(told, [{ title: 'Ren is ready', text: 'Ren (Elf; Keen Eyes) is ready. See them on the Party screen.' }]);
+
+    // An import from the Start step says it too, once.
+    const second = fakeDialogApi();
+    const heard = [];
+    openCreation(second.api, { notify: title => heard.push(title) });
+    second.opened[0].root.dispatch(CREATED_EVENT, { detail: { result: { ok: true, receipt: { summary: 'Ren arrives from another story (level 3).' } } } });
+    assert.deepEqual(heard, ['Ren is ready']);
+
+    // Without notify: SillyTavern's toastr, with the text escaped.
+    const third = fakeDialogApi();
+    const toasts = [];
+    const before = globalThis.toastr;
+    try {
+        globalThis.toastr = { success: (text, title, opts) => toasts.push({ text, title, opts }) };
+        openCreation(third.api);
+        third.opened[0].opts.onDone({ ok: true, receipt: { summary: 'Ren is ready.' } });
+    } finally {
+        globalThis.toastr = before;
+    }
+    assert.equal(toasts.length, 1);
+    assert.equal(toasts[0].title, 'Ren is ready');
+    assert.equal(toasts[0].opts.escapeHtml, true);
+    assert.deepEqual(createdNotice({ ok: true }, { name: '  A\nlong   name ' }), { title: 'A long name is ready', text: 'See them on the Party screen.' });
 });

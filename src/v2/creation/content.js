@@ -12,6 +12,7 @@
 //   read) and a reshaping of points, not extra power.
 
 import { STATS } from '../../rules.js';
+import { cardImage } from './choice-pick.js';
 
 export const STAT_LABELS = Object.freeze({
     STR: 'Strength', VIT: 'Vitality', AGI: 'Agility', DEX: 'Dexterity', INT: 'Intellect', LUK: 'Luck', CHA: 'Charisma',
@@ -84,6 +85,9 @@ function choice(record, kind, source) {
         tags: Array.isArray(record.tags) ? record.tags.map(tag => text(tag, 40)).filter(Boolean) : [],
         bonus: bonusText(stats), source,
     };
+    // A picture only when the pack gives a real one (https: or a data:image address); never an id.
+    const image = cardImage(record.image);
+    if (image) out.image = image;
     if (kind === 'talents') out.cost = talentCost(out);
     return out;
 }
@@ -172,6 +176,7 @@ function presetsOf(tools, races, talents) {
             race: race?.id ?? '', talents: picked.map(entry => entry.id), points, skills: taught,
             raceName: race?.name ?? '', talentNames: picked.map(entry => entry.name).join(', '),
             skillNames: taught.map(entry => entry.name).join(', '), source: 'packs',
+            ...(cardImage(record.image) ? { image: cardImage(record.image) } : {}),
         });
     }
     return out;

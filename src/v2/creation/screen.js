@@ -41,14 +41,8 @@ const RACE = `
   <p class="cc-none" data-if="!q.c.hasRaces">This story has no races to choose from. Go on to the next step.</p>
   <div data-if="q.c.hasRaces">
     <p class="cc-lead">Choose your people. A race moves a few stats a little; it costs no points.</p>
-    <div class="cc-cards" role="radiogroup" aria-label="Race">
-      <label class="cc-card" data-each="q.c.races as r">
-        <input type="radio" name="cc-race" data-draft="race" data-bind-attr="value: r.id">
-        <span class="cc-card-name">{{ r.name }}</span>
-        <span class="cc-card-bonus" data-if="r.bonus">{{ r.bonus }}</span>
-        <span class="cc-card-note">{{ r.note }}</span>
-      </label>
-    </div>
+    <p class="cc-hint">Click a card to choose it; click it again to clear it.</p>
+    <ss-widget class="cc-cards" name="rpg-battle.choice-pick" data-props='{"bind":"q.c.races","field":"race","picked":"{{ draft.race }}","label":"Race"}'></ss-widget>
   </div>
 </section>`;
 
@@ -61,13 +55,7 @@ const TALENTS = `
     <ul class="cc-rolled" data-if="len(q.c.rolled)" aria-label="Rolled talents">
       <li data-each="q.c.rolled as t"><b>{{ t.name }}</b> <small>{{ t.cost }} pt<span data-if="t.bonus"> · {{ t.bonus }}</span></small> <em>rolled, kept</em></li>
     </ul>
-    <div class="cc-talent-list">
-      <label class="cc-talent" data-each="q.c.talents as t" data-if="!t.rolled">
-        <input type="checkbox" data-draft="talents" data-bind-attr="value: t.id">
-        <span class="cc-talent-head"><b>{{ t.name }}</b> <small>{{ t.cost }} pt<span data-if="t.bonus"> · {{ t.bonus }}</span></small></span>
-        <span class="cc-talent-note">{{ t.note }}</span>
-      </label>
-    </div>
+    <ss-widget class="cc-talent-list" name="rpg-battle.choice-pick" data-props='{"bind":"q.c.talents","field":"talents","many":true,"picked":{{ draft.talents }},"left":"{{ ${LIVE}.left }}","max":"{{ q.c.rules.maxTalents }}","label":"Talents"}'></ss-widget>
     <div class="cc-random">
       <ss-widget name="rpg-battle.talent-roll" data-props='{}'></ss-widget>
       <p class="cc-hint">Random talent rolls one your points can still pay for. Keep it, and the talent it showed is the one you get.</p>
@@ -105,7 +93,15 @@ const YOU = `
     <span class="cc-label">Background</span>
     <p class="cc-background-text" data-bind="draft.background"></p>
   </div>
-  <p class="cc-summary"><span data-if="draft.race">{{ ${LIVE}.raceName }}</span> <span>{{ ${LIVE}.talentNames }}</span></p>
+  <section class="cc-review" aria-label="Your character">
+    <span class="cc-label">Your character</span>
+    <dl class="cc-review-list">
+      <dt>Name</dt><dd class="cc-review-name">{{ draft.name }}</dd>
+      <dt>Race</dt><dd class="cc-review-race"><span data-if="draft.race">{{ ${LIVE}.raceName }}</span><span data-if="!draft.race">None</span></dd>
+      <dt>Talents</dt><dd class="cc-review-talents"><span data-if="len(draft.talents) > 0 || len(q.c.rolled) > 0">{{ ${LIVE}.talentNames }}</span><span data-if="len(draft.talents) == 0 && len(q.c.rolled) == 0">None</span></dd>
+      <dt>Stats</dt><dd><ul class="cc-review-stats"><li data-each='${LIVE}.rows as s'><b>{{ s.id }}</b> {{ s.final }}</li></ul></dd>
+    </dl>
+  </section>
   <p class="cc-problem" role="status">{{ ${LIVE}.message }}</p>
   <button type="submit" class="menu_button cc-go">Create {{ draft.name }}</button>
 </form>`;
@@ -117,16 +113,29 @@ const CSS = `
 .cc-none, .cc-hint { opacity: .75; font-size: .9em; }
 .cc-left { float: right; white-space: nowrap; }
 .cc-left b { color: var(--ss-accent, var(--SmartThemeQuoteColor)); }
-.cc-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(11em, 1fr)); gap: var(--cc-gap); }
-.cc-card, .cc-talent { display: grid; gap: 2px; padding: 6px 8px; border-radius: 8px; cursor: pointer;
+/* Race and talent cards: buttons with aria-pressed (widget rpg-battle.choice-pick). */
+.rpg-choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 11em), 1fr)); gap: var(--cc-gap); }
+.cc-talent-list .rpg-choices { grid-template-columns: repeat(auto-fill, minmax(min(100%, 14em), 1fr)); }
+.cc-card { display: grid; align-content: start; gap: 2px; padding: 6px 8px; border-radius: 8px; cursor: pointer;
+  font: inherit; color: inherit; text-align: start; margin: 0;
   border: 1px solid var(--SmartThemeBorderColor, rgba(127, 127, 127, .4));
   background: var(--SmartThemeBlurTintColor, rgba(127, 127, 127, .08)); }
-.cc-card input, .cc-talent input { justify-self: start; margin: 0; }
-.cc-card:has(input:checked) { border-color: var(--ss-accent, var(--SmartThemeQuoteColor)); }
+.cc-card[aria-pressed="true"] { border-color: var(--ss-accent, var(--SmartThemeQuoteColor)); box-shadow: inset 0 0 0 1px var(--ss-accent, var(--SmartThemeQuoteColor)); }
+.cc-card:disabled { cursor: not-allowed; opacity: .5; }
+.cc-card:focus-visible { outline: 2px solid var(--ss-accent, var(--SmartThemeQuoteColor)); outline-offset: 2px; }
+.cc-card-img { width: 100%; max-height: 6em; object-fit: cover; border-radius: 6px; }
+.cc-card-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
 .cc-card-name { font-weight: bold; }
-.cc-card-bonus, .cc-talent small { color: var(--ss-accent, var(--SmartThemeQuoteColor)); font-size: .85em; }
-.cc-card-note, .cc-talent-note { font-size: .85em; opacity: .8; }
-.cc-talent-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(14em, 1fr)); gap: var(--cc-gap); }
+.cc-card-cost { font-size: .85em; opacity: .8; }
+.cc-card-tick { margin-left: auto; font-size: .75em; padding: 0 6px; border-radius: 999px;
+  background: var(--ss-accent, var(--SmartThemeQuoteColor)); color: var(--SmartThemeBlurTintColor, #111); }
+.cc-card-bonus { color: var(--ss-accent, var(--SmartThemeQuoteColor)); font-size: .85em; }
+.cc-card-note { font-size: .85em; opacity: .8; }
+.cc-review { display: grid; gap: 4px; padding: 6px 8px; border-radius: 8px; background: var(--SmartThemeBlurTintColor, rgba(127, 127, 127, .08)); }
+.cc-review-list { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; }
+.cc-review-list dt { opacity: .7; font-size: .9em; }
+.cc-review-list dd { margin: 0; }
+.cc-review-stats { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 0; padding: 0; list-style: none; }
 .cc-rolled { margin: 0; padding-left: 1.2em; }
 .cc-rolled em { opacity: .7; font-size: .85em; }
 .cc-stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(12em, 1fr)); gap: var(--cc-gap); }
@@ -139,7 +148,6 @@ const CSS = `
 .cc-label { font-size: .8em; opacity: .7; text-transform: uppercase; }
 .cc-background-text { margin: 2px 0 0; white-space: pre-wrap; max-height: 10em; overflow: auto; font-size: .9em; }
 .cc-field { display: grid; gap: 2px; font-size: .9em; }
-.cc-summary { margin: 0; opacity: .85; }
 .cc-problem { margin: 0; min-height: 1.2em; color: var(--ss-w-warn, #d9a441); font-size: .9em; }
 .cc-go { justify-self: end; }
 /* One "Points left" per step (in the lead): the steppers' own budget notes are hidden. */
@@ -160,6 +168,7 @@ const CSS = `
   background: var(--SmartThemeBlurTintColor, rgba(127, 127, 127, .08)); }
 .rpg-preset-chosen { border-color: var(--ss-accent, var(--SmartThemeQuoteColor)); }
 .rpg-preset-name { font-weight: bold; }
+.rpg-preset-img { width: 100%; max-height: 6em; object-fit: cover; border-radius: 6px; }
 .rpg-preset-origin, .rpg-preset-skills { font-size: .85em; color: var(--ss-accent, var(--SmartThemeQuoteColor)); }
 .rpg-preset-note { font-size: .85em; opacity: .8; }
 .rpg-preset-go, .rpg-preset-own { justify-self: start; }

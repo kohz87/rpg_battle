@@ -28,7 +28,32 @@ const template = `<div class="rb-fight">
   </section>
   <section class="rb-fight-last" data-if="q.fight == null && q.last != null">
     <h3 class="rb-fight-heading">Last fight</h3>
-    <p class="rb-fight-summary">{{ q.last.summary }}</p>
+    <div class="rb-last" data-if="q.last.parts != null" data-class="won: q.last.parts.outcome == 'victory'; lost: q.last.parts.outcome == 'defeat'">
+      <p class="rb-last-result">{{ q.last.parts.result }}</p>
+      <ul class="rb-last-party" aria-label="The party after the fight">
+        <li class="rb-last-member" data-each="q.last.parts.party as m" data-class="down: m.down">
+          <div class="rb-last-who"><b class="rb-last-name">{{ m.name }}</b> <span class="rb-last-state">{{ m.state }}</span></div>
+          <div class="rb-last-pools" data-if="!m.down">
+            <ss-widget name="ss.meter" data-props='{"bind":"m.hp","label":"HP","tone":"good"}'></ss-widget>
+            <ss-widget name="ss.meter" data-if="m.mp.max > 0" data-props='{"bind":"m.mp","label":"MP","tone":"info"}'></ss-widget>
+            <ss-widget name="ss.meter" data-if="m.sp != null" data-props='{"bind":"m.sp","label":"SP","tone":"warn"}'></ss-widget>
+          </div>
+        </li>
+      </ul>
+      <div class="rb-last-block rb-last-moments" data-if="len(q.last.parts.moments) > 0">
+        <h4 class="rb-last-label">Key moments</h4>
+        <ul><li data-each="q.last.parts.moments as k">{{ k }}</li></ul>
+      </div>
+      <p class="rb-last-foes" data-each="q.last.parts.foes as f">{{ f }}</p>
+      <div class="rb-last-block rb-last-loot" data-if="q.last.parts.outcome == 'victory'">
+        <h4 class="rb-last-label">Loot</h4>
+        <ul data-if="len(q.last.parts.loot) > 0"><li data-each="q.last.parts.loot as l">{{ l }}</li></ul>
+        <p class="rb-last-none" data-if="len(q.last.parts.loot) == 0">Nothing.</p>
+      </div>
+      <p class="rb-last-growth" data-if="q.last.parts.growth != ''">{{ q.last.parts.growth }}</p>
+      <p class="rb-last-note" data-each="q.last.parts.notes as n">{{ n }}</p>
+    </div>
+    <p class="rb-fight-summary" data-if="q.last.parts == null">{{ q.last.summary }}</p>
   </section>
   <p class="rb-fight-empty" data-if="q.fight == null && len(q.offers) == 0 && q.last == null">No fight on offer. When the story starts one, it shows here.</p>
 </div>`;
@@ -45,7 +70,23 @@ const css = `.rb-fight { display: flex; flex-direction: column; gap: 0.8em; }
 .rb-fight-stakes { color: var(--rb-fight-deadly, #d0504a); }
 .rb-fight-note, .rb-fight-empty { margin: 0; font-style: italic; opacity: 0.8; }
 .rb-fight-offer-actions { display: flex; flex-wrap: wrap; gap: 0.4em; }
-.rb-fight-summary { margin: 0; }`;
+.rb-fight-summary { margin: 0; }
+.rb-last { display: grid; gap: 0.5em; }
+.rb-last p { margin: 0; }
+.rb-last-result { font-weight: 600; }
+.rb-last.won .rb-last-result { color: var(--rb-fight-won, #6fd68b); }
+.rb-last.lost .rb-last-result { color: var(--rb-fight-deadly, #d0504a); }
+.rb-last-party { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 14em), 1fr)); gap: 0.5em; margin: 0; padding: 0; list-style: none; }
+.rb-last-member { display: grid; gap: 0.3em; padding: 0.5em 0.6em; border-radius: 6px;
+  border: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.2)); }
+.rb-last-member.down { opacity: 0.75; }
+.rb-last-who { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4em; }
+.rb-last-state { font-size: 0.85em; opacity: 0.8; }
+.rb-last-pools { display: grid; gap: 0.2em; font-size: 0.85em; }
+.rb-last-label { margin: 0 0 0.2em; font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.75; }
+.rb-last-block ul { margin: 0; padding-left: 1.2em; }
+.rb-last-foes, .rb-last-note, .rb-last-none { font-size: 0.9em; opacity: 0.85; }
+.rb-last-growth { font-weight: 600; color: var(--ss-accent, var(--SmartThemeQuoteColor, #e0b44c)); }`;
 
 /** The screen definition (SPEC §13.1) the module registers as its default for `rpg-battle/fight`. */
 export const fightScreen = Object.freeze({
