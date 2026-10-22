@@ -104,6 +104,7 @@ export function storeSaving({ ctx, live = () => ctx, fetch = null, onSaveError =
         try { return live() ?? ctx; } catch { return ctx; }
     };
     const file = createChatFile({ context, ...(fetch ? { fetch } : {}) });
+    let stamp = 0;
     return {
         chat: () => ctx.chat,
         chatId: () => (typeof ctx.getCurrentChatId === 'function' ? ctx.getCurrentChatId() : ctx.chatId),
@@ -113,6 +114,25 @@ export function storeSaving({ ctx, live = () => ctx, fetch = null, onSaveError =
             const place = file.where();
             if (!place) return ctx.saveChat();
             return file.write(place, ctx.chat, context().chatMetadata ?? {}, { keepalive, signal });
+        },
+        // After a save timed out (persist.js createSaver): each later save carries a rising number in the
+        // chat's metadata, and the file read back tells whether a late write of the timed-out one (which
+        // carries none, or a lower one) replaced it. Nothing is stamped or read without a timeout.
+        confirm: {
+            mark() {
+                const metadata = context().chatMetadata;
+                const there = Number(isPlain(metadata) ? metadata[SAVE_SEQ_KEY] : 0);
+                stamp = Math.max(stamp, Number.isSafeInteger(there) ? there : 0) + 1;
+                if (isPlain(metadata)) metadata[SAVE_SEQ_KEY] = stamp;
+                return stamp;
+            },
+            async holds(change, token) {
+                const place = change?.place ?? file.where();
+                if (!place) return true;     // no file this page can read (ctx.saveChat saved it)
+                const [header] = await file.read(place);
+                const there = Number(isPlain(header?.chat_metadata) ? header.chat_metadata[SAVE_SEQ_KEY] : 0);
+                return Number.isFinite(there) && there >= token;
+            },
         },
         async rescue(change, entries) {
             if (!entries.length) return;
@@ -137,6 +157,8 @@ export function storeSaving({ ctx, live = () => ctx, fetch = null, onSaveError =
     };
 }
 
+// chat_metadata key of the rising save number written after a save timed out (storeSaving confirm).
+export const SAVE_SEQ_KEY = 'storySuiteSave';
 const isPlain = value => !!value && typeof value === 'object' && !Array.isArray(value);
 const sidOf = message => message?.extra?.storySuite?.sid;
 // The story text before any tag (the change block, hidden or not, comes after it).
@@ -287,7 +309,7 @@ export function createRuntime({
         reread: index => turn?.reread(index) });
     sdk = made.sdk;
     const initial = () => initialWithStart(registry);
-    turn = createTurn({ ctx, store, bus, registry, settings, events, onBlocked, initial, ...(notify ? { notify } : {}) });
+    turn = createTurn({ ctx, live, store, bus, registry, settings, events, onBlocked, initial, ...(notify ? { notify } : {}) });
     // The UI (ui-host.js) plugs its dialog mount in here, for sdk.dialog.open.
     const setDialog = fn => { dialogOpener = typeof fn === 'function' ? fn : null; };
     return { registry, settings, features, store, bus, events, sdk, turn, markReady: made.markReady, initial, packs: packPart, setDialog };

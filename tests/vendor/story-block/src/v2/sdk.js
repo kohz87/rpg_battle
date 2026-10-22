@@ -14,11 +14,15 @@ const checkModule = await import('./check.js').catch(() => null);
 export const EVENTS = Object.freeze(['committed', 'head', 'turn', 'feature']);
 // The most change lines one reply's block may hold; the rest are one Problem (turn.js).
 export const MAX_CHANGE_LINES = 150;
-export const HOST_SETTINGS_DEFAULTS = Object.freeze({ tailBudget: 1500, maxChangeLines: MAX_CHANGE_LINES });
+export const HOST_SETTINGS_DEFAULTS = Object.freeze({ tailBudget: 1500, contextShare: 40, maxChangeLines: MAX_CHANGE_LINES });
 export const HOST_SETTINGS_SCHEMA = Object.freeze({
     tailBudget: Object.freeze({
         type: 'int', min: 100, max: 20000, label: 'Notes per reply (tokens)',
         help: 'The most Story Suite adds to the end of each reply\'s prompt, about four characters a token.',
+    }),
+    contextShare: Object.freeze({
+        type: 'int', min: 10, max: 90, label: 'Share of the context (%)',
+        help: 'The most of SillyTavern\'s context size (less the reply) Story Suite\'s instructions and notes take together; the rest is left for the conversation. The notes are cut to fit, the instructions never are.',
     }),
     maxChangeLines: Object.freeze({
         type: 'int', min: 10, max: 1000, label: 'Change lines per reply',
