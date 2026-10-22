@@ -4,6 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { installFakeDom } from '../../ui-fake-dom.js';
 import { baseDomains, createWorld, line } from '../combat/helpers/fake-ctx.js';
 import { part as combat } from '../../../src/v2/combat/index.js';
@@ -11,8 +12,8 @@ import { part, fightScreen, FIGHT_SCREEN_ID } from '../../../src/v2/board/index.
 import { boardOf, hero, liveFight } from './helpers.js';
 import { sessionOf } from '../../../src/v2/combat/stored.js';
 
-// Story Block's src/v2 (override with STORY_BLOCK_V2=/path/to/story_block/src/v2).
-const STORY_BLOCK = process.env.STORY_BLOCK_V2 || '/home/user/_wt/sb-templates/src/v2';
+// Story Block's src/v2: the vendored testkit's (npm run sync-testkit), or STORY_BLOCK_V2=/path/to/story_block/src/v2.
+const STORY_BLOCK = process.env.STORY_BLOCK_V2 || fileURLToPath(new URL('../../vendor/story-block/src/v2', import.meta.url));
 const HAS_RENDERER = existsSync(`${STORY_BLOCK}/view/template/index.js`) && existsSync(`${STORY_BLOCK}/events/index.js`);
 const NO_RENDERER = HAS_RENDERER ? false : `Story Block's template renderer is not on this machine (${STORY_BLOCK}/view/template/).`;
 
@@ -22,7 +23,8 @@ async function renderer() {
     const events = await import(`${STORY_BLOCK}/events/index.js`);
     const css = await import(`${STORY_BLOCK}/view/css.js`);
     const screens = existsSync(`${STORY_BLOCK}/view/screens.js`) ? await import(`${STORY_BLOCK}/view/screens.js`) : null;
-    return { ...template, scopeCss: css.scopeCss, evaluate: bind.conditionEvaluator({ compile: events.compile, evaluate: events.evaluate }), makeScope: bind.makeScope, validateScreen: screens?.validateScreen ?? null };
+    const widgets = existsSync(`${STORY_BLOCK}/view/widgets/index.js`) ? await import(`${STORY_BLOCK}/view/widgets/index.js`) : null;
+    return { ...template, standardWidgets: widgets?.standardWidgets ?? {}, scopeCss: css.scopeCss, evaluate: bind.conditionEvaluator({ compile: events.compile, evaluate: events.evaluate }), makeScope: bind.makeScope, validateScreen: screens?.validateScreen ?? null };
 }
 
 /** The screen's `data` bindings, run as the host runs them: each alias is its query on the head state. */
@@ -141,8 +143,48 @@ test('the screen: board clicks run through the template\'s command runner, Finis
     await settle();
     assert.deepEqual(sent.at(-1), ['combat.end', { session: fightId }]);
     assert.equal(el.querySelector('.rpg-bb'), null, 'the board leaves with the fight');
-    assert.deepEqual(texts(el, '.rb-fight-summary'), [world.state.domains.combat.last[0].summary]);
+    // The last fight in parts (the summary text stays the story's): no wall of text.
+    assert.equal(el.querySelectorAll('.rb-fight-summary').length, 0);
+    assert.equal(texts(el, '.rb-last-result')[0], world.state.domains.combat.last[0].parts.result);
     assert.deepEqual(texts(el, '.rb-fight-offer button'), ['Fight', 'Not now'], 'the waiting offer can be fought now');
+    assert.deepEqual(warnings.filter(message => !/ss\.meter/.test(message)), []);
+});
+
+test('the screen: the last fight as a result line, a row per member with meters, key moments, loot and growth', { skip: NO_RENDERER }, async () => {
+    const world = liveFight('3 Cellar Rats', { tier: 'weak' });
+    for (let n = 0; n < 200 && sessionOf(world.state.domains.combat)?.status === 'active'; n++) world.run('combat.act', { action: { type: 'auto' } });
+    assert.equal(world.run('combat.end', { session: sessionOf(world.state.domains.combat).id }).ok, true);
+    const r = await renderer();
+    const { el, warnings } = await show(world, { widgets: { ...r.standardWidgets, ...part.widgets } });
+    const { parts } = world.state.domains.combat.last[0];
+    assert.deepEqual(texts(el, '.rb-last-result'), [parts.result]);
+    assert.ok(el.querySelector('.rb-last').className.includes('won'));
+    const rows = el.querySelectorAll('.rb-last-member');
+    assert.equal(rows.length, parts.party.length);
+    assert.deepEqual(texts(el, '.rb-last-name'), parts.party.map(member => member.name));
+    assert.deepEqual(texts(el, '.rb-last-state'), parts.party.map(member => member.state));
+    // HP, MP and SP meters for the one member (Ren keeps all three).
+    const meters = rows[0].querySelectorAll('[role="meter"]');
+    assert.equal(meters.length, 3);
+    assert.equal(meters[0].getAttribute('aria-valuenow'), String(parts.party[0].hp.cur));
+    assert.equal(meters[0].getAttribute('aria-valuemax'), String(parts.party[0].hp.max));
+    assert.deepEqual(texts(el, '.rb-last-moments li'), parts.moments);
+    assert.deepEqual(texts(el, '.rb-last-foes'), ['Foes defeated: Cellar Rat ×3.']);
+    assert.deepEqual(texts(el, '.rb-last-loot li'), parts.loot);
+    assert.deepEqual(texts(el, '.rb-last-growth'), [parts.growth]);
+    assert.equal(el.querySelectorAll('.rb-fight-summary').length, 0);
+    assert.deepEqual(warnings, []);
+});
+
+test('the screen: a last fight saved before parts existed shows its summary text', { skip: NO_RENDERER }, async () => {
+    const world = liveFight('Giant Rat', { tier: 'weak' });
+    for (let n = 0; n < 200 && sessionOf(world.state.domains.combat)?.status === 'active'; n++) world.run('combat.act', { action: { type: 'auto' } });
+    assert.equal(world.run('combat.end', { session: sessionOf(world.state.domains.combat).id }).ok, true);
+    const { parts: _parts, ...older } = world.state.domains.combat.last[0];
+    world.state = { ...world.state, domains: { ...world.state.domains, combat: { ...world.state.domains.combat, last: [older] } } };
+    const { el, warnings } = await show(world);
+    assert.deepEqual(texts(el, '.rb-fight-summary'), [world.state.domains.combat.last[0].summary]);
+    assert.equal(el.querySelectorAll('.rb-last').length, 0);
     assert.deepEqual(warnings, []);
 });
 

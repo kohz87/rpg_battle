@@ -1,6 +1,7 @@
 // RPG Battle v2, part **creation** (MODULES §F12, §F14; SPEC §13.6): making your character.
 // Built-in races and talents (used for each kind no enabled pack provides), the packs'
-// ready-made characters (the wizard's Start step, widget `rpg-battle.preset-pick`; its Talents step's
+// ready-made characters (the wizard's Start step, widget `rpg-battle.preset-pick`; the race and talent
+// cards, `rpg-battle.choice-pick`, buttons that a second click un-picks; its Talents step's
 // Random, `rpg-battle.talent-roll`, and the Start step's Import character, `rpg-battle.import-pick`), the commands
 // `creation.finish` (the wizard's whole draft, checked, then `party.create` in the same
 // transaction), `creation.import` (a character file from `party.export` instead of the wizard,
@@ -32,6 +33,7 @@ import { createScreen } from './screen.js';
 import { PRESET_WIDGET, presetPick } from './preset-pick.js';
 import { wizardWidgets } from './wizard-widgets.js';
 import { CREATE_BUTTON_WIDGET, createButton } from './create-button.js';
+import { CHOICE_WIDGET, choicePick } from './choice-pick.js';
 
 /**
  * onBlocked(reason, moduleId) (Story Block's turn calls the blocking module's hook): when the
@@ -57,14 +59,15 @@ export const part = {
     hooks: { onBlocked },
     settings: { section: 'Character creation', defaults: { ...SETTINGS_DEFAULTS }, schema: SETTINGS_SCHEMA },
     tabs: [],
-    widgets: { [PRESET_WIDGET]: presetPick, ...wizardWidgets, [CREATE_BUTTON_WIDGET]: createButton },
+    widgets: { [PRESET_WIDGET]: presetPick, [CHOICE_WIDGET]: choicePick, ...wizardWidgets, [CREATE_BUTTON_WIDGET]: createButton },
     screens: [createScreen],
 };
 
 export { BUILT_IN_RACES, BUILT_IN_TALENTS, STAT_LABELS, bonusText, creationContent, statChanges, talentCost } from './content.js';
 export { buildCharacter, creationRules, SETTINGS_DEFAULTS, SETTINGS_SCHEMA } from './build.js';
 export { buildQuery, cleanPortrait, commands, contentQuery, initialCreation, queries, validateCreation } from './commands.js';
-export { openCreation, startDraft } from './open.js';
+export { createdNotice, openCreation, startDraft } from './open.js';
+export { CHOICE_WIDGET, cardImage, choicePick, renderChoicePick, toggled } from './choice-pick.js';
 export { CREATE_BUTTON_WIDGET, CREATE_LABEL, createButton, creationApi, renderCreateButton } from './create-button.js';
 export { BACKGROUND_LIMIT, avatarUrl, personaFor, readPersona } from './persona.js';
 export { CREATE_SCREEN_ID, CREATE_STEPS, createScreen } from './screen.js';

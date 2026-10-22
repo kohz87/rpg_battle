@@ -19,7 +19,7 @@
 // turn.js receives the SillyTavern context and the host parts; it never imports the store or
 // the command bus (their interfaces are docs/v2/SPEC.md §12).
 
-import { continuation, cutLine, extractBlock, hideBlock, parseChanges, stripBlock } from './capture.js';
+import { continuation, cutLine, defangMarker, extractBlock, hideBlock, parseChanges, stripBlock } from './capture.js';
 import { hash, readRecord } from './persist.js';
 import { CAPTURE_PREFIX } from './registry.js';
 import { STATIC_MARKER, assemble, contextNotice } from './prompt.js';
@@ -331,7 +331,7 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
                         : typeof answer?.action === 'string' ? Array.from(answer.action.replace(/[\p{Cc}\p{Zl}\p{Zp}\s]+/gu, ' ').trim()).slice(0, 40).join('').trim() : '';
                     entry.name = name;
                     entry.action = action;
-                    entry.canOpen = action !== false && typeof registry.module(moduleId)?.hooks?.onBlocked === 'function';
+                    entry.canOpen = action !== false && typeof onBlockedOf(moduleId) === 'function';
                 } else return entry;
                 found.push(entry);
             }
@@ -342,8 +342,10 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
 
     // A module's own onBlocked hook (what it does when it held the story back: RPG Battle opens the
     // character wizard). → true when it ran without throwing.
+    // C3-2: through the off-aware hook list, so a hook whose feature is off is never called (nor offered).
+    const onBlockedOf = moduleId => registry.hookEntries('onBlocked').find(entry => entry.moduleId === moduleId)?.fn ?? null;
     function runOnBlocked(moduleId, reason) {
-        const fn = registry.module(moduleId)?.hooks?.onBlocked;
+        const fn = onBlockedOf(moduleId);
         if (typeof fn !== 'function') return false;
         try {
             fn(reason, moduleId);
@@ -545,17 +547,23 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
                 found.push(problem({ index, line: line.raw, code: 'UNKNOWN_KIND', message: `No module keeps "${line.kind}", so "${line.raw}" was not used.` }));
                 continue;
             }
+            const mark = lineMark(line.raw);
+            const seed = seeds?.(entry.kind, mark);
+            // C3-4: a Re-read runs a line that made a change before (its receipt gives the seed) even
+            // while its feature is off, so turning a feature off never takes away what it already did.
+            const again = base !== null && seed !== undefined;
             // A kind whose feature the reader turned off (MODULES §F100): not an error, just not used.
-            if (entry.off) {
+            if (entry.off && !again) {
                 const label = registry.feature?.(entry.feature)?.label ?? entry.feature;
                 found.push(problem({ module: entry.moduleId, index, line: line.raw, code: 'FEATURE_OFF', quiet: true, message: `"${line.raw}" was not used: ${label} is turned off (feature off).` }));
                 continue;
             }
             let result;
             try {
-                const mark = lineMark(line.raw);
-                const seed = seeds?.(entry.kind, mark);
-                result = await bus.run(`${CAPTURE_PREFIX}${entry.kind}`, { ...line, kind: entry.kind, word: line.kind }, { cause: 'story', state, capture: entry, carrier, chat, ...(seed === undefined ? {} : { seed }) });
+                const run = opts => bus.run(`${CAPTURE_PREFIX}${entry.kind}`, { ...line, kind: entry.kind, word: line.kind }, { cause: 'story', state, capture: entry, carrier, chat, ...(seed === undefined ? {} : { seed }), ...opts });
+                result = entry.off ? await run({ capture: { ...entry, off: false }, again: true }) : await run();
+                // Refused by a feature that is off (a command it called, ctx.feature): run as it ran before.
+                if (again && !entry.off && result?.code === 'FEATURE_OFF') result = await run({ again: true });
                 // The receipt remembers which line made it (`line`), so a Re-read can give the line its seed again.
                 if (result?.ok) result = { ...result, receipt: { ...result.receipt, line: mark } };
                 if (result?.ok && base) collected.push(...result.ops);
@@ -686,10 +694,19 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
                 problem({ index: id, code: 'FAILED', message: 'The reply is not the last message that keeps the story, so its changes were not read.' });
                 return null;
             }
-            const text = String(message.mes ?? '');
+            const written = String(message.mes ?? '');
             // A Continue: SillyTavern wrote the old text again, cleaned up, so it can be shorter than it
             // was; where the added text starts is found, not counted, or its block is left bare.
-            const at = typeof current.base === 'string' ? continuation(current.base, text) : null;
+            const at = typeof current.base === 'string' ? continuation(current.base, written) : null;
+            // C2-7: a copy of the hidden comment's marker the model wrote itself is defanged first, so the
+            // reply is read live as Re-read will read the saved message.
+            const text = defangMarker(written, at?.from ?? 0);
+            let edited = false;
+            if (text !== written) {
+                message.mes = text;
+                if (Array.isArray(message.swipes) && Number.isInteger(message.swipe_id)) message.swipes[message.swipe_id] = text;
+                edited = true;
+            }
             // The reader stopped it (GENERATION_STOPPED): an open block's unfinished last line is left out.
             const stopped = current.stopped === true;
             const block = extractBlock(text, 'Changes', at, { stopped });
@@ -706,7 +723,6 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
             const before = told.filter(id => typeof id === 'string');
             store.setNarrated(id, [...new Set([...before, ...current.untold])]);
 
-            let edited = false;
             if (block !== null) {
                 const hidden = hideBlock(message.mes, 'Changes', { ...(at ?? {}), stopped });
                 if (hidden !== message.mes) {
@@ -739,7 +755,10 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
         for (const { moduleId, fn } of registry.hookEntries('afterReply')) {
             Promise.resolve()
                 .then(() => fn({ index, swipe, type, mes: String(message?.mes ?? ''), capture: (text, at = { index, swipe }) => captureLate(at, text) }))
-                .catch(error => problem({ module: moduleId, index, code: 'FAILED', message: `afterReply failed: ${error?.message ?? error}` }));
+                .catch(error => problem({ module: moduleId, index, code: 'FAILED', message: `afterReply failed: ${error?.message ?? error}` }))
+                // C2-ext: what the hook made of the reply (the extractor read it, or failed to) can change
+                // the reply's note, so the notes are drawn again.
+                .finally(() => { if (store.headIndex() === index) events?.emit('head', { index }); });
         }
     }
 

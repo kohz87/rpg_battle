@@ -105,12 +105,13 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
     const previews = new Map();
     let previewCount = 0;
 
-    function resolve(type) {
+    // `again` (a Re-read of a line that made a change before, turn.js): its features are not checked.
+    function resolve(type, again = false) {
         const handler = typeof type === 'string' && type ? registry.command(type) : null;
         const moduleId = typeof handler === 'function' ? registry.commandOwner(type) : null;
         if (typeof handler !== 'function' || !moduleId) fail('UNKNOWN_COMMAND', `There is no command called "${type}".`);
         const feature = typeof registry.commandFeature === 'function' ? registry.commandFeature(type) : null;
-        if (feature && !featureOn(feature)) featureOff(type, feature);
+        if (feature && !again && !featureOn(feature)) featureOff(type, feature);
         return { moduleId, handler };
     }
 
@@ -236,7 +237,7 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
                     tx.failure ??= new CommandError('FAILED', `Commands called each other more than ${MAX_DEPTH} levels deep (at ${type}).`);
                     throw tx.failure;
                 }
-                const target = resolve(type);   // UNKNOWN_COMMAND here has changed nothing
+                const target = resolve(type, tx.again);   // UNKNOWN_COMMAND here has changed nothing
                 if (tx.cause === 'ui' && internal(type)) {
                     tx.failure ??= new CommandError('REFUSED', internalMessage(type));
                     throw tx.failure;
@@ -279,8 +280,9 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
                 return deepFreeze(clone(settings(id) ?? {}));
             },
             // Whether feature `id` is on for this reader (MODULES §F100); false for an id no module declares.
+            // A Re-read run `again` sees every declared feature on, as it ran when the line was first read.
             feature(id) {
-                return featureOn(id);
+                return featureOn(id) || (tx.again === true && Boolean(registry.feature?.(id)));
             },
             // The Director's minutes: its `director.time` query when one is registered, else the
             // `director.time.minutes` of the state (SPEC §8), else null.
@@ -350,7 +352,7 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
     }
 
     // Runs one command against `head` and returns { ok, ops, receipt, state } without storing anything.
-    function transact(head, type, payload, { cause, seed: seedValue, receiptId, capture, carrier = null, chat = null }) {
+    function transact(head, type, payload, { cause, seed: seedValue, receiptId, capture, carrier = null, chat = null, again = false }) {
         let tx = null;
         try {
             if (!CAUSES.includes(cause)) fail('INVALID', `"${cause}" is not a cause (ui, story or system).`);
@@ -358,7 +360,7 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
             if (!isRecord(head)) fail('FAILED', 'There is no state to change yet.');
             const target = capture
                 ? { moduleId: capture.moduleId, handler: capture.apply }
-                : resolve(type);
+                : resolve(type, again);
             if (cause === 'ui' && internal(type)) fail('REFUSED', internalMessage(type));
             if (typeof target.handler !== 'function' || !target.moduleId) fail('UNKNOWN_COMMAND', `There is no capture handler for "${type}".`);
             if (capture?.off === true) featureOff(type, capture.feature);
@@ -368,7 +370,7 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
             const headRev = Number.isInteger(head.meta?.rev) ? head.meta.rev : 0;
             tx = {
                 head, cause, receiptId, random: makeRng(seedValue), idRandom: makeRng((seedValue ^ ID_STREAM) >>> 0),
-                rev: headRev + 1, carrier: carrierOf(carrier), chat: chatOf(chat),
+                rev: headRev + 1, carrier: carrierOf(carrier), chat: chatOf(chat), again: again === true && cause === 'story',
                 drafts: new Map(), meta: null, failure: null, closed: false,
             };
             tx.reply = tx.carrier ? replyOf(tx.carrier.index, tx.carrier.sid ?? tx.carrier.key) : headReply(store);
@@ -462,6 +464,11 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
         return { rev: head?.meta?.rev, index: store.headIndex?.(), json: JSON.stringify(head) };
     }
 
+    // C3-3: which declared features are on, so a preview taken before the reader turned one off (or on)
+    // is not committed as it was: the handler, or a command it called, may have read it.
+    const featureMarks = () => (typeof registry.features === 'function' ? registry.features() : [])
+        .map(feature => `${feature.id}:${featureOn(feature.id) ? 1 : 0}`).join(',');
+
     return {
         /** command(type, payload, { cause = 'ui' }) → { ok: true, receipt } | { ok: false, code, message } */
         command(type, payload, { cause = 'ui' } = {}) {
@@ -478,18 +485,26 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
                 const result = transact(head, type, payload, fresh(cause));
                 if (!result.ok) return result;
                 const token = `pv_${++previewCount}`;
-                previews.set(token, { ops: result.ops, receipt: result.receipt, seen: fingerprint(head) });
+                previews.set(token, { type, ops: result.ops, receipt: result.receipt, seen: fingerprint(head), features: featureMarks() });
                 while (previews.size > MAX_PREVIEWS) previews.delete(previews.keys().next().value);
                 return { ok: true, receipt: result.receipt, token, ops: result.ops };
             });
         },
 
-        /** commit(token): stores exactly what the preview showed, or STALE when the head moved since. */
+        /**
+         * commit(token): stores exactly what the preview showed, or STALE when the head moved since.
+         * The command's feature is checked again (FEATURE_OFF), and a preview from before any feature
+         * was turned on or off is STALE.
+         */
         commit(token) {
             return guarded(() => {
                 const saved = previews.get(token);
                 if (!saved) return { ok: false, code: 'NOT_FOUND', message: 'That preview is gone; try the action again.' };
                 previews.delete(token);
+                resolve(saved.type);
+                if (featureMarks() !== saved.features) {
+                    return { ok: false, code: 'STALE', message: 'A feature was turned on or off since this preview; try the action again.' };
+                }
                 const now = fingerprint(store.head());
                 if (now.rev !== saved.seen.rev || now.index !== saved.seen.index || now.json !== saved.seen.json) {
                     return { ok: false, code: 'STALE', message: 'The story changed since this preview; try the action again.' };
@@ -503,10 +518,11 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
          * the command's result without storing it (capture). `state` is the state to run against
          * (default: the head), so lines of one reply can chain; `capture` = registry.capture(kind)'s
          * { moduleId, apply } runs that capture handler as command `type`; `carrier` ({ index, swipe, sid? })
-         * and `chat` ({ lastUser, reply }) become ctx.carrier and ctx.chat.
+         * and `chat` ({ lastUser, reply }) become ctx.carrier and ctx.chat. `again` (story only): a Re-read
+         * of a line that made a change before, run with its features as on (C3-4).
          */
-        run(type, payload, { cause = 'story', seed: seedValue, state, capture, carrier = null, chat = null } = {}) {
-            return guarded(() => transact(state ?? store.head(), type, payload, { ...fresh(cause, seedValue), capture, carrier, chat }));
+        run(type, payload, { cause = 'story', seed: seedValue, state, capture, carrier = null, chat = null, again = false } = {}) {
+            return guarded(() => transact(state ?? store.head(), type, payload, { ...fresh(cause, seedValue), capture, carrier, chat, again: again === true && cause === 'story' }));
         },
     };
 }

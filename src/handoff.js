@@ -23,7 +23,7 @@ function duration(seconds) {
     return `about ${plural(s, 'second')}`;
 }
 
-function outcomeLine(result, stakes, pcName) {
+export function outcomeLine(result, stakes, pcName) {
     const rounds = Math.max(0, Math.round(Number(result.rounds) || 0));
     if (result.outcome === 'victory') return `Victory in ${plural(rounds, 'round')} (${duration(result.seconds)}).`;
     if (result.outcome === 'fled') return `Escaped after ${plural(rounds, 'round')}.`;
@@ -83,7 +83,8 @@ function article(phrase) {
     return /^[aeiou]/i.test(phrase) ? `an ${phrase}` : `a ${phrase}`;
 }
 
-function lootText(loot, currency) {
+/** The loot as its parts: the money, then each item ("a gnawed bone", "rat tail ×2"); [] for none. */
+export function lootList(loot, currency) {
     const parts = [];
     if (loot?.money > 0) parts.push(formatMoney(loot.money, currency));
     for (const item of loot?.items ?? []) {
@@ -92,11 +93,16 @@ function lootText(loot, currency) {
         const name = `${special}${String(item.name ?? '').trim().toLowerCase()}`;
         parts.push(qty === 1 ? article(name) : `${name} ×${qty}`);
     }
+    return parts;
+}
+
+export function lootText(loot, currency) {
+    const parts = lootList(loot, currency);
     return parts.length ? parts.join(', ') : 'nothing';
 }
 
 // Someone already at the level cap gains nothing, so they are left out of the XP line.
-function xpText(xp, party, names, rules) {
+export function xpText(xp, party, names, rules) {
     const cap = maxLevel(rules);
     const levelOf = id => party.find(member => member.memberId === id)?.level;
     const ids = party.map(member => member.memberId).filter(id => id in (xp ?? {}) && !(Number(levelOf(id)) >= cap));

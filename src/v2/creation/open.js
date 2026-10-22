@@ -44,6 +44,28 @@ export function startDraft(view = null, { prefill = null, persona = null } = {})
     };
 }
 
+/**
+ * The words said once a character is made: { title, text }. title is "<Name> is ready"; text is the
+ * command's own summary (race, talents, skills; or where an imported one comes from) and where to see
+ * them. Plain text: the toast shows it as text.
+ */
+export function createdNotice(result, draft = {}) {
+    const flat = (value, max) => Array.from(String(value ?? '').replace(/\s+/g, ' ').trim()).slice(0, max).join('');
+    const name = flat(draft?.name, 80) || 'Your character';
+    const summary = flat(result?.receipt?.summary ?? result?.summary, 300);
+    return { title: `${name} is ready`, text: `${summary ? `${summary} ` : ''}See them on the Party screen.` };
+}
+
+// The toast: SillyTavern's toastr where there is one; a host or test may pass `notify(title, text)` instead.
+function showCreated(result, draft, notify) {
+    const { title, text } = createdNotice(result, draft);
+    try {
+        if (typeof notify === 'function') return notify(title, text);
+        globalThis.toastr?.success?.(text, title, { timeOut: 6000, escapeHtml: true });
+    } catch { /* a toast that fails changes nothing: the character is made */ }
+    return undefined;
+}
+
 function dialogOf(api) {
     for (const [owner, fn] of [[api?.dialog, api?.dialog?.open], [api, api?.openDialog], [api?.mounts?.dialog, api?.mounts?.dialog?.open]]) {
         if (typeof fn === 'function') return { owner, open: (id, opts) => fn.call(owner, id, opts), current: () => (typeof owner?.current === 'function' ? owner.current() : null) };
@@ -69,8 +91,9 @@ function hasCharacter(api, view) {
 /**
  * Opens the character creation wizard (screen `rpg-battle/create`) as a dialog.
  * → { ok: true, handle } | { ok: false, code: 'NO_DIALOG' | 'REFUSED', message }
- * opts: { draft? (race, talents, points, portrait to start from), step? (index), view?, persona? }.
- * A wizard already open is brought back, not opened twice.
+ * opts: { draft? (race, talents, points, portrait to start from), step? (index), view?, persona?,
+ * notify? (title, text) in place of the toast }. A wizard already open is brought back, not opened
+ * twice. When the character is made (Create, or an import), "<Name> is ready" is shown as a toast.
  */
 export function openCreation(api, opts = {}) {
     const dialog = dialogOf(api);
@@ -86,12 +109,21 @@ export function openCreation(api, opts = {}) {
     if (stillOpen(last)) return { ok: true, handle: last };
 
     const draft = startDraft(view, { prefill: isRecord(opts.draft) ? plainCopy(opts.draft) : null, persona: opts.persona ?? null });
-    const handle = dialog.open(CREATE_SCREEN_ID, { draft, submitLabel: 'Create' });
+    let told = false;
+    const tell = result => {
+        if (told || !result?.ok) return;
+        told = true;
+        showCreated(result, draft, opts.notify);
+    };
+    const handle = dialog.open(CREATE_SCREEN_ID, { draft, submitLabel: 'Create', onDone: tell });
     if (!handle) return { ok: false, code: 'NO_DIALOG', message: 'Story Block cannot show the character creation window here.' };
     if (dialog.owner && typeof dialog.owner === 'object') lastOpened.set(dialog.owner, handle);
     // A character imported from a file is made: the wizard has nothing left to do.
     const root = handle?.root ?? handle?.el ?? null;
-    root?.addEventListener?.(CREATED_EVENT, event => handle?.close?.(event?.detail?.result ?? null));
+    root?.addEventListener?.(CREATED_EVENT, event => {
+        tell(event?.detail?.result ?? null);
+        handle?.close?.(event?.detail?.result ?? null);
+    });
     if (Number.isInteger(opts.step)) handle?.goTo?.(opts.step);
     return { ok: true, handle };
 }
