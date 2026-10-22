@@ -1,8 +1,8 @@
 // RPG Battle v2: the one module definition Story Block registers (SPEC §6), merged from its
 // parts (MODULES §A): party, creation (making your character, §F12, §F14), checks (pending d20
 // checks, §F16), items, combat, board (the battle screen), return (in time after death, §F17)
-// trade, craft (crafting from the story, §F102) and screens (the default screens: party, items,
-// trade, HUD, status card), in that order.
+// trade, craft (crafting from the story, §F102) and screens (the default screens: party, trade,
+// crafting, HUD, status card), in that order.
 //
 // - domains, commands and queries are put together as they are; a name two parts claim is a
 //   mistake, refused here before Story Block ever sees it.
@@ -242,7 +242,8 @@ export function createModule({ settings = null } = {}) {
 
     // A hand-built tab a screen now covers gives way to it (the screen shows as that tab).
     const covered = new Set(screens.filter(screen => (screen.mounts ?? []).includes('tab')).map(screen => screen.id));
-    const shownTabs = tabs.filter(tab => !covered.has(`${MODULE_ID}/${tab.id}`));
+    // The items part's hand-built Items tab is retired: Story Block's Inventory is the one bag (§F99).
+    const shownTabs = tabs.filter(tab => !covered.has(`${MODULE_ID}/${tab.id}`) && !RETIRED_TABS.has(tab.id));
     queries[REV_QUERY] = state => (Number.isInteger(state?.meta?.rev) ? state.meta.rev : 0);
 
     const mergedHooks = {};
@@ -304,6 +305,9 @@ export function createModule({ settings = null } = {}) {
         screens,
     };
 }
+
+// Hand-built tabs no longer shown (MODULES §F99: Story Block's Inventory is the one bag).
+const RETIRED_TABS = new Set(['items']);
 
 // Hooks that are given the view (SPEC §6) get the part's view.
 const VIEW_HOOKS = new Set(['canGenerate', 'beforeGenerate']);

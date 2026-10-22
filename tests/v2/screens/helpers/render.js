@@ -6,7 +6,8 @@
 
 import { installDom } from './dom.js';
 import { renderer, resolveData, widgets as standard } from './runtime.js';
-import { runQuery } from './state.js';
+import { toolsFor } from './state.js';
+import { screenWidgets } from '../../../../src/v2/screens/widgets.js';
 
 export const WIDGET_NAMES = ['ss.meter', 'ss.radar', 'ss.map', 'ss.skill-tree', 'ss.portrait', 'ss.badge', 'ss.timeline', 'ss.stepper'];
 
@@ -31,12 +32,20 @@ function stubWidgets(log) {
 }
 
 /**
- * draw(screen, state, { mount, changes, settings, draft, result, real }) →
+ * The tools over `state` with `extra` queries ({ name: (args, tools) → value }) laid over the real
+ * ones: stand-ins for other parts' queries this build may not have yet (party.effects, items.condition…).
+ */
+export const toolsWith = (state, settings, extra = {}) => toolsFor(state, settings, extra);
+
+/**
+ * draw(screen, state, { mount, changes, settings, draft, result, real, queries, preview }) →
  * { el, view, q, problems, commands, widgets, warnings, rerender(state?, changes?) }.
  * `result(type, payload)` answers the recorded commands (default: ok). With `real`, Story Block's own
- * standard widgets draw instead of the stand-ins.
+ * standard widgets draw instead of the stand-ins; RPG Battle's own widgets (screens/widgets.js) always
+ * draw for real, with a widget api whose `query` reads the drawn state and whose `preview` is the
+ * option's (recorded in `previews`). `queries` are stand-ins for other parts' queries (toolsWith).
  */
-export function draw(screen, state, { mount = screen.mounts[0], changes = [], settings = {}, draft = null, result = () => ({ ok: true }), real = false } = {}) {
+export function draw(screen, state, { mount = screen.mounts[0], changes = [], settings = {}, draft = null, result = () => ({ ok: true }), real = false, queries = {}, preview = null } = {}) {
     const doc = installDom();
     const el = doc.createElement('div');
     doc.body.appendChild(el);
@@ -44,12 +53,21 @@ export function draw(screen, state, { mount = screen.mounts[0], changes = [], se
     el.setAttribute('data-ss-mount', mount);
     const compiled = renderer.compileTemplate(screen.template);
     const commands = [];
+    const previews = [];
     const widgets = [];
+    let current = state;
     const warnings = [...compiled.warnings];
     const evaluate = renderer.conditionEvaluator({ compile: renderer.events.compile, evaluate: renderer.events.evaluate });
     const options = {
         evaluate,
-        widgets: real ? standard.standardWidgets : stubWidgets(widgets),
+        widgets: { ...(real ? standard.standardWidgets : stubWidgets(widgets)), ...screenWidgets },
+        api: {
+            query: (name, args) => toolsWith(current, settings, queries).query(name, args),
+            preview: async (type, payload) => {
+                previews.push({ type, payload });
+                return typeof preview === 'function' ? preview(type, payload) : { ok: false, code: 'NO_PREVIEW', message: 'No preview here.' };
+            },
+        },
         command: (type, payload) => {
             commands.push({ type, payload });
             return result(type, payload);
@@ -57,14 +75,15 @@ export function draw(screen, state, { mount = screen.mounts[0], changes = [], se
         onWarn: message => warnings.push(message),
     };
     let data = null;
-    const scopeFor = (current, currentChanges) => {
-        data = resolveData(screen.data, (name, args) => runQuery(name, args, current, settings));
+    const scopeFor = (next, currentChanges) => {
+        current = next;
+        data = resolveData(screen.data, (name, args) => toolsWith(next, settings, queries).query(name, args));
         if (!data.ok) throw new Error(data.message);
-        return { state: current, q: data.q, draft, settings, changes: [...currentChanges], mount, index: 0, screenId: screen.id, api: {} };
+        return { state: next, q: data.q, draft, settings, changes: [...currentChanges], mount, index: 0, screenId: screen.id, api: {} };
     };
     const view = renderer.renderTemplate(el, compiled, scopeFor(state, changes), options);
     return {
-        el, view, commands, widgets, warnings, compiled,
+        el, view, commands, previews, widgets, warnings, compiled,
         get q() { return data.q; },
         get problems() { return data.problems; },
         rerender(next = state, nextChanges = changes) { renderer.renderTemplate(el, compiled, scopeFor(next, nextChanges), options); },

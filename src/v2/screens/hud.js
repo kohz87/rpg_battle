@@ -1,7 +1,14 @@
 // RPG Battle v2, screen `rpg-battle/hud` (SPEC §13.4 `hud`: a thin strip above the message box, head
-// state): your character's portrait, name and level, HP and MP meters, condition badges (icons with
-// the turns left). Before a character exists it says so in one line (creation is mandatory,
-// MODULES §F12). Checks are rolled in the reply that writes them (MODULES §F80): nothing waits here.
+// state): your character's portrait, name and level, HP and MP meters, a "points to spend" badge when
+// anyone in the party has stat points waiting (MODULES §F91, the party part's `party.toSpend`),
+// condition badges (icons with the turns left) and active effects (feature `rpg-battle.effects`, the
+// party part's `party.effects`; left out without it). Before a character exists it says so in one line
+// (creation is mandatory, MODULES §F12). Checks are rolled in the reply that writes them (MODULES
+// §F80): nothing waits here.
+//
+// The strip lays its items out side by side, each as wide as what it holds, so this screen's root is
+// not a size container (an inline-size container takes no width from its content and would shrink to
+// nothing there); the narrow layout follows the viewport instead.
 
 import { THEME, sheet } from './style.js';
 
@@ -10,14 +17,16 @@ const template = `
   <ss-widget class="face" name="ss.portrait" data-props='{"src":"{{ q.hud.pc.portrait }}","name":"{{ q.hud.pc.name }}","frame":"circle","size":"sm","tone":"accent"}'></ss-widget>
   <div class="id">
     <b class="nm">{{ q.hud.pc.name }}</b>
-    <small class="lv">Lv {{ q.hud.pc.level }}<span class="pts" data-if="q.hud.pc.spend"> · {{ q.hud.pc.points }} pts</span></small>
+    <small class="lv">Lv {{ q.hud.pc.level }}</small>
   </div>
   <div class="bars">
     <ss-widget class="pool hp" name="ss.meter" data-props='{"bind":"q.hud.pc.hp","label":"HP","icon":"fa-heart"}'></ss-widget>
     <ss-widget class="pool mp" name="ss.meter" data-props='{"bind":"q.hud.pc.mp","label":"MP","icon":"fa-droplet"}'></ss-widget>
   </div>
-  <div class="badges" data-if="len(q.hud.pc.badges) > 0">
+  <span class="spend" data-if="q.hud.toSpend.on" title="{{ q.hud.toSpend.title }}" aria-label="{{ q.hud.toSpend.title }}"><i class="fa-solid fa-circle-up"></i><b>{{ q.hud.toSpend.total }}</b><span class="spend-word"> to spend</span></span>
+  <div class="badges" data-if="len(q.hud.pc.badges) > 0 || len(q.hud.pc.effects) > 0">
     <ss-widget data-each="q.hud.pc.badges as b" name="ss.badge" data-props='{"bind":"b"}'></ss-widget>
+    <ss-widget class="effect" data-each="q.hud.pc.effects as e" name="ss.badge" data-props='{"bind":"e","showLabel":false}'></ss-widget>
   </div>
 </div>
 <div class="rb rb-hud none-yet" data-if="!q.hud.ready"><i class="fa-solid fa-user-plus"></i>Create your character to begin the story.</div>
@@ -37,20 +46,28 @@ const css = sheet(`
 .id { display: grid; flex: 0 1 auto; min-width: 0; line-height: 1.15; }
 .id .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 9em; }
 .id .lv { font-size: 0.82em; white-space: nowrap; }
-.id .pts { color: var(--rb-good); font-weight: 700; }
 .bars { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; flex: 1 1 10em; min-width: 7em; }
 .rb .ss-w-meter { --ss-w-meter-height: 6px; gap: 1px; }
 .rb .ss-w-meter-head { font-size: 0.75em; }
-.badges { flex: 0 1 auto; flex-wrap: nowrap; overflow: hidden; }
+.spend {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+  font-size: 0.85em; font-weight: 700; font-variant-numeric: tabular-nums;
+  background: color-mix(in srgb, var(--rb-good) 22%, transparent); border: 1px solid color-mix(in srgb, var(--rb-good) 55%, transparent);
+}
+.spend i { color: var(--rb-good); }
+.spend-word { font-weight: 600; }
+.badges { flex: 0 1 auto; flex-wrap: nowrap; overflow: hidden; min-width: 0; }
 .none-yet { justify-content: center; color: var(--rb-muted); font-style: italic; }
 .none-yet i { margin-right: 6px; color: var(--rb-accent); font-style: normal; }
-@container rb-screen (max-width: 420px) {
+@media (max-width: 480px) {
+  .rb-hud { gap: 6px; padding: 4px 8px; }
   .id .nm { max-width: 6em; }
-  .bars { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .bars { grid-template-columns: minmax(0, 1fr); gap: 2px; min-width: 5em; }
   .rb .ss-w-meter-head { display: none; }
+  .spend-word { display: none; }
   .badges ss-widget:nth-child(n+3) { display: none; }
 }
-`);
+`, { container: false });
 
 export const hudScreen = Object.freeze({
     id: 'rpg-battle/hud',

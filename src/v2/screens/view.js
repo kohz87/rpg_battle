@@ -2,9 +2,11 @@
 //
 // A template has no arithmetic and no way to filter or group a list (TEMPLATES.md §1.2), so what a
 // screen shows that is not a plain field of the state is worked out here, once per drawing: an
-// actor's EXP to the next level, their condition badges, skills grouped by tier for ss.skill-tree,
-// stats as radar axes, the rows of the Items and Trade pages with their short prices and the people
-// each thing can go to. Packs and cards that restyle a screen can bind the same queries.
+// actor's EXP to the next level, their condition badges and active effects, what they wear with its
+// condition, skills grouped by tier for ss.skill-tree, stats as radar axes, the Trade page's rows with
+// their short prices, the Crafting page's recipes, and one thing's details for Story Block's Inventory
+// rows. Packs and cards that restyle a screen can bind the same queries. Other parts' queries are read
+// with `tryQuery`: one this build lacks (or whose feature is off) leaves its section out.
 //
 // Every query is `(state, args, tools)` (MODULES §F3) and returns plain copies. The other parts are
 // read only through their queries (`tools.query('party.actors')`, `trade.*`, `inventory.*`) or as
@@ -16,6 +18,7 @@ import { DEFAULT_SKILLS, findSkill } from '../../skills.js';
 import { useItemOutside } from '../../recovery.js';
 import { levelTag, maxLevel, xpLabel } from '../../terms.js';
 import { isMaterial } from '../../trade.js';
+import { growthOf } from '../party/sheets.js';
 
 export const MODULE_ID = 'rpg-battle';
 
@@ -67,11 +70,13 @@ export function rulesFor(settings = {}) {
 }
 
 // Another query through the tools (MODULES §F3); undefined when there are no tools, it is not
-// registered, or it throws: the screen then shows less, never an error.
-function ask(tools, name, args = {}) {
+// registered (another part's that is not in this build yet, or its feature is off), or it throws:
+// the section that reads it is then left out, never an error.
+export function tryQuery(tools, name, args = {}) {
     if (typeof tools?.query !== 'function') return undefined;
     try {
-        return tools.query(name, args);
+        const found = tools.query(name, args);
+        return found === null ? undefined : found;
     } catch {
         return undefined;
     }
@@ -194,7 +199,11 @@ export function actorCard(actor, party, { rules = DEFAULT_RULES, portrait = null
         name: String(actor.name ?? ''),
         you,
         kind: actor.kind ?? (you ? 'pc' : 'companion'),
+        companion: !you,
+        // The two per-companion switches (party.edit, MODULES §F29, §F49): who gives orders in a
+        // fight, and who spends their stat points.
         control: actor.control ?? 'auto',
+        growth: you ? 'manual' : growthOf(actor),
         role,
         level,
         line: [levelTag(level, rules), role, who].filter(Boolean).join(' · '),
@@ -222,31 +231,86 @@ export function actorCard(actor, party, { rules = DEFAULT_RULES, portrait = null
     };
 }
 
-/** `rpg-battle.cards({ settings? })`: a card per party member, your character first. */
+/**
+ * An active effect from the party part's `party.effects` (MODULES §F100 feature `rpg-battle.effects`:
+ * timed effects that fade on the story clock, and those a worn piece gives) as ss.badge props, its
+ * time left and source in the spoken label ("Blessed, 2 h left, from a potion").
+ */
+export function effectBadge(effect, index = 0) {
+    const name = capital(effect?.name ?? '') || 'Effect';
+    const tone = ['good', 'bad', 'neutral'].includes(effect?.tone) ? effect.tone : 'neutral';
+    const [, icon] = CONDITION_LOOK.find(([pattern]) => pattern.test(name)) ?? [null, tone === 'bad' ? 'fa-arrow-trend-down' : 'fa-wand-magic-sparkles'];
+    const left = String(effect?.left ?? '').trim();
+    const source = String(effect?.source ?? '').trim();
+    return {
+        id: String(effect?.id ?? `${name}-${index}`), kind: 'effect', label: [name, left ? `${left} left` : '', source ? `from ${source}` : ''].filter(Boolean).join(', '),
+        text: left ? `${name} · ${left}` : name, showLabel: true, icon, tone, counter: null, unit: '',
+    };
+}
+
+/** `actorId`'s active effects as badges; [] without the party part's effects (or with the feature off). */
+function effectsOf(tools, actorId) {
+    const found = tryQuery(tools, 'party.effects', { actor: actorId });
+    return (Array.isArray(found) ? found : []).filter(isRecord).slice(0, 24).map(effectBadge);
+}
+
+/**
+ * `rpg-battle.cards({ settings? })`: a card per party member, your character first, each with what
+ * they wear (`gear`, from items.gear and items.condition) and their active effects (`effects`).
+ */
 export function cards(state, args = {}, tools = null) {
     const party = partyOf(state);
     const rules = rulesFor(settingsFor(args, tools));
     // party.actors gives each member's portrait (the persona's, or NSD's for an NPC companion).
-    const listed = ask(tools, 'party.actors', {});
+    const listed = tryQuery(tools, 'party.actors', {});
     const portraits = new Map((Array.isArray(listed) ? listed : []).map(entry => [entry?.id, entry?.portrait ?? null]));
-    return copy(peopleOf(party).map(id => actorCard(party.actors[id], party, { rules, portrait: portraits.get(id) })));
+    return copy(peopleOf(party).map(id => ({
+        ...actorCard(party.actors[id], party, { rules, portrait: portraits.get(id) }),
+        gear: gearOf(tools, id),
+        effects: effectsOf(tools, id),
+    })));
 }
 
 /**
- * `rpg-battle.hud({ settings? })`: { ready, pc: card | null }. (Checks no longer wait for the
- * reader, MODULES §F80: they are rolled in the reply that writes them, so the HUD counts none.)
+ * The HUD's "points to spend" badge (MODULES §F91) from the party part's `party.toSpend` (everyone
+ * with points, your character first): { on, total, text, title }. Without that query, your own
+ * character's points.
+ */
+function toSpendOf(tools, pc) {
+    const found = tryQuery(tools, 'party.toSpend', {});
+    const people = isRecord(found) && Array.isArray(found.people)
+        ? found.people.filter(isRecord).map(person => ({ name: String(person.name ?? ''), points: Math.max(0, int(person.points)) })).filter(person => person.points > 0)
+        : pc && pc.points > 0 ? [{ name: pc.name, points: pc.points }] : [];
+    const total = isRecord(found) && Number.isFinite(found.total) ? Math.max(0, int(found.total)) : people.reduce((sum, person) => sum + person.points, 0);
+    return {
+        on: total > 0,
+        total,
+        text: `${total} to spend`,
+        title: total > 0 ? `Stat points to spend: ${people.map(person => `${person.name} ${person.points}`).join(', ')}` : '',
+    };
+}
+
+/**
+ * `rpg-battle.hud({ settings? })`: { ready, pc: card | null, toSpend }. (Checks no longer wait for
+ * the reader, MODULES §F80: they are rolled in the reply that writes them, so the HUD counts none.)
  */
 export function hud(state, args = {}, tools = null) {
     const party = partyOf(state);
     const pcId = party.pc && party.actors?.[party.pc] ? party.pc : null;
     const pc = pcId ? cards(state, args, tools).find(card => card.id === pcId) ?? null : null;
-    return copy({ ready: Boolean(pc), pc });
+    return copy({ ready: Boolean(pc), pc, toSpend: toSpendOf(tools, pc) });
 }
 
 // ---------------------------------------------------------------------------------------------------
-// Items
+// Gear, item details and the carry line
+//
+// Story Block's Inventory is the one bag (MODULES §F99): Equip, Take off, Give and Drop are there. What
+// only RPG Battle knows about a thing (a piece's slot and stats, its condition and refinement, what a
+// draught does and for whom) is `rpg-battle.itemDetail`, drawn in each Inventory row by the widget
+// `rpg-battle.item-detail` (item-detail.js), and the worn pieces are listed on each Party card.
 
 const SLOT_LABELS = Object.freeze({ weapon: 'Weapon', offhand: 'Off-hand', armour: 'Armour', armor: 'Armour', worn: 'Worn', accessory: 'Accessory', head: 'Head', hands: 'Hands', feet: 'Feet', waist: 'Waist' });
+const slotLabel = slot => SLOT_LABELS[slot] ?? capital(String(slot ?? '').replace(/-\d+$/, ''));
 
 function effectText(effect) {
     if (!isRecord(effect)) return '';
@@ -263,72 +327,101 @@ function effectText(effect) {
 const statText = stats => (isRecord(stats) ? Object.entries(stats).filter(([, value]) => Number.isFinite(value) && value !== 0).map(([key, value]) => `${key} ${value > 0 ? '+' : ''}${value}`).join(', ') : '');
 const helpsNow = effect => isRecord(effect) && (int(effect.heal) > 0 || int(effect.mp) > 0 || (Array.isArray(effect.cure) && effect.cure.length > 0));
 
-/**
- * `rpg-battle.items`: { empty, people, consumables, equipment, other }. Each row has its `stack`,
- * name, quantity, who holds it, and the people it can be given to (`give`); consumables list their
- * `targets` (`helps` false when a dose would do nothing for them now, which item.use refuses), gear
- * whether it is on (`equipped`) and on whom. `carry`: the carry limit's line (MODULES §F39, the
- * items part's `items.carry`): { on, text, over } ("Carrying 31 of 56 · Ren 12/40 · Lyra 9/36").
- */
-export function items(state, args = {}, tools = null) {
-    const party = partyOf(state);
-    const inventory = inventoryOf(state);
-    const people = peopleOf(party);
-    const nameOf = id => String(party.actors?.[id]?.name ?? id);
-    const holders = ['party', ...people];
-    const defs = isRecord(inventory.defs) ? inventory.defs : {};
-    // Whether a dose would change anything for someone now, by the rule item.use applies (v1
-    // useItemOutside: full HP and MP with nothing to cure refuses).
-    const helpsWhom = (def, id) => {
-        const who = party.actors?.[id];
-        const sheet = {
-            name: String(who?.name ?? ''), hp: pool(who?.hp), mp: pool(who?.mp),
-            conditions: (Array.isArray(who?.conditions) ? who.conditions : []).map(entry => ({ name: entry?.kind, stacks: entry?.stacks })),
-        };
-        try {
-            return useItemOutside(sheet, { name: def.name, effect: def.effect }).used === true;
-        } catch {
-            return null;
-        }
-    };
-    const stacks = Object.keys(isRecord(inventory.stacks) ? inventory.stacks : {}).sort()
-        .map(id => inventory.stacks[id])
-        .filter(stack => isRecord(stack) && stack.qty > 0 && holders.includes(stack.owner) && defs[stack.def] && defs[stack.def].kind !== 'money')
-        .sort((a, b) => holders.indexOf(a.owner) - holders.indexOf(b.owner) || String(defs[a.def].name).localeCompare(String(defs[b.def].name), 'en') || (a.id < b.id ? -1 : 1));
+/** How each wear band reads (the gear part's `items.condition` names the band; code set it). */
+export const BANDS = Object.freeze({
+    good: Object.freeze({ label: 'Good', tone: 'good', icon: 'fa-shield-halved' }),
+    worn: Object.freeze({ label: 'Worn', tone: 'warn', icon: 'fa-shield-halved' }),
+    tattered: Object.freeze({ label: 'Tattered', tone: 'bad', icon: 'fa-shield-virus' }),
+    broken: Object.freeze({ label: 'Broken', tone: 'bad', icon: 'fa-heart-crack' }),
+});
 
-    const out = { empty: stacks.length === 0, people: people.map(id => ({ id, name: nameOf(id) })), consumables: [], equipment: [], other: [], carry: carryText(ask(tools, 'items.carry', {})) };
-    for (const stack of stacks) {
-        const def = defs[stack.def];
-        const holder = stack.owner === 'party' ? 'shared' : nameOf(stack.owner);
-        const keeper = stack.owner === 'party' ? party.pc : stack.owner;
-        const base = {
-            stack: stack.id, def: def.id ?? stack.def, name: String(def.name ?? ''), qty: stack.qty, holder,
-            rarity: String(def.rarity ?? 'common'), note: String(def.note ?? ''),
-            give: people.filter(id => id !== keeper).map(id => ({ id, name: nameOf(id) })),
-        };
-        if (def.kind === 'consumable' && helpsNow(def.effect)) {
-            out.consumables.push({
-                ...base,
-                effect: effectText(def.effect),
-                targets: people.map(id => {
-                    const ok = helpsWhom(def, id);
-                    return { id, name: nameOf(id), helps: ok, title: ok === false ? `${nameOf(id)} would not gain anything now` : `${nameOf(id)} would gain from a dose` };
-                }),
-            });
-        } else if (def.kind === 'equipment' && def.slot) {
-            const wearer = stack.owner === 'party' ? party.pc : stack.owner;
-            const on = Boolean(stack.equipped);
-            out.equipment.push({
-                ...base,
-                slot: String(def.slot), slotLabel: SLOT_LABELS[def.slot] ?? capital(def.slot),
-                stats: statText(def.stats), equipped: on,
-                wearer: wearer ? nameOf(wearer) : '',
-                wearerLine: wearer ? `${on ? 'worn by' : 'for'} ${nameOf(wearer)}` : holder,
-            });
-        } else {
-            out.other.push({ ...base, effect: effectText(def.effect) });
-        }
+/**
+ * The gear part's `items.condition { stack }` as the screens show it: { condition, refine }.
+ * `condition` { band, label, tone, icon, cur, max, text } or null (wear off, not equipment, or no
+ * gear part yet); `refine` { level, label: '+2', text: 'Refined +2' } or null (0, or refine off).
+ */
+export function conditionView(found) {
+    if (!isRecord(found)) return { condition: null, refine: null };
+    const key = String(found.band ?? '').toLowerCase();
+    const look = Object.hasOwn(BANDS, key) ? BANDS[key] : null;
+    const max = Number.isFinite(found.max) ? Math.max(0, int(found.max)) : 0;
+    const cur = Number.isFinite(found.cur) ? Math.min(max, Math.max(0, int(found.cur))) : 0;
+    const condition = look ? { band: key, label: look.label, tone: look.tone, icon: look.icon, cur, max, meter: max > 0, text: max > 0 ? `${look.label} · ${cur}/${max}` : look.label } : null;
+    const level = Math.max(0, Math.min(9, int(found.refine)));
+    const refine = level > 0 ? { level, label: `+${level}`, text: `Refined +${level}` } : null;
+    return { condition, refine };
+}
+
+/** One piece's condition from the gear part, or { condition: null, refine: null } without it. */
+const conditionFor = (tools, stack) => conditionView(tryQuery(tools, 'items.condition', { stack }));
+
+/**
+ * What `actorId` wears, from the items part's `items.gear` (stats capped by their level), with each
+ * piece's condition and refinement from `items.condition`: [{ stack, name, slot, slotLabel, rarity,
+ * stats, counted, why, condition, refine }]. [] without the items part.
+ */
+function gearOf(tools, actorId) {
+    const found = tryQuery(tools, 'items.gear', { actor: actorId });
+    if (!isRecord(found)) return [];
+    const piece = (entry, counted) => ({
+        stack: String(entry?.stack ?? ''), name: String(entry?.name ?? ''), slot: String(entry?.slot ?? ''), slotLabel: slotLabel(entry?.slot),
+        rarity: String(entry?.rarity ?? 'common'), stats: counted ? statText(entry?.stats) : '', counted, why: counted ? '' : capital(entry?.why ?? 'not counted'),
+        ...conditionFor(tools, entry?.stack),
+    });
+    return [
+        ...(Array.isArray(found.counted) ? found.counted : []).map(entry => piece(entry, true)),
+        ...(Array.isArray(found.unused) ? found.unused : []).map(entry => piece(entry, false)),
+    ].filter(entry => entry.stack && entry.name);
+}
+
+/**
+ * `rpg-battle.itemDetail({ stack })`: what RPG Battle adds to a Story Block Inventory row, or null for
+ * a stack that is gone or that RPG Battle has nothing to say about (money, plain goods without a note).
+ * { stack, kind, slot, slotLabel, stats, effect, wearer, helps: [names], condition, refine, lines }.
+ * `lines` is the same in short plain text ("Weapon · ATK +3", "Worn by Ren", "+30 HP · would help
+ * Lyra"), for a host that only prints text.
+ */
+export function itemDetail(state, args = {}, tools = null) {
+    const id = typeof args?.stack === 'string' ? args.stack : '';
+    const inventory = inventoryOf(state);
+    const stack = id && isRecord(inventory.stacks) && Object.hasOwn(inventory.stacks, id) ? inventory.stacks[id] : null;
+    const def = stack && isRecord(inventory.defs) && Object.hasOwn(inventory.defs, stack.def) ? inventory.defs[stack.def] : null;
+    if (!isRecord(stack) || !isRecord(def) || def.kind === 'money') return null;
+    const party = partyOf(state);
+    const nameOf = who => String(party.actors?.[who]?.name ?? who);
+    const out = { stack: id, kind: String(def.kind ?? 'goods'), slot: '', slotLabel: '', stats: '', effect: '', wearer: '', helps: [], condition: null, refine: null, lines: [] };
+    if (def.kind === 'equipment' && def.slot) {
+        out.slot = String(def.slot);
+        out.slotLabel = slotLabel(def.slot);
+        out.stats = statText(def.stats);
+        const wearer = stack.owner === 'party' ? party.pc : stack.owner;
+        if (stack.equipped && wearer && party.actors?.[wearer]) out.wearer = nameOf(wearer);
+        Object.assign(out, conditionFor(tools, id));
+        out.lines.push([out.slotLabel, out.stats].filter(Boolean).join(' · '));
+        if (out.wearer) out.lines.push(`Worn by ${out.wearer}`);
+        const worn = [out.condition?.text, out.refine?.text].filter(Boolean).join(' · ');
+        if (worn) out.lines.push(worn);
+    } else if (def.kind === 'consumable' && helpsNow(def.effect)) {
+        out.effect = effectText(def.effect);
+        // Who a dose would do something for now, by the rule item.use applies (v1 useItemOutside).
+        const people = peopleOf(party);
+        out.helps = people.filter(who => {
+            const actor = party.actors?.[who];
+            const sheet = {
+                name: String(actor?.name ?? ''), hp: pool(actor?.hp), mp: pool(actor?.mp),
+                conditions: (Array.isArray(actor?.conditions) ? actor.conditions : []).map(entry => ({ name: entry?.kind, stacks: entry?.stacks })),
+            };
+            try {
+                return useItemOutside(sheet, { name: def.name, effect: def.effect }).used === true;
+            } catch {
+                return false;
+            }
+        }).map(nameOf);
+        out.lines.push([out.effect, out.helps.length ? `would help ${out.helps.join(', ')}` : 'nobody needs it now'].join(' · '));
+    } else {
+        return null;
     }
+    out.lines = out.lines.filter(Boolean);
     return copy(out);
 }
 
@@ -339,6 +432,9 @@ export function carryText(view) {
     const text = [`Carrying ${int(view.load)} of ${int(view.capacity)}`, ...(people.length > 1 ? people : [])].join(' · ');
     return { on: true, text, over: int(view.load) > int(view.capacity) };
 }
+
+/** `rpg-battle.carry`: the carry limit's line (MODULES §F39) for the Party screen: { on, text, over }. */
+export const carry = (state, args = {}, tools = null) => carryText(tryQuery(tools, 'items.carry', {}));
 
 // ---------------------------------------------------------------------------------------------------
 // Trade
@@ -355,7 +451,7 @@ export const TRADERS = Object.freeze([
 
 /** The chat's one currency (MODULES §F1): `inventory.currency` → { name, short }, else gold. */
 function currencyFrom(tools) {
-    const found = ask(tools, 'inventory.currency', {});
+    const found = tryQuery(tools, 'inventory.currency', {});
     const name = String(found?.name ?? '').trim() || 'gold';
     const short = String(found?.short ?? '').trim() || name[0].toLowerCase();
     return { name, short };
@@ -380,10 +476,10 @@ function asV1Item(def) {
  */
 export function trade(state, args = {}, tools = null) {
     const currency = currencyFrom(tools);
-    const market = ask(tools, 'trade.market', {});
+    const market = tryQuery(tools, 'trade.market', {});
     const party = partyOf(state);
     const inventory = inventoryOf(state);
-    const wallet = ask(tools, 'inventory.wallet', { owner: 'party' }) ?? inventory.wallets?.party ?? {};
+    const wallet = tryQuery(tools, 'inventory.wallet', { owner: 'party' }) ?? inventory.wallets?.party ?? {};
     const coin = Math.max(0, int(wallet?.coin));
     const open = market?.open === true;
     const place = String(market?.place ?? state?.domains?.scene?.place?.name ?? '') || 'Somewhere';
@@ -409,7 +505,7 @@ export function trade(state, args = {}, tools = null) {
     if (open) {
         for (const stack of goods) {
             const def = defs[stack.def];
-            const quote = ask(tools, 'trade.quote', { type: 'sell', stack: stack.id, qty: 1 });
+            const quote = tryQuery(tools, 'trade.quote', { type: 'sell', stack: stack.id, qty: 1 });
             const each = quote?.ok ? int(quote.each ?? quote.total) : null;
             out.sell.push({
                 stack: stack.id, name: String(def.name ?? ''), qty: stack.qty, note: stack.qty > 1 ? '' : String(def.note ?? ''),
@@ -418,10 +514,10 @@ export function trade(state, args = {}, tools = null) {
             });
         }
         // The packs' shops for this place when there are any (trade.shops), else the generic traders.
-        const packed = ask(tools, 'trade.shops', {});
+        const packed = tryQuery(tools, 'trade.shops', {});
         const shops = Array.isArray(packed) && packed.length ? packed.map(shop => ({ kind: shop.slug, label: shop.name })) : TRADERS;
         shops.forEach((trader, index) => {
-            const stock = ask(tools, 'trade.stock', { kind: trader.kind });
+            const stock = tryQuery(tools, 'trade.stock', { kind: trader.kind });
             const rows = (Array.isArray(stock?.items) ? stock.items : []).map(item => ({
                 def: String(item?.def?.id ?? ''), name: String(item?.def?.name ?? ''), note: String(item?.note ?? item?.def?.note ?? ''),
                 rarity: String(item?.def?.rarity ?? 'common'), cost: int(item?.price), price: shortPrice(item?.price, currency),
@@ -433,7 +529,7 @@ export function trade(state, args = {}, tools = null) {
         out.materials = goods.filter(stack => isMaterial(asV1Item(defs[stack.def]))).map(stack => ({ stack: stack.id, name: `${defs[stack.def].name}${stack.qty > 1 ? ` (${stack.qty})` : ''}` }));
     }
 
-    const orders = ask(tools, 'trade.orders', {});
+    const orders = tryQuery(tools, 'trade.orders', {});
     out.orders = (Array.isArray(orders) ? orders : []).map(order => ({
         id: String(order?.id ?? ''), name: String(order?.piece?.name ?? 'A piece'), crafter: capital(order?.crafter ?? ''),
         due: order?.due === true, collect: order?.due === true && open,
@@ -442,10 +538,56 @@ export function trade(state, args = {}, tools = null) {
     return copy(out);
 }
 
+// ---------------------------------------------------------------------------------------------------
+// Crafting (MODULES §F102, feature `rpg-battle.crafting`)
+
+const OUTCOMES = Object.freeze([
+    ['fail', 'Fail', 'bad'], ['normal', 'Normal', 'neutral'], ['fine', 'Fine', 'good'], ['masterwork', 'Masterwork', 'accent'],
+]);
+const pct = value => Math.max(0, Math.min(100, int(value)));
+
+/**
+ * `rpg-battle.crafting`: the read-only Crafting screen's rows from the craft part's `craft.view`
+ * (crafting is story-driven, `! craft X | with: …`; code rolls it, so there are no buttons):
+ * { on, empty, people: [{ id, name, skills, count, recipes: [{ id, name, craft, station, stationOk, ready,
+ * why, materials: [{ name, need, have, ok, text }], missing, chances: [{ key, label, pct, tone }],
+ * dc }] }] }. `on` is false without the craft part (or with the feature off): the screen says so.
+ */
+export function crafting(state, args = {}, tools = null) {
+    const found = tryQuery(tools, 'craft.view', {});
+    if (!isRecord(found)) return { on: false, empty: true, people: [] };
+    const people = (Array.isArray(found.people) ? found.people : []).filter(isRecord).slice(0, 12).map(person => {
+        const recipes = (Array.isArray(person.recipes) ? person.recipes : []).filter(isRecord).slice(0, 200).map(recipe => {
+            const materials = (Array.isArray(recipe.materials) ? recipe.materials : []).filter(isRecord).slice(0, 24).map(entry => {
+                const need = Math.max(1, int(entry.need, 1));
+                const have = Math.max(0, int(entry.have));
+                return { name: String(entry.name ?? ''), need, have, ok: have >= need, text: `${Math.min(have, 999)}/${need}` };
+            }).filter(entry => entry.name);
+            const station = isRecord(recipe.station) && String(recipe.station.name ?? '').trim() ? recipe.station : null;
+            const chances = isRecord(recipe.chances) ? OUTCOMES.map(([key, label, tone]) => ({ key, label, pct: pct(recipe.chances[key]), tone })).filter(entry => entry.pct > 0) : [];
+            return {
+                id: String(recipe.id ?? recipe.name ?? ''), name: String(recipe.name ?? ''), craft: capital(recipe.craft ?? ''),
+                station: station ? (station.here === true ? `At ${station.name}` : `Needs ${station.name}`) : '',
+                stationOk: !station || station.here === true,
+                materials, missing: materials.filter(entry => !entry.ok).length,
+                ready: recipe.ready === true, why: String(recipe.why ?? ''),
+                chances, dc: Number.isFinite(recipe.dc) ? int(recipe.dc) : null,
+            };
+        }).filter(recipe => recipe.name);
+        // Their craft skills by rank ("Alchemy 2 · Smithing 1"), those with a rank only.
+        const skills = (Array.isArray(person.skills) ? person.skills : []).filter(isRecord).filter(skill => int(skill.rank) > 0).slice(0, 8)
+            .map(skill => `${capital(skill.craft ?? '')} ${int(skill.rank)}`).filter(line => line.trim()).join(' · ');
+        return { id: String(person.id ?? ''), name: String(person.name ?? ''), skills, count: recipes.length, recipes };
+    }).filter(person => person.name);
+    return copy({ on: true, empty: people.every(person => person.recipes.length === 0), people });
+}
+
 /** The view queries, by name (merged into the module's queries by the coordinator). */
 export const viewQueries = Object.freeze({
     'rpg-battle.cards': cards,
     'rpg-battle.hud': hud,
-    'rpg-battle.items': items,
+    'rpg-battle.itemDetail': itemDetail,
+    'rpg-battle.carry': carry,
+    'rpg-battle.crafting': crafting,
     'rpg-battle.trade': trade,
 });

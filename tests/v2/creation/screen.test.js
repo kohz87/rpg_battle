@@ -6,7 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { CREATE_SCREEN_ID, CREATE_STEPS, createScreen, onBlocked, openCreation, part, startDraft } from '../../../src/v2/creation/index.js';
+import { CREATED_EVENT, CREATE_SCREEN_ID, CREATE_STEPS, FILE_LIMIT, characterFrom, createScreen, onBlocked, openCreation, part, startDraft } from '../../../src/v2/creation/index.js';
 import { makeHost, points } from './helpers/fake-host.js';
 import { installDom } from '../screens/helpers/dom.js';
 import { PACKS } from './helpers/packs.js';
@@ -50,7 +50,7 @@ async function renderer() {
 }
 
 /** Draws one step as the dialog would: q from the screen's data, the draft, the module's settings, and query. */
-async function draw(stepId, { draft, settings = {}, host = makeHost({ settings }), onSubmit } = {}) {
+async function draw(stepId, { draft, settings = {}, host = makeHost({ settings }), onSubmit, command = null } = {}) {
     const r = await renderer();
     const doc = r.installFakeDom();
     doc.createElementNS ??= (_ns, tag) => doc.createElement(tag);   // the radar draws SVG
@@ -68,9 +68,17 @@ async function draw(stepId, { draft, settings = {}, host = makeHost({ settings }
     const el = doc.createElement('div');
     doc.body.appendChild(el);
     const scope = { state: host.state, q: { c: host.query('creation.content', {}) }, draft, settings: { ...part.settings.defaults, ...settings }, query: (name, args) => host.query(name, args) };
-    const view = r.renderTemplate(el, compiled, scope, { evaluate: r.evaluate, widgets, onSubmit });
+    // The wizard's widgets get the dialog's api: preview and commit on the host, commands recorded
+    // (or run by `command`), and the draft (the renderer adds it).
+    const sent = [];
+    const api = { preview: (type, payload) => host.preview(type, payload), commit: token => host.commit(token) };
+    const run = (type, payload) => {
+        sent.push({ type, payload });
+        return command ? command(type, payload) : host.command(type, payload);
+    };
+    const view = r.renderTemplate(el, compiled, scope, { evaluate: r.evaluate, widgets, onSubmit, api, command: run });
     assert.deepEqual(view.warnings, [], `${stepId}: render warnings`);
-    return { el, view, props, host, draft };
+    return { el, view, props, host, draft, sent, r, compiled, scope, widgets };
 }
 
 test('the steps and the one-page template compile, and the css scopes, without a warning', { skip: NO_RENDERER }, async () => {
@@ -203,7 +211,15 @@ function fakeDialogApi({ state = null } = {}) {
         dialog: {
             current: () => opened.filter(entry => entry.isOpen()).at(-1) ?? null,
             open(screenId, opts) {
-                const handle = { screenId, opts, draft: structuredClone(opts.draft), step: 0, open: true, isOpen() { return this.open; }, goTo(i) { this.step = i; } };
+                const listeners = [];
+                const root = {
+                    addEventListener(type, fn) { listeners.push({ type, fn }); },
+                    dispatch(type, init = {}) { for (const entry of listeners) if (entry.type === type) entry.fn({ type, ...init }); },
+                };
+                const handle = {
+                    screenId, opts, root, draft: structuredClone(opts.draft), step: 0, open: true,
+                    isOpen() { return this.open; }, goTo(i) { this.step = i; }, close(result) { this.open = false; this.closedWith = result; },
+                };
                 opened.push(handle);
                 return handle;
             },
@@ -212,13 +228,15 @@ function fakeDialogApi({ state = null } = {}) {
     return { api, opened };
 }
 
-test('openCreation opens the wizard with the persona in the draft and Random on creation.rollTalent', () => {
+test('openCreation opens the wizard with the persona in the draft, and no Random in the dialog\'s footer', () => {
     const { api, opened } = fakeDialogApi();
     const out = openCreation(api);
     assert.equal(out.ok, true);
     assert.equal(opened.length, 1);
     assert.equal(opened[0].screenId, 'rpg-battle/create');
-    assert.equal(opened[0].opts.random, 'creation.rollTalent');
+    // Random is the Talents step's own widget, so the footer (on every step) has none.
+    assert.equal(opened[0].opts.random, undefined);
+    assert.deepEqual(CREATE_STEPS.map(step => step.template.includes('rpg-battle.talent-roll')), [false, false, true, false, false]);
     assert.deepEqual(opened[0].opts.draft, {
         name: 'Ren', background: 'From the river.', preset: '', race: '', talents: [],
         points: points(), portrait: '/thumbnail?type=persona&file=ren.png',
@@ -235,23 +253,16 @@ test('openCreation opens the wizard with the persona in the draft and Random on 
     assert.deepEqual(opened[1].opts.draft.points, points({ STR: 4, VIT: 6 }));
 });
 
-test('openCreation: after a kept roll the wizard comes back at Talents with the same draft', async () => {
+test('openCreation: an import that made the character closes the wizard; nothing else does', () => {
     const { api, opened } = fakeDialogApi();
     openCreation(api);
-    opened[0].draft.race = 'rpg-battle/elf';
-    opened[0].draft.points.STR = 3;
-    opened[0].open = false;
-    opened[0].opts.onDone({ ok: true, receipt: { type: 'creation.rollTalent', data: { talent: 'rpg-battle/iron-gut' } } });
-    await Promise.resolve();
-    assert.equal(opened.length, 2);
-    assert.equal(opened[1].step, CREATE_STEPS.findIndex(step => step.id === 'talents'));
-    assert.equal(opened[1].opts.draft.race, 'rpg-battle/elf');
-    assert.equal(opened[1].opts.draft.points.STR, 3);
-    // Finishing does not reopen it.
-    opened[1].open = false;
-    opened[1].opts.onDone({ ok: true, receipt: { type: 'creation.finish' } });
-    await Promise.resolve();
-    assert.equal(opened.length, 2);
+    const handle = opened[0];
+    assert.equal(handle.closedWith, undefined);
+    handle.root.dispatch('click');
+    assert.equal(handle.open, true);
+    handle.root.dispatch(CREATED_EVENT, { detail: { result: { ok: true } } });
+    assert.equal(handle.open, false);
+    assert.deepEqual(handle.closedWith, { ok: true });
 });
 
 test('openCreation refuses without a dialog or once there is a character; onBlocked uses the host sdk', () => {
@@ -272,4 +283,103 @@ test('openCreation refuses without a dialog or once there is a character; onBloc
         globalThis.StoryBlock = before;
     }
     assert.doesNotThrow(() => onBlocked('x', 'rpg-battle'));
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Random on the Talents step, Points left once, Import character on the Start step
+
+test('talents step: Random talent previews creation.rollTalent with the draft; Keep commits that roll and the step shows it kept', { skip: NO_RENDERER }, async () => {
+    const draft = { ...startDraft(null, { persona: { name: 'Ren', background: '', avatar: '' } }), talents: ['rpg-battle/keen-eyes'], points: points({ STR: 2 }) };
+    const host = makeHost();
+    const { el, view } = await draw('talents', { draft, host });
+    const go = el.querySelector('.rpg-roll-go');
+    assert.equal(go.textContent, 'Random talent');
+    assert.equal(el.querySelector('.rpg-roll-keep').hidden, true);
+    go.dispatch('click');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const shown = el.querySelector('.rpg-roll-result').textContent;
+    assert.match(shown, /^Rolled talent: .+ \(\d+ points?/);
+    assert.equal(el.querySelector('.rpg-roll-keep').hidden, false);
+    assert.equal(go.textContent, 'Roll again');
+    assert.deepEqual(host.state.domains.creation.rolled, [], 'a preview stores nothing');
+    el.querySelector('.rpg-roll-keep').dispatch('click');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(host.state.domains.creation.rolled.length, 1, 'Keep commits the previewed roll');
+    const kept = host.state.domains.creation.rolled[0];
+    assert.ok(shown.includes(host.query('creation.content', {}).talents.find(talent => talent.id === kept).name), 'the talent kept is the one shown');
+    assert.deepEqual(view.draft().talents, ['rpg-battle/keen-eyes'], 'the draft keeps its picks (written back to redraw)');
+    // Drawn again from the new head, the step lists it as rolled and kept.
+    const again = await draw('talents', { draft: view.draft(), host });
+    assert.match(again.el.querySelector('.cc-rolled li').textContent, /rolled, kept/);
+});
+
+test('talents step: a refused roll says why and offers nothing to keep', { skip: NO_RENDERER }, async () => {
+    // Every point is spent: no talent can be paid for.
+    const draft = { ...startDraft(null, { persona: { name: 'Ren', background: '', avatar: '' } }), points: points({ STR: 10 }) };
+    const { el } = await draw('talents', { draft });
+    el.querySelector('.rpg-roll-go').dispatch('click');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.match(el.querySelector('.rpg-roll-result').textContent, /No points are left for a talent/);
+    assert.equal(el.querySelector('.rpg-roll-keep').hidden, true);
+});
+
+test('Random shows only on the Talents step; the other steps have no roll button', { skip: NO_RENDERER }, async () => {
+    for (const step of CREATE_STEPS) {
+        const draft = startDraft(null, { persona: { name: 'Ren', background: '', avatar: '' } });
+        const { el } = await draw(step.id, { draft });
+        assert.equal(el.querySelectorAll('.rpg-roll-go').length, step.id === 'talents' ? 1 : 0, step.id);
+    }
+});
+
+test('Points left is said once per step: the lead line; the stat steppers\' own notes are hidden', { skip: NO_RENDERER }, async () => {
+    for (const id of ['talents', 'stats']) {
+        const template = CREATE_STEPS.find(step => step.id === id).template;
+        assert.equal((template.match(/Points left/g) ?? []).length, 1, id);
+    }
+    assert.match(createScreen.css, /\.cc-stat \.ss-w-stepper-budget \{ display: none; \}/);
+    // The steppers still get the budget (it stops + when the points are spent).
+    const { props } = await draw('stats', { draft: { ...startDraft(), points: points({ STR: 2 }) } });
+    assert.ok(props['ss.stepper'].every(p => p.budget === 8));
+});
+
+test('start step: Import character runs creation.import with the picked file and the persona\'s name, background and portrait', { skip: NO_RENDERER }, async () => {
+    const persona = { name: 'Ren Avel', background: 'From the river.', avatar: '/User Avatars/ren.png' };
+    const draft = startDraft(null, { persona });
+    const character = { v: 1, kind: 'rpg-battle/character', name: 'Ren of Elsewhere', level: 4 };
+    const { el, sent } = await draw('start', { draft, command: () => ({ ok: true, receipt: { summary: 'Ren Avel arrives from another story (Lv 4).' } }) });
+    const input = el.querySelector('input.rpg-import-file');
+    assert.equal(input.type, 'file');
+    assert.equal(input.getAttribute('accept'), '.json,application/json');
+    assert.match(input.getAttribute('aria-label'), /Import character/);
+    const created = [];
+    el.addEventListener(CREATED_EVENT, event => created.push(event.type));
+    input.files = [{ name: 'ren.rpg-battle.json', size: 200, text: async () => JSON.stringify(character) }];
+    input.dispatch('change');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.deepEqual(sent, [{ type: 'creation.import', payload: { character, name: 'Ren Avel', background: 'From the river.', portrait: '/User Avatars/ren.png' } }]);
+    assert.equal(el.querySelector('.rpg-import-note').textContent, 'Ren Avel arrives from another story (Lv 4).');
+    assert.deepEqual(created, [CREATED_EVENT], 'the dialog is told it can close');
+});
+
+test('start step: Import character with a file that is not one, too large, or refused says so and changes nothing', { skip: NO_RENDERER }, async () => {
+    const draft = startDraft(null, { persona: { name: 'Ren', background: '', avatar: '' } });
+    const { el, sent } = await draw('start', { draft, command: () => ({ ok: false, code: 'REFUSED', message: 'That file is for a level this story does not allow.' }) });
+    const input = el.querySelector('input.rpg-import-file');
+    const created = [];
+    el.addEventListener(CREATED_EVENT, () => created.push(1));
+    const pick = async file => {
+        input.files = [file];
+        input.dispatch('change');
+        await new Promise(resolve => setTimeout(resolve, 0));
+        return el.querySelector('.rpg-import-note').textContent;
+    };
+    assert.equal(await pick({ size: 10, text: async () => 'not json' }), 'That file is not a character file (it is not JSON).');
+    assert.equal(await pick({ size: FILE_LIMIT + 1, text: async () => '{}' }), 'That file is too large to be a character file.');
+    assert.equal(await pick({ size: 10, text: async () => '[1,2]' }), 'That file is not a character file.');
+    assert.deepEqual(sent, []);
+    assert.equal(await pick({ size: 10, text: async () => '{"v":1}' }), 'That file is for a level this story does not allow.');
+    assert.equal(sent.length, 1);
+    assert.deepEqual(created, []);
+    // A file saved from the receipt's whole data is read too.
+    assert.deepEqual(characterFrom('{"character":{"v":1},"fileName":"x.json"}'), { character: { v: 1 } });
 });
