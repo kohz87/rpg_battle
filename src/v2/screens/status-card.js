@@ -8,8 +8,9 @@
 // A reply whose state has no party at all (made before RPG Battle was added to the chat) shows the
 // same "No character yet" and "Create your character" as one made before creation (B-a3-4).
 //
-// The checks this reply wrote (MODULES §F80; the log entries its ops added, B-b1r2-13) show with code's result, and a flag when the reply
-// narrated it otherwise ("narrated as success, the dice say fail"). The level and XP words are the
+// The checks this reply wrote (MODULES §F80; the log entries its ops added, B-b1r2-13) show as `checks.view`
+// tells them (checks/card.js): the die, the modifiers, the total against the DC and code's outcome, with a
+// flag when the reply wrote another result ("Story said success; dice said fail"). The level and XP words are the
 // chat's terms (`party.terms`, MODULES §F25: the reader's, else a pack's, else Lv and EXP).
 //
 // It reads the state, not a query, for everything it marks: changed() knows where a value came
@@ -45,10 +46,10 @@ const template = `
     </span>
   </div>
   <div class="checks" data-if="changed('state.checks.log')">
-    <div class="check" data-each="state.checks.log as c" data-if="changed(c)" data-class="pass: c.outcome == 'success' || c.outcome == 'crit' || c.outcome == 'cost'; off: c.mismatch != ''">
-      <i class="fa-solid fa-dice-d20"></i><b class="who">{{ c.name }}</b><span class="txt">{{ c.text }}</span><span class="out">{{ c.outcomeText }}</span>
-      <small class="flag" data-if="c.mismatch != ''"><i class="fa-solid fa-triangle-exclamation"></i>{{ c.mismatch }}</small>
-      <small class="note" data-if="c.note != ''">{{ c.note }}</small>
+    <div class="check" data-each="state.checks.log as c" data-if="changed(c) && q.checks[c.id] != null" data-class="pass: q.checks[c.id].pass; off: q.checks[c.id].flag != ''">
+      <i class="fa-solid fa-dice-d20"></i><span class="txt">{{ q.checks[c.id].text }}</span>
+      <small class="flag" data-if="q.checks[c.id].flag != ''"><i class="fa-solid fa-triangle-exclamation"></i>{{ q.checks[c.id].flag }}</small>
+      <small class="note" data-if="q.checks[c.id].note != ''">{{ q.checks[c.id].note }}</small>
     </div>
   </div>
   <div class="changes" data-if="changed('state.inventory') || changed('state.party.offers')">
@@ -89,8 +90,6 @@ const css = sheet(`
 .checks { display: grid; gap: 3px; padding-top: 4px; border-top: 1px dashed var(--rb-line); }
 .check { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
 .check > i { color: var(--rb-accent); }
-.check .out { font-weight: 700; color: var(--rb-bad); }
-.check.pass .out { color: var(--rb-good); }
 .check .flag { flex-basis: 100%; color: var(--rb-warn); font-weight: 600; }
 .check .flag i { margin-right: 4px; }
 .check .note { flex-basis: 100%; }
@@ -108,7 +107,7 @@ export const statusCardScreen = Object.freeze({
     icon: 'fa-heart-pulse',
     mounts: Object.freeze(['card']),
     // The pools as they stand at this reply (party.pools: fitted from the record's counts, party/pools.js).
-    data: Object.freeze({ terms: Object.freeze({ query: 'party.terms' }), pools: Object.freeze({ query: 'party.pools' }) }),
+    data: Object.freeze({ terms: Object.freeze({ query: 'party.terms' }), pools: Object.freeze({ query: 'party.pools' }), checks: Object.freeze({ query: 'checks.view' }) }),
     theme: THEME,
     template,
     css,

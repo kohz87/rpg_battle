@@ -50,12 +50,16 @@ test('promptRolls ties each roll to an attempt (v1 0.9.6 wording, "uncertain att
 // ---------------------------------------------------------------------------------------
 // checks.prepare
 
-test('checks.prepare: two fresh d20s from the receipt seed for that reply index, not narrated', () => {
+test('checks.prepare: two fresh d20s per member (the check table) from the receipt seed for that reply index, not narrated', () => {
     const out = run(withParty(), 'checks.prepare', { for: 4 }, { seed: 11, cause: 'system' });
     assert.ok(out.ok, out.message);
     const [entry] = Object.values(out.state.domains.checks.prepared);
     assert.equal(entry.for, 4);
-    assert.equal(entry.rolls.length, 2);
+    assert.deepEqual(entry.actors, out.state.domains.party.order, 'Ren and Lyra, your character first');
+    assert.equal(entry.rolls.length, 4);
+    const before = run(makeState(), 'checks.prepare', { for: 4 }, { seed: 11, cause: 'system' });
+    assert.equal(Object.values(before.state.domains.checks.prepared)[0].rolls.length, 2, 'before a character: the two of old');
+    assert.equal(Object.values(before.state.domains.checks.prepared)[0].actors, undefined);
     assert.equal(entry.rev, out.ctx.rev);
     assert.equal(out.result.narrate, false);
     assert.equal(out.result.summary, `Dice for the next reply: ${promptRolls(entry.rolls)}.`);
@@ -351,19 +355,20 @@ test('capture uses the same rule: a talent from creation, a carried item, a skil
 // ---------------------------------------------------------------------------------------
 // The prompt: static, tail, beforeGenerate
 
-test('the static instruction is byte-identical whatever the state, and says the whole rule', () => {
+test('the static instruction is byte-identical whatever the state, and says the whole rule (the check table)', () => {
     const empty = part.context.static();
     captured(ready());
+    captured(prepared(withParty(), 4, { table: true }));
     assert.equal(part.context.static(), empty);
     assert.equal(empty, STATIC_TEXT);
-    for (const words of ['Roll 1', 'Roll 2', 'at most two per reply', 'natural 20 always succeeds', 'natural 1 always fails', 'in this same reply', '? check <skill> — <what> | dc: … | roll: <1 or 2> | result: success|cost|fail']) {
+    for (const words of ['check table', '1st column', 'their 2nd', 'at most two per reply', 'E easy, N normal, H hard, V very hard', '~ before a letter', '★ always succeeds', '✗! always fails', 'in this same reply', '? check <the row> — <what> | dc: easy|normal|hard|very hard | result: success|cost|fail', '| vs: Name', 'already made for the reader']) {
         assert.ok(STATIC_TEXT.includes(words), words);
     }
-    assert.doesNotMatch(STATIC_TEXT, /Ren|Lyra/);
-    assert.match(part.kinds.check.grammar, /^\? check <skill or stat> — what is attempted \| dc: .* \| roll: .* \| result: /);
+    assert.doesNotMatch(STATIC_TEXT, /Ren|Lyra|Roll 1/);
+    assert.match(part.kinds.check.grammar, /^\? check <the table's row: a stat or skill> — what is attempted \| dc: .* \| result: /);
 });
 
-test('the tail: this reply\'s rolls tied to attempts, then code\'s table, one line per member', () => {
+test('the tail of an older chat\'s rolls (no table members): the dice tied to attempts, then the modifier lines', () => {
     assert.deepEqual(tail(viewOf(makeState())), { lines: [], optional: [] }, 'nothing before a character exists');
     const { lines } = tail(viewOf(ready([12, 5])));
     assert.deepEqual(lines, [
@@ -426,5 +431,5 @@ test('queries: checks.log, checks.rolls, checks.last and the whole table', () =>
     assert.deepEqual(table.map(row => [row.name, row.you, row.stats.DEX]), [['Ren', true, 2], ['Lyra', false, 4]]);
     assert.equal(part.queries['checks.modifiers'](state, { skill: 'x', actor: 'ac_nobody00' }, tools), null);
     assert.deepEqual(Object.keys(part.commands), ['checks.prepare'], 'no reader-rolled or modifier commands any more');
-    assert.deepEqual(Object.keys(part.queries).sort(), ['checks.last', 'checks.log', 'checks.modifiers', 'checks.rolls']);
+    assert.deepEqual(Object.keys(part.queries).sort(), ['checks.last', 'checks.log', 'checks.modifiers', 'checks.rolls', 'checks.toldBack', 'checks.view']);
 });

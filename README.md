@@ -97,7 +97,37 @@ each in full. Every one can be switched off in Story Suite settings → **Featur
 - **A finished fight settles by itself.** Once a fight is won, lost or fled, **Finish** on the board
   settles it; if you go on with the story instead, the next reply settles it first, as Finish would (HP,
   XP, skill uses, loot), and is told how it went. The board clears and the Fight screen shows it as the
-  last fight.
+  last fight, in full on that reply and the one that tells it. Before the reply after that it folds: the
+  Fight screen says *No fight on offer*, with **Last fight** closed under it to look back on.
+- **The check table (the default).** Before each reply (and each swipe or regenerate) code rolls two
+  d20s for each party member and works the results out in advance with code's bonuses: one line per
+  member, *Checks — Wessel (you) 1st: STR AGI N~H · DEX VIT E · INT CHA LUK ✗ | 2nd: …* (E easy 10, N
+  normal 15, H hard 20, V very hard 25; N~H: normal succeeds, hard at a cost; ✗ fails; ★ a natural 20;
+  ✗! a natural 1). Rows: every stat, each skill your party has a bonus for, and *vs Name* for someone
+  here NPC State Delta has an opinion on. The story picks the row and the difficulty, reads the 1st
+  column for the reply's first uncertain attempt and the 2nd for the next (at most two), narrates it and
+  writes `? check <row> — … | dc: … | result: …`; code works it out again from the same die and bonuses.
+  Your character's line is always sent, the companions' as room allows. **Strict mode:** with Story
+  Block's Assist pre-roll on, the reader's message is turned into a check before the reply (one cheap
+  call) and the notes give its fixed result; that check takes the 1st column.
+- **The dice of a check, on its reply.** An older chat's `? check … | roll: 1 | result: …` names the roll
+  handed over (Roll 1, Roll 2), not the die. Each check is a line on the reply's **Changed this reply** card (and
+  on RPG Battle's status card): *Wessel, AGI — pursuing the wounded wolf: d20 4 (1st) + 1 AGI = 5 vs DC
+  10 → fail*, its folded line *AGI 5 vs DC 10: fail (story said otherwise)*. When the reply wrote another
+  result than the dice gave, the card says so (*Story said success; dice said fail*); the dice's result is
+  the one kept. **Settings → Diagnostics** names the dice handed over for the latest reply and which a
+  check took (fresh dice are rolled when each reply, swipe or regenerate starts).
+- **Other modules can move a check, a little.** Before a check is worked out, RPG Battle asks the other
+  modules (Story Block's `checkModifiers` hook) and, for persuading, charming or seducing, intimidating and
+  deceiving someone, NPC State Delta (how that person feels about you, its feature *Social*). Whom the
+  check is against: its `vs:` or `target:`, else someone here named in the line. Each shows on the check's
+  line with where it came from (*− 2 Elula is wary (Delta)*); together they move a check by at most ±5
+  (**Checks: Other modules' check modifiers, at most**; 0 turns them off). They are read from the story
+  as it stood at that reply, so Re-read and swipes agree.
+- **The dice told back.** When a reply's check line wrote another result than the dice gave, the next
+  reply is told in one line (at most two), e.g. *[Dice] Wessel's AGI check (pursuing the wounded wolf)
+  actually failed (5 vs DC 10): let the consequence show.* Only that next reply (and its swipes); not for
+  a check Story Block's pre-roll made, whose outcome the narrator already had.
 - **Skill uses.** A skill grows from use in fights (v1's rule: 5 uses for level 2, 12 for 3, 22 for 4, 35
   for 5), counted when the fight is settled. The Party card's skill list says how far each is
   (`Lv 1 · 1/5 uses to Lv 2`); the skill tree's badge shows the level alone.

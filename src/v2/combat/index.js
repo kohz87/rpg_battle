@@ -661,7 +661,10 @@ function end(ctx, payload) {
     // Written whole (a one-entry list is one replace): the newest result left on the chat's line wins.
     // `parts`: the same summary in parts, for the Fight screen (board/parts.js); the text stays as it was.
     const parts = lastParts(result, { names, pcName, rules: shown, currency: chatCurrency(ctx), notes: [behind, lost, worn] });
-    combat.last = [{ summary, moments: [...result.keyMoments], outcome: session.status, rev, parts }];
+    // `reply`: the reply the settle is stored on (ctx.reply, SPEC §4.2), so the Fight screen can fold the
+    // result once a later reply has been written (lastFresh, combat.fold).
+    const settledOn = replyOf(ctx);
+    combat.last = [{ summary, moments: [...result.keyMoments], outcome: session.status, rev, parts, ...(settledOn ? { reply: settledOn } : {}) }];
     dropSession(combat, session.id);
     return {
         summary,
@@ -683,6 +686,68 @@ function end(ctx, payload) {
     };
 }
 
+// --- the last fight, folded once the story has moved on ---------------------------------------
+//
+// Beta.1 live test: "it still shows the last battle result after 2 more messages". The Fight screen shows
+// the last fight in full only while it is news: on the reply it was settled on and the reply right after
+// (the one that tells it). Before any later reply, beforeGenerate folds it (`combat.fold`, a system step on
+// the reply the reader last saw, like the settle's own cue); the Fight screen then says there is no fight,
+// with the last one folded under it. A swipe or regenerate of the reply that tells it brings no fold (the
+// head is still the settled reply, or the cue is for a swipe); a swipe or delete of the reply that carries
+// the fold takes it back. The fold is a claim keyed by the result's rev (`combat:fold:r<rev>` in
+// `meta.claims`, which every state has: a keyed add that a middle delete never leaves without its parent).
+
+/** { sid, index } of the reply a command's changes are stored on (SPEC §4.2 ctx.reply), else null. */
+function replyOf(ctx) {
+    const reply = ctx?.reply;
+    if (!reply || typeof reply !== 'object') return null;
+    const sid = typeof reply.sid === 'string' && reply.sid ? reply.sid.slice(0, 64) : null;
+    const index = Number.isInteger(reply.index) && reply.index >= 0 ? reply.index : null;
+    return sid || index !== null ? { sid, index } : null;
+}
+
+const foldClaim = last => `combat:fold:r${Number.isInteger(last?.rev) ? last.rev : 0}`;
+
+/** Whether the last result is folded on this line of history (`state`: the whole state, for its claims). */
+export function lastFolded(state) {
+    const last = lastOf(combatOf(state));
+    const claims = state?.meta?.claims;
+    return Boolean(last && claims && typeof claims === 'object' && claims[foldClaim(last)] === true);
+}
+
+/**
+ * Whether the last result is still the latest reply's news: the reply now at the head (`reply`, a query's
+ * tools.reply) is the one it was settled on. null when either is unknown; false for a result kept before
+ * results named their reply.
+ */
+export function lastFresh(last, reply) {
+    if (!last) return null;
+    const at = last.reply;
+    if (!at) return false;
+    if (!reply || typeof reply !== 'object') return null;
+    if (at.sid && typeof reply.sid === 'string' && reply.sid) return at.sid === reply.sid;
+    if (Number.isInteger(at.index) && Number.isInteger(reply.index)) return at.index === reply.index;
+    return null;
+}
+
+/** combat.last(state, args, tools) → the last result with `folded` (and `fresh` when the host says which reply is the head), or null. */
+export function lastView(state, args, tools) {
+    const combat = combatOf(state);
+    const last = lastOf(combat);
+    if (!last) return null;
+    return { ...structuredClone(last), folded: lastFolded(state), fresh: lastFresh(last, tools?.reply ?? null) };
+}
+
+/** combat.fold({ rev }) (system; beforeGenerate's): the last result folded on the Fight screen. */
+function fold(ctx, payload = {}) {
+    if (ctx?.cause === 'ui') ctx.fail('REFUSED', 'The last fight folds by itself when the story moves on.');
+    const last = lastOf(ctx.read('combat'));
+    if (!last) ctx.fail('NOT_FOUND', 'There is no last fight to fold.');
+    if (payload?.rev !== undefined && payload.rev !== last.rev) ctx.fail('NOT_FOUND', 'That is not the last fight any more.');
+    if (!ctx.claim(foldClaim(last))) ctx.fail('CLAIMED', 'The last fight is folded already.');
+    return { summary: '', narrate: false, data: { rev: last.rev } };
+}
+
 /**
  * beforeGenerate (SPEC §4.1 step 3; beta.1 live test "fight doesn't go off after a turn"): a fight that
  * is over (won, lost or fled) and not yet settled with Finish is settled before the next reply, as
@@ -696,8 +761,12 @@ export function settleBeforeReply(view, info = {}) {
     if (type === 'swipe' || type === 'continue' || type === 'quiet' || type === 'impersonate') return { commands: [] };
     let session = null;
     try { session = sessionOf(view?.state?.domains?.combat); } catch { session = null; }
-    if (!session || session.status === 'active' || !STATUSES.includes(session.status)) return { commands: [] };
-    return { commands: [{ type: 'combat.end', payload: { session: session.id } }] };
+    if (session && session.status !== 'active' && STATUSES.includes(session.status)) return { commands: [{ type: 'combat.end', payload: { session: session.id } }] };
+    // The last fight was told by the reply now at the head (or before): fold it for the reply to come.
+    let last = null;
+    try { last = view?.query?.('combat.last', {}) ?? null; } catch { last = null; }
+    if (last && !last.folded && last.fresh === false) return { commands: [{ type: 'combat.fold', payload: { rev: last.rev } }] };
+    return { commands: [] };
 }
 
 /** combat.dismiss({ offer }): the reader turns an offered fight down. */
@@ -886,6 +955,7 @@ export const part = {
         'combat.flee': flee,
         'combat.end': end,
         'combat.dismiss': dismiss,
+        'combat.fold': fold,
     },
     queries: {
         // `card` (terms2): each foe's rank on the suite's ladder and the fight's tier, for the Fight screen.
@@ -898,7 +968,8 @@ export const part = {
         'combat.session': state => {
             try { return sessionView(sessionOf(combatOf(state))); } catch { return null; }
         },
-        'combat.last': state => (lastOf(combatOf(state)) ? structuredClone(lastOf(combatOf(state))) : null),
+        // The last result with `folded` (the Fight screen shows it in full only until a later reply) and `fresh`.
+        'combat.last': lastView,
         'combat.foesBeaten': foesBeaten,
         'bestiary.creatures': state => bestiaryList(state?.domains?.bestiary).map(entry => ({ name: entry.name, level: entry.level, template: entry.template ?? null, look: entry.look ?? '' })),
     },

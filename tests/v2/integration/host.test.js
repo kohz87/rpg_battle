@@ -382,9 +382,11 @@ test('F80: the reply gets its rolls in the tail, writes its checks, code records
             assert.equal(host.registry.captureOwner('check'), MODULE_ID);
             const rolls = host.q('checks.rolls');
             const tail = host.tails().at(-1);
-            assert.ok(tail.includes(`Dice for this reply: Roll 1 = ${rolls.rolls[0]} · Roll 2 = ${rolls.rolls[1]}`), 'the rolls in the tail');
-            assert.match(tail, /Check modifiers — Ren \(you\): STR [+−]\d+, VIT/);
-            assert.ok(host.statics()[0].includes('the first uncertain attempt takes Roll 1'));
+            // The check table (checks/table.js): Ren's results worked out from this reply's two dice.
+            assert.equal(rolls.rolls.length, 2, 'two dice for the one member');
+            assert.match(tail, /Checks — Ren \(you\) 1st: .+ \| 2nd: .+/, 'the table in the tail');
+            assert.ok(!tail.includes('Dice for this reply'), 'no raw dice');
+            assert.ok(host.statics()[0].includes('settled by the check table in this reply\'s notes'));
 
             const out = await host.send('I sneak past.', host.reply('The guard turns away; I slip by.', [
                 '? check stealth — slipping past the guard | dc: hard | roll: 1 | result: success',

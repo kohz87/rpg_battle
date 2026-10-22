@@ -26,7 +26,8 @@ test('an effect from the story: in the tail and the check table, counted on the 
             await host.send('I look around.', host.reply('She scans the square.', ['? check perception — the square | dc: normal | roll: 1 | result: success']));
             const tail = host.tails().at(-1);
             assert.match(tail, /Effects: Ren — Keen Sight \(sharper eyes, \d repl/);
-            assert.match(tail, /\+1 perception \(Keen Sight\)/);
+            // The check table (checks/table.js) has a Perception row for the effect's topic.
+            assert.match(tail, /Checks — Ren \(you\) 1st: [^|]*Perception/);
             const [check] = host.q('checks.log');
             assert.deepEqual(check.modifiers.find(entry => entry.source === 'effect'), { source: 'effect', amount: 1, reason: 'Keen Sight' });
             await host.swipe('She looks around, nothing more.');

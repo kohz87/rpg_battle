@@ -177,6 +177,25 @@ test('the screen: the last fight as a result line, a row per member with meters,
     assert.deepEqual(warnings, []);
 });
 
+test('the screen: a folded last fight says "No fight on offer" with "Last fight" closed under it', { skip: NO_RENDERER }, async () => {
+    const world = liveFight('3 Cellar Rats', { tier: 'weak' });
+    for (let n = 0; n < 200 && sessionOf(world.state.domains.combat)?.status === 'active'; n++) world.run('combat.act', { action: { type: 'auto' } });
+    assert.equal(world.run('combat.end', { session: sessionOf(world.state.domains.combat).id }).ok, true);
+    const { rev, parts } = world.state.domains.combat.last[0];
+    assert.equal(world.run('combat.fold', { rev: rev + 99 }, { cause: 'system' }).code, 'NOT_FOUND', 'only the last fight');
+    assert.equal(world.run('combat.fold', { rev }, { cause: 'system' }).ok, true);
+    const r = await renderer();
+    const { el, warnings } = await show(world, { widgets: { ...r.standardWidgets, ...part.widgets, ...returnPart.widgets } });
+    assert.equal(el.querySelectorAll('section.rb-fight-last').length, 0, 'no full result any more');
+    assert.deepEqual(texts(el, '.rb-fight-empty'), ['No fight on offer. When the story starts one, it shows here.']);
+    const folded = el.querySelector('details.rb-fight-old');
+    assert.ok(folded, 'the last fight, folded');
+    assert.equal(folded.getAttribute('open'), null, 'closed');
+    assert.deepEqual(texts(folded, 'summary'), ['Last fight']);
+    assert.deepEqual(texts(folded, '.rb-last-result'), [parts.result], 'still there to look back on');
+    assert.deepEqual(warnings, []);
+});
+
 test('the screen: a last fight saved before parts existed shows its summary text', { skip: NO_RENDERER }, async () => {
     const world = liveFight('Giant Rat', { tier: 'weak' });
     for (let n = 0; n < 200 && sessionOf(world.state.domains.combat)?.status === 'active'; n++) world.run('combat.act', { action: { type: 'auto' } });
