@@ -61,8 +61,13 @@ each in full. Every one can be switched off in Story Suite settings → **Featur
   **Stat points** (*By build* / *By hand*).
 - **Crafting screen.** It is read-only: each character's craft skills and recipes, with materials had
   and needed, the station, the difficulty and the chances. You craft in the story.
-- **Character creation.** **Random** appears on the Talents step only (with **Keep it**), and "Points
-  left" is said once per step.
+- **Character creation.** In a new chat you make your character before the story goes on. The
+  wizard opens from **Create your character** on the Party tab, **Create** on the status strip (and on
+  the card under a reply), **Create your character** on Home's *Before you start* card (Story Block),
+  or by itself when you send a message without a character. A pack's ready-made character (the Ersveil
+  pack's *Wessel (kit)*) fills in race, talents and points on the first step; the name, background and
+  portrait are your persona's. **Random** appears on the Talents step only (with **Keep it**), and
+  "Points left" is said once per step.
 - **Character file.** **Save character file** on your own Party card exports your character. **Import
   character** on the wizard's first step brings one into a new chat. Its things are held to that
   chat's rules.

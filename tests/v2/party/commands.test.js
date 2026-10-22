@@ -534,8 +534,8 @@ test('portraits: kept on the record, given at creation or by edit, NPC ones thro
 
 test('canGenerate: no story reply until your character is made (§F12)', () => {
     const { canGenerate } = part.hooks;
-    assert.deepEqual(canGenerate({ state: makeState() }), { ok: false, reason: 'Create your character first.' });
-    assert.deepEqual(canGenerate({ state: { domains: {} } }), { ok: false, reason: 'Create your character first.' });
-    assert.deepEqual(canGenerate(null), { ok: false, reason: 'Create your character first.' });
+    assert.deepEqual(canGenerate({ state: makeState() }), { ok: false, reason: 'Create your character first.', action: 'Create your character' });
+    assert.deepEqual(canGenerate({ state: { domains: {} } }), { ok: false, reason: 'Create your character first.', action: 'Create your character' });
+    assert.deepEqual(canGenerate(null), { ok: false, reason: 'Create your character first.', action: 'Create your character' });
     assert.deepEqual(canGenerate({ state: withPc() }), { ok: true });
 });

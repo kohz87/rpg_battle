@@ -248,11 +248,12 @@ test('hud: your HP and MP and condition badges; no checks wait (MODULES §F80)',
     checkProps(drawn);
 });
 
-test('hud: before creation, one line saying what to do', { skip }, () => {
+test('hud: before creation, one line saying what to do, with a Create button', { skip }, () => {
     const drawn = draw(hudScreen, emptyState());
     assert.deepEqual(drawn.warnings, []);
-    assert.equal(all(drawn.el, 'ss-widget').length, 0);
+    assert.deepEqual(all(drawn.el, 'ss-widget').map(el => el.getAttribute('name')), ['rpg-battle.create-character']);
     assert.match(text(drawn.el), /Create your character to begin the story\./);
+    assert.equal(text(drawn.el.querySelector('.rpg-create-go')), 'Create');
 });
 
 test('status card: HP and MP of each member from that reply, and what this reply changed', { skip }, () => {
@@ -330,7 +331,8 @@ test('status card: before creation', { skip }, () => {
     const drawn = draw(statusCardScreen, emptyState());
     assert.deepEqual(drawn.warnings, []);
     assert.equal(all(drawn.el, '.member').length, 0);
-    assert.equal(text(drawn.el.querySelector('.none')), 'No character yet.');
+    assert.equal(text(drawn.el.querySelector('.none span')), 'No character yet.');
+    assert.equal(text(drawn.el.querySelector('.rpg-create-go')), 'Create your character');
 });
 
 test('every screen draws with Story Block\'s real standard widgets, none missing or failing', { skip: skip || (standard ? false : 'Story Block\'s widgets (src/v2/view/widgets/) were not found') }, () => {

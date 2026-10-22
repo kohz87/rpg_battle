@@ -3,29 +3,30 @@
 // - the settings host: one centred column of folds. Story Suite's own (the tail budget and the prompt
 //   size: what Story Suite adds to the prompt, per module, against the tail budget, counted with
 //   SillyTavern's tokenizer when there is one), the modules' own folds (Story Block's Packs), Features,
-//   one fold per module with settings, Versions. Inside a module's fold: its Features, a sub-fold per
-//   settings group (a field's `group`, else its label's "Group: …" prefix, else General) and its custom
-//   `section`. Fields are rows (bool, int, choice, text, list of {…}; a list one compact line per item);
-//   values are read and written through createSettings() (extension_settings.storySuite.modules[id]).
-//   Open folds stay open across redraws. `openSettingsOverlay` puts it in a full-screen dialog that
-//   scrolls.
-//   Features (MODULES §F100): each module's fold opens with a "Features" subsection, a switch per
-//   feature with its label and description, and one "Features" fold lists every module's; a feature
-//   that changes the static prompt part says so (PROMPT_HINT). A settings field (`{ …, feature }`) or
-//   custom panel (a function with `feature`) of a feature that is off is not drawn; a switch redraws. A
-//   feature whose `needs` no installed module meets is drawn off and disabled, with its reason. The choices are the reader's
-//   (createFeatureStore, extension_settings.storySuite.features), not the chat's.
+//   one fold per module with settings, Versions. Inside a module's fold: one line saying how many of its
+//   features are on (it opens the Features fold there), a sub-fold per settings group (a field's `group`,
+//   else its label's "Group: …" prefix, else General) and its custom `section`. Fields are rows (bool, int,
+//   choice, text, list of {…}; a list one compact line per item, or, when its fields are text and whole
+//   numbers, a textarea with one item per line: `form: 'lines'` starts there); values are read and
+//   written through createSettings() (extension_settings.storySuite.modules[id]). Open folds stay open
+//   across redraws. `openSettingsOverlay` puts it in a full-screen dialog that scrolls.
+//   Features (MODULES §F100): the Features fold has a filter box and one sub-fold per module (by name,
+//   "N of M on"), a switch per feature with its label and description; a feature that changes the
+//   static prompt part says so (PROMPT_HINT). A settings field (`{ …, feature }`) or custom panel (a
+//   function with `feature`) of a feature that is off is not drawn; a switch redraws. A feature whose
+//   `needs` no installed module meets is drawn off and disabled, with its reason. The choices are the
+//   reader's (createFeatureStore, extension_settings.storySuite.features), not the chat's.
 // - the tab host: a tab bar with every module tab, each rendered from the head state's view.
 //
 // Every node is built with textContent; module names, labels and values are never markup.
 // `doc` is the document to build in (tests pass a fake one).
 
 import { FIELD_TYPES, normalizeField } from './registry.js';
-import { HOST_SETTINGS_SCHEMA } from './sdk.js';
+import { HOST_SETTINGS_SCHEMA, SETTING_LIST_ROWS } from './sdk.js';
 import { PROMPT_HINT, featureOf } from './features.js';
 import { compatReport, renderCompat } from './compat.js';
 import { scrollCue } from './view/scroll-cue.js';
-import { DEFAULT_TAIL_BUDGET, estimateTokens } from './prompt.js';
+import { DEFAULT_TAIL_BUDGET, contextNotice, estimateTokens } from './prompt.js';
 import { fill } from './strings.js';
 import { cutAt } from '../text.js';
 
@@ -37,6 +38,8 @@ export const VERSIONS_FOLD = 'story-suite-versions';
 export const PACKS_FOLD = 'story-block/packs';
 // A sub-fold's key: its module's id, this, and the part ("rpg-battle::features", "story-director::group:Calendar").
 export const SUB_FOLD = '::';
+// A module's sub-fold in the Features fold ("story-suite-features::rpg-battle"); its fold's line opens it.
+export const featuresFoldOf = moduleId => `${FEATURES_FOLD}${SUB_FOLD}${moduleId}`;
 export const SETTINGS_TEXT = Object.freeze({
     hostHint: 'prompt and its size',
     general: 'General',
@@ -48,6 +51,19 @@ export const SETTINGS_TEXT = Object.freeze({
     remove: 'Remove {name}',
     add: 'Add',
     addTitle: 'Add to {field}',
+    // A list's text form (`form: 'lines'`, or "Edit as text"): one item per line, its fields split by ":".
+    asText: 'Edit as text',
+    asRows: 'Edit as rows',
+    asTextTitle: 'Edit {field} as text, one per line',
+    asRowsTitle: 'Edit {field} as rows',
+    linesHelp: 'One per line, as {form}. Any number of lines, up to {max}.',
+    lineError: 'Line {n} ("{line}"): {why} The list is kept as it was until every line reads.',
+    lineParts: 'it needs {form}.',
+    lineExtra: 'it has more than {n} parts split by ":".',
+    lineWhole: '{field} is not a whole number.',
+    lineMin: '{field} must be at least {min}.',
+    lineMax: '{field} must be at most {max}.',
+    lineCount: 'a list holds at most {max} lines.',
     size: Object.freeze({
         title: 'Prompt size',
         help: 'What Story Suite adds to the prompt of the next reply in this chat, counted now. Nothing is sent.',
@@ -62,14 +78,24 @@ export const SETTINGS_TEXT = Object.freeze({
         module: 'Module',
         staticShort: 'Instructions',
         tailShort: 'This reply',
-        howAbout: 'Estimated at four characters a token. The budget is Notes per reply, above.',
-        howExact: 'Counted with SillyTavern\'s tokenizer. The budget is Notes per reply, above.',
+        howAbout: 'Estimated at four characters a token. The budget is Notes per reply, above, or less when the context is small.',
+        howExact: 'Counted with SillyTavern\'s tokenizer. The budget is Notes per reply, above, or less when the context is small.',
+        context: 'Context size',
+        contextValue: '{n} tokens',
+        contextReply: '{n} tokens ({reply} of them for the reply)',
+        share: 'Story Suite\'s share',
+        shareValue: '{share} of {room} tokens ({percent}%)',
+        contextUnknown: 'The context size is shown after the next reply.',
     }),
 });
 export const FEATURE_TEXT = Object.freeze({
     title: 'Features',
     overviewHint: 'every module',
-    moduleHint: 'Turn a part of this module on or off. It applies to you, in every chat; what the story keeps for it stays.',
+    filter: 'Find a feature',
+    filterPlaceholder: 'Name or description',
+    filterNone: 'No feature matches "{text}".',
+    link: 'Features: {on} of {n} on — change',
+    linkTitle: 'Features of {name}: {on} of {n} on. Change them in the Features fold.',
     overviewHelp: 'Every optional part of every module. It applies to you, in every chat; turning one off keeps what the story holds for it, so turning it on again brings it all back.',
 });
 
@@ -114,7 +140,7 @@ export function readInt(text, field) {
 }
 
 // One control for one field; `onChange(value)` gets the new value.
-function control(doc, field, value, onChange, id) {
+function control(doc, field, value, onChange, id, memo = null) {
     const f = normalizeField(field);
     if (f.type === 'bool') {
         const input = el(doc, 'input');
@@ -152,7 +178,7 @@ function control(doc, field, value, onChange, id) {
         });
         return input;
     }
-    if (f.type === 'list') return listControl(doc, f, Array.isArray(value) ? value : [], onChange, id);
+    if (f.type === 'list') return listControl(doc, f, Array.isArray(value) ? value : [], onChange, id, memo);
     const input = el(doc, f.multiline ? 'textarea' : 'input', 'text_pole');
     if (!f.multiline) input.type = 'text';
     // A text field's `max` holds for typing and pasting alike (settings.set cuts it there too).
@@ -175,20 +201,156 @@ function itemName(item, subs, index) {
     return fill(SETTINGS_TEXT.listItem, { n: index + 1 });
 }
 
+const subLabel = (key, sub) => sub.label ?? humanize(key);
+
+/**
+ * A list field's sub-fields when it has a text form ([[key, field]], in order), else null: every field
+ * of its `of` is text or a whole number (a list holding a switch or a choice has rows only).
+ */
+export function listTextFields(field) {
+    const f = normalizeField(field);
+    if (f?.type !== 'list' || !f.of || typeof f.of !== 'object') return null;
+    const subs = Object.entries(f.of).map(([key, sub]) => [key, normalizeField(sub)]);
+    return subs.length && subs.every(([, sub]) => sub?.type === 'text' || sub?.type === 'int') ? subs : null;
+}
+
+// "Name: Days": how one line of a list's text form is written.
+const lineForm = subs => subs.map(([key, sub]) => subLabel(key, sub)).join(': ');
+
+/** A list's items as its text form: one per line, the fields in order joined by ": " ("Frostmoon: 30"). */
+export function listToLines(field, items) {
+    const subs = listTextFields(field) ?? [];
+    return (Array.isArray(items) ? items : []).map(item => subs.map(([key, sub]) => {
+        const value = item && Object.hasOwn(item, key) ? item[key] : emptyValue(sub);
+        return String(value ?? '').replace(/\s*[\r\n]+\s*/g, ' ').trim();
+    }).join(': ')).join('\n');
+}
+
+/**
+ * The text form read back: → { ok: true, items } or { ok: false, line (1-based), text, error } for the
+ * first line that does not read. Blank lines are skipped. A line holds the fields in order split by ":";
+ * when there are more parts than fields and the list has one text field, the extra colons are that
+ * field's ("Day: of Ash: 30" → name "Day: of Ash"). A whole number must be one and inside its min/max
+ * (refused, not moved: "Days must be at least 1"). At most SETTING_LIST_ROWS items; any number below.
+ */
+export function linesToList(field, text) {
+    const subs = listTextFields(field);
+    if (!subs) return { ok: false, line: 0, text: '', error: 'this list has no text form' };
+    const form = lineForm(subs);
+    const texts = subs.map(([, sub], at) => (sub.type === 'text' ? at : -1)).filter(at => at >= 0);
+    const items = [];
+    const lines = String(text ?? '').split(/\r\n|\r|\n/);
+    for (let at = 0; at < lines.length; at += 1) {
+        const line = lines[at].trim();
+        if (!line) continue;
+        const fail = error => ({ ok: false, line: at + 1, text: line, error });
+        if (items.length >= SETTING_LIST_ROWS) return fail(fill(SETTINGS_TEXT.lineCount, { max: SETTING_LIST_ROWS }));
+        let parts = line.split(':');
+        if (parts.length < subs.length) return fail(fill(SETTINGS_TEXT.lineParts, { form }));
+        if (parts.length > subs.length) {
+            if (texts.length !== 1) return fail(fill(SETTINGS_TEXT.lineExtra, { n: subs.length }));
+            const t = texts[0];
+            const after = subs.length - t - 1;
+            parts = [...parts.slice(0, t), parts.slice(t, parts.length - after).join(':'), ...parts.slice(parts.length - after)];
+        }
+        const item = {};
+        for (let i = 0; i < subs.length; i += 1) {
+            const [key, sub] = subs[i];
+            const part = parts[i].trim();
+            if (sub.type === 'int') {
+                const name = subLabel(key, sub);
+                if (!/^[+-]?\d+$/.test(part)) return fail(fill(SETTINGS_TEXT.lineWhole, { field: name }));
+                const n = Number(part);
+                if (Number.isInteger(sub.min) && n < sub.min) return fail(fill(SETTINGS_TEXT.lineMin, { field: name, min: sub.min }));
+                if (Number.isInteger(sub.max) && n > sub.max) return fail(fill(SETTINGS_TEXT.lineMax, { field: name, max: sub.max }));
+                item[key] = n;
+            } else {
+                const max = Number.isInteger(sub.max) && sub.max >= 0 ? sub.max : null;
+                item[key] = max !== null && part.length > max ? cutAt(part, max) : part;
+            }
+        }
+        items.push(item);
+    }
+    return { ok: true, items };
+}
+
 // A list of {…}, compact: one line per item with its fields side by side (`[January ] [31] ×`), each
 // input named by its field for screen readers (the column heads above say it for the eye), a small
 // × to remove the item, and Add at the end. A sub-field of a type this Story Block does not know is
 // not drawn; its value stays in the item.
-function listControl(doc, field, items, onChange, id) {
+// A list of text and whole-number fields also has a text form: a textarea, one item per line
+// ("Frostmoon: 30"), read when it changes (on blur); a line that does not read is named under it and
+// the stored list stays as it was. `form: 'lines'` starts in it; "Edit as text" / "Edit as rows" switch,
+// and the choice is kept in `memo` (the settings' open state) across redraws.
+function listControl(doc, field, items, onChange, id, memo = null) {
     const root = el(doc, 'div', 'story-suite-list');
     root.setAttribute('role', 'group');
     let list = structuredClone(items);
     const subs = Object.entries(field.of ?? {})
         .map(([key, sub]) => [key, normalizeField(sub)])
         .filter(([, sub]) => FIELD_TYPES.includes(sub?.type) && sub.type !== 'list');
-    const labelOf = (key, sub) => sub.label ?? humanize(key);
+    const labelOf = subLabel;
+    const textFields = listTextFields(field);
+    const formKey = `list-form:${id}`;
+    let asText = textFields !== null && (memo?.has(formKey) ? memo.get(formKey) === true : field.form === 'lines');
+    const fieldName = field.label ?? SETTINGS_TEXT.add;
+    function toggleButton() {
+        const toggle = button(doc, 'menu_button story-suite-list-toggle', '', fill(asText ? SETTINGS_TEXT.asRowsTitle : SETTINGS_TEXT.asTextTitle, { field: fieldName }));
+        toggle.appendChild(el(doc, 'span', '', asText ? SETTINGS_TEXT.asRows : SETTINGS_TEXT.asText));
+        toggle.setAttribute('aria-pressed', String(asText));
+        return toggle;
+    }
+    function switchForm(next) {
+        asText = next;
+        memo?.set(formKey, asText);
+        draw();
+        root.querySelector('.story-suite-list-toggle')?.focus?.();
+    }
+    function drawText() {
+        const area = el(doc, 'textarea', 'text_pole story-suite-list-text');
+        area.id = `${id}-text`;
+        area.rows = Math.max(4, Math.min(list.length + 1, 16));
+        area.spellcheck = false;
+        area.value = listToLines(field, list);
+        area.setAttribute('aria-labelledby', `${id}-label`);
+        const help = el(doc, 'small', 'story-suite-muted story-suite-list-help', fill(SETTINGS_TEXT.linesHelp, { form: lineForm(textFields), max: SETTING_LIST_ROWS }));
+        help.id = `${id}-help`;
+        const error = el(doc, 'p', 'story-suite-list-error');
+        error.id = `${id}-error`;
+        error.setAttribute('role', 'alert');
+        error.hidden = true;
+        area.setAttribute('aria-describedby', help.id);
+        // Reads the text; true when it read (stored, written back tidy), false with the bad line named.
+        const read = () => {
+            const result = linesToList(field, area.value);
+            if (!result.ok) {
+                error.textContent = fill(SETTINGS_TEXT.lineError, { n: result.line, line: cutAt(result.text, 40), why: result.error });
+                error.hidden = false;
+                area.setAttribute('aria-invalid', 'true');
+                area.setAttribute('aria-describedby', `${help.id} ${error.id}`);
+                return false;
+            }
+            error.textContent = '';
+            error.hidden = true;
+            area.removeAttribute('aria-invalid');
+            area.setAttribute('aria-describedby', help.id);
+            list = result.items;
+            area.value = listToLines(field, list);
+            onChange(structuredClone(list));
+            return true;
+        };
+        area.addEventListener('change', read);
+        const foot = el(doc, 'div', 'story-suite-list-foot');
+        const toggle = toggleButton();
+        // Back to rows only when the text reads (else the error says which line, and the text stays).
+        toggle.addEventListener('click', () => { if (read()) switchForm(false); else area.focus?.(); });
+        foot.appendChild(toggle);
+        root.append(area, help, error, foot);
+    }
     const draw = (focusAt = null) => {
         root.replaceChildren();
+        root.dataset.form = asText ? 'lines' : 'rows';
+        if (asText) { drawText(); return; }
         if (list.length && subs.length) {
             const head = el(doc, 'div', 'story-suite-list-head');
             head.setAttribute('aria-hidden', 'true');
@@ -241,7 +403,13 @@ function listControl(doc, field, items, onChange, id) {
             draw();
             [...root.querySelectorAll('.story-suite-list-item')].at(-1)?.querySelector('input, select, textarea')?.focus?.();
         });
-        root.appendChild(add);
+        if (textFields) {
+            const foot = el(doc, 'div', 'story-suite-list-foot');
+            const toggle = toggleButton();
+            toggle.addEventListener('click', () => switchForm(true));
+            foot.append(add, toggle);
+            root.appendChild(foot);
+        } else root.appendChild(add);
         if (focusAt !== null) (removes[focusAt] ?? add).focus?.();
     };
     draw();
@@ -250,7 +418,7 @@ function listControl(doc, field, items, onChange, id) {
 
 // `label.story-suite-row`: the label and its help on the left, the control on the right (stacked on a
 // phone, host.css). A list's row is a `div` whose list group is named by the label.
-function fieldRow(doc, key, field, value, onChange, prefix) {
+function fieldRow(doc, key, field, value, onChange, prefix, memo = null) {
     const f = normalizeField(field);
     // A type this Story Block does not know (a newer module's): hidden, its value left alone.
     if (!FIELD_TYPES.includes(f?.type)) {
@@ -270,7 +438,7 @@ function fieldRow(doc, key, field, value, onChange, prefix) {
     text.appendChild(name);
     if (f.help) text.appendChild(el(doc, 'small', '', f.help));
     row.appendChild(text);
-    const input = control(doc, f, value, onChange, id);
+    const input = control(doc, f, value, onChange, id, memo);
     input.id = id;
     if (f.type === 'list') input.setAttribute('aria-labelledby', name.id);
     row.appendChild(input);
@@ -381,12 +549,14 @@ const FOLD_SELECTOR = 'details.story-suite-fold, details.story-suite-subfold';
 
 /**
  * Renders the settings into `root` (emptied first), as one centred column of folds: Story Suite (the
- * host's own, with the prompt size), the modules' own folds (Story Block's Packs), Features, one fold
- * per module (its Features, then a sub-fold per settings group, then its custom panel) and Versions.
+ * host's own, with the prompt size), the modules' own folds (Story Block's Packs), Features (a sub-fold
+ * per module), one fold per module with settings (a line to its features, then a sub-fold per settings
+ * group, then its custom panel) and Versions.
  *
  * `options`: { registry, settings (createSettings), doc?, sdk?, features? (createFeatureStore; without
  * it no Features are shown), promptParts?() (the parts of the prompt the next reply would get, as
- * prompt.js assemble() lists them; without it no prompt size is shown), countTokens?(text) (SillyTavern's
+ * prompt.js assemble() lists them, or { parts, fit } with how they fit the context (prompt.js contextFit);
+ * without it no prompt size is shown), countTokens?(text) (SillyTavern's
  * tokenizer, a number or a promise of one; without it the size is estimated at four characters a token),
  * openState? (a Map of fold key → open, kept across redraws; a new one by default) }.
  * A module's `section(el, api)` gets api = { get(key), set(key, value), values(), sdk } (a section
@@ -403,9 +573,12 @@ export function renderSettingsHost(root, { registry, settings, doc = globalThis.
     function remember(details, open = false) {
         const key = details.dataset.fold;
         details.open = openState.has(key) ? openState.get(key) === true : open;
-        details.addEventListener('toggle', () => openState.set(key, details.open === true));
+        details.addEventListener('toggle', () => { if (!details.dataset.filtered) openState.set(key, details.open === true); });
         return details;
     }
+    // The Features fold's filter text, kept across redraws.
+    let featureFilter = '';
+    let clearFilter = () => { featureFilter = ''; };
     const panelApi = moduleId => Object.freeze({
         get: key => settings(moduleId)[key],
         set: (key, value) => settings.set(moduleId, key, value),
@@ -420,38 +593,114 @@ export function renderSettingsHost(root, { registry, settings, doc = globalThis.
         const again = [...root.querySelectorAll('.story-suite-feature input')].find(input => input.id === inputId);
         again?.focus?.();
     }
-    function featureBlock(list, help) {
-        const block = el(doc, 'div', 'story-suite-features');
-        if (help) block.appendChild(el(doc, 'p', 'story-suite-muted', help));
-        for (const feature of list) block.appendChild(featureRow(doc, feature, on => setFeature(feature.id, on, featureInputId('module', feature.id)), 'module'));
-        return block;
-    }
+    // The Features fold: a filter box, then one sub-fold per module (by name), its summary "N of M on".
+    // The filter (by name and description, across modules) hides the rows and sub-folds that do not match
+    // and opens the ones that do while it holds text; cleared, they are as the reader left them. It is
+    // kept across redraws (a switch redraws everything).
     function featuresFold(list) {
         const { details, body } = fold(doc, FEATURES_FOLD, FEATURE_TEXT.title, FEATURE_TEXT.overviewHint);
         body.appendChild(el(doc, 'p', 'story-suite-muted', FEATURE_TEXT.overviewHelp));
+        const find = el(doc, 'label', 'story-suite-row story-suite-feature-filter');
+        find.dataset.type = 'text';
+        const findId = 'story_suite_feature_filter';
+        find.setAttribute('for', findId);
+        const findText = el(doc, 'span', 'story-suite-row-label');
+        findText.appendChild(el(doc, 'b', '', FEATURE_TEXT.filter));
+        find.appendChild(findText);
+        const input = el(doc, 'input', 'text_pole');
+        input.type = 'search';
+        input.id = findId;
+        input.placeholder = FEATURE_TEXT.filterPlaceholder;
+        input.autocomplete = 'off';
+        input.value = featureFilter;
+        find.appendChild(input);
+        body.appendChild(find);
         const byModule = new Map();
         for (const feature of list) {
             if (!byModule.has(feature.moduleId)) byModule.set(feature.moduleId, []);
             byModule.get(feature.moduleId).push(feature);
         }
-        for (const [moduleId, own] of byModule) {
-            const group = el(doc, 'div', 'story-suite-subsection story-suite-feature-group');
-            group.dataset.module = moduleId;
-            group.appendChild(el(doc, 'h4', '', own[0].moduleName));
-            for (const feature of own) group.appendChild(featureRow(doc, feature, on => setFeature(feature.id, on, featureInputId('overview', feature.id)), 'overview'));
-            body.appendChild(group);
-        }
+        const groups = [...byModule].map(([moduleId, own]) => ({ moduleId, own, name: String(own[0].moduleName ?? moduleId) }))
+            .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase(), 'en') || (a.moduleId < b.moduleId ? -1 : a.moduleId > b.moduleId ? 1 : 0));
+        const subs = groups.map(({ moduleId, own, name }) => {
+            const on = own.filter(feature => feature.on === true && feature.available !== false).length;
+            const inner = fold(doc, featuresFoldOf(moduleId), name, fill(SETTINGS_TEXT.featuresOn, { on, n: own.length }), 'story-suite-subfold');
+            inner.details.dataset.module = moduleId;
+            inner.details.classList.add('story-suite-feature-group');
+            for (const feature of own) inner.body.appendChild(featureRow(doc, feature, next => setFeature(feature.id, next, featureInputId('overview', feature.id)), 'overview'));
+            body.appendChild(remember(inner.details, groups.length === 1));
+            return { details: inner.details, rows: [...inner.body.querySelectorAll('.story-suite-feature')], own };
+        });
+        const none = el(doc, 'p', 'story-suite-muted story-suite-feature-none');
+        none.setAttribute('role', 'status');
+        none.hidden = true;
+        body.appendChild(none);
+        const apply = () => {
+            const query = featureFilter.trim().toLowerCase();
+            let shown = 0;
+            for (const sub of subs) {
+                let matches = 0;
+                sub.rows.forEach((row, at) => {
+                    const feature = sub.own[at];
+                    const hit = !query || `${feature.label ?? ''}\n${feature.describe ?? ''}`.toLowerCase().includes(query);
+                    row.hidden = !hit;
+                    if (hit) matches += 1;
+                });
+                shown += matches;
+                sub.details.hidden = Boolean(query) && matches === 0;
+                if (query) {
+                    // Opened for the filter only: how the reader left it is kept first, and the filter's
+                    // opening is not remembered (remember() and refresh() skip a filtered fold).
+                    if (!sub.details.dataset.filtered) openState.set(sub.details.dataset.fold, sub.details.open === true);
+                    sub.details.dataset.filtered = 'true';
+                    sub.details.open = matches > 0;
+                } else if (sub.details.dataset.filtered) {
+                    delete sub.details.dataset.filtered;
+                    const key = sub.details.dataset.fold;
+                    sub.details.open = openState.has(key) ? openState.get(key) === true : subs.length === 1;
+                }
+            }
+            none.hidden = !query || shown > 0;
+            none.textContent = none.hidden ? '' : fill(FEATURE_TEXT.filterNone, { text: cutAt(featureFilter.trim(), 40) });
+        };
+        const update = () => { featureFilter = String(input.value ?? ''); apply(); };
+        input.addEventListener('input', update);
+        input.addEventListener('change', update);
+        clearFilter = () => { input.value = ''; update(); };
+        apply();
         return remember(details);
+    }
+    // A module's fold says how many of its features are on, with a button to the Features fold at its sub-fold.
+    function openFeaturesAt(moduleId) {
+        const key = featuresFoldOf(moduleId);
+        const nodes = [...root.querySelectorAll(FOLD_SELECTOR)];
+        const sub = nodes.find(node => node.dataset.fold === key);
+        if (!sub) return;
+        // A filter hiding that module goes, so its sub-fold shows.
+        if (sub.hidden) clearFilter();
+        for (const node of [nodes.find(item => item.dataset.fold === FEATURES_FOLD), sub]) {
+            if (!node) continue;
+            node.open = true;
+            if (!node.dataset.filtered) openState.set(node.dataset.fold, true);
+        }
+        sub.scrollIntoView?.({ block: 'start' });
+        sub.querySelector('summary')?.focus?.();
+    }
+    function featureLink(def, own) {
+        const on = own.filter(feature => feature.on === true && feature.available !== false).length;
+        const line = el(doc, 'p', 'story-suite-feature-line');
+        const go = button(doc, 'story-suite-feature-link', fill(FEATURE_TEXT.link, { on, n: own.length }), fill(FEATURE_TEXT.linkTitle, { name: def.name, on, n: own.length }));
+        go.addEventListener('click', () => openFeaturesAt(def.moduleId));
+        line.appendChild(go);
+        return line;
     }
     const settingsCount = n => fill(n === 1 ? SETTINGS_TEXT.oneSetting : SETTINGS_TEXT.settings, { n });
     function moduleFold(def, own = []) {
         const { details, body } = fold(doc, def.moduleId, def.name, def.title !== def.name ? def.title : def.moduleId);
         const values = settings(def.moduleId);
         const subs = [];
-        if (own.length) {
-            const on = own.filter(feature => feature.on === true && feature.available !== false).length;
-            subs.push({ key: 'features', title: FEATURE_TEXT.title, hint: fill(SETTINGS_TEXT.featuresOn, { on, n: own.length }), open: true, draw: into => into.appendChild(featureBlock(own, FEATURE_TEXT.moduleHint)) });
-        }
+        // Its features are switched in the Features fold; here one line says how many are on and goes there.
+        if (own.length) body.appendChild(featureLink(def, own));
         const shown = Object.fromEntries(Object.entries(def.schema).filter(([, field]) => !hiddenByFeature(field)));
         for (const group of groupFields(shown)) {
             const visible = group.fields.filter(({ field }) => FIELD_TYPES.includes(normalizeField(field)?.type));
@@ -463,7 +712,7 @@ export function renderSettingsHost(root, { registry, settings, doc = globalThis.
                 draw: into => {
                     for (const { key, field } of group.fields) {
                         const value = Object.hasOwn(values, key) ? values[key] : emptyValue(field);
-                        into.appendChild(fieldRow(doc, key, field, value, next => settings.set(def.moduleId, key, next), `story_suite_${def.moduleId}`));
+                        into.appendChild(fieldRow(doc, key, field, value, next => settings.set(def.moduleId, key, next), `story_suite_${def.moduleId}`, openState));
                     }
                 },
             });
@@ -487,7 +736,7 @@ export function renderSettingsHost(root, { registry, settings, doc = globalThis.
         for (const sub of subs) {
             const inner = fold(doc, `${def.moduleId}${SUB_FOLD}${sub.key}`, sub.title, sub.hint, 'story-suite-subfold');
             sub.draw(inner.body);
-            body.appendChild(remember(inner.details, sub.open === true || subs.length === 1));
+            body.appendChild(remember(inner.details, subs.length === 1));
         }
         return remember(details);
     }
@@ -510,9 +759,10 @@ export function renderSettingsHost(root, { registry, settings, doc = globalThis.
         const value = settings()?.tailBudget;
         return Number.isInteger(value) && value > 0 ? value : DEFAULT_TAIL_BUDGET;
     };
-    function paintSize(block, size, exact) {
+    function paintSize(block, size, exact, fit = null) {
         const T = SETTINGS_TEXT.size;
         const amount = n => fill(exact ? T.exact : T.about, { n: n.toLocaleString('en-US') });
+        const num = n => Number(n).toLocaleString('en-US');
         const list = el(doc, 'ul', 'story-suite-size-sum');
         const line = (label, value, className = '') => {
             const item = el(doc, 'li', className);
@@ -520,6 +770,12 @@ export function renderSettingsHost(root, { registry, settings, doc = globalThis.
             list.appendChild(item);
             return item;
         };
+        // The context size and the share Story Suite may take of it (the tail's budget follows from it).
+        if (fit) {
+            line(T.context, fit.reply ? fill(T.contextReply, { n: num(fit.size), reply: num(fit.reply) }) : fill(T.contextValue, { n: num(fit.size) }), 'story-suite-size-context');
+            const share = line(T.share, fill(T.shareValue, { share: num(fit.share), room: num(fit.room), percent: fit.percent }), 'story-suite-size-share');
+            if (fit.tooSmall) share.classList.add('story-suite-size-over');
+        }
         line(T.static, amount(size.static));
         const tail = line(T.tail, fill(T.ofBudget, { size: amount(size.tail), budget: size.budget.toLocaleString('en-US') }), 'story-suite-size-tail');
         const meter = el(doc, 'meter', 'story-suite-size-meter');
@@ -551,25 +807,35 @@ export function renderSettingsHost(root, { registry, settings, doc = globalThis.
         }
         table.append(thead, tbody);
         block.dataset.exact = String(exact);
-        block.replaceChildren(
+        const warn = fit?.tooSmall ? el(doc, 'p', 'story-suite-size-warn', contextNotice(fit)) : null;
+        if (warn) warn.setAttribute('role', 'status');
+        block.replaceChildren(...[
             el(doc, 'h4', '', T.title),
             el(doc, 'p', 'story-suite-muted', T.help),
+            warn,
             list,
             table,
+            fit ? null : el(doc, 'p', 'story-suite-muted story-suite-size-context-unknown', T.contextUnknown),
             el(doc, 'p', 'story-suite-muted story-suite-size-how', exact ? T.howExact : T.howAbout),
-        );
+        ].filter(Boolean));
     }
     function drawSize(block) {
         const run = ++sizeRun;
         let parts = null;
-        try { parts = promptParts(); } catch { parts = null; }
+        let fit = null;
+        try {
+            const got = promptParts();
+            parts = Array.isArray(got) ? got : got?.parts;
+            fit = Array.isArray(got) ? null : got?.fit ?? null;
+        } catch { parts = null; }
         if (!Array.isArray(parts)) {
             block.replaceChildren(el(doc, 'h4', '', SETTINGS_TEXT.size.title), el(doc, 'p', 'story-suite-muted', SETTINGS_TEXT.size.none));
             return;
         }
-        const budget = tailBudget();
+        // A small context cuts the tail's budget (prompt.js contextFit).
+        const budget = Number.isInteger(fit?.budget) ? fit.budget : tailBudget();
         const names = moduleName;
-        paintSize(block, promptSize(parts, { names, budget }), false);
+        paintSize(block, promptSize(parts, { names, budget }), false, fit);
         if (typeof countTokens !== 'function') return;
         // SillyTavern's tokenizer: every text counted once, then the same sums with its numbers.
         const texts = [...new Set([
@@ -581,7 +847,7 @@ export function renderSettingsHost(root, { registry, settings, doc = globalThis.
             .then(counts => {
                 if (run !== sizeRun || !counts.every(n => Number.isFinite(n) && n >= 0)) return;
                 const known = new Map(texts.map((text, at) => [text, Math.round(counts[at])]));
-                paintSize(block, promptSize(parts, { names, budget, tokensOf: text => known.get(text) ?? estimateTokens(text) }), true);
+                paintSize(block, promptSize(parts, { names, budget, tokensOf: text => known.get(text) ?? estimateTokens(text) }), true, fit);
             })
             .catch(() => { /* the estimate stays */ });
     }
@@ -596,7 +862,7 @@ export function renderSettingsHost(root, { registry, settings, doc = globalThis.
         for (const [key, field] of Object.entries(HOST_SETTINGS_SCHEMA)) {
             body.appendChild(fieldRow(doc, key, field, values[key], next => {
                 settings.set(null, key, next);
-                if (key === 'tailBudget') refreshSize();
+                if (key === 'tailBudget' || key === 'contextShare') refreshSize();
             }, 'story_suite_host'));
         }
         if (typeof promptParts === 'function') {
@@ -616,22 +882,16 @@ export function renderSettingsHost(root, { registry, settings, doc = globalThis.
         return remember(details);
     }
     function refresh() {
-        for (const node of root.querySelectorAll(FOLD_SELECTOR)) openState.set(node.dataset.fold, node.open === true);
+        for (const node of root.querySelectorAll(FOLD_SELECTOR)) if (!node.dataset.filtered) openState.set(node.dataset.fold, node.open === true);
         root.replaceChildren();
         root.classList.add('story-suite-folds');
         const all = featureList();
         const ownOf = moduleId => all.filter(feature => feature.moduleId === moduleId);
-        // A module with features gets its fold even without settings of its own.
+        // A module with features and no settings has no fold of its own: its features are in the Features fold.
         const defs = registry.settingsDefs().map(def => ({ ...def, folds: Array.isArray(def.folds) ? def.folds : [] }));
-        const extra = [...new Set(all.map(feature => feature.moduleId))]
-            .filter(moduleId => !defs.some(def => def.moduleId === moduleId))
-            .map(moduleId => {
-                const name = all.find(feature => feature.moduleId === moduleId).moduleName;
-                return { moduleId, name, title: name, schema: {}, section: null, folds: [] };
-            });
         const byId = (a, b) => (a.moduleId < b.moduleId ? -1 : a.moduleId > b.moduleId ? 1 : 0);
-        const modules = [...defs, ...extra]
-            .filter(def => Object.keys(def.schema).length || def.section || ownOf(def.moduleId).length)
+        const modules = [...defs]
+            .filter(def => Object.keys(def.schema).length || def.section)
             .sort(byId)
             .map(def => moduleFold(def, ownOf(def.moduleId)));
         const own = [...defs].sort(byId).flatMap(def => ownFolds(def));
@@ -674,6 +934,8 @@ export function openSettingsOverlay({ registry, settings, doc = globalThis.docum
     overlay.append(header, scroller);
     doc.body.appendChild(overlay);
     doc.body.classList.add(OPEN_CLASS);
+    // A module's old "<id>::features" sub-fold is its sub-fold of the Features fold now.
+    if (typeof target === 'string' && target.endsWith(`${SUB_FOLD}features`)) target = featuresFoldOf(target.slice(0, -`${SUB_FOLD}features`.length));
     if (typeof target === 'string' && target) {
         openState.set(target, true);
         // A sub-fold opens its module's fold too.

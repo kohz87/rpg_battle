@@ -68,6 +68,13 @@ export const BASE_CSS = `
 .none, .empty { color: var(--rb-muted); font-style: italic; font-size: 0.9em; }
 .empty { padding: 14px; text-align: center; border: 1px dashed var(--rb-line); border-radius: var(--rb-radius); }
 .empty i { color: var(--rb-accent); margin-right: 4px; }
+/* "Create your character" (widget rpg-battle.create-character) */
+.rpg-create { display: inline-grid; gap: 4px; justify-items: center; min-width: 0; font-style: normal; }
+.rpg-create[hidden] { display: none; }
+.rpg-create-go { font-weight: 600; }
+.rpg-create-go i { margin-right: 6px; color: inherit; }
+.rpg-create.compact .rpg-create-go i { margin-right: 4px; }
+.rpg-create-note { margin: 0; color: var(--rb-bad); font-size: 0.85em; overflow-wrap: anywhere; }
 
 /* one-line rows */
 .rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }

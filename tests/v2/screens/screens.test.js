@@ -17,7 +17,7 @@ import { WIDGET_NAMES } from './helpers/render.js';
 import { screenWidgets } from '../../../src/v2/screens/widgets.js';
 
 // This part's own widgets (widgets.js) beside Story Block's standard ones.
-const OWN_WIDGETS = Object.keys(screenWidgets);
+const OWN_WIDGETS = [...Object.keys(screenWidgets), 'rpg-battle.create-character'];
 
 const byId = Object.fromEntries(screens.map(screen => [screen.id, screen]));
 const COMMANDS = new Set([...Object.keys(partyPart.commands), ...Object.keys(itemsPart.commands), ...Object.keys(tradePart.commands)]);

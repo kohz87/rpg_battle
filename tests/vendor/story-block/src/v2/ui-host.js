@@ -341,7 +341,8 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
         const fold = typeof options?.fold === 'string' ? options.fold : null;
         overlay = openSettingsOverlay({
             registry, settings, doc, sdk, features: runtime.features ?? null, fold,
-            promptParts: typeof runtime.turn?.preview === 'function' ? () => runtime.turn.preview() : null,
+            promptParts: typeof runtime.turn?.previewFit === 'function' ? () => runtime.turn.previewFit()
+                : typeof runtime.turn?.preview === 'function' ? () => runtime.turn.preview() : null,
             countTokens: countTokens(),
             onClose: () => { overlay = null; },
         });

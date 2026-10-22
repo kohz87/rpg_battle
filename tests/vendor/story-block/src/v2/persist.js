@@ -320,9 +320,20 @@ export function carryRecord(from, to) {
 // connection, a stuck proxy) never holds the next save, the reader's command or the next reply.
 // A save of a chat renamed while it was on its way (`renamed`) landed under the old name: it does not
 // count, and the change is saved again, into the renamed chat's file.
+// A save given up that way may still be written: its body can already be at the server, which writes it
+// when it gets to it, after the retry that carried a newer change (SillyTavern's integrity token is the
+// same on both). So after a timeout the saver is "suspect" for that chat: each later save is stamped
+// (`confirm.mark(target)` → token, right before it starts: a rising number in the chat's metadata), and
+// once one of them is answered the file is read back after each of `recheck` ms
+// (`confirm.holds(target, token)` → true when the file holds that save or a newer one). A file holding
+// an older one is saved again at once. The read-backs end when the last delay has passed (about five
+// minutes: a server drops a request whose body has not arrived by then). Without a timeout nothing is
+// stamped or read. The read-backs never hold a save, the reader's command or the next reply.
+export const RECHECK_MS = Object.freeze([10000, 20000, 40000, 80000, 160000]);
 export function createSaver({
     save, onError = null, timers = globalThis, verify = null, target = null, check = null, rescue = null,
     retry = [1000, 2000, 4000, 8000, 15000], waitMs = 200, waits = 50, timeout = 20000,
+    confirm = null, recheck = RECHECK_MS,
 } = {}) {
     if (typeof save !== 'function') throw new TypeError('createSaver needs a save function.');
     let version = 0;
@@ -335,6 +346,7 @@ export function createSaver({
     let told = false;           // the reader was told about this run of failures
     let waited = 0;             // saves put off in a row because a chat was being opened
     let sending = null;         // { chatId, renamed } of the save on its way
+    let suspect = null;         // { chatId, good: token | null, step, timer }: a save of that chat timed out
 
     const dirty = () => version !== saved || orphans.length > 0;
     const backoff = () => retry[Math.max(0, Math.min(failures, retry.length) - 1)];
@@ -374,8 +386,43 @@ export function createSaver({
         if (orphans.length && timer === null) later(backoff());
     }
 
+    // After a timeout: is the newest answered save of the suspect chat still the one in its file? Read
+    // back after each delay; an older save found there is written over at once (a new save, stamped anew).
+    function startRechecks() {
+        if (!suspect || suspect.timer !== null || typeof confirm?.holds !== 'function') return;
+        if (suspect.step >= recheck.length) {
+            suspect = null;
+            return;
+        }
+        const run = suspect;
+        run.timer = timers.setTimeout(async () => {
+            run.step++;
+            const now = latest;
+            const open = now && now.chatId === run.chatId && (typeof check !== 'function' || !check(now));
+            let holds = true;
+            if (open && run.good !== null && run.good !== undefined) {
+                try { holds = await answered(() => confirm.holds(now, run.good)) !== false; } catch { holds = true; }
+            }
+            if (suspect !== run) return;     // a newer timeout started its own read-backs
+            run.timer = null;
+            if (!holds) {
+                if (version === saved) version++;
+                cancel();
+                saveNow().then(followUp, failed);
+            }
+            startRechecks();
+        }, recheck[run.step]);
+        run.timer?.unref?.();
+    }
+
+    function markSuspect(chatId) {
+        if (suspect?.timer !== null && suspect?.timer !== undefined) timers.clearTimeout(suspect.timer);
+        suspect = { chatId, good: null, step: 0, timer: null };
+    }
+
     // `start(signal)`'s promise, failed after `timeout` ms without an answer (and `signal` aborted).
-    function answered(start) {
+    // `onTimeout()` is told when it is given up that way.
+    function answered(start, onTimeout = null) {
         const controller = typeof AbortController === 'function' ? new AbortController() : null;
         let job;
         try { job = Promise.resolve(start(controller?.signal)); } catch (error) { return Promise.reject(error); }
@@ -383,6 +430,7 @@ export function createSaver({
         return new Promise((resolve, reject) => {
             const timer = timers.setTimeout(() => {
                 try { controller?.abort(); } catch { /* nothing to abort */ }
+                try { onTimeout?.(); } catch { /* only a note */ }
                 reject(new Error(`the server did not answer within ${Math.round(timeout / 1000)} seconds`));
             }, timeout);
             timer?.unref?.();
@@ -466,7 +514,17 @@ export function createSaver({
             token = verify?.before?.();
             const trip = { chatId: now?.chatId, renamed: false };
             sending = trip;
-            return answered(signal => save(now, signal ? { ...options, signal } : options)).then(() => (trip.renamed ? 'renamed' : 'saved'), error => {
+            // After a timeout of this chat's save, this one is stamped, so a read-back can tell it from the
+            // late one (startRechecks).
+            const watched = suspect && suspect.chatId === trip.chatId ? suspect : null;
+            let stamp = null;
+            if (watched && typeof confirm?.mark === 'function') {
+                try { stamp = confirm.mark(now); } catch { stamp = null; }
+            }
+            return answered(signal => save(now, signal ? { ...options, signal } : options), () => markSuspect(trip.chatId)).then(() => {
+                if (watched && suspect === watched && stamp !== null && stamp !== undefined) watched.good = stamp;
+                return trip.renamed ? 'renamed' : 'saved';
+            }, error => {
                 failures++;
                 throw error;
             }).finally(() => {
@@ -491,6 +549,7 @@ export function createSaver({
         saved = goal;
         failures = 0;
         told = false;
+        if (suspect?.good !== null && suspect?.good !== undefined) startRechecks();
     }
 
     return {
@@ -523,6 +582,8 @@ export function createSaver({
             return moved;
         },
         pending: () => timer !== null || running !== null,
+        /** True while a save of the open chat timed out and the file is still to be read back (createSaver). */
+        suspect: () => suspect !== null,
         /** True while the last save failed (until one works again). */
         failing: () => failures > 0,
         schedule(ms = 400) {
