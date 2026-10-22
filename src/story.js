@@ -418,6 +418,9 @@ function parseGroup(raw, bestiary, rules) {
         role,
         boss,
     };
+    // (v2) Whether the story wrote how many (a number, a number word, "a pack of 5"): a quest-sized
+    // fight keeps a count the story wrote (combat/encounter.js).
+    if (counted) Object.defineProperty(row, 'counted', { value: true, enumerable: false });
     if (level !== null) row.level = level;
     // A power written outright is the power; the threat word only stands in for a missing one.
     else if (threat && !rank) row.threat = threat;

@@ -109,6 +109,8 @@ export function readEncounter(line, { bestiary, rules = DEFAULT_RULES, ranks = n
         const foe = { name: tidy(row.name, 48), count: Math.min(MAX_COUNT, Math.max(1, Math.round(Number(row.count) || 1))), tier: row.boss ? atLeastStrong(written) : written };
         if (ranked) Object.assign(foe, { rank: ranked.rank, level: ranked.level, ...(ranked.said ? { said: ranked.said } : {}) });
         if (row.boss) foe.boss = true;
+        // A count the story wrote (story.parseGroup): kept by quest sizing; not part of the offer's data.
+        if (row.counted) Object.defineProperty(foe, 'counted', { value: true, enumerable: false });
         if (Number(row.wave) >= 1) foe.wave = Math.round(Number(row.wave));
         return foe;
     }).filter(foe => foe.name);
