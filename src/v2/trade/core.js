@@ -343,15 +343,31 @@ export const goodsAt = (def, world) => (world?.local ? goodsFactor(def, world.lo
 export const worthNothing = def => def?.value === 0 && typeof def?.id === 'string' && def.id.startsWith('craft/');
 
 /**
+ * Whether `def` is the story's own (`story/…`: made by a story line or a fight's loot, its worth set by
+ * code from the story's words), not a pack's or a trader's. What a reply's story lines give is held to
+ * that reply's goods budget by worth (Story Block's inventory: STORY_WORTH_TIMES × the reply's money
+ * budget), and selling at the sell rate turns that back into at most the money budget. So a buyer never
+ * pays more than its worth at the sell rate for one: a place's sell prices or its environment above 1 (a
+ * city, a capital, a "dear" place) count as 1 for it, and a buyer's taste above 1 is held under that
+ * too. A pack's goods keep every factor (their worth is the pack's, not the story's).
+ */
+export const storyMade = def => typeof def?.id === 'string' && def.id.startsWith('story/');
+
+/**
  * What `buyer` pays for one `def` here: its worth (worthOf: a built-in one times the money scale) × v1's
  * sell rate × the buyer's taste × the place's sell prices × its environment factor for that kind of thing
- * (0 for a thing worth nothing).
+ * (0 for a thing worth nothing; at most its worth × the sell rate for the story's own, storyMade).
  */
 export function sellEach(def, buyer, world) {
     if (worthNothing(def)) return 0;
     const t = { ...DEFAULT_RULES.trade, ...(world.rules?.trade ?? {}) };
     const pays = t.buyers?.[buyer]?.[kindOf(legacyItem(def))] ?? 1;
-    return Math.max(1, Math.round(worthOf(def, world) * t.sellRate * pays * (world.prices.sell ?? 1) * goodsAt(def, world)));
+    const worth = worthOf(def, world);
+    const story = storyMade(def);
+    const place = world.prices.sell ?? 1;
+    const goods = goodsAt(def, world);
+    const each = Math.max(1, Math.round(worth * t.sellRate * pays * (story ? Math.min(1, place) : place) * (story ? Math.min(1, goods) : goods)));
+    return story ? Math.min(each, Math.max(1, Math.floor(worth * t.sellRate))) : each;
 }
 
 // The world as a query or a page sees it: a state, with the settings and query tools the host
