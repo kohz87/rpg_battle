@@ -198,7 +198,7 @@ export function renderCharacterFile(el, props = {}, api = {}) {
     let busy = false;
 
     const say = (text, tone = '') => {
-        note.textContent = text;
+        note.textContent = str(text, 400);
         if (tone) note.setAttribute('data-tone', tone);
         else note.removeAttribute('data-tone');
     };

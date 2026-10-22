@@ -21,7 +21,11 @@ export const CREATED_EVENT = 'rpg-battle:created';
 /** The largest character file read (a file is a few KB; this is far above any real one). */
 export const FILE_LIMIT = 512 * 1024;
 
+import { CHARACTER_FILE_VERSION } from '../party/portable.js';
+
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+/** The longest note the widgets show (a refusal can quote a file's own words). */
+const NOTE_LIMIT = 400;
 const str = (value, max = 300) => (typeof value === 'string' ? Array.from(value).slice(0, max).join('') : '');
 const plainCopy = value => JSON.parse(JSON.stringify(value ?? {}));
 
@@ -75,7 +79,7 @@ export function renderTalentRoll(el, props = {}, api = {}) {
     let busy = false;
 
     const show = (text, kept = false) => {
-        result.textContent = text;
+        result.textContent = str(text, NOTE_LIMIT);
         result.toggleAttribute?.('data-problem', !kept && !token && Boolean(text));
         keep.hidden = !token;
         roll.textContent = token ? 'Roll again' : str(props.label, 40) || 'Random talent';
@@ -151,7 +155,9 @@ function readText(file, doc) {
 
 /**
  * The file's character (`party.export`'s `data.character`, or the whole receipt data a file saved
- * from it may hold): { character } | { error } in plain words.
+ * from it may hold): { character } | { error } in plain words. RPG Battle 1's party file (its
+ * Export, `rpgBattleParty`) is named as such; a version that is not a small whole number is never
+ * quoted (B-rxui-5: a 400 KB version field would be a 400 KB sentence).
  */
 export function characterFrom(text) {
     let parsed;
@@ -160,8 +166,16 @@ export function characterFrom(text) {
     } catch {
         return { error: 'That file is not a character file (it is not JSON).' };
     }
+    if (isRecord(parsed) && parsed.rpgBattleParty !== undefined) {
+        return { error: 'That is an RPG Battle 1 party file; this version reads character files saved from RPG Battle 2 (Save character file on the Party tab).' };
+    }
     const character = isRecord(parsed?.character) ? parsed.character : parsed;
     if (!isRecord(character)) return { error: 'That file is not a character file.' };
+    const version = character.rpgBattleCharacter;
+    if (version !== undefined && version !== CHARACTER_FILE_VERSION) {
+        const named = Number.isSafeInteger(version) && version >= 0 && version < 1000 ? `version ${version}` : 'an unknown version';
+        return { error: `That character file is ${named}; this RPG Battle reads version ${CHARACTER_FILE_VERSION}.` };
+    }
     return { character };
 }
 
@@ -205,7 +219,7 @@ export function renderImportPick(el, props = {}, api = {}) {
         note.textContent = 'Reading the file…';
         try {
             const out = await importFile(file, api, doc);
-            note.textContent = out?.ok ? str(out.receipt?.summary, 400) : out?.message ?? 'That did not work.';
+            note.textContent = str(out?.ok ? out.receipt?.summary : out?.message, NOTE_LIMIT) || 'That did not work.';
             note.toggleAttribute?.('data-problem', !out?.ok);
             if (out?.ok) {
                 const View = doc.defaultView ?? globalThis;
@@ -213,7 +227,7 @@ export function renderImportPick(el, props = {}, api = {}) {
                 if (typeof Event === 'function') root.dispatchEvent?.(new Event(CREATED_EVENT, { bubbles: true, detail: { result: out } }));
             }
         } catch (error) {
-            note.textContent = error?.message ?? 'That did not work.';
+            note.textContent = str(error?.message, NOTE_LIMIT) || 'That did not work.';
             note.toggleAttribute?.('data-problem', true);
         } finally {
             busy = false;

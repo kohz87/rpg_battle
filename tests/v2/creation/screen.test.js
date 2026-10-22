@@ -383,3 +383,18 @@ test('start step: Import character with a file that is not one, too large, or re
     // A file saved from the receipt's whole data is read too.
     assert.deepEqual(characterFrom('{"character":{"v":1},"fileName":"x.json"}'), { character: { v: 1 } });
 });
+
+test('Import character: a refusal that quotes a long text is clipped in the status line (B-rxui-5)', { skip: NO_RENDERER }, async () => {
+    const draft = startDraft(null, { persona: { name: 'Ren', background: '', avatar: '' } });
+    const { el } = await draw('start', { draft, command: () => ({ ok: false, code: 'INVALID', message: `Bad: ${'x'.repeat(5000)}` }) });
+    const input = el.querySelector('input.rpg-import-file');
+    input.files = [{ size: 10, text: async () => '{"v":1}' }];
+    input.dispatch('change');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(Array.from(el.querySelector('.rpg-import-note').textContent).length, 400);
+    // A newer or odd version is named, never quoted; RPG Battle 1's party file is named as one.
+    assert.equal(characterFrom(JSON.stringify({ rpgBattleCharacter: 'v'.repeat(1000) })).error, 'That character file is an unknown version; this RPG Battle reads version 1.');
+    assert.equal(characterFrom(JSON.stringify({ rpgBattleCharacter: 2 })).error, 'That character file is version 2; this RPG Battle reads version 1.');
+    assert.match(characterFrom(JSON.stringify({ rpgBattleParty: 1, character: { name: 'Old' } })).error, /^That is an RPG Battle 1 party file/);
+    assert.deepEqual(characterFrom(JSON.stringify({ rpgBattleCharacter: 1, name: 'Ren' })), { character: { rpgBattleCharacter: 1, name: 'Ren' } });
+});
