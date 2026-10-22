@@ -155,6 +155,11 @@ export const STRINGS = deepFreeze({
         giveTitle: 'Hand {name} to someone else in the party',
         giveTo: 'Give to {name}',
         condTitle: 'Condition',
+        lootTitle: 'To pick up',
+        lootWhere: 'Loot',
+        lootPick: 'Tick what to take, then Take selected.',
+        lootTake: 'Take selected',
+        lootTakeTitle: 'Put the things you ticked in the party\'s bag',
     },
 
     // `story-block/scene`.

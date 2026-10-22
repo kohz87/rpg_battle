@@ -1,6 +1,7 @@
 // RPG Battle v2, part **creation** (MODULES §F12, §F14; SPEC §13.6): making your character.
 // Built-in races and talents (used for each kind no enabled pack provides), the packs'
-// ready-made characters (the wizard's Start step, widget `rpg-battle.preset-pick`), the commands
+// ready-made characters (the wizard's Start step, widget `rpg-battle.preset-pick`; its Talents step's
+// Random, `rpg-battle.talent-roll`, and the Start step's Import character, `rpg-battle.import-pick`), the commands
 // `creation.finish` (the wizard's whole draft, checked, then `party.create` in the same
 // transaction), `creation.import` (a character file from `party.export` instead of the wizard,
 // MODULES §F66: party.import checks and makes it, then its items, worn gear and purse are granted)
@@ -26,6 +27,7 @@ import { commands, initialCreation, queries, validateCreation } from './commands
 import { openCreation } from './open.js';
 import { createScreen } from './screen.js';
 import { PRESET_WIDGET, presetPick } from './preset-pick.js';
+import { wizardWidgets } from './wizard-widgets.js';
 
 /**
  * onBlocked(reason, moduleId) (Story Block's turn calls the blocking module's hook): when the
@@ -51,7 +53,7 @@ export const part = {
     hooks: { onBlocked },
     settings: { section: 'Character creation', defaults: { ...SETTINGS_DEFAULTS }, schema: SETTINGS_SCHEMA },
     tabs: [],
-    widgets: { [PRESET_WIDGET]: presetPick },
+    widgets: { [PRESET_WIDGET]: presetPick, ...wizardWidgets },
     screens: [createScreen],
 };
 
@@ -62,3 +64,6 @@ export { openCreation, startDraft } from './open.js';
 export { BACKGROUND_LIMIT, avatarUrl, personaFor, readPersona } from './persona.js';
 export { CREATE_SCREEN_ID, CREATE_STEPS, createScreen } from './screen.js';
 export { PRESET_WIDGET, presetDraft, presetPick, renderPresetPick } from './preset-pick.js';
+export {
+    CREATED_EVENT, FILE_LIMIT, IMPORT_PICK_WIDGET, TALENT_ROLL_WIDGET, characterFrom, importFile, importPick, renderImportPick, renderTalentRoll, talentRoll, wizardWidgets,
+} from './wizard-widgets.js';

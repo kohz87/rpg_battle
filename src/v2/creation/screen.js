@@ -15,6 +15,10 @@
 // Data, not code: a pack or card may restyle or replace this screen by its id (SPEC §13.7).
 
 export const CREATE_SCREEN_ID = 'rpg-battle/create';
+//
+// Random is the Talents step's own button (widget rpg-battle.talent-roll), not the dialog's footer, so
+// no other step shows it; "Import character" (widget rpg-battle.import-pick) sits on the Start step.
+// "Points left" is said once per step, in its lead line; the stat steppers' own notes are hidden.
 
 // The live preview of the draft (creation.build), as a template expression.
 const LIVE = 'query("creation.build", { draft: draft, settings: settings })';
@@ -25,6 +29,10 @@ const START = `
   <div data-if="q.c.hasPresets">
     <p class="cc-lead">Start from a ready-made character, or make your own. A ready-made one fills in race, talents and points (you can still change them) and brings its skills; your name and background stay your persona's.</p>
     <ss-widget name="rpg-battle.preset-pick" data-props='{"bind":"q.c.presets"}'></ss-widget>
+  </div>
+  <div class="cc-import">
+    <p class="cc-hint">Bringing a character from another story? Import their character file (saved from the Party tab). They keep their level, stats, skills and things, held to this story's rules; the name and background are your persona's.</p>
+    <ss-widget name="rpg-battle.import-pick" data-props='{}'></ss-widget>
   </div>
 </section>`;
 
@@ -60,7 +68,10 @@ const TALENTS = `
         <span class="cc-talent-note">{{ t.note }}</span>
       </label>
     </div>
-    <p class="cc-hint">Random rolls a talent your points can still pay for. The talent it shows is the one you keep.</p>
+    <div class="cc-random">
+      <ss-widget name="rpg-battle.talent-roll" data-props='{}'></ss-widget>
+      <p class="cc-hint">Random talent rolls one your points can still pay for. Keep it, and the talent it showed is the one you get.</p>
+    </div>
   </div>
 </section>`;
 
@@ -131,6 +142,18 @@ const CSS = `
 .cc-summary { margin: 0; opacity: .85; }
 .cc-problem { margin: 0; min-height: 1.2em; color: var(--ss-w-warn, #d9a441); font-size: .9em; }
 .cc-go { justify-self: end; }
+/* One "Points left" per step (in the lead): the steppers' own budget notes are hidden. */
+.cc-stat .ss-w-stepper-budget { display: none; }
+.cc-random, .cc-import { display: grid; gap: 4px; justify-items: start; }
+.cc-import { margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--SmartThemeBorderColor, rgba(127, 127, 127, .4)); }
+.rpg-roll { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.rpg-roll-result, .rpg-import-note { margin: 0; flex: 1 1 100%; font-size: .9em; }
+.rpg-roll-result:empty, .rpg-import-note:empty { display: none; }
+.rpg-roll-result[data-problem], .rpg-import-note[data-problem] { color: var(--ss-w-warn, #d9a441); }
+.rpg-import { display: grid; gap: 4px; justify-items: start; }
+.rpg-import-go { position: relative; cursor: pointer; }
+.rpg-import-go:focus-within { outline: 2px solid var(--ss-accent, var(--SmartThemeQuoteColor)); outline-offset: 2px; }
+.rpg-import-file { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; clip-path: inset(50%); }
 .rpg-presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 15em), 1fr)); gap: var(--cc-gap); }
 .rpg-preset { display: grid; gap: 3px; padding: 6px 8px; border-radius: 8px;
   border: 1px solid var(--SmartThemeBorderColor, rgba(127, 127, 127, .4));

@@ -128,11 +128,16 @@ const storyBlockQueries = {
 
 export const QUERIES = { ...storyBlockQueries, ...partyPart.queries, ...checksPart.queries, ...itemsPart.queries, ...tradePart.queries, ...screensPart.queries };
 
-/** `tools.query` over `state`: every query gets (state, args, tools), as the host calls them; `settings` are the module's. */
-export function toolsFor(state, settings = undefined) {
+/**
+ * `tools.query` over `state`: every query gets (state, args, tools), as the host calls them; `settings` are
+ * the module's. `extra` ({ name: (args, tools) → value }) stands in for other parts' queries this build
+ * may not have yet, laid over the real ones (and reached from inside them too).
+ */
+export function toolsFor(state, settings = undefined, extra = {}) {
     const tools = {
         ...(settings === undefined ? {} : { settings }),
         query(name, args = {}) {
+            if (Object.hasOwn(extra, name)) return extra[name](args ?? {}, tools);
             const fn = QUERIES[name];
             if (typeof fn !== 'function') throw new Error(`No query called "${name}".`);
             return fn(state, args ?? {}, tools);

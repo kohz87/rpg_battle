@@ -7,17 +7,18 @@
 //   (Story Block's dialog mount: opts { draft, random, submitLabel, onDone, onClose })
 //
 // plus, optionally, api.view() (SPEC §6 view; its `persona` when the host gives one). The name,
-// background and default portrait are the SillyTavern persona's (persona.js). The wizard's
-// Random button previews `creation.rollTalent` and its Accept commits that preview; the dialog
-// mount closes after a commit, so the wizard is opened again at the Talents step with the same
-// draft, now showing the kept talent.
+// background and default portrait are the SillyTavern persona's (persona.js). The dialog gets no
+// `random`: the Talents step has its own Random (widget rpg-battle.talent-roll, which previews
+// `creation.rollTalent` and commits that preview in place), so the footer shows Random nowhere. An
+// import from the Start step (widget rpg-battle.import-pick) makes the character itself; its
+// `rpg-battle:created` event closes the dialog.
 
 import { STATS } from '../../rules.js';
 import { personaFor } from './persona.js';
-import { CREATE_SCREEN_ID, CREATE_STEPS } from './screen.js';
+import { CREATE_SCREEN_ID } from './screen.js';
+import { CREATED_EVENT } from './wizard-widgets.js';
 
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-const TALENTS_STEP = CREATE_STEPS.findIndex(step => step.id === 'talents');
 
 /**
  * The wizard's starting draft: the persona's name, background and avatar (MODULES §F22: never
@@ -68,22 +69,10 @@ export function openCreation(api, opts = {}) {
     if (current?.screenId === CREATE_SCREEN_ID && current.isOpen?.() !== false) return { ok: true, handle: current };
 
     const draft = startDraft(view, { prefill: isRecord(opts.draft) ? plainCopy(opts.draft) : null, persona: opts.persona ?? null });
-    let handle = null;
-    handle = dialog.open(CREATE_SCREEN_ID, {
-        draft,
-        random: 'creation.rollTalent',
-        submitLabel: 'Create',
-        onDone(result) {
-            // Accepting a roll commits it and the dialog closes: open the wizard again where the
-            // reader was, with what they had typed, now showing the rolled talent.
-            if (result?.receipt?.type !== 'creation.rollTalent') return;
-            const kept = plainCopy(handle?.draft ?? draft);
-            queueMicrotask(() => {
-                const again = openCreation(api, { ...opts, draft: kept, view: null });
-                if (again.ok && TALENTS_STEP >= 0) again.handle?.goTo?.(TALENTS_STEP);
-            });
-        },
-    });
+    const handle = dialog.open(CREATE_SCREEN_ID, { draft, submitLabel: 'Create' });
+    // A character imported from a file is made: the wizard has nothing left to do.
+    const root = handle?.root ?? handle?.el ?? null;
+    root?.addEventListener?.(CREATED_EVENT, event => handle?.close?.(event?.detail?.result ?? null));
     if (Number.isInteger(opts.step)) handle?.goTo?.(opts.step);
     return { ok: true, handle };
 }

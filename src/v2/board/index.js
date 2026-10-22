@@ -15,7 +15,7 @@ import { boardView } from './query.js';
 import { fightScreen } from './screen.js';
 
 export { battleBoard, WIDGET_NAME, OUTCOME_TITLES, LOG_LINES } from './widget.js';
-export { boardView, resultOf } from './query.js';
+export { CONDITION_LABELS, boardView, resultOf } from './query.js';
 export { fightScreen, FIGHT_SCREEN_ID } from './screen.js';
 export { boardCss } from './styles.js';
 

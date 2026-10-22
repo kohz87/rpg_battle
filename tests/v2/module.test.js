@@ -20,8 +20,8 @@ test('the merged module is a valid Story Block module with every part\'s pieces'
         for (const screen of part.screens ?? []) assert.ok(module.screens.includes(screen), screen.id);
     }
     assert.deepEqual(Object.keys(module.capture.kinds).sort(), ['check', 'craft', 'effect', 'encounter', 'join', 'leave', 'market', 'recipe', 'refine', 'repair', 'rest', 'skill', 'use', 'wound']);
-    assert.deepEqual(Object.keys(module.widgets).sort(), ['rpg-battle.battle-board', 'rpg-battle.preset-pick', 'rpg-battle.return-card']);
-    assert.deepEqual(module.screens.map(screen => screen.id), ['rpg-battle/create', 'rpg-battle/fight', 'rpg-battle/party', 'rpg-battle/items', 'rpg-battle/trade', 'rpg-battle/hud', 'rpg-battle/status-card']);
+    assert.deepEqual(Object.keys(module.widgets).sort(), ['rpg-battle.battle-board', 'rpg-battle.character-file', 'rpg-battle.import-pick', 'rpg-battle.item-detail', 'rpg-battle.preset-pick', 'rpg-battle.return-card', 'rpg-battle.talent-roll']);
+    assert.deepEqual(module.screens.map(screen => screen.id), ['rpg-battle/create', 'rpg-battle/fight', 'rpg-battle/party', 'rpg-battle/trade', 'rpg-battle/crafting', 'rpg-battle/hud', 'rpg-battle/status-card']);
     assert.equal(typeof module.queries[REV_QUERY], 'function');
     // Party keeps check.resolve; the check line is the checks part's.
     assert.equal(typeof module.commands['check.resolve'], 'function');
@@ -52,10 +52,11 @@ test('settings: each part\'s keys under its part id, labelled with its section; 
 });
 
 test('tabs: a hand-built tab a screen covers gives way to it; every screen and widget is merged once', () => {
-    // Party, Items and Trade are the screens part's; Fight is the board part's screen.
+    // Party, Trade and Crafting are the screens part's; Fight is the board part's screen. The items
+    // part's hand-built Items tab is retired: Story Block's Inventory is the one bag (MODULES §F99).
     assert.deepEqual(module.tabs.map(tab => tab.id), []);
     const tabbed = module.screens.filter(screen => screen.mounts.includes('tab')).map(screen => screen.id);
-    assert.deepEqual(tabbed, ['rpg-battle/fight', 'rpg-battle/party', 'rpg-battle/items', 'rpg-battle/trade']);
+    assert.deepEqual(tabbed, ['rpg-battle/fight', 'rpg-battle/party', 'rpg-battle/trade', 'rpg-battle/crafting']);
     const ids = module.screens.map(screen => screen.id);
     assert.equal(new Set(ids).size, ids.length);
 });

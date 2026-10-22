@@ -3,7 +3,8 @@
 // an Equipped section per wearer with Take off, "Equip on…" (only the members who can wear the piece,
 // `inventory.equipOn`, MODULES §F99) and "Give…" (`inventory.transfer`) pickers once the party has
 // members (a party with none keeps the plain Equip), RPG Battle's item detail widget when it is there,
-// Unequip and Drop buttons, and filters that fill the view's draft (§13.2, §13.6): a name box
+// a "To pick up" section with the loot still waiting (the same chips and Take selected as the reply's
+// card, so loot works with the cards off), Unequip and Drop buttons, and filters that fill the view's draft (§13.2, §13.6): a name box
 // ("Filter…", `draft.find`), what kind, what rarity, equipped only. Its texts are in src/v2/strings.js. Nothing here writes state; the buttons run the core commands with
 // the payloads of MODULES §F5 (`inventory.equip { stack }`, `inventory.unequip { stack }`,
 // `inventory.drop { stack, qty }`), and Drop asks first (a folded "Drop" that opens to the choices).
@@ -110,6 +111,18 @@ ${RARITIES.map(rarity => `          <option value="${rarity}">${html(S.rarities[
       <label class="check"><input type="checkbox" data-draft="equippedOnly"> ${html(S.equippedOnly)}</label>
     </div>
   </header>
+  <section class="loot" data-if="len(q.loot) > 0">
+    <h4><i class="fa-solid fa-sack-dollar" aria-hidden="true"></i> ${html(S.lootTitle)}</h4>
+    <div class="offer" data-each="q.loot as o">
+      <p class="loot-head"><b>${html(S.lootWhere)}</b><span class="where" data-if="o.where"> — {{ o.where }}</span></p>
+      <div class="chips">
+        <label class="chip pick" data-each="o.items as it, i"><input type="checkbox" data-draft="loot[o.sid]" value="{{ i }}"> <span>{{ it.name }}</span><span class="n" data-if="it.qty != 1"> ×{{ it.qty }}</span></label>
+      </div>
+      <p class="hint muted">${html(S.lootPick)}</p>
+      <button class="btn take" data-command="inventory.lootTake" data-payload='{"sid":"{{ o.sid }}","pick":{{ draft.loot[o.sid] }}}'
+              title="${html(S.lootTakeTitle)}"><i class="fa-solid fa-hand" aria-hidden="true"></i> ${html(S.lootTake)}</button>
+    </div>
+  </section>
   <section class="worn" data-if="len(q.gear.worn) > 0">
     <h4><i class="fa-solid fa-user-shield" aria-hidden="true"></i> ${html(S.wornTitle)}</h4>
     <div class="wearer" data-each="q.gear.worn as w">
@@ -174,6 +187,16 @@ const CSS = `${BASE_CSS}
 .pick > summary { list-style: none; }
 .pick > summary::-webkit-details-marker { display: none; }
 .pick .choices { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-left: 6px; }
+.loot { display: grid; gap: 6px; }
+.loot .offer { display: grid; gap: 4px; padding: 6px 8px; border-radius: 6px; background: var(--sb-raised); }
+.loot .loot-head, .loot .hint { margin: 0; }
+.loot .hint { font-size: 0.85em; }
+.loot .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.loot .pick { display: inline-flex; gap: 4px; align-items: center; cursor: pointer; padding: 1px 8px; border-radius: 999px;
+              border: 1px solid var(--sb-border); background: var(--sb-surface); }
+.loot .pick:has(input:checked) { border-color: var(--sb-accent); color: var(--sb-accent); }
+.loot .pick input { width: 1em; height: 1em; min-width: 0; margin: 0; accent-color: var(--sb-accent); }
+.loot .take { justify-self: start; }
 .worn { display: grid; gap: 4px; }
 .worn h5 { margin: 4px 0 2px; font-size: 0.9em; }
 .worn .line .btn { margin-left: auto; }
@@ -192,6 +215,8 @@ export const inventoryScreen = Object.freeze({
         currency: Object.freeze({ query: 'inventory.currency' }),
         // Who wears what, who may put each piece on, where Give may hand it (MODULES §F99).
         gear: Object.freeze({ query: 'inventory.equipment' }),
+        // The loot laid out and not yet taken, so it can be taken with the cards off too.
+        loot: Object.freeze({ query: 'inventory.loot' }),
     }),
     theme: RARITY_THEME,
     template: TEMPLATE,

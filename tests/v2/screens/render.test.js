@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { hudScreen, itemsScreen, partyScreen, statusCardScreen, tradeScreen } from '../../../src/v2/screens/index.js';
+import { craftingScreen, hudScreen, partyScreen, statusCardScreen, tradeScreen } from '../../../src/v2/screens/index.js';
 import { renderer, rendererMissing, widgets as standard } from './helpers/runtime.js';
 import { LYRA, PC, emptyState, makeState } from './helpers/state.js';
 
@@ -154,47 +154,6 @@ test('party: low HP and a fallen member are marked; a second render changes noth
     assert.equal(drawn.widgets.length, before, 'no widget is drawn again when its props did not change');
 });
 
-test('items: no Use button (MODULES §F96); who a dose would help; Equip / Take off, Give with their payloads', { skip }, async () => {
-    const drawn = draw(itemsScreen, makeState());
-    assert.deepEqual(drawn.warnings, []);
-    const rows = all(drawn.el, 'li.item');
-    assert.deepEqual(rows.map(row => text(row.querySelector('.nm'))), ['Mana Tonic', 'Minor Healing Draught×2', 'Antidote', 'Iron Dagger', 'Steel Blade', 'Odd <b>Name</b>', 'Rope', 'Wolf Pelt×3']);
-    // Text from the story stays text.
-    assert.equal(all(drawn.el, 'b').filter(node => text(node) === 'Name').length, 0);
-    assert.equal(all(drawn.el, 'button').filter(button => button.getAttribute('data-command') === 'item.use').length, 0, 'using is the story\'s');
-
-    const draught = rows[1];
-    assert.equal(text(draught.querySelector('.sub')), '+20 HP · shared');
-    assert.deepEqual(all(draught, '.chip.who').map(text), ['Ren'], 'Lyra would not gain from a dose now');
-
-    const dagger = rows[3];
-    assert.ok(dagger.classList.contains('worn'));
-    assert.deepEqual(buttons(dagger, 'item.equip'), []);
-    await click(buttons(dagger, 'item.unequip')[0]);
-    assert.deepEqual(drawn.commands.pop(), { type: 'item.unequip', payload: { stack: 'it_dagger01' } });
-    const blade = rows[4];
-    assert.ok(blade.classList.contains('r-uncommon'));
-    assert.deepEqual(buttons(blade, 'item.unequip'), []);
-    await click(buttons(blade, 'item.equip')[0]);
-    assert.deepEqual(drawn.commands.pop(), { type: 'item.equip', payload: { stack: 'it_blade001' } });
-
-    const antidote = rows[2];
-    const give = buttons(antidote, 'item.give');
-    assert.deepEqual(give.map(text), ['Ren']);
-    await click(give[0]);
-    assert.deepEqual(drawn.commands.pop(), { type: 'item.give', payload: { stack: 'it_antidot1', to: PC } });
-    await click(buttons(rows[6], 'item.give')[0]);
-    assert.deepEqual(drawn.commands.pop(), { type: 'item.give', payload: { stack: 'it_rope0001', to: LYRA } });
-    assert.deepEqual(drawn.commands, []);
-});
-
-test('items: an empty bag says so', { skip }, () => {
-    const drawn = draw(itemsScreen, emptyState());
-    assert.deepEqual(drawn.warnings, []);
-    assert.match(text(drawn.el.querySelector('.empty')), /carries nothing/);
-    assert.equal(all(drawn.el, 'li.item').length, 0);
-});
-
 test('trade: the market line, then Sell / Buy / On order rows with short prices and their payloads', { skip }, async () => {
     const drawn = draw(tradeScreen, makeState());
     assert.deepEqual(drawn.warnings, []);
@@ -277,7 +236,10 @@ test('hud: your HP and MP and condition badges; no checks wait (MODULES §F80)',
     assert.deepEqual(drawn.warnings, []);
     const strip = drawn.el.querySelector('.rb-hud');
     assert.equal(text(strip.querySelector('.nm')), 'Ren');
-    assert.equal(text(strip.querySelector('.lv')), 'Lv 3 · 3 pts');
+    assert.equal(text(strip.querySelector('.lv')), 'Lv 3');
+    // Without party.toSpend the badge is your own points.
+    assert.equal(text(strip.querySelector('.spend')), '3 to spend');
+    assert.equal(strip.querySelector('.spend').getAttribute('title'), 'Stat points to spend: Ren 3');
     assert.deepEqual(widgetsIn(strip, 'ss.meter').map(el => [propsOf(el).label, propsOf(el).value]), [['HP', { cur: 57, max: 82 }], ['MP', { cur: 30, max: 40 }]]);
     assert.deepEqual(widgetsIn(strip, 'ss.badge').map(el => propsOf(el).value.icon), ['fa-skull-crossbones', 'fa-droplet']);
     assert.deepEqual(widgetsIn(strip, 'ss.portrait').map(el => propsOf(el).size), ['sm']);
@@ -373,7 +335,7 @@ test('status card: before creation', { skip }, () => {
 
 test('every screen draws with Story Block\'s real standard widgets, none missing or failing', { skip: skip || (standard ? false : 'Story Block\'s widgets (src/v2/view/widgets/) were not found') }, () => {
     const changes = ['/domains/party/actors/ac_ren00001/hp/cur'];
-    for (const screen of [partyScreen, itemsScreen, tradeScreen, hudScreen, statusCardScreen]) {
+    for (const screen of [partyScreen, tradeScreen, craftingScreen, hudScreen, statusCardScreen]) {
         const drawn = draw(screen, makeState(), { real: true, changes });
         assert.deepEqual(drawn.warnings, [], screen.id);
         assert.equal(drawn.el.querySelectorAll('.ss-widget-missing').length, 0, screen.id);

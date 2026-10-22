@@ -14,6 +14,10 @@ import { part as tradePart } from '../../../src/v2/trade/index.js';
 import { createModule } from '../../../src/v2/module.js';
 import { definitionProblems, scopeCss, validateScreen, validatorFrom } from './helpers/runtime.js';
 import { WIDGET_NAMES } from './helpers/render.js';
+import { screenWidgets } from '../../../src/v2/screens/widgets.js';
+
+// This part's own widgets (widgets.js) beside Story Block's standard ones.
+const OWN_WIDGETS = Object.keys(screenWidgets);
 
 const byId = Object.fromEntries(screens.map(screen => [screen.id, screen]));
 const COMMANDS = new Set([...Object.keys(partyPart.commands), ...Object.keys(itemsPart.commands), ...Object.keys(tradePart.commands)]);
@@ -23,10 +27,17 @@ const WIDGET_TAG = /<ss-widget\b(?:[^>"']|"[^"]*"|'[^']*')*?\sname="([^"]+)"/g;
 const REGISTRY_SCREEN_ID = /^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/;
 const QUERY_NAME = /^[a-z][a-zA-Z0-9_-]*(?:\.[a-zA-Z0-9_-]+)*$/;
 
-test('the part exports the five default screens under the new `screens` key, and its view queries', () => {
-    assert.deepEqual(screens.map(screen => screen.id), ['rpg-battle/party', 'rpg-battle/items', 'rpg-battle/trade', 'rpg-battle/hud', 'rpg-battle/status-card']);
+test('the part exports the five default screens under the new `screens` key, its view queries and widgets', () => {
+    // No Items screen: Story Block's Inventory is the one bag (MODULES §F99).
+    assert.deepEqual(screens.map(screen => screen.id), ['rpg-battle/party', 'rpg-battle/trade', 'rpg-battle/crafting', 'rpg-battle/hud', 'rpg-battle/status-card']);
+    assert.equal(byId['rpg-battle/items'], undefined);
     assert.equal(part.screens, screens);
-    assert.deepEqual(Object.keys(part.queries).sort(), ['rpg-battle.cards', 'rpg-battle.hud', 'rpg-battle.items', 'rpg-battle.trade']);
+    assert.deepEqual(Object.keys(part.queries).sort(), ['rpg-battle.cards', 'rpg-battle.carry', 'rpg-battle.crafting', 'rpg-battle.hud', 'rpg-battle.itemDetail', 'rpg-battle.trade']);
+    assert.deepEqual(Object.keys(part.widgets).sort(), ['rpg-battle.character-file', 'rpg-battle.item-detail']);
+    for (const widget of Object.values(part.widgets)) {
+        assert.equal(typeof widget.render, 'function');
+        assert.deepEqual(widget.validate({}), []);
+    }
     for (const name of Object.keys(part.queries)) assert.match(name, QUERY_NAME);
     assert.deepEqual(part.domains, {});
     assert.deepEqual(part.commands, {});
@@ -64,17 +75,17 @@ test('validateScreen still refuses a broken copy (the check is live)', () => {
     assert.ok(validateScreen(broken).length >= 2);
 });
 
-test('mounts: party, items and trade are tabs and game screens; the HUD is a hud; the status card a card', () => {
+test('mounts: party, trade and crafting are tabs and game screens; the HUD is a hud; the status card a card', () => {
     assert.deepEqual([...byId['rpg-battle/party'].mounts], ['tab', 'screen']);
-    assert.deepEqual([...byId['rpg-battle/items'].mounts], ['tab', 'screen']);
+    assert.deepEqual([...byId['rpg-battle/crafting'].mounts], ['tab', 'screen']);
     assert.deepEqual([...byId['rpg-battle/trade'].mounts], ['tab', 'screen']);
     assert.deepEqual([...byId['rpg-battle/hud'].mounts], ['hud']);
     assert.deepEqual([...byId['rpg-battle/status-card'].mounts], ['card']);
 });
 
 test('data bindings name the view queries; the status card reads the reply\'s own state', () => {
-    assert.deepEqual(byId['rpg-battle/party'].data, { cards: { query: 'rpg-battle.cards' }, offers: { query: 'party.offers' } });
-    assert.deepEqual(byId['rpg-battle/items'].data, { items: { query: 'rpg-battle.items' } });
+    assert.deepEqual(byId['rpg-battle/party'].data, { cards: { query: 'rpg-battle.cards' }, offers: { query: 'party.offers' }, carry: { query: 'rpg-battle.carry' } });
+    assert.deepEqual(byId['rpg-battle/crafting'].data, { craft: { query: 'rpg-battle.crafting' } });
     assert.deepEqual(byId['rpg-battle/trade'].data, { trade: { query: 'rpg-battle.trade' } });
     assert.deepEqual(byId['rpg-battle/hud'].data, { hud: { query: 'rpg-battle.hud' } });
     assert.deepEqual(byId['rpg-battle/status-card'].data, { terms: { query: 'party.terms' } });
@@ -100,9 +111,16 @@ test('css: under 64 KB, theme colours as custom properties, nothing the scoper w
             assert.equal(typeof value, 'string');
         }
         for (const pool of ['--rb-hp', '--rb-mp', '--rb-sp', '--rb-xp']) assert.ok(screen.theme[pool], `${screen.id} theme sets ${pool}`);
-        // Mobile first: the root is a size container and wider layouts come from container queries.
-        assert.match(screen.css, /container: rb-screen \/ inline-size/, screen.id);
-        assert.match(screen.css, /@container rb-screen \((?:min|max)-width: \d+px\)/, screen.id);
+        // Mobile first: a block screen's root is a size container and wider layouts come from container
+        // queries. The HUD item is sized by what it holds, so its root is never one (it would shrink to
+        // nothing in the strip); it follows the viewport.
+        if (screen.mounts.includes('hud')) {
+            assert.doesNotMatch(screen.css, /container\s*:|container-type\s*:|@container/, screen.id);
+            assert.match(screen.css, /@media \(max-width: \d+px\)/, screen.id);
+        } else {
+            assert.match(screen.css, /container: rb-screen \/ inline-size/, screen.id);
+            if (screen.id !== 'rpg-battle/crafting') assert.match(screen.css, /@container rb-screen \((?:min|max)-width: \d+px\)/, screen.id);
+        }
         assert.match(screen.css, /prefers-reduced-motion/, screen.id);
     }
 });
@@ -163,14 +181,21 @@ test('buttons run commands RPG Battle has; widgets are the standard ss.* set', (
             assert.ok(COMMANDS.has(type), `${screen.id}: ${type} is not one of RPG Battle's commands`);
             used.add(type);
         }
-        for (const [, name] of screen.template.matchAll(WIDGET_TAG)) assert.ok(WIDGET_NAMES.includes(name), `${screen.id}: ${name}`);
+        for (const [, name] of screen.template.matchAll(WIDGET_TAG)) assert.ok(WIDGET_NAMES.includes(name) || OWN_WIDGETS.includes(name), `${screen.id}: ${name}`);
         // Every widget tag is closed (TEMPLATES.md §2).
         assert.equal((screen.template.match(/<ss-widget/g) ?? []).length, (screen.template.match(/<\/ss-widget>/g) ?? []).length, screen.id);
     }
+    // Equip, Take off and Give are Story Block's Inventory's now (MODULES §F99); crafting has no buttons.
     assert.deepEqual([...used].sort(), [
-        'craft.collect', 'craft.commission', 'item.equip', 'item.give', 'item.unequip',
-        'party.acceptOffer', 'party.dismissOffer', 'party.setSkillActive', 'party.spend', 'trade.buy', 'trade.sell',
+        'craft.collect', 'craft.commission',
+        'party.acceptOffer', 'party.dismissOffer', 'party.edit', 'party.setSkillActive', 'party.spend', 'trade.buy', 'trade.sell',
     ]);
+    assert.doesNotMatch(byId['rpg-battle/crafting'].template, /data-command|<button/);
     const widgets = new Set(screens.flatMap(screen => [...screen.template.matchAll(WIDGET_TAG)].map(match => match[1])));
     for (const name of ['ss.meter', 'ss.portrait', 'ss.badge', 'ss.radar', 'ss.skill-tree', 'ss.stepper']) assert.ok(widgets.has(name), `a screen uses ${name}`);
+});
+
+test('feature tags (MODULES §F100): the Crafting screen is the crafting feature\'s', () => {
+    assert.equal(byId['rpg-battle/crafting'].feature, 'rpg-battle.crafting');
+    for (const screen of screens) if (screen.id !== 'rpg-battle/crafting') assert.equal(screen.feature, undefined, screen.id);
 });

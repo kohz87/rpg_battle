@@ -85,7 +85,7 @@ const LOOSE_CACHE_MAX = 5000;
 
 /**
  * The word-order-insensitive key of a name: "Alloy of Sulfur (piece)" and "sulfur alloys" → "alloy sulfur".
- * '' when nothing is left.
+ * Tokens with digits keep their order after the words ("Charm 1-2" → "charm #1 2"). '' when nothing is left.
  */
 export function looseKey(name) {
     const text = String(name ?? '');
@@ -94,7 +94,11 @@ export function looseKey(name) {
     const words = portionless(text).split(/[^\p{L}\p{N}']+/u)
         .filter(word => word && !STOP.has(word) && !PORTION_SET.has(word))
         .map(singular);
-    const key = words.sort().join(' ');
+    // Only plain words change places: a token with a digit (a number, a size) keeps its order, so
+    // "Charm 1-2" and "Charm 2-1" stay two names.
+    const plain = words.filter(word => !/\p{N}/u.test(word)).sort();
+    const counted = words.filter(word => /\p{N}/u.test(word));
+    const key = counted.length ? `${plain.join(' ')} #${counted.join(' ')}` : plain.join(' ');
     if (LOOSE_CACHE.size >= LOOSE_CACHE_MAX) LOOSE_CACHE.clear();
     LOOSE_CACHE.set(text, key);
     return key;

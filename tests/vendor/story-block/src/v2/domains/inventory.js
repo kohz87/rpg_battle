@@ -49,9 +49,77 @@ export function featureOn(ctx, id) {
     }
 }
 
-// A stack's condition (gear wear, `cond`): 0 (broken) to 100 (as new); a stack without one is as new.
+// A stack's condition (gear wear): 0 (broken) to 100 (as new). It is never stored as the truth: each
+// wear or repair is an event of its own, `condLog[<stack>]['<sid>#<n>'] = { d, n }` (d: the change asked
+// for, −100…100; n: the rev it was written at), keyed by the reply that wrote it and only added (SPEC
+// §2.2). The condition is 100 (or an older chat's plain `stack.cond`, read as where it starts) folded
+// through the events in rev order, held to 0…100 at each step. Deleting a reply from the middle then
+// takes exactly its events away, and nothing can go out of range. `condLog` is scratch, like perReply:
+// on replay a missing piece of it is made and a drop of something gone is passed over.
 export const COND_MAX = 100;
-export const condOf = stack => (Number.isSafeInteger(stack?.cond) ? stack.cond : COND_MAX);
+// The events one stack keeps before they are folded into one (the stack's own history is then the fold).
+export const COND_LOG_MAX = 40;
+const clampCond = value => Math.max(0, Math.min(COND_MAX, value));
+
+/** A stack's condition events in the order they apply: [{ key, d, n }]. */
+export function condEvents(inventory, stackId) {
+    const log = isPlainObject(inventory?.condLog) && typeof stackId === 'string' && Object.hasOwn(inventory.condLog, stackId) ? inventory.condLog[stackId] : null;
+    if (!isPlainObject(log)) return [];
+    return Object.entries(log)
+        .filter(([, event]) => isPlainObject(event) && Number.isSafeInteger(event.d) && Number.isSafeInteger(event.n))
+        .map(([key, event]) => ({ key, d: event.d, n: event.n }))
+        .sort((a, b) => a.n - b.n || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+}
+
+/** A stack's condition, 0…100: where it starts (100, or an older plain `cond`) folded through its events. */
+export function condOf(stack, inventory = null) {
+    let cond = Number.isSafeInteger(stack?.cond) ? clampCond(stack.cond) : COND_MAX;
+    for (const event of condEvents(inventory, stack?.id)) cond = clampCond(cond + event.d);
+    return cond;
+}
+
+// Adds one condition event (`d`) to a stack, as this reply's (or this receipt's) own key, and returns
+// the condition now. Back at 100 the stack's events (and an older plain `cond`) are dropped by key; past
+// COND_LOG_MAX events they are folded into one. Logs of stacks no longer there are dropped too (a stack a
+// deleted reply had dropped, back on replay, starts as new then).
+function condWrite(ctx, inv, stack, d) {
+    if (!isPlainObject(inv.condLog)) inv.condLog = {};
+    for (const id of Object.keys(inv.condLog)) if (!isPlainObject(inv.stacks[id])) delete inv.condLog[id];
+    if (!isPlainObject(inv.condLog[stack.id])) inv.condLog[stack.id] = {};
+    const log = inv.condLog[stack.id];
+    const owner = typeof ctx.carrier?.sid === 'string' && ctx.carrier.sid ? ctx.carrier.sid : String(ctx.receiptId ?? 'rc');
+    let k = 1;
+    while (Object.hasOwn(log, `${owner}#${k}`)) k += 1;
+    const n = Number.isSafeInteger(ctx.rev) ? ctx.rev : 0;
+    log[`${owner}#${k}`] = { d, n };
+    const now = condOf(stack, inv);
+    // Only keys go, never the records that hold them: a record a later reply finds missing is written
+    // whole, and replayed after a middle delete that whole write would put back or drop other replies'
+    // events. (A stack's whole log goes only once the stack itself is gone.)
+    if (now === COND_MAX) {
+        for (const key of Object.keys(log)) delete log[key];
+        delete stack.cond;
+    } else if (Object.keys(log).length > COND_LOG_MAX) {
+        const start = Number.isSafeInteger(stack.cond) ? clampCond(stack.cond) : COND_MAX;
+        for (const key of Object.keys(log)) delete log[key];
+        log[`${owner}#${k}`] = { d: now - start, n };
+    }
+    return now;
+}
+
+function condLogErrors(condLog) {
+    if (!isPlainObject(condLog)) return ['The condition log is not a record.'];
+    const errors = [];
+    for (const [stackId, log] of Object.entries(condLog)) {
+        if (!isPlainObject(log)) { errors.push(`The condition log of ${stackId} is not a record.`); continue; }
+        for (const [key, event] of Object.entries(log)) {
+            if (!isPlainObject(event) || !Number.isSafeInteger(event.d) || Math.abs(event.d) > COND_MAX || !Number.isSafeInteger(event.n)) {
+                errors.push(`The condition event ${key} of ${stackId} needs a change from -${COND_MAX} to ${COND_MAX} and its rev.`);
+            }
+        }
+    }
+    return errors;
+}
 
 /** A story-introduced item's definition before the `item.define` hooks (§7 defaults). */
 export function defaultDef(id, name) {
@@ -138,6 +206,7 @@ export function validateInventory(slice) {
         if (!isPlainObject(defs[id])) errors.push(`The item name "${key}" points to a definition that does not exist (${id}).`);
     }
     if (slice.loot !== undefined) errors.push(...lootErrors(slice.loot));
+    if (slice.condLog !== undefined) errors.push(...condLogErrors(slice.condLog));
     return errors;
 }
 
@@ -231,7 +300,7 @@ function addStack(ctx, inv, def, qty, owner, note, key = false) {
 // A loose stack to add to: the same def, owner and note, not worn, in the same condition (`cond`).
 function looseMatch(inv, def, owner, note, except = null, cond = COND_MAX) {
     return Object.values(inv.stacks).sort(byId)
-        .find(stack => stack.id !== except && stack.def === def && stack.owner === owner && stack.equipped === null && stack.note === note && condOf(stack) === cond && stack.key !== true) ?? null;
+        .find(stack => stack.id !== except && stack.def === def && stack.owner === owner && stack.equipped === null && stack.note === note && condOf(stack, inv) === cond && stack.key !== true) ?? null;
 }
 
 /** Puts `qty` of a def with an owner: onto a matching loose stack when it stacks, else new stacks (a key item always its own). */
@@ -549,9 +618,8 @@ function wear(ctx, payload) {
     const def = inv.defs[stack.def];
     const amount = amountArg(ctx, payload.amount, undefined, 'wear');
     if (amount < 1) ctx.fail('INVALID', 'The wear must be a whole number of at least 1.');
-    const before = condOf(stack);
-    const now = Math.max(0, before - amount);
-    if (now !== before) stack.cond = now;
+    const before = condOf(stack, inv);
+    const now = condWrite(ctx, inv, stack, -amount);
     return {
         summary: before === 0 ? `${def.name} is already broken.` : now === 0 ? `${def.name} breaks.` : `${def.name} wears (${before} → ${now}).`,
         data: { stack: stack.id, def: def.id, amount, before, now, broken: now === 0 },
@@ -568,10 +636,8 @@ function repair(ctx, payload) {
     const def = inv.defs[stack.def];
     const amount = amountArg(ctx, payload.amount, undefined, 'repair');
     if (amount < 1) ctx.fail('INVALID', 'The repair must be a whole number of at least 1.');
-    const before = condOf(stack);
-    const now = Math.min(COND_MAX, before + amount);
-    if (now === COND_MAX) delete stack.cond;
-    else stack.cond = now;
+    const before = condOf(stack, inv);
+    const now = condWrite(ctx, inv, stack, amount);
     return {
         summary: now === before ? `${def.name} is already as good as new.` : `${def.name} is mended (${before} → ${now}).`,
         data: { stack: stack.id, def: def.id, amount, before, now },
@@ -615,9 +681,7 @@ function storyWear(ctx, inv, def, written, why) {
     if (!stack) ctx.fail('NOT_FOUND', `There is no ${def.name} in the inventory.`);
     const reply = ctx.carrier?.sid ?? ctx.receiptId ?? '';
     if (!ctx.claim(`wear:${reply}:${stack.id}`)) ctx.fail('CLAIMED', `${def.name} already took its wear in this reply.`);
-    const before = condOf(stack);
-    const now = Math.max(0, before - STORY_WEAR[word]);
-    if (now !== before) stack.cond = now;
+    const now = condWrite(ctx, inv, stack, -STORY_WEAR[word]);
     return now === 0 ? `${def.name} is broken` : `${def.name} is ${{ scuff: 'scuffed', tear: 'damaged', ruin: 'badly damaged' }[word]} (${now}/100)`;
 }
 
@@ -645,7 +709,8 @@ function lootErrors(loot) {
         if (typeof offer.where !== 'string' || typeof offer.claim !== 'string' || !Number.isSafeInteger(offer.n)) errors.push(`The loot of reply ${key} is missing where it lies, its claim or its order.`);
         const list = lootItems(offer);
         if (!list || !list.length || list.length > LOOT_ITEMS
-            || list.some(item => !isPlainObject(item) || !nonBlank(item.name) || item.name.length > MAX_NAME || !isCount(item.qty, 1) || item.qty > STORY_ITEM_QTY)) {
+            || list.some(item => !isPlainObject(item) || !nonBlank(item.name) || item.name.length > MAX_NAME || !isCount(item.qty, 1) || item.qty > STORY_ITEM_QTY
+                || (item.coin !== undefined && !isCount(item.coin, 1)))) {
             errors.push(`The loot of reply ${key} needs 1 to ${LOOT_ITEMS} things, each with a name and a quantity of 1 to ${STORY_ITEM_QTY}.`);
         }
     }
@@ -663,10 +728,17 @@ function lootItems(offer) {
     return keys.map(key => items[key]);
 }
 
-// "Lantern Oil x2", "Lantern Oil ×2" → { name, qty }; without a count, `fallback`.
-function lootPart(text, fallback) {
-    const m = /^(.*?)\s*[x×]\s*(\d{1,3})$/i.exec(text);
-    return m && m[1].trim() ? { name: m[1].trim(), qty: Number(m[2]) } : { name: text, qty: fallback };
+// "Lantern Oil x2", "Lantern Oil ×2" → { name, qty }: a count of any length is a count, never part of
+// the name (held to the story limits after); without one, `fallback`. Money ("1000 gold", "Gold x500",
+// "gold") → { money: amount }.
+function lootPart(text, fallback, currency) {
+    const counted = /^(.*?)\s*[x×]\s*(\d+)$/i.exec(text);
+    const number = digits => Math.min(Number(digits), Number.MAX_SAFE_INTEGER);
+    const { name, qty } = counted && counted[1].trim() ? { name: counted[1].trim(), qty: number(counted[2]) } : { name: text, qty: fallback };
+    if (isCurrencyName(cleanName(name), currency)) return { name, money: qty };
+    const leading = /^(\d[\d,]*)\s+(.+)$/.exec(name);
+    if (leading && isCurrencyName(cleanName(leading[2]), currency)) return { name: leading[2], money: number(leading[1].replace(/,/g, '')) };
+    return { name, qty };
 }
 
 /** Whether the party (anyone in it) already carries the item a name means, by the tolerant lookup. */
@@ -694,15 +766,37 @@ export function captureLoot(ctx, line, env) {
     // ones are made only for what the reader takes.
     const scratch = { ...inv, defs: { ...inv.defs }, aliases: { ...inv.aliases } };
     for (const part of parts) {
-        const { name: written, qty } = lootPart(part, fallback);
+        const { name: written, qty, money } = lootPart(part, fallback, currency);
         const name = cleanName(written);
         if (!name) continue;
+        // Money in a loot line is a coin offer in that loot, held to the reply's coin budget now (as a
+        // `+ coin` line would be) and paid into the wallet on Take: never an item, never left out unsaid.
+        if (money !== undefined) {
+            const purse = items.find(item => item.coin !== undefined);
+            if (!purse && items.length >= LOOT_ITEMS) {
+                notes.push(`One reply may lay out at most ${LOOT_ITEMS} things to pick from; ${formatAmount(money, currency)} was left out.`);
+                continue;
+            }
+            if (money < 1) { notes.push(`${name}: an amount of money is more than nothing.`); continue; }
+            let held;
+            try { held = storyCoin(ctx, inv, money, currency); } catch (error) {
+                if (typeof error?.code !== 'string') throw error;
+                notes.push(error.message);
+                continue;
+            }
+            if (held.problem) notes.push(held.problem);
+            if (!held.amount) continue;
+            if (purse) {
+                purse.coin += held.amount;
+                purse.name = formatAmount(purse.coin, currency);
+            } else items.push({ name: formatAmount(held.amount, currency), qty: 1, coin: held.amount });
+            continue;
+        }
         if (items.length >= LOOT_ITEMS) {
             notes.push(`One reply may lay out at most ${LOOT_ITEMS} things to pick from; ${name} and the rest were left out.`);
             break;
         }
         if (name.length > MAX_NAME) { notes.push(`An item needs a name of 1 to ${MAX_NAME} characters; one was left out.`); continue; }
-        if (isCurrencyName(name, currency)) { notes.push(`${capitalize(currency.plural)} are money, not loot to pick: write + coin with the amount.`); continue; }
         if (owned(inv, name)) { notes.push(`${name} is already carried, so it is not offered.`); continue; }
         if (qty < 1) { notes.push(`${name}: a quantity of loot is at least 1.`); continue; }
         let held;
@@ -720,7 +814,7 @@ export function captureLoot(ctx, line, env) {
         items.push({ name: def.name, qty: held.qty });
         if (held.problem) notes.push(held.problem);
     }
-    if (items.length === (lootItems(before)?.length ?? 0)) ctx.fail('REFUSED', notes.join(' ') || 'There is nothing in that loot to pick up.');
+    if (JSON.stringify(items) === JSON.stringify(lootItems(before) ?? [])) ctx.fail('REFUSED', notes.join(' ') || 'There is nothing in that loot to pick up.');
     if (!isPlainObject(inv.loot)) inv.loot = {};
     const others = Object.keys(inv.loot).filter(key => key !== sid)
         .sort((a, b) => (inv.loot[b]?.n ?? 0) - (inv.loot[a]?.n ?? 0) || (a < b ? -1 : 1));
@@ -730,7 +824,7 @@ export function captureLoot(ctx, line, env) {
     inv.loot[sid] = { sid, n: Number.isSafeInteger(ctx.rev) ? ctx.rev : 0, where, claim: `loot:${sid}`, items: { ...items } };
     const list = items.map(item => itemText(item.name, item.qty));
     return {
-        summary: `Loot to pick from${where ? ` (${where})` : ''}: ${list.join(', ')}. The reader picks what to take on this reply's card.`,
+        summary: `Loot to pick from${where ? ` (${where})` : ''}: ${list.join(', ')}. The reader picks what to take (this reply's card, or To pick up in the Inventory).`,
         data: { sid, where, items: clone(items) },
         narrate: false,
         ...(notes.length ? { problem: notes.join(' ') } : {}),
@@ -754,20 +848,26 @@ function lootTake(ctx, payload, env) {
     if (!ctx.claim(offer.claim || `loot:${sid}`)) ctx.fail('REFUSED', 'That loot has already been taken: each reply\'s loot is taken once.');
     const skipped = [];
     const wanted = [];
+    let coin = 0;
     for (const at of [...new Set(picks)].sort((a, b) => a - b)) {
         const item = things[at];
+        if (item.coin !== undefined) { coin += item.coin; continue; }
         if (owned(inv, item.name)) { skipped.push(item.name); continue; }
         const { def } = defineByName(ctx, inv, item.name, env, { owner: 'party' });
         wanted.push({ def, qty: item.qty });
     }
-    if (!wanted.length) ctx.fail('REFUSED', `${joinNames(skipped)} ${skipped.length === 1 ? 'is' : 'are'} already carried.`);
-    readerCarry(ctx, wanted.map(entry => ({ defId: entry.def.id, qty: entry.qty })), 'party');
+    if (!wanted.length && !coin) ctx.fail('REFUSED', `${joinNames(skipped)} ${skipped.length === 1 ? 'is' : 'are'} already carried.`);
+    if (wanted.length) readerCarry(ctx, wanted.map(entry => ({ defId: entry.def.id, qty: entry.qty })), 'party');
     const stacks = wanted.flatMap(entry => grantInto(ctx, inv, entry.def, entry.qty, 'party', ''));
+    // The money was held to its reply's coin budget when the loot was read: it is paid as held.
+    const currency = currencyOf(ctx.settings());
+    if (coin) receive(ctx, env, { owner: 'party', amount: coin, note: 'loot' });
     const where = offer.where ? ` (${offer.where})` : '';
     const left = skipped.length ? `; ${joinNames(skipped)} ${skipped.length === 1 ? 'is' : 'are'} already carried` : '';
+    const took = [...wanted.map(entry => itemText(entry.def.name, entry.qty)), ...(coin ? [formatAmount(coin, currency)] : [])];
     return {
-        summary: `The party takes ${joinNames(wanted.map(entry => itemText(entry.def.name, entry.qty)))}${where}${left}.`,
-        data: { sid, taken: wanted.map(entry => ({ def: entry.def.id, qty: entry.qty })), skipped, stacks },
+        summary: `The party takes ${joinNames(took)}${where}${left}.`,
+        data: { sid, taken: wanted.map(entry => ({ def: entry.def.id, qty: entry.qty })), coin, skipped, stacks },
         narrate: told(ctx),
     };
 }
@@ -846,7 +946,8 @@ export function createInventoryCommands(env) {
             if (qty > stack.qty) ctx.fail('NOT_ENOUGH', shortOf(def.name, stack.qty));
             // The reader's hand-over (Give on the Inventory screen): only the taker's own load is checked.
             if (ctx.cause === 'ui') readerCarry(ctx, [{ defId: def.id, qty }], to, true);
-            const target = def.stack && stack.key !== true ? looseMatch(inv, def.id, to, stack.note, null, condOf(stack)) : null;
+            const cond = condOf(stack, inv);
+            const target = def.stack && stack.key !== true ? looseMatch(inv, def.id, to, stack.note, null, cond) : null;
             const note = stack.note;
             let moved;
             if (qty === stack.qty && !target) {
@@ -860,7 +961,7 @@ export function createInventoryCommands(env) {
                     moved = target.id;
                 } else {
                     moved = addStack(ctx, inv, def.id, qty, to, note, stack.key === true);
-                    if (stack.cond !== undefined) inv.stacks[moved].cond = stack.cond;
+                    if (cond < COND_MAX) condWrite(ctx, inv, inv.stacks[moved], cond - COND_MAX);
                 }
             }
             return {
@@ -928,7 +1029,8 @@ export function createInventoryCommands(env) {
             if (!isCount(qty, 1) || qty >= stack.qty) ctx.fail('INVALID', `Split off between 1 and ${stack.qty - 1} ${def.name}.`);
             stack.qty -= qty;
             const made = addStack(ctx, inv, def.id, qty, stack.owner, stack.note, stack.key === true);
-            if (stack.cond !== undefined) inv.stacks[made].cond = stack.cond;
+            const cond = condOf(stack, inv);
+            if (cond < COND_MAX) condWrite(ctx, inv, inv.stacks[made], cond - COND_MAX);
             return {
                 summary: `${itemText(def.name, qty)} set apart from the rest.`,
                 data: { stack: stack.id, made, qty },
@@ -948,7 +1050,7 @@ export function createInventoryCommands(env) {
             if (stack.owner !== into.owner) ctx.fail('REFUSED', `These ${def.name} are held by different owners.`);
             if (stack.equipped !== into.equipped) ctx.fail('REFUSED', `One ${def.name} is worn and the other is not.`);
             if (stack.note !== into.note) ctx.fail('REFUSED', `These ${def.name} have different notes.`);
-            if (condOf(stack) !== condOf(into)) ctx.fail('REFUSED', `These ${def.name} are in different condition.`);
+            if (condOf(stack, inv) !== condOf(into, inv)) ctx.fail('REFUSED', `These ${def.name} are in different condition.`);
             if ((stack.key === true) !== (into.key === true)) ctx.fail('REFUSED', `One ${def.name} is a key item, kept apart from the rest.`);
             into.qty += stack.qty;
             delete inv.stacks[stack.id];
@@ -1439,7 +1541,7 @@ export function listItems(inventory, owner = null) {
             return {
                 stack: stack.id, def: def.id, name: def.name, kind: def.kind, rarity: def.rarity, value: def.value,
                 slot: def.slot, qty: stack.qty, owner: stack.owner, equipped: stack.equipped, note: stack.note, from: stack.from,
-                ...(stack.cond === undefined ? {} : { cond: stack.cond }),
+                ...(condOf(stack, inventory) < COND_MAX ? { cond: condOf(stack, inventory) } : {}),
                 ...(stack.key === true ? { key: true } : {}),
             };
         })
@@ -1573,6 +1675,21 @@ export const createInventoryQueries = env => ({
         };
     },
     'inventory.equipment': (state, args, tools) => equipmentView(state, tools),
+    // The loot laid out and not taken yet, newest first: [{ sid, where, n, items: [{ name, qty }] }].
+    'inventory.loot': Object.assign((state) => {
+        const inventory = state?.domains?.inventory;
+        const claims = state?.meta?.claims ?? {};
+        return Object.values(isPlainObject(inventory?.loot) ? inventory.loot : {})
+            .filter(offer => isPlainObject(offer) && typeof offer.sid === 'string' && !Object.hasOwn(claims, offer.claim || `loot:${offer.sid}`) && lootItems(offer)?.length)
+            .sort((a, b) => (b.n ?? 0) - (a.n ?? 0) || (a.sid < b.sid ? -1 : 1))
+            .map(offer => ({ sid: offer.sid, where: offer.where, n: offer.n, items: clone(lootItems(offer)) }));
+    }, { feature: FEATURE.loot }),
+    // { stack } → { stack, cond, events: [{ key, d, n }] } (the events as they apply), or null.
+    'inventory.condition': (state, args = {}) => {
+        const inventory = state?.domains?.inventory;
+        const stack = typeof args?.stack === 'string' && isPlainObject(inventory?.stacks?.[args.stack]) ? inventory.stacks[args.stack] : null;
+        return stack ? { stack: stack.id, cond: condOf(stack, inventory), events: condEvents(inventory, stack.id) } : null;
+    },
     'inventory.encumbrance': Object.assign((state, args, tools) => encumbrance(state, tools), { feature: FEATURE.encumbrance }),
 });
 

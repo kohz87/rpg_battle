@@ -25,7 +25,6 @@ export const THEME = Object.freeze({
 
 export const BASE_CSS = `
 :root {
-  container: rb-screen / inline-size;
   --rb-fg: var(--SmartThemeBodyColor, #e8e8ee);
   --rb-muted: color-mix(in srgb, var(--rb-fg) 62%, transparent);
   --rb-faint: color-mix(in srgb, var(--rb-fg) 40%, transparent);
@@ -128,8 +127,9 @@ details.give .pop { display: flex; flex-wrap: wrap; gap: 4px; padding-top: 4px; 
 
 /* badges */
 .badges { display: flex; flex-wrap: wrap; gap: 4px; }
-.badges ss-widget { display: inline-block; }
-.rb .ss-w-badge { border-radius: 999px; padding: 2px 8px; font-size: 0.8em; font-weight: 600; }
+.badges ss-widget { display: inline-block; max-width: 100%; min-width: 0; }
+.rb .ss-w-badge { max-width: 100%; border-radius: 999px; padding: 2px 8px; font-size: 0.8em; font-weight: 600; }
+.rb .ss-w-badge-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rb .ss-w-tone-good { --ss-w-tone: var(--rb-good); }
 .rb .ss-w-tone-warn { --ss-w-tone: var(--rb-warn); }
 .rb .ss-w-tone-bad { --ss-w-tone: var(--rb-bad); }
@@ -147,5 +147,16 @@ details.give .pop { display: flex; flex-wrap: wrap; gap: 4px; padding-top: 4px; 
 }
 `;
 
-/** A screen's whole sheet: the shared base, then its own rules. */
-export const sheet = own => `${BASE_CSS}\n${own.trim()}\n`;
+/**
+ * The screen root as a size container (`@container rb-screen (…)`), for screens drawn in a block that
+ * has its own width: a tab, the game view, a card under a reply. Never for the HUD: an inline-size
+ * container takes no width from what it holds, so a HUD item sized by its content (the strip lays its
+ * items out side by side) shrinks to nothing. The HUD uses media queries instead.
+ */
+export const CONTAINER_CSS = ':root { container: rb-screen / inline-size; }';
+
+/**
+ * A screen's whole sheet: the shared base, then its own rules. `container` (default true) makes the
+ * screen root the `rb-screen` size container its `@container` rules read.
+ */
+export const sheet = (own, { container = true } = {}) => `${BASE_CSS}${container ? `${CONTAINER_CSS}\n` : ''}\n${own.trim()}\n`;
