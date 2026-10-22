@@ -98,14 +98,15 @@ export function readEncounter(line, { bestiary, rules = DEFAULT_RULES, ranks = n
     // A fight with a boss is never below strong (the user's call, wave C): a boss is never made
     // smaller, so "a weak boss" would be a weak fight that is not. The line's tier, and the boss's
     // own, below strong are read as strong, and the offer and its receipt say so.
-    const bossFight = !ranked && rows.slice(0, MAX_FOES).some(row => row?.boss);
+    // A ranked boss fight too: its foes keep their rank's level, their tier is held to strong.
+    const bossFight = rows.slice(0, MAX_FOES).some(row => row?.boss);
     const atLeastStrong = value => (bossFight && TIERS.indexOf(value) < TIERS.indexOf('strong') ? 'strong' : value);
     const lineTier = atLeastStrong(tier);
     const foes = rows.slice(0, MAX_FOES).map(row => {
         // A threat word the story put on the foe itself ("3 weak wolves") is that foe's tier.
         const own = row.threat ? tierOf(row.threat) : null;
-        const written = ranked ? ranked.tier : own ?? lineTier;
-        const foe = { name: tidy(row.name, 48), count: Math.min(MAX_COUNT, Math.max(1, Math.round(Number(row.count) || 1))), tier: row.boss && !ranked ? atLeastStrong(written) : written };
+        const written = ranked ? atLeastStrong(ranked.tier) : own ?? lineTier;
+        const foe = { name: tidy(row.name, 48), count: Math.min(MAX_COUNT, Math.max(1, Math.round(Number(row.count) || 1))), tier: row.boss ? atLeastStrong(written) : written };
         if (ranked) Object.assign(foe, { rank: ranked.rank, level: ranked.level, ...(ranked.said ? { said: ranked.said } : {}) });
         if (row.boss) foe.boss = true;
         if (Number(row.wave) >= 1) foe.wave = Math.round(Number(row.wave));

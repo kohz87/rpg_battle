@@ -34,7 +34,7 @@ test('party.create makes your character and puts them first', () => {
 test('party.create takes a preset and its skills', () => {
     const out = run(makeState(), 'party.create', { name: 'Ren', preset: 'caster' });
     assert.ok(out.ok, out.message);
-    assert.deepEqual(pcOf(out.state).skills.map(skill => skill.name), ['Firebolt', 'Frost Shard', 'Ward']);
+    assert.deepEqual(pcOf(out.state).skills.map(skill => skill.name), ['Firebolt', 'Fireball', 'Ward']);
     assert.ok(pcOf(out.state).skills.every(skill => skill.level === 1 && skill.uses === 0 && skill.active));
 });
 
