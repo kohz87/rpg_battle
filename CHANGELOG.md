@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.0.0-beta.1 (`v2` branch)
+
+Story Suite v2, first beta. What's new, known issues and every module's version: [Story Block docs/v2/RELEASES.md](https://github.com/kohz87/Story_block/blob/v2/docs/v2/RELEASES.md). Player guide: [Story Block docs/v2/GUIDE.md](https://github.com/kohz87/Story_block/blob/v2/docs/v2/GUIDE.md).
+
+- Version 2.0.0-beta.1. Needs Story Block `>=2.0.0-beta.1` (`requires`). Update Story Block first: an older Story Block 2 refuses the module with a red notice ("… needs Story Block ≥ 2.0.0-beta.1; this is 2.0.0-alpha.2. Update Story Block to use it.").
+- In this beta, from RPG Battle: ranks, foes of a fixed rank, companions by formula and timed effects; balance wave C and the builds fix (a tier means the same danger for every creature, headcount and level; spells and area attacks roll per target); foes on the field as a setting, the rest in waves; quest-sized fights; gear wear, repair and refinement; crafting; one bag in Story Block's Inventory; prices by place and story goods held to a reply's money; the world's XP, Level and rank words in **Terms**; items that add carry capacity; "Create your character" and the wizard fixes; HP and MP back with story time; story XP awards (`+ xp`). Each with its details below.
+- Story Block testkit re-synced to the beta host (Story Block 2.0.0-beta.1).
+
 ## 2.0.0-alpha.1 (in progress, `v2` branch)
 
 Story Suite v2. RPG Battle v2 module: party, creation, checks, items, combat, battle board, return in time, trade and screens parts merged and wired into one module. Status: https://github.com/kohz87/Story_block/blob/v2/docs/v2/STATUS.md
