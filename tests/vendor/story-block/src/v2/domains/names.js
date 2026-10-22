@@ -6,6 +6,8 @@
 // defs' own names; when that finds more than one def the name is ambiguous and the caller
 // rejects it rather than pick one (§4.4).
 
+import { cutAt } from '../../text.js';
+
 const ARTICLES = /^(?:a|an|the|some)\s+/i;
 
 /**
@@ -99,5 +101,5 @@ export function slugify(name) {
 /** A note or name cut to `max` characters with an ellipsis. */
 export function trimText(text, max) {
     const value = String(text ?? '').replace(/\s+/g, ' ').trim();
-    return value.length > max ? `${value.slice(0, max - 1).trimEnd()}…` : value;
+    return value.length > max ? `${cutAt(value, max - 1).trimEnd()}…` : value;
 }

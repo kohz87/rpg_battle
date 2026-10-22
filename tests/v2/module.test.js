@@ -182,7 +182,7 @@ test('index.js: registers the module with Story Block v2; without it, one drawer
     }
 });
 
-test('manifest: 2.0.0-alpha.1, depends on Story Block, no v1 interceptor', async () => {
+test('manifest: 2.0.0-beta.1, depends on Story Block, no v1 interceptor', async () => {
     const { readFile } = await import('node:fs/promises');
     const manifest = JSON.parse(await readFile(new URL('../../manifest.json', import.meta.url), 'utf8'));
     const pkg = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8'));

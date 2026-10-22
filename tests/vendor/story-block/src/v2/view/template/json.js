@@ -5,6 +5,28 @@
 
 import { compileExpr, evalExpr, toText } from '../bind.js';
 
+// How deep records and lists may nest in data-props or data-payload (B-b5b-robust-r2-3): deeper JSON
+// is refused before it is parsed, so it never reaches code that walks it (and runs out of stack).
+export const MAX_JSON_DEPTH = 16;
+
+/** How deep `{` and `[` nest in JSON text, counted outside strings in one pass (no recursion). */
+export function jsonDepth(text) {
+    const source = String(text ?? '');
+    let depth = 0;
+    let deepest = 0;
+    let inString = false;
+    for (let i = 0; i < source.length; i += 1) {
+        const char = source[i];
+        if (inString) {
+            if (char === '\\') i += 1;
+            else if (char === '"') inString = false;
+        } else if (char === '"') inString = true;
+        else if (char === '{' || char === '[') deepest = Math.max(deepest, depth += 1);
+        else if (char === '}' || char === ']') depth -= 1;
+    }
+    return deepest;
+}
+
 /**
  * Compile JSON text with holes. Returns `{ parts }` (strings and `{ expr, inString }`), or `{ value }` for
  * plain JSON, or null (with a warning) when plain JSON does not parse.
@@ -34,6 +56,10 @@ export function compileJson(text, warnings = [], where = 'JSON') {
         buffer += char;
     }
     parts.push(buffer);
+    if (jsonDepth(parts.filter(part => typeof part === 'string').join('')) > MAX_JSON_DEPTH) {
+        warnings.push(`${where} nests records or lists more than ${MAX_JSON_DEPTH} deep.`);
+        return null;
+    }
     if (parts.length === 1) {
         const parsed = parseRecord(source);
         if (!parsed.ok) {
@@ -55,6 +81,7 @@ export function fillJson(compiled, scope, evaluate = null, onWarn = null) {
         if (part.inString) return JSON.stringify(toText(value)).slice(1, -1);
         return jsonValue(value);
     }).join('');
+    if (jsonDepth(text) > MAX_JSON_DEPTH) return { ok: false, error: `it nests records or lists more than ${MAX_JSON_DEPTH} deep.` };
     return parseRecord(text);
 }
 

@@ -13,7 +13,9 @@ import { capturePlace, capturePresent, initialScene, sceneCommands, sceneQueries
 import { DEFAULT_CURRENCY, currencyOf } from './money.js';
 import { renderInventoryTab } from '../ui/inventory-tab.js';
 import { renderSceneTab } from '../ui/scene-tab.js';
-import { createAssistPart } from '../assist/index.js';
+import { FEATURE_TEXT, createAssistPart } from '../assist/index.js';
+import { CORE_FEATURE } from '../features.js';
+import { STRINGS } from '../strings.js';
 import { createEventsPart } from '../events/index.js';
 import { standardWidgets } from '../view/widgets/index.js';
 import { screens as defaultScreens } from '../screens/index.js';
@@ -38,6 +40,16 @@ export const CORE_KINDS = Object.freeze({
     place: Object.freeze({ grammar: '~ place Name | kind: settlement|wild|dungeon|… | region: wider area | with: who came along (the rest stay behind)' }),
     present: Object.freeze({ grammar: '+ present Name when someone arrives, - present Name when they leave' }),
 });
+
+// Story Block's own optional pieces as features (MODULES §F100): the status strip and the cards under
+// replies (on), the two assist helpers (off; each makes an extra model call). None of them changes the
+// static prompt part. The host reads them where the piece is drawn or run (ui-host.js, runtime.js).
+export const CORE_FEATURES = Object.freeze([
+    Object.freeze({ id: CORE_FEATURE.hud, label: STRINGS.features.hud, describe: STRINGS.features.hudDescribe, default: true }),
+    Object.freeze({ id: CORE_FEATURE.cards, label: STRINGS.features.cards, describe: STRINGS.features.cardsDescribe, default: true }),
+    Object.freeze({ id: CORE_FEATURE.preroll, label: FEATURE_TEXT.classifier.label, describe: FEATURE_TEXT.classifier.describe, default: false }),
+    Object.freeze({ id: CORE_FEATURE.extractor, label: FEATURE_TEXT.extractor.label, describe: FEATURE_TEXT.extractor.describe, default: false }),
+]);
 
 // The chat's one currency (MODULES.md F1): its name (singular) and plural, renamable by the reader,
 // never a second one.
@@ -188,6 +200,7 @@ export function createCoreModule({ hooks = () => [], settings = () => ({}), vers
         id: CORE_MODULE_ID,
         name: 'Story Block',
         version,
+        features: CORE_FEATURES.map(feature => ({ ...feature })),
         domains: merged.domains,
         commands: merged.commands,
         queries: merged.queries,

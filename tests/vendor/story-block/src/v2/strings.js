@@ -47,6 +47,14 @@ export const STRINGS = deepFreeze({
         suite: 'Story Suite',
     },
 
+    // Story Block's own features (MODULES §F100), in Settings → Features.
+    features: {
+        hud: 'Status strip',
+        hudDescribe: 'The strip above the message box with the story at a glance (health, place…).',
+        cards: 'Cards under replies',
+        cardsDescribe: 'A small card under each reply with what it changed (each card can still be turned off on its own).',
+    },
+
     // The small notes under a reply (MODULES §F40).
     notes: {
         missing: 'No change lines came with this reply, so nothing in it changed the story.',

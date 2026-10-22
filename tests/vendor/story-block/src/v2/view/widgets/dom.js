@@ -6,6 +6,7 @@
 // screen's CSS can restyle any widget.
 
 import { widgetCss } from './styles.js';
+import { cutAt } from '../../../text.js';
 
 export const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -47,7 +48,7 @@ export function setTone(node, value) {
 
 /** A `data-*` value from data: a short plain string, or the attribute is removed. */
 export function setData(node, name, value) {
-    const text = value === undefined || value === null ? '' : String(value).slice(0, 64);
+    const text = value === undefined || value === null ? '' : cutAt(String(value), 64);
     if (text) node.setAttribute(`data-${name}`, text);
     else node.removeAttribute(`data-${name}`);
 }

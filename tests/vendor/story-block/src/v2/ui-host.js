@@ -4,8 +4,11 @@
 // * The Story Suite bar, just above the message box: Story (the tab panel), Game view (when a module
 //   offers full-screen screens; Alt+G opens and closes it too, MODULES §F53), Settings (the Story Suite
 //   overlay), and the notice a canGenerate hook leaves when it held a reply back (MODULES §F12).
-// * The status strip (the `hud` mount) above the message box: on unless the reader turned it off in the
-//   drawer (`extension_settings.storySuite.hud === false`, MODULES §F54).
+// * The status strip (the `hud` mount) above the message box: Story Block's feature `story-block.hud`, on
+//   unless the reader turned it off (Settings → Features, or the drawer's switch; MODULES §F54, §F100). The
+//   cards under replies are the feature `story-block.cards` (each card screen keeps its own switch too).
+// * Features (MODULES §F100): screens, tabs and widgets under a feature the reader turned off are hidden,
+//   whoever restyled them (a pack, the card, the reader); turning one on or off redraws what it touches.
 // * The notes under replies (src/v2/reply-notes.js, MODULES §F40): a reply that came without change lines,
 //   a reply edited since, each with Re-read when the runtime offers one. The changes card gets the reply's
 //   refused lines in its scope as `refused` (§F41).
@@ -29,6 +32,7 @@ import { CHANGES_CARD_SCREEN_ID, HOME_SCREEN_ID, changesSummary } from './screen
 import { createReplyNotes } from './reply-notes.js';
 import { STRINGS, fill } from './strings.js';
 import { readRecord } from './persist.js';
+import { CORE_FEATURE } from './features.js';
 
 const IDS = Object.freeze({ bar: 'story_suite_v2_bar', panel: 'story_suite_v2_panel', drawer: 'story_suite_v2_drawer', menu: 'story_suite_v2_menu' });
 
@@ -68,8 +72,15 @@ export function hasReplyRecord(chat, index) {
     return readRecord(message) !== null;
 }
 
-/** The status strip is on unless the reader turned it off (MODULES §F54). */
-export const hudOn = extensionSettings => extensionSettings?.storySuite?.hud !== false;
+/**
+ * The status strip is on unless the reader turned it off (MODULES §F54): the feature `story-block.hud`
+ * when the reader has set it, else the drawer switch older versions kept (`storySuite.hud`).
+ */
+export function hudOn(extensionSettings) {
+    const suite = extensionSettings?.storySuite;
+    const choice = suite?.features?.[CORE_FEATURE.hud];
+    return typeof choice === 'boolean' ? choice : suite?.hud !== false;
+}
 
 /** Reader choices for screens and cards: extension_settings.storySuite.{screens, cards}. */
 function readerStore(ctx) {
@@ -100,7 +111,14 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
     // npc.portrait) gets null, not a problem line.
     const runAt = mountQuery(registry, () => store.receipts());
     const queryAt = (name, args, state) => (registry.query(name) ? runAt(name, args, state) : null);
-    const widgets = () => Object.fromEntries(registry.widgets().map(widget => [widget.name, widget]));
+    // A widget whose feature is off draws nothing (instead of "there is no widget called …").
+    const hiddenWidget = Object.freeze({ render: el => { el.hidden = true; return null; } });
+    const widgets = () => Object.fromEntries([
+        ...(registry.widgetsOff?.() ?? []).map(name => [name, { ...hiddenWidget, name }]),
+        ...registry.widgets().map(widget => [widget.name, widget]),
+    ]);
+    // A feature of a module that is not here (a runtime without Story Block's core) counts as on.
+    const coreOn = id => (registry.feature?.(id) ? registry.featureOn(id) : true);
     const renderer = createScreenRenderer({
         queryAt,
         widgets,
@@ -118,12 +136,21 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
             };
         },
     });
-    const screens = createScreens(readerStore(ctx));
+    // The screen registry as the mounts see it: a screen under a feature that is off is not there.
+    const allScreens = createScreens(readerStore(ctx));
+    const screenOff = id => registry.screenOff?.(id) === true;
+    const screens = Object.freeze({
+        ...allScreens,
+        resolve: id => (screenOff(id) ? null : allScreens.resolve(id)),
+        list: (mount = null) => allScreens.list(mount).filter(entry => !screenOff(entry.id)),
+    });
     const extraTabs = [];
 
     // ---- screens from the modules and the packs ----------------------------------------------
     function syncScreens() {
         const byModule = new Map();
+        // Every module with screens, even one whose screens are all off just now (its list is then empty).
+        for (const def of registry.modules()) if (Array.isArray(def.screens) && def.screens.length) byModule.set(def.id, []);
         for (const screen of registry.screens()) {
             const { moduleId, ...def } = screen;
             if (!byModule.has(moduleId)) byModule.set(moduleId, []);
@@ -170,7 +197,7 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
         events,
         reread: rereadFn,
         extractorOn: () => {
-            try { return sdk.settings('story-block')?.assistExtractor === true; } catch { return false; }
+            try { return typeof sdk.feature === 'function' ? sdk.feature(CORE_FEATURE.extractor) : sdk.settings('story-block')?.assistExtractor === true; } catch { return false; }
         },
         onChanged: index => mounts?.card?.refresh?.(index, { force: true }),
     });
@@ -197,6 +224,8 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
             const owner = String(screenId ?? '').split('/')[0];
             return sdk.settings(registry.has(owner) ? owner : 'story-block');
         },
+        // Cards: the reader's switch per card screen, under Story Block's `story-block.cards` feature.
+        enabled: (mount, screenId) => (mount === 'card' ? coreOn(CORE_FEATURE.cards) && screens.cardsOn(screenId) : true),
         api,
         on: (name, fn) => events.on(name, fn),
         carriers,
@@ -245,7 +274,7 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
     }
     panelClose.addEventListener('click', closePanel);
 
-    const openSettings = () => openSettingsOverlay({ registry, settings, doc, sdk });
+    const openSettings = () => openSettingsOverlay({ registry, settings, doc, sdk, features: runtime.features ?? null });
 
     // ---- the bar above the message box ------------------------------------------------------
     const bar = el(doc, 'div', 'story-suite-bar');
@@ -365,17 +394,30 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
         notes.refreshAll();
     }
 
-    /** Turns the status strip on or off and keeps the choice (extension_settings.storySuite.hud). */
+    /**
+     * Turns the status strip on or off and keeps the choice: the feature `story-block.hud`, and the old
+     * `storySuite.hud` switch with it (so an older Story Block reads the same choice).
+     */
     function setHud(on) {
         const es = ctx.extensionSettings ?? {};
         if (!es.storySuite || typeof es.storySuite !== 'object') es.storySuite = {};
         es.storySuite.hud = Boolean(on);
-        ctx.saveSettingsDebounced?.();
+        if (runtime.features?.set?.(CORE_FEATURE.hud, Boolean(on)) === undefined) {
+            if (!es.storySuite.features || typeof es.storySuite.features !== 'object') es.storySuite.features = {};
+            es.storySuite.features[CORE_FEATURE.hud] = Boolean(on);
+            ctx.saveSettingsDebounced?.();
+        }
         refresh();
         return Boolean(on);
     }
     const offs = [];
     for (const name of ['head', 'committed']) offs.push(events.on(name, () => { if (!panel.hidden) tabHost?.refresh(); }));
+    // A feature turned on or off: its screens, tabs, widgets and cards come and go; nothing else changes.
+    offs.push(events.on('feature', () => {
+        syncScreens();
+        refresh();
+        mounts.card?.refreshAll?.({ force: true });
+    }));
     offs.push(events.on('turn', done => {
         clearBlocked();
         if (!panel.hidden) tabHost?.refresh();

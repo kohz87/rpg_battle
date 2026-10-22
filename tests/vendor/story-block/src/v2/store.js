@@ -289,9 +289,24 @@ export function createStore({
 
     const sameKey = (a, b) => Object.keys(a).every(name => a[name] === b[name]);
 
+    // The cached head still holds when all that changed is messages after its carrier that hold no
+    // record (the reader's next message, a reply not read yet): replaying them would give it again.
+    function stillHolds(arr, key) {
+        const old = cache?.key;
+        if (!cache?.state || old.arr !== arr || old.index < 0 || key.index < old.index || arr.length < old.length) return false;
+        const message = arr[old.index];
+        if (message !== old.message || message?.swipe_id !== old.swipe || message?.extra !== old.extra || message?.extra?.[KEY] !== old.record) return false;
+        for (let i = old.index + 1; i < arr.length; i++) if (arr[i]?.extra?.[KEY] !== undefined) return false;
+        return true;
+    }
+
     function current() {
         const arr = list();
         const key = headKey(arr);
+        if (cache && !sameKey(cache.key, key) && stillHolds(arr, key)) {
+            cache = { ...cache, key };
+            known = carrierIndexes(arr).map(i => arr[i]);
+        }
         if (!cache || !sameKey(cache.key, key)) {
             const { state, problems } = key.index < 0 ? { state: null, problems: [] } : replay(arr, key.index);
             cache = { key, state, problems };
@@ -722,16 +737,43 @@ export function createStore({
             } finally {
                 holding -= 1;
                 if (!holding) {
+                    // The copies are written again as they are: a head cached before stays the head.
+                    const arr = list();
+                    const kept = cache && sameKey(cache.key, headKey(arr)) ? cache : null;
                     for (const message of held) {
                         const record = message.extra?.[KEY];
                         if (record) writeRecord(message, record);
                     }
                     held.clear();
+                    if (kept) retain(arr, kept.state, kept.problems);
                 }
             }
         },
 
+        /**
+         * B-b2-timeline-r2-2: chat `from` was renamed `to` (SillyTavern's CHAT_RENAMED). A change not yet
+         * saved, or left for its old chat's file, goes into the renamed chat's file instead: the old one
+         * is gone, and a renamed open chat is read back as new messages, which looks like another chat.
+         */
+        renamed(from, to) {
+            if (typeof from !== 'string' || typeof to !== 'string' || !from || !to || from === to) return false;
+            let moved = saver.renamed(from, to);
+            for (const entry of unsaved.values()) {
+                if (entry.chatId !== from) continue;
+                entry.chatId = to;
+                moved = true;
+            }
+            if (moved && saver.dirty()) saver.schedule();
+            return moved;
+        },
+
         scheduleSave(ms = 400) { saver.schedule(ms); },
+        /**
+         * Puts off a save that was only scheduled (not one already running): the turn's cues before a reply
+         * are saved with the reply's own save, one write of the chat file instead of two. The change stays
+         * dirty; the caller saves it (or schedules it again) when the reply comes or the generation ends.
+         */
+        deferSave() { saver.cancel(); },
         /** Saves now (a reader's action is saved at once); → Promise<true | false>, never throws: a failure is told and tried again. */
         saveSoon(options) { return saver.saveSoon(options); },
         flush() { return saver.flush(); },

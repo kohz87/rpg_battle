@@ -12,6 +12,7 @@
 export const EVENT_TYPES = Object.freeze({
     APP_READY: 'app_ready',
     CHAT_CHANGED: 'chat_id_changed',
+    CHAT_RENAMED: 'chat_renamed',
     MESSAGE_RECEIVED: 'message_received',
     MESSAGE_SENT: 'message_sent',
     MESSAGE_EDITED: 'message_edited',
@@ -235,8 +236,9 @@ export function createFakeContext(options = {}) {
             await emit(EVENT_TYPES.GENERATION_STARTED, type, {}, dryRun);
             const interceptor = fake.interceptor ?? globalThis[interceptorName];
             // An interceptor may stop the generation (SillyTavern's abort argument): nothing is sent.
+            // A dry run runs none (SillyTavern 1.19's Generate: `if (!dryRun) runGenerationInterceptors`).
             let aborted = false;
-            if (typeof interceptor === 'function') await interceptor(clone(ctx.chat), 8192, () => { aborted = true; }, type);
+            if (typeof interceptor === 'function' && !dryRun) await interceptor(clone(ctx.chat), 8192, () => { aborted = true; }, type);
             if (aborted) {
                 await emit(EVENT_TYPES.GENERATION_STOPPED);
                 return { request: null, reply: '', index: -1, aborted: true };

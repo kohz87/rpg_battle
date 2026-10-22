@@ -17,6 +17,8 @@ import { byteLength, checkPlain } from './safety.js';
 import { parseRange, satisfies } from './version.js';
 import { foldKey, oneLine } from '../../text.js';
 import { MAX_DEPTH as MAX_TEMPLATE_DEPTH, tooDeep } from '../view/template/html.js';
+import { MAX_LOOP_DEPTH, templateShape } from '../view/template/index.js';
+import { MAX_JSON_DEPTH } from '../view/template/json.js';
 import { MAX_AT_DEPTH, cssDepth } from '../view/css.js';
 
 export const HOST_VERSION = '2.0.0';
@@ -534,6 +536,14 @@ function checkPlace(record, path, label, add) {
     };
 }
 
+// What is wrong with a template's shape for a pack (B-b5b-robust-r2-2, r2-3), or ''.
+function shapeProblem(template) {
+    const shape = templateShape(template);
+    if (shape.loops > MAX_LOOP_DEPTH) return `nests loops (data-each) ${shape.loops} deep; at most ${MAX_LOOP_DEPTH} are allowed`;
+    if (shape.deepJson) return `has data-props or data-payload nested more than ${MAX_JSON_DEPTH} deep`;
+    return '';
+}
+
 // A route names two places of this pack by name, alias or slug; it is stored with their names.
 function placeRefs(places) {
     const byKey = new Map();
@@ -818,6 +828,10 @@ function checkScreens(list, packId, add) {
         if (screen.template === undefined && screen.layout === undefined) say('template', 'a screen needs a template or a layout.');
         if (screen.template !== undefined && typeof screen.template !== 'string') say('template', 'template must be text (an HTML template).');
         else if (typeof screen.template === 'string' && tooDeep(screen.template)) say('template', `the template nests elements more than ${MAX_TEMPLATE_DEPTH} deep.`);
+        else if (typeof screen.template === 'string') {
+            const why = shapeProblem(screen.template);
+            if (why) say('template', `the template ${why}.`);
+        }
         if (screen.layout !== undefined && !isObject(screen.layout)) say('layout', 'layout must be an object: { "root": … }.');
         if (screen.css !== undefined) {
             const why = typeof screen.css === 'string' ? unsafeCss(screen.css) : 'must be text';
@@ -826,6 +840,10 @@ function checkScreens(list, packId, add) {
         if (screen.data !== undefined && !isObject(screen.data)) say('data', 'data must map names to queries: { "pc": { "query": "party.pc" } }.');
         if (screen.steps !== undefined && (!Array.isArray(screen.steps) || screen.steps.some(step => !isObject(step) || (step.template !== undefined && typeof step.template !== 'string')))) say('steps', 'steps must be a list of { "id", "title", "template" }.');
         else if (Array.isArray(screen.steps) && screen.steps.some(step => typeof step.template === 'string' && tooDeep(step.template))) say('steps', `a step's template nests elements more than ${MAX_TEMPLATE_DEPTH} deep.`);
+        else if (Array.isArray(screen.steps)) {
+            const why = screen.steps.map(step => (typeof step.template === 'string' ? shapeProblem(step.template) : '')).find(Boolean);
+            if (why) say('steps', `a step's template ${why}.`);
+        }
         const theme = screen.theme === undefined ? {} : checkTheme(screen.theme, add, `${path}.theme`);
         if (ok) out.push({ ...screen, theme, pack: packId });
     });

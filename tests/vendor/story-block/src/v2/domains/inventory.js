@@ -561,10 +561,16 @@ export function createInventoryCommands(env) {
 //   def's `value` × the count given), so many kinds of item cannot add up to more than the coin limit.
 //   Past either, a line gives what is left, and the Problems list says so. A `~ item … | qty:` that
 //   raises a count is a gain, counted the same way; lowering one is free.
+// * A notable item: the first `+ item` line of a reply whose one item is worth more than the goods
+//   budget has left (so none of it would fit) is given outside the worth tally, up to
+//   STORY_NOTABLE_TIMES × the goods budget (value × count; the count is clamped to fit). "The old man
+//   hands you a potion" is a normal story moment even when that potion is worth more than a reply's
+//   goods. One per reply: a later line over the budget is held as above. An item worth more than the
+//   notable limit on its own is not notable, and is refused as above.
 // * New kinds: at most STORY_NEW_DEFS item definitions made by one reply's story lines; past that a
 //   line naming something new is refused.
 // The tally is kept in the inventory slice under the reply's record ID (`perReply[<sid>]` =
-// { coin, worth, made, items }, ctx.carrier.sid, which stays with the reply when earlier messages are
+// { coin, worth, made, items, notable }, ctx.carrier.sid, which stays with the reply when earlier messages are
 // deleted), so it rolls back with the reply and starts again on the next one or another swipe. A reply
 // adds its own entry and drops the others; `perReply` is the domain's `scratch` (ops.js): on replay a
 // drop of an entry already gone (its reply deleted) is passed over, so no reply's gains hang on another's.
@@ -572,6 +578,7 @@ export const STORY_ITEM_QTY = 20;
 export const STORY_COIN_PER_LEVEL = 1000;
 export const STORY_WORTH_TIMES = 2;
 export const STORY_NEW_DEFS = 10;
+export const STORY_NOTABLE_TIMES = 5;
 
 function storyCoinBudget(ctx) {
     const set = Number(ctx.settings()?.storyCoinPerReply);
@@ -598,7 +605,7 @@ function tallyOf(ctx, inv, vouched = false) {
     const id = ctx.carrier?.sid ?? ctx.carrier?.key;
     if (ctx.cause !== 'story' || typeof id !== 'string' || !id || (ctx.caller && !vouched)) return null;
     const stored = isPlainObject(inv.perReply) && Object.hasOwn(inv.perReply, id) && isPlainObject(inv.perReply[id]) ? inv.perReply[id] : null;
-    const tally = { id, coin: tallied(stored?.coin), worth: tallied(stored?.worth), made: tallied(stored?.made), items: {} };
+    const tally = { id, coin: tallied(stored?.coin), worth: tallied(stored?.worth), made: tallied(stored?.made), items: {}, ...(stored?.notable === true ? { notable: true } : {}) };
     for (const [def, n] of Object.entries(isPlainObject(stored?.items) ? stored.items : {})) if (isCount(n, 0)) tally.items[def] = n;
     return tally;
 }
@@ -629,10 +636,11 @@ function storyCoin(ctx, inv, amount, currency, vouched = false) {
 }
 
 // `qty` of a def held to what this reply may still give (of that item, in worth, and, when the def is
-// new, in kinds): { qty, problem }. Refused when nothing may be given.
+// new, in kinds): { qty, problem, notable }. Refused when nothing may be given. Only a `+ item` line
+// (not `more`, a raised count) may be the reply's notable item.
 function storyItems(ctx, inv, def, qty, created = false, more = false) {
     const tally = tallyOf(ctx, inv);
-    if (!tally) return { qty, problem: null };
+    if (!tally) return { qty, problem: null, notable: false };
     if (created) {
         if (tally.made >= STORY_NEW_DEFS) ctx.fail('REFUSED', `This reply has already brought ${STORY_NEW_DEFS} new kinds of item into the story, the most one reply may; ${def.name} was not added.`);
         tally.made += 1;
@@ -643,23 +651,37 @@ function storyItems(ctx, inv, def, qty, created = false, more = false) {
     let given = Math.min(qty, left);
     const limits = given < qty ? [`at most ${STORY_ITEM_QTY} of one item`] : [];
     const value = isCount(def.value, 1) ? def.value : 0;
+    let notable = false;
     if (value) {
         const currency = currencyOf(ctx.settings());
         const cap = STORY_WORTH_TIMES * storyCoinBudget(ctx);
         const fits = Math.floor(Math.max(0, cap - tally.worth) / value);
-        if (!fits) {
-            ctx.fail('REFUSED', `This reply has already given goods worth ${formatAmount(tally.worth, currency)}, and one ${def.name} is worth ${formatAmount(value, currency)}; one reply may give goods worth at most ${formatAmount(cap, currency)}.`);
+        const gift = STORY_NOTABLE_TIMES * cap;
+        if (!fits && !more && !tally.notable && value <= gift) {
+            // The reply's notable item: not counted in the worth tally, held to its own limit.
+            notable = true;
+            tally.notable = true;
+            const room = Math.floor(gift / value);
+            if (room < given) {
+                given = room;
+                limits.push(`one notable item worth at most ${formatAmount(gift, currency)}`);
+            }
+        } else {
+            if (!fits) {
+                ctx.fail('REFUSED', `This reply has already given goods worth ${formatAmount(tally.worth, currency)}, and one ${def.name} is worth ${formatAmount(value, currency)}; one reply may give goods worth at most ${formatAmount(cap, currency)}.`);
+            }
+            if (fits < given) {
+                given = fits;
+                limits.push(`goods worth at most ${formatAmount(cap, currency)} in all`);
+            }
+            tally.worth += given * value;
         }
-        if (fits < given) {
-            given = fits;
-            limits.push(`goods worth at most ${formatAmount(cap, currency)} in all`);
-        }
-        tally.worth += given * value;
     }
     tally.items[def.id] = had + given;
     keepTally(inv, tally);
     return {
         qty: given,
+        notable,
         problem: given < qty ? `${itemText(def.name, qty)}${more ? ' more' : ''} was written, but one reply may give ${limits.join(' and ')}; ${given} ${given === 1 ? 'was' : 'were'} given.` : null,
     };
 }
@@ -738,8 +760,10 @@ export function captureItem(ctx, line, env) {
         const held = storyItems(ctx, inv, def, qty, created);
         const stacks = grantInto(ctx, inv, def, held.qty, 'party', note);
         return {
-            summary: `The party gains ${itemText(def.name, held.qty)}.`,
-            data: { def: def.id, qty: held.qty, owner: 'party', stacks, created, from: labelOf(line, 'from') ?? '' },
+            summary: held.notable
+                ? `The party gains ${itemText(def.name, held.qty)} (notable gift: ${def.name}, outside this reply's goods budget).`
+                : `The party gains ${itemText(def.name, held.qty)}.`,
+            data: { def: def.id, qty: held.qty, owner: 'party', stacks, created, from: labelOf(line, 'from') ?? '', ...(held.notable ? { notable: true } : {}) },
             narrate: false,
             ...(held.problem ? { problem: held.problem } : {}),
         };

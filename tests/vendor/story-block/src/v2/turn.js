@@ -23,6 +23,7 @@ import { hash, readRecord } from './persist.js';
 import { CAPTURE_PREFIX } from './registry.js';
 import { STATIC_MARKER, assemble } from './prompt.js';
 import { MAX_CHANGE_LINES, ensureModules, makeView } from './sdk.js';
+import { cutAt } from '../text.js';
 
 export const STATIC_KEY = 'story_suite_static';
 export const TAIL_KEY = 'story_suite_tail_1';
@@ -77,7 +78,7 @@ export function defuseMacros(text) {
 // characters, so it cannot start a [Happened] or <Changes> line of its own), at most MAX_NAME long.
 export function flatName(value) {
     const flat = String(value ?? '').replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, ' ').replace(/ {2,}/g, ' ').trim();
-    return flat.length > MAX_NAME ? `${flat.slice(0, MAX_NAME - 1).trimEnd()}…` : flat;
+    return flat.length > MAX_NAME ? `${cutAt(flat, MAX_NAME - 1).trimEnd()}…` : flat;
 }
 
 /**
@@ -157,7 +158,7 @@ export function restoreMissing(chat, staticText, tailText) {
  * adds the packs' start, SPEC §2.6) }.
  * `settings` is createSettings() (settings() → host settings, settings(id) → a module's).
  * Returns { interceptor, install, uninstall, onPromptReady, onTextPromptReady, onMessageReceived,
- * onChatChanged, onTimelineChanged, onGenerationEnded, preview, report, problems, clearProblems,
+ * onChatChanged, onChatRenamed, onTimelineChanged, onGenerationEnded, preview, report, problems, clearProblems,
  * session }.
  */
 export function createTurn({ ctx, store, bus, registry, settings, events = null, onBlocked = null, notify = defaultNotify, initial = () => registry.initialState() }) {
@@ -166,7 +167,7 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
     const position = place => (place === 'static' ? types().IN_PROMPT ?? IN_PROMPT : types().IN_CHAT ?? IN_CHAT);
     const hostSettings = () => (typeof settings === 'function' ? settings() : settings ?? {});
     let session = null;
-    let dryNext = false;
+    let deferred = false;   // cues committed before a reply, left for the reply's save (runCues)
     let listeners = [];
     const problemLog = [];
     const blocks = [];
@@ -185,7 +186,8 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
         const item = { module: null, code: 'PROBLEM', ...entry };
         problemLog.push(item);
         if (problemLog.length > MAX_PROBLEMS) problemLog.splice(0, problemLog.length - MAX_PROBLEMS);
-        console.warn(`[Story Suite] ${item.module ? `${item.module}: ` : ''}${item.message}`);
+        // A quiet one (a line of a feature the reader turned off) is listed, not warned about.
+        if (item.quiet !== true) console.warn(`[Story Suite] ${item.module ? `${item.module}: ` : ''}${item.message}`);
         return item;
     }
 
@@ -222,8 +224,10 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
 
     // beforeGenerate (§4.1 step 3): each hook may return lines for the tail, or commands to
     // commit now as `system` receipts: string[] | { lines?: string[], commands?: [{ type, payload }] }.
-    // A Continue (the same reply goes on) and a dry run (SillyTavern counting tokens) commit nothing
-    // (B3-9): hooks are told `{ type, dryRun, commit: false }` and their commands are not run.
+    // A Continue (the same reply goes on) commits nothing (B3-9): hooks are told `{ type, dryRun,
+    // commit: false }` and their commands are not run. A dry run (SillyTavern counting tokens) never
+    // gets here: SillyTavern 1.19 runs no interceptor for one (Generate: `if (!dryRun)`), so the
+    // interceptor's own generation is never a dry run (r2-1).
     async function runCues(type = 'normal', { dryRun = false } = {}) {
         const cues = {};
         let committed = false;
@@ -248,7 +252,13 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
                 } else problem({ module: moduleId, code: result?.code ?? 'FAILED', message: `The cue "${command?.type}" was not committed: ${result?.message ?? 'unknown error'}` });
             }
         }
-        if (committed) await trySave('after the cues before the reply');
+        // Saved with the reply (MESSAGE_RECEIVED), not now: each save writes the whole chat file, and the
+        // reply's save comes moments later with these cues in it. A reply that never comes still has them
+        // saved: GENERATION_ENDED / GENERATION_STOPPED and CHAT_CHANGED save what is unsaved.
+        if (committed) {
+            store.deferSave?.();
+            deferred = true;
+        }
         return cues;
     }
 
@@ -309,9 +319,9 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
             return;
         }
         if (!ctx?.chat) return;
-        // GENERATION_STARTED said whether this one is a dry run (it comes just before).
-        const dryRun = dryNext;
-        dryNext = false;
+        // B-b2-timeline-r2-1: never a dry run (SillyTavern runs interceptors only for real generations).
+        // It is not read from GENERATION_STARTED: another caller's dry run (token counting) can start
+        // between this generation's GENERATION_STARTED and this call, and would cost the reply its capture.
         try {
             await trySave('before the reply');
             // A Regenerate removes the old reply before this runs, without an event for it.
@@ -323,13 +333,8 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
                 block(blocked, abort);
                 return;
             }
-            const cues = await runCues(kind, { dryRun });
+            const cues = await runCues(kind);
             const built = build(cues);
-            if (dryRun) {
-                // Counted, never sent: the prompts are there to count, and the pending reply keeps its session.
-                setPrompts(defuseMacros(built.staticText), defuseMacros(built.tailText));
-                return;
-            }
             const chat = ctx.chat;
             const last = chat.length - 1;
             const index = kind === 'swipe' || kind === 'continue' ? last : chat.length;
@@ -414,11 +419,25 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
     // Each line runs on the state the lines before it left (bus.run's `state`), as its owner's
     // capture handler (bus.run's `capture`), and is stored on the reply before the next one runs.
     // A reply holds at most maxChangeLines change lines; the rest are one Problem (pushed to `found`).
+    const lineCap = () => (Number.isInteger(hostSettings()?.maxChangeLines) && hostSettings().maxChangeLines > 0 ? hostSettings().maxChangeLines : MAX_CHANGE_LINES);
+
+    // A block's lines read, at most maxChangeLines of them, change lines or not; the rest are one Problem.
+    function readBlock(index, text) {
+        const cap = lineCap();
+        const parsed = parseChanges(text, { max: cap });
+        const problems = parsed.problems.map(line => problem({ index, code: 'UNREADABLE', message: line }));
+        if (parsed.over) {
+            const { count, total, first } = parsed.over;
+            problems.push(problem({ index, code: 'TOO_MANY', message: `The reply has ${total} change lines; only the first ${cap} were read, so ${count} ${count === 1 ? 'line was' : 'lines were'} not used (from "${cutAt(first, 60)}").` }));
+        }
+        return { lines: parsed.lines, problems };
+    }
+
     function capped(index, all, found) {
-        const cap = Number.isInteger(hostSettings()?.maxChangeLines) && hostSettings().maxChangeLines > 0 ? hostSettings().maxChangeLines : MAX_CHANGE_LINES;
+        const cap = lineCap();
         if (all.length > cap) {
             const more = all.length - cap;
-            found.push(problem({ index, code: 'TOO_MANY', message: `The reply has ${all.length} change lines; only the first ${cap} were read, so ${more} ${more === 1 ? 'line was' : 'lines were'} not used (from "${all[cap].raw.slice(0, 60)}").` }));
+            found.push(problem({ index, code: 'TOO_MANY', message: `The reply has ${all.length} change lines; only the first ${cap} were read, so ${more} ${more === 1 ? 'line was' : 'lines were'} not used (from "${cutAt(all[cap].raw, 60)}").` }));
         }
         return all.slice(0, cap);
     }
@@ -448,6 +467,12 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
             const entry = registry.capture(line.kind);
             if (!entry) {
                 found.push(problem({ index, line: line.raw, code: 'UNKNOWN_KIND', message: `No module keeps "${line.kind}", so "${line.raw}" was not used.` }));
+                continue;
+            }
+            // A kind whose feature the reader turned off (MODULES §F100): not an error, just not used.
+            if (entry.off) {
+                const label = registry.feature?.(entry.feature)?.label ?? entry.feature;
+                found.push(problem({ module: entry.moduleId, index, line: line.raw, code: 'FEATURE_OFF', quiet: true, message: `"${line.raw}" was not used: ${label} is turned off (feature off).` }));
                 continue;
             }
             let result;
@@ -521,13 +546,22 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
         if (!base) return refusal('FAILED', 'This chat has no story state yet.');
         const mes = String(message.mes ?? '');
         const block = extractBlock(mes);
-        const parsed = block === null ? { lines: [], problems: [] } : parseChanges(block);
-        const problems = parsed.problems.map(text => problem({ index, code: 'UNREADABLE', message: text }));
+        const parsed = block === null ? { lines: [], problems: [] } : readBlock(index, block);
+        const problems = [...parsed.problems];
         const receipts = [];
         const lines = capped(index, parsed.lines, problems);
+        const swipe = message.swipe_id;
         let ops;
         try {
             ({ ops } = await captureEach(index, lines, receipts, problems, base, storySeeds(readRecord(message))));
+            // B-b2-timeline-r2: the lines ran while the reader could act (a capture handler may wait). A
+            // message deleted, another chat opened, the reply swiped or edited, or a reply begun in that
+            // time: what was read is no longer this reply's, so nothing is stored (not even on the
+            // message that now stands at `index`).
+            const live = ctx?.chat ?? [];
+            if (live[index] !== message || message.swipe_id !== swipe || String(message.mes ?? '') !== mes || session) {
+                return refusal('CONFLICT', 'The chat changed while the reply was read again (a message was deleted, swiped, edited or added); nothing was changed. Press Re-read again.');
+            }
             store.replaceStory(index, { ops, receipts });
         } catch (error) {
             return refusal('CONFLICT', `${error?.message ?? error}`);
@@ -581,10 +615,10 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
             // The reader stopped it (GENERATION_STOPPED): an open block's unfinished last line is left out.
             const stopped = current.stopped === true;
             const block = extractBlock(text, 'Changes', at, { stopped });
-            const parsed = block === null ? { lines: [], problems: [] } : parseChanges(block);
-            const problems = parsed.problems.map(line => problem({ index: id, code: 'UNREADABLE', message: line }));
+            const parsed = block === null ? { lines: [], problems: [] } : readBlock(id, block);
+            const problems = [...parsed.problems];
             const cut = block === null ? null : cutLine(text, 'Changes', at, { stopped });
-            if (cut) problems.push(problem({ index: id, line: cut, code: 'CUT_OFF', message: `The reply stopped in the middle of the change line "${cut.slice(0, 80)}", so it was not used.` }));
+            if (cut) problems.push(problem({ index: id, line: cut, code: 'CUT_OFF', message: `The reply stopped in the middle of the change line "${cutAt(cut, 80)}", so it was not used.` }));
             const result = await captureLines(id, parsed.lines);
             problems.push(...result.problems);
 
@@ -603,6 +637,7 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
                     edited = true;
                 }
             }
+            deferred = false;
             if (store.dirty()) await trySave('after the reply');
             else if (edited) await saveText();
             // At MESSAGE_RECEIVED SillyTavern has not drawn the reply yet (it draws the text as saved), so
@@ -636,8 +671,8 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
         if (!isCarrier(message) || store.headIndex() !== index || (Number.isInteger(message.swipe_id) ? message.swipe_id : 0) !== swipe || session) {
             return { receipts: [], problems: ['The reply changed before its late change lines arrived; they were not used.'] };
         }
-        const parsed = parseChanges(String(text ?? ''));
-        const problems = parsed.problems.map(line => problem({ index, code: 'UNREADABLE', message: line }));
+        const parsed = readBlock(index, String(text ?? ''));
+        const problems = [...parsed.problems];
         const result = await captureLines(index, parsed.lines);
         problems.push(...result.problems);
         if (parsed.lines.length) {
@@ -661,17 +696,36 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
         session = null;
         clearPrompts();
         rebuild();
+        // A cue left for the reply's save (runCues) whose reply will not come here: saved now (into its
+        // own chat's file when this is another chat, the store's rescue).
+        if (deferred) {
+            deferred = false;
+            if (store.dirty?.()) store.scheduleSave?.();
+        }
         await ensureModules({ store, bus, registry, events });
+    }
+
+    /**
+     * CHAT_RENAMED: { oldFileName, newFileName } (file names with ".jsonl"). SillyTavern 1.19 renames the
+     * file, reads the open chat back (CHAT_CHANGED), then tells this; a change not saved yet goes into the
+     * renamed file (store.renamed, B-b2-timeline-r2-2). The server may clean the new name up (characters
+     * it does not allow in a file name); when the open chat's ID is that name cleaned up, it is the one.
+     */
+    function onChatRenamed(data) {
+        const name = value => String(value ?? '').trim().replace(/\.jsonl$/i, '');
+        const from = name(data?.oldFileName);
+        let to = name(data?.newFileName);
+        if (!from || !to) return false;
+        let open = null;
+        try { open = typeof ctx?.getCurrentChatId === 'function' ? ctx.getCurrentChatId() : null; } catch { open = null; }
+        const loose = id => String(id).replace(/[\/?<>\\:*|"\u0000-\u001f\u0080-\u009f]/g, '').replace(/[. ]+$/, '');
+        if (typeof open === 'string' && open && open !== from && open !== to && loose(open) === loose(to)) to = open;
+        return store.renamed?.(from, to) ?? false;
     }
 
     /** Deleted messages, swipes, a greeting picked: the state is rebuilt from what is stored. */
     function onTimelineChanged() {
         rebuild();
-    }
-
-    /** GENERATION_STARTED: (type, options, dryRun). */
-    function onGenerationStarted(_type, _options, dryRun) {
-        dryNext = dryRun === true;
     }
 
     /** GENERATION_STOPPED: the reader stopped the reply being written (its last line may be unfinished). */
@@ -683,6 +737,7 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
     /** GENERATION_ENDED / GENERATION_STOPPED: a spent note never reaches a later prompt. */
     function onGenerationEnded() {
         if (session?.prompted) clearPrompts();
+        deferred = false;
         // A save that failed and was not made good after the reply (or the reply never came): again soon.
         if (store.dirty()) store.scheduleSave();
     }
@@ -701,10 +756,10 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
         on(names.CHAT_COMPLETION_PROMPT_READY, onPromptReady);
         on(names.GENERATE_AFTER_COMBINE_PROMPTS, onTextPromptReady);
         on(names.MESSAGE_RECEIVED, onMessageReceived);
-        on(names.GENERATION_STARTED, onGenerationStarted);
         on(names.GENERATION_ENDED, onGenerationEnded);
         on(names.GENERATION_STOPPED, onGenerationStopped);
         on(names.CHAT_CHANGED, onChatChanged);
+        on(names.CHAT_RENAMED, onChatRenamed);
         // MESSAGE_EDITED too: a record's swipe mark follows an edit (persist.js restamp), so a Continue
         // after it still finds the record.
         for (const event of [names.MESSAGE_DELETED, names.MESSAGE_SWIPED, names.MESSAGE_SWIPE_DELETED, names.CHARACTER_FIRST_MESSAGE_SELECTED, names.MESSAGE_EDITED]) on(event, onTimelineChanged);
@@ -727,6 +782,7 @@ export function createTurn({ ctx, store, bus, registry, settings, events = null,
         onTextPromptReady,
         onMessageReceived,
         onChatChanged,
+        onChatRenamed,
         onTimelineChanged,
         onGenerationEnded,
         reread,

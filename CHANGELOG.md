@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.0-beta.1 (`v2` branch)
+
+Story Suite v2, first beta. What's new, known issues and every module's version: [Story Block docs/v2/RELEASES.md](https://github.com/kohz87/Story_block/blob/v2/docs/v2/RELEASES.md). Player guide: [Story Block docs/v2/GUIDE.md](https://github.com/kohz87/Story_block/blob/v2/docs/v2/GUIDE.md).
+
+- Version 2.0.0-beta.1. Needs Story Block `>=2.0.0-beta.1` (`requires`); on an older host Story Block warns.
+
 ## 2.0.0-alpha.1 (in progress, `v2` branch)
 
 Story Suite v2. RPG Battle v2 module: party, creation, checks, items, combat, battle board, return in time, trade and screens parts merged and wired into one module. Status: https://github.com/kohz87/Story_block/blob/v2/docs/v2/STATUS.md

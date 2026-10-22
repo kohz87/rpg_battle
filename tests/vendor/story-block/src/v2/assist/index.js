@@ -1,5 +1,6 @@
 // The assist part of Story Block (MODULES §A, SPEC §0.5, §4.5): two optional helpers that each make
-// one extra, cheap model call, both off by default (settings section "Assist").
+// one extra, cheap model call, both off by default (Story Block's features `story-block.preroll` and
+// `story-block.extractor`, MODULES §F100; the profile is in the settings section "Assist").
 //
 // * Pre-roll classifier (classifier.js), in `beforeGenerate`: the reader's new message → at most one
 //   check line → `assist.precheck` (claim, capture.check, check.roll) committed before the reply, so
@@ -18,7 +19,7 @@ import { createExtractor } from './extractor.js';
 import { renderAssistSection } from './section.js';
 import { stCallModel, stChat, stChatId } from './st-adapter.js';
 
-export { DEFAULTS, SCHEMA, SETTING, TIMEOUT_MS, createRunLog, estimateTokens, hashText, withTimeout } from './common.js';
+export { DEFAULTS, FEATURE_TEXT, SCHEMA, SETTING, TIMEOUT_MS, createRunLog, estimateTokens, hashText, withTimeout } from './common.js';
 export {
     ANSWER_TOKENS as CLASSIFIER_ANSWER_TOKENS, CHECK_KIND, CLASSIFIER_HEAD, MESSAGE_LIMIT, PRECHECK, PROMPT_BUDGET, ROLLED_LINE, ROLL_COMMAND,
     checkLine, claimKey, classifierPrompt, createClassifier, normalizeDc, parseClassifierAnswer, pendingCheckId, precheck,

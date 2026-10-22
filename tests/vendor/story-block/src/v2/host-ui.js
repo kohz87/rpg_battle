@@ -4,6 +4,10 @@
 //   (bool, int, choice, text, list of {…}) and its custom `section` below them; values are read
 //   and written through createSettings() (extension_settings.storySuite.modules[id]); plus the
 //   host's own fold (the tail budget). `openSettingsOverlay` puts it in a full-screen dialog.
+//   Features (MODULES §F100): each module's fold opens with a "Features" subsection, a switch per
+//   feature with its label and description, and one "Features" fold lists every module's; a feature
+//   that changes the static prompt part says so (PROMPT_HINT). The choices are the reader's
+//   (createFeatureStore, extension_settings.storySuite.features), not the chat's.
 // - the tab host: a tab bar with every module tab, each rendered from the head state's view.
 //
 // Every node is built with textContent; module names, labels and values are never markup.
@@ -11,10 +15,19 @@
 
 import { FIELD_TYPES, normalizeField } from './registry.js';
 import { HOST_SETTINGS_SCHEMA } from './sdk.js';
+import { PROMPT_HINT } from './features.js';
 import { scrollCue } from './view/scroll-cue.js';
+import { cutAt } from '../text.js';
 
 export const OPEN_CLASS = 'story-suite-open';
 export const HOST_FOLD = 'story-suite';
+export const FEATURES_FOLD = 'story-suite-features';
+export const FEATURE_TEXT = Object.freeze({
+    title: 'Features',
+    overviewHint: 'every module',
+    moduleHint: 'Turn a part of this module on or off. It applies to you, in every chat; what the story keeps for it stays.',
+    overviewHelp: 'Every optional part of every module. It applies to you, in every chat; turning one off keeps what the story holds for it, so turning it on again brings it all back.',
+});
 
 function el(doc, tag, className = '', text = '') {
     const node = doc.createElement(tag);
@@ -102,7 +115,7 @@ function control(doc, field, value, onChange, id) {
     if (max !== null) input.maxLength = max;
     input.value = String(value ?? '');
     input.addEventListener('change', () => {
-        if (max !== null && input.value.length > max) input.value = input.value.slice(0, max);
+        if (max !== null && input.value.length > max) input.value = cutAt(input.value, max);
         onChange(input.value);
     });
     return input;
@@ -181,15 +194,75 @@ function fold(doc, key, title, hint = '') {
     return { details, body };
 }
 
+// One feature's row: its switch, label, description and (when it changes the static prompt) the hint.
+function featureRow(doc, feature, onChange) {
+    const id = `story_suite_feature_${feature.id}`.replace(/[^\w-]/g, '_');
+    const row = el(doc, 'label', 'story-suite-row story-suite-feature');
+    row.dataset.feature = feature.id;
+    row.setAttribute('for', id);
+    const text = el(doc, 'span');
+    text.appendChild(el(doc, 'b', '', feature.label));
+    if (feature.describe) text.appendChild(el(doc, 'small', '', feature.describe));
+    if (feature.prompt) text.appendChild(el(doc, 'small', 'story-suite-feature-hint', PROMPT_HINT));
+    row.appendChild(text);
+    const input = el(doc, 'input');
+    input.type = 'checkbox';
+    input.id = id;
+    input.setAttribute('role', 'switch');
+    input.checked = feature.on === true;
+    input.setAttribute('aria-checked', String(input.checked));
+    input.addEventListener('change', () => onChange(Boolean(input.checked)));
+    row.appendChild(input);
+    return row;
+}
+
 /**
  * Renders the settings into `root` (emptied first). `options`: { registry, settings
- * (createSettings), doc?, sdk? }. A module's `section(el, api)` gets api = { get(key), set(key,
- * value), values(), sdk } (a section given as a title plus render(el, api) is the same panel).
- * Returns { refresh() }.
+ * (createSettings), doc?, sdk?, features? (createFeatureStore; without it no Features are shown) }.
+ * A module's `section(el, api)` gets api = { get(key), set(key, value), values(), sdk } (a section
+ * given as a title plus render(el, api) is the same panel). Returns { refresh() }.
  */
-export function renderSettingsHost(root, { registry, settings, doc = globalThis.document, sdk = null }) {
-    function moduleFold(def) {
+export function renderSettingsHost(root, { registry, settings, doc = globalThis.document, sdk = null, features = null }) {
+    const featureList = () => (features && typeof features.list === 'function' ? features.list() : []);
+    // A switch changed: stored, then every row of that feature (its module's and the overview's) shows it.
+    function setFeature(id, on) {
+        const stored = features.set(id, on);
+        const now = typeof stored === 'boolean' ? stored : features.on(id);
+        for (const node of root.querySelectorAll('.story-suite-feature')) {
+            if (node.dataset.feature !== id) continue;
+            const input = node.querySelector('input');
+            if (!input) continue;
+            input.checked = now;
+            input.setAttribute('aria-checked', String(now));
+        }
+    }
+    function featureBlock(list, help) {
+        const block = el(doc, 'div', 'story-suite-subsection story-suite-features');
+        block.appendChild(el(doc, 'h4', '', FEATURE_TEXT.title));
+        if (help) block.appendChild(el(doc, 'p', 'story-suite-muted', help));
+        for (const feature of list) block.appendChild(featureRow(doc, feature, on => setFeature(feature.id, on)));
+        return block;
+    }
+    function featuresFold(list) {
+        const { details, body } = fold(doc, FEATURES_FOLD, FEATURE_TEXT.title, FEATURE_TEXT.overviewHint);
+        body.appendChild(el(doc, 'p', 'story-suite-muted', FEATURE_TEXT.overviewHelp));
+        const byModule = new Map();
+        for (const feature of list) {
+            if (!byModule.has(feature.moduleId)) byModule.set(feature.moduleId, []);
+            byModule.get(feature.moduleId).push(feature);
+        }
+        for (const [moduleId, own] of byModule) {
+            const group = el(doc, 'div', 'story-suite-subsection story-suite-feature-group');
+            group.dataset.module = moduleId;
+            group.appendChild(el(doc, 'h4', '', own[0].moduleName));
+            for (const feature of own) group.appendChild(featureRow(doc, feature, on => setFeature(feature.id, on)));
+            body.appendChild(group);
+        }
+        return details;
+    }
+    function moduleFold(def, own = []) {
         const { details, body } = fold(doc, def.moduleId, def.name, def.title !== def.name ? def.title : def.moduleId);
+        if (own.length) body.appendChild(featureBlock(own, FEATURE_TEXT.moduleHint));
         const values = settings(def.moduleId);
         for (const [key, field] of Object.entries(def.schema)) {
             const value = Object.hasOwn(values, key) ? values[key] : emptyValue(field);
@@ -223,7 +296,21 @@ export function renderSettingsHost(root, { registry, settings, doc = globalThis.
         const open = new Set([...root.querySelectorAll('details.story-suite-fold')].filter(node => node.open).map(node => node.dataset.fold));
         root.replaceChildren();
         root.classList.add('story-suite-folds');
-        const folds = [hostFold(), ...registry.settingsDefs().filter(def => Object.keys(def.schema).length || def.section).map(moduleFold)];
+        const all = featureList();
+        const ownOf = moduleId => all.filter(feature => feature.moduleId === moduleId);
+        // A module with features gets its fold even without settings of its own.
+        const defs = registry.settingsDefs();
+        const extra = [...new Set(all.map(feature => feature.moduleId))]
+            .filter(moduleId => !defs.some(def => def.moduleId === moduleId))
+            .map(moduleId => {
+                const name = all.find(feature => feature.moduleId === moduleId).moduleName;
+                return { moduleId, name, title: name, schema: {}, section: null };
+            });
+        const modules = [...defs, ...extra]
+            .filter(def => Object.keys(def.schema).length || def.section || ownOf(def.moduleId).length)
+            .sort((a, b) => (a.moduleId < b.moduleId ? -1 : a.moduleId > b.moduleId ? 1 : 0))
+            .map(def => moduleFold(def, ownOf(def.moduleId)));
+        const folds = [hostFold(), ...(all.length ? [featuresFold(all)] : []), ...modules];
         for (const node of folds) {
             if (open.has(node.dataset.fold)) node.open = true;
             root.appendChild(node);
@@ -237,7 +324,7 @@ export function renderSettingsHost(root, { registry, settings, doc = globalThis.
  * Opens the settings in a full-screen dialog on `doc.body`, with a Close button; `<body>`
  * carries `story-suite-open` while it is open. Returns { root, close(), refresh() }.
  */
-export function openSettingsOverlay({ registry, settings, doc = globalThis.document, sdk = null }) {
+export function openSettingsOverlay({ registry, settings, doc = globalThis.document, sdk = null, features = null }) {
     doc.querySelector?.('#story_suite_v2_overlay')?.remove();
     const overlay = el(doc, 'div', 'story-suite-overlay');
     overlay.id = 'story_suite_v2_overlay';
@@ -251,7 +338,7 @@ export function openSettingsOverlay({ registry, settings, doc = globalThis.docum
     overlay.append(header, body);
     doc.body.appendChild(overlay);
     doc.body.classList.add(OPEN_CLASS);
-    const host = renderSettingsHost(body, { registry, settings, doc, sdk });
+    const host = renderSettingsHost(body, { registry, settings, doc, sdk, features });
     const api = {
         root: overlay,
         refresh: host.refresh,
