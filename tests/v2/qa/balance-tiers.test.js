@@ -8,7 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CREATURES, PRESET_IDS, cellRate, directFight, heroParty } from '../../../scripts/balance-lib.mjs';
 import { unpackSetup } from '../../../src/v2/combat/stored.js';
-import { MAX_FIELDED, offerRows } from '../../../src/v2/combat/setup.js';
+import { COMBAT_DEFAULTS, offerRows } from '../../../src/v2/combat/setup.js';
 import { DEFAULT_BESTIARY } from '../../../src/enemies.js';
 import { withHero } from './helpers/harness.js';
 import { sessionOf } from '../../../src/v2/combat/stored.js';
@@ -30,12 +30,15 @@ test('the simulation\'s fights are combat.start\'s: same setup seed, same outcom
     }
 });
 
-test('the budget is the party\'s: four foes against two members are two each; one member meets four even, strong or deadly foes at most', () => {
+test('the budget is the party\'s: four foes against two members are two each; past the field, waves', () => {
     const rows = (count, partySize) => offerRows({ foes: [{ name: 'Wolf', count, tier: 'deadly' }] }, { pcLevel: 1, bestiary: DEFAULT_BESTIARY, partySize });
     const pick = list => list.map(row => [row.level, row.scale ?? 1, row.levelScale ?? 1]);
     assert.deepEqual(pick(rows(4, 2)), pick(rows(2, 1)));
     assert.equal(rows(4, 2)[0].count, 4, 'all four come');
-    assert.equal(rows(9, 1)[0].count, MAX_FIELDED.deadly);
+    // Nine against one: four on the field (the default setting), the rest in later waves, all fought.
+    const nine = rows(9, 1);
+    assert.equal(nine.reduce((sum, row) => sum + row.count, 0), 9);
+    assert.equal(nine.filter(row => !row.wave).reduce((sum, row) => sum + row.count, 0), COMBAT_DEFAULTS.fieldPerMember);
 });
 
 // The cells: [tier, level, headcount, creature]; every preset fights each.

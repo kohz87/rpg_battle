@@ -11,34 +11,40 @@ import { offerAndStart, playOut, seeded, started } from './helpers.js';
 const DRAUGHT = 'Minor Healing Draught';
 
 test('B4r2-1: a draught drunk in the opening turns of a fight leaves the bag', async () => {
-    await seeded(1, async () => {
-        const host = await started();
-        try {
-            assert.equal((await host.internal('party.addCompanion', { name: 'Lyra', role: 'ranger' })).ok, true);
-            const lyra = host.q('party.actors').find(actor => actor.name === 'Lyra');
-            await host.send('Vials.', host.reply('Three vials for Lyra.', [`+ item ${DRAUGHT} | qty: 3 | owner: Lyra | note: heal 20`]));
-            const stack = host.q('inventory.items', {}).find(item => item.name === DRAUGHT);
-            if (stack.owner !== lyra.id) assert.equal((await host.internal('inventory.transfer', { stack: stack.stack, to: lyra.id })).ok, true);
-            assert.equal((await host.internal('party.fightPools', { actors: [{ id: lyra.id, hp: 3 }] })).ok, true);
-            const held = () => host.q('inventory.items', { owner: lyra.id }).find(item => item.name === DRAUGHT)?.qty ?? 0;
-            assert.equal(held(), 3);
-            const { start } = await offerAndStart(host, '! encounter 3 Wolf | tier: even');
-            assert.equal(start.ok, true, start.message);
-            const opening = host.q('combat.session').log.filter(entry => entry.text.includes(`Lyra uses ${DRAUGHT}`)).length;
-            assert.ok(opening > 0, 'seed 1: Lyra drinks in the opening turns');
-            assert.equal(held(), 3 - opening, `Lyra drank ${opening} in the opening, the bag still holds ${held()}`);
-            let drunk = opening;
-            for (let n = 0; n < 300; n += 1) {
-                const view = host.q('combat.session');
-                if (!view || view.status !== 'active') break;
-                const r = await host.cmd('combat.act', { action: { type: 'auto' }, session: view.id, logLength: view.logLength });
-                assert.equal(r.ok, true, r.message);
-                drunk += r.receipt.data.log.filter(text => text.includes(`Lyra uses ${DRAUGHT}`)).length;
+    // The first seed whose opening has Lyra drink (seed 1 before wave C's speed rule).
+    let checked = 0;
+    for (let seed = 1; seed <= 30 && !checked; seed += 1) {
+        await seeded(seed, async () => {
+            const host = await started();
+            try {
+                assert.equal((await host.internal('party.addCompanion', { name: 'Lyra', role: 'ranger' })).ok, true);
+                const lyra = host.q('party.actors').find(actor => actor.name === 'Lyra');
+                await host.send('Vials.', host.reply('Three vials for Lyra.', [`+ item ${DRAUGHT} | qty: 3 | owner: Lyra | note: heal 20`]));
+                const stack = host.q('inventory.items', {}).find(item => item.name === DRAUGHT);
+                if (stack.owner !== lyra.id) assert.equal((await host.internal('inventory.transfer', { stack: stack.stack, to: lyra.id })).ok, true);
+                assert.equal((await host.internal('party.fightPools', { actors: [{ id: lyra.id, hp: 3 }] })).ok, true);
+                const held = () => host.q('inventory.items', { owner: lyra.id }).find(item => item.name === DRAUGHT)?.qty ?? 0;
+                assert.equal(held(), 3);
+                const { start } = await offerAndStart(host, '! encounter 3 Wolf | tier: even');
+                assert.equal(start.ok, true, start.message);
+                const opening = host.q('combat.session').log.filter(entry => entry.text.includes(`Lyra uses ${DRAUGHT}`)).length;
+                if (!opening) return;
+                assert.equal(held(), 3 - opening, `Lyra drank ${opening} in the opening, the bag still holds ${held()}`);
+                let drunk = opening;
+                for (let n = 0; n < 300; n += 1) {
+                    const view = host.q('combat.session');
+                    if (!view || view.status !== 'active') break;
+                    const r = await host.cmd('combat.act', { action: { type: 'auto' }, session: view.id, logLength: view.logLength });
+                    assert.equal(r.ok, true, r.message);
+                    drunk += r.receipt.data.log.filter(text => text.includes(`Lyra uses ${DRAUGHT}`)).length;
+                }
+                await host.cmd('combat.end');
+                assert.equal(held(), 3 - drunk, `${drunk} drunk in the fight, ${held()} of 3 left in the bag`);
+                checked = seed;
+            } finally {
+                host.close();
             }
-            await host.cmd('combat.end');
-            assert.equal(held(), 3 - drunk, `${drunk} drunk in the fight, ${held()} of 3 left in the bag`);
-        } finally {
-            host.close();
-        }
-    });
+        });
+    }
+    assert.ok(checked, 'a seed where Lyra drinks in the opening turns');
 });

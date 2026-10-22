@@ -25,7 +25,7 @@ import { DEFAULT_BESTIARY } from '../../enemies.js';
 import { itemSlot, oneCurrency, parseEffect } from '../../items.js';
 import { combinedBestiary } from '../../templates.js';
 import { foesText, rankContext, readEncounter, STAKES, TIERS } from './encounter.js';
-import { buildSetup, COMBAT_DEFAULTS, fightNumbers, moneyScale, partyCombatants, scaledMoney } from './setup.js';
+import { buildSetup, COMBAT_DEFAULTS, COMBAT_LIMITS, fightNumbers, moneyScale, partyCombatants, scaledMoney } from './setup.js';
 import { beatenOf, bestiaryList, byRev, draftSession, dropSession, sessionOf, creatureSlug, fightRules, lastOf, latinSlug, offersOf, packCreature, packSetup, sessionStatus, unpackSetup, valuesOf } from './stored.js';
 export { beatenOf, lastOf, offersOf } from './stored.js';
 import { clipped } from '../lines.js';
@@ -448,7 +448,9 @@ function start(ctx, payload) {
     } catch (error) {
         ctx.fail('REFUSED', error?.message || 'That fight cannot start.');
     }
-    const { setup, made, heldBack = 0 } = built;
+    const { setup, made } = built;
+    // The foes past the field (the reader's setting, setup.planWaves) come in later waves.
+    const later = (setup.waves ?? []).reduce((sum, wave) => sum + (wave.enemies?.length ?? 0), 0);
     // The party as it stands before the opening (the automatic turns before the first choice,
     // B4r2-1): its fight items held to what the inventory has, as an action's stock cuts hold
     // them, so nobody in the opening drinks a draught that is not there.
@@ -493,10 +495,10 @@ function start(ctx, payload) {
     draft.fights ??= {};
     draft.fights[id] = { id, rev, setup: packSetup(setup), actions: [], status, ...(ranks.length ? { ranks } : {}) };
     return {
-        summary: `A fight begins: ${partyNames(setup)} against ${foeNames(setup)}${heldBack ? ` (${heldBack} more hang${heldBack === 1 ? 's' : ''} back)` : ''}.`,
+        summary: `A fight begins: ${partyNames(setup)} against ${foeNames(setup)}${later ? ` (${later} more in later waves)` : ''}.`,
         narrate: false,
         // `place`: where the fight began (the return part finds the fatal fight's start by it).
-        data: { session: id, offer: offer.id, place: setup.place ?? '', made: made.map(entry => entry.name), ...(heldBack ? { heldBack } : {}) },
+        data: { session: id, offer: offer.id, place: setup.place ?? '', made: made.map(entry => entry.name), ...(later ? { later } : {}) },
     };
 }
 
@@ -824,6 +826,9 @@ export const part = {
             speedOffset: { type: 'int', label: 'Speed (AGI +)', min: 0, max: 50 },
             hitBase: { type: 'int', label: 'Hit chance base %', min: 5, max: 95 },
             hitPerPoint: { type: 'int', label: 'Hit chance per DEX–AGI point', min: 0, max: 10 },
+            // Fights: foes on the field at once; the rest of an encounter comes in later waves (setup.planWaves).
+            fieldPerMember: { type: 'int', label: 'Fights: foes on the field per party member', min: COMBAT_LIMITS.fieldPerMember[0], max: COMBAT_LIMITS.fieldPerMember[1], help: 'More foes than this come in later waves, each when the one before is down. The tier still means the same danger: it counts the whole encounter.' },
+            fieldMax: { type: 'int', label: 'Fights: foes on the field at most', min: COMBAT_LIMITS.fieldMax[0], max: COMBAT_LIMITS.fieldMax[1] },
         },
     },
     // The Fight tab is the board part's screen `rpg-battle/fight` (SPEC §13.1).

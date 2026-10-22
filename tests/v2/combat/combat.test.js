@@ -416,7 +416,8 @@ test('settings: a new fight takes the turn system and hit numbers; a running one
     const setup = sessionOf(world.state.domains.combat).setup;
     assert.equal(setup.turns, 'rounds');
     assert.deepEqual(setup.hit, { base: 90, perPoint: 1 });
-    assert.equal(setup.speedOffset, 4);
+    // The setting plus the character's level (wave C: AGI's share of speed stays as at level 1).
+    assert.equal(setup.speedOffset, 4 + setup.party[0].level);
 });
 
 test('loot a pack defines for the base creature is granted by that name (the pack\'s def), never as a new "Starved …" item', () => {

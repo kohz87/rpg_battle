@@ -154,7 +154,8 @@ each('combat.end → party.applyResult { outcome, stakes, actors: [{ id, hp, mp,
 each('combat.end → party.grantXp { actor, amount }: the XP the fight result gives is the XP the actor gets', () => {
     const { h, pc } = withHero({ seed: 1 });
     const xpBefore = h.state().domains.party.actors[pc].xp;
-    const { end } = winFight(h, 'Cellar Rat');
+    // Plain attacks only (fightOut): a trivial foe, so the fight is won whatever the balance.
+    const { end } = winFight(h, 'Cellar Rat', { tier: 'trivial' });
     assert.equal(end.ok, true, end.message);
     const grants = sent(h, 'combat.end', 'party.grantXp');
     assert.deepEqual(grants.map(keys), [['actor', 'amount']]);
@@ -184,7 +185,7 @@ each('combat.end → inventory.grant { def, qty, owner } and wallet.receive { ow
 
 each('combat.end → inventory.grant: a loot def keeps the price item.define gives it (no value sent)', () => {
     const { h } = withHero({ seed: 1 });
-    const { end } = winFight(h, 'Cellar Rat');
+    const { end } = winFight(h, 'Cellar Rat', { tier: 'trivial' });
     assert.equal(end.ok, true, end.message);
     const def = h.state().domains.inventory.defs['story/cellar-rat-tail'];
     assert.ok(def, 'the tail was looted');

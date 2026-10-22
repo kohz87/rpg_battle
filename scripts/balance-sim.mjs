@@ -15,7 +15,7 @@
 // on target. The fast version with floors is tests/v2/qa/balance-tiers.test.js (npm test).
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 import { availableParallelism } from 'node:os';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { withHero } from '../tests/v2/qa/helpers/harness.js';
 import { CREATURES, LEVELS, PRESET_IDS, TIERS, cellRate, cells, onTarget } from './balance-lib.mjs';
 
@@ -46,8 +46,8 @@ export function winRate(words, tier, preset, { seeds = 200, first = 1000 } = {})
 const key = cell => `${cell.creature.set}:${cell.creature.name}`;
 
 /** The cells' win rates over worker threads: [{ tier, level, count, preset, creature, rate }]. */
-export async function runCells(list, { seeds = 200, first = 1000, workers = availableParallelism(), progress = false } = {}) {
-    const plain = list.map(cell => ({ tier: cell.tier, level: cell.level, count: cell.count, preset: cell.preset, creature: key(cell), ...(cell.shift !== undefined && cell.shift !== null ? { shift: cell.shift } : {}) }));
+export async function runCells(list, { seeds = 200, first = 1000, workers = availableParallelism(), progress = false, onRow = null } = {}) {
+    const plain = list.map(cell => ({ tier: cell.tier, level: cell.level, count: cell.count, preset: cell.preset, creature: key(cell), ...(cell.shift !== undefined && cell.shift !== null ? { shift: cell.shift } : {}), ...(cell.settings ? { settings: cell.settings } : {}) }));
     // Slowest first (high levels, many foes), handed out one at a time.
     const order = plain.map((cell, index) => index).sort((a, b) => (plain[b].level * plain[b].count) - (plain[a].level * plain[a].count));
     const out = new Array(plain.length);
@@ -62,6 +62,7 @@ export async function runCells(list, { seeds = 200, first = 1000, workers = avai
         };
         worker.on('message', ({ index, rate }) => {
             out[index] = { ...plain[index], rate };
+            if (onRow) onRow(out[index]);
             done += 1;
             if (progress && done % 500 === 0) console.error(`${done}/${plain.length} cells ${new Date().toISOString()}`);
             feed();
@@ -123,8 +124,14 @@ if (!isMainThread) {
     });
     const seeds = Number(process.env.SEEDS ?? 200);
     const started = Date.now();
-    const rows = await runCells(chosen, { seeds, first: Number(process.env.FIRST ?? 1000), workers: Number(process.env.WORKERS) || availableParallelism(), progress: true });
-    if (process.env.OUT) writeFileSync(process.env.OUT, rows.map(row => JSON.stringify(row)).join('\n') + '\n');
+    // OUT is written a row at a time and read back on a rerun: the cells already there are not run again.
+    const cellKey = row => `${row.tier}|${row.level}|${row.count}|${row.preset}|${row.creature}`;
+    const kept = process.env.OUT && existsSync(process.env.OUT) ? readFileSync(process.env.OUT, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line)) : [];
+    const have = new Set(kept.map(cellKey));
+    const todo = chosen.filter(cell => !have.has(cellKey({ ...cell, creature: key(cell) })));
+    if (kept.length) console.error(`resuming: ${kept.length} cells kept, ${todo.length} to run`);
+    const fresh = await runCells(todo, { seeds, first: Number(process.env.FIRST ?? 1000), workers: Number(process.env.WORKERS) || availableParallelism(), progress: true, onRow: process.env.OUT ? row => appendFileSync(process.env.OUT, `${JSON.stringify(row)}\n`) : null });
+    const rows = [...kept, ...fresh];
     printSummary(summary(rows));
     console.log(`${rows.length} cells × ${seeds} seeds in ${Math.round((Date.now() - started) / 1000)} s`);
 }

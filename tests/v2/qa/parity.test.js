@@ -42,7 +42,7 @@ each('item.use Minor Healing Draught = v1 useItemOutside (heal 20 by name, as v1
     const { h } = withHero();
     const pot = storyItem(h, 'Minor Healing Draught', 1);
     assert.deepEqual(h.state().domains.inventory.defs[pot].effect.heal, effectByName('Minor Healing Draught').heal);
-    for (const hpLeft of [10, 85, 97]) {
+    for (const hpLeft of [10, 70, 87]) { // the fighter's 90 HP (wave C preset): one short of full by 3
         const { h: w } = withHero();
         const p = storyItem(w, 'Minor Healing Draught', 1);
         const me = pcOf(w);

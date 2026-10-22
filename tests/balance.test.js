@@ -6,7 +6,17 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_RULES as rules, STATS, derive, maxHp, maxMp, suggestRank } from '../src/rules.js';
 import { makeRng } from '../src/rng.js';
-import { DEFAULT_SKILLS, PRESETS, resolveSkills } from '../src/skills.js';
+import { DEFAULT_SKILLS, resolveSkills } from '../src/skills.js';
+
+// The creation presets the rank table was tuned with (DESIGN §7.1, v1 0.5.x). v2 wave C rebalanced
+// skills.PRESETS for v2's fight rules; this v1 tuning keeps measuring v1's presets on v1's engine.
+const PRESETS = Object.freeze([
+    { id: 'fighter', points: { STR: 4, VIT: 3, AGI: 1, DEX: 2 }, skills: ['Power Strike', 'Sweep', 'Second Wind'] },
+    { id: 'skirmisher', points: { STR: 2, VIT: 2, AGI: 3, DEX: 3 }, skills: ['Quick Stab', 'Poison Dart', 'Power Strike'] },
+    { id: 'caster', points: { VIT: 3, AGI: 1, DEX: 1, INT: 5 }, skills: ['Firebolt', 'Frost Shard', 'Ward'] },
+    { id: 'healer', points: { VIT: 3, AGI: 1, INT: 4, CHA: 2 }, skills: ['Mend', 'Firebolt', 'Rally'] },
+    { id: 'archer', points: { STR: 1, VIT: 2, AGI: 2, DEX: 4, LUK: 1 }, skills: ['Aimed Shot', 'Poison Dart', 'Second Wind'] },
+]);
 import { projectEnemy } from '../src/enemies.js';
 import { startFight, summarize } from '../src/combat.js';
 import { generateCreature } from '../src/templates.js';

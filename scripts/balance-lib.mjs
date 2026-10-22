@@ -30,8 +30,8 @@ export const TARGETS = Object.freeze({ trivial: [98, 100], weak: [90, 100], even
 export const TIERS = Object.freeze(['trivial', 'weak', 'even', 'strong', 'deadly']);
 export const PRESET_IDS = Object.freeze(PRESETS.map(preset => preset.id));
 export const LEVELS = Object.freeze([1, 5, 10, 20, 40, 60]);
-// Headcounts per tier: even, strong and deadly field four foes a member at most (setup.MAX_FIELDED).
-export const COUNTS = Object.freeze({ trivial: [1, 2, 3, 4, 6, 9], weak: [1, 2, 3, 4, 6, 9], even: [1, 2, 3, 4], strong: [1, 2, 3, 4], deadly: [1, 2, 3, 4] });
+// Headcounts per tier: every count is fought (past the field setting, in waves: setup.planWaves).
+export const COUNTS = Object.freeze({ trivial: [1, 2, 3, 4, 6, 9], weak: [1, 2, 3, 4, 6, 9], even: [1, 2, 3, 4, 6, 9], strong: [1, 2, 3, 4, 6, 9], deadly: [1, 2, 3, 4, 6, 9] });
 
 /** The Ersveil pack's creatures as a chat's bestiary keeps them (v1 list). */
 export const PACK_BESTIARY = Object.freeze(ERSVEIL_CREATURES.map(entry => cleanCreature(entry)).filter(Boolean));
@@ -95,11 +95,11 @@ export function heroParty(preset, level = 1) {
  * One fight on auto, as combat.start and combat.act({ auto }) play it: 'won', 'lost', 'fled' or
  * 'refused' (the words are no encounter). `party` from heroParty; `chat` the chat's bestiary.
  */
-export function directFight({ words, tier, seed, party, chat = [], stakes = 'normal', shifts }) {
+export function directFight({ words, tier, seed, party, chat = [], stakes = 'normal', shifts, settings = {} }) {
     const bestiary = combinedBestiary(chat, DEFAULT_BESTIARY);
     const read = readEncounter({ op: '!', kind: 'encounter', name: words, text: '', labels: { tier } }, { bestiary });
     if (!read.ok) return 'refused';
-    const numbers = fightNumbers({});
+    const numbers = fightNumbers(settings);
     let built;
     try {
         built = buildSetup({ id: 'fi_00000001', seed, offer: { foes: read.foes, stakes }, party, chatBestiary: chat, numbers, ...(shifts ? { shifts } : {}) });
@@ -119,12 +119,12 @@ export function flatShifts(value) {
 }
 
 /** Win rate in % of a cell: `seeds` fights from seed `first` (`shift`: one LEVEL_SHIFT value to try instead of the table). */
-export function cellRate({ creature, count, tier, preset, level = 1, seeds = 200, first = 1000, shift = null }) {
+export function cellRate({ creature, count, tier, preset, level = 1, seeds = 200, first = 1000, shift = null, settings = {} }) {
     const base = heroParty(preset, level);
     const shifts = shift === null || shift === undefined ? undefined : flatShifts(shift);
     let won = 0;
     for (let seed = first; seed < first + seeds; seed += 1) {
-        if (directFight({ words: `${count} ${creature.name}`, tier, seed, party: structuredClone(base), chat: creature.chat, shifts }) === 'won') won += 1;
+        if (directFight({ words: `${count} ${creature.name}`, tier, seed, party: structuredClone(base), chat: creature.chat, shifts, settings }) === 'won') won += 1;
     }
     return won / seeds * 100;
 }
