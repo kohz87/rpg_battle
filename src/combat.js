@@ -945,7 +945,14 @@ export function availableActions(fight, rules = DEFAULT_RULES) {
  */
 export function act(fight, action, rules = DEFAULT_RULES) {
     if (fight?.status !== 'active') throw new Error('The fight is over.');
-    return actInPlace(structuredClone(fight), action, rules);
+    // The log and the actions only ever grow, and an entry is never changed once written: the copy
+    // gets new lists holding the same entries (the rest is copied whole, keys in their order), so one
+    // action costs the same at the 200th as at the 20th (v2 B4-12: a deep copy of the log grew with it).
+    const shell = { ...fight, ...(Array.isArray(fight.log) ? { log: [] } : {}), ...(Array.isArray(fight.actions) ? { actions: [] } : {}) };
+    const f = structuredClone(shell);
+    if (Array.isArray(fight.log)) f.log = [...fight.log];
+    if (Array.isArray(fight.actions)) f.actions = [...fight.actions];
+    return actInPlace(f, action, rules);
 }
 
 /**
