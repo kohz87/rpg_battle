@@ -6,6 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { withHero, winFight } from '../qa/helpers/harness.js';
 import { moneyScale, scaledMoney } from '../../../src/v2/combat/setup.js';
+import { sessionOf } from '../../../src/v2/combat/stored.js';
 
 /** A won fight against bandits (they carry coin), with a pack scale (null: no inventory.economy query). */
 function lootWith(scale, seed = 3) {
@@ -40,7 +41,7 @@ test('the scale is kept in the fight\'s setup when it starts (moneyScale), not r
     h.registry.register({ id: 'economy-test', name: 'Economy test', version: '1.0.0', queries: { 'inventory.economy': () => ({ scale }) } });
     h.capture({ op: '!', kind: 'encounter', name: '3 Bandit', text: '', labels: { tier: 'trivial' } });
     assert.equal(h.command('combat.start', { offer: h.query('combat.offers').at(-1).id }).ok, true);
-    assert.equal(h.state().domains.combat.session.setup.moneyScale, 10);
+    assert.equal(sessionOf(h.state().domains.combat).setup.moneyScale, 10);
     scale = 0.1;
     while (h.query('combat.session').status === 'active') h.command('combat.act', { action: { type: 'auto' } });
     assert.equal(h.command('combat.end').receipt.data.loot.money, plain * 10);

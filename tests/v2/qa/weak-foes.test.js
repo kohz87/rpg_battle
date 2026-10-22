@@ -17,6 +17,7 @@ import { bestiaryList, unpackSetup } from '../../../src/v2/combat/stored.js';
 import { normalizedFoe, offerRows, tierXpLevel } from '../../../src/v2/combat/setup.js';
 import { combinedBestiary } from '../../../src/templates.js';
 import { fightOut, withHero, each } from './helpers/harness.js';
+import { sessionOf } from '../../../src/v2/combat/stored.js';
 
 const r = DEFAULT_RULES;
 
@@ -39,7 +40,7 @@ function v2Fight(name, tier, seed) {
     const offer = h.query('combat.offers').at(-1);
     const start = h.command('combat.start', { offer: offer.id });
     assert.equal(start.ok, true, start.message);
-    return { h, offer, setup: unpackSetup(h.state().domains.combat.session.setup) };
+    return { h, offer, setup: unpackSetup(sessionOf(h.state().domains.combat).setup) };
 }
 
 const numbers = enemy => ({ name: enemy.name, level: enemy.level, hp: enemy.hp, mp: enemy.mp, patk: enemy.patk, matk: enemy.matk, pdef: enemy.pdef, mdef: enemy.mdef, stats: enemy.stats, skills: enemy.skills.map(skill => skill.name), xpLevel: enemy.xpLevel ?? null });
@@ -84,7 +85,7 @@ each('a fresh level-1 fighter on auto beats weak foes the bestiary knows, every 
             const { h } = v2Fight(words, 'weak', seed);
             if (h.query('combat.session').status === 'active') assert.equal(h.command('combat.act', { action: { type: 'auto' } }).ok, true);
             fightOut(h);
-            assert.equal(h.state().domains.combat.session.status, 'won', `${words}, seed ${seed}`);
+            assert.equal(sessionOf(h.state().domains.combat).status, 'won', `${words}, seed ${seed}`);
         }
     }
 });

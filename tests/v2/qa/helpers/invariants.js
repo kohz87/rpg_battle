@@ -23,6 +23,7 @@ export function committedNumbers(state) {
     badNumbers(combat.offers, '/combat/offers', out);
     badNumbers(combat.beaten, '/combat/beaten', out);
     badNumbers(combat.session?.actions ?? [], '/combat/session/actions', out);
+    for (const [id, fight] of Object.entries(combat.fights ?? {})) badNumbers(fight?.actions ?? [], `/combat/fights/${id}/actions`, out);
     for (const [key, entry] of Object.entries(bestiary.creatures)) badNumbers({ level: entry.level, rev: entry.rev }, `/bestiary/${key}`, out);
     // Anything at all that is not a finite number (the bus's own rule, checked again here).
     const walk = (value, path) => {

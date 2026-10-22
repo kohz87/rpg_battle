@@ -8,6 +8,7 @@ import { readEncounter } from '../../../src/v2/combat/encounter.js';
 import { offerRows } from '../../../src/v2/combat/setup.js';
 import { unpackSetup } from '../../../src/v2/combat/stored.js';
 import { withHero } from '../qa/helpers/harness.js';
+import { sessionOf } from '../../../src/v2/combat/stored.js';
 
 const read = (name, tier) => readEncounter({ op: '!', name, labels: { tier } }, { bestiary: DEFAULT_BESTIARY }).foes;
 
@@ -45,6 +46,6 @@ test('a foe of a written rank fights at its rank\'s level, its power scaled like
     const offer = h.query('combat.offers').at(-1);
     assert.ok(Number.isInteger(offer.foes[0].level), JSON.stringify(offer.foes));
     assert.equal(h.command('combat.start', { offer: offer.id }).ok, true);
-    const setup = unpackSetup(h.state().domains.combat.session.setup);
+    const setup = unpackSetup(sessionOf(h.state().domains.combat).setup);
     for (const enemy of setup.enemies) assert.equal(enemy.level, offer.foes[0].level);
 });

@@ -6,6 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { offerAndStart, seeded, started } from './helpers.js';
+import { sessionOf } from '../../../src/v2/combat/stored.js';
 
 test('B4-13: one reply\'s story use lines play at most one fight turn', async () => {
     await seeded(21, async () => {
@@ -15,9 +16,9 @@ test('B4-13: one reply\'s story use lines play at most one fight turn', async ()
             const { start } = await offerAndStart(host, '! encounter 3 Wolf | tier: even');
             assert.equal(start.ok, true, start.message);
             assert.equal((await host.cmd('combat.act', { action: { type: 'defend' } })).ok, true);
-            const before = host.head().domains.combat.session.actions.length;
+            const before = sessionOf(host.head().domains.combat).actions.length;
             await host.send('I drink.', host.reply('You gulp them down one after another.', Array(5).fill('! use Minor Healing Draught')));
-            const after = host.head().domains.combat.session?.actions.length ?? before;
+            const after = sessionOf(host.head().domains.combat)?.actions.length ?? before;
             assert.ok(after - before <= 1, `one reply played ${after - before} fight turns`);
         } finally {
             host.close();

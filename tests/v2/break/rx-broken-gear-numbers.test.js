@@ -6,6 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { rpgHost, seeded } from '../integration/helpers/host.js';
+import { sessionOf } from '../../../src/v2/combat/stored.js';
 
 // Stands in for Story Block's route of `~ item X | wear: ruin` to item.wear (as gear-host.test.js does).
 const WEAR_ROUTE = {
@@ -28,7 +29,7 @@ async function fightAttack({ sword, ruins }) {
             const numbers = host.q('party.combatNumbers', { id: host.q('party.pc').id });
             await host.send('go', host.reply('A wolf.', ['! encounter 1 Wolf | tier: weak']));
             assert.equal((await host.cmd('combat.start', { offer: host.q('combat.offers').at(-1).id })).ok, true);
-            const ren = host.head().domains.combat.session.setup.party[0];
+            const ren = sessionOf(host.head().domains.combat).setup.party[0];
             return { gear, numbers, patk: ren.patk };
         } finally {
             host.close();

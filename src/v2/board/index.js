@@ -22,7 +22,8 @@ export { boardCss } from './styles.js';
 export const part = {
     domains: {},
     commands: {},
-    queries: { 'combat.board': boardView },
+    // Never throws to the reader (a fight that cannot be rebuilt reads as no fight).
+    queries: { 'combat.board': (state, args, tools) => { try { return boardView(state, args, tools); } catch { return null; } } },
     kinds: {},
     hooks: {},
     tabs: [],

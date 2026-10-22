@@ -5,6 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { rng as intRng } from '../../vendor/story-block/src/v2/rng.js';
 import { fightOut, patch, withHero, each } from './helpers/harness.js';
+import { sessionOf } from '../../../src/v2/combat/stored.js';
 
 function start(h, name, tier = 'weak') {
     h.capture({ op: '!', kind: 'encounter', name, text: '', labels: { tier } });
@@ -99,7 +100,7 @@ each('a drop of an item the chat already has joins its stack', () => {
 test('[int] a fight\'s seed is the receipt\'s first die: its id comes from ctx.id\'s own stream', () => {
     const { h } = withHero({ seed: 9, host: 'int' });
     const r = start(h, '2 Wolves', 'even');
-    const session = h.state().domains.combat.session;
+    const session = sessionOf(h.state().domains.combat);
     assert.match(session.id, /^fi_[0-9a-z]{8}$/);
     assert.equal(session.setup.seed, Math.floor(intRng(r.receipt.seed)() * 4294967296) >>> 0);
 });

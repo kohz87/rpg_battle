@@ -7,6 +7,7 @@
 // is gone anyway is skipped, XP at the level cap is nothing, and draughts leave at use.
 import assert from 'node:assert/strict';
 import { bytes, fightOut, patch, sent, stacksOf, storyItem, winFight, withHero, each } from './helpers/harness.js';
+import { sessionOf } from '../../../src/v2/combat/stored.js';
 
 function startBandit(h) {
     h.capture({ op: '!', kind: 'encounter', name: 'Bandit', text: '', labels: { tier: 'weak' } });
@@ -39,7 +40,7 @@ each('a won fight with a companion at the level cap settles', () => {
     assert.equal(status, 'won');
     assert.equal(end.ok, true, `${end.code}: ${end.message}`);
     assert.equal(h.state().domains.party.actors[lyra.receipt.data.actor].xp, 0, 'nothing given at the cap');
-    assert.equal(h.state().domains.combat.session, null);
+    assert.equal(sessionOf(h.state().domains.combat), null);
 });
 
 each('a companion cannot leave in the middle of a fight; the fight settles, then they can', () => {
@@ -47,7 +48,7 @@ each('a companion cannot leave in the middle of a fight; the fight settles, then
     const lyra = h.command('party.addCompanion', { name: 'Lyra', role: 'archer', level: 1 }, { cause: 'system' }).receipt.data.actor;
     h.capture({ op: '!', kind: 'encounter', name: '3 Wolves', text: '', labels: { tier: 'strong' } });
     assert.equal(h.command('combat.start', { offer: h.query('combat.offers').at(-1).id }).ok, true);
-    assert.equal(h.state().domains.combat.session.status, 'active');
+    assert.equal(sessionOf(h.state().domains.combat).status, 'active');
     const before = bytes(h.state());
     const left = h.command('party.removeCompanion', { actor: lyra });
     assert.equal(left.code, 'REFUSED');
@@ -141,7 +142,7 @@ each('party.edit control (MODULES §F49): a companion led by the reader waits fo
     assert.equal(h.command('party.edit', { actor: lyra, control: 'player' }).ok, true);
     h.capture({ op: '!', kind: 'encounter', name: '3 Bandits', text: '', labels: { tier: 'even' } });
     assert.equal(h.command('combat.start', { offer: h.query('combat.offers').at(-1).id }).ok, true);
-    const controllers = () => Object.fromEntries(h.state().domains.combat.session.setup.party.map(c => [c.memberId, c.controller]));
+    const controllers = () => Object.fromEntries(sessionOf(h.state().domains.combat).setup.party.map(c => [c.memberId, c.controller]));
     assert.equal(controllers()[lyra], 'player');
     // While the fight runs the toggle changes the next fight, never this one (its setup is kept).
     assert.equal(h.command('party.edit', { actor: lyra, control: 'auto' }).ok, true);

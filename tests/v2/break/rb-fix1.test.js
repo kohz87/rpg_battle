@@ -11,6 +11,7 @@ import { clearRebuilt, rebuild } from '../../../src/v2/combat/view.js';
 import { CHARACTER_FILE_VERSION, MAX_THINGS, purseCap, worthCap } from '../../../src/v2/party/portable.js';
 import { MAX_OFFERS_PER_KIND } from '../../../src/v2/party/commands.js';
 import { LINE_LIMITS, clipLine } from '../../../src/v2/lines.js';
+import { sessionOf } from '../../../src/v2/combat/stored.js';
 
 const DRAUGHT = 'Minor Healing Draught';
 
@@ -26,7 +27,7 @@ test('B-b4-8: the cached fight is the fight rebuilt from scratch, action by acti
             let cut = false;
             for (let n = 0; n < 40 && host.q('combat.session')?.status === 'active'; n += 1) {
                 assert.equal((await host.cmd('combat.act', { action: { type: n % 3 ? 'defend' : 'attack', ...(n % 3 ? {} : { target: host.q('combat.session').actions.targets.enemies[0] }) } })).ok, true);
-                const session = structuredClone(host.head().domains.combat.session);
+                const session = structuredClone(sessionOf(host.head().domains.combat));
                 cut ||= session.actions.some(action => action.stock?.length);
                 const cached = hash(rebuild(session).fight);
                 assert.equal(cached, hash(rebuild(session, { fresh: true }).fight), `action ${n + 1}: the cached fight differs from a rebuild from scratch`);
@@ -35,7 +36,7 @@ test('B-b4-8: the cached fight is the fight rebuilt from scratch, action by acti
             }
             assert.ok(cut, 'an action recorded what the inventory still held');
             // Another line of history of the same length (a swipe): never the cached fight.
-            const session = structuredClone(host.head().domains.combat.session);
+            const session = structuredClone(sessionOf(host.head().domains.combat));
             if (session.actions.length > 1) {
                 rebuild(session);
                 const other = { ...session, actions: [...session.actions.slice(0, -1), { type: 'flee' }] };
@@ -57,11 +58,11 @@ test('B-b4-3: an action chosen on a board that has moved on (its log length) is 
         try {
             await offerAndStart(host, '! encounter 2 Bandit | tier: even');
             const view = host.q('combat.session');
-            const before = host.head().domains.combat.session.actions.length;
+            const before = sessionOf(host.head().domains.combat).actions.length;
             const stale = await host.cmd('combat.act', { session: view.id, logLength: view.logLength + 3, action: { type: 'defend' } });
             assert.equal(stale.ok, false);
             assert.match(stale.message, /moved on/);
-            assert.equal(host.head().domains.combat.session.actions.length, before);
+            assert.equal(sessionOf(host.head().domains.combat).actions.length, before);
             const played = await host.cmd('combat.act', { session: view.id, logLength: view.logLength, action: { type: 'defend' } });
             assert.equal(played.ok, true, played.message);
             const again = await host.cmd('combat.act', { session: view.id, logLength: view.logLength, action: { type: 'defend' } });

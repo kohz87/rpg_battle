@@ -19,6 +19,7 @@ import { fromSheet, growthOf, wornGear, libraryOf, maxCompanionsOf, rulesFrom, s
 import { exportCharacter, originIds, readCharacter } from './portable.js';
 import { defineItem } from '../items/define.js';
 import { OUTCOMES, dcOf, outcomeOf, statForCheck } from './checks.js';
+import { sessionOf } from '../combat/stored.js';
 import { filledBy, fitActor, fitParty, fitPool, storedPool } from './pools.js';
 import { actorFrom, actorsInOrder, attempt, cleanName, cleanRole, fail, nameKey, newId, offersRecord, revOf, waitingOffers } from './util.js';
 
@@ -79,7 +80,7 @@ export function fightOn(ctx) {
     } catch {
         combat = null;
     }
-    return combat?.session ?? null;
+    return sessionOf(combat);
 }
 
 /** Is this actor dead (a lost fight to the death: party.applyResult's `dead` mark)? */

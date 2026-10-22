@@ -11,6 +11,7 @@ import { unpackSetup } from '../../../src/v2/combat/stored.js';
 import { MAX_FIELDED, offerRows } from '../../../src/v2/combat/setup.js';
 import { DEFAULT_BESTIARY } from '../../../src/enemies.js';
 import { withHero } from './helpers/harness.js';
+import { sessionOf } from '../../../src/v2/combat/stored.js';
 
 const SEEDS = 40;
 const creature = name => CREATURES.find(entry => `${entry.set}:${entry.name}` === name);
@@ -21,7 +22,7 @@ test('the simulation\'s fights are combat.start\'s: same setup seed, same outcom
             const { h } = withHero({ seed, preset });
             h.capture({ op: '!', kind: 'encounter', name: words, text: '', labels: { tier } });
             assert.equal(h.command('combat.start', { offer: h.query('combat.offers').at(-1).id }).ok, true);
-            const fightSeed = unpackSetup(h.state().domains.combat.session.setup).seed;
+            const fightSeed = unpackSetup(sessionOf(h.state().domains.combat).setup).seed;
             for (let n = 0; n < 400 && h.query('combat.session').status === 'active'; n += 1) h.command('combat.act', { action: { type: 'auto' } });
             const live = h.query('combat.session').status;
             assert.equal(directFight({ words, tier, seed: fightSeed, party: heroParty(preset, 1) }), live, `${words} (${tier}) ${preset}, seed ${seed}`);
