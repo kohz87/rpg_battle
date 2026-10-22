@@ -33,6 +33,7 @@ export { beatenOf, lastOf, offersOf } from './stored.js';
 import { clipped } from '../lines.js';
 import { lastParts, partsProblems } from '../board/parts.js';
 import { fitParty } from '../party/pools.js';
+import { foldStoryTime } from '../party/recovery.js';
 import { applyStock, beatenFoes, boardToken, endSummary, foeNames, foeRanks, partyNames, rebuild, sessionView, tailLines } from './view.js';
 
 export { MAX_BEATEN, MAX_OFFERS } from './stored.js';
@@ -439,6 +440,8 @@ function start(ctx, payload) {
     if (!offer) ctx.fail('NOT_FOUND', 'That fight is no longer on offer.');
     const under = sessionOf(combat);
     if (under) ctx.fail('REFUSED', under.status === 'active' ? 'A fight is already under way.' : 'Finish the last fight first.');
+    // Story time since the last reply heals first (party/recovery.js), so the party fights as it stands now.
+    foldStoryTime(ctx);
     const numbers = fightNumbers(ctx.settings() ?? {});
     const party = partyCombatants(ctx, { rules: fightRules(numbers) });
     const chatBestiary = bestiaryList(ctx.read('bestiary'));

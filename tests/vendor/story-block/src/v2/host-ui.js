@@ -4,8 +4,9 @@
 //   size: what Story Suite adds to the prompt, per module, against the tail budget, counted with
 //   SillyTavern's tokenizer when there is one), the modules' own folds (Story Block's Packs), Features,
 //   one fold per module with settings, Versions. Inside a module's fold: one line saying how many of its
-//   features are on (it opens the Features fold there), a sub-fold per settings group (a field's `group`,
-//   else its label's "Group: …" prefix, else General) and its custom `section`. Fields are rows (bool, int,
+//   features are on (it opens the Features fold there), its custom `section` right there (no sub-fold of
+//   its own), then a sub-fold per settings group (a field's `group`, else its label's "Group: …" prefix,
+//   else General). Diagnostics (a report to copy or save, diagnostics.js) is last before Versions. Fields are rows (bool, int,
 //   choice, text, list of {…}; a list one compact line per item, or, when its fields are text and whole
 //   numbers, a textarea with one item per line: `form: 'lines'` starts there); values are read and
 //   written through createSettings() (extension_settings.storySuite.modules[id]). Open folds stay open
@@ -35,6 +36,7 @@ export const OPEN_CLASS = 'story-suite-open';
 export const HOST_FOLD = 'story-suite';
 export const FEATURES_FOLD = 'story-suite-features';
 export const VERSIONS_FOLD = 'story-suite-versions';
+export const DIAGNOSTICS_FOLD = 'story-suite-diagnostics';
 // Story Block's Packs fold (its `settings.folds`), second after Story Suite's; Home's "Import a pack" opens it.
 export const PACKS_FOLD = 'story-block/packs';
 // A sub-fold's key: its module's id, this, and the part ("rpg-battle::features", "story-director::group:Calendar").
@@ -88,6 +90,22 @@ export const SETTINGS_TEXT = Object.freeze({
         shareValue: '{share} of {room} tokens ({percent}%)',
         contextUnknown: 'The context size is shown after the next reply.',
     }),
+});
+// The Diagnostics fold (diagnostics.js builds the report).
+export const DIAGNOSTICS_TEXT = Object.freeze({
+    title: 'Diagnostics',
+    hint: 'a report for a bug report',
+    help: 'A plain report of what Story Suite sees: versions, features, settings, the prompt size, the last problems, saving and the size of this chat, and what each module adds. It holds no API keys, passwords or addresses and no chat text. Read it before you share it.',
+    copy: 'Copy report',
+    save: 'Save report',
+    refresh: 'Refresh',
+    reportLabel: 'The diagnostics report',
+    building: 'Building the report…',
+    copied: 'Copied the report.',
+    copyFailed: 'The report could not be copied here: it is selected above, so copy it by hand (Ctrl+C, or long-press on a phone).',
+    saved: 'Saved the report as {name}.',
+    saveFailed: 'The report could not be saved: {why}',
+    failed: 'The report could not be built: {why}',
 });
 export const FEATURE_TEXT = Object.freeze({
     title: 'Features',
@@ -555,19 +573,20 @@ const FOLD_SELECTOR = 'details.story-suite-fold, details.story-suite-subfold';
 /**
  * Renders the settings into `root` (emptied first), as one centred column of folds: Story Suite (the
  * host's own, with the prompt size), the modules' own folds (Story Block's Packs), Features (a sub-fold
- * per module), one fold per module with settings (a line to its features, then a sub-fold per settings
- * group, then its custom panel) and Versions.
+ * per module), one fold per module with settings (a line to its features, its custom panel, then a
+ * sub-fold per settings group), Diagnostics (with `diagnostics`) and Versions.
  *
  * `options`: { registry, settings (createSettings), doc?, sdk?, features? (createFeatureStore; without
  * it no Features are shown), promptParts?() (the parts of the prompt the next reply would get, as
  * prompt.js assemble() lists them, or { parts, fit } with how they fit the context (prompt.js contextFit);
  * without it no prompt size is shown), countTokens?(text) (SillyTavern's
  * tokenizer, a number or a promise of one; without it the size is estimated at four characters a token),
- * openState? (a Map of fold key → open, kept across redraws; a new one by default) }.
+ * openState? (a Map of fold key → open, kept across redraws; a new one by default), diagnostics? ({ report()
+ * → text or a promise of it, fileName?() }: the Diagnostics fold, built when it opens; without it none) }.
  * A module's `section(el, api)` gets api = { get(key), set(key, value), values(), sdk } (a section
  * given as a title plus render(el, api) is the same panel). Returns { refresh(), refreshSize() }.
  */
-export function renderSettingsHost(root, { registry, settings, doc = globalThis.document, sdk = null, features = null, promptParts = null, countTokens = null, openState = new Map() }) {
+export function renderSettingsHost(root, { registry, settings, doc = globalThis.document, sdk = null, features = null, promptParts = null, countTokens = null, openState = new Map(), diagnostics = null }) {
     const featureList = () => (features && typeof features.list === 'function' ? features.list() : []);
     // A settings field or panel under a feature that is off is not drawn (its stored value is kept).
     const hiddenByFeature = item => {
@@ -722,26 +741,23 @@ export function renderSettingsHost(root, { registry, settings, doc = globalThis.
                 },
             });
         }
+        // Its custom panel sits in the module's fold itself, right under the features line (never in a
+        // sub-fold: a module's own panel may have folds of its own, and three levels is too deep). A
+        // titled section ("Assist") gets its title as a heading.
         if (def.section && !hiddenByFeature(def.section)) {
-            subs.push({
-                key: 'section',
-                title: def.title !== def.name ? def.title : SETTINGS_TEXT.more,
-                hint: '',
-                draw: into => {
-                    const section = el(doc, 'div', 'story-suite-section');
-                    section.dataset.module = def.moduleId;
-                    try { def.section(section, panelApi(def.moduleId)); } catch (error) {
-                        section.replaceChildren(el(doc, 'p', 'story-suite-muted', `This part of ${def.name}'s settings could not be shown: ${error?.message ?? error}`));
-                    }
-                    into.appendChild(section);
-                },
-            });
+            const section = el(doc, 'div', 'story-suite-section');
+            section.dataset.module = def.moduleId;
+            if (def.title !== def.name) body.appendChild(el(doc, 'h4', 'story-suite-section-title', def.title));
+            body.appendChild(section);
+            try { def.section(section, panelApi(def.moduleId)); } catch (error) {
+                section.replaceChildren(el(doc, 'p', 'story-suite-muted', `This part of ${def.name}'s settings could not be shown: ${error?.message ?? error}`));
+            }
         }
-        // Each part in a sub-fold of its own; one alone opens with its module.
+        // The schema's groups below it, each in a sub-fold of its own; one alone opens with its module.
         for (const sub of subs) {
             const inner = fold(doc, `${def.moduleId}${SUB_FOLD}${sub.key}`, sub.title, sub.hint, 'story-suite-subfold');
             sub.draw(inner.body);
-            body.appendChild(remember(inner.details, subs.length === 1));
+            body.appendChild(remember(inner.details, subs.length === 1 && !(def.section && !hiddenByFeature(def.section))));
         }
         return remember(details);
     }
@@ -886,6 +902,90 @@ export function renderSettingsHost(root, { registry, settings, doc = globalThis.
         renderCompat(body, report, { doc });
         return remember(details);
     }
+    // Diagnostics: the report (built when the fold opens, and again on Refresh, Copy and Save) shown as
+    // it will be shared, then Copy (the clipboard; else the text is selected for copying by hand) and Save
+    // (a .txt download).
+    function diagnosticsFold() {
+        const T = DIAGNOSTICS_TEXT;
+        const { details, body } = fold(doc, DIAGNOSTICS_FOLD, T.title, T.hint);
+        body.appendChild(el(doc, 'p', 'story-suite-muted', T.help));
+        const report = el(doc, 'pre', 'story-suite-diagnostics-report');
+        report.tabIndex = 0;
+        report.setAttribute('aria-label', T.reportLabel);
+        const status = el(doc, 'span', 'story-suite-diagnostics-status');
+        status.setAttribute('role', 'status');
+        const actions = el(doc, 'div', 'story-suite-diagnostics-actions');
+        const action = (className, icon, label) => {
+            const node = button(doc, `menu_button ${className}`, '');
+            const glyph = el(doc, 'i', `fa-solid ${icon}`);
+            glyph.setAttribute('aria-hidden', 'true');
+            node.append(glyph, el(doc, 'span', '', label));
+            actions.appendChild(node);
+            return node;
+        };
+        const copy = action('story-suite-diagnostics-copy', 'fa-copy', T.copy);
+        const save = action('story-suite-diagnostics-save', 'fa-download', T.save);
+        const again = action('story-suite-diagnostics-refresh', 'fa-rotate', T.refresh);
+        actions.appendChild(status);
+        body.append(report, actions);
+        let run = 0;
+        const build = async () => {
+            const mine = ++run;
+            report.textContent = T.building;
+            let text;
+            try { text = String(await diagnostics.report()); } catch (error) {
+                text = fill(T.failed, { why: error?.message ?? error });
+            }
+            if (mine === run) report.textContent = text;
+            return text;
+        };
+        const selectReport = () => {
+            const win = doc.defaultView ?? globalThis;
+            const range = doc.createRange?.();
+            const selection = win.getSelection?.();
+            if (!range || !selection) return;
+            range.selectNodeContents(report);
+            selection.removeAllRanges();
+            selection.addRange(range);
+        };
+        copy.addEventListener('click', async () => {
+            const text = await build();
+            const clipboard = (doc.defaultView ?? globalThis).navigator?.clipboard;
+            try {
+                if (typeof clipboard?.writeText !== 'function') throw new Error('no clipboard');
+                await clipboard.writeText(text);
+                status.textContent = T.copied;
+            } catch {
+                selectReport();
+                status.textContent = T.copyFailed;
+            }
+        });
+        save.addEventListener('click', async () => {
+            const text = await build();
+            const name = typeof diagnostics.fileName === 'function' ? diagnostics.fileName() : 'story-suite-diagnostics.txt';
+            try {
+                const win = doc.defaultView ?? globalThis;
+                const blob = new win.Blob([text], { type: 'text/plain;charset=utf-8' });
+                const url = win.URL.createObjectURL(blob);
+                const link = el(doc, 'a');
+                link.href = url;
+                link.download = name;
+                link.hidden = true;
+                doc.body.appendChild(link);
+                link.click();
+                link.remove();
+                setTimeout(() => win.URL.revokeObjectURL(url), 1000);
+                status.textContent = fill(T.saved, { name });
+            } catch (error) {
+                status.textContent = fill(T.saveFailed, { why: error?.message ?? error });
+            }
+        });
+        again.addEventListener('click', () => { status.textContent = ''; build(); });
+        details.addEventListener('toggle', () => { if (details.open) build(); });
+        remember(details);
+        if (details.open) build();
+        return details;
+    }
     function refresh() {
         for (const node of root.querySelectorAll(FOLD_SELECTOR)) if (!node.dataset.filtered) openState.set(node.dataset.fold, node.open === true);
         root.replaceChildren();
@@ -900,7 +1000,8 @@ export function renderSettingsHost(root, { registry, settings, doc = globalThis.
             .sort(byId)
             .map(def => moduleFold(def, ownOf(def.moduleId)));
         const own = [...defs].sort(byId).flatMap(def => ownFolds(def));
-        for (const node of [hostFold(), ...own, ...(all.length ? [featuresFold(all)] : []), ...modules, versionsFold()]) root.appendChild(node);
+        const diag = diagnostics && typeof diagnostics.report === 'function' ? [diagnosticsFold()] : [];
+        for (const node of [hostFold(), ...own, ...(all.length ? [featuresFold(all)] : []), ...modules, ...diag, versionsFold()]) root.appendChild(node);
     }
     refresh();
     return { refresh, refreshSize };
@@ -917,7 +1018,7 @@ let currentOverlay = null;
  * bring into view (PACKS_FOLD for Home's "Import a pack"). The other options are renderSettingsHost's.
  * Returns { root, close(), refresh(), refreshSize(), isOpen() }.
  */
-export function openSettingsOverlay({ registry, settings, doc = globalThis.document, sdk = null, features = null, promptParts = null, countTokens = null, fold: target = null, openState = overlayOpenState, onClose = null }) {
+export function openSettingsOverlay({ registry, settings, doc = globalThis.document, sdk = null, features = null, promptParts = null, countTokens = null, diagnostics = null, fold: target = null, openState = overlayOpenState, onClose = null }) {
     // One overlay at a time: opening it again closes the one there (its listeners with it).
     if (currentOverlay?.root?.ownerDocument === doc) currentOverlay.close();
     doc.querySelector?.('#story_suite_v2_overlay')?.remove();
@@ -946,7 +1047,7 @@ export function openSettingsOverlay({ registry, settings, doc = globalThis.docum
         // A sub-fold opens its module's fold too.
         if (target.includes(SUB_FOLD)) openState.set(target.split(SUB_FOLD)[0], true);
     }
-    const host = renderSettingsHost(body, { registry, settings, doc, sdk, features, promptParts, countTokens, openState });
+    const host = renderSettingsHost(body, { registry, settings, doc, sdk, features, promptParts, countTokens, openState, diagnostics });
     let open = true;
     // The focus stays in the dialog: a Tab that would leave it, or a click on the page behind, comes back.
     const onFocus = event => {

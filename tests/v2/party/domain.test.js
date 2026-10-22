@@ -17,7 +17,7 @@ function sample() {
 }
 
 test('initial state is a valid empty party', () => {
-    assert.deepEqual(part.domains.party.initial(), { pc: null, order: [], actors: {}, custom: {}, offers: {} });
+    assert.deepEqual(part.domains.party.initial(), { pc: null, order: [], actors: {}, custom: {}, offers: {}, rested: null });
     assert.deepEqual(validate(part.domains.party.initial()), []);
     assert.deepEqual(validate(sample().domains.party), []);
 });

@@ -107,6 +107,8 @@ export function validateParty(slice) {
         }
         if (slice.pc && slice.order[0] !== slice.pc) errors.push('party.order must start with the pc.');
     }
+    // The story minute recovery has reached (recovery.js): a count, so any whole number (or null, none yet).
+    if (slice.rested !== undefined && slice.rested !== null && !Number.isInteger(slice.rested)) errors.push('party.rested must be a story minute or null.');
     if (!isObject(slice.custom)) errors.push('party.custom must be a record.');
     else {
         for (const [name, def] of Object.entries(slice.custom)) {
@@ -126,7 +128,7 @@ export function validateParty(slice) {
     return errors;
 }
 
-/** The empty party slice: no character yet. */
+/** The empty party slice: no character yet (`rested`: no story minute recovered up to yet, recovery.js). */
 export function initialParty() {
-    return { pc: null, order: [], actors: {}, custom: {}, offers: {} };
+    return { pc: null, order: [], actors: {}, custom: {}, offers: {}, rested: null };
 }

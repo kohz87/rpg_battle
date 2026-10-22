@@ -109,11 +109,34 @@ each in full. Every one can be switched off in Story Suite settings → **Featur
   chat's rules.
 - The status strip shows points to spend and effects under way.
 
+**HP and MP back with story time** (feature *HP and MP come back with story time*, on by default; needs
+Story Director's clock)
+- v1's rule: every whole story hour gives back 5% of max HP and MP and fills stamina; 6 hours or more at
+  once is a full rest, as `! rest long` (what a fight left ends; it wears off 10 story minutes after the
+  fight anyway). Minutes short of an hour wait for the next stretch.
+- The heal is folded in before the next reply is asked for (that reply is told the healed numbers), and
+  at once when something needs the party's numbers first: a wound or heal line, a rest, an item, a fight
+  starting. So time the story writes before a wound heals first, and the wound stays. A short rest in the
+  same stretch gives the larger of the two, not both.
+- A clock set back heals nothing and takes nothing back, and the hours up to where the party had
+  recovered never heal twice. Time in a fight, or while the feature is off, heals nothing.
+- Without Story Director (or before the story sets the time) nothing comes back by time: only rests,
+  items and the story's heals.
+
+**Story XP** (`+ xp minor|major|milestone — what the party achieved`, v1's `<XP>`)
+- The story names how big it was; code sets the amount: a share of each member's next level (minor 10%,
+  major 25%, milestone 50%, at the XP rate). A number the story writes is never used.
+- At most one major or milestone and two minor a reply; more are refused (a Problem says so). Level-ups
+  follow as for any XP. Not while a fight has the party: its XP comes from the fight.
+- The line in the fixed instructions uses your **XP word**.
+
 **Deleting a reply from the middle of the chat**
 - It takes back that reply's own changes to the party and nothing else. A wound, a heal, a level-up,
   XP and a spend each count as a change on what is there, so the replies after it still apply.
 - A rest fills the party up to the max as it stands now, even when the reply that raised that max was
   the one deleted. HP, MP and SP never read above max or below 0.
+- Story time heals with the reply that moved the clock: deleting or swiping that reply takes its heal
+  back; a later reply's heal stays its own size.
 - Chats from earlier versions load as they are.
 
 The screenshots below are from RPG Battle 1. There are no v2 screenshots here yet, because the current
