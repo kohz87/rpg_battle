@@ -19,7 +19,7 @@ import { useItemOutside } from '../../recovery.js';
 import { levelTag, maxLevel, xpLabel } from '../../terms.js';
 import { isMaterial } from '../../trade.js';
 import { growthOf } from '../party/sheets.js';
-import { clockOf, fitParty } from '../party/pools.js';
+import { clockOf, fitParty, minutesLeft } from '../party/pools.js';
 
 export const MODULE_ID = 'rpg-battle';
 
@@ -125,14 +125,26 @@ const CONDITION_LOOK = [
  * A condition as ss.badge props: an icon and tone by its kind, and its rounds left as the counter
  * (a party condition's `stacks` are the rounds a fight left; 1 is "no rounds", MODULES §B1).
  */
-export function conditionBadge(condition, index = 0) {
+export function conditionBadge(condition, index = 0, minutes = null) {
     const kind = String(condition?.kind ?? '').trim() || 'unwell';
     const [, icon, tone] = CONDITION_LOOK.find(([pattern]) => pattern.test(kind)) ?? [null, 'fa-circle-exclamation', 'neutral'];
     const stacks = int(condition?.stacks, 1);
+    // One a fight left, on the story clock (party/pools.js): the story minutes it has left.
+    const left = minutesLeft(condition, minutes);
+    if (left !== null && left > 0) return { id: `${kind}-${index}`, kind, label: capital(kind), showLabel: true, icon, tone, counter: left, unit: 'min left' };
     return { id: `${kind}-${index}`, kind, label: capital(kind), showLabel: true, icon, tone, counter: stacks > 1 ? stacks : null, unit: stacks > 1 ? 'turns left' : '' };
 }
 
 const SKILL_ICONS = Object.freeze({ physical: 'fa-hand-fist', magic: 'fa-wand-sparkles', heal: 'fa-kit-medical', buff: 'fa-shield-halved', debuff: 'fa-skull' });
+
+/** A skill's uses toward its next level (v1 skillText: rules.masteryUses), in plain words. */
+export function skillProgress(skill, rules = DEFAULT_RULES) {
+    const level = int(skill?.level, 1);
+    if (level >= int(rules.masteryMax, 5)) return 'top level';
+    const need = Number(rules.masteryUses?.[level]);
+    if (!(need > 0)) return '';
+    return `${Math.min(need, Math.max(0, int(skill?.uses)))}/${need} uses to Lv ${level + 1}`;
+}
 
 /** An actor's skills with what the library says about each: tier, type, cost. */
 function skillsOf(actor, party, rules) {
@@ -145,6 +157,9 @@ function skillsOf(actor, party, rules) {
             name: String(skill?.name ?? ''),
             level: int(skill?.level, 1),
             max: most,
+            // The uses toward the next level (beta.1 live test: "skill xp didn't increase"; a fight's
+            // uses count when it is settled): "2/5 uses to Lv 2", "top level" at the most.
+            progress: skillProgress(skill, rules),
             active: skill?.active !== false,
             tier: int(found?.tier, 0),
             type,
@@ -164,7 +179,9 @@ export function skillTree(skills) {
             skills: skills
                 .filter(skill => skill.tier === tier)
                 .sort((a, b) => Number(b.active) - Number(a.active))
-                .map(skill => ({ id: skill.name, name: skill.name, icon: skill.icon, level: skill.level, max: skill.max, active: skill.active })),
+                                // The level alone on the badge: "1/5" (level of the most) read as uses toward the next
+                // level (beta.1 live test); the uses are the Skills list's `progress`.
+                .map(skill => ({ id: skill.name, name: skill.name, icon: skill.icon, level: skill.level, active: skill.active })),
         })),
     };
 }
@@ -175,7 +192,7 @@ function pool(value) {
 }
 
 /** One actor's card: everything the Party, HUD and status screens show of them. */
-export function actorCard(actor, party, { rules = DEFAULT_RULES, portrait = null } = {}) {
+export function actorCard(actor, party, { rules = DEFAULT_RULES, portrait = null, minutes = null } = {}) {
     const level = Math.max(1, int(actor.level, 1));
     const top = maxLevel(rules);
     const atTop = level >= top;
@@ -225,7 +242,7 @@ export function actorCard(actor, party, { rules = DEFAULT_RULES, portrait = null
         spendKey: `${actor.id}_l${level}_p${points}`.replace(/\W/g, '_'),
         stats,
         statAxes: stats.map(stat => ({ label: stat.key, value: stat.value, max: axisMax })),
-        badges: (Array.isArray(actor.conditions) ? actor.conditions : []).map(conditionBadge),
+        badges: (Array.isArray(actor.conditions) ? actor.conditions : []).map((entry, index) => conditionBadge(entry, index, minutes)),
         skills,
         tree: skillTree(skills),
         activeCount: skills.filter(skill => skill.active).length,
@@ -278,7 +295,7 @@ export function cards(state, args = {}, tools = null) {
     const listed = tryQuery(tools, 'party.actors', {});
     const portraits = new Map((Array.isArray(listed) ? listed : []).map(entry => [entry?.id, entry?.portrait ?? null]));
     return copy(peopleOf(party).map(id => ({
-        ...actorCard(party.actors[id], party, { rules, portrait: portraits.get(id) }),
+        ...actorCard(party.actors[id], party, { rules, portrait: portraits.get(id), minutes: clockOf(state) }),
         gear: gearOf(tools, id),
         effects: effectsOf(tools, id),
         encumbered: burdenOf(tools, id),

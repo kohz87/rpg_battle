@@ -1,7 +1,9 @@
 // RPG Battle v2, part **items** (MODULES §B2): the rules' numbers for the story's items, using
-// and wearing them, and the Items page. Using a thing is the story's (MODULES §F96): the `use`
-// change line, applied by code (story-use.js); the Items page keeps only bag management (Equip,
-// Take off, Give), and `item.use` stays a command for templates, packs, Studio and tests. Money is Story Block's one currency (MODULES §F1): this
+// and wearing them, and the Items page. Using a thing in the story is the story's (MODULES §F96): the
+// `use` change line, applied by code (story-use.js). The reader can also use one from the bag (beta.1
+// live test): Story Block's Inventory "Use on…" (it asks `items.useOn`) runs `item.use { stack,
+// target }`, bag management beside Equip on…, Take off and Give; not while a fight has the party (the
+// fight's Item action does it then). Money is Story Block's one currency (MODULES §F1): this
 // part has no currency hook. No domain of its own: the things are Story Block's
 // `inventory`, the people RPG Battle's `party`; this part changes them only through their
 // owners' commands. The carry limit (MODULES §F39) is this part's: its rule and numbers are in
@@ -13,7 +15,7 @@ import { defineItem } from './define.js';
 import { clipped } from '../lines.js';
 import { itemsTab } from './page.js';
 import { DEFAULTS as CARRY_DEFAULTS } from './carry.js';
-import { canWear, carry, condition, gear, slots, usable } from './queries.js';
+import { canWear, carry, condition, gear, slots, usable, useOn } from './queries.js';
 import { REFINE_FEATURE, WEAR_FEATURE, initialGear, validateGear } from './condition.js';
 import { fightWear, storyWear } from './wear.js';
 import { gearTail } from './gear-tail.js';
@@ -64,6 +66,8 @@ export const part = {
     },
     queries: {
         'items.usable': (state, args) => usable(state, args ?? {}),
+        // Story Block's Inventory "Use on…" picker: whom a dose would help now ({} in a fight).
+        'items.useOn': state => useOn(state),
         'items.gear': (state, args, tools) => gear(state, args ?? {}, tools),
         'items.carry': (state, args, tools) => carry(state, args ?? {}, tools),
         'items.condition': (state, args, tools) => condition(state, args ?? {}, tools),
@@ -106,7 +110,7 @@ export const part = {
 export { coinValue, defineItem } from './define.js';
 export { applyUse, itemEquip, itemGive, itemUnequip, itemUse, storyUse } from './commands.js';
 export { GONE_WORDS, USED_WORDS, planStoryUse, stackNamed, usedByLine } from './story-use.js';
-export { canWear, carry, condition, gear, slots, usable, wornGear } from './queries.js';
+export { canWear, carry, condition, gear, slots, usable, useOn, wornGear } from './queries.js';
 export * from './condition.js';
 export { applyWear, fightWear, pieceNamed, recordEvent, repairOf, storyWear, useKit, wearRole, wearWords } from './wear.js';
 export { REPAIR_MAX, REPAIR_WORTH, repairKitAmount } from './define.js';

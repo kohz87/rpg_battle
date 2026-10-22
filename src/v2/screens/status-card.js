@@ -41,7 +41,7 @@ const template = `
       <span class="chg up" data-if="changed(${actor}.level)"><i class="fa-solid fa-arrow-up"></i>${levelWord} {{ ${actor}.level }}</span>
       <span class="chg" data-if="changed(${actor}.xp) && !changed(${actor}.level)"><i class="fa-solid fa-star"></i>${xpWord}</span>
       <span class="chg" data-if="changed(${actor}.skills)"><i class="fa-solid fa-diagram-project"></i>Skills</span>
-      <span class="cond" data-each="${actor}.conditions as c" data-if="!contains(q.pools[id].lapsed, c.kind)" data-class="new: changed(c)">{{ c.kind }}<b data-if="c.stacks > 1">{{ c.stacks }}</b></span>
+      <span class="cond" data-each="${actor}.conditions as c" data-if="!contains(q.pools[id].lapsed, c.kind)" data-class="new: changed(c)">{{ c.kind }}<b data-if="q.pools[id].turns[c.kind] > 1">{{ q.pools[id].turns[c.kind] }}</b></span>
     </span>
   </div>
   <div class="checks" data-if="changed('state.checks.log')">

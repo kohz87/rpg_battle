@@ -7,6 +7,7 @@ import { canCarry, carryView } from './carry.js';
 import { helpsOutside, hostSettings, inventoryOf, itemOf, partyOf, rulesFrom, sheetOf, stackIds, wearerOf } from './shared.js';
 import { gearFeatures, pieceName, pieceOf, scaleStats } from './condition.js';
 import { RARITIES } from '../../rules.js';
+import { sessionOf } from '../combat/stored.js';
 
 /** The rarity one step above (legendary stays legendary). */
 const nextRarity = rarity => RARITIES[Math.min(RARITIES.length - 1, Math.max(0, RARITIES.indexOf(rarity)) + 1)];
@@ -34,6 +35,27 @@ export function usable(state, { actor = null } = {}) {
             stack: stack.id, def: stack.def, name: def.name, qty: stack.qty, owner: stack.owner, effect: copy(def.effect),
             helps: who ? useItemOutside(sheetOf(who), { name: def.name, effect: def.effect }).used : null,
         }));
+}
+
+/**
+ * `items.useOn({})`: whom a Use button offers each consumable for (beta.1 live test: "use item is
+ * missing"; bag management, rule 6): { [stack]: [{ id, name }] }, the party's members (in party
+ * order) a dose would do something for now, by the rule `item.use` applies (useItemOutside: not at
+ * full HP with nothing to cure). Only the party's things (the shared bag's and the members'). {} while
+ * a fight has the party: then a draught is the fight's Item action, on the Fight screen.
+ */
+export function useOn(state) {
+    if (sessionOf(state?.domains?.combat ?? null)) return {};
+    const party = partyOf(state);
+    const order = [...(party.order ?? []).filter(id => party.actors?.[id]), ...Object.keys(party.actors ?? {}).sort().filter(id => !(party.order ?? []).includes(id))];
+    const out = {};
+    for (const id of order) {
+        for (const entry of usable(state, { actor: id })) {
+            if (!entry.helps) continue;
+            (out[entry.stack] ??= []).push({ id, name: String(party.actors[id]?.name ?? id) });
+        }
+    }
+    return out;
 }
 
 /**

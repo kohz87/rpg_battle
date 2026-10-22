@@ -71,11 +71,46 @@ function poolFits(entry) {
     return entry.cur === fitted.cur && entry.max === fitted.max && Object.keys(entry).every(key => key === 'cur' || key === 'max');
 }
 
-// How long a condition a fight left lasts in story time (B-c1-1): far more than the rounds it had.
+// How long a round a fight left on a condition lasts in story time, outside a fight (B-c1-1; beta.1
+// live test "debuff doesn't change according to time"): each round left is FIGHT_LEFT_MINUTES story
+// minutes, counted down from the minute the fight ended (`at`). A poison with 3 rounds left reads 2 after
+// 10 story minutes, 1 after 20, and is gone after 30; the next fight starts it with what is left. A
+// fight's round is seconds, but the story clock moves in minutes and a reply often moves it by many: at
+// a round a minute or less every condition would end with the first `! time +…`, so one round is ten
+// minutes, as long as a 1-round condition lasted before. Derived from the stored `rounds` and `at` and
+// the clock only (nothing is written as time passes): the same on replay, Re-read and swipe, and a
+// clock set back gives the rounds back only up to what was stored, never more.
 export const FIGHT_LEFT_MINUTES = 10;
 
+const timed = (entry, minutes) => Number.isInteger(minutes) && Number.isInteger(entry?.rounds) && Number.isInteger(entry?.at);
+
+/**
+ * The rounds a condition a fight left (it keeps `rounds` and `at`) still has at story minute `minutes`
+ * (0 when it has worn off); its stored `rounds` without a clock or a minute (no story time: it waits
+ * for a rest or the next fight), null for a condition with no rounds (a story's: until a rest or a cure).
+ */
+export function roundsLeft(entry, minutes) {
+    if (!Number.isInteger(entry?.rounds)) return null;
+    if (!timed(entry, minutes)) return entry.rounds;
+    return Math.max(0, entry.rounds - Math.floor(Math.max(0, minutes - entry.at) / FIGHT_LEFT_MINUTES));
+}
+
+/** The story minutes left on a condition a fight left at minute `minutes`, or null when it is not on the clock. */
+export function minutesLeft(entry, minutes) {
+    if (!timed(entry, minutes)) return null;
+    return Math.max(0, entry.rounds * FIGHT_LEFT_MINUTES - Math.max(0, minutes - entry.at));
+}
+
 /** Whether a condition a fight left (it keeps `rounds` and `at`) has worn off by story minute `minutes`. */
-export const lapsed = (entry, minutes) => Number.isInteger(minutes) && Number.isInteger(entry?.rounds) && Number.isInteger(entry?.at) && minutes - entry.at >= FIGHT_LEFT_MINUTES;
+export const lapsed = (entry, minutes) => timed(entry, minutes) && roundsLeft(entry, minutes) <= 0;
+
+// A condition a fight left as it stands at `minutes`: its rounds counted down, and `at` moved on by the
+// rounds that passed, so the fitted record reads the same again (fitting twice changes nothing).
+function tickCondition(entry, minutes) {
+    const left = roundsLeft(entry, minutes);
+    if (!timed(entry, minutes) || left === entry.rounds) return entry;
+    return { ...entry, stacks: left, rounds: left, at: entry.at + (entry.rounds - left) * FIGHT_LEFT_MINUTES };
+}
 
 // How many level steps a member keeps (the latest ones): a delete can take back that many level-ups.
 export const STEPS_KEPT = 20;
@@ -120,7 +155,7 @@ export function earnedLevel(actor) {
 }
 
 function actorFits(actor, minutes) {
-    if (Array.isArray(actor.conditions) && actor.conditions.some(entry => lapsed(entry, minutes))) return false;
+    if (Array.isArray(actor.conditions) && actor.conditions.some(entry => lapsed(entry, minutes) || tickCondition(entry, minutes) !== entry)) return false;
     if (!POOLS.every(name => actor[name] === undefined || poolFits(actor[name]))) return false;
     if (!Number.isInteger(actor.level) || actor.level < 1) return false;
     const earned = earnedLevel(actor);
@@ -133,13 +168,13 @@ function actorFits(actor, minutes) {
 
 /**
  * A member as it stands now (for every reader): HP, MP and SP fitted to { cur, max }, level from 1 and
- * only as far as the XP earned reaches (earnedLevel), XP and stats from 0, points from 0 (below 0 when owed), and (with the story clock's `minutes`) without the conditions a fight
- * left that have worn off. The same object when it already fits; else a fitted copy.
+ * only as far as the XP earned reaches (earnedLevel), XP and stats from 0, points from 0 (below 0 when owed), and (with the story clock's `minutes`) the conditions a fight
+ * left counted down by story time (roundsLeft), without those that have worn off. The same object when it already fits; else a fitted copy.
  */
 export function fitActor(actor, { minutes = null } = {}) {
     if (!isObject(actor) || actorFits(actor, minutes)) return actor;
     const out = { ...actor };
-    if (Array.isArray(actor.conditions)) out.conditions = actor.conditions.filter(entry => !lapsed(entry, minutes));
+    if (Array.isArray(actor.conditions)) out.conditions = actor.conditions.filter(entry => !lapsed(entry, minutes)).map(entry => tickCondition(entry, minutes));
     const earned = earnedLevel(actor);
     for (const name of POOLS) {
         if (actor[name] === undefined) continue;

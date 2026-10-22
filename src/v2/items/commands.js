@@ -97,6 +97,8 @@ function nowOf(ctx, targetId, fallback) {
  */
 export function itemUse(ctx, payload) {
     if (payload?.story === true && ctx.cause !== 'ui') return storyUse(ctx, payload);
+    // A fight has the party: a draught is the fight's Item action then (combat.act), never a heal beside it.
+    if (ctx.cause === 'ui' && fightHolds(ctx)) ctx.fail('REFUSED', 'In a fight, use it from the Fight screen (Item).');
     const { stack, def, party } = stackFor(ctx, payload);
     if (!(stack.qty > 0)) ctx.fail('NOT_ENOUGH', `There is no ${def.name} left.`);
     if (def.kind !== 'consumable') ctx.fail('REFUSED', `The ${def.name} is not something to use.`);
@@ -114,6 +116,15 @@ export function itemUse(ctx, payload) {
         narrate: true,
         data: { actor: targetId, stack: stack.id, def: def.id ?? stack.def, name: def.name, hp: done.hp, mp: done.mp, cured: done.cured, now },
     };
+}
+
+// A fight that has the party (under way, or over and not yet settled), read only.
+function fightHolds(ctx) {
+    try {
+        return Boolean(sessionOf(ctx.read('combat')));
+    } catch {
+        return false;
+    }
 }
 
 // A fight going on (the combat part's domain, read only): its own Item action uses things then.

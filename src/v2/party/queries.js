@@ -160,10 +160,10 @@ export function encumbered(state, args = {}, tools = null) {
 }
 
 /**
- * `party.pools({})` → { [actor id]: { hp, mp, sp: { cur, max }, down, lapsed: [condition kinds] } }:
- * every member's pools as they stand now (pools.js fitPool), and the conditions a fight left that
- * have worn off with story time (pools.js lapsed), for a card that reads one reply's state (the
- * status card).
+ * `party.pools({})` → { [actor id]: { hp, mp, sp: { cur, max }, down, lapsed: [condition kinds], turns:
+ * { [condition kind]: rounds left } } }: every member's pools as they stand now (pools.js fitPool), the
+ * conditions a fight left that have worn off with story time (pools.js lapsed) and the rounds the others
+ * have left by then (roundsLeft), for a card that reads one reply's state (the status card).
  */
 export function pools(state) {
     const party = partyOf(state);
@@ -174,6 +174,8 @@ export function pools(state) {
         out[actor.id].down = out[actor.id].hp.cur <= 0;
         const kept = state?.domains?.party?.actors?.[actor.id]?.conditions;
         out[actor.id].lapsed = (Array.isArray(kept) ? kept : []).filter(entry => lapsed(entry, minutes)).map(entry => entry.kind);
+        // The rounds each condition has left by now (a fight's counted down by story time, pools.js roundsLeft).
+        out[actor.id].turns = Object.fromEntries((actor.conditions ?? []).filter(entry => entry?.kind).map(entry => [entry.kind, Math.max(1, Math.round(Number(entry.stacks) || 1))]));
     }
     return plainCopy(out);
 }

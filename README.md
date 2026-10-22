@@ -90,7 +90,17 @@ each in full. Every one can be switched off in Story Suite settings → **Featur
 **Screens**
 - **One bag.** RPG Battle has no Items screen any more. Each row of Story Block's Inventory shows RPG
   Battle's details: slot and stats, who wears it, condition and refinement, and for a potion what it
-  does and whom it would help now. **Equip on…**, **Take off** and **Give…** are there too.
+  does and whom it would help now. **Equip on…**, **Take off** and **Give…** are there too, and **Use on…**
+  under a potion or other consumable: the members a dose would help now (not someone at full HP with
+  nothing to cure); a choice uses one dose on them at once (`item.use`). In a fight there is no Use on…:
+  the Fight screen's **Item** does it. The story still uses things with `! use … | on: …`.
+- **A finished fight settles by itself.** Once a fight is won, lost or fled, **Finish** on the board
+  settles it; if you go on with the story instead, the next reply settles it first, as Finish would (HP,
+  XP, skill uses, loot), and is told how it went. The board clears and the Fight screen shows it as the
+  last fight.
+- **Skill uses.** A skill grows from use in fights (v1's rule: 5 uses for level 2, 12 for 3, 22 for 4, 35
+  for 5), counted when the fight is settled. The Party card's skill list says how far each is
+  (`Lv 1 · 1/5 uses to Lv 2`); the skill tree's badge shows the level alone.
 - **Party cards.** Each card shows the member's stats, what they wear (with condition and refinement),
   active effects, carry load and when they are encumbered.
 - **Companion switches** on each companion's card: **In fights** (*On their own* / *You lead*) and
@@ -112,8 +122,16 @@ each in full. Every one can be switched off in Story Suite settings → **Featur
 **HP and MP back with story time** (feature *HP and MP come back with story time*, on by default; needs
 Story Director's clock)
 - v1's rule: every whole story hour gives back 5% of max HP and MP and fills stamina; 6 hours or more at
-  once is a full rest, as `! rest long` (what a fight left ends; it wears off 10 story minutes after the
-  fight anyway). Minutes short of an hour wait for the next stretch.
+  once is a full rest, as `! rest long` (what a fight left ends). Minutes short of an hour wait for the
+  next stretch.
+- **What a fight left wears off with story time.** A condition a fight left with rounds to go (poisoned,
+  bleeding, slowed…) counts down outside the fight at 10 story minutes a round, from the minute the fight
+  ended: poisoned with 3 rounds left is 2 after 10 minutes and gone after 30. The Party card says the
+  minutes left, the status card and the next fight the rounds left. A fight's round is seconds, but the
+  clock moves in minutes and a reply often moves it by many, so a round counts as ten minutes outside a
+  fight (as long as a 1-round condition lasted before). It is worked out from the clock, so a swipe,
+  delete or Re-read of the time agrees. Without a clock it waits for a rest or the next fight; a story's
+  condition (`~ wound Ren — poisoned`) has no rounds and lasts until a rest or a cure.
 - The heal is folded in before the next reply is asked for (that reply is told the healed numbers), and
   at once when something needs the party's numbers first: a wound or heal line, a rest, an item, a fight
   starting. So time the story writes before a wound heals first, and the wound stays. A short rest in the

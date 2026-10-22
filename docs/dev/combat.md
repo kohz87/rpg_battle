@@ -24,6 +24,8 @@ time F17); this repo's README "A fight", "Fights from the story", "Monsters on t
   Auto turns advance with the session seed; every random number comes from `ctx.rng`.
 - During the fight HP/MP/SP follow the board (`party.fightPools`); items used are consumed at once
   (`inventory.consume`); an item sold or dropped mid-fight is cut before the next action (`stock`).
+- A fight that is over and not finished on the board is settled before the next new reply (`settleBeforeReply`,
+  the `combat.end` cue; not for a swipe, Continue, quiet or impersonate), so it never stays on.
 - `combat.end` settles once: pools and conditions via `party.applyResult`, XP via `party.grantXp`, loot via
   `inventory.grant` (what cannot be carried is left and told, F39), coin via `wallet.receive`, foes beaten
   kept for Story Director (`combat.foesBeaten`), and the receipt summary the next reply narrates.
