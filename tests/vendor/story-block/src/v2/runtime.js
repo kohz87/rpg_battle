@@ -15,7 +15,10 @@
 //   their two switches from Story Block's preroll and extractor features.
 // * sdk.callModel (MODULES §G, model-call.js) over the `callModel` option (the one the assist helpers
 //   use), else SillyTavern's own (stModelCall): one call per module at a time, a time limit
-//   (`modelTimeoutMs`), FEATURE_OFF while the calling module's feature is off.
+//   (`modelTimeoutMs`), FEATURE_OFF while the calling module's feature is off. A call on the chat's
+//   connection (the assist's too) is marked as our own, so the turn never takes its prompt for the
+//   reply's; sdk.callModel's waits while a reply is being built or awaited (the assist's run inside the
+//   turn and do not). A profile's call goes at once.
 
 import { KEEPALIVE_MAX, createChatFile } from './chat-file.js';
 import { createCommandBus as realBus } from './commands.js';
@@ -24,7 +27,8 @@ import { WALLET_KEY } from './domains/money.js';
 import { SETTING as ASSIST_SETTING, createAssistPart } from './assist/index.js';
 import { CORE_FEATURE, createFeatureStore } from './features.js';
 import { applyStart, createPacksPart } from './packs/index.js';
-import { createModelCalls, stModelCall } from './model-call.js';
+import { createModelCalls, createOwnCalls, profileName, stModelCall } from './model-call.js';
+import { stCallModel } from './assist/st-adapter.js';
 import { carryRecord } from './persist.js';
 import { createRegistry } from './registry.js';
 import { MAX_CHANGE_LINES, createEvents, createSdk, createSettings, newId } from './sdk.js';
@@ -338,7 +342,7 @@ export function saveOnUnload(store, page, { fits = () => true } = {}) {
  * profile, system, signal }) → text (the assist helpers' and sdk.callModel's model call), modelTimeoutMs? (sdk.callModel's default limit),
  * live?() (SillyTavern's live getContext(); default: globalThis.SillyTavern's, else ctx), fetch?, page? (for
  * beforeunload; default: globalThis.window) }) → { registry, settings, features, store, bus, events, sdk, turn,
- * markReady, initial, packs, setDialog }. `features` is createFeatureStore() (the reader's choices). `ctx` is SillyTavern's context (or the testkit's fake); `packs` a
+ * markReady, initial, packs, setDialog, ownCalls }. `ownCalls` marks Story Suite's own model calls on the chat's connection (model-call.js). `features` is createFeatureStore() (the reader's choices). `ctx` is SillyTavern's context (or the testkit's fake); `packs` a
  * createPacksPart() result (default: one over ctx.extensionSettings).
  */
 export function createRuntime({
@@ -367,6 +371,11 @@ export function createRuntime({
         const cap = settings()?.maxChangeLines;
         return displayLines(mes, { entryOf: word => registry.capture(word), max: Number.isInteger(cap) && cap > 0 ? cap : MAX_CHANGE_LINES });
     };
+    // Our own calls on the chat's connection (model-call.js): marked for the turn's prompt handlers.
+    const ownCalls = createOwnCalls();
+    const marked = base => (prompt, options = {}) => (profileName(options?.profile)
+        ? base(prompt, options)
+        : ownCalls.around(prompt, () => base(prompt, options)));
     if (core) {
         registry.register(createCoreModule({
             hooks: name => registry.hooks(name),
@@ -407,7 +416,7 @@ export function createRuntime({
                     const entry = registry.capture(kind);
                     return Boolean(entry) && !entry.off;
                 },
-                ...(callModel ? { callModel } : {}),
+                callModel: marked(callModel ?? stCallModel),
             }),
         }));
     }
@@ -433,7 +442,8 @@ export function createRuntime({
     let dialogOpener = null;
     let dialogCurrent = null;
     const modelCalls = createModelCalls({
-        call: callModel ?? stModelCall,
+        call: marked(callModel ?? stModelCall),
+        gate: { whenIdle: () => turn?.whenIdle?.() ?? Promise.resolve() },
         featureOn: id => registry.featureOn(id),
         featureModule: id => (registry.features?.() ?? []).find(feature => feature?.id === id)?.moduleId ?? null,
         ...(modelTimeoutMs !== undefined ? { timeoutMs: modelTimeoutMs } : {}),
@@ -443,11 +453,11 @@ export function createRuntime({
         dialogCurrent: () => dialogCurrent?.() ?? null, reread: index => turn?.reread(index), callModel: modelCalls.callModel });
     sdk = made.sdk;
     const initial = () => initialWithStart(registry);
-    turn = createTurn({ ctx, live, store, bus, registry, settings, events, onBlocked, initial, ...(notify ? { notify } : {}) });
+    turn = createTurn({ ctx, live, store, bus, registry, settings, events, onBlocked, initial, ownPrompt: eventData => ownCalls.owns(eventData), ...(notify ? { notify } : {}) });
     // The UI (ui-host.js) plugs its dialog mount in here, for sdk.dialog.open (and .current).
     const setDialog = (fn, current = null) => {
         dialogOpener = typeof fn === 'function' ? fn : null;
         dialogCurrent = typeof current === 'function' ? current : null;
     };
-    return { registry, settings, features, store, bus, events, sdk, turn, markReady: made.markReady, initial, packs: packPart, setDialog, display };
+    return { registry, settings, features, store, bus, events, sdk, turn, markReady: made.markReady, initial, packs: packPart, setDialog, display, ownCalls };
 }
