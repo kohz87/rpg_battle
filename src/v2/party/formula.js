@@ -5,15 +5,16 @@
 //   character's level + COMPANION_LEVELS_ABOVE (B-b3-16) and the level cap. Without one, the
 //   companion comes within one level of your character: your character's level − 1, the same or
 //   + 1, picked by the receipt's dice (so a replay never picks again), never below 1.
-// * **Stats.** Every stat starts at the start value (5); a companion of level L has, in all,
-//   `base + perLevel × L` stat points (the Character settings `companionBase`, 55, and
-//   `companionPerLevel`, 5), and what is over the start values is spread by weights, largest
-//   remainder, held to the stat cap (v1 spreadByWeights / withinCap):
+// * **Stats.** Every stat starts at the start value (5); a companion of level L has, in all, the
+//   stat points your character's rule gives a character of level L (rx-combat: tier and level
+//   decide strength, so a companion of your level is never stronger than you): the start values,
+//   the creation points, and the points of every level after the first (7 × 5 + 10 + 4 × (L − 1)
+//   with the defaults). What is over the start values is spread by weights, largest remainder,
+//   held to the stat cap (v1 spreadByWeights / withinCap):
 //   1. a preset's points when the join names one (`preset: archer`, or a role that is a preset's
 //      id or name: Fighter, Skirmisher, Caster, Healer, Archer, or a pack preset given by the caller);
-//   2. else the focus (written `focus:` stats, else the stats the role's words mean) as weights
-//      4, 3, 2 and every other stat 1, so the build leans without leaving a stat at the start
-//      value (a companion with base VIT falls over by level 10);
+//   2. else the focus (written `focus:` stats, else the stats the role's words mean) as v1's
+//      weights 3, 2, 1 (so a companion without a preset is v1's newCompanion build);
 //   3. else an even spread.
 //   Stats, HP, MP and SP are worked out here and by v1's rules; a number the story writes for
 //   them is never read.
@@ -23,27 +24,13 @@ import { PRESETS } from '../../skills.js';
 import { cleanFocus, focusWeights, spreadByWeights, withinCap } from '../../builds.js';
 import { maxLevel } from '../../terms.js';
 
-export const COMPANION_FORMULA = Object.freeze({ base: 55, perLevel: 5 });
 // How far above your character's level a companion may join when a level is given.
 export const COMPANION_LEVELS_ABOVE = 2;
 
-const whole = (value, fallback, min, max) => {
-    const n = Math.round(Number(value));
-    return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
-};
-
-/** The formula's numbers from the Character settings: { base, perLevel }. */
-export function formulaOf(settings) {
-    return {
-        base: whole(settings?.companionBase, COMPANION_FORMULA.base, 0, 500),
-        perLevel: whole(settings?.companionPerLevel, COMPANION_FORMULA.perLevel, 0, 50),
-    };
-}
-
-/** The stat points a companion of `level` has in all: base + perLevel × level. */
-export function companionTotal(level, settings = null) {
-    const { base, perLevel } = formulaOf(settings);
-    return base + perLevel * Math.max(1, Math.round(Number(level) || 1));
+/** The stat points a character of `level` has in all by `rules` (your character's rule): start values + creation points + points per level after the first. */
+export function companionTotal(level, rules) {
+    const c = rules.character;
+    return c.startStat * STATS.length + c.startPoints + c.pointsPerLevel * (Math.max(1, Math.round(Number(level) || 1)) - 1);
 }
 
 const key = value => String(value ?? '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
@@ -72,15 +59,14 @@ export function companionWeights({ preset = null, role = '', focus = [] } = {}) 
     }
     const clean = cleanFocus(focus);
     if (!clean.length) return {};
-    const lean = focusWeights(clean);
-    return Object.fromEntries(STATS.map(stat => [stat, 1 + (lean[stat] ?? 0)]));
+    return focusWeights(clean);
 }
 
 /** The stats of a new companion at `level` by the formula: { STR: n, … }. */
-export function companionStats({ level = 1, weights = {}, rules, settings = null }) {
+export function companionStats({ level = 1, weights = {}, rules }) {
     const start = rules.character.startStat;
     const lv = Math.max(1, Math.min(maxLevel(rules), Math.round(Number(level) || 1)));
-    const spare = Math.max(0, companionTotal(lv, settings) - start * STATS.length);
+    const spare = Math.max(0, companionTotal(lv, rules) - start * STATS.length);
     const spread = spreadByWeights(spare, weights);
     return withinCap(Object.fromEntries(STATS.map(stat => [stat, start + (spread[stat] ?? 0)])), weights, rules);
 }

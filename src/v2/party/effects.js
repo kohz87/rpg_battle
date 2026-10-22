@@ -6,17 +6,29 @@
 // * `checks`: ± on the checks it matches, in the F80 modifier table (checks/modifiers.js reads
 //   them through `party.effects`): `on: 'all'`, a stat (a check answered by DEX), or a check topic
 //   (perception, stealth, …: modifiers.js TOPICS);
-// * `combat`: ± on fight numbers (attack, magic, defence, mdef, crit), counted in
-//   `party.combatNumbers`, which the fight reads.
-// The amounts are code's, from a word band (minor 1, moderate 2, major 3; a story line at most
-// moderate), never a number the story writes. The model is told only names and short notes
-// (the party's tail); the numbers reach it as code's modifier table.
+// * `combat`: ± a share of fight numbers (attack, magic, defence, mdef, crit: COMBAT_STEP % a
+//   band, all effects together at most COMBAT_CAP %), counted in `party.combatNumbers`, which the
+//   fight reads; a share, so a band means the same at every level.
+// The amounts are code's, from a word band (minor 1, moderate 2, major 3), never a number the
+// story writes. The model is told only names and short notes (the party's tail); the numbers reach
+// it as code's modifier table.
 //
-// How long it lasts:
-// * timed: until the story clock (Story Director's `director.time`, `ctx.time()`) passes `until`;
-//   with no clock, `replies` replies after the one that made it (counted on the chat index: the
-//   reply index the checks part hands the dice for, else the carrier's), and the reply count is
-//   kept as the fallback for when a clock goes away;
+// What the story may write (rx-combat): one new effect a reply, always the weak size (band 1,
+// whatever its words say: code picks the size), and one story effect on a check or a fight number
+// at a time per member: a new one takes the place of the story effect that acts on the same thing.
+// Effects from code (items, quests, gear, perks) keep their own sizes.
+//
+// How long it lasts: a timed effect ends at whichever comes first,
+// * its `minutes` of story time passing, when there was a clock as it began (Story Director's
+//   `director.time`, `ctx.time()`). No absolute end is stored (RX-TL-4): the time passed is summed
+//   from the turns (each turn keeps the clock it saw and how far it moved forward since the turn
+//   before, never backwards), so a deleted earlier time jump does not stretch an effect made after
+//   it, and a clock set back counts as no time; and
+// * its `replies` limit always holds too: replies are counted in **turns** (`effects.turns`), one
+//   added before every new reply (party.effectsTurn, not for a swipe or a Continue), each keyed by
+//   its receipt and numbered one past the highest, so a reply deleted from the middle never makes
+//   later numbers smaller (an effect never lasts longer for it); the effect remembers the turn it
+//   began on;
 // * while its source lasts: a worn piece (`source: { kind: 'gear', ref: <stack id> }`, on while
 //   that stack is equipped by the member) or a perk (`{ kind: 'perk', ref: <talent id or name, or
 //   skill name> }`). Only code (another part through `party.addEffect`) makes these: a story line
@@ -27,13 +39,14 @@
 //
 // Bookkeeping (SPEC §2.2): `effects.active` is keyed by effect id, each added on its own; an
 // effect is never changed in place: renewing one removes the old key and adds a new one. Effects
-// that are over are pruned by key (party.pruneEffects before a reply, and every effects write);
-// replay passes over the remove of a key a deleted reply had made. Story lines are capped per
-// reply by claims (`effect:<reply>:<n>`), so nothing is a shared counter.
+// that are over are pruned by key (party.effectsTurn before a reply, and every effects write);
+// replay passes over the remove of a key a deleted reply had made. `effects.turns` is keyed by
+// receipt (a `scratch` field: replay makes it when a deleted reply had made it) and pruned to the
+// newest MAX_TURNS. The story line a reply may write is claimed (`effect:<reply>`), so nothing is
+// a shared counter.
 
 import { STATS } from '../../rules.js';
 import { TOPIC_NAMES, topicsOf } from '../checks/modifiers.js';
-import { preparedEntries } from '../checks/shared.js';
 import { clipped } from '../lines.js';
 import { ACTOR_ID } from './validate.js';
 import { clipText, fail, labelsOf, nameKey, newId, replyOf, resolveName, revOf } from './util.js';
@@ -51,18 +64,22 @@ export const FEATURES = Object.freeze([{
 export const EFFECT_ID = /^ef_[0-9a-z]{8}$/;
 export const MAX_ACTIVE = 40;
 export const MAX_PER_ACTOR = 8;
-export const STORY_PER_REPLY = 3;
+export const STORY_PER_REPLY = 1;
+// The turns kept (more than the longest replies limit, so a count is never cut short).
+export const MAX_TURNS = 70;
 export const MAX_CHECKS = 4;
 export const SOURCE_KINDS = Object.freeze(['item', 'quest', 'setback', 'story', 'gear', 'perk']);
 export const COMBAT_KEYS = Object.freeze(['attack', 'magic', 'defence', 'mdef', 'crit']);
-// What one band adds to a fight number (crit is a share in %).
-const COMBAT_STEP = Object.freeze({ attack: 2, magic: 2, defence: 2, mdef: 2, crit: 3 });
-// The most all of a member's effects move one check or one fight number, either way.
+// What one band moves a fight number by, in % of it; the most all of a member's effects move one
+// fight number (in %) or one check, either way.
+export const COMBAT_STEP = 5;
+export const COMBAT_CAP = 15;
 export const CHECK_CAP = 3;
-export const COMBAT_CAP = Object.freeze({ attack: 6, magic: 6, defence: 6, mdef: 6, crit: 9 });
+// The size a story line's effect has, whatever it says (rx-combat: code picks the size).
+export const STORY_BAND = 1;
 // Durations: a story line between 10 minutes and a day (default an hour); code up to a week.
 const MINUTES = Object.freeze({ least: 10, story: 24 * 60, most: 7 * 24 * 60, fallback: 60 });
-const REPLIES = Object.freeze({ least: 1, most: 30, perMinutes: 30 });
+const REPLIES = Object.freeze({ least: 1, most: 60, perMinutes: 30 });
 export const SETBACK = Object.freeze({ name: 'Setback', note: 'a failed quest weighs on the party', tone: 'bad', band: 1, on: ['all'], minutes: 24 * 60 });
 
 const isRecord = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -82,7 +99,7 @@ export function featureOn(source) {
 // ---------------------------------------------------------------------------------------
 // The domain
 
-export const initialEffects = () => ({ active: {} });
+export const initialEffects = () => ({ active: {}, turns: {} });
 
 /** The effects kept, in id order: a record (or nothing, before the domain was there). */
 export const effectList = slice => Object.values(isRecord(slice?.active) ? slice.active : {}).filter(isRecord)
@@ -104,15 +121,17 @@ function checkEffect(errors, key, effect) {
         || !(entry.on === 'all' || STATS.includes(entry.on) || TOPIC_NAMES.includes(entry.on)) || !isInt(entry.amount, -CHECK_CAP, CHECK_CAP) || entry.amount === 0)) {
         errors.push(`${where}: checks are up to ${MAX_CHECKS} of { on: all | a stat | a check topic, amount: ±1 to ±${CHECK_CAP} }.`);
     }
-    if (!isRecord(effect.combat) || Object.entries(effect.combat).some(([name, amount]) => !COMBAT_KEYS.includes(name) || !isInt(amount, -COMBAT_CAP[name], COMBAT_CAP[name]))) {
-        errors.push(`${where}: combat numbers are ${COMBAT_KEYS.join(', ')}, whole numbers within their caps.`);
+    if (!isRecord(effect.combat) || Object.entries(effect.combat).some(([name, amount]) => !COMBAT_KEYS.includes(name) || !isInt(amount, -COMBAT_CAP, COMBAT_CAP) || amount === 0)) {
+        errors.push(`${where}: combat numbers are ${COMBAT_KEYS.join(', ')}, a share of ±1 to ±${COMBAT_CAP} %.`);
     }
     const start = effect.start;
-    if (!isRecord(start) || !(start.minutes === null || isInt(start.minutes, 0)) || !(start.at === null || isInt(start.at, 0))) errors.push(`${where}: start is { minutes, at }, whole numbers or null.`);
-    if (!(effect.until === null || isInt(effect.until, 0))) errors.push(`${where}: until is the story minute it ends, or null.`);
+    const legacy = start?.turn === undefined && (start?.at === null || isInt(start?.at, 0));
+    if (!isRecord(start) || !(start.minutes === null || isInt(start.minutes, 0)) || !(legacy || isInt(start.turn, 0))) errors.push(`${where}: start is { minutes, turn }, whole numbers (minutes may be null).`);
+    if (!(effect.minutes === null || effect.minutes === undefined || isInt(effect.minutes, 1, MINUTES.most))) errors.push(`${where}: minutes is how long it lasts in story time (up to a week), or null.`);
+    if (effect.until !== undefined && effect.until !== null && !isInt(effect.until, 0)) errors.push(`${where}: until (an older effect's end) is a story minute, or null.`);
     if (!(effect.replies === null || isInt(effect.replies, REPLIES.least, REPLIES.most))) errors.push(`${where}: replies is ${REPLIES.least} to ${REPLIES.most}, or null.`);
     const bound = source?.kind === 'gear' || source?.kind === 'perk';
-    if (!bound && effect.until === null && effect.replies === null) errors.push(`${where}: an effect that is not worn or a perk must end.`);
+    if (!bound && !effect.minutes && !effect.until && effect.replies === null) errors.push(`${where}: an effect that is not worn or a perk must end.`);
     if (!isInt(effect.rev, 0)) errors.push(`${where}: rev must be a whole number.`);
 }
 
@@ -124,7 +143,25 @@ export function validateEffects(slice) {
     // 4× the kept number: a replay after a middle delete may keep one a deleted reply had pruned.
     if (entries.length > MAX_ACTIVE * 4) errors.push(`effects keeps about ${MAX_ACTIVE} effects at most.`);
     for (const [key, effect] of entries) checkEffect(errors, key, effect);
+    if (slice.turns !== undefined) {
+        if (!isRecord(slice.turns)) errors.push('effects.turns must be a record.');
+        else {
+            const turns = Object.entries(slice.turns);
+            if (turns.length > MAX_TURNS * 4) errors.push(`effects keeps about ${MAX_TURNS} turns at most.`);
+            for (const [key, turn] of turns) {
+                if (!/^r\d{1,15}$/.test(key) || !isRecord(turn) || !isInt(turn.n, 1) || !isInt(turn.rev, 0)
+                    || !(turn.seen === undefined || turn.seen === null || isInt(turn.seen, 0)) || !(turn.dm === undefined || isInt(turn.dm, 0))) errors.push(`effects.turns.${key.slice(0, 20)} must be { n, rev, seen, dm } under r<rev>.`);
+            }
+        }
+    }
     return errors;
+}
+
+/** The turn now: the highest turn number kept (0 before the first). */
+export function turnOf(slice) {
+    let most = 0;
+    for (const turn of Object.values(isRecord(slice?.turns) ? slice.turns : {})) if (isInt(turn?.n, 1) && turn.n > most) most = turn.n;
+    return most;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -136,32 +173,48 @@ const ask = (query, name, args) => {
 };
 const minutesOf = value => (isInt(value, 0) ? value : isRecord(value) && isInt(value.minutes, 0) ? value.minutes : null);
 
-/** The reply index the latest dice were handed for (the reply being written), else null. */
-export const latestReply = state => {
-    const at = preparedEntries(state?.domains?.checks).at(-1)?.for;
-    return isInt(at, 0) ? at : null;
-};
-
-/** Now for a command: { minutes (the story clock, or null), at (this reply's chat index, or null) }. */
-export function nowOfCtx(ctx, { at = null } = {}) {
+/** Now for a command: { minutes (the story clock, or null), turn (effects.turns' highest), turns }. */
+export function nowOfCtx(ctx) {
     let minutes = null;
     try { minutes = minutesOf(typeof ctx?.time === 'function' ? ctx.time() : null); } catch { minutes = null; }
     if (minutes === null) minutes = minutesOf(ask(typeof ctx?.query === 'function' ? (n, a) => ctx.query(n, a) : null, 'director.time', {}));
-    let index = isInt(at, 0) ? at : isInt(ctx?.carrier?.index, 0) ? ctx.carrier.index : null;
-    if (index === null) {
-        try { index = latestReply({ domains: { checks: ctx.read('checks') } }); } catch { index = null; }
-    }
-    return { minutes, at: index };
+    let slice = null;
+    try { slice = ctx.read('effects'); } catch { slice = null; }
+    return { minutes, turn: turnOf(slice), turns: isRecord(slice?.turns) ? slice.turns : {} };
 }
 
-/** Now for a query or a view: the clock through `query`, the latest reply index from the state (else `fallbackAt`). */
-export function nowOfState(state, query, { fallbackAt = null } = {}) {
+/** Now for a query or a view: the clock through `query` (else the director slice), the turns from the state. */
+export function nowOfState(state, query) {
     const minutes = minutesOf(ask(query, 'director.time', {})) ?? minutesOf(state?.domains?.director?.time);
-    return { minutes, at: latestReply(state) ?? (isInt(fallbackAt, 0) ? fallbackAt : null) };
+    const slice = state?.domains?.effects;
+    return { minutes, turn: turnOf(slice), turns: isRecord(slice?.turns) ? slice.turns : {} };
 }
 
-/** Replies since the one that made the effect (an exchange is two messages), or null when not known. */
-const repliesSince = (effect, now) => (isInt(effect?.start?.at, 0) && isInt(now?.at, 0) ? Math.max(0, Math.floor((now.at - effect.start.at) / 2)) : null);
+/**
+ * The story minutes that passed since the effect began, or null when it began without a clock or
+ * there is none now: from its own clock reading to the first turn after it, then each later turn's
+ * forward move (`dm`), then from the last turn's reading to now; a move back counts as none.
+ */
+export function minutesSince(effect, now) {
+    const from = effect?.start?.minutes;
+    if (!isInt(from, 0) || !isInt(now?.minutes, 0)) return null;
+    const begun = isInt(effect.start.turn, 0) ? effect.start.turn : 0;
+    const after = Object.values(isRecord(now.turns) ? now.turns : {}).filter(turn => isInt(turn?.n, 1) && turn.n > begun).sort((a, b) => a.n - b.n);
+    let passed = 0;
+    let seen = from;
+    after.forEach((turn, index) => {
+        if (!isInt(turn.seen, 0)) return;
+        passed += index === 0 ? Math.max(0, turn.seen - from) : isInt(turn.dm, 0) ? turn.dm : Math.max(0, turn.seen - seen);
+        seen = turn.seen;
+    });
+    return passed + Math.max(0, now.minutes - seen);
+}
+
+/** How long a timed effect lasts in story minutes (an older effect's `until` read as a length). */
+const lengthOf = effect => (isInt(effect?.minutes, 1) ? effect.minutes : isInt(effect?.until, 0) && isInt(effect?.start?.minutes, 0) ? Math.max(1, effect.until - effect.start.minutes) : null);
+
+/** Turns since the one the effect began on (an effect from before turns were kept counts from turn 0: it never outlasts its replies). */
+const repliesSince = (effect, now) => (isInt(now?.turn, 0) ? Math.max(0, now.turn - (isInt(effect?.start?.turn, 0) ? effect.start.turn : 0)) : null);
 
 const holdsTalent = (actor, ref) => (actor?.origin?.talents ?? []).some(talent => nameKey(talent?.id) === nameKey(ref) || nameKey(talent?.name) === nameKey(ref))
     || (actor?.skills ?? []).some(skill => nameKey(skill?.name) === nameKey(ref));
@@ -185,10 +238,13 @@ export function isOn(effect, { party, inventory, now }) {
         const holders = effect.actor === 'party' ? Object.values(actors) : [actors[effect.actor]];
         if (!holders.some(actor => holdsTalent(actor, source.ref))) return false;
     }
-    if (isInt(effect.until, 0) && isInt(now?.minutes, 0)) return now.minutes < effect.until;
+    // Whichever ends first: the clock (when there is one) and the replies (always).
+    const length = lengthOf(effect);
+    const passed = length ? minutesSince(effect, now) : null;
+    if (length && passed !== null && passed >= length) return false;
     if (isInt(effect.replies, 1)) {
         const since = repliesSince(effect, now);
-        return since === null || since <= effect.replies;
+        if (since !== null && since > effect.replies) return false;
     }
     return true;
 }
@@ -204,8 +260,13 @@ export function activeEffects(state, now) {
 export function leftText(effect, now) {
     if (effect.source?.kind === 'gear') return 'while worn';
     if (effect.source?.kind === 'perk') return '';
-    if (isInt(effect.until, 0) && isInt(now?.minutes, 0)) {
-        const left = Math.max(1, effect.until - now.minutes);
+    const since = repliesSince(effect, now);
+    const repliesLeft = isInt(effect.replies, 1) ? Math.max(0, effect.replies - (since ?? 0)) : null;
+    // The clock's words, unless the replies will end it sooner (about REPLIES.perMinutes a reply).
+    const length = lengthOf(effect);
+    const passed = length ? minutesSince(effect, now) : null;
+    if (passed !== null && !(repliesLeft !== null && repliesLeft * REPLIES.perMinutes < length - passed)) {
+        const left = Math.max(1, length - passed);
         const days = Math.floor(left / 1440);
         const hours = Math.floor((left % 1440) / 60);
         const mins = left % 60;
@@ -213,11 +274,7 @@ export function leftText(effect, now) {
         if (hours) return mins >= 30 && hours < 3 ? `${hours} h ${mins} min` : `${hours} h`;
         return `${mins} min`;
     }
-    if (isInt(effect.replies, 1)) {
-        const since = repliesSince(effect, now) ?? 0;
-        const left = Math.max(0, effect.replies - since);
-        return left ? `${left} repl${left === 1 ? 'y' : 'ies'}` : 'this reply';
-    }
+    if (repliesLeft !== null) return repliesLeft ? `${repliesLeft} repl${repliesLeft === 1 ? 'y' : 'ies'}` : 'this reply';
     return '';
 }
 
@@ -243,15 +300,18 @@ export function shown(effect, now) {
 }
 
 /**
- * A member's fight numbers moved by their effects (and everyone's): { attack: n, … } summed and
- * held to COMBAT_CAP. `effects` are shown() or stored effects already found to be on.
+ * How much a member's effects (and everyone's) move each fight number, in %: { attack: 10, … }
+ * summed and held to ±COMBAT_CAP. `effects` are shown() or stored effects already found to be on.
  */
 export function combatShift(effects) {
     const out = {};
-    for (const effect of effects) for (const [name, amount] of Object.entries(effect.combat ?? {})) if (COMBAT_KEYS.includes(name)) out[name] = (out[name] ?? 0) + amount;
-    for (const name of Object.keys(out)) out[name] = Math.max(-COMBAT_CAP[name], Math.min(COMBAT_CAP[name], out[name]));
+    for (const effect of effects) for (const [name, amount] of Object.entries(effect.combat ?? {})) if (COMBAT_KEYS.includes(name) && Number.isFinite(amount)) out[name] = (out[name] ?? 0) + amount;
+    for (const name of Object.keys(out)) out[name] = Math.max(-COMBAT_CAP, Math.min(COMBAT_CAP, out[name]));
     return out;
 }
+
+/** A fight number moved by `percent` % (one decimal, never below 0). */
+export const shifted = (value, percent) => Math.max(0, Math.round(value * (1 + percent / 100) * 10) / 10);
 
 // ---------------------------------------------------------------------------------------
 // Reading what an effect does (words, never numbers)
@@ -317,28 +377,35 @@ export function readDuration(value) {
 const clampInt = (value, min, max) => Math.max(min, Math.min(max, Math.round(value)));
 
 /**
- * How long an effect made now lasts: { until, replies } (until null without a clock; replies
+ * How long an effect made now lasts: { minutes, replies } (minutes null without a clock; replies
  * always, the fallback). `story`: a story line's limits.
  */
 function lastsFor(duration, now, { story }) {
     const most = story ? MINUTES.story : MINUTES.most;
     if (duration?.replies) {
         const replies = clampInt(duration.replies, REPLIES.least, story ? 10 : REPLIES.most);
-        return { until: null, replies };
+        return { minutes: null, replies };
     }
     const minutes = clampInt(duration?.minutes ?? MINUTES.fallback, MINUTES.least, most);
     const replies = clampInt(Math.ceil(minutes / REPLIES.perMinutes), REPLIES.least, REPLIES.most);
-    return { until: isInt(now.minutes, 0) ? now.minutes + minutes : null, replies };
+    return { minutes: isInt(now.minutes, 0) ? minutes : null, replies };
 }
 
 // ---------------------------------------------------------------------------------------
 // Making and ending effects
 
-/** The effects slice to change (the domain is made when a chat has none yet). */
+/** The effects slice to change: its `active` record (the domain is made when a chat has none yet). */
 function draftEffects(ctx) {
     const slice = ctx.draft('effects');
     if (!isRecord(slice.active)) slice.active = {};
     return slice.active;
+}
+
+/** The turns record to change (a scratch field: made when missing). */
+function draftTurns(ctx) {
+    const slice = ctx.draft('effects');
+    if (!isRecord(slice.turns)) slice.turns = {};
+    return slice.turns;
 }
 
 function readSlice(ctx, name) {
@@ -359,31 +426,38 @@ function pruneOver(ctx, active, now) {
     return gone;
 }
 
+/** What an effect acts on, as keys: `check:perception`, `combat:attack`. */
+const targetsOf = effect => [...(effect.checks ?? []).map(entry => `check:${entry.on}`), ...Object.keys(effect.combat ?? {}).map(key => `combat:${key}`)];
+
 /**
  * One effect made (shared by party.addEffect and the `effect` kind). `spec`: { actor, name, note,
  * tone, band, on: { checks, combat }, duration, source }. Renews an effect of that name on that
- * member (the old key goes, a new one comes). `story`: a story line's limits (band ≤ 2, a day).
+ * member (the old key goes, a new one comes). `story`: a story line's limits (STORY_BAND, a day,
+ * and it takes the place of the member's story effects that act on any of the same things).
  */
 function makeEffect(ctx, spec, { story }) {
     if (!featureOn(ctx)) fail(ctx, 'FEATURE_OFF', 'Timed buffs and debuffs are switched off in this chat.');
     const name = oneLine(spec.name, 40);
     if (!name) fail(ctx, 'INVALID', 'An effect needs a name.');
     const tone = spec.tone === 'bad' ? 'bad' : 'good';
-    const band = clampInt(Number(spec.band) || 1, 1, story ? 2 : CHECK_CAP);
+    const band = story ? STORY_BAND : clampInt(Number(spec.band) || 1, 1, CHECK_CAP);
     const sign = tone === 'bad' ? -1 : 1;
     if (!spec.on.checks.length && !spec.on.combat.length) fail(ctx, 'INVALID', `${name}: say what it acts on (on: perception, stealth, DEX, attack, defence, all checks…).`);
     const checks = spec.on.checks.slice(0, MAX_CHECKS).map(on => ({ on, amount: sign * band }));
-    const combat = Object.fromEntries(spec.on.combat.map(key => [key, sign * Math.min(COMBAT_CAP[key], band * COMBAT_STEP[key])]));
+    const combat = Object.fromEntries(spec.on.combat.map(key => [key, sign * Math.min(COMBAT_CAP, band * COMBAT_STEP)]));
     const source = { kind: SOURCE_KINDS.includes(spec.source?.kind) ? spec.source.kind : 'story', name: oneLine(spec.source?.name ?? '', 60) };
     if (spec.source?.ref !== undefined && spec.source?.ref !== null && String(spec.source.ref).trim()) source.ref = oneLine(spec.source.ref, 80);
     const bound = source.kind === 'gear' || source.kind === 'perk';
     if (bound && !source.ref) fail(ctx, 'INVALID', `${name}: a worn piece's or a perk's effect names its stack or perk.`);
-    const now = nowOfCtx(ctx, { at: spec.at });
-    const lasts = bound && !spec.duration ? { until: null, replies: null } : lastsFor(spec.duration, now, { story });
+    const now = nowOfCtx(ctx);
+    const lasts = bound && !spec.duration ? { minutes: null, replies: null } : lastsFor(spec.duration, now, { story });
     const active = draftEffects(ctx);
     pruneOver(ctx, active, now);
-    // Renewed, not stacked: the same name on the same member replaces the one there.
-    const same = Object.values(active).filter(effect => effect.actor === spec.actor && nameKey(effect.name) === nameKey(name));
+    // Renewed, not stacked: the same name on the same member replaces the one there; a story line
+    // also takes the place of that member's story effects on the same checks or fight numbers.
+    const targets = new Set(targetsOf({ checks, combat }));
+    const same = Object.values(active).filter(effect => effect.actor === spec.actor && (nameKey(effect.name) === nameKey(name)
+        || (story && effect.source?.kind === 'story' && targetsOf(effect).some(target => targets.has(target)))));
     // A new key even for a renewal (taken before the old one goes), so nothing is changed in place.
     const id = newId(ctx, 'ef', candidate => Object.hasOwn(active, candidate));
     for (const effect of same) delete active[effect.id];
@@ -392,7 +466,7 @@ function makeEffect(ctx, spec, { story }) {
     if (Object.keys(active).length >= MAX_ACTIVE) fail(ctx, 'REFUSED', `The party already has ${MAX_ACTIVE} effects: ${name} does not take.`);
     const effect = {
         id, actor: spec.actor, name, note: oneLine(spec.note ?? '', 60), tone, source, checks, combat,
-        start: { minutes: now.minutes, at: now.at }, until: lasts.until, replies: lasts.replies, rev: revOf(ctx),
+        start: { minutes: now.minutes, turn: now.turn }, minutes: lasts.minutes, replies: lasts.replies, rev: revOf(ctx),
     };
     active[id] = effect;
     const who = spec.who ?? 'Everyone';
@@ -460,15 +534,24 @@ function endEffect(ctx, payload = {}) {
 }
 
 /**
- * party.pruneEffects { at? } (system, before a reply): effects that are over removed by key, so
- * the slice keeps only what is on. `at` is the reply about to be written. Refused from a click.
+ * party.effectsTurn {} (system, before each new reply while there are effects): a turn passes,
+ * one more in `effects.turns` (keyed by this receipt, numbered one past the highest; the oldest
+ * past MAX_TURNS go), then the effects that are over are removed by key. Refused from a click.
  */
-function pruneEffects(ctx, payload = {}) {
-    if (ctx.cause === 'ui') fail(ctx, 'REFUSED', 'Effects are tidied by code before a reply.');
-    const active = draftEffects(ctx);
-    const gone = pruneOver(ctx, active, nowOfCtx(ctx, { at: payload?.at }));
-    if (!gone.length) fail(ctx, 'REFUSED', 'No effect is over.');
-    return { summary: `${gone.length} effect${gone.length === 1 ? '' : 's'} wore off.`, data: { gone }, narrate: false };
+function effectsTurn(ctx) {
+    if (ctx.cause === 'ui') fail(ctx, 'REFUSED', 'Turns pass by themselves, before each reply.');
+    const turns = draftTurns(ctx);
+    const rev = revOf(ctx);
+    const n = turnOf({ turns }) + 1;
+    // The clock this turn saw, and how far it moved forward since the turn before (never back).
+    const { minutes } = nowOfCtx(ctx);
+    const before = Object.values(turns).find(turn => turn?.n === n - 1);
+    const dm = isInt(minutes, 0) && isInt(before?.seen, 0) ? Math.max(0, minutes - before.seen) : 0;
+    turns[`r${rev}`] = { n, rev, seen: isInt(minutes, 0) ? minutes : null, dm };
+    const keys = Object.keys(turns).sort((x, y) => (turns[x].n - turns[y].n) || (x < y ? -1 : 1));
+    for (const key of keys.slice(0, Math.max(0, keys.length - MAX_TURNS))) delete turns[key];
+    const gone = pruneOver(ctx, draftEffects(ctx), nowOfCtx(ctx));
+    return { summary: gone.length ? `${gone.length} effect${gone.length === 1 ? '' : 's'} wore off.` : 'A turn passes.', data: { turn: n, gone }, narrate: false };
 }
 
 // ---------------------------------------------------------------------------------------
@@ -497,7 +580,7 @@ function applyEffect(ctx, line) {
     if (reply !== null) {
         let taken = false;
         for (let n = 1; n <= STORY_PER_REPLY && !taken; n += 1) taken = ctx.claim(`effect:${reply}:${n}`);
-        if (!taken) fail(ctx, 'REFUSED', `At most ${STORY_PER_REPLY} new effects count in one reply.`);
+        if (!taken) fail(ctx, 'REFUSED', `Only ${STORY_PER_REPLY === 1 ? 'one new effect counts' : `${STORY_PER_REPLY} new effects count`} in one reply.`);
     }
     const kind = String(labels.kind ?? labels.tone ?? labels.type ?? '').toLowerCase();
     const written = `${labels.strength ?? ''} ${line.text ?? ''} ${line.name ?? ''}`;
@@ -508,7 +591,7 @@ function applyEffect(ctx, line) {
     return makeEffect(ctx, {
         ...member, name: line.name, note: line.text ?? '', tone: DEBUFF.test(kind) ? 'bad' : 'good', band,
         on: readOn(labels.on ?? ''), duration, source: { kind: 'story', name: from },
-        clamped: band > 2 ? `${oneLine(line.name, 40)}: a story's effect is moderate at most.` : null,
+        clamped: band > STORY_BAND ? `${oneLine(line.name, 40)}: a story's effect is minor; code sets its size.` : null,
     }, { story: true });
 }
 
@@ -518,7 +601,7 @@ const tagged = fn => Object.assign(fn, { feature: FEATURE });
 export const effectCommands = {
     'party.addEffect': tagged(addEffect),
     'party.endEffect': tagged(endEffect),
-    'party.pruneEffects': tagged(pruneEffects),
+    'party.effectsTurn': tagged(effectsTurn),
 };
 
 export const effectKinds = {
@@ -526,21 +609,14 @@ export const effectKinds = {
 };
 
 /**
- * beforeGenerate(view, info): when an effect is over, a `party.pruneEffects` (system) for the
- * reply about to be written. Nothing while the feature is off or nothing is over.
+ * beforeGenerate(view, info): while any effect is kept, a `party.effectsTurn` (system) before each
+ * new reply (normal or regenerate), never for a swipe (the turn was counted when the reply was
+ * first written) or a Continue. Nothing while the feature is off or there are no effects.
  */
-export function pruneBeforeReply(view, info = {}) {
+export function turnBeforeReply(view, info = {}) {
     if (!featureOn(view)) return { commands: [] };
-    const state = view?.state;
-    const stored = effectList(state?.domains?.effects);
-    if (!stored.length) return { commands: [] };
     const type = String(info?.type ?? 'normal').toLowerCase();
-    const length = view?.chat?.length;
-    const at = Number.isInteger(length) ? (type === 'swipe' || type === 'continue' ? Math.max(0, length - 1) : length) : null;
-    const query = typeof view?.query === 'function' ? (name, args) => view.query(name, args) : null;
-    const now = { ...nowOfState(state, query), at };
-    const party = state?.domains?.party;
-    const inventory = state?.domains?.inventory;
-    if (stored.every(effect => isOn(effect, { party, inventory, now }))) return { commands: [] };
-    return { commands: [{ type: 'party.pruneEffects', payload: { at } }] };
+    if (type === 'swipe' || type === 'continue' || type === 'quiet' || type === 'impersonate') return { commands: [] };
+    if (!effectList(view?.state?.domains?.effects).length) return { commands: [] };
+    return { commands: [{ type: 'party.effectsTurn', payload: {} }] };
 }

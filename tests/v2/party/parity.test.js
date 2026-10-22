@@ -121,7 +121,7 @@ test('a companion: v1 newCompanion\'s skills, pools by v1 rules, stats by the F9
         const made = byName(out.state, name);
         const stats = companionStats({ level, weights: companionWeights({ role, focus: focus.length ? focus : guessFocus(role) }), rules: DEFAULT_RULES });
         assert.deepEqual(made.stats, stats);
-        assert.equal(Object.values(made.stats).reduce((a, b) => a + b, 0), 55 + 5 * level);
+        assert.equal(Object.values(made.stats).reduce((a, b) => a + b, 0), 7 * 5 + 10 + 4 * (level - 1), 'what your character has at that level');
         assert.deepEqual(made.hp, { cur: maxHp(stats, level, DEFAULT_RULES), max: maxHp(stats, level, DEFAULT_RULES) });
         assert.deepEqual(made.skills.map(skill => skill.name), skills);
     }

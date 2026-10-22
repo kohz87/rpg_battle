@@ -78,7 +78,7 @@ test('party.ranks, an absolute foe rank, a companion by formula and party.toSpen
             assert.equal((await host.cmd('party.acceptOffer', { offer: join.id })).ok, true);
             const lyra = host.q('party.actor', { name: 'Lyra' });
             assert.ok([1, 2].includes(lyra.level));
-            assert.equal(Object.values(lyra.stats).reduce((a, b) => a + b, 0), 55 + 5 * lyra.level);
+            assert.equal(Object.values(lyra.stats).reduce((a, b) => a + b, 0), 45 + 4 * (lyra.level - 1));
             assert.deepEqual(host.q('party.toSpend', {}), { total: 0, people: [] });
         } finally {
             host.close();

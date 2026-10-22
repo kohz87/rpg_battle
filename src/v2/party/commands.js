@@ -212,8 +212,8 @@ function create(ctx, payload = {}) {
  * party.addCompanion { name, role?, level?, preset?, focus?: [stats], skills?: [names], control?:
  * 'auto' | 'player', growth?: 'auto' | 'manual', npc?, portrait? }: a companion by formula
  * (MODULES §F91, formula.js): the level given, held to at most COMPANION_LEVELS_ABOVE above your
- * character's, else within one level of your character; the stats `base + perLevel × level`
- * points spread by the preset's or the role's (focus) weights; the skills given or, without any,
+ * character's, else within one level of your character; the stat points a character of that level
+ * has by your character's rule, spread by the preset's or the role's (focus) weights; the skills given or, without any,
  * the ones v1 suggestSkills picks for those stats. Fights on auto and points spent by build
  * unless told otherwise (MODULES §F29, §F49); refused when the party already has as many
  * companions as the setting allows (§F48). Internal (an accepted join offer, another part):
@@ -244,8 +244,8 @@ function joinParty(ctx, payload = {}) {
     // (B-b3-16); without one, within one level of your character, by the receipt's dice.
     const level = joinLevel({ asked: payload.level ? asked : null, pcLevel: pc?.level ?? 1, rules, rng: () => ctx.rng() });
     const focus = cleanFocus(payload.focus?.length ? payload.focus : guessFocus(role, payload.text ?? ''));
-    // The stats by formula: base + per level points spread by the preset's or the role's weights.
-    const stats = companionStats({ level, weights: companionWeights({ preset: payload.preset ?? null, role, focus }), rules, settings: settingsFor(ctx) });
+    // The stats by formula: your character's points for that level, spread by the preset's or the role's weights.
+    const stats = companionStats({ level, weights: companionWeights({ preset: payload.preset ?? null, role, focus }), rules });
     const library = libraryOf(party);
     const wanted = Array.isArray(payload.skills) && payload.skills.length
         ? payload.skills.map(skill => findSkill(library, skill)?.name ?? String(skill ?? '').trim()).filter(Boolean)

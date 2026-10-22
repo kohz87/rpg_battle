@@ -7,7 +7,7 @@ import { rulesFrom, toSheet, wornGear } from './sheets.js';
 import { moneyScale, packRanks, rankLadder, termsOf } from '../../terms.js';
 import { actorsInOrder, offerText, plainCopy, resolveName, waitingOffers } from './util.js';
 import { encumbranceOf } from '../checks/modifiers.js';
-import { FEATURE, activeEffects, combatShift, featureOn, nowOfState, shown } from './effects.js';
+import { FEATURE, activeEffects, combatShift, featureOn, nowOfState, shifted, shown } from './effects.js';
 
 /**
  * A member's record with its `portrait` (MODULES §F11): the one kept on the record (your
@@ -99,13 +99,13 @@ export function toSpend(state) {
  * `party.effects({ actor?, now? })` → the timed buffs and debuffs on now (feature
  * `rpg-battle.effects`; [] while it is off): [{ id, actor, name, note, tone: 'good'|'bad', left:
  * '2 h' | '3 replies' | 'while worn' | '', source: 'Hawk Draught' | 'quest: …' | …, checks: [{ on,
- * amount }], combat: { attack?, … } }], oldest first. With `actor`, that member's and everyone's
+ * amount }], combat: { attack?: %, … } }], oldest first. With `actor`, that member's and everyone's
  * (actor 'party'). `now` ({ minutes, at }) is read from the story clock and the latest reply when
  * not given.
  */
 export function effects(state, args = {}, tools = null) {
     if (!featureOn(tools)) return [];
-    const now = args?.now && typeof args.now === 'object' ? { minutes: args.now.minutes ?? null, at: args.now.at ?? null } : nowOfState(state, queryOf(tools));
+    const now = args?.now && typeof args.now === 'object' ? { minutes: args.now.minutes ?? null, turn: args.now.turn ?? 0 } : nowOfState(state, queryOf(tools));
     const on = activeEffects(state, now).filter(effect => !args?.actor || effect.actor === args.actor || effect.actor === 'party');
     return plainCopy(on.map(effect => shown(effect, now)));
 }
@@ -132,7 +132,7 @@ export function combatNumbersOf(state, args = {}, tools = null) {
     let on = [];
     try { on = ask ? ask('party.effects', { actor: member.id }) : effects(state, { actor: member.id }, tools); } catch { on = []; }
     const shift = combatShift(Array.isArray(on) ? on : []);
-    for (const [name, amount] of Object.entries(shift)) if (Number.isFinite(numbers[name])) numbers[name] = Math.max(0, numbers[name] + amount);
+    for (const [name, percent] of Object.entries(shift)) if (Number.isFinite(numbers[name])) numbers[name] = shifted(numbers[name], percent);
     // Encumbered (Story Block's inventory.encumbrance): its penalty on those stats in the fight too.
     const burden = encumbranceOf(ask, member.id);
     if (burden && numbers.stats && typeof numbers.stats === 'object') {
