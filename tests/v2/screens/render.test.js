@@ -354,6 +354,18 @@ test('status card: before creation', { skip }, () => {
     assert.equal(text(drawn.el.querySelector('.rpg-create-go')), 'Create your character');
 });
 
+test('status card: a reply made before RPG Battle was added (no party in its state) offers creation too (B-a3-4)', { skip }, () => {
+    const state = emptyState();
+    delete state.domains.party;
+    delete state.domains.checks;
+    const drawn = draw(statusCardScreen, state);
+    assert.deepEqual(drawn.warnings, []);
+    assert.equal(all(drawn.el, '.member').length, 0);
+    assert.equal(text(drawn.el.querySelector('.none span')), 'No character yet.');
+    assert.equal(text(drawn.el.querySelector('.rpg-create-go')), 'Create your character');
+    assert.equal(drawn.el.querySelector('.calm'), null);
+});
+
 test('every screen draws with Story Block\'s real standard widgets, none missing or failing', { skip: skip || (standard ? false : 'Story Block\'s widgets (src/v2/view/widgets/) were not found') }, () => {
     const changes = ['/domains/party/actors/ac_ren00001/hp/cur'];
     for (const screen of [partyScreen, tradeScreen, craftingScreen, hudScreen, statusCardScreen]) {
@@ -361,7 +373,8 @@ test('every screen draws with Story Block\'s real standard widgets, none missing
         assert.deepEqual(drawn.warnings, [], screen.id);
         assert.equal(drawn.el.querySelectorAll('.ss-widget-missing').length, 0, screen.id);
         const hosts = drawn.el.querySelectorAll('ss-widget');
-        for (const host of hosts) assert.ok(host.querySelector('.ss-w'), `${screen.id}: ${host.getAttribute('name')} drew`);
+        // RPG Battle's own return card draws its own root (hidden while your character lives).
+        for (const host of hosts) assert.ok(host.querySelector('.ss-w') ?? host.querySelector('.rpg-return-card'), `${screen.id}: ${host.getAttribute('name')} drew`);
     }
     const party = draw(partyScreen, makeState(), { real: true });
     const ren = party.el.querySelectorAll('article.actor')[0];

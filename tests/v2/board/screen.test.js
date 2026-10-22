@@ -9,6 +9,7 @@ import { installFakeDom } from '../../ui-fake-dom.js';
 import { baseDomains, createWorld, line } from '../combat/helpers/fake-ctx.js';
 import { part as combat } from '../../../src/v2/combat/index.js';
 import { part, fightScreen, FIGHT_SCREEN_ID } from '../../../src/v2/board/index.js';
+import { part as returnPart } from '../../../src/v2/return/index.js';
 import { boardOf, hero, liveFight } from './helpers.js';
 import { sessionOf } from '../../../src/v2/combat/stored.js';
 
@@ -29,7 +30,7 @@ async function renderer() {
 
 /** The screen's `data` bindings, run as the host runs them: each alias is its query on the head state. */
 function screenData(world) {
-    const queries = { ...combat.queries, ...part.queries };
+    const queries = { ...combat.queries, ...part.queries, ...returnPart.queries };
     const out = {};
     for (const [alias, binding] of Object.entries(fightScreen.data)) {
         out[alias] = binding.query === 'combat.board' ? boardOf(world) : queries[binding.query](world.state, binding.args ?? {});
@@ -38,7 +39,7 @@ function screenData(world) {
 }
 
 /** The Fight screen drawn with the real renderer; commands run on the world and redraw the screen. */
-async function show(world, { widgets = part.widgets, api = {} } = {}) {
+async function show(world, { widgets = { ...part.widgets, ...returnPart.widgets }, api = {} } = {}) {
     const r = await renderer();
     const compiled = r.compileTemplate(fightScreen.template);
     assert.deepEqual(compiled.warnings, [], 'the template compiles cleanly');
@@ -74,7 +75,7 @@ test('the Fight screen definition: id, mounts, its data bindings are registered 
     assert.deepEqual([...fightScreen.mounts], ['tab', 'screen']);
     assert.equal(typeof fightScreen.template, 'string');
     assert.equal(fightScreen.layout, undefined, 'a template, not a layout');
-    const queries = { ...combat.queries, ...part.queries };
+    const queries = { ...combat.queries, ...part.queries, ...returnPart.queries };
     for (const [alias, binding] of Object.entries(fightScreen.data)) assert.equal(typeof queries[binding.query], 'function', `${alias}: ${binding.query}`);
     assert.ok(fightScreen.template.includes('<ss-widget class="rb-fight-board" name="rpg-battle.battle-board"'));
     assert.ok(!/<script|\son[a-z]+=|javascript:/i.test(fightScreen.template), 'nothing the sanitiser would drop');
@@ -155,7 +156,7 @@ test('the screen: the last fight as a result line, a row per member with meters,
     for (let n = 0; n < 200 && sessionOf(world.state.domains.combat)?.status === 'active'; n++) world.run('combat.act', { action: { type: 'auto' } });
     assert.equal(world.run('combat.end', { session: sessionOf(world.state.domains.combat).id }).ok, true);
     const r = await renderer();
-    const { el, warnings } = await show(world, { widgets: { ...r.standardWidgets, ...part.widgets } });
+    const { el, warnings } = await show(world, { widgets: { ...r.standardWidgets, ...part.widgets, ...returnPart.widgets } });
     const { parts } = world.state.domains.combat.last[0];
     assert.deepEqual(texts(el, '.rb-last-result'), [parts.result]);
     assert.ok(el.querySelector('.rb-last').className.includes('won'));

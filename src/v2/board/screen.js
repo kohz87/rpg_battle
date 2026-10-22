@@ -1,10 +1,13 @@
 // The Fight screen (SPEC §13.1): the battle board while a fight is on, the fights on offer with Fight
 // and Not now, and the last fight's summary once it is settled. A §13.2 template, so a card or a pack
-// can restyle or replace it by its id; the code it needs comes in through the board widget only.
+// can restyle or replace it by its id; the code it needs comes in through the board widget only. After a
+// fight to the death that killed your character, the return card (widget `rpg-battle.return-card`, the
+// return part) leads it: what happened and Return; it draws nothing while your character lives.
 
 export const FIGHT_SCREEN_ID = 'rpg-battle/fight';
 
 const template = `<div class="rb-fight">
+  <ss-widget class="rb-fight-return" name="rpg-battle.return-card" data-if="q.fight == null" data-props='{"bind":"q.ret"}'></ss-widget>
   <ss-widget class="rb-fight-board" name="rpg-battle.battle-board" data-if="q.fight != null"
              data-props='{"bind":"q.fight","logLines":8,"label":"Fight"}'></ss-widget>
   <section class="rb-fight-offers" data-if="len(q.offers) > 0">
@@ -100,5 +103,7 @@ export const fightScreen = Object.freeze({
         fight: Object.freeze({ query: 'combat.board' }),
         offers: Object.freeze({ query: 'combat.offers' }),
         last: Object.freeze({ query: 'combat.last' }),
+        // The return card's own answer (return part): drawn again when your character dies or comes back.
+        ret: Object.freeze({ query: 'return.status' }),
     }),
 });

@@ -17,7 +17,12 @@
 // rank is never more dangerous than `deadly`: a rank whose band starts further above your
 // character than a deadly foe would be is held to the highest rank that does not (`said` keeps
 // what the story wrote). A fight with a boss is never below strong: a boss is never made smaller
-// (setup.tierPower), so the line's tier and the boss's own are read as at least strong. Pure.
+// (setup.tierPower), so the line's tier and the boss's own are read as at least strong.
+//
+// Every foe the story writes is fought (the field takes them in waves, setup.planWaves): every row
+// is read, and a count past MAX_COUNT ("12 cellar rats") is kept, split into rows of at most
+// MAX_COUNT. One line brings at most MAX_ENCOUNTER_FOES foes; past it, bosses keep their places
+// first and the last foes written stay out, and the result says so (`cut`, told as a Problem). Pure.
 
 import { DEFAULT_RULES, threatForGap, threatStep } from '../../rules.js';
 import { parseEncounter } from '../../story.js';
@@ -29,7 +34,8 @@ import { maxLevel, rankAt, rankNamed } from '../../terms.js';
 export const TIERS = Object.freeze(['trivial', 'weak', 'even', 'strong', 'deadly']);
 export const STAKES = Object.freeze(['normal', 'death']);
 export const MAX_COUNT = 9;
-const MAX_FOES = 6;
+// The most foes one encounter line brings (six rows of nine, the most a line could bring before).
+export const MAX_ENCOUNTER_FOES = 54;
 const MAX_NOTE = 160;
 const MAX_PLACE = 60;
 
@@ -67,8 +73,9 @@ const labelOf = (labels, ...names) => {
 
 /**
  * A parsed change line ({ op, kind, name, text, labels }) as an offer's fields:
- * { ok: true, foes: [{ name, count, tier, boss?, wave? }], stakes, place, note } or
- * { ok: false, message } saying in plain words why it cannot be one. `bestiary` is the list
+ * { ok: true, foes: [{ name, count, tier, boss?, wave? }], cut?, stakes, place, note } or
+ * { ok: false, message } saying in plain words why it cannot be one. `cut` ([{ name, count }]) is
+ * what stayed out past MAX_ENCOUNTER_FOES (cutText words it). `bestiary` is the list
  * names are matched against (the chat's creatures, then the shipped ones).
  */
 export function readEncounter(line, { bestiary, rules = DEFAULT_RULES, ranks = null, pcLevel = 1 } = {}) {
@@ -99,29 +106,76 @@ export function readEncounter(line, { bestiary, rules = DEFAULT_RULES, ranks = n
     // smaller, so "a weak boss" would be a weak fight that is not. The line's tier, and the boss's
     // own, below strong are read as strong, and the offer and its receipt say so.
     // A ranked boss fight too: its foes keep their rank's level, their tier is held to strong.
-    const bossFight = rows.slice(0, MAX_FOES).some(row => row?.boss);
+    const bossFight = rows.some(row => row?.boss);
     const atLeastStrong = value => (bossFight && TIERS.indexOf(value) < TIERS.indexOf('strong') ? 'strong' : value);
     const lineTier = atLeastStrong(tier);
-    const foes = rows.slice(0, MAX_FOES).map(row => {
+    const read = rows.map(row => {
         // A threat word the story put on the foe itself ("3 weak wolves") is that foe's tier.
         const own = row.threat ? tierOf(row.threat) : null;
         const written = ranked ? atLeastStrong(ranked.tier) : own ?? lineTier;
-        const foe = { name: tidy(row.name, 48), count: Math.min(MAX_COUNT, Math.max(1, Math.round(Number(row.count) || 1))), tier: row.boss ? atLeastStrong(written) : written };
+        // The number written, past MAX_COUNT too (story.parseGroup keeps it as `written`).
+        const count = Math.max(1, Math.round(Number(row.written ?? row.count) || 1));
+        const foe = { name: tidy(row.name, 48), count, tier: row.boss ? atLeastStrong(written) : written };
         if (ranked) Object.assign(foe, { rank: ranked.rank, level: ranked.level, ...(ranked.said ? { said: ranked.said } : {}) });
         if (row.boss) foe.boss = true;
-        // A count the story wrote (story.parseGroup): kept by quest sizing; not part of the offer's data.
-        if (row.counted) Object.defineProperty(foe, 'counted', { value: true, enumerable: false });
         if (Number(row.wave) >= 1) foe.wave = Math.round(Number(row.wave));
-        return foe;
-    }).filter(foe => foe.name);
+        return { foe, counted: Boolean(row.counted) };
+    }).filter(({ foe }) => foe.name);
+    const { kept, cut } = withinEncounter(read);
+    const foes = kept.flatMap(({ foe, counted }) => rowsOf(foe, counted));
     if (!foes.length) return { ok: false, message: `No foe could be read from "${name}".` };
     return {
         ok: true,
         foes,
+        ...(cut.length ? { cut } : {}),
         stakes,
         place: tidy(labelOf(line?.labels, 'place', 'at', 'where'), MAX_PLACE),
         note: tidy(line?.text, MAX_NOTE),
     };
+}
+
+/**
+ * The foes read from a line held to MAX_ENCOUNTER_FOES in all: bosses take their places first, then
+ * the rest in the order written; what does not fit stays out. → { kept (in the order written), cut:
+ * [{ name, count }] }. Entries are { foe, counted }.
+ */
+function withinEncounter(read) {
+    let room = MAX_ENCOUNTER_FOES;
+    const keep = new Map();
+    for (const entry of [...read.filter(({ foe }) => foe.boss), ...read.filter(({ foe }) => !foe.boss)]) {
+        const n = Math.min(room, entry.foe.count);
+        room -= n;
+        keep.set(entry, n);
+    }
+    const kept = [];
+    const cut = [];
+    for (const entry of read) {
+        const n = keep.get(entry) ?? 0;
+        if (n > 0) kept.push({ ...entry, foe: { ...entry.foe, count: n } });
+        if (n >= entry.foe.count) continue;
+        const same = cut.find(other => other.name === entry.foe.name);
+        if (same) same.count += entry.foe.count - n;
+        else cut.push({ name: entry.foe.name, count: entry.foe.count - n });
+    }
+    return { kept, cut };
+}
+
+/** A foe of any count as offer rows of at most MAX_COUNT each, `counted` (a count the story wrote) kept on each. */
+function rowsOf(foe, counted) {
+    const out = [];
+    for (let left = foe.count; left > 0; left -= MAX_COUNT) {
+        const row = { ...foe, count: Math.min(MAX_COUNT, left) };
+        // A count the story wrote (story.parseGroup): kept by quest sizing; not part of the offer's data.
+        if (counted) Object.defineProperty(row, 'counted', { value: true, enumerable: false });
+        out.push(row);
+    }
+    return out;
+}
+
+/** "60 foes are written; one fight brings 54 at most: 6 Cellar Rat stay out." for a line's `cut`; '' for none. */
+export function cutText(cut, written) {
+    if (!Array.isArray(cut) || !cut.length) return '';
+    return `${written} foes are written; one fight brings ${MAX_ENCOUNTER_FOES} at most: ${cut.map(entry => `${entry.count} ${entry.name}`).join(', ')} stay out.`;
 }
 
 /** What a `rank:` is read with, from a command's ctx: { ranks (party.ranks), pcLevel }; none when the queries are not there. */

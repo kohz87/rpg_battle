@@ -11,13 +11,14 @@ import { part, screens } from '../../../src/v2/screens/index.js';
 import { part as itemsPart } from '../../../src/v2/items/index.js';
 import { part as partyPart } from '../../../src/v2/party/index.js';
 import { part as tradePart } from '../../../src/v2/trade/index.js';
+import { part as returnPart } from '../../../src/v2/return/index.js';
 import { createModule } from '../../../src/v2/module.js';
 import { definitionProblems, scopeCss, validateScreen, validatorFrom } from './helpers/runtime.js';
 import { WIDGET_NAMES } from './helpers/render.js';
 import { screenWidgets } from '../../../src/v2/screens/widgets.js';
 
 // This part's own widgets (widgets.js) beside Story Block's standard ones.
-const OWN_WIDGETS = [...Object.keys(screenWidgets), 'rpg-battle.create-character'];
+const OWN_WIDGETS = [...Object.keys(screenWidgets), 'rpg-battle.create-character', 'rpg-battle.return-card'];
 
 const byId = Object.fromEntries(screens.map(screen => [screen.id, screen]));
 const COMMANDS = new Set([...Object.keys(partyPart.commands), ...Object.keys(itemsPart.commands), ...Object.keys(tradePart.commands)]);
@@ -84,7 +85,7 @@ test('mounts: party, trade and crafting are tabs and game screens; the HUD is a 
 });
 
 test('data bindings name the view queries; the status card reads the reply\'s own state', () => {
-    assert.deepEqual(byId['rpg-battle/party'].data, { cards: { query: 'rpg-battle.cards' }, offers: { query: 'party.offers' }, carry: { query: 'rpg-battle.carry' } });
+    assert.deepEqual(byId['rpg-battle/party'].data, { cards: { query: 'rpg-battle.cards' }, offers: { query: 'party.offers' }, carry: { query: 'rpg-battle.carry' }, ret: { query: 'return.status' } });
     assert.deepEqual(byId['rpg-battle/crafting'].data, { craft: { query: 'rpg-battle.crafting' } });
     assert.deepEqual(byId['rpg-battle/trade'].data, { trade: { query: 'rpg-battle.trade' } });
     assert.deepEqual(byId['rpg-battle/hud'].data, { hud: { query: 'rpg-battle.hud' } });
@@ -94,7 +95,7 @@ test('data bindings name the view queries; the status card reads the reply\'s ow
         const aliases = new Set(Object.keys(screen.data ?? {}));
         const used = new Set([...screen.template.matchAll(/\bq\.([A-Za-z_]\w*)/g)].map(match => match[1]));
         for (const alias of used) assert.ok(aliases.has(alias), `${screen.id} reads q.${alias}, which its data does not give`);
-        for (const binding of Object.values(screen.data ?? {})) assert.ok(part.queries[binding.query] ?? partyPart.queries[binding.query], `${screen.id} binds ${binding.query}`);
+        for (const binding of Object.values(screen.data ?? {})) assert.ok(part.queries[binding.query] ?? partyPart.queries[binding.query] ?? returnPart.queries[binding.query], `${screen.id} binds ${binding.query}`);
     }
 });
 

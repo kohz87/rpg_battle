@@ -5,6 +5,9 @@
 // part's `cardOnlyChanged`: `screens.cardOnlyChanged` in the module's settings, src/v2/module.js),
 // members this reply left alone are not listed.
 //
+// A reply whose state has no party at all (made before RPG Battle was added to the chat) shows the
+// same "No character yet" and "Create your character" as one made before creation (B-a3-4).
+//
 // The checks this reply wrote (MODULES §F80; the log entries its ops added, B-b1r2-13) show with code's result, and a flag when the reply
 // narrated it otherwise ("narrated as success, the dice say fail"). The level and XP words are the
 // chat's terms (`party.terms`, MODULES §F25: the reader's, else a pack's, else Lv and EXP).
@@ -27,7 +30,7 @@ const xpWord = `<span data-if="q.terms == null || q.terms.xpName == 'XP'">EXP</s
 
 const template = `
 <div class="rb rb-status" data-class="quiet: ${only}">
-  <div class="none start" data-if="len(state.party.order) == 0"><span>No character yet.</span><ss-widget class="create" name="rpg-battle.create-character" data-props='{"compact":true}'></ss-widget></div>
+  <div class="none start" data-if="state.party == null || len(state.party.order) == 0"><span>No character yet.</span><ss-widget class="create" name="rpg-battle.create-character" data-props='{"compact":true}'></ss-widget></div>
   <div class="member" data-each="state.party.order as id"
        data-if="${all} || changed(${actor})"
        data-class="moved: changed(${actor}); you: id == state.party.pc; down: q.pools[id].down">

@@ -392,11 +392,14 @@ export function foldReaderTerms(all) {
 //    level cap).
 // A rank with no levels of its own takes the built-in band at its place, past those the band
 // after the one before it, as wide. Each rank has a `reward` range too (in the chat's currency):
-// a pack's as written (by place where it gives none, as Story Director reads a pack's); every
-// other ladder's by place (rankReward, Story Director's rewardByPlace) times the pack's money
-// scale (`inventory.economy`'s `scale`, F104), whole units, at least 1. Bands are held to the level cap; a rank that would start
-// above it is left out (the lowest rank always stays). Story Director reads this as
-// `party.ranks` (rewards are its own); RPG Battle reads it for a foe line's `rank: D`.
+// a pack's as written (by place where it gives none, as Story Director reads a pack's). Every
+// other ladder (the reader's, the tiers) only renames and re-bands the levels, so it pays by level,
+// never by its length (B-a2-1): a rank's reward is the one the base ladder (the first enabled pack's
+// own ranks, else the built-in F to S, by place times the pack's money scale: `inventory.economy`'s
+// `scale`, F104) pays at the rank's first level (rewardAt), and a reward the reader's ranks carry
+// (a rules file's, or the one Story Block kept at that place) only ever lowers it. Bands are held to
+// the level cap; a rank that would start above it is left out (the lowest rank always stays). Story
+// Director reads this as `party.ranks`; RPG Battle reads it for a foe line's `rank: D`.
 
 export const DEFAULT_RANK_BANDS = Object.freeze([
     ['F', [1, 5]], ['E', [6, 12]], ['D', [13, 20]], ['C', [21, 30]], ['B', [31, 40]], ['A', [41, 50]], ['S', [51, 60]],
@@ -441,17 +444,33 @@ function cleanRanks(list) {
 }
 
 /**
- * Bands filled in (the built-in band at a place, else the next band as wide as the last; with `band`, a
- * band of that many levels at each place) and held to the cap. A rank's own reward is kept when
- * `ownRewards`, else (and where it has none) by place times `scale` (`packScale` for a pack's ladder: 1).
+ * The first level of each of `n` ranks given no levels (B-a2-8: "spread to the level cap"): bands of
+ * `tierSize` levels when the tiers hold them all under `cap`, else the levels shared out evenly (the
+ * first ranks `floor(cap / n)` each, one more each for the remainder spread along), so no rank a reader
+ * wrote is left out while there are levels for it. RPG Battle bands a bare ladder with it, and hands
+ * the bands to Story Block (`ranks.reader`, readerLadderBands), so every module reads the same levels.
  */
-function settle(list, cap, { extendLast = false, scale = 1, ownRewards = false, packScale = 1, band = null } = {}) {
+export function bareStarts(n, cap, tierSize = null) {
+    const count = Math.max(0, Math.floor(Number(n) || 0));
+    const top = Math.max(1, Math.floor(Number(cap) || 1));
+    const size = Number.isInteger(tierSize) && tierSize >= 1 ? tierSize : null;
+    if (size && count * size <= top) return Array.from({ length: count }, (_, i) => i * size + 1);
+    return Array.from({ length: count }, (_, i) => Math.floor(i * top / Math.max(1, count)) + 1);
+}
+
+/**
+ * Bands filled in (the built-in band at a place, else the next band as wide as the last; with `starts`,
+ * each rank from its start to the level before the next one's) and held to the cap. A rank's own
+ * reward is kept when `ownRewards`, else (and where it has none) by place times `scale` (`packScale`
+ * for a pack's ladder: 1).
+ */
+function settle(list, cap, { extendLast = false, scale = 1, ownRewards = false, packScale = 1, starts = null } = {}) {
     const out = [];
     for (const [index, rank] of list.entries()) {
         let levels = rank.levels;
         if (!levels) {
             const before = out.at(-1)?.levels;
-            levels = band ? [index * band + 1, (index + 1) * band]
+            levels = starts ? [starts[index], index + 1 < starts.length ? Math.max(starts[index], starts[index + 1] - 1) : cap]
                 : DEFAULT_RANK_BANDS[index] ? [...DEFAULT_RANK_BANDS[index].levels]
                     : before ? [before[1] + 1, before[1] + 1 + (before[1] - before[0])] : [1, 1];
         }
@@ -464,19 +483,49 @@ function settle(list, cap, { extendLast = false, scale = 1, ownRewards = false, 
 }
 
 /**
- * The ladder in use: `[{ id, title, levels: [lo, hi], reward: [lo, hi] }]`, lowest first (see
- * above). `pack` is the pack's ranks (packRanks), when there are any; `scale` the money scale.
+ * The reward the base ladder pays at `level`: the reward of its highest rank that starts at or below
+ * it (a band index capped at the base ladder's top), else its lowest rank's.
  */
-export function rankLadder(rules = DEFAULT_RULES, { pack = null, scale = 1 } = {}) {
+export function rewardAt(level, base) {
+    if (!Array.isArray(base) || !base.length) return [...FIRST_REWARD];
+    let found = base[0];
+    for (const rank of base) if (rank.levels[0] <= level) found = rank;
+    return [...found.reward];
+}
+
+/** The ladder rewards are reckoned on (rankLadder): the pack's own ranks (`base`) as written, else the built-in F to S × `scale`. */
+function baseLadder(base, cap, scale) {
+    const packed = cleanRanks(base);
+    if (packed.length) return settle(packed, cap, { ownRewards: true });
+    return settle(DEFAULT_RANK_BANDS.map(rank => ({ id: rank.id, title: rank.id, levels: [...rank.levels], reward: null })), cap, { extendLast: true, scale });
+}
+
+/** `ladder` paying by level on `basis` (rewardAt at each rank's first level); a rank's own reward only lowers it. */
+function byLevel(ladder, basis, own = []) {
+    return ladder.map((rank, index) => {
+        const reward = rewardAt(rank.levels[0], basis);
+        const mine = own[index]?.reward;
+        return { ...rank, reward: mine ? [Math.min(mine[0], reward[0]), Math.min(mine[1], reward[1])] : reward };
+    });
+}
+
+/**
+ * The ladder in use: `[{ id, title, levels: [lo, hi], reward: [lo, hi] }]`, lowest first (see
+ * above). `pack` is the pack's ranks (packRanks), when there are any; `base` the first enabled pack's
+ * own ranks (packOwnRanks: the ones a reader's ladder renames), when there are any; `scale` the money scale.
+ */
+export function rankLadder(rules = DEFAULT_RULES, { pack = null, base = null, scale = 1 } = {}) {
     const terms = termsOf(rules);
-    // The reader's own ladder: its rewards are the pack's at each place when Story Block kept them, else by
-    // place times the money scale; ranks with no levels are banded by the tiers when there are tiers.
+    // The reader's own ladder (or a rules file's): it renames and re-bands; it pays by level on the base
+    // ladder (byLevel); ranks with no levels are spread over the levels (bareStarts: by the tiers when they
+    // fit, else evenly up to the cap), none left out.
     const own = cleanRanks(rules?.terms?.ranks);
     if (own.length) {
-        // A list that gives no levels at all is spread over the levels (by the tiers, else evenly up to the
-        // cap); one that gives some takes the built-in band where a rank has none, as before.
+        // A list that gives no levels at all is spread over the levels; one that gives some takes the
+        // built-in band where a rank has none, as before.
         const bare = own.every(rank => !rank.levels);
-        return settle(own, terms.cap, { scale, ownRewards: true, packScale: scale, band: bare ? terms.tiers?.size ?? Math.max(1, Math.ceil(terms.cap / own.length)) : null, extendLast: bare });
+        const ladder = settle(own, terms.cap, { scale, starts: bare ? bareStarts(own.length, terms.cap, terms.tiers?.size) : null, extendLast: bare });
+        return byLevel(ladder, baseLadder(base, terms.cap, scale), own);
     }
     const packed = cleanRanks(pack);
     if (packed.length) return settle(packed, terms.cap, { ownRewards: true });
@@ -485,9 +534,10 @@ export function rankLadder(rules = DEFAULT_RULES, { pack = null, scale = 1 } = {
         for (let tier = 1; (tier - 1) * terms.tiers.size + 1 <= terms.cap && out.length < MAX_RANKS; tier++) {
             const lo = (tier - 1) * terms.tiers.size + 1;
             const id = numeral(tier, terms.tiers.numerals);
-            out.push({ id, title: `${terms.levelName} ${id}`, levels: [lo, Math.min(terms.cap, lo + terms.tiers.size - 1)], reward: rankReward(out.length, scale) });
+            out.push({ id, title: `${terms.levelName} ${id}`, levels: [lo, Math.min(terms.cap, lo + terms.tiers.size - 1)] });
         }
-        return out;
+        // Tiers re-band the levels too: they pay by level on the built-in ladder (B-a2-1).
+        return byLevel(out, baseLadder(null, terms.cap, scale));
     }
     return settle(DEFAULT_RANK_BANDS.map(rank => ({ id: rank.id, title: `${rank.id}-rank`, levels: [...rank.levels], reward: null })), terms.cap, { extendLast: true, scale });
 }
@@ -522,6 +572,35 @@ export function packRanks(query) {
     if (!first) return null;
     const ranks = list.filter(record => isRecord(record) && record.pack === first.pack);
     return cleanRanks(ranks).length ? ranks : null;
+}
+
+/**
+ * The first enabled pack's own ranks, past a reader's ladder (Story Block answers `packs.content`'s
+ * ranks with the reader's; one pack's are asked for by its id, `packs.list` in order), or null. A
+ * pack's ladder when no reader's is in use (packRanks). Read defensively, like packTerms.
+ */
+export function packOwnRanks(query) {
+    const listed = packRanks(query);
+    if (listed && !listed.every(record => record?.reader === true)) return listed;
+    if (typeof query !== 'function') return null;
+    let packs;
+    try {
+        packs = query('packs.list', {});
+    } catch {
+        return null;
+    }
+    for (const entry of Array.isArray(packs) ? packs : []) {
+        if (!isRecord(entry) || !entry.enabled || typeof entry.id !== 'string') continue;
+        let own;
+        try {
+            own = query('packs.content', { kind: 'ranks', pack: entry.id });
+        } catch {
+            own = null;
+        }
+        const ranks = Array.isArray(own) ? own.filter(record => isRecord(record) && record.reader !== true) : [];
+        if (cleanRanks(ranks).length) return ranks;
+    }
+    return null;
 }
 
 // "D", "d-rank", "Rank D", "D rank", "Soul Class II" read alike: lower case, the word "rank" set aside.
@@ -573,6 +652,47 @@ export function readerLadderLines(all) {
     if (!lines.length) return null;
     const per = Number(all?.['party.levelsPerRank']);
     return { lines, perRank: Number.isInteger(per) && per >= 1 ? Math.min(MAX_LEVELS_PER_RANK, per) : 0 };
+}
+
+const LINE_START = /^(.*?)\s*:\s*(\d{1,3})\s*$/;
+
+/**
+ * The `ranks.reader` hook's answer with every rank's levels worked out here (B-a2-8): each line as
+ * "Name: first level", so Story Block's ladder (and Story Director's quest ranks, its coin budget) band
+ * the ranks exactly as RPG Battle's `party.ranks` does. With Levels per rank: a line's own first level
+ * when it rises, else that many after the one before (as Story Block reads it); without, the lines' own
+ * when every one gives one and they rise, else spread to the cap (bareStarts: by `tierSize` when the
+ * tiers hold them all; `tierSize` may be a function, asked only then). A rank that would start past
+ * `cap` is left out (the first always stays). Null with no lines.
+ */
+export function readerLadderBands(all, { cap = 99, tierSize = null } = {}) {
+    const given = readerLadderLines(all);
+    if (!given) return null;
+    const top = Math.max(1, Math.min(MAX_LEVELS_PER_RANK, Math.floor(Number(cap) || 1)));
+    const lines = given.lines.map(({ rank }) => {
+        const at = LINE_START.exec(String(rank).trim());
+        const from = at ? Number(at[2]) : null;
+        return { title: (at ? at[1] : String(rank)).trim(), from: Number.isInteger(from) && from >= 1 ? from : null };
+    });
+    let starts;
+    if (given.perRank) {
+        starts = [];
+        for (const [index, line] of lines.entries()) {
+            const before = starts[index - 1];
+            starts.push(line.from !== null && (index === 0 || line.from > before) ? line.from : index === 0 ? 1 : before + given.perRank);
+        }
+    } else if (lines.every((line, index) => line.from !== null && (index === 0 || line.from > lines[index - 1].from))) {
+        starts = lines.map(line => line.from);
+    } else {
+        starts = bareStarts(lines.length, top, typeof tierSize === 'function' ? tierSize() : tierSize);
+    }
+    const out = [];
+    for (const [index, line] of lines.entries()) {
+        const start = starts[index];
+        if (out.length && (start > top || start <= starts[index - 1])) break;
+        out.push({ rank: `${line.title}: ${Math.min(start, top)}` });
+    }
+    return { lines: out, perRank: 0 };
 }
 
 /**

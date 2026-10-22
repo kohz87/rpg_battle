@@ -11,6 +11,7 @@ import { part as checksPart } from '../../../../src/v2/checks/index.js';
 import { part as partyPart } from '../../../../src/v2/party/index.js';
 import { part as tradePart } from '../../../../src/v2/trade/index.js';
 import { part as screensPart } from '../../../../src/v2/screens/index.js';
+import { part as returnPart } from '../../../../src/v2/return/index.js';
 
 export const PC = 'ac_ren00001';
 export const LYRA = 'ac_lyra0001';
@@ -126,7 +127,7 @@ const storyBlockQueries = {
     'scene.present': state => [...(state?.domains?.scene?.present ?? [])],
 };
 
-export const QUERIES = { ...storyBlockQueries, ...partyPart.queries, ...checksPart.queries, ...itemsPart.queries, ...tradePart.queries, ...screensPart.queries };
+export const QUERIES = { ...storyBlockQueries, ...partyPart.queries, ...checksPart.queries, ...itemsPart.queries, ...tradePart.queries, ...screensPart.queries, ...returnPart.queries };
 
 /**
  * `tools.query` over `state`: every query gets (state, args, tools), as the host calls them; `settings` are

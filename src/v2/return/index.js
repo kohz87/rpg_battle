@@ -116,11 +116,19 @@ export function createReturnPart({ host = defaultHost } = {}) {
         queries: {
             /** → { index, beforeRev, place, fight } | null (null while your character lives). */
             'return.point': (state, args, tools) => findReturnPoint(state, logOf(tools) ?? logOf(sdk()) ?? []),
+            /**
+             * → { dead, point } (point: return.point's answer): what the return card is drawn from, bound by
+             * the screens that place it (the Fight screen, the Party screen), so it is drawn again when it changes.
+             */
+            'return.status': (state, args, tools) => {
+                const dead = isDead(state);
+                return { dead, point: dead ? findReturnPoint(state, logOf(tools) ?? logOf(sdk()) ?? []) : null };
+            },
         },
         hooks: { canGenerate },
         widgets: {
             [WIDGET]: {
-                props: { point: { type: 'object', required: false, default: null } },
+                props: { point: { type: 'object', required: false, default: null }, bind: { type: 'string', required: false, default: null } },
                 validate: validateCardProps,
                 render: (el, props, api) => renderReturnCard(el, props, api, { host: sdk, returnInTime }),
             },

@@ -12,6 +12,8 @@
 // §F49): who gives orders in fights (on their own / you lead) and who spends their stat points (by
 // build / by hand). Your own card has "Save character file" (widget rpg-battle.character-file,
 // `party.export`, MODULES §F66). Equip, Take off and Give are in Story Block's Inventory (§F99).
+// While your character is dead (a fight to the death lost), the return card (widget `rpg-battle.return-card`,
+// the return part: what happened and Return) leads the screen; it draws nothing while they live.
 //
 // The steppers fill the screen's draft under `spend.<spendKey>.<STAT>`; `spendKey` changes when the
 // level or the points do, so a finished spend never leaves old numbers in the steppers. The template
@@ -30,6 +32,7 @@ const choice = (field, value, label) => `
 
 const template = `
 <div class="rb rb-party">
+  <ss-widget class="return" name="rpg-battle.return-card" data-props='{"bind":"q.ret"}'></ss-widget>
   <p class="carry" data-if="q.carry.on" data-class="over: q.carry.over"><i class="fa-solid fa-weight-hanging"></i>{{ q.carry.text }}</p>
   <div class="empty start" data-if="len(q.cards) == 0">
     <p><i class="fa-solid fa-user-plus"></i>No character yet. Create yours to begin the story.</p>
@@ -233,6 +236,8 @@ export const partyScreen = Object.freeze({
         cards: Object.freeze({ query: 'rpg-battle.cards' }),
         offers: Object.freeze({ query: 'party.offers' }),
         carry: Object.freeze({ query: 'rpg-battle.carry' }),
+        // The return card's own answer (return part): drawn again when your character dies or comes back.
+        ret: Object.freeze({ query: 'return.status' }),
     }),
     theme: THEME,
     template,

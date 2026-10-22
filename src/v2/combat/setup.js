@@ -367,6 +367,11 @@ export function tierPower(tier, pcLevel, headcount = 1, { boss = false, rules = 
     return out;
 }
 
+/** Foes on the field at once (the reader's setting): perMember for each member who can fight, at most `max` in all, at least 1. */
+export function fieldCap(members = 1, field = { perMember: COMBAT_DEFAULTS.fieldPerMember, max: COMBAT_DEFAULTS.fieldMax }) {
+    return Math.max(1, Math.min(Number(field?.max) || COMBAT_DEFAULTS.fieldMax, (Number(field?.perMember) || COMBAT_DEFAULTS.fieldPerMember) * Math.max(1, Math.round(Number(members) || 1))));
+}
+
 /**
  * The offer's rows in waves: no more foes on the field at once than the reader's setting allows
  * (`field`: perMember for each member who can fight, at most `max` in all). Every foe the story
@@ -376,7 +381,7 @@ export function tierPower(tier, pcLevel, headcount = 1, { boss = false, rules = 
  * the order written. → rows with `count` and `wave` (0: the first engagement).
  */
 export function planWaves(rows, members = 1, field = { perMember: COMBAT_DEFAULTS.fieldPerMember, max: COMBAT_DEFAULTS.fieldMax }) {
-    const cap = Math.max(1, Math.min(Number(field?.max) || COMBAT_DEFAULTS.fieldMax, (Number(field?.perMember) || COMBAT_DEFAULTS.fieldPerMember) * Math.max(1, members)));
+    const cap = fieldCap(members, field);
     const waveOf = row => Math.max(0, Math.round(Number(row.wave) || 0));
     const out = [];
     let wave = 0;
@@ -406,22 +411,130 @@ export function effectiveHeadcount(waveCounts, members = 1) {
     return Math.max(1, Math.sqrt(sum) / Math.max(1, members));
 }
 
+// A tier holds (B-a2-9) while its foes need not shrink below this (HP and attack × it, v1's
+// below-level-1 rule before GROUP_MIN_SCALE floors it) and its headcount stays within MAX_EFFECTIVE:
+// past either, more foes no longer make each one smaller (a foe's numbers bottom out), so a long string
+// of waves would be more dangerous than its tier means. Found with a level-1 fighter on auto against
+// trivial and weak rats in waves of four: 24 are won every time, 54 about half the time.
+export const HOLD_SCALE = 0.18;
+
+/**
+ * The scale a tier's foe would need, unfloored, for a character of `pcLevel` and `headcount` foes a
+ * member (tierPower's raw level; 1 at or above level 1), or null for no tier.
+ */
+function neededScale(tier, pcLevel, headcount, { rules = DEFAULT_RULES, shifts = LEVEL_SHIFT } = {}) {
+    const t = { ...DEFAULT_RULES.threat, ...(rules?.threat ?? {}) };
+    const offset = Number(t.offsets?.[tier]);
+    if (!Number.isFinite(offset)) return null;
+    const base = Math.max(1, Math.round(Number(pcLevel) || 1));
+    const raw = base + offset * threatStep(rules) + levelShift(tier, base, headcount, shifts);
+    if (raw >= 1) return 1;
+    const per = Number(t.perLevelBelowOne) > 0 ? Number(t.perLevelBelowOne) : DEFAULT_RULES.threat.perLevelBelowOne;
+    return per ** (1 - raw);
+}
+
+/**
+ * How many foes of `tier` one fight can hold (its whole encounter, in waves of the field `cap` for
+ * `members` who can fight) and still mean that tier: the most whose headcount (effectiveHeadcount)
+ * is within MAX_EFFECTIVE and whose foes need not shrink below HOLD_SCALE; `most` when every count
+ * up to it holds (and for a word that is no tier).
+ */
+export function tierRoom(tier, { pcLevel = 1, members = 1, cap = COMBAT_DEFAULTS.fieldPerMember, most = 54, rules = DEFAULT_RULES, shifts = LEVEL_SHIFT } = {}) {
+    const size = Math.max(1, Math.round(Number(cap) || 1));
+    const people = Math.max(1, Math.round(Number(members) || 1));
+    const holds = n => {
+        const full = Math.floor(n / size);
+        const waves = [...Array(full).fill(size), ...(n % size ? [n % size] : [])];
+        const headcount = effectiveHeadcount(waves, people);
+        const scale = neededScale(tier, pcLevel, headcount, { rules, shifts });
+        return scale === null || (headcount <= MAX_EFFECTIVE && scale >= HOLD_SCALE);
+    };
+    let room = 0;
+    while (room < most && holds(room + 1)) room += 1;
+    return Math.max(1, room);
+}
+
+/**
+ * An offer's foes held to what each tier can hold (tierRoom), for the party as it stands: bosses and
+ * ranked foes stay (a boss is never left out; a ranked foe is not made smaller), the last foes written
+ * of a tier past its room stay out first (later waves, later rows). → { foes, cut: [{ name, count }] }.
+ */
+export function heldToTiers(foes, { pcLevel = 1, members = 1, field, rules = DEFAULT_RULES, shifts = LEVEL_SHIFT } = {}) {
+    const cap = fieldCap(members, field);
+    const rows = (foes ?? []).map(foe => ({ ...foe }));
+    const sized = row => Boolean(row.tier) && !row.rank && !(Number(row.level) >= 1);
+    const cut = {};
+    for (const tier of [...new Set(rows.filter(sized).map(row => row.tier))]) {
+        const room = tierRoom(tier, { pcLevel, members, cap, rules, shifts });
+        let over = rows.filter(row => sized(row) && row.tier === tier).reduce((sum, row) => sum + row.count, 0) - room;
+        const order = rows.map((row, index) => ({ row, index })).filter(({ row }) => sized(row) && row.tier === tier && !row.boss)
+            .sort((a, b) => (Number(b.row.wave) || 0) - (Number(a.row.wave) || 0) || b.index - a.index);
+        for (const { row } of order) {
+            if (over <= 0) break;
+            const n = Math.min(over, row.count);
+            row.count -= n;
+            over -= n;
+            cut[row.name] = (cut[row.name] ?? 0) + n;
+        }
+    }
+    // A count the story wrote (non-enumerable `counted`, quest sizing) goes with the row.
+    const kept = rows.map((row, index) => (foes[index]?.counted ? Object.defineProperty(row, 'counted', { value: true, enumerable: false }) : row)).filter(row => row.count > 0);
+    return { foes: kept, cut: Object.entries(cut).map(([name, count]) => ({ name, count })) };
+}
+
+/** "More foes than their tier can hold in one fight (every wave counts): 28 Cellar Rat stay out." for heldToTiers' `cut`; '' for none. */
+export function heldText(cut) {
+    if (!Array.isArray(cut) || !cut.length) return '';
+    return `More foes than their tier can hold in one fight (every wave counts): ${cut.map(entry => `${entry.count} ${entry.name}`).join(', ')} stay out.`;
+}
+
 const stuns = enemy => (enemy.skills ?? []).some(skill => Number(skill?.effect?.stun) > 0);
 
 /**
  * The foes with no more stunners in one wave than the tier allows each member (MAX_STUNNERS): the
- * rest come in a wave of their own after the last one (every foe the story wrote is fought).
+ * ones past it in a wave are moved out, and come in waves of their own after the last one, each wave
+ * held to the field (`cap`) and to the stunner cap of every tier in it (every foe the story wrote is
+ * fought, and no wave is more dangerous than the caps allow). Foes keep their order; `wave` numbers
+ * are 0, 1, 2 … in the order fought.
  */
-function spreadStunners(enemies, partySize = 1) {
-    const used = {};
-    const last = Math.max(0, ...enemies.map(enemy => Number(enemy.wave) || 0));
-    return enemies.map(enemy => {
-        const most = MAX_STUNNERS[enemy.threat] === undefined ? undefined : MAX_STUNNERS[enemy.threat] * partySize;
-        if (most === undefined || !stuns(enemy)) return enemy;
-        const key = `${Number(enemy.wave) || 0}:${enemy.threat}`;
-        used[key] = (used[key] ?? 0) + 1;
-        return used[key] > most ? { ...enemy, wave: last + 1 } : enemy;
-    });
+export function spreadStunners(enemies, partySize = 1, cap = Infinity) {
+    const most = enemy => (MAX_STUNNERS[enemy.threat] === undefined ? Infinity : MAX_STUNNERS[enemy.threat] * Math.max(1, partySize));
+    const waveOf = enemy => Math.max(0, Math.round(Number(enemy.wave) || 0));
+    const waves = [...new Set(enemies.map(waveOf))].sort((x, y) => x - y);
+    const out = [];
+    const moved = [];
+    let index = 0;
+    const place = (enemy, n) => out.push(n ? { ...enemy, wave: n } : (({ wave: _gone, ...rest }) => rest)(enemy));
+    for (const wave of waves) {
+        const used = {};
+        for (const enemy of enemies.filter(entry => waveOf(entry) === wave)) {
+            if (stuns(enemy) && (used[enemy.threat] ?? 0) >= most(enemy)) {
+                moved.push(enemy);
+                continue;
+            }
+            if (stuns(enemy)) used[enemy.threat] = (used[enemy.threat] ?? 0) + 1;
+            place(enemy, index);
+        }
+        index += 1;
+    }
+    // The moved ones, as many a wave as the field and each tier's stunner cap allow.
+    while (moved.length) {
+        const used = {};
+        let size = 0;
+        for (let at = 0; at < moved.length && size < cap;) {
+            const enemy = moved[at];
+            if ((used[enemy.threat] ?? 0) >= most(enemy)) {
+                at += 1;
+                continue;
+            }
+            used[enemy.threat] = (used[enemy.threat] ?? 0) + 1;
+            size += 1;
+            place(enemy, index);
+            moved.splice(at, 1);
+        }
+        index += 1;
+    }
+    return out;
 }
 
 /**
@@ -479,12 +592,16 @@ export function tierXpLevel(tier, pcLevel, rules = DEFAULT_RULES) {
 }
 
 /**
- * A foe's loot with a quest's item sure to drop (chance 100, at least one): the matching row of its
- * own list or of the table its id names, or the item itself added as a material when none matches.
+ * A foe's loot with a quest's item sure to drop (chance 100, at least one): the row of its own list
+ * or of the table its id names that is the item (by name, else one whose name holds every word of
+ * it, so the quest counts it), or the item itself added as a material when none is. A looser row
+ * ("Drake Scale" for "River Drake Scale") is never the one: the quest would not count it.
  */
 export function reliableLoot(loot, item) {
     const rows = structuredClone(Array.isArray(loot) ? loot : LOOT_TABLES[loot] ?? LOOT_TABLES['rank-F']);
-    const at = rows.findIndex(row => nounNames(item, row.name) || nounNames(row.name, item));
+    const same = name => String(name ?? '').trim().toLowerCase() === String(item ?? '').trim().toLowerCase();
+    const exact = rows.findIndex(row => same(row.name));
+    const at = exact >= 0 ? exact : rows.findIndex(row => nounNames(item, row.name));
     if (at >= 0) {
         const [lo, hi] = Array.isArray(rows[at].qty) ? rows[at].qty : [1, 1];
         rows[at] = { ...rows[at], chance: 100, qty: [Math.max(1, lo), Math.max(1, hi)] };
@@ -544,7 +661,7 @@ export function buildSetup({ id, seed, offer, party, chatBestiary = [], numbers,
         const n = (seen[enemy.questName] = (seen[enemy.questName] ?? 0) + 1) - 1;
         return { ...enemy, name: total[enemy.questName] > 1 ? `${enemy.questName} ${letter(n)}` : enemy.questName };
     });
-    const all = spreadStunners(named, partySize)
+    const all = spreadStunners(named, partySize, fieldCap(partySize, numbers.field))
         .map((enemy, index) => ({
             ...enemy,
             id: foeId(index + 1),

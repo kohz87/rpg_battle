@@ -33,7 +33,8 @@ test('ranks.reader hands the lines and Levels per rank to Story Block; none with
     assert.deepEqual(readerLadderLines({ 'party.ranks': rows(['A', 'B: 11']), 'party.levelsPerRank': 10 }), { lines: rows(['A', 'B: 11']), perRank: 10 });
     assert.deepEqual(readerLadderLines({ 'party.ranks': rows(['A']), 'party.levelsPerRank': -3 }).perRank, 0);
     const module = createModule({ settings: () => ({ 'party.ranks': rows(SOUL), 'party.levelsPerRank': 10 }) });
-    assert.deepEqual(module.hooks['ranks.reader'](), { lines: rows(SOUL), perRank: 10 });
+    // Each line carries the first level RPG Battle bands it at (B-a2-8), so Story Block bands it the same.
+    assert.deepEqual(module.hooks['ranks.reader'](), { lines: rows(SOUL.map((title, i) => `${title}: ${i * 10 + 1}`)), perRank: 0 });
 });
 
 test('a ladder stored in Story Block\'s Terms (SB #121) moves to RPG Battle once; RPG Battle\'s own wins', () => {
