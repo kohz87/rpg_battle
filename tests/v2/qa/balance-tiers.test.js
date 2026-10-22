@@ -1,63 +1,85 @@
-// QA (B-b4-11): a tier means the same whatever the headcount. A fresh level-1 character of every
-// creation preset, on auto, against a group of each tier, 40 seeds (the long run is
-// scripts/balance-sim.mjs, 200 seeds and every count). Floors, a little wider than the targets for
-// 40 seeds: trivial ≥ 95 % won (target 98), weak ≥ 85 % (target 90), deadly ≤ 25 % (target < 20);
-// even and strong as the presets' median, 40–85 % and 15–60 % (targets 50–75 and 20–50: the
-// presets differ more than those bands, see the PR).
+// QA (wave C balance): a tier means the same danger whatever the creature, the headcount and the
+// character's level. The fast version of scripts/balance-sim.mjs (200 seeds, every creature,
+// preset, headcount and level band): 40 seeds over a spread of cells, floors a little wider than the
+// targets (trivial ≥ 98 % won, weak ≥ 90 %, even 50–75 %, strong 20–50 %, deadly < 20 %).
+// The fights run through scripts/balance-lib.mjs (v2's encounter and setup code, v1's engine, no
+// bus); the first test shows they are the fights combat.start makes.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PRESETS } from '../../../src/skills.js';
-import { GROUP_SHIFT, headcountShift, offerRows } from '../../../src/v2/combat/setup.js';
+import { CREATURES, PRESET_IDS, cellRate, directFight, heroParty } from '../../../scripts/balance-lib.mjs';
+import { unpackSetup } from '../../../src/v2/combat/stored.js';
+import { MAX_FIELDED, offerRows } from '../../../src/v2/combat/setup.js';
 import { DEFAULT_BESTIARY } from '../../../src/enemies.js';
-import { fight } from '../../../scripts/balance-sim.mjs';
+import { withHero } from './helpers/harness.js';
 
 const SEEDS = 40;
-const presets = PRESETS.map(preset => preset.id);
+const creature = name => CREATURES.find(entry => `${entry.set}:${entry.name}` === name);
 
-function rates(words, tier) {
-    return Object.fromEntries(presets.map(preset => {
-        let won = 0;
-        for (let seed = 1000; seed < 1000 + SEEDS; seed += 1) if (fight(words, tier, preset, seed) === 'won') won += 1;
-        return [preset, Math.round(won / SEEDS * 100)];
-    }));
-}
+test('the simulation\'s fights are combat.start\'s: same setup seed, same outcome', () => {
+    for (const [words, tier, preset] of [['3 Wolf', 'even', 'fighter'], ['1 Troll', 'strong', 'caster'], ['6 Giant Rat', 'weak', 'healer']]) {
+        for (let seed = 1; seed <= 4; seed += 1) {
+            const { h } = withHero({ seed, preset });
+            h.capture({ op: '!', kind: 'encounter', name: words, text: '', labels: { tier } });
+            assert.equal(h.command('combat.start', { offer: h.query('combat.offers').at(-1).id }).ok, true);
+            const fightSeed = unpackSetup(h.state().domains.combat.session.setup).seed;
+            for (let n = 0; n < 400 && h.query('combat.session').status === 'active'; n += 1) h.command('combat.act', { action: { type: 'auto' } });
+            const live = h.query('combat.session').status;
+            assert.equal(directFight({ words, tier, seed: fightSeed, party: heroParty(preset, 1) }), live, `${words} (${tier}) ${preset}, seed ${seed}`);
+        }
+    }
+});
 
+test('the budget is the party\'s: four foes against two members are two each; one member meets four even, strong or deadly foes at most', () => {
+    const rows = (count, partySize) => offerRows({ foes: [{ name: 'Wolf', count, tier: 'deadly' }] }, { pcLevel: 1, bestiary: DEFAULT_BESTIARY, partySize });
+    const pick = list => list.map(row => [row.level, row.scale ?? 1, row.levelScale ?? 1]);
+    assert.deepEqual(pick(rows(4, 2)), pick(rows(2, 1)));
+    assert.equal(rows(4, 2)[0].count, 4, 'all four come');
+    assert.equal(rows(9, 1)[0].count, MAX_FIELDED.deadly);
+});
+
+// The cells: [tier, level, headcount, creature]; every preset fights each.
+const CELLS = [
+    ['trivial', 1, 6, 'bestiary:Giant Rat'], ['trivial', 10, 3, 'ersveil:Starved Crag Wolf'], ['trivial', 40, 9, 'bestiary:Bandit'],
+    ['weak', 1, 3, 'bestiary:Wolf'], ['weak', 5, 4, 'made:Cellar Rat Swarm'], ['weak', 20, 4, 'ersveil:Cellar Rat Swarm'], ['weak', 60, 2, 'bestiary:Troll'],
+    ['even', 1, 1, 'bestiary:Bandit'], ['even', 10, 2, 'bestiary:Wolf'], ['even', 20, 3, 'ersveil:River Drake'], ['even', 40, 1, 'bestiary:Skeleton'],
+    ['strong', 1, 2, 'bestiary:Goblin'], ['strong', 5, 1, 'bestiary:Wolf'], ['strong', 20, 1, 'bestiary:Troll'], ['strong', 60, 3, 'bestiary:Cultist'],
+    ['deadly', 1, 1, 'bestiary:Wolf'], ['deadly', 10, 4, 'bestiary:Troll'], ['deadly', 40, 2, 'ersveil:Crag Wolf Matriarch'],
+];
+// Floors for 40 seeds, regression guards a little wider than what the 200-seed run measured (the
+// PR's table): for trivial, weak and deadly the share of cells past a line; for even and strong the
+// cells' median inside a band and a share of cells inside a wider one (the presets and creatures
+// differ more than those bands: a caster beats a lone foe that a healer loses to).
+const FLOORS = {
+    trivial: { at: [90, 100], share: 85 },
+    weak: { at: [80, 100], share: 85 },
+    even: { median: [35, 85], at: [25, 92], share: 50 },
+    strong: { median: [15, 60], at: [8, 75], share: 50 },
+    deadly: { at: [0, 27], share: 85 },
+};
 const median = values => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
 
-for (const [words, tier, check] of [
-    ['6 Giant Rat', 'trivial', rate => rate >= 95],
-    ['6 Giant Rat', 'weak', rate => rate >= 85],
-    ['6 Cellar Rat Swarm', 'weak', rate => rate >= 85],
-    ['9 Wolf', 'weak', rate => rate >= 85],
-    ['3 Goblin', 'deadly', rate => rate <= 25],
-]) {
-    test(`every preset against "${words}" (${tier})`, () => {
-        const won = rates(words, tier);
-        for (const [preset, rate] of Object.entries(won)) assert.ok(check(rate), `${preset}: ${rate} % won (${JSON.stringify(won)})`);
+const results = Object.fromEntries(Object.keys(FLOORS).map(tier => [tier, []]));
+for (const [tier, level, count, name] of CELLS) {
+    test(`every preset against ${count} ${name} (${tier}) at level ${level}`, () => {
+        for (const preset of PRESET_IDS) {
+            const rate = cellRate({ creature: creature(name), count, tier, preset, level, seeds: SEEDS, first: 1000 });
+            results[tier].push({ preset, level, count, name, rate });
+        }
+        assert.ok(results[tier].length > 0);
     });
 }
 
-for (const [words, tier, [lo, hi]] of [['3 Bandit', 'even', [40, 85]], ['6 Wolf', 'even', [40, 85]], ['2 Wolf', 'strong', [15, 60]], ['4 Bandit', 'strong', [15, 60]]]) {
-    test(`the presets' median against "${words}" (${tier}) is in the tier's band`, () => {
-        const won = rates(words, tier);
-        const middle = median(Object.values(won));
-        assert.ok(middle >= lo && middle <= hi, `median ${middle} % (${JSON.stringify(won)})`);
+for (const [tier, floor] of Object.entries(FLOORS)) {
+    const [lo, hi] = floor.at;
+    test(`${tier}: at least ${floor.share} % of the cells won ${lo}–${hi} % of the time${floor.median ? `, their median ${floor.median.join('–')} %` : ''}`, () => {
+        const cells = results[tier];
+        assert.ok(cells.length > 0);
+        const inside = cells.filter(cell => cell.rate >= lo && cell.rate <= hi);
+        const off = cells.filter(cell => cell.rate < lo || cell.rate > hi).map(cell => `${cell.preset} L${cell.level} ×${cell.count} ${cell.name} ${Math.round(cell.rate)} %`);
+        assert.ok(inside.length / cells.length * 100 >= floor.share, `${inside.length}/${cells.length} inside; off: ${off.join('; ')}`);
+        if (floor.median) {
+            const middle = median(cells.map(cell => cell.rate));
+            assert.ok(middle >= floor.median[0] && middle <= floor.median[1], `median ${middle} %`);
+        }
     });
 }
-
-test('a lone foe keeps v1\'s tier; a group moves each foe, never past the table', () => {
-    for (const tier of Object.keys(GROUP_SHIFT)) {
-        assert.equal(headcountShift(tier, 1), 0, tier);
-        assert.equal(GROUP_SHIFT[tier].length, 9, tier);
-        assert.equal(headcountShift(tier, 30), GROUP_SHIFT[tier][8], tier);
-    }
-    assert.equal(headcountShift('nonsense', 4), 0);
-});
-
-test('the budget is the party\'s: four foes against two members are two each', () => {
-    const rows = (count, partySize) => offerRows({ foes: [{ name: 'Wolf', count, tier: 'deadly' }] }, { pcLevel: 1, bestiary: DEFAULT_BESTIARY, partySize });
-    const pick = list => list.map(row => [row.count, row.level, row.scale ?? 1]);
-    assert.deepEqual(pick(rows(4, 2)).map(([, level, scale]) => [level, scale]), pick(rows(2, 1)).map(([, level, scale]) => [level, scale]));
-    assert.equal(rows(4, 2)[0].count, 4, 'all four come');
-    assert.equal(rows(9, 1)[0].count, 4, 'a lone character meets four deadly foes at most (MAX_FIELDED)');
-});

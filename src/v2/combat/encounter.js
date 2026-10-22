@@ -16,7 +16,8 @@
 // from the level gap, so a fight that does not read the level yet still has a tier. A written
 // rank is never more dangerous than `deadly`: a rank whose band starts further above your
 // character than a deadly foe would be is held to the highest rank that does not (`said` keeps
-// what the story wrote). Pure.
+// what the story wrote). A fight with a boss is never below strong: a boss is never made smaller
+// (setup.tierPower), so the line's tier and the boss's own are read as at least strong. Pure.
 
 import { DEFAULT_RULES, threatForGap, threatStep } from '../../rules.js';
 import { parseEncounter } from '../../story.js';
@@ -94,10 +95,17 @@ export function readEncounter(line, { bestiary, rules = DEFAULT_RULES, ranks = n
 
     const rows = parseEncounter(name, bestiary, rules).filter(row => row?.name && !isNoteName(row.name));
     if (!rows.length) return { ok: false, message: `No foe could be read from "${name}".` };
+    // A fight with a boss is never below strong (the user's call, wave C): a boss is never made
+    // smaller, so "a weak boss" would be a weak fight that is not. The line's tier, and the boss's
+    // own, below strong are read as strong, and the offer and its receipt say so.
+    const bossFight = !ranked && rows.slice(0, MAX_FOES).some(row => row?.boss);
+    const atLeastStrong = value => (bossFight && TIERS.indexOf(value) < TIERS.indexOf('strong') ? 'strong' : value);
+    const lineTier = atLeastStrong(tier);
     const foes = rows.slice(0, MAX_FOES).map(row => {
         // A threat word the story put on the foe itself ("3 weak wolves") is that foe's tier.
         const own = row.threat ? tierOf(row.threat) : null;
-        const foe = { name: tidy(row.name, 48), count: Math.min(MAX_COUNT, Math.max(1, Math.round(Number(row.count) || 1))), tier: ranked ? ranked.tier : own ?? tier };
+        const written = ranked ? ranked.tier : own ?? lineTier;
+        const foe = { name: tidy(row.name, 48), count: Math.min(MAX_COUNT, Math.max(1, Math.round(Number(row.count) || 1))), tier: row.boss && !ranked ? atLeastStrong(written) : written };
         if (ranked) Object.assign(foe, { rank: ranked.rank, level: ranked.level, ...(ranked.said ? { said: ranked.said } : {}) });
         if (row.boss) foe.boss = true;
         if (Number(row.wave) >= 1) foe.wave = Math.round(Number(row.wave));

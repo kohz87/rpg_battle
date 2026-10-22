@@ -14,13 +14,18 @@ import { LOOT_TABLES, rollLoot } from './enemies.js';
 import { templateFor } from './templates.js';
 
 const DOTS = ['poison', 'burn', 'bleed'];
-const HARMFUL = new Set(['poison', 'burn', 'bleed', 'stun', 'slow', 'weaken']);
+const HARMFUL = new Set(['poison', 'burn', 'bleed', 'stun', 'slow', 'weaken', 'daze']);
 // Conditions that only make sense inside a fight; the rest may follow the sheet out of it.
-const FIGHT_ONLY = new Set(['guard', 'shield', 'stun', 'slow', 'weaken']);
+const FIGHT_ONLY = new Set(['guard', 'shield', 'stun', 'slow', 'weaken', 'daze']);
 const LABELS = {
     poison: 'poisoned', burn: 'burning', bleed: 'bleeding', stun: 'stunned', slow: 'slowed',
-    weaken: 'weakened', shield: 'shielded', regen: 'regenerating', guard: 'on guard',
+    weaken: 'weakened', shield: 'shielded', regen: 'regenerating', guard: 'on guard', daze: 'dazed',
 };
+// (v2) The stun rule (`setup.stunRule: 'daze'`, RPG Battle v2's fights only): nobody is stunned two
+// turns in a row. A stun that lands on someone whose last turn was lost to a stun dazes them
+// instead: their next action rolls DAZE_POINTS points lower (to hit, to flee, to talk). A fight
+// without the rule (every v1 fight, and v2 fights stored before it) plays exactly as before.
+export const DAZE_POINTS = 2;
 
 /**
  * (v2) The one table from the fight's condition names (and the words a story writes for them)
@@ -66,6 +71,8 @@ const byId = (f, id) => f.combatants.find(c => c.id === id) ?? null;
 const opponents = (f, c) => f.combatants.filter(o => o.side !== c.side && isActive(o));
 const allies = (f, c) => f.combatants.filter(o => o.side === c.side && isActive(o));
 const has = (c, name) => c.conditions.some(cond => cond.name === name);
+// The points a dazed actor's rolls lose this action (0 when not dazed; only the stun rule dazes).
+const dazed = c => (has(c, 'daze') ? DAZE_POINTS : 0);
 const cap = text => text.charAt(0).toUpperCase() + text.slice(1);
 const norm = name => String(name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 const average = list => (list.length ? list.reduce((sum, value) => sum + value, 0) / list.length : 0);
@@ -182,8 +189,12 @@ function applyEffect(f, source, target, skill, rules) {
     const value = skillValue(source, skill, rules);
     const power = effectivePower(skill, skill.mastery, rules);
     const applied = [];
-    for (const [name, rounds] of Object.entries(skill.effect)) {
-        if (!LABELS[name] || !(rounds > 0)) continue;
+    for (const [written, given] of Object.entries(skill.effect)) {
+        if (!LABELS[written] || !(given > 0)) continue;
+        // The stun rule: a second stun in a row is a daze, for one turn.
+        const daze = written === 'stun' && f.stunRule === 'daze' && Boolean(f.marks.stunned?.[target.id]);
+        const name = daze ? 'daze' : written;
+        const rounds = daze ? 1 : given;
         let strength = 0;
         if (DOTS.includes(name)) strength = Math.max(1, Math.round(value * c.dot[name]));
         else if (name === 'regen') strength = Math.max(1, Math.round(value * power * c.regen));
@@ -241,7 +252,7 @@ function strike(f, actor, target, skill, rng, rules) {
     const a = rules.attack;
     const physical = !skill || skill.type === 'physical';
     const what = skill ? `${label(actor)}'s ${skill.name}` : label(actor);
-    if (physical && !rng.chance(hitChance(actor.stats.DEX, target.stats.AGI, rules))) {
+    if (physical && !rng.chance(hitChance(actor.stats.DEX - dazed(actor), target.stats.AGI, rules))) {
         log(f, actor, `${what} misses ${label(target)}.`, 'miss');
         return false;
     }
@@ -467,10 +478,17 @@ function beginTurn(f, actor, rng, rules) {
     if (actor.sp && actor.sp.cur < actor.sp.max) {
         actor.sp.cur = Math.min(actor.sp.max, actor.sp.cur + Math.max(1, Math.round(actor.sp.max * (rules.combat.spPerTurn ?? 0))));
     }
+    if (f.stunRule === 'daze') {
+        // The stun rule's memory: whose last turn a stun took (the next stun on them is a daze).
+        f.marks.stunned ??= {};
+        if (stunned) f.marks.stunned[actor.id] = true;
+        else delete f.marks.stunned[actor.id];
+    }
     if (stunned) {
         log(f, actor, `${label(actor)} is stunned and loses the turn.`, 'condition');
         return false;
     }
+    if (has(actor, 'daze')) log(f, actor, `${label(actor)} is dazed (−${DAZE_POINTS} to this action).`, 'condition');
     return true;
 }
 
@@ -585,7 +603,7 @@ function useSkill(f, actor, skill, targets, rng, rules) {
     // Debuff: a curse can be shrugged off (the same roll as a hit), and may also hurt.
     for (const target of targets) {
         if (!isActive(target)) continue;
-        if (!rng.chance(hitChance(actor.stats.DEX, target.stats.AGI, rules))) {
+        if (!rng.chance(hitChance(actor.stats.DEX - dazed(actor), target.stats.AGI, rules))) {
             log(f, actor, `${label(actor)} ${verb} ${skill.name} on ${label(target)} — miss.`, 'miss');
             continue;
         }
@@ -638,7 +656,7 @@ function flee(f, actor, rng, rules) {
     if (actor.side === 'enemy') {
         f.marks.fleeTried[actor.id] = true;
         const partyAgi = average(f.combatants.filter(c => c.side === 'party' && isActive(c)).map(c => c.stats.AGI));
-        if (rng.chance(fleeChance(actor.stats.AGI, partyAgi, {}, rules))) {
+        if (rng.chance(fleeChance(actor.stats.AGI - dazed(actor), partyAgi, {}, rules))) {
             actor.gone = 'fled';
             log(f, actor, `${label(actor)} flees.`, 'flee', true);
         } else {
@@ -647,7 +665,8 @@ function flee(f, actor, rng, rules) {
         return;
     }
     const party = f.combatants.filter(c => c.side === 'party' && isActive(c));
-    if (rng.chance(partyFleeChance(f, rules))) {
+    const daze = dazed(actor) * rules.flee.perAgi;
+    if (rng.chance(daze ? Math.max(rules.flee.min, partyFleeChance(f, rules) - daze) : partyFleeChance(f, rules))) {
         f.status = 'fled';
         log(f, actor, party.length > 1 ? 'The party escapes!' : `${label(actor)} escapes!`, 'flee', true);
     } else {
@@ -662,7 +681,7 @@ function partyFleeChance(f, rules) {
 }
 
 function parley(f, actor, target, rng, rules) {
-    if (rng.chance(parleyChance(actor.stats.CHA, target.morale, share(target), rules))) {
+    if (rng.chance(parleyChance(actor.stats.CHA - dazed(actor), target.morale, share(target), rules))) {
         target.gone = 'parleyed';
         log(f, actor, `${label(actor)} talks ${label(target)} down; it withdraws.`, 'parley', true);
     } else {
@@ -834,6 +853,8 @@ export function startFight({ rules = DEFAULT_RULES, ...setup } = {}) {
         // (0.5.14) 'timeline' only when the setup asks for it: a fight saved before keeps rounds.
         turns: setup.turns === 'timeline' ? 'timeline' : 'rounds',
         speedOffset: Number.isFinite(Number(setup.speedOffset)) ? Math.max(0, Number(setup.speedOffset)) : rules.turns.speedOffset,
+        // (v2) The stun rule, only when the setup asks for it (DAZE_POINTS).
+        ...(setup.stunRule === 'daze' ? { stunRule: 'daze' } : {}),
         time: 0,
         order: [],
         turn: 0,
@@ -935,7 +956,7 @@ export function previewStrike(actor, target, skill = null, rules = DEFAULT_RULES
     let damage = mitigate(raw, physical ? target.pdef : target.mdef);
     if (has(target, 'guard')) damage *= a.defendTaken;
     return {
-        hit: physical ? hitChance(actor.stats?.DEX, target.stats?.AGI, rules) : 100,
+        hit: physical ? hitChance((Number(actor.stats?.DEX) || 0) - (actor.conditions ? dazed(actor) : 0), target.stats?.AGI, rules) : 100,
         low: Math.max(1, Math.round(damage * a.varianceLow)),
         high: Math.max(1, Math.round(damage * a.varianceHigh)),
         crit: Number(actor.crit) || 0,

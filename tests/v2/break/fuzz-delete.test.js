@@ -88,9 +88,12 @@ const json = value => JSON.stringify(value);
 
 /**
  * A replay skip that is right: the block used a thing (by its id) that only a deleted reply had
- * made, or took from a counted stack that a deleted reply had made (Story Block's inventory).
+ * made, or took from a counted stack that a deleted reply had made (Story Block's inventory), or
+ * played turns of a fight a deleted reply had started (combat.act on a session that, without that
+ * reply, is not there: its path goes through the empty session).
  */
-const dependent = why => /does not exist \(no "[a-z]{2}_[0-9a-z]{8}"\)/.test(why) || /^Taken onto the counts as they stand now/.test(why);
+const dependent = why => /does not exist \(no "[a-z]{2}_[0-9a-z]{8}"\)/.test(why) || /^Taken onto the counts as they stand now/.test(why)
+    || /^The change path "\/domains\/combat\/session\/actions\/-" goes through something that is not an object or a list\.$/.test(why);
 
 for (let seed = 1; seed <= SEEDS; seed += 1) {
     test(`FUZZ_DELETE seed ${seed}: middle deletes rebuild to the live head and skip no valid block`, { timeout: 300000 }, async t => {

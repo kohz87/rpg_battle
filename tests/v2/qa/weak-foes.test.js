@@ -1,9 +1,9 @@
 // QA: the weak-foe path (the Ersveil test, QA #75: six weak cellar rat swarms beat a fresh level-1
-// character on auto, two rats did not). v2's encounter → offer → setup path must give the foes
-// v1 gives for the same words (for a group, v1's rows under the headcount budget, B-b4-11: the
-// coordinator dropped v1 parity for groups; a lone foe is still v1's, number for number): the tier words as v1's threat words (trivial stays trivial),
-// v1's levels and below-level-1 scales, v1's counts for swarms and packs, and the same
-// projected creatures; and the prompt's example teaches single foes, as v1's did.
+// character on auto, two rats did not). v2's encounter → offer → setup path reads the words as v1
+// does: the tier words as v1's threat words (trivial stays trivial), v1's names and counts for
+// swarms and packs, and v1's projection of each row. The tier's level is v2's (wave C: the threat
+// budget, setup.tierPower, lone foes included) and each foe's HP and damage take its creature's
+// power scale (setup.normalizedFoe); the prompt's example teaches single foes, as v1's did.
 import assert from 'node:assert/strict';
 import { DEFAULT_RULES, suggestRank } from '../../../src/rules.js';
 import { parseEncounter, resolveThreats } from '../../../src/story.js';
@@ -14,7 +14,7 @@ import { makeRng } from '../../../src/rng.js';
 import { readEncounter } from '../../../src/v2/combat/encounter.js';
 import { part as combat } from '../../../src/v2/combat/index.js';
 import { bestiaryList, unpackSetup } from '../../../src/v2/combat/stored.js';
-import { groupPower } from '../../../src/v2/combat/setup.js';
+import { normalizedFoe, offerRows, tierXpLevel } from '../../../src/v2/combat/setup.js';
 import { combinedBestiary } from '../../../src/templates.js';
 import { fightOut, withHero, each } from './helpers/harness.js';
 
@@ -49,16 +49,14 @@ for (const [words, tier] of [['6 Giant Rat', 'weak'], ['2 Giant Rat', 'weak'], [
         const { h, offer, setup } = v2Fight(words, tier, 5);
         // A name no bestiary knows was made up for the fight and kept in the chat's (as v1 keeps it).
         const bestiary = combinedBestiary(bestiaryList(h.state().domains.bestiary), DEFAULT_BESTIARY);
-        // v1's rows, each tier row moved by the group's headcount (groupPower; a lone foe unchanged).
+        // v1's rows for the words: the offer has v1's names, counts and threat word.
         const rows = v1Rows(`${words} (${tier})`);
-        const headcount = rows.reduce((sum, row) => sum + row.count, 0);
-        const v1 = resolveThreats(rows.map(({ level: _level, rank: _rank, ...row }) => row), 1, r)
-            .map(row => groupPower(row, headcount, 1, r))
-            .map(row => ({ ...row, level: Number(row.level) >= 1 ? Math.round(Number(row.level)) : null, rank: row.level ? null : row.rank }));
-        // The offer: v1's names, counts and threat word.
-        assert.deepEqual(offer.foes.map(foe => [foe.name, foe.count, foe.tier]), v1.map(row => [row.name, row.count, row.threat]));
-        // The fight: v1's projection of those rows with the fight's own seed.
-        const expected = engagements(enemiesFromRows(v1, { bestiary, library: DEFAULT_SKILLS, rules: r, rng: makeRng(`${setup.seed}:enemies`) })).enemies;
+        assert.deepEqual(offer.foes.map(foe => [foe.name, foe.count, foe.tier]), rows.map(row => [row.name, row.count, row.threat]));
+        // The fight: v1's projection of v2's tier rows with the fight's own seed, each foe scaled to its creature's power.
+        const ranked = offerRows({ foes: offer.foes }, { pcLevel: 1, bestiary, rules: r });
+        const rng = makeRng(`${setup.seed}:enemies`);
+        const projected = ranked.flatMap(row => enemiesFromRows([row], { bestiary, library: DEFAULT_SKILLS, rules: r, rng }).map(enemy => ({ ...normalizedFoe(enemy, row, findCreature(bestiary, row.name), r), xpLevel: tierXpLevel(row.threat, 1, r) })));
+        const expected = engagements(projected).enemies;
         assert.deepEqual(setup.enemies.map(numbers), expected.map(numbers));
     });
 }
