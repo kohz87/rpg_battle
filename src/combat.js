@@ -596,7 +596,19 @@ function useSkill(f, actor, skill, targets, rng, rules) {
     if (actor.side === 'party') bump(f.stats.uses, actor.memberId, skill.name);
     const verb = skill.type === 'magic' || (skill.type !== 'physical' && skill.stat === 'INT') ? 'casts' : 'uses';
     if (skill.type === 'physical' || skill.type === 'magic') {
-        for (const target of targets) if (isActive(target)) strike(f, actor, target, skill, rng, rules);
+        // Each target rolls on its own (a spell too, by the spell rule): an area skill can miss some
+        // and hit the rest, and only the ones hit take its damage and effects.
+        const missed = [];
+        let hit = 0;
+        for (const target of targets) {
+            if (!isActive(target)) continue;
+            if (strike(f, actor, target, skill, rng, rules)) hit += 1;
+            else missed.push(target);
+        }
+        // (v2) Who an area skill missed, as a key moment (the per-target lines say it too).
+        if (f.spellRule === 'roll' && targets.length > 1 && missed.length) {
+            log(f, actor, `${label(actor)}'s ${skill.name} ${hit ? 'misses' : 'misses everyone:'} ${missed.map(label).join(', ').replace(/, ([^,]*)$/, ' and $1')}${hit ? ` and hits ${hit === 1 ? 'one' : hit}` : ''}.`, 'miss', true);
+        }
         return;
     }
     if (skill.type === 'heal') {

@@ -47,7 +47,7 @@ const key = cell => `${cell.creature.set}:${cell.creature.name}`;
 
 /** The cells' win rates over worker threads: [{ tier, level, count, preset, creature, rate }]. */
 export async function runCells(list, { seeds = 200, first = 1000, workers = availableParallelism(), progress = false } = {}) {
-    const plain = list.map(cell => ({ tier: cell.tier, level: cell.level, count: cell.count, preset: cell.preset, creature: key(cell), ...(cell.shift !== undefined && cell.shift !== null ? { shift: cell.shift } : {}) }));
+    const plain = list.map(cell => ({ tier: cell.tier, level: cell.level, count: cell.count, preset: cell.preset, creature: key(cell), ...(cell.shift !== undefined && cell.shift !== null ? { shift: cell.shift } : {}), ...(cell.settings ? { settings: cell.settings } : {}) }));
     // Slowest first (high levels, many foes), handed out one at a time.
     const order = plain.map((cell, index) => index).sort((a, b) => (plain[b].level * plain[b].count) - (plain[a].level * plain[a].count));
     const out = new Array(plain.length);
