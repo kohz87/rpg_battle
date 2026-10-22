@@ -1,7 +1,8 @@
 // RPG Battle v2: the one module definition Story Block registers (SPEC §6), merged from its
 // parts (MODULES §A): party, creation (making your character, §F12, §F14), checks (pending d20
 // checks, §F16), items, combat, board (the battle screen), return (in time after death, §F17)
-// trade and screens (the default screens: party, items, trade, HUD, status card), in that order.
+// trade, craft (crafting from the story, §F102) and screens (the default screens: party, items,
+// trade, HUD, status card), in that order.
 //
 // - domains, commands and queries are put together as they are; a name two parts claim is a
 //   mistake, refused here before Story Block ever sees it.
@@ -39,6 +40,7 @@ import { part as combat } from './combat/index.js';
 import { part as board } from './board/index.js';
 import { part as returnPart } from './return/index.js';
 import { part as trade } from './trade/index.js';
+import { part as craft } from './craft/index.js';
 import { part as screens } from './screens/index.js';
 import { withTerms } from '../terms.js';
 
@@ -51,7 +53,7 @@ export const VERSION = '2.0.0-alpha.1';
 /** The parts in their order: [part id, part]. */
 export const PARTS = Object.freeze([
     ['party', party], ['creation', creation], ['checks', checks], ['items', items], ['combat', combat],
-    ['board', board], ['return', returnPart], ['trade', trade], ['screens', screens],
+    ['board', board], ['return', returnPart], ['trade', trade], ['craft', craft], ['screens', screens],
 ]);
 
 // Settings a part reads from another part: part → { other part: [keys] }, handed on with the
@@ -168,7 +170,7 @@ export function createModule({ settings = null } = {}) {
     const commands = {};
     const queries = {};
     const kinds = {};
-    const owners = { domain: {}, command: {}, query: {}, kind: {}, tab: {}, widget: {}, screen: {} };
+    const owners = { domain: {}, command: {}, query: {}, kind: {}, tab: {}, widget: {}, screen: {}, feature: {} };
     const hooks = {};
     const tabs = [];
     const widgets = {};
