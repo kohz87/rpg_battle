@@ -101,3 +101,18 @@ test('party size: you + 3 companions by default; the setting changes it; acceptO
     rejects(run(offered.state, 'party.acceptOffer', { offer: offer.id }), 'REFUSED', /full/);
     assert.ok(run(offered.state, 'party.acceptOffer', { offer: offer.id }, { settings: { maxCompanions: 4 } }).ok);
 });
+
+test('B-rxui-5: a character file of another version is refused with a short, flat version only', async () => {
+    const { readCharacter, versionText, VERSION_SHOWN } = await import('../../../src/v2/party/portable.js');
+    const { DEFAULT_RULES } = await import('../../../src/rules.js');
+    const huge = readCharacter({ rpgBattleCharacter: `9${'x'.repeat(400000)}` }, { rules: DEFAULT_RULES });
+    assert.equal(huge.ok, false);
+    assert.ok(huge.message.length < 120, huge.message.slice(0, 80));
+    assert.match(huge.message, /^That character file is version 9x{23}; this RPG Battle reads version \d+\.$/);
+    assert.match(readCharacter({ rpgBattleCharacter: { evil: true } }, { rules: DEFAULT_RULES }).message, /is an unknown version;/);
+    assert.equal(versionText(['a']), 'an unknown version');
+    assert.equal(versionText(Number.NaN), 'an unknown version');
+    assert.equal(versionText(' 2\n\tbeta '), 'version 2 beta');
+    assert.equal(versionText(7), 'version 7');
+    assert.equal(Array.from(versionText('🐉'.repeat(40)).slice('version '.length)).length, VERSION_SHOWN, 'cut by code points');
+});

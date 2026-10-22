@@ -3,9 +3,10 @@
 // SPEC §7: the stacks they own that are equipped). `(state, args, tools)` per SPEC §6 and MODULES §F3. Pure.
 
 import { combatNumbers, combatantFromSheet } from '../../party.js';
-import { gearOf, rulesFrom, toSheet } from './sheets.js';
-import { termsOf } from '../../terms.js';
+import { rulesFrom, toSheet, wornGear } from './sheets.js';
+import { moneyScale, packRanks, rankLadder, termsOf } from '../../terms.js';
 import { actorsInOrder, offerText, plainCopy, resolveName, waitingOffers } from './util.js';
+import { FEATURE, activeEffects, combatShift, featureOn, nowOfState, shown } from './effects.js';
 
 /**
  * A member's record with its `portrait` (MODULES §F11): the one kept on the record (your
@@ -67,22 +68,71 @@ export function terms(state, args = {}, tools = null) {
     return plainCopy({ levelName, xpName, tiers });
 }
 
+const settingsFrom = (args, tools) => args?.settings ?? (tools?.settings && typeof tools.settings === 'object' ? tools.settings : null);
+const queryOf = tools => (typeof tools?.query === 'function' ? (name, args) => tools.query(name, args) : null);
+
+/**
+ * `party.ranks({ settings? })` → the rank ladder (MODULES §F86, §F91; terms.js rankLadder):
+ * `[{ id, title, levels: [lo, hi], reward: [lo, hi] }]`, lowest first: the reader's own named
+ * ranks, else the first enabled pack's `ranks`, else uniform tiers, else F to S. The rewards: a
+ * pack's as written; the others by place times the pack's money scale (`inventory.economy`, F104).
+ * Story Director's `quest.ranks` reads it; a foe line's `rank:` is read on it.
+ */
+export function ranks(state, args = {}, tools = null) {
+    const query = queryOf(tools);
+    return plainCopy(rankLadder(rulesFrom(settingsFrom(args, tools)), { pack: packRanks(query), scale: moneyScale(query) }));
+}
+
+/**
+ * `party.toSpend({})` → { total, people: [{ id, name, points }] }: the members with stat points
+ * waiting to be spent (your character first), for the HUD's and the status card's "points to
+ * spend" badge (MODULES §F91). total 0 and no people when nobody has any.
+ */
+export function toSpend(state) {
+    const people = actorsInOrder(partyOf(state)).filter(actor => Number.isInteger(actor.points) && actor.points > 0)
+        .map(actor => ({ id: actor.id, name: actor.name, points: actor.points }));
+    return plainCopy({ total: people.reduce((sum, entry) => sum + entry.points, 0), people });
+}
+
+/**
+ * `party.effects({ actor?, now? })` → the timed buffs and debuffs on now (feature
+ * `rpg-battle.effects`; [] while it is off): [{ id, actor, name, note, tone: 'good'|'bad', left:
+ * '2 h' | '3 replies' | 'while worn' | '', source: 'Hawk Draught' | 'quest: …' | …, checks: [{ on,
+ * amount }], combat: { attack?, … } }], oldest first. With `actor`, that member's and everyone's
+ * (actor 'party'). `now` ({ minutes, at }) is read from the story clock and the latest reply when
+ * not given.
+ */
+export function effects(state, args = {}, tools = null) {
+    if (!featureOn(tools)) return [];
+    const now = args?.now && typeof args.now === 'object' ? { minutes: args.now.minutes ?? null, at: args.now.at ?? null } : nowOfState(state, queryOf(tools));
+    const on = activeEffects(state, now).filter(effect => !args?.actor || effect.actor === args.actor || effect.actor === 'party');
+    return plainCopy(on.map(effect => shown(effect, now)));
+}
+
 /**
  * A member's fight numbers with their equipped gear (v1 party.combatNumbers: attack, magic,
  * defence, mdef, crit, hit, dodge, stats with gear) and their HP/MP/SP maxima with it, plus the
  * gear counted. `args.settings` (the module's settings) when the caller has them. null for an
  * unknown id.
  */
-export function combatNumbersOf(state, args = {}) {
+export function combatNumbersOf(state, args = {}, tools = null) {
     const party = partyOf(state);
     const member = party.actors?.[args?.id];
     if (!member) return null;
     const rules = rulesFrom(args?.settings ?? null);
-    const gear = gearOf(state?.domains?.inventory, member.id, { pc: party.pc });
+    // The gear as the items part counts it (wear, refinement, broken pieces out), else the defs as they are.
+    const gear = wornGear(queryOf(tools), state?.domains?.inventory, member.id, { pc: party.pc });
     const sheet = toSheet(member);
     const numbers = combatNumbers(sheet, { gear, rules });
     const fighter = combatantFromSheet({ ...sheet, skills: [] }, { gear, rules });
-    return plainCopy({ ...numbers, hp: fighter.hp, mp: fighter.mp, sp: fighter.sp, gear: gear.map(item => item.name) });
+    // Timed buffs and debuffs move the fight numbers too (held to their caps, effects.js); through the
+    // host's party.effects when there is one, so a feature switched off answers none.
+    const ask = queryOf(tools);
+    let on = [];
+    try { on = ask ? ask('party.effects', { actor: member.id }) : effects(state, { actor: member.id }, tools); } catch { on = []; }
+    const shift = combatShift(Array.isArray(on) ? on : []);
+    for (const [name, amount] of Object.entries(shift)) if (Number.isFinite(numbers[name])) numbers[name] = Math.max(0, numbers[name] + amount);
+    return plainCopy({ ...numbers, hp: fighter.hp, mp: fighter.mp, sp: fighter.sp, gear: gear.map(item => item.name), ...(Object.keys(shift).length ? { effects: shift } : {}) });
 }
 
 export const queries = {
@@ -92,4 +142,8 @@ export const queries = {
     'party.offers': offers,
     'party.terms': terms,
     'party.combatNumbers': combatNumbersOf,
+    'party.ranks': ranks,
+    'party.toSpend': toSpend,
+    // Feature rpg-battle.effects (MODULES §F100): null from Story Block while it is off.
+    'party.effects': Object.assign(effects, { feature: FEATURE }),
 };

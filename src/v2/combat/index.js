@@ -24,7 +24,7 @@ import { act, availableActions, summarize } from '../../combat.js';
 import { DEFAULT_BESTIARY } from '../../enemies.js';
 import { itemSlot, oneCurrency, parseEffect } from '../../items.js';
 import { combinedBestiary } from '../../templates.js';
-import { foesText, readEncounter, STAKES, TIERS } from './encounter.js';
+import { foesText, rankContext, readEncounter, STAKES, TIERS } from './encounter.js';
 import { buildSetup, COMBAT_DEFAULTS, fightNumbers, partyCombatants } from './setup.js';
 import { beatenOf, bestiaryList, byRev, creatureSlug, fightRules, lastOf, latinSlug, offersOf, packCreature, packSetup, sessionStatus, unpackSetup, valuesOf } from './stored.js';
 export { beatenOf, lastOf, offersOf } from './stored.js';
@@ -623,7 +623,8 @@ function dismiss(ctx, payload) {
 /** `! encounter …`: an offer, or a plain reason it cannot be one. */
 function captureEncounter(ctx, line) {
     const bestiary = combinedBestiary(bestiaryList(ctx.read('bestiary')), DEFAULT_BESTIARY);
-    const read = readEncounter(line, { bestiary });
+    // A `rank:` is read on the suite's ladder for the character's level now (MODULES §F91).
+    const read = readEncounter(line, { bestiary, ...rankContext(ctx) });
     if (!read.ok) ctx.fail('INVALID', read.message);
     let place = read.place;
     if (!place) {

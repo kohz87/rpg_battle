@@ -134,7 +134,7 @@ test('settings: the Character section with v1\'s defaults and a schema for each'
         startPoints: DEFAULT_RULES.character.startPoints, statCap: DEFAULT_RULES.character.statCap,
         pointsPerLevel: DEFAULT_RULES.character.pointsPerLevel, xpBase: DEFAULT_RULES.character.xpBase,
         maxLevel: DEFAULT_RULES.character.maxLevel, activeSkills: DEFAULT_RULES.character.activeSkills, autoSpend: true,
-        maxCompanions: 3,
+        maxCompanions: 3, companionBase: 55, companionPerLevel: 5,
     });
     for (const key of Object.keys(defaults)) assert.ok(schema[key], key);
     const tuned = run(makeState(), 'party.create', { name: 'Ren', points: { STR: 15 } }, { settings: { startPoints: 15 } });
@@ -143,12 +143,12 @@ test('settings: the Character section with v1\'s defaults and a schema for each'
 });
 
 test('the part has the MODULES §A shape', () => {
-    assert.deepEqual(Object.keys(part).sort(), ['commands', 'context', 'domains', 'hooks', 'kinds', 'queries', 'settings', 'tabs']);
+    assert.deepEqual(Object.keys(part).sort(), ['commands', 'context', 'domains', 'features', 'hooks', 'kinds', 'queries', 'settings', 'tabs']);
     for (const [kind, def] of Object.entries(part.kinds)) {
         assert.equal(typeof def.grammar, 'string', kind);
         assert.equal(typeof def.apply, 'function', kind);
     }
     assert.equal(typeof part.context.tail, 'function');
-    assert.equal(part.context.budget, 250);
+    assert.equal(part.context.budget, 320);
     assert.deepEqual(part.tabs.map(tab => tab.id), ['party']);
 });

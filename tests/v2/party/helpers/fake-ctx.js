@@ -49,16 +49,19 @@ export function makeState(domains = {}) {
     return {
         v: 2,
         meta: { rev: 0, claims: {} },
-        domains: { party: part.domains.party.initial(), inventory: { defs: {}, stacks: {}, wallets: {}, aliases: {} }, ...clone(domains) },
+        domains: { party: part.domains.party.initial(), effects: part.domains.effects.initial(), inventory: { defs: {}, stacks: {}, wallets: {}, aliases: {} }, ...clone(domains) },
     };
 }
 
-export function makeCtx(working, { seed = 1, settings = {}, own = ['party'], carrier = null, rev = 1, extraCommands = {} } = {}) {
+export function makeCtx(working, { seed = 1, settings = {}, own = ['party', 'effects'], carrier = null, rev = 1, extraCommands = {}, time = null, cause = 'story', caller = null, feature = null } = {}) {
     const rng = sfc32(seed);
     const touched = new Set();
     const ctx = {
         receiptId: 'rc_test0001',
         carrier,
+        cause,
+        caller,
+        ...(feature ? { feature } : {}),
         rev,
         touched,
         read: domain => deepFreeze(clone(working.domains[domain])),
@@ -85,7 +88,7 @@ export function makeCtx(working, { seed = 1, settings = {}, own = ['party'], car
             return { total: dice.reduce((sum, die) => sum + die, 0) + Number(match[3] || 0), dice };
         },
         settings: () => clone(settings),
-        time: () => null,
+        time: () => (typeof time === 'function' ? time() : time),
         fail: (code, message) => {
             throw new Rejection(code, message);
         },

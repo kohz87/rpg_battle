@@ -66,6 +66,10 @@ export const REV_QUERY = `${MODULE_ID}.rev`;
 
 const isObject = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
+// A wrapped command or query keeps the feature its part marked it with (MODULES §F100: Story Block
+// refuses it, or answers null, while the reader has that feature off).
+const withFeature = (wrapper, original) => (typeof original?.feature === 'string' ? Object.assign(wrapper, { feature: original.feature }) : wrapper);
+
 /** A namespaced settings key: `combat.hitBase`. */
 export const settingKey = (partId, key) => `${partId}.${key}`;
 
@@ -169,6 +173,7 @@ export function createModule({ settings = null } = {}) {
     const tabs = [];
     const widgets = {};
     const screens = [];
+    const features = [];
     const statics = [];
     const tails = [];
     let budget = 0;
@@ -190,19 +195,19 @@ export function createModule({ settings = null } = {}) {
         }
         for (const [type, handler] of Object.entries(part.commands ?? {})) {
             claim(owners.command, type, id, 'command');
-            commands[type] = (ctx, payload) => handler(ctxFor(ctx, id), payload);
+            commands[type] = withFeature((ctx, payload) => handler(ctxFor(ctx, id), payload), handler);
         }
         for (const [name, fn] of Object.entries(part.queries ?? {})) {
             claim(owners.query, name, id, 'query');
-            queries[name] = (state, args, tools) => fn(state, args, tools
+            queries[name] = withFeature((state, args, tools) => fn(state, args, tools
                 ? Object.freeze({ ...tools, settings: withTerms(partSettings(moduleSettings(), id), typeof tools.query === 'function' ? tools.query : null) })
-                : localTools(state, id));
+                : localTools(state, id)), fn);
         }
         for (const [kind, spec] of Object.entries(part.kinds ?? {})) {
             if (KIND_OVERRIDES[kind] && Object.hasOwn(owners.kind, kind) && KIND_OVERRIDES[kind] === id) delete owners.kind[kind];
             if (KIND_OVERRIDES[kind] && Object.hasOwn(owners.kind, kind) && KIND_OVERRIDES[kind] !== id) continue;
             claim(owners.kind, kind, id, 'change-line kind');
-            kinds[kind] = { part: id, grammar: spec.grammar, apply: spec.apply };
+            kinds[kind] = { part: id, grammar: spec.grammar, apply: spec.apply, ...(spec.feature ? { feature: spec.feature } : {}) };
         }
         for (const [name, fn] of Object.entries(part.hooks ?? {})) {
             if (typeof fn === 'function') (hooks[name] ??= []).push({ part: id, fn });
@@ -218,6 +223,11 @@ export function createModule({ settings = null } = {}) {
         for (const screen of part.screens ?? []) {
             claim(owners.screen, screen?.id, id, 'screen');
             screens.push(screen);
+        }
+        // Optional mechanics (MODULES §F100): every part's, an id two parts declare refused.
+        for (const feature of part.features ?? []) {
+            claim(owners.feature ??= {}, feature?.id, id, 'feature');
+            features.push({ ...feature });
         }
         if (typeof part.context?.static === 'function') statics.push(part.context.static);
         if (typeof part.context?.tail === 'function') tails.push({ part: id, tail: part.context.tail });
@@ -246,7 +256,7 @@ export function createModule({ settings = null } = {}) {
         commands,
         queries,
         capture: {
-            kinds: Object.fromEntries(Object.entries(kinds).map(([kind, spec]) => [kind, { grammar: spec.grammar }])),
+            kinds: Object.fromEntries(Object.entries(kinds).map(([kind, spec]) => [kind, { grammar: spec.grammar, ...(spec.feature ? { feature: spec.feature } : {}) }])),
             apply(ctx, line) {
                 const entry = kinds[line?.kind];
                 if (!entry) return ctx.fail('INVALID', `RPG Battle does not read "${line?.kind}" lines.`);
@@ -275,6 +285,7 @@ export function createModule({ settings = null } = {}) {
             budget: budget || 1,
         },
         hooks: mergedHooks,
+        ...(features.length ? { features } : {}),
         settings: { defaults, schema },
         tabs: shownTabs,
         widgets,

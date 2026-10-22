@@ -74,7 +74,7 @@ function pcAtLevel(level) {
     return state;
 }
 
-test('party.addCompanion builds a companion at the level given, else yours, never more than two above yours', () => {
+test('party.addCompanion builds a companion at the level given, else within one of yours, never more than two above yours', () => {
     const held = run(withPc(), 'party.addCompanion', { name: 'Lyra', role: 'healer', level: 6 });
     assert.equal(byName(held.state, 'Lyra').level, 3, 'two levels above a level-1 character at most (B-b3-16)');
     const out = run(pcAtLevel(5), 'party.addCompanion', { name: 'Lyra', role: 'healer', level: 6 });
@@ -88,7 +88,7 @@ test('party.addCompanion builds a companion at the level given, else yours, neve
     assert.equal(lyra.skills.length, 3, 'suggested skills for the build');
     assert.equal(out.result.narrate, true);
     const plain = run(withPc(), 'party.addCompanion', { name: 'Bram', control: 'player' });
-    assert.equal(byName(plain.state, 'Bram').level, 1);
+    assert.ok([1, 2].includes(byName(plain.state, 'Bram').level), 'within one level of a level-1 character (F91)');
     assert.equal(byName(plain.state, 'Bram').control, 'player');
     assert.equal(byName(plain.state, 'Bram').role, 'companion');
 });

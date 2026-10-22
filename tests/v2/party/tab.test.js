@@ -30,7 +30,7 @@ test('no character yet: the create form sends party.create', async () => {
 
 test('members, offers and their buttons', async () => {
     let state = run(withPc({ name: 'Ren', preset: 'fighter' }), 'party.grantXp', { xp: 100 }).state;
-    state = run(state, 'party.addCompanion', { name: 'Lyra', role: 'ranger' }).state;
+    state = run(state, 'party.addCompanion', { name: 'Lyra', role: 'ranger', level: 2 }).state;
     state = capture(state, '+ join Bram — a smith').state;
     const pane = doc.createElement('div');
     const { calls, api } = recorder();

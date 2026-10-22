@@ -5,10 +5,37 @@
 import { levelTag } from '../../terms.js';
 import { rulesFrom } from './sheets.js';
 import { actorsInOrder, waitingOffers } from './util.js';
+import { activeEffects, featureOn, leftText, nowOfState } from './effects.js';
+
+// The most effects named in the tail (the rest are still counted by code).
+export const TAIL_EFFECTS = 8;
+
+/**
+ * The effects line (feature `rpg-battle.effects`): names and short notes only, never numbers
+ * (code's modifier table carries those): "Effects: Ren — Keen Sight (sharper eyes, 2 h); everyone —
+ * Setback (a failed quest weighs on the party, 1 d)." null when none is on.
+ */
+export function effectsLine(view, party) {
+    if (!featureOn(view)) return null;
+    const state = view?.state;
+    const query = typeof view?.query === 'function' ? (name, args) => { try { return view.query(name, args); } catch { return null; } } : null;
+    const length = view?.chat?.length;
+    const now = nowOfState(state, query, { fallbackAt: Number.isInteger(length) ? length : null });
+    const on = activeEffects(state, now);
+    if (!on.length) return null;
+    const parts = on.slice(0, TAIL_EFFECTS).map(effect => {
+        const who = effect.actor === 'party' ? 'everyone' : party.actors?.[effect.actor]?.name ?? 'someone';
+        const more = [effect.note, leftText(effect, now)].filter(Boolean).join(', ');
+        return `${who} — ${effect.name}${more ? ` (${more})` : ''}`;
+    });
+    const rest = on.length - parts.length;
+    return `Effects: ${parts.join('; ')}${rest > 0 ? `; and ${rest} more` : ''}.`;
+}
 
 export const STATIC = 'Party numbers (HP, MP, SP, XP, levels) are set by code: never write them; write a wound, rest or check line instead, and tell what the [Happened] lines say.';
 
-export const BUDGET = 250;
+// 250 for the members and offers, and room for the effects line (MODULES §F91 wave).
+export const BUDGET = 320;
 
 function settingsFrom(view) {
     const source = view?.settings;
@@ -32,6 +59,8 @@ export function tail(view) {
     if (!party) return { lines: [], optional: [] };
     const rules = rulesFrom(settingsFrom(view));
     const lines = actorsInOrder(party).map(actor => `Party: ${actorLine(actor, { pc: actor.id === party.pc, rules })}`);
+    const effects = effectsLine(view, party);
+    if (effects) lines.push(effects);
     const waiting = waitingOffers(party).map(offer => (offer.kind === 'join'
         ? `${offer.name} asked to join`
         : offer.kind === 'leave'

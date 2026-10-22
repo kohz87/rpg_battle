@@ -31,13 +31,14 @@ const PLACES = ['Bluewatch Village', 'Constructor', 'Old Weir', 'Mill Town'];
 const SKILLS = ['stealth', 'athletics', 'STR', 'perception', 'persuasion'];
 const FOES = ['Wolf', 'Giant Rat', 'Bandit'];
 const GOODS = ['Wolf Pelt', 'Rope', 'Minor Healing Draught', 'Iron Ore'];
+const EFFECTS = ['Keen Sight', 'Shaken', 'Warmth'];
 
 /** One reply's change lines: valid input only. */
 function lines(r, n) {
     const out = [];
     const count = r.int(1, 4);
     for (let i = 0; i < count; i += 1) {
-        const kind = r.pick(['check', 'check', 'place', 'market', 'lift', 'item', 'coin', 'encounter', 'join', 'skill']);
+        const kind = r.pick(['check', 'check', 'place', 'market', 'lift', 'item', 'coin', 'encounter', 'join', 'skill', 'effect', 'effect', 'unbuff', 'ranked']);
         if (kind === 'check') out.push(`? check ${r.pick(SKILLS)} — try ${n}.${i} | dc: ${r.pick(['easy', 'normal', 'hard'])} | roll: ${r.int(1, 2)} | result: ${r.pick(['success', 'fail'])}`);
         if (kind === 'place') out.push(`~ place ${r.pick(PLACES)} | kind: settlement`);
         if (kind === 'market') out.push(`! market ${r.pick(PLACES)} — short of bread ${n}`);
@@ -47,6 +48,11 @@ function lines(r, n) {
         if (kind === 'encounter') out.push(`! encounter ${r.int(1, 2)} ${r.pick(FOES)} — on the road | tier: ${r.pick(['trivial', 'weak'])}`);
         if (kind === 'join') out.push(`+ join ${r.pick(['Lyra', 'Bram', 'Odo'])} — a traveller | role: ranger`);
         if (kind === 'skill') out.push(`+ skill Ren — Tide Cut ${n}: a cold cut | taught by: Lyra`);
+        // Timed effects (rpg-battle.effects): made, renewed by name, ended early, and pruned by key when over.
+        if (kind === 'effect') out.push(`+ effect ${r.pick(EFFECTS)} — ${n} | on: ${r.pick(['perception', 'stealth', 'attack', 'all checks', 'DEX'])} | for: ${r.pick(['1 reply', '2 replies', '3 replies'])}${r.chance(0.3) ? ' | kind: debuff' : ''}`);
+        if (kind === 'unbuff') out.push(`- effect ${r.pick(EFFECTS)}`);
+        // A foe of an absolute rank (F91).
+        if (kind === 'ranked') out.push(`! encounter 1 ${r.pick(FOES)} — on the road | rank: ${r.pick(['F', 'E'])}`);
     }
     // At most 2 checks count in a reply; the third would be a Problem by design, not a replay skip.
     let checks = 0;
@@ -70,6 +76,8 @@ async function clicks(host, r) {
         const item = stock?.items?.[0];
         if (item) await host.cmd('trade.buy', { def: item.def.id, qty: 1, kind: 'general' });
     }
+    // A quest's Setback, once per quest (as Story Director sends it).
+    if (r.chance(0.1)) await host.internal('party.addEffect', { preset: 'setback', source: { name: 'Rats', ref: `qu_${r.int(1, 3)}` } });
     if (r.chance(0.3)) {
         const stack = (host.q('inventory.items', {}) ?? []).find(row => !row.equipped);
         if (stack) await host.cmd('trade.sell', { stack: stack.stack, qty: 1, kind: 'general' });
