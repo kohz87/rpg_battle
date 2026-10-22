@@ -217,7 +217,8 @@ test('party.rest short and long', () => {
     assert.ok(short.ok, short.message);
     const max = pcOf(state).hp.max;
     assert.equal(pcOf(short.state).hp.cur, 10 + Math.floor(max * 0.25));
-    assert.equal(pcOf(short.state).conditions.length, 2);
+    // Any rest ends what a fight left (poison with rounds to go, B-c1-1); a story's condition waits for a long rest.
+    assert.deepEqual(pcOf(short.state).conditions, [{ kind: 'exhausted', stacks: 1 }]);
     assert.match(short.result.summary, /^The party takes a short rest: Ren HP \+/);
     const long = run(state, 'party.rest', { kind: 'long', reason: 'a night at the inn' });
     assert.equal(pcOf(long.state).hp.cur, max);
@@ -287,7 +288,7 @@ test('party.applyResult writes the fight to each member, levels them and settles
     assert.equal(ren.xp, 20);
     assert.equal(ren.points, 4);
     assert.equal(ren.hp.cur, 12 + 4, 'a level-up raises current HP by what max HP grew');
-    assert.deepEqual(ren.conditions, [{ kind: 'poisoned', stacks: 2 }], 'v1 poison is kept as poisoned');
+    assert.deepEqual(ren.conditions, [{ kind: 'poisoned', stacks: 2, rounds: 2 }], 'v1 poison is kept as poisoned, with the rounds the fight left');
     assert.deepEqual(ren.skills[0], { name: 'Power Strike', level: 2, uses: 1, active: true });
     const after = out.state.domains.party.actors[lyra.id];
     assert.equal(after.level, 2);
@@ -474,7 +475,7 @@ test('party.applyResult takes combat.end\'s actors payload', () => {
     const ren = pcOf(out.state);
     assert.equal(ren.hp.cur, 9);
     assert.equal(ren.sp.cur, 2);
-    assert.deepEqual(ren.conditions, [{ kind: 'poisoned', stacks: 3 }, { kind: 'bleeding', stacks: 1 }, { kind: 'cursed', stacks: 1 }], 'fight conditions replace the old ones; story ones stay');
+    assert.deepEqual(ren.conditions, [{ kind: 'poisoned', stacks: 3, rounds: 3 }, { kind: 'bleeding', stacks: 1, rounds: 1 }, { kind: 'cursed', stacks: 1 }], 'fight conditions replace the old ones (with their rounds); story ones stay');
     assert.equal(ren.skills.find(skill => skill.name === 'Sweep').level, 2);
     assert.equal(ren.xp, 0, 'XP comes through party.grantXp');
     assert.equal(out.state.domains.party.actors[lyra].hp.cur, 0);

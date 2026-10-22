@@ -109,7 +109,7 @@ test('a fight result: same as v1 applyResult then settleCompanions', () => {
     const [settled] = settleCompanions([{ id: ids[1], control: 'auto', sheet: v1lyra }], { autoSpend: true, rules: DEFAULT_RULES });
     assert.deepEqual(numbers(toSheet(pcOf(out.state))), numbers(v1pc));
     assert.deepEqual(numbers(toSheet(out.state.domains.party.actors[ids[1]])), numbers(settled.sheet));
-    assert.deepEqual(pcOf(out.state).conditions, [{ kind: 'bleeding', stacks: 1 }]);
+    assert.deepEqual(pcOf(out.state).conditions, [{ kind: 'bleeding', stacks: 1, rounds: 1 }]);
 });
 
 test('a companion: v1 newCompanion\'s skills, pools by v1 rules, stats by the F91 formula', () => {

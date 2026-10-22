@@ -71,7 +71,9 @@ function fightConditionOf(entry) {
 const roundsOf = (entry, name, rules = DEFAULT_RULES) => {
     const stacks = Math.round(Number(entry?.stacks ?? entry?.rounds) || 0);
     const most = Math.round(Number(rules?.generated?.effectRounds?.[name] ?? DEFAULT_RULES.generated.effectRounds[name])) || 3;
-    return Math.max(1, Math.min(most, stacks > 1 ? stacks : 3));
+    // A condition a fight left keeps its own `rounds` (party sheets.js, B-c1-1): 1 left is 1, not 3.
+    const left = Number.isInteger(entry?.rounds) && entry.rounds >= 1 ? entry.rounds : null;
+    return Math.max(1, Math.min(most, left ?? (stacks > 1 ? stacks : 3)));
 };
 
 /** One row of `inventory.items` / `items.gear` as v1's item fields, its def looked up when it is only an id. */

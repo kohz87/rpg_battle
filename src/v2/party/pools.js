@@ -61,7 +61,14 @@ function poolFits(entry) {
     return entry.cur === fitted.cur && entry.max === fitted.max && Object.keys(entry).every(key => key === 'cur' || key === 'max');
 }
 
-function actorFits(actor) {
+// How long a condition a fight left lasts in story time (B-c1-1): far more than the rounds it had.
+export const FIGHT_LEFT_MINUTES = 10;
+
+/** Whether a condition a fight left (it keeps `rounds` and `at`) has worn off by story minute `minutes`. */
+export const lapsed = (entry, minutes) => Number.isInteger(minutes) && Number.isInteger(entry?.rounds) && Number.isInteger(entry?.at) && minutes - entry.at >= FIGHT_LEFT_MINUTES;
+
+function actorFits(actor, minutes) {
+    if (Array.isArray(actor.conditions) && actor.conditions.some(entry => lapsed(entry, minutes))) return false;
     if (!POOLS.every(name => actor[name] === undefined || poolFits(actor[name]))) return false;
     if (!Number.isInteger(actor.level) || actor.level < 1) return false;
     for (const key of ['xp', 'points']) if (!Number.isInteger(actor[key]) || actor[key] < 0) return false;
@@ -70,11 +77,13 @@ function actorFits(actor) {
 
 /**
  * A member as it stands now (for every reader): HP, MP and SP fitted to { cur, max }, level from 1,
- * XP, points and stats from 0. The same object when it already fits; else a fitted copy.
+ * XP, points and stats from 0, and (with the story clock's `minutes`) without the conditions a fight
+ * left that have worn off. The same object when it already fits; else a fitted copy.
  */
-export function fitActor(actor) {
-    if (!isObject(actor) || actorFits(actor)) return actor;
+export function fitActor(actor, { minutes = null } = {}) {
+    if (!isObject(actor) || actorFits(actor, minutes)) return actor;
     const out = { ...actor };
+    if (Array.isArray(actor.conditions)) out.conditions = actor.conditions.filter(entry => !lapsed(entry, minutes));
     for (const name of POOLS) if (actor[name] !== undefined) out[name] = fitPool(actor[name]);
     out.level = Math.max(1, int(actor.level));
     out.xp = Math.max(0, int(actor.xp));
@@ -83,12 +92,12 @@ export function fitActor(actor) {
     return out;
 }
 
-/** A party slice with every member fitted (fitActor); the same object when all of them fit. */
-export function fitParty(party) {
+/** A party slice with every member fitted (fitActor, `options.minutes`: the story clock); the same object when all of them fit. */
+export function fitParty(party, options = {}) {
     if (!isObject(party) || !isObject(party.actors)) return party;
     let actors = null;
     for (const [id, actor] of Object.entries(party.actors)) {
-        const fitted = fitActor(actor);
+        const fitted = fitActor(actor, options);
         if (fitted === actor) continue;
         actors ??= { ...party.actors };
         actors[id] = fitted;
@@ -96,11 +105,18 @@ export function fitParty(party) {
     return actors ? { ...party, actors } : party;
 }
 
-/** A state whose party slice is fitted (fitParty); the same state when it already fits. */
+/** A state whose party slice is fitted (fitParty, at the state's story clock); the same state when it already fits. */
 export function fitState(state) {
     const party = state?.domains?.party;
-    const fitted = fitParty(party);
+    const fitted = fitParty(party, { minutes: clockOf(state) });
     return fitted === party ? state : { ...state, domains: { ...state.domains, party: fitted } };
+}
+
+/** The story clock a state holds (Story Director's `director.time.minutes`, read as data), or null without one. */
+export function clockOf(state) {
+    const time = state?.domains?.director?.time;
+    const minutes = isObject(time) ? time.minutes : time;
+    return Number.isInteger(minutes) && minutes >= 0 ? minutes : null;
 }
 
 /**

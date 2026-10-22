@@ -70,7 +70,9 @@ export function boardView(state, args, tools) {
             const own = full.get(c.id);
             return {
                 ...c,
-                conditions: (own?.conditions ?? []).map(cond => ({ name: cond.name, label: LABELS[cond.name] ?? cond.name, turns: Number.isFinite(cond.rounds) ? cond.rounds : null })),
+                // A condition still on with 0 rounds to go (its last tick came at the start of this turn,
+                // v1 beginTurn) lasts through this turn: shown as 1 left, never "0" (B-c1-2).
+                conditions: (own?.conditions ?? []).map(cond => ({ name: cond.name, label: LABELS[cond.name] ?? cond.name, turns: Number.isFinite(cond.rounds) ? Math.max(1, cond.rounds) : null })),
                 ...(c.side === 'enemy' ? { talks: Boolean(own?.talks) } : {}),
             };
         }),

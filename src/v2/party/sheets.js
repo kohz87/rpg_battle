@@ -100,7 +100,12 @@ export function toSheet(record) {
         sp: { ...actor.sp },
         stats: { ...actor.stats },
         skills,
-        conditions: (actor?.conditions ?? []).map(entry => ({ name: entry.kind, rounds: isCombatCondition(entry.kind) && entry.stacks > 1 ? entry.stacks : null })),
+        // A fight-left condition keeps its own rounds (and the story minute the fight ended, `at`).
+        conditions: (actor?.conditions ?? []).map(entry => ({
+            name: entry.kind,
+            rounds: Number.isInteger(entry.rounds) && entry.rounds >= 1 ? entry.rounds : isCombatCondition(entry.kind) && entry.stacks > 1 ? entry.stacks : null,
+            ...(Number.isInteger(entry.at) ? { at: entry.at } : {}),
+        })),
         uses: Object.fromEntries((actor?.skills ?? []).filter(skill => skill.uses > 0).map(skill => [skill.name, skill.uses])),
     };
 }
@@ -113,7 +118,7 @@ const int = (value, min = 0) => Math.max(min, Math.round(Number(value) || 0));
  * this change to what is there; the pools in `filled` (a rest's, pools.js filledBy) are stored full,
  * without `lost`.
  */
-export function fromSheet(actor, sheet, rules = DEFAULT_RULES, { filled = [] } = {}) {
+export function fromSheet(actor, sheet, rules = DEFAULT_RULES, { filled = [], at = null } = {}) {
     const top = rules.masteryMax ?? DEFAULT_RULES.masteryMax;
     const pool = (name, entry) => storedPool(entry, { full: filled.includes(name) });
     return {
@@ -130,18 +135,37 @@ export function fromSheet(actor, sheet, rules = DEFAULT_RULES, { filled = [] } =
             const level = Math.min(top, int(skill.mastery, 1));
             return { name: skill.name, level, uses: level >= top ? 0 : int(sheet.uses?.[skill.name]), active: !skill.aside };
         }),
-        conditions: mergeConditions((sheet.conditions ?? []).map(entry => ({ kind: conditionKind(entry.name), stacks: int(entry.rounds, 1) }))),
+        conditions: mergeConditions((sheet.conditions ?? []).flatMap(entry => conditionRecord(entry, at))),
     };
 }
 
-// A kind written twice (a fight's "poison" over a story's "poisoned") is one condition, the most stacks.
+/**
+ * A v1 sheet condition as a party record (MODULES §B1 `{ kind, stacks }`). One a fight left (a fight
+ * condition with rounds, B-c1-1) keeps those `rounds`, so the next fight starts it with what was left
+ * and not a story's usual 3, and `at`, the story minute the fight ended (`at` given, else its own), so
+ * it wears off with story time (pools.js fitActor); one at 0 rounds is over and is not kept. A story's
+ * condition (no rounds) is stacks 1, as before.
+ */
+function conditionRecord(entry, at) {
+    const kind = conditionKind(entry?.name);
+    const rounds = entry?.rounds === null || entry?.rounds === undefined ? null : Math.round(Number(entry.rounds));
+    if (!isCombatCondition(entry?.name) || rounds === null || !Number.isFinite(rounds)) return [{ kind, stacks: int(entry?.rounds, 1) }];
+    if (rounds < 1) return [];
+    const when = Number.isInteger(entry?.at) ? entry.at : Number.isInteger(at) ? at : null;
+    return [{ kind, stacks: rounds, rounds, ...(when === null ? {} : { at: when }) }];
+}
+
+// A kind written twice (a fight's "poison" over a story's "poisoned") is one condition, the most stacks
+// (and the most rounds left, from the later fight).
 function mergeConditions(list) {
     const out = [];
     for (const entry of list) {
         if (!entry.kind) continue;
         const same = out.find(other => other.kind.toLowerCase() === entry.kind.toLowerCase());
-        if (same) same.stacks = Math.max(same.stacks, entry.stacks);
-        else out.push(entry);
+        if (!same) { out.push(entry); continue; }
+        same.stacks = Math.max(same.stacks, entry.stacks);
+        if (Number.isInteger(entry.rounds)) same.rounds = Math.max(same.rounds ?? 0, entry.rounds);
+        if (Number.isInteger(entry.at)) same.at = Math.max(same.at ?? entry.at, entry.at);
     }
     return out;
 }
