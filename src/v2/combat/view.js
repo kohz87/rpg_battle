@@ -9,7 +9,7 @@ import { fightRules, offersOf, unpackSetup } from './stored.js';
 import { foesText } from './encounter.js';
 
 const LOG_SHOWN = 40;
-const LABELS = { poison: 'poisoned', burn: 'burning', bleed: 'bleeding', stun: 'stunned', slow: 'slowed', weaken: 'weakened', shield: 'shielded', regen: 'regenerating', guard: 'on guard' };
+const LABELS = { poison: 'poisoned', burn: 'burning', bleed: 'bleeding', stun: 'stunned', slow: 'slowed', weaken: 'weakened', shield: 'shielded', regen: 'regenerating', guard: 'on guard', daze: 'dazed' };
 
 /**
  * What the inventory still held when an action was played, as the action recorded it (`stock`:
