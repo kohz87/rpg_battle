@@ -153,6 +153,27 @@ body.story-suite-open { overflow: hidden; }
 .story-suite-subfold > summary b { font-size: 0.95em; }
 .story-suite-subfold-body { padding: 0 4px 10px 22px; min-width: 0; }
 
+/* A module's custom panel, right in its fold under the features line. A panel that brings its own
+   SillyTavern drawer (NPC State Delta's) has it held open with no header (the module fold names it),
+   and its own folds read as sub-folds: two levels in all, never three. */
+.story-suite-section { min-width: 0; padding: 4px 0 8px; }
+.story-suite-section-title { margin: 8px 0 4px; font-size: 0.95em; }
+.story-suite-section .story-suite-drawer > .inline-drawer-content { display: block !important; }
+.story-suite-section .story-suite-drawer > .inline-drawer-header { display: none !important; }
+.story-suite-section .story-suite-fold { border: 0; border-top: 1px solid var(--story-suite-line); border-radius: 0; background: none; }
+.story-suite-section .story-suite-fold[open] > summary { border-bottom: 0; }
+.story-suite-section .story-suite-fold-body { padding: 0 4px 10px 22px; }
+
+/* Diagnostics: what the report holds, then Copy and Save. */
+.story-suite-diagnostics-report {
+    max-height: 320px; overflow: auto; margin: 8px 0; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere;
+    font-size: 0.85em; border: 1px solid var(--story-suite-line); border-radius: 6px;
+}
+.story-suite-diagnostics-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.story-suite-diagnostics-actions .menu_button { width: auto; display: inline-flex; gap: 6px; align-items: center; min-height: 40px; }
+.story-suite-diagnostics-status { font-size: 0.9em; opacity: 0.8; }
+.story-suite-profile-note { margin: 4px 0 0; opacity: 0.75; }
+
 /* The Versions fold (compat.js): one row per module, its fix sentence under it when out of step. */
 .story-suite-compat { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .story-suite-compat-row { overflow-wrap: anywhere; min-width: 0; }

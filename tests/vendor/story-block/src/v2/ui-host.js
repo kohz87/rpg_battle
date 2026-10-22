@@ -17,6 +17,8 @@
 // * The tab panel: the tab host (src/v2/host-ui.js) with every module tab and every `tab` screen, a
 //   side sheet on wide screens and a bottom sheet on phones. Redrawn from the head on every change.
 // * The Story Block drawer in Extensions: version, modules, the same buttons.
+// * Settings → Diagnostics (src/v2/diagnostics.js): a report to copy or save, made from the runtime's
+//   parts and each module's `hooks.diagnostics`; Story Suite's console errors are caught for it.
 // * The wand menu: Story Suite (the overlay). The overlay's prompt size counts what the next reply would
 //   be sent (turn.preview) with SillyTavern's tokenizer when there is one; `openSettings({ fold })` opens
 //   it at one fold (Home's "Import a pack" → the Packs fold, while no pack is installed).
@@ -49,6 +51,7 @@ import { createInspectorWidget, INSPECTOR_WIDGET } from './screens/inspector.js'
 import { createSavePointsWidget, SAVEPOINTS_WIDGET } from './screens/savepoints.js';
 import { createPacksHintWidget, PACKS_HINT_WIDGET } from './screens/packs-hint.js';
 import { createReadyHintWidget, READY_HINT_WIDGET } from './screens/ready-hint.js';
+import { buildReport, captureConsole, caughtSoFar, reportFileName } from './diagnostics.js';
 
 const IDS = Object.freeze({ bar: 'story_suite_v2_bar', panel: 'story_suite_v2_panel', drawer: 'story_suite_v2_drawer', menu: 'story_suite_v2_menu' });
 
@@ -368,12 +371,44 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
         const live = liveCtx();
         return typeof live?.getTokenCountAsync === 'function' ? text => live.getTokenCountAsync(text) : null;
     };
+    // Settings → Diagnostics (diagnostics.js): the report's parts, read when it is built. SillyTavern's
+    // version is the one its page shows (else its /version answer). Each module's `hooks.diagnostics`
+    // adds its own section.
+    const promptParts = typeof runtime.turn?.previewFit === 'function' ? () => runtime.turn.previewFit()
+        : typeof runtime.turn?.preview === 'function' ? () => runtime.turn.preview() : null;
+    const stVersion = async () => {
+        const shown = doc.querySelector?.('#version_display')?.textContent?.trim();
+        if (shown && shown !== 'SillyTavern') return shown;
+        const fetcher = (doc.defaultView ?? globalThis).fetch;
+        if (typeof fetcher !== 'function') return '';
+        const answer = await fetcher('/version');
+        const data = answer?.ok ? await answer.json() : null;
+        return data?.pkgVersion ? `SillyTavern ${data.pkgVersion}` : '';
+    };
+    const diagnostics = Object.freeze({
+        report: () => buildReport({
+            stVersion,
+            hostVersion: version || registry.hostVersion?.() || '',
+            modules: () => registry.modules().map(def => ({ id: def.id, name: def.name ?? def.id, version: def.version ?? '' })),
+            refusals: () => registry.refusals?.() ?? [],
+            features: () => runtime.features?.list?.() ?? [],
+            hostSettings: () => settings(),
+            settingsOf: id => settings(id),
+            promptParts,
+            problems: () => runtime.turn?.problems?.() ?? [],
+            save: () => ({ failing: store.failing?.(), dirty: store.dirty?.(), suspect: typeof store.suspect === 'function' ? store.suspect() : undefined }),
+            caught: caughtSoFar,
+            chat: () => liveCtx()?.chat ?? [],
+            chatOpen: () => Boolean(liveCtx()?.getCurrentChatId?.() ?? liveCtx()?.chatId),
+            hooks: () => registry.hookEntries?.('diagnostics') ?? [],
+        }),
+        fileName: () => reportFileName(),
+    });
     function openSettings(options = null) {
         const fold = typeof options?.fold === 'string' ? options.fold : null;
         overlay = openSettingsOverlay({
-            registry, settings, doc, sdk, features: runtime.features ?? null, fold,
-            promptParts: typeof runtime.turn?.previewFit === 'function' ? () => runtime.turn.previewFit()
-                : typeof runtime.turn?.preview === 'function' ? () => runtime.turn.preview() : null,
+            registry, settings, doc, sdk, features: runtime.features ?? null, fold, diagnostics,
+            promptParts,
             countTokens: countTokens(),
             onClose: () => { overlay = null; },
         });
@@ -519,6 +554,8 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
         return Boolean(on);
     }
     const offs = [];
+    // Story Suite's console errors, kept for Diagnostics (once per page; the console still prints them).
+    offs.push(captureConsole());
     for (const name of ['head', 'committed']) offs.push(events.on(name, () => { if (!panel.hidden) tabHost?.refresh(); }));
     // A feature turned on or off: its screens, tabs, widgets and cards come and go; nothing else changes.
     for (const name of ['head', 'committed', 'turn']) offs.push(events.on(name, () => overlay?.refreshSize?.()));
