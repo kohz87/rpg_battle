@@ -123,7 +123,7 @@ function render(el, input, api) {
     const orderBox = h(doc, 'div', 'rpg-bb-order-box');
     const sides = h(doc, 'div', 'rpg-bb-sides');
     const panel = h(doc, 'div', 'rpg-bb-panel');
-    const logBox = h(doc, 'section', 'rpg-bb-log-box');
+    const logBox = h(doc, 'section', 'rpg-bb-log-box ss-glass');
     const logTitle = h(doc, 'h3', 'rpg-bb-log-title');
     logTitle.append(icon(doc, 'fa-scroll'), h(doc, 'span', '', 'Log'));
     // The log element stays for the board's life: a node taken out of the page loses its scroll.
@@ -156,7 +156,8 @@ function render(el, input, api) {
     }
 
     function button(className, label, { key = '', act: kind = '', iconName = '', disabled = false, onClick = null } = {}) {
-        const node = h(doc, 'button', className);
+        // The glass button (Story Block's ss-button); the board's own class says what it is for.
+        const node = h(doc, 'button', `${className} ss-button`);
         node.setAttribute('type', 'button');
         if (kind) node.setAttribute('data-act', kind);
         if (iconName) node.append(icon(doc, iconName));
@@ -271,7 +272,8 @@ function render(el, input, api) {
         const cur = Math.max(0, Math.round(num(value?.cur)));
         const max = Math.max(0, Math.round(num(value?.max)));
         const ratio = max > 0 ? clamp(cur / max, 0, 1) : 0;
-        const node = h(doc, 'div', 'rpg-bb-meter');
+        // A combatant's bar is Story Block's ss.bar look (head, then the 7px track in the pool's colour).
+        const node = h(doc, 'div', `rpg-bb-meter ss-bar ss-bar-${pool}`);
         node.setAttribute('data-pool', pool);
         node.setAttribute('role', 'meter');
         node.setAttribute('aria-label', `${name} ${pool.toUpperCase()}`);
@@ -280,14 +282,18 @@ function render(el, input, api) {
         node.setAttribute('aria-valuenow', String(Math.min(cur, max)));
         node.setAttribute('aria-valuetext', `${cur} of ${max}`);
         if (pool === 'hp' && max > 0 && ratio <= 0.25) node.classList.add('rpg-bb-low');
-        const label = h(doc, 'span', 'rpg-bb-meter-name', pool.toUpperCase());
-        const track = h(doc, 'span', 'rpg-bb-meter-track');
-        track.style.setProperty('--rpg-bb-ratio', String(Math.round(ratio * 10000) / 10000));
-        track.append(h(doc, 'span', 'rpg-bb-meter-fill'));
-        const shown = h(doc, 'span', 'rpg-bb-meter-value', `${cur}/${max}`);
+        const head = h(doc, 'span', 'ss-bar-head');
+        const label = h(doc, 'span', 'rpg-bb-meter-name ss-bar-label', pool.toUpperCase());
+        const shown = h(doc, 'span', 'rpg-bb-meter-value ss-bar-value', `${cur}/${max}`);
+        const track = h(doc, 'span', 'rpg-bb-meter-track ss-bar-track');
+        const fill = String(Math.round(ratio * 10000) / 10000);
+        track.style.setProperty('--rpg-bb-ratio', fill);
+        track.style.setProperty('--ss-fill', fill);
+        track.append(h(doc, 'span', 'rpg-bb-meter-fill ss-bar-fill'));
         label.setAttribute('aria-hidden', 'true');
         shown.setAttribute('aria-hidden', 'true');
-        node.append(label, track, shown);
+        head.append(label, shown);
+        node.append(head, track);
         return node;
     }
 
@@ -298,7 +304,7 @@ function render(el, input, api) {
         node.setAttribute('aria-label', 'Conditions');
         for (const cond of items) {
             const kind = slug(cond.name);
-            const li = h(doc, 'li', `rpg-bb-cond${HELPFUL.has(kind) || HELPFUL.has(slug(cond.label)) ? ' rpg-bb-helpful' : ''}`);
+            const li = h(doc, 'li', `rpg-bb-cond ss-pill ss-pill-outline${HELPFUL.has(kind) || HELPFUL.has(slug(cond.label)) ? ' rpg-bb-helpful' : ''}`);
             if (kind) li.setAttribute('data-kind', kind);
             li.append(h(doc, 'span', 'rpg-bb-cond-label', cond.label));
             let spoken = cond.label;
@@ -352,7 +358,7 @@ function render(el, input, api) {
         const isEnemy = unit.side === 'enemy';
         const pick = ui.pick;
         const pickable = Boolean(pick && pick.ids.includes(unit.id) && !unit.gone && !pending);
-        const node = h(doc, 'li', 'rpg-bb-card');
+        const node = h(doc, 'li', 'rpg-bb-card ss-glass');
         node.setAttribute('data-side', isEnemy ? 'enemy' : 'party');
         node.setAttribute('data-id', str(unit.id).slice(0, 64));
         if (unit.id === turnId) {
@@ -363,7 +369,7 @@ function render(el, input, api) {
         if (unit.boss) node.classList.add('rpg-bb-boss');
 
         const tags = h(doc, 'span', 'rpg-bb-tags');
-        const tag = (text, extra = '') => tags.append(h(doc, 'span', `rpg-bb-tag${extra}`, text));
+        const tag = (text, extra = '') => tags.append(h(doc, 'span', `rpg-bb-tag ss-pill ss-pill-outline${extra}`, text));
         if (num(unit.level, 0) >= 1) tag(levelTag(Math.round(num(unit.level)), termRules(p.terms)));
         if (isEnemy && str(unit.threat)) tag(str(unit.threat));
         if (unit.boss) tag('boss', ' rpg-bb-boss');
@@ -424,7 +430,7 @@ function render(el, input, api) {
         strip.setAttribute('aria-label', timeline ? 'Next turns' : `Turn order, round ${Math.max(1, Math.round(num(p.round, 1)))}`);
         ids.forEach((id, index) => {
             const unit = units.get(id);
-            const item = h(doc, 'li', 'rpg-bb-order-item', str(unit.name));
+            const item = h(doc, 'li', 'rpg-bb-order-item ss-pill ss-pill-outline', str(unit.name));
             item.setAttribute('data-side', unit.side === 'enemy' ? 'enemy' : 'party');
             if (index === current) {
                 item.classList.add('rpg-bb-current');
@@ -494,7 +500,7 @@ function render(el, input, api) {
     }
 
     function entry({ key, iconName, name, tag, meta, reason, usable, onClick }) {
-        const node = h(doc, 'button', `rpg-bb-entry${usable ? '' : ' rpg-bb-unusable'}`);
+        const node = h(doc, 'button', `rpg-bb-entry ss-button${usable ? '' : ' rpg-bb-unusable'}`);
         node.setAttribute('type', 'button');
         const top = h(doc, 'span', 'rpg-bb-entry-head');
         top.append(icon(doc, iconName), h(doc, 'span', 'rpg-bb-entry-name', str(name)));
@@ -512,7 +518,7 @@ function render(el, input, api) {
         const actorId = actions.actor ?? p.turn?.actor ?? null;
         const actor = units.get(actorId) ?? null;
         const name = str(actor?.name) || str(p.turn?.name);
-        const bar = h(doc, 'div', 'rpg-bb-actions');
+        const bar = h(doc, 'div', 'rpg-bb-actions ss-glass');
         bar.setAttribute('role', 'group');
         bar.setAttribute('aria-label', `Actions for ${name}`);
         bar.append(h(doc, 'div', 'rpg-bb-actor', `${name}’s turn`));
@@ -568,7 +574,7 @@ function render(el, input, api) {
     function drawResult(units) {
         const outcome = OUTCOME_TITLES[p.status] ? p.status : 'won';
         const result = isPlain(p.result) ? p.result : {};
-        const box = h(doc, 'section', 'rpg-bb-result');
+        const box = h(doc, 'section', 'rpg-bb-result ss-glass');
         box.setAttribute('data-outcome', outcome);
         box.setAttribute('role', 'status');
         box.append(h(doc, 'h3', 'rpg-bb-outcome', OUTCOME_TITLES[outcome]));
@@ -594,13 +600,13 @@ function render(el, input, api) {
             const ul = h(doc, 'ul', 'rpg-bb-loot');
             ul.setAttribute('aria-label', 'Loot');
             if (money > 0) {
-                const li = h(doc, 'li', 'rpg-bb-loot-item');
+                const li = h(doc, 'li', 'rpg-bb-loot-item ss-pill ss-pill-outline');
                 li.setAttribute('data-kind', 'money');
                 li.append(icon(doc, 'fa-coins'), h(doc, 'span', 'rpg-bb-loot-name', `${money} ${str(result.currency) || str(p.currency) || 'gold'}`));
                 ul.append(li);
             }
             for (const item of lootItems) {
-                const li = h(doc, 'li', 'rpg-bb-loot-item');
+                const li = h(doc, 'li', 'rpg-bb-loot-item ss-pill ss-pill-outline');
                 const rarity = slug(item.rarity) || 'common';
                 li.setAttribute('data-rarity', rarity);
                 li.append(h(doc, 'span', 'rpg-bb-loot-name', str(item.name)));
