@@ -30,7 +30,10 @@ test('fitActor / fitParty / fitState: the same object when it fits; floors for l
     const actor = { ...pcOf(withPc()), level: 0, xp: -30, points: -2, stats: { ...pcOf(withPc()).stats, STR: -1 }, hp: { cur: 4, max: 50, lost: 10 } };
     const fitted = fitActor(actor);
     assert.notEqual(fitted, actor);
-    assert.deepEqual([fitted.level, fitted.xp, fitted.points, fitted.stats.STR, fitted.hp], [1, 0, 0, 0, { cur: 40, max: 50 }]);
+    // Points below 0 are owed (confirm C-2): kept for a member with an XP book (`earned`), floored for an older record.
+    assert.deepEqual([fitted.level, fitted.xp, fitted.points, fitted.stats.STR, fitted.hp], [1, 0, -2, 0, { cur: 40, max: 50 }]);
+    const { earned: _book, ...older } = actor;
+    assert.equal(fitActor(older).points, 0);
     assert.equal(actor.level, 0, 'the record itself is not changed');
 });
 

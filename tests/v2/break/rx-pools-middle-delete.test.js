@@ -109,7 +109,7 @@ test('levels: a level-up deleted from the middle takes back its level, points an
     });
 });
 
-test('points: a spend after a deleted level-up is kept and no block is skipped; points read 0, not below', async t => {
+test('points: a spend after a deleted level-up is kept and no block is skipped; the points it took are owed (confirm C-2)', async t => {
     t.mock.method(console, 'warn', () => {});
     await seeded(6, async () => {
         const h = await hero();
@@ -124,7 +124,9 @@ test('points: a spend after a deleted level-up is kept and no block is skipped; 
             assert.equal((await h.cmd('party.spend', { points: { STR: points } })).ok, true);
             await h.st.deleteMessage(deed);
             assert.deepEqual(h.problems(), []);
-            assert.equal(h.pc().points, 0, 'the points the spend took count below 0 in the record, and read 0');
+            // Since confirm C-2 (pools.js): points spent on a level a delete took back are owed, read below 0,
+            // and the next level's points pay them first (they used to read 0: free stats).
+            assert.equal(h.pc().points, -points, 'the points the spend took are owed');
             assert.equal(h.pc().stats.STR, before + points, 'the stats count: the spend adds its own step on what is there');
             h.same();
         } finally { h.close(); }
