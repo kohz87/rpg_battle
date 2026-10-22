@@ -550,5 +550,5 @@ export function buildSetup({ id, seed, offer, party, chatBestiary = [], numbers,
         ...(Number(money) > 0 && Number(money) !== 1 ? { moneyScale: Number(money) } : {}),
     };
     // Every foe the story wrote is fought (planWaves): none hang back.
-    return { setup, made, rules, heldBack: 0 };
+    return { setup, made, rules };
 }

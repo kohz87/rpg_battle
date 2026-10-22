@@ -446,7 +446,9 @@ function start(ctx, payload) {
     } catch (error) {
         ctx.fail('REFUSED', error?.message || 'That fight cannot start.');
     }
-    const { setup, made, heldBack = 0 } = built;
+    const { setup, made } = built;
+    // The foes past the field (the reader's setting, setup.planWaves) come in later waves.
+    const later = (setup.waves ?? []).reduce((sum, wave) => sum + (wave.enemies?.length ?? 0), 0);
     // The party as it stands before the opening (the automatic turns before the first choice,
     // B4r2-1): its fight items held to what the inventory has, as an action's stock cuts hold
     // them, so nobody in the opening drinks a draught that is not there.
@@ -491,10 +493,10 @@ function start(ctx, payload) {
     draft.fights ??= {};
     draft.fights[id] = { id, rev, setup: packSetup(setup), actions: [], status, ...(ranks.length ? { ranks } : {}) };
     return {
-        summary: `A fight begins: ${partyNames(setup)} against ${foeNames(setup)}${heldBack ? ` (${heldBack} more hang${heldBack === 1 ? 's' : ''} back)` : ''}.`,
+        summary: `A fight begins: ${partyNames(setup)} against ${foeNames(setup)}${later ? ` (${later} more in later waves)` : ''}.`,
         narrate: false,
         // `place`: where the fight began (the return part finds the fatal fight's start by it).
-        data: { session: id, offer: offer.id, place: setup.place ?? '', made: made.map(entry => entry.name), ...(heldBack ? { heldBack } : {}) },
+        data: { session: id, offer: offer.id, place: setup.place ?? '', made: made.map(entry => entry.name), ...(later ? { later } : {}) },
     };
 }
 

@@ -933,8 +933,8 @@ export function availableActions(fight, rules = DEFAULT_RULES) {
         fleeChance: partyFleeChance(fight, rules),
         // (0.5.15) For aiming: per enemy, what Attack and each damaging skill would do.
         previews: {
-            attack: Object.fromEntries(foes.map(c => [c.id, previewStrike(actor, c, null, rules, { relative: fight.hitRule === 'relative' })])),
-            skills: Object.fromEntries(actor.skills.filter(s => s.type === 'physical' || s.type === 'magic').map(s => [s.name, Object.fromEntries(foes.map(c => [c.id, previewStrike(actor, c, s, rules, { relative: fight.hitRule === 'relative' })]))])),
+            attack: Object.fromEntries(foes.map(c => [c.id, previewStrike(actor, c, null, rules, { relative: fight.hitRule === 'relative', spells: fight.spellRule === 'roll' })])),
+            skills: Object.fromEntries(actor.skills.filter(s => s.type === 'physical' || s.type === 'magic').map(s => [s.name, Object.fromEntries(foes.map(c => [c.id, previewStrike(actor, c, s, rules, { relative: fight.hitRule === 'relative', spells: fight.spellRule === 'roll' })]))])),
         },
     };
 }
@@ -979,7 +979,7 @@ export function actInPlace(f, action, rules = DEFAULT_RULES) {
  * Physical attacks roll to hit; spells never miss (hit 100). A guarding target takes half. Null
  * for a skill that does no damage (heal, buff, debuff).
  */
-export function previewStrike(actor, target, skill = null, rules = DEFAULT_RULES, { relative = false } = {}) {
+export function previewStrike(actor, target, skill = null, rules = DEFAULT_RULES, { relative = false, spells = false } = {}) {
     if (!actor || !target) return null;
     if (skill && skill.type !== 'physical' && skill.type !== 'magic') return null;
     if (skill && !(Number(skill.power) > 0)) return null;
@@ -990,7 +990,8 @@ export function previewStrike(actor, target, skill = null, rules = DEFAULT_RULES
     let damage = mitigate(raw, physical ? target.pdef : target.mdef);
     if (has(target, 'guard')) damage *= a.defendTaken;
     return {
-        hit: physical ? hitChance(relativeDex(Number(actor.stats?.DEX) || 0, target.stats?.AGI, relative) - (actor.conditions ? dazed(actor) : 0), target.stats?.AGI, rules) : 100,
+        // A spell by the spell rule rolls INT on the same curve as a blow's DEX (spellIn, hitIn).
+        hit: physical || spells ? hitChance(relativeDex(Number(actor.stats?.[physical ? 'DEX' : 'INT']) || 0, target.stats?.AGI, relative) - (actor.conditions ? dazed(actor) : 0), target.stats?.AGI, rules) : 100,
         low: Math.max(1, Math.round(damage * a.varianceLow)),
         high: Math.max(1, Math.round(damage * a.varianceHigh)),
         crit: Number(actor.crit) || 0,
