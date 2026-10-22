@@ -31,12 +31,13 @@ test('the validator catches broken records', () => {
         const errors = validate(slice);
         assert.ok(errors.some(error => pattern.test(error)), `${pattern}: ${errors.join(' | ')}`);
     };
-    broken(slice => { slice.actors[pc].hp.cur = slice.actors[pc].hp.max + 1; }, /HP must be whole numbers/);
+    broken(slice => { slice.actors[pc].hp.lost = 1.5; }, /HP must be whole numbers/);
+    broken(slice => { slice.actors[pc].hp.left = 3; }, /HP must be whole numbers/);
     broken(slice => { slice.actors[pc].mp.cur = -1; }, /MP must be/);
     broken(slice => { slice.actors[pc].sp = null; }, /SP must be/);
-    broken(slice => { slice.actors[pc].level = 0; }, /level must be/);
+    broken(slice => { slice.actors[pc].level = 1.5; }, /level must be/);
     broken(slice => { slice.actors[pc].xp = 1.5; }, /xp must be/);
-    broken(slice => { slice.actors[pc].points = -2; }, /points must be/);
+    broken(slice => { slice.actors[pc].points = '2'; }, /points must be/);
     broken(slice => { slice.actors[pc].stats.STR = '9'; }, /stats must be/);
     broken(slice => { slice.actors[pc].stats.POW = 3; }, /stats must be/);
     broken(slice => { slice.actors[pc].name = ''; }, /a name is needed/);
@@ -121,7 +122,8 @@ test('the tail: one compact line per member, offers as optional lines', () => {
     assert.ok(chars / 4 <= part.context.budget, 'within the budget');
     assert.deepEqual(part.context.tail({ state: makeState() }), { lines: [], optional: [] });
     const down = structuredClone(state);
-    pcOf(down).hp.cur = 0;
+    // A pool below full keeps `lost` (party/pools.js): HP 0 is all of max lost.
+    Object.assign(pcOf(down).hp, { cur: 0, lost: pcOf(down).hp.max });
     assert.match(part.context.tail({ state: down, settings: () => ({}) }).lines[0], /· down$/);
     const tiers = part.context.tail({ state, settings: { terms: { levelName: 'Soul Power', xpName: 'Growth' } } });
     assert.match(tiers.lines[0], /Soul Power 1/);

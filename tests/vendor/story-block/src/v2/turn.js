@@ -186,7 +186,7 @@ export function restoreMissing(chat, staticText, tailText) {
  * adds the packs' start, SPEC §2.6) }.
  * `settings` is createSettings() (settings() → host settings, settings(id) → a module's).
  * Returns { interceptor, install, uninstall, onPromptReady, onTextPromptReady, onMessageReceived,
- * onChatChanged, onChatRenamed, onTimelineChanged, onGenerationEnded, preview, report, problems, clearProblems,
+ * onChatChanged, onChatRenamed, onTimelineChanged, onGenerationEnded, preview, report, problems, clearProblems, blocked, blockers, unblock,
  * session }.
  */
 export function createTurn({ ctx, live = () => ctx, store, bus, registry, settings, events = null, onBlocked = null, notify = defaultNotify, initial = () => registry.initialState() }) {
@@ -305,27 +305,53 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
 
     /** SillyTavern's generate interceptor: (chat, contextSize, abort, type). */
     // canGenerate (MODULES §F12): every module may hold a story generation back, e.g. until the
-    // player character exists. `false` or { ok: false, reason } blocks; the first one is the answer.
+    // player character exists. `false` or { ok: false, reason, action? } blocks; the first one is the answer.
     // A hook that throws, or does not answer within HOOK_TIMEOUT_MS, is logged and does not block
-    // (a bug must not lock the reader out).
-    async function blockedBy() {
+    // (a bug must not lock the reader out). `all` asks every module (Home's "Before you start"): the
+    // list of those that hold back, nothing logged (it is asked again on each redraw).
+    async function askCanGenerate({ all = false } = {}) {
+        const found = [];
         for (const { moduleId, fn } of registry.hookEntries('canGenerate')) {
             let answer;
             try { answer = await within(fn(view()), HOOK_TIMEOUT_MS); } catch (error) {
-                problem({ module: moduleId, code: 'FAILED', message: `canGenerate failed: ${error?.message ?? error}` });
+                if (!all) problem({ module: moduleId, code: 'FAILED', message: `canGenerate failed: ${error?.message ?? error}` });
                 continue;
             }
             if (answer === TIMED_OUT) {
-                problem({ module: moduleId, code: 'TIMEOUT', message: `canGenerate did not answer within ${HOOK_TIMEOUT_MS / 1000} s; the story went on.` });
+                if (!all) problem({ module: moduleId, code: 'TIMEOUT', message: `canGenerate did not answer within ${HOOK_TIMEOUT_MS / 1000} s; the story went on.` });
                 continue;
             }
             if (answer === false || (answer && typeof answer === 'object' && answer.ok === false)) {
                 const name = registry.module(moduleId)?.name ?? moduleId;
                 const reason = typeof answer?.reason === 'string' && answer.reason.trim() ? answer.reason.trim() : `${name} is not ready for the story to go on yet.`;
-                return { moduleId, reason };
+                const entry = { moduleId, reason };
+                if (all) {
+                    // The button's words (a module's `action`, flattened, ≤ 40 code points), or false for none.
+                    const action = answer?.action === false ? false
+                        : typeof answer?.action === 'string' ? Array.from(answer.action.replace(/[\p{Cc}\p{Zl}\p{Zp}\s]+/gu, ' ').trim()).slice(0, 40).join('').trim() : '';
+                    entry.name = name;
+                    entry.action = action;
+                    entry.canOpen = action !== false && typeof registry.module(moduleId)?.hooks?.onBlocked === 'function';
+                } else return entry;
+                found.push(entry);
             }
         }
-        return null;
+        return all ? found : null;
+    }
+    const blockedBy = () => askCanGenerate();
+
+    // A module's own onBlocked hook (what it does when it held the story back: RPG Battle opens the
+    // character wizard). → true when it ran without throwing.
+    function runOnBlocked(moduleId, reason) {
+        const fn = registry.module(moduleId)?.hooks?.onBlocked;
+        if (typeof fn !== 'function') return false;
+        try {
+            fn(reason, moduleId);
+            return true;
+        } catch (error) {
+            problem({ module: moduleId, code: 'FAILED', message: `onBlocked failed: ${error?.message ?? error}` });
+            return false;
+        }
     }
 
     function block({ moduleId, reason }, abort) {
@@ -333,9 +359,9 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
         clearPrompts();
         try { abort?.(true); } catch (error) { console.warn('[Story Suite] the generation could not be stopped', error); }
         try { notify?.(reason, moduleId); } catch { /* a missing toastr is not an error */ }
-        for (const fn of [registry.module(moduleId)?.hooks?.onBlocked, onBlocked]) {
-            if (typeof fn !== 'function') continue;
-            try { fn(reason, moduleId); } catch (error) {
+        runOnBlocked(moduleId, reason);
+        if (typeof onBlocked === 'function') {
+            try { onBlocked(reason, moduleId); } catch (error) {
                 problem({ module: moduleId, code: 'FAILED', message: `onBlocked failed: ${error?.message ?? error}` });
             }
         }
@@ -852,6 +878,14 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
         clearProblems: () => { problemLog.length = 0; },
         /** Generations a canGenerate hook stopped: [{ moduleId, reason }], oldest first. */
         blocked: () => blocks.map(item => ({ ...item })),
+        /**
+         * Every module holding the story back now (each canGenerate asked, none logged):
+         * Promise<[{ moduleId, name, reason, action, canOpen }]> (`action`: the module's button words, '' for
+         * the host's own, false for no button; `canOpen`: it has an onBlocked hook to run).
+         */
+        blockers: () => askCanGenerate({ all: true }),
+        /** Runs module `moduleId`'s onBlocked(reason, moduleId) hook (Home's button). → true when it ran. */
+        unblock: (moduleId, reason = '') => runOnBlocked(moduleId, reason),
         /** The pending reply's session (for status and tests), or null. */
         session: () => (session ? { ...session } : null),
     };

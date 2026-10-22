@@ -279,6 +279,25 @@ test('status card: HP and MP of each member from that reply, and what this reply
     checkProps(drawn);
 });
 
+test('status card: the meters show each pool as it stands at that reply, fitted from its counts (party/pools.js)', { skip }, () => {
+    const state = makeState();
+    // What a replay after a deleted reply may leave: an older chat's cur above a max that went back down,
+    // and counts that moved past full and past empty.
+    state.domains.party.actors[PC].hp = { cur: 90, max: 82 };
+    state.domains.party.actors[PC].mp = { cur: 30, max: 40, lost: -6 };
+    state.domains.party.actors[LYRA].hp = { cur: 12, max: 60, lost: 75 };
+    const drawn = draw(statusCardScreen, state, { changes: [] });
+    assert.deepEqual(drawn.warnings, []);
+    const [ren, lyra] = all(drawn.el, '.member');
+    const [hp, mp] = widgetsIn(ren, 'ss.meter');
+    assert.deepEqual(propsOf(hp).value, { cur: 82, max: 82 });
+    assert.deepEqual(propsOf(mp).value, { cur: 40, max: 40 });
+    assert.deepEqual(propsOf(widgetsIn(lyra, 'ss.meter')[0]).value, { cur: 0, max: 60 });
+    assert.ok(lyra.classList.contains('down'));
+    assert.ok(!ren.classList.contains('down'));
+    checkProps(drawn);
+});
+
 test('status card: level-ups and skills are named; "only what changed" hides the rest', { skip }, () => {
     const changes = ['/domains/party/actors/ac_lyra0001/level', '/domains/party/actors/ac_lyra0001/xp', '/domains/party/actors/ac_lyra0001/skills/0'];
     const drawn = draw(statusCardScreen, makeState(), { changes, settings: { 'screens.cardOnlyChanged': true } });

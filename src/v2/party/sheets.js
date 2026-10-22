@@ -13,6 +13,7 @@
 import { DEFAULT_RULES, STATS, clampXpRate, makeRules } from '../../rules.js';
 import { DEFAULT_SKILLS } from '../../skills.js';
 import { CONDITION_KINDS, conditionKind } from '../../combat.js';
+import { fitActor, storedPool } from './pools.js';
 
 // The reader's 'Character' settings (MODULES §A settings): v1's reader-tunable character rules.
 export const SETTINGS_DEFAULTS = Object.freeze({
@@ -85,8 +86,9 @@ export function libraryOf(party) {
     return [...DEFAULT_SKILLS, ...Object.values(party?.custom ?? {})];
 }
 
-/** An actor record as a v1 Sheet (a fresh copy). */
-export function toSheet(actor) {
+/** An actor record as a v1 Sheet (a fresh copy), its numbers as they stand now (pools.js fitActor). */
+export function toSheet(record) {
+    const actor = fitActor(record);
     const skills = (actor?.skills ?? []).map(skill => ({ name: skill.name, mastery: skill.level, ...(skill.active === false ? { aside: true } : {}) }));
     return {
         name: actor.name,
@@ -104,23 +106,25 @@ export function toSheet(actor) {
 }
 
 const int = (value, min = 0) => Math.max(min, Math.round(Number(value) || 0));
-const pool = entry => {
-    const max = int(entry?.max);
-    return { cur: Math.min(max, int(entry?.cur)), max };
-};
 
-/** The fields a v1 Sheet sets on an actor record (id, kind, control, role and npc stay the actor's). */
-export function fromSheet(actor, sheet, rules = DEFAULT_RULES) {
+/**
+ * The fields a v1 Sheet sets on an actor record (id, kind, control, role and npc stay the actor's).
+ * HP, MP and SP are stored with `lost` (pools.js storedPool), so a replay after a deleted reply adds
+ * this change to what is there; the pools in `filled` (a rest's, pools.js filledBy) are stored full,
+ * without `lost`.
+ */
+export function fromSheet(actor, sheet, rules = DEFAULT_RULES, { filled = [] } = {}) {
     const top = rules.masteryMax ?? DEFAULT_RULES.masteryMax;
+    const pool = (name, entry) => storedPool(entry, { full: filled.includes(name) });
     return {
         ...actor,
         name: String(sheet.name ?? actor.name),
         level: int(sheet.level, 1),
         xp: int(sheet.xp),
         points: int(sheet.points),
-        hp: pool(sheet.hp),
-        mp: pool(sheet.mp),
-        sp: pool(sheet.sp ?? actor.sp),
+        hp: pool('hp', sheet.hp),
+        mp: pool('mp', sheet.mp),
+        sp: pool('sp', sheet.sp ?? fitActor(actor).sp),
         stats: Object.fromEntries(STATS.map(stat => [stat, int(sheet.stats?.[stat])])),
         skills: (sheet.skills ?? []).map(skill => {
             const level = Math.min(top, int(skill.mastery, 1));

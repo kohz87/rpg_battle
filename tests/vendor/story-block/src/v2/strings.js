@@ -222,6 +222,10 @@ export const STRINGS = deepFreeze({
         returnFailed: 'Could not return there: {reason}',
     },
     // Home's line while no pack is installed (screens/packs-hint.js).
+    readyHint: {
+        title: 'Before you start',
+        go: 'Get started',
+    },
     packsHint: {
         title: 'Packs',
         none: 'No pack installed. A pack adds a ready-made setting: items, shops, places, quests and a start.',

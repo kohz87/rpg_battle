@@ -15,6 +15,7 @@
 import { DEFAULT_RULES, RARITIES, makeRules } from '../../rules.js';
 import { knowKey, usesOf } from './domain.js';
 import { isKeyItem } from '../trade/core.js';
+import { fitParty } from '../party/pools.js';
 import {
     chancesOf, clip, craftOfRecipe, craftTable, dcOf, materialBonus, nameKey, rankOf,
     stationsHere, stationsOfRecipe, stationsText, statsModifier, statsOf,
@@ -42,7 +43,7 @@ export function envOfCtx(ctx) {
     const read = domain => {
         try { return ctx.read(domain) ?? null; } catch { return null; }
     };
-    return withPacks({ ask, craft: read('craft'), inventory: read('inventory'), party: read('party'), scene: read('scene'), time: () => { try { return ctx.time?.() ?? null; } catch { return null; } } });
+    return withPacks({ ask, craft: read('craft'), inventory: read('inventory'), party: fitParty(read('party')), scene: read('scene'), time: () => { try { return ctx.time?.() ?? null; } catch { return null; } } });
 }
 
 /** env for a query or a view: the state, and the host's query tools (null-safe). */
@@ -52,7 +53,7 @@ export function envOfState(state, query) {
         try { return query(name, args) ?? null; } catch { return null; }
     };
     const domains = state?.domains ?? {};
-    return withPacks({ ask, craft: domains.craft ?? null, inventory: domains.inventory ?? null, party: domains.party ?? null, scene: domains.scene ?? null, time: () => domains.director?.time?.minutes ?? null });
+    return withPacks({ ask, craft: domains.craft ?? null, inventory: domains.inventory ?? null, party: fitParty(domains.party ?? null), scene: domains.scene ?? null, time: () => domains.director?.time?.minutes ?? null });
 }
 
 // What one command or query reads more than once is read once (B-rxui-10: a screen with hundreds of

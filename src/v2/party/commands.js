@@ -19,6 +19,7 @@ import { fromSheet, growthOf, wornGear, libraryOf, maxCompanionsOf, rulesFrom, s
 import { exportCharacter, originIds, readCharacter } from './portable.js';
 import { defineItem } from '../items/define.js';
 import { OUTCOMES, dcOf, outcomeOf, statForCheck } from './checks.js';
+import { filledBy, fitActor, fitParty, fitPool, storedPool } from './pools.js';
 import { actorFrom, actorsInOrder, attempt, cleanName, cleanRole, fail, nameKey, newId, offersRecord, revOf, waitingOffers } from './util.js';
 
 // Skills learned onto a built sheet, in order (v1 newSheet's own loop, for a sheet made from final stats).
@@ -34,9 +35,9 @@ function readInventory(ctx) {
     }
 }
 
-/** The actor's record rewritten from a v1 Sheet. */
-function writeSheet(party, actor, sheet, rules) {
-    party.actors[actor.id] = fromSheet(actor, sheet, rules);
+/** The actor's record rewritten from a v1 Sheet (`options.filled`: the pools a rest filled, fromSheet). */
+function writeSheet(party, actor, sheet, rules, options) {
+    party.actors[actor.id] = fromSheet(actor, sheet, rules, options);
     return party.actors[actor.id];
 }
 
@@ -357,11 +358,12 @@ function spend(ctx, payload = {}) {
     const actor = actorFrom(ctx, party, payload);
     const points = payload.points;
     if (!points || typeof points !== 'object' || Array.isArray(points)) fail(ctx, 'INVALID', 'Choose where the points go.');
-    const sheet = attempt(ctx, () => spendPoints(toSheet(actor), points, rules));
-    const total = actor.points - sheet.points;
+    const before = toSheet(actor);
+    const sheet = attempt(ctx, () => spendPoints(before, points, rules));
+    const total = before.points - sheet.points;
     if (!total) fail(ctx, 'INVALID', 'Choose where the points go.');
     writeSheet(party, actor, sheet, rules);
-    const spent = STATS.filter(stat => sheet.stats[stat] !== actor.stats[stat]).map(stat => `${stat} ${sheet.stats[stat]}`).join(', ');
+    const spent = STATS.filter(stat => sheet.stats[stat] !== before.stats[stat]).map(stat => `${stat} ${sheet.stats[stat]}`).join(', ');
     return { summary: `${actor.name} spends ${total} point${total === 1 ? '' : 's'}: ${spent}.`, data: { actor: actor.id, points: total }, narrate: false };
 }
 
@@ -386,7 +388,7 @@ function learnSkill(ctx, payload = {}) {
     }
     if (!found) {
         if (!payload.template || typeof payload.template !== 'object') fail(ctx, 'NOT_FOUND', `"${asked}" is not in the skill library.`);
-        found = skillFromTemplate({ name: asked, ...payload.template }, actor.level, rules);
+        found = skillFromTemplate({ name: asked, ...payload.template }, fitActor(actor).level, rules);
         // A pack skill's own words (MODULES §F14 presets) describe it; the numbers stay the rules'.
         const note = typeof payload.template.note === 'string' ? payload.template.note.replace(/\s+/g, ' ').trim().slice(0, 300) : '';
         if (note) found.description = note;
@@ -427,14 +429,20 @@ function forgetSkill(ctx, payload = {}) {
 // ---------------------------------------------------------------------------------------
 // HP, MP, SP
 
-const gains = (before, after) => ({ hp: after.hp.cur - before.hp.cur, mp: after.mp.cur - before.mp.cur, sp: after.sp.cur - before.sp.cur });
+// What a member gained, from their numbers as they stood (pools.js fitActor) to after.
+const gains = (record, result) => {
+    const before = fitActor(record);
+    const after = fitActor(result);
+    return { hp: after.hp.cur - before.hp.cur, mp: after.mp.cur - before.mp.cur, sp: after.sp.cur - before.sp.cur };
+};
 const gainText = gain => [gain.hp ? `HP +${gain.hp}` : '', gain.mp ? `MP +${gain.mp}` : '', gain.sp ? `SP +${gain.sp}` : ''].filter(Boolean).join(', ');
 
 /**
  * party.rest { kind: 'short' | 'long', actors?: [ids], reason? }: v1 recovery.rest for each
  * member, max HP/MP/SP first recomputed with what they wear now (their equipped inventory
  * stacks): a short rest gives back rules.recovery.shortRestShare, a long one fills everything
- * and ends fight conditions; any rest fills stamina.
+ * and ends fight conditions; any rest fills stamina. What it fills is stored as full ("restore to
+ * full", pools.js), so a replay after an earlier reply was deleted still finds the member rested.
  */
 function rest(ctx, payload = {}) {
     const party = ctx.draft('party');
@@ -455,7 +463,7 @@ function rest(ctx, payload = {}) {
         const actor = party.actors[id];
         const sheet = toSheet(actor);
         const next = restV1(sheet, kind, { gear: wornGear((name, args) => ctx.query(name, args), inventory, id, { pc: party.pc }), rules });
-        const after = writeSheet(party, actor, next, rules);
+        const after = writeSheet(party, actor, next, rules, { filled: filledBy(kind) });
         const gain = gains(actor, after);
         data[id] = gain;
         const text = gainText(gain);
@@ -523,9 +531,10 @@ function fightPools(ctx, payload = {}) {
         for (const key of ['hp', 'mp', 'sp']) {
             if (entry[key] === undefined) continue;
             if (!Number.isInteger(entry[key]) || entry[key] < 0) fail(ctx, 'INVALID', `${key.toUpperCase()} must be a whole number, 0 or more.`);
-            const cur = Math.min(actor[key].max, entry[key]);
-            if (cur !== actor[key].cur) {
-                actor[key] = { ...actor[key], cur };
+            const now = fitPool(actor[key]);
+            const cur = Math.min(now.max, entry[key]);
+            if (cur !== now.cur) {
+                actor[key] = storedPool({ cur, max: now.max });
                 if (!changed.includes(actor.id)) changed.push(actor.id);
             }
         }
@@ -643,14 +652,15 @@ function grantXp(ctx, payload = {}) {
     }
     const share = byKind ? awardShare({ kind: payload.kind ?? null, difficulty: payload.kind ? null : payload.difficulty }, rules) : 0;
     if (byKind && (!share || (payload.kind && !['minor', 'major', 'milestone'].includes(payload.kind)))) fail(ctx, 'INVALID', `"${payload.kind ?? payload.difficulty}" is not an XP award.`);
-    const amountFor = actor => {
+    const amountFor = record => {
+        const actor = fitActor(record);
         if (actor.level >= maxLevel(rules)) return 0;
         const value = byKind ? xpAward(share, actor.level, rules) : typeof given === 'object' && given ? given[actor.id] ?? 0 : given;
         if (!Number.isInteger(value) || value < 0) fail(ctx, 'INVALID', 'XP must be a whole number, 0 or more.');
         return value;
     };
     const amounts = ids.map(id => [id, amountFor(party.actors[id])]);
-    const capped = ids.every(id => party.actors[id].level >= maxLevel(rules));
+    const capped = ids.every(id => fitActor(party.actors[id]).level >= maxLevel(rules));
     if (!capped && amounts.every(([, xp]) => !xp)) fail(ctx, 'REFUSED', 'There is no XP to give (the amount is 0).');
     // An XP claim lives in its own key space: a caller's key can never take another rule's claim
     // (`combat:<id>:end`, a quest's payment), B-b3-11.
@@ -689,7 +699,7 @@ function grantXp(ctx, payload = {}) {
 function resolveCheck(ctx, payload = {}) {
     const party = ctx.read('party');
     const rules = rulesFor(ctx);
-    const actor = actorFrom(ctx, party, payload);
+    const actor = fitActor(actorFrom(ctx, party, payload));
     const skill = String(payload.skill ?? '').trim().slice(0, 40);
     if (!skill && !payload.stat) fail(ctx, 'INVALID', 'A check needs a skill or a stat.');
     const stat = statForCheck(skill, payload.stat);
@@ -715,7 +725,7 @@ function resolveCheck(ctx, payload = {}) {
  * nothing; also works through preview.
  */
 function exportPc(ctx) {
-    const party = ctx.read('party');
+    const party = fitParty(ctx.read('party'));
     const pc = party?.pc ? party.actors?.[party.pc] : null;
     if (!pc) fail(ctx, 'NOT_FOUND', 'Make your character first.');
     let currency = null;

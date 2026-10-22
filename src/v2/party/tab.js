@@ -4,6 +4,7 @@
 // a time, and skills to set aside, take up or forget. Every button is a command through
 // `api.command`; a rejection's message is shown above the list. Reads only the head state.
 
+import { fitParty } from './pools.js';
 import { STATS } from '../../rules.js';
 import { PRESETS } from '../../skills.js';
 import { actorsInOrder, offerText, waitingOffers } from './util.js';
@@ -26,7 +27,7 @@ function button(doc, label, className, run) {
 export function renderPartyTab(el, view, api) {
     const doc = el.ownerDocument;
     el.textContent = '';
-    const party = view?.state?.domains?.party ?? { pc: null, order: [], actors: {}, offers: [] };
+    const party = fitParty(view?.state?.domains?.party ?? { pc: null, order: [], actors: {}, offers: [] });
     const status = make(doc, 'div', { className: 'rpg-party-status' });
     el.append(status);
     const run = async (type, payload) => {

@@ -2,7 +2,8 @@
 // then the reader deletes an earlier exchange from the middle of the chat. After every step the
 // head rebuilt from the chat equals the live head, and no block of valid input is skipped on
 // replay (store.problems()). Bookkeeping later replies write must be keyed by the reply (or an id),
-// add-only, never a list position or a field of an object an earlier reply made (SPEC §2).
+// add-only, never a list position or a field of an object an earlier reply made (SPEC §2). Pool changes,
+// level-ups (XP), spends and rests are counts (party/pools.js) and are in the mix.
 // A few seeds run in `npm test`; FUZZ_DELETE_SEEDS=<n> FUZZ_DELETE_REPLIES=<n> run more.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -50,7 +51,8 @@ function lines(r, n) {
     const out = [];
     const count = r.int(1, 4);
     for (let i = 0; i < count; i += 1) {
-        const kind = r.pick(['check', 'check', 'place', 'market', 'lift', 'item', 'coin', 'encounter', 'join', 'skill', 'effect', 'effect', 'unbuff', 'ranked', 'wear', 'wear', 'kit', 'repair', 'refine']);
+        const kind = r.pick(['check', 'check', 'place', 'market', 'lift', 'item', 'coin', 'encounter', 'join', 'skill', 'effect', 'effect', 'unbuff', 'ranked', 'wear', 'wear', 'kit', 'repair', 'refine',
+            'harm', 'harm', 'heal', 'rest']);
         if (kind === 'check') out.push(`? check ${r.pick(SKILLS)} — try ${n}.${i} | dc: ${r.pick(['easy', 'normal', 'hard'])} | roll: ${r.int(1, 2)} | result: ${r.pick(['success', 'fail'])}`);
         if (kind === 'place') out.push(`~ place ${r.pick(PLACES)} | kind: settlement`);
         if (kind === 'market') out.push(`! market ${r.pick(PLACES)} — short of bread ${n}`);
@@ -69,6 +71,10 @@ function lines(r, n) {
         if (kind === 'kit') out.push(`! use Repair Kit | on: ${r.pick([...PIECES, 'Ren'])}`);
         if (kind === 'repair') out.push(`! repair ${r.pick(PIECES)} | at: ${r.pick(['smith', 'tailor'])}`);
         if (kind === 'refine') out.push(`! refine ${r.pick(PIECES)} | at: smith`);
+        // Pool changes (party/pools.js counts): a blow or a heal on someone, a rest that fills the pools.
+        if (kind === 'harm') out.push(`~ wound ${r.pick(['Ren', 'Ren', 'Lyra', 'Bram'])} — a blow ${n} | harm: ${r.pick(['scratch', 'wound', 'severe', 'grievous'])}`);
+        if (kind === 'heal') out.push(`~ wound ${r.pick(['Ren', 'Lyra'])} — a poultice ${n} | heal: ${r.pick(['scratch', 'wound', 'severe'])}`);
+        if (kind === 'rest') out.push(`! rest ${r.pick(['short', 'long'])} — a camp ${n}`);
     }
     // At most 2 checks count in a reply; the third would be a Problem by design, not a replay skip.
     let checks = 0;
@@ -92,6 +98,10 @@ async function clicks(host, r) {
         const item = stock?.items?.[0];
         if (item) await host.cmd('trade.buy', { def: item.def.id, qty: 1, kind: 'general' });
     }
+    // XP with level-ups (as a quest or Story Director gives it), and the points they bring spent.
+    if (r.chance(0.25)) await host.internal('party.grantXp', { xp: r.pick([40, 150, 600]), reason: 'a deed' });
+    const ready = (host.q('party.actors') ?? []).find(actor => actor.points > 0);
+    if (ready && r.chance(0.5)) await host.cmd('party.spend', { actor: ready.id, points: { [r.pick(['STR', 'VIT', 'AGI', 'DEX'])]: Math.min(ready.points, r.int(1, 3)) } });
     // A quest's Setback, once per quest (as Story Director sends it).
     if (r.chance(0.1)) await host.internal('party.addEffect', { preset: 'setback', source: { name: 'Rats', ref: `qu_${r.int(1, 3)}` } });
     if (r.chance(0.2)) {
@@ -109,10 +119,13 @@ const json = value => JSON.stringify(value);
 /**
  * A replay skip that is right: the block used a thing (by its id) that only a deleted reply had
  * made, or took from a counted stack that a deleted reply had made (Story Block's inventory), or
+ * kept a stack of a definition that only a deleted reply had made, or
  * played turns of a fight a deleted reply had started (combat.act on a session that, without that
  * reply, is not there: its path goes through the empty session).
  */
 const dependent = why => /does not exist \(no "[a-z]{2}_[0-9a-z]{8}"\)/.test(why) || /^Taken onto the counts as they stand now/.test(why)
+    // A stack whose definition only a deleted reply made (SPEC §2.2 "Replayed blocks are checked").
+    || /^Taken onto the story as it stands now, these changes no longer fit: Item stack it_[0-9a-z]{8} refers to an item definition that does not exist \([^)]*\)\.$/.test(why)
     || /^The change path "\/domains\/combat\/session\/actions\/-" goes through something that is not an object or a list\.$/.test(why);
 
 for (let seed = 1; seed <= SEEDS; seed += 1) {
@@ -159,6 +172,11 @@ for (let seed = 1; seed <= SEEDS; seed += 1) {
                     for (const key of Object.keys(host.head().domains.gear?.events ?? {})) {
                         const rev = Number(/#(\d+)/.exec(key)?.[1]);
                         assert.ok(revs.has(rev), `seed ${seed} reply ${n}: gear event ${key} has no receipt on the chat`);
+                    }
+                    // Every member's numbers read fitted (party/pools.js): a pool's cur within 0…max, level from 1.
+                    for (const actor of host.q('party.actors') ?? []) {
+                        for (const pool of ['hp', 'mp', 'sp']) assert.ok(actor[pool].cur >= 0 && actor[pool].cur <= actor[pool].max, `seed ${seed} reply ${n}: ${actor.name}'s ${pool} reads ${actor[pool].cur}/${actor[pool].max}`);
+                        assert.ok(actor.level >= 1 && actor.xp >= 0 && actor.points >= 0, `seed ${seed} reply ${n}: ${actor.name}'s level, XP and points read fitted`);
                     }
                     const live = json(host.head());
                     host.store.rebuild();
