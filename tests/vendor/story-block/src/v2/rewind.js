@@ -55,7 +55,8 @@ const fail = (code, message) => ({ ok: false, code, message });
 
 /**
  * createRewind({ ctx, store, events?, branch?, reopen? }) → rewind({ index, beforeRev }) → Promise<
- * { ok: true, branch, index, rev, dropped } | { ok: false, code, message }>.
+ * { ok: true, branch, index, rev, dropped, unsaved? } | { ok: false, code, message }>. `unsaved`: why the branch
+ * is not saved yet (the store tries again).
  */
 export function createRewind({ ctx, store, events = null, branch = stBranch(ctx), reopen = stReopen(ctx) }) {
     let running = false;
@@ -78,7 +79,11 @@ export function createRewind({ ctx, store, events = null, branch = stBranch(ctx)
                 return fail('FAILED', `The changes could not be taken back, so no branch was made: ${error?.message ?? error}`);
             }
             if (!plan.dropped.length) return fail('NOT_FOUND', 'That reply holds no changes from there on to take back; no branch was made.');
-            await store.flush();
+            // The branch is made from the chat file: the story must be in it first (C1-2: a save that
+            // fails is told, never thrown at the reader).
+            try { await store.flush(); } catch (error) {
+                return fail('FAILED', `The story could not be saved first, so no branch was made: ${error?.message ?? error}`);
+            }
             const from = typeof ctx.getCurrentChatId === 'function' ? ctx.getCurrentChatId() : ctx.chatId;
             let name;
             try { name = await branch(index); } catch (error) {
@@ -106,10 +111,12 @@ export function createRewind({ ctx, store, events = null, branch = stBranch(ctx)
             try { result = store.truncate(index, beforeRev); } catch (error) {
                 return back(`The changes could not be taken back on the branch: ${error?.message ?? error}`);
             }
-            await store.flush();
+            // Taken back on the branch; a save that fails now is tried again (and told) by the store.
+            let unsaved = '';
+            try { await store.flush(); } catch (error) { unsaved = String(error?.message ?? error); }
             store.rebuild();
             events?.emit('head', { index: store.headIndex() });
-            return { ok: true, branch: name, index, rev: result.rev, dropped: result.dropped };
+            return { ok: true, branch: name, index, rev: result.rev, dropped: result.dropped, ...(unsaved ? { unsaved } : {}) };
         } finally {
             running = false;
         }

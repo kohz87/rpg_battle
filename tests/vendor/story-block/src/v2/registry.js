@@ -307,6 +307,9 @@ function neededVersion(range, version) {
  */
 export function createRegistry({ hostVersion = null, warn = message => console.warn(`[Story Suite] ${message}`), featureValue = () => undefined } = {}) {
     const defs = new Map();
+    // C3-5: each module's features as they were when it registered (module id → [declaration]): a
+    // definition changed afterwards (a label set to a number, a feature pushed later) changes nothing.
+    const declared = new Map();
     const owners = { domain: new Map(), command: new Map(), query: new Map(), kind: new Map(), tab: new Map(), screen: new Map(), widget: new Map(), feature: new Map() };
     // Every capture kind and alias → its canonical kind.
     const canonical = new Map();
@@ -377,6 +380,14 @@ export function createRegistry({ hostVersion = null, warn = message => console.w
             for (const alias of spec.aliases ?? []) canonical.set(alias, kind);
         }
         defs.set(id, def);
+        declared.set(id, Object.freeze((def.features ?? []).map(feature => Object.freeze({
+            id: feature.id,
+            label: feature.label.trim(),
+            describe: typeof feature.describe === 'string' ? feature.describe.trim() : '',
+            default: feature.default !== false,
+            prompt: affectsStatic(def, feature.id),
+            needs: needsOf(feature),
+        }))));
         refusals.delete(id);
         for (const message of definitionWarnings(def)) warn(`${def.name ?? id}: ${message}.`);
     }
@@ -387,17 +398,18 @@ export function createRegistry({ hostVersion = null, warn = message => console.w
         const owner = owners.feature.get(String(id ?? ''));
         if (!owner) return null;
         const def = defs.get(owner);
-        const feature = def.features.find(item => item.id === id);
-        const needs = needsOf(feature);
+        const feature = declared.get(owner)?.find(item => item.id === id);
+        if (!feature) return null;
+        const { needs } = feature;
         const available = availableFor(needs);
         return Object.freeze({
             id: feature.id,
-            moduleId: def.id,
-            moduleName: def.name ?? def.id,
-            label: feature.label.trim(),
-            describe: typeof feature.describe === 'string' ? feature.describe.trim() : '',
-            default: feature.default !== false,
-            prompt: affectsStatic(def, feature.id),
+            moduleId: owner,
+            moduleName: typeof def?.name === 'string' && def.name ? def.name : owner,
+            label: feature.label,
+            describe: feature.describe,
+            default: feature.default,
+            prompt: feature.prompt,
             needs,
             available,
             why: available ? '' : needs.why,
@@ -639,7 +651,7 @@ export function createRegistry({ hostVersion = null, warn = message => console.w
          * available, why }], module-id order. `available` is false while what it `needs` is not registered
          * (it is then off, whatever the reader chose); `why` says so for the overlay.
          */
-        features: () => sorted().flatMap(def => (def.features ?? []).map(feature => featureDecl(feature.id))),
+        features: () => sorted().flatMap(def => (declared.get(def.id) ?? []).map(feature => featureDecl(feature.id))),
         /** One declared feature, or null. */
         feature: featureDecl,
         /** Whether feature `id` is on (the reader's choice, else its default); false for an id no module declares. */

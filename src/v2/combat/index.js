@@ -29,7 +29,7 @@ import { buildSetup, COMBAT_DEFAULTS, fightNumbers, moneyScale, partyCombatants,
 import { beatenOf, bestiaryList, byRev, creatureSlug, fightRules, lastOf, latinSlug, offersOf, packCreature, packSetup, sessionStatus, unpackSetup, valuesOf } from './stored.js';
 export { beatenOf, lastOf, offersOf } from './stored.js';
 import { clipped } from '../lines.js';
-import { applyStock, beatenFoes, boardToken, endSummary, foeNames, partyNames, rebuild, sessionView, tailLines } from './view.js';
+import { applyStock, beatenFoes, boardToken, endSummary, foeNames, foeRanks, partyNames, rebuild, sessionView, tailLines } from './view.js';
 
 export { MAX_BEATEN, MAX_OFFERS } from './stored.js';
 import { MAX_BEATEN, MAX_OFFERS } from './stored.js';
@@ -480,7 +480,9 @@ function start(ctx, payload) {
     }
     const draft = ctx.draft('combat');
     delete recordOf(draft, 'offers')[offer.id];
-    draft.session = { id, setup: packSetup(setup), actions: [], status };
+    // The foes' written ranks (`rank: D`) go with the session, for the tail line (none: no key).
+    const ranks = foeRanks(offer.foes);
+    draft.session = { id, setup: packSetup(setup), actions: [], status, ...(ranks.length ? { ranks } : {}) };
     return {
         summary: `A fight begins: ${partyNames(setup)} against ${foeNames(setup)}${heldBack ? ` (${heldBack} more hang${heldBack === 1 ? 's' : ''} back)` : ''}.`,
         narrate: false,
@@ -700,6 +702,7 @@ export function validateCombat(slice) {
         if (!s.setup || typeof s.setup !== 'object' || !Array.isArray(s.setup.party) || !Array.isArray(s.setup.enemies)) errors.push('combat.session.setup must hold the party and the foes.');
         if (!Array.isArray(s.actions) || s.actions.some(action => !cleanAction(action) || !validStock(action.stock))) errors.push('combat.session.actions must be a list of actions.');
         if (!STATUSES.includes(s.status)) errors.push(`combat.session.status must be ${STATUSES.join(', ')}.`);
+        if (s.ranks !== undefined && (!Array.isArray(s.ranks) || s.ranks.length > 6 || s.ranks.some(entry => !isText(entry?.name, 60) || !isText(entry?.rank, 40)))) errors.push('combat.session.ranks must be a short list of { name, rank }.');
     } else if (s === undefined) errors.push('combat.session must be a fight or null.');
     if (!record(slice.beaten)) errors.push('combat.beaten must be a record.');
     else {
