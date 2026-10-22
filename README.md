@@ -53,7 +53,7 @@ Switches are in **Settings → Features** (the **Find a feature** box helps). "N
 - **Conditions by story time** (Party card; `rpg-battle.effects` *Timed buffs and debuffs*, on): blessings, curses
   and what a fight left on you count down by the story clock, 10 story minutes a round. Needs Story Director's
   clock; without one they wait.
-- **Skill uses** (Party card): shows the uses toward the next level, "Lv 1 · 1/5 uses to Lv 2".
+- **Skills** (Party card): each skill is a tile with its level; its hint and its line under *Use or set aside* show the uses toward the next level, "Lv 1 · 2/5 uses to Lv 2".
 - **HP and MP come back with story time** (`rpg-battle.recovery`, on; needs Story Director's clock) and **story
   XP awards** (`+ xp minor|major|milestone`, no switch; code sets the amount).
 - **Trade** (Trade tab, no switch): prices by place, shortages, commissions. **Gear wear and repair**
@@ -111,7 +111,7 @@ groups. The ones that matter:
   fights land on their target in about 30-36% of test cases. Tuning per build comes after the beta.
 - Conditions and recovery by time need Story Director's clock; RPG Battle alone has no story time.
 - Quest-sized fights (enough foes for a quest's real progress) need Story Director; without it a fight is as the story wrote it.
-- The look of some cards and of the settings screen is still to be redesigned.
+- The bag (Story Block's Inventory) is drawn by Story Block; RPG Battle adds only the item detail under each row.
 
 The full list is in Story Block's [RELEASES](https://github.com/kohz87/Story_block/blob/v2/docs/v2/RELEASES.md).
 

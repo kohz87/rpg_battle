@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased (`v2-ui` branch, UI step 4c)
+
+- **Screens on the glass design.** Party, Party status (under each reply), Hero (the HUD strip), Trade, Crafting and the Fight screen are drawn with Story Block's glass blocks: each party member is a hero card (HP, MP, SP and the EXP bar under the Terms' word; conditions as status badges), skills are tiles, trade and crafting rows are list rows with price pills and glass buttons, and the fight board's cards, bars, turn order, actions and "Last fight" fold are glass. No colours of RPG Battle's own: every colour is a Story Block token, so Glass, Solid and Follow SillyTavern all apply. The buttons, commands and ids are the same.
+- Trade and craft lists stop at 100 rows, and a hero shows at most 6 bars and 12 status badges (Story Block's limits).
+- Item detail under each Inventory row uses the glass tokens.
+- Tests follow the new markup; a new test checks every glass button's hover, press and disabled states in the sheet.
+
 ## 2.0.0-beta.1 (`v2` branch)
 
 Story Suite v2, first beta. What's new, known issues and every module's version: [Story Block docs/v2/RELEASES.md](https://github.com/kohz87/Story_block/blob/v2/docs/v2/RELEASES.md). Player guide: [Story Block docs/v2/GUIDE.md](https://github.com/kohz87/Story_block/blob/v2/docs/v2/GUIDE.md).
