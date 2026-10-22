@@ -8,6 +8,7 @@ import { installDom } from './dom.js';
 import { renderer, resolveData, widgets as standard } from './runtime.js';
 import { toolsFor } from './state.js';
 import { screenWidgets } from '../../../../src/v2/screens/widgets.js';
+import { CREATE_BUTTON_WIDGET, createButton } from '../../../../src/v2/creation/create-button.js';
 
 export const WIDGET_NAMES = ['ss.meter', 'ss.radar', 'ss.map', 'ss.skill-tree', 'ss.portrait', 'ss.badge', 'ss.timeline', 'ss.stepper'];
 
@@ -43,9 +44,9 @@ export const toolsWith = (state, settings, extra = {}) => toolsFor(state, settin
  * `result(type, payload)` answers the recorded commands (default: ok). With `real`, Story Block's own
  * standard widgets draw instead of the stand-ins; RPG Battle's own widgets (screens/widgets.js) always
  * draw for real, with a widget api whose `query` reads the drawn state and whose `preview` is the
- * option's (recorded in `previews`). `queries` are stand-ins for other parts' queries (toolsWith).
+ * option's (recorded in `previews`), and `dialog` the option's (a dialog api: { open, current? }). `queries` are stand-ins for other parts' queries (toolsWith).
  */
-export function draw(screen, state, { mount = screen.mounts[0], changes = [], settings = {}, draft = null, result = () => ({ ok: true }), real = false, queries = {}, preview = null } = {}) {
+export function draw(screen, state, { mount = screen.mounts[0], changes = [], settings = {}, draft = null, result = () => ({ ok: true }), real = false, queries = {}, preview = null, dialog = null } = {}) {
     const doc = installDom();
     const el = doc.createElement('div');
     doc.body.appendChild(el);
@@ -60,8 +61,9 @@ export function draw(screen, state, { mount = screen.mounts[0], changes = [], se
     const evaluate = renderer.conditionEvaluator({ compile: renderer.events.compile, evaluate: renderer.events.evaluate });
     const options = {
         evaluate,
-        widgets: { ...(real ? standard.standardWidgets : stubWidgets(widgets)), ...screenWidgets },
+        widgets: { ...(real ? standard.standardWidgets : stubWidgets(widgets)), ...screenWidgets, [CREATE_BUTTON_WIDGET]: createButton },
         api: {
+            ...(dialog ? { dialog } : {}),
             query: (name, args) => toolsWith(current, settings, queries).query(name, args),
             preview: async (type, payload) => {
                 previews.push({ type, payload });

@@ -3,8 +3,8 @@
 // anyone in the party has stat points waiting (MODULES §F91, the party part's `party.toSpend`),
 // condition badges (icons with the turns left) and active effects (feature `rpg-battle.effects`, the
 // party part's `party.effects`; left out without it), and a weight icon while you carry too much
-// (`party.encumbered`). Before a character exists it says so in one line
-// (creation is mandatory, MODULES §F12). Checks are rolled in the reply that writes them (MODULES
+// (`party.encumbered`). Before a character exists it says so in one line, with a Create button (widget
+// `rpg-battle.create-character`, which opens the creation wizard; creation is mandatory, MODULES §F12). Checks are rolled in the reply that writes them (MODULES
 // §F80): nothing waits here.
 //
 // The strip lays its items out side by side, each as wide as what it holds, so this screen's root is
@@ -31,7 +31,7 @@ const template = `
     <ss-widget class="effect" data-each="q.hud.pc.effects as e" name="ss.badge" data-props='{"bind":"e","showLabel":false}'></ss-widget>
   </div>
 </div>
-<div class="rb rb-hud none-yet" data-if="!q.hud.ready"><i class="fa-solid fa-user-plus"></i>Create your character to begin the story.</div>
+<div class="rb rb-hud none-yet" data-if="!q.hud.ready"><span class="msg"><i class="fa-solid fa-user-plus"></i>Create your character to begin the story.</span><ss-widget class="create" name="rpg-battle.create-character" data-props='{"label":"Create","compact":true}'></ss-widget></div>
 `;
 
 const css = sheet(`
@@ -61,8 +61,11 @@ const css = sheet(`
   background: color-mix(in srgb, var(--rb-warn) 18%, transparent); border: 1px solid color-mix(in srgb, var(--rb-warn) 50%, transparent); }
 .spend-word { font-weight: 600; }
 .badges { flex: 0 1 auto; flex-wrap: nowrap; overflow: hidden; min-width: 0; }
-.none-yet { justify-content: center; color: var(--rb-muted); font-style: italic; }
-.none-yet i { margin-right: 6px; color: var(--rb-accent); font-style: normal; }
+.none-yet { justify-content: center; flex-wrap: wrap; color: var(--rb-muted); }
+.none-yet .msg { font-style: italic; min-width: 0; }
+.none-yet .msg i { margin-right: 6px; color: var(--rb-accent); font-style: normal; }
+.none-yet .create { flex: 0 0 auto; }
+.none-yet .rpg-create-go { padding: 2px 10px; font-size: 0.92em; }
 @media (max-width: 480px) {
   .rb-hud { gap: 6px; padding: 4px 8px; }
   .id .nm { max-width: 6em; }

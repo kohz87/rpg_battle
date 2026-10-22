@@ -20,7 +20,10 @@
 // on the actor. Without `origin`, the stats are v1 newSheet's from the points (the no-content flow).
 //
 // Opening the wizard: openCreation(api) (open.js), from Story Block's canGenerate-blocked notice
-// or this part's `onBlocked` hook, which uses the sdk on globalThis.StoryBlock when it has a dialog.
+// or this part's `onBlocked` hook (also what Story Block's Home "Before you start" button runs), which
+// uses the sdk on globalThis.StoryBlock when it has a dialog; and from the widget
+// `rpg-battle.create-character` ("Create your character", create-button.js) that the Party screen's
+// empty state, the HUD strip and the card under a reply place while there is no character.
 
 import { SETTINGS_DEFAULTS, SETTINGS_SCHEMA } from './build.js';
 import { commands, initialCreation, queries, validateCreation } from './commands.js';
@@ -28,6 +31,7 @@ import { openCreation } from './open.js';
 import { createScreen } from './screen.js';
 import { PRESET_WIDGET, presetPick } from './preset-pick.js';
 import { wizardWidgets } from './wizard-widgets.js';
+import { CREATE_BUTTON_WIDGET, createButton } from './create-button.js';
 
 /**
  * onBlocked(reason, moduleId) (Story Block's turn calls the blocking module's hook): when the
@@ -53,7 +57,7 @@ export const part = {
     hooks: { onBlocked },
     settings: { section: 'Character creation', defaults: { ...SETTINGS_DEFAULTS }, schema: SETTINGS_SCHEMA },
     tabs: [],
-    widgets: { [PRESET_WIDGET]: presetPick, ...wizardWidgets },
+    widgets: { [PRESET_WIDGET]: presetPick, ...wizardWidgets, [CREATE_BUTTON_WIDGET]: createButton },
     screens: [createScreen],
 };
 
@@ -61,6 +65,7 @@ export { BUILT_IN_RACES, BUILT_IN_TALENTS, STAT_LABELS, bonusText, creationConte
 export { buildCharacter, creationRules, SETTINGS_DEFAULTS, SETTINGS_SCHEMA } from './build.js';
 export { buildQuery, cleanPortrait, commands, contentQuery, initialCreation, queries, validateCreation } from './commands.js';
 export { openCreation, startDraft } from './open.js';
+export { CREATE_BUTTON_WIDGET, CREATE_LABEL, createButton, creationApi, renderCreateButton } from './create-button.js';
 export { BACKGROUND_LIMIT, avatarUrl, personaFor, readPersona } from './persona.js';
 export { CREATE_SCREEN_ID, CREATE_STEPS, createScreen } from './screen.js';
 export { PRESET_WIDGET, presetDraft, presetPick, renderPresetPick } from './preset-pick.js';

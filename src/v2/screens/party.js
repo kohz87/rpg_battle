@@ -1,7 +1,8 @@
 // RPG Battle v2, screen `rpg-battle/party` (SPEC §13.1, MODULES §B1 "Tab: Party"): a character card
 // per party member, your character first, under the carry line (MODULES §F39) and the offers waiting
 // for the reader (a join, a skill, a companion leaving: party.offers' sentence) with Accept and
-// Dismiss. Each card: portrait, name, the level and class line, HP / MP / SP meters, the EXP meter,
+// Dismiss. Before a character exists, the empty state has "Create your character" (widget
+// `rpg-battle.create-character`, which opens the creation wizard). Each card: portrait, name, the level and class line, HP / MP / SP meters, the EXP meter,
 // condition badges with the turns left, active effects (feature `rpg-battle.effects`), what they wear
 // with each piece's condition band and refinement (features `rpg-battle.wear`, `rpg-battle.refine`),
 // a line when they carry too much (`party.encumbered`),
@@ -30,7 +31,10 @@ const choice = (field, value, label) => `
 const template = `
 <div class="rb rb-party">
   <p class="carry" data-if="q.carry.on" data-class="over: q.carry.over"><i class="fa-solid fa-weight-hanging"></i>{{ q.carry.text }}</p>
-  <p class="empty" data-if="len(q.cards) == 0"><i class="fa-solid fa-user-plus"></i>No character yet. Create yours to begin the story.</p>
+  <div class="empty start" data-if="len(q.cards) == 0">
+    <p><i class="fa-solid fa-user-plus"></i>No character yet. Create yours to begin the story.</p>
+    <ss-widget class="create" name="rpg-battle.create-character"></ss-widget>
+  </div>
   <section class="card offers" data-if="len(q.offers) > 0">
     <h4><i class="fa-solid fa-user-plus"></i>Waiting for you</h4>
     <ul class="rows">
@@ -144,6 +148,8 @@ const template = `
 `;
 
 const css = sheet(`
+.empty.start { display: grid; gap: 10px; justify-items: center; }
+.empty.start p { margin: 0; }
 .cards { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); }
 @container rb-screen (min-width: 760px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @container rb-screen (min-width: 1180px) { .cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }

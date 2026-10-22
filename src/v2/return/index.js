@@ -47,10 +47,11 @@ export function logOf(source) {
 
 /**
  * canGenerate(view) (MODULES §F12, §F17): no story reply continues a dead run. While your
- * character is dead the answer is no, with the way out.
+ * character is dead the answer is no, with the way out (`action: false`: Home's "Before you start"
+ * shows the reason without a button; the way out is a swipe, a delete or Return in time).
  */
 export function canGenerate(view) {
-    return isDead(view?.state) ? { ok: false, reason: DEAD_REASON } : { ok: true };
+    return isDead(view?.state) ? { ok: false, reason: DEAD_REASON, action: false } : { ok: true };
 }
 
 /**

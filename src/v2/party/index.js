@@ -16,11 +16,12 @@ import { FEATURES, effectCommands, effectKinds, initialEffects, turnBeforeReply,
 
 /**
  * canGenerate(view) (MODULES §F12): character creation is mandatory, so no story reply is
- * written until party.create has made your character.
+ * written until party.create has made your character. `action` is the words of the button Story
+ * Block's Home shows with the reason ("Before you start"), which runs the onBlocked hook (the wizard).
  */
 export function canGenerate(view) {
     const party = view?.state?.domains?.party;
-    return party?.pc && party.actors?.[party.pc] ? { ok: true } : { ok: false, reason: 'Create your character first.' };
+    return party?.pc && party.actors?.[party.pc] ? { ok: true } : { ok: false, reason: 'Create your character first.', action: 'Create your character' };
 }
 
 export const part = {

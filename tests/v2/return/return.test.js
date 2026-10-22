@@ -188,7 +188,7 @@ test('Return: what it says when it cannot go back', async () => {
 
 test('canGenerate: no story reply while your character is dead', () => {
     const host = fatal(createHost());
-    assert.deepEqual(canGenerate(host.sdk.view()), { ok: false, reason: DEAD_REASON });
+    assert.deepEqual(canGenerate(host.sdk.view()), { ok: false, reason: DEAD_REASON, action: false });
     assert.equal(DEAD_REASON, 'You died. Return in time, or swipe/delete back.');
     assert.deepEqual(canGenerate({ state: aliveState() }), { ok: true });
     assert.deepEqual(canGenerate({ state: null }), { ok: true }, 'no character yet is the party part\'s answer, not this one');

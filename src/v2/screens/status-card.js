@@ -25,7 +25,7 @@ const xpWord = `<span data-if="q.terms == null || q.terms.xpName == 'XP'">EXP</s
 
 const template = `
 <div class="rb rb-status" data-class="quiet: ${only}">
-  <p class="none" data-if="len(state.party.order) == 0">No character yet.</p>
+  <div class="none start" data-if="len(state.party.order) == 0"><span>No character yet.</span><ss-widget class="create" name="rpg-battle.create-character" data-props='{"compact":true}'></ss-widget></div>
   <div class="member" data-each="state.party.order as id"
        data-if="${all} || changed(${actor})"
        data-class="moved: changed(${actor}); you: id == state.party.pc; down: ${actor}.hp.cur == 0">
@@ -56,6 +56,8 @@ const template = `
 `;
 
 const css = sheet(`
+.none.start { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.none.start .create { flex: 0 0 auto; }
 .rb-status {
   gap: 4px; padding: 8px 10px; border-radius: 12px; font-size: 0.85em;
   background: color-mix(in srgb, var(--rb-fg) 5%, transparent); border: 1px solid var(--rb-line);
