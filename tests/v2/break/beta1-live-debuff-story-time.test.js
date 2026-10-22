@@ -54,7 +54,8 @@ async function poisoned(host) {
 }
 
 const shown = host => host.q('party.pc').conditions.map(entry => [entry.kind, entry.stacks]);
-const badge = host => host.q('rpg-battle.cards', {})[0].badges.map(entry => [entry.kind, entry.counter, entry.unit]);
+// The card's conditions as ss.status props (view.js conditionStatus): the counter is `left`, the unit 'minutes' or 'turns'.
+const badge = host => host.q('rpg-battle.cards', {})[0].statuses.map(entry => [entry.kind, entry.left, entry.unit]);
 
 test('on the host with a clock: the poison counts down with `! time +…`, a swipe takes the time back, replay equals live', async t => {
     t.mock.method(console, 'warn', () => {});
@@ -62,10 +63,10 @@ test('on the host with a clock: the poison counts down with `! time +…`, a swi
         const host = await rpgHost({ modules: [CLOCK] });
         try {
             const id = await poisoned(host);
-            assert.deepEqual(badge(host), [['poisoned', 30, 'min left']]);
+            assert.deepEqual(badge(host), [['poisoned', 30, 'minutes']]);
             await host.send('Walk.', host.reply('They walk a while.', ['! time +12m']));
             assert.deepEqual(shown(host), [['poisoned', 2]]);
-            assert.deepEqual(badge(host), [['poisoned', 18, 'min left']]);
+            assert.deepEqual(badge(host), [['poisoned', 18, 'minutes']]);
             assert.equal(host.q('party.pools', {})[id].turns.poisoned, 2, 'the status card\'s rounds left');
             assert.match(host.tails().at(-1) ?? '', /poisoned/);
             await host.swipe('They wait instead.', host.reply('They wait.', []));
@@ -111,7 +112,7 @@ test('without a clock (no Story Director): no story time, it waits for a rest or
             assert.equal(left.ok, true, left.message);
             await host.send('Walk.', host.reply('A long walk.'));
             assert.deepEqual(shown(host), [['poisoned', 3]]);
-            assert.deepEqual(badge(host), [['poisoned', 3, 'turns left']]);
+            assert.deepEqual(badge(host), [['poisoned', 3, 'turns']]);
         } finally {
             host.close();
         }

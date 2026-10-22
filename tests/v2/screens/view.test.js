@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { BANDS, actorCard, cards, carry, conditionBadge, conditionView, crafting, effectBadge, hud, itemDetail, skillTree, trade, tryQuery } from '../../../src/v2/screens/index.js';
+import { BANDS, actorCard, cards, carry, conditionBadge, conditionStatus, conditionView, crafting, effectBadge, heroOf, heroes, hud, itemDetail, skillTiers, trade, tryQuery } from '../../../src/v2/screens/index.js';
 import { validateChecks } from '../../../src/v2/checks/shared.js';
 import { LYRA, PC, QUERIES, emptyState, makeState, toolsFor } from './helpers/state.js';
 
@@ -54,30 +54,62 @@ test('cards: EXP follows the reader\'s settings, and the top level shows a full 
     assert.equal(capped.xpText, 'Top level');
 });
 
-test('cards: condition badges carry an icon, a tone and the turns left', () => {
+test('cards: conditions are status badges (ss.status) with an icon, a tone and the turns left', () => {
     const [ren] = ask(cards, makeState());
-    assert.deepEqual(ren.badges, [
-        { id: 'poisoned-0', kind: 'poisoned', label: 'Poisoned', showLabel: true, icon: 'fa-skull-crossbones', tone: 'bad', counter: 3, unit: 'turns left' },
-        { id: 'bleeding-1', kind: 'bleeding', label: 'Bleeding', showLabel: true, icon: 'fa-droplet', tone: 'bad', counter: null, unit: '' },
+    assert.deepEqual(ren.statuses, [
+        { id: 'poisoned-0', kind: 'poisoned', label: 'Poisoned', icon: 'fa-skull-crossbones', tone: 'bad', left: 3, unit: 'turns' },
+        { id: 'bleeding-1', kind: 'bleeding', label: 'Bleeding', icon: 'fa-droplet', tone: 'bad', left: null, unit: 'turns' },
     ]);
+    assert.deepEqual(conditionStatus({ kind: 'shielded', stacks: 2 }), { id: 'shielded-0', kind: 'shielded', label: 'Shielded', icon: 'fa-shield-halved', tone: 'good', left: 2, unit: 'turns' });
+    assert.deepEqual(conditionStatus({ kind: 'bleeding', stacks: 1, at: 0, rounds: 0 }, 0, null).unit, 'turns');
     assert.deepEqual(conditionBadge({ kind: 'shielded', stacks: 2 }), { id: 'shielded-0', kind: 'shielded', label: 'Shielded', showLabel: true, icon: 'fa-shield-halved', tone: 'good', counter: 2, unit: 'turns left' });
     assert.equal(conditionBadge({ kind: 'homesick' }).tone, 'neutral');
     assert.equal(conditionBadge({}).label, 'Unwell');
 });
 
-test('cards: skills grouped by tier for the skill tree, those in use first, story-taught last', () => {
+test('cards: skills are tiles (ss.tiers) grouped by tier, those in use first, story-taught last', () => {
     const [ren, lyra] = ask(cards, makeState());
-    assert.deepEqual(ren.tree.tiers.map(tier => tier.title), ['Tier 1', 'Tier 2', 'Taught by the story']);
-    assert.deepEqual(ren.tree.tiers[0].skills.map(skill => [skill.name, skill.active]), [['Power Strike', true], ['Quick Stab', true], ['Firebolt', false]]);
-    // The badge shows the level alone (beta.1: "1/5" read as uses); the uses are the list's progress.
-    assert.deepEqual(ren.tree.tiers[0].skills[0], { id: 'Power Strike', name: 'Power Strike', icon: 'fa-hand-fist', level: 2, active: true });
-    assert.equal(ren.tree.tiers[2].skills[0].name, 'Shadow Cut');
+    assert.deepEqual(ren.tiers.tiers.map(tier => tier.title), ['Tier 1', 'Tier 2', 'Taught by the story']);
+    assert.deepEqual(ren.tiers.tiers[0].tiles.map(tile => [tile.label, tile.state]), [['Power Strike', 'ready'], ['Quick Stab', 'ready'], ['Firebolt', 'none']]);
+    // The count is the level; the hint says the uses toward the next one.
+    assert.equal(ren.tiers.tiers[0].tiles[0].count, 'Lv 2');
+    assert.equal(ren.tiers.tiers[0].tiles[0].icon, 'fa-hand-fist');
+    assert.match(ren.tiers.tiers[0].tiles[0].hint, /^Lv 2 · \d+\/\d+ uses to Lv 3$/);
+    assert.equal(ren.tiers.tiers[2].tiles[0].label, 'Shadow Cut');
     assert.equal(ren.activeCount, 4);
     assert.equal(ren.activeCap, 6);
     assert.equal(ren.skills.find(skill => skill.name === 'Firebolt').cost, '5 MP');
     assert.equal(ren.skills.find(skill => skill.name === 'Power Strike').cost, '4 SP');
-    assert.deepEqual(lyra.tree, { tiers: [] });
-    assert.deepEqual(skillTree([]), { tiers: [] });
+    assert.deepEqual(lyra.tiers, { tiers: [] });
+    assert.deepEqual(skillTiers([]), { tiers: [] });
+});
+
+test('skills as tiles stay within ss.tiers\' limits: 12 tiers of 24 tiles', () => {
+    const skill = (name, tier) => ({ name, level: 1, progress: '', active: true, tier, icon: 'fa-star', type: '' });
+    const many = Array.from({ length: 30 }, (_, i) => skill(`S${i}`, 1));
+    const tiers = Array.from({ length: 14 }, (_, i) => skill(`T${i}`, i + 1));
+    assert.equal(skillTiers(many).tiers[0].tiles.length, 24);
+    assert.equal(skillTiers(tiers).tiers.length, 12);
+    assert.equal(skillTiers(tiers).tiers[0].tiles[0].hint, 'Lv 1');
+});
+
+test('heroOf: the bars and status badges within ss.hero\'s limits, the EXP bar under the Terms\' word', () => {
+    const hero = heroOf({
+        name: 'Ren', portrait: '/thumbnail?type=avatar&file=ren.png', line: 'Lv 3 · Sellsword · You',
+        pools: { hp: { cur: 5, max: 9 }, mp: { cur: 0, max: 0 }, sp: { cur: 2, max: 4 } },
+        xp: { cur: 40, max: 100 }, xpName: 'Soul Growth', xpText: '40 / 100',
+        statuses: Array.from({ length: 13 }, (_, i) => ({ id: `s${i}`, label: `S${i}` })),
+    });
+    assert.deepEqual(hero.bars.map(bar => [bar.kind, bar.label]), [['hp', 'HP'], ['sp', 'SP'], ['exp', 'Soul Growth']]);
+    assert.equal(hero.bars[2].text, '40 / 100');
+    assert.equal(hero.statuses.length, 12);
+    assert.equal(hero.portrait, '/thumbnail?type=avatar&file=ren.png');
+    // heroes(): one per member, at this reply's pools; a worn-off condition left out.
+    const state = makeState();
+    const pools = { [PC]: { hp: { cur: 1, max: 82 }, mp: { cur: 30, max: 40 }, sp: { cur: 20, max: 24 }, lapsed: ['poisoned'] } };
+    const out = heroes(state, {}, { query: (name) => (name === 'party.pools' ? pools : null) });
+    assert.equal(out[PC].bars[0].value, 1);
+    assert.deepEqual(out[PC].statuses.map(status => status.label), ['Bleeding']);
 });
 
 test('cards: stats with check modifiers, radar axes on a shared scale, and room to spend', () => {

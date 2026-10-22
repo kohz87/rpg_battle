@@ -17,7 +17,9 @@ const { all, click, draw, propsOf, text } = helpers ?? {};
 
 const buttons = (root, command) => all(root, 'button').filter(button => button.getAttribute('data-command') === command);
 const widgetsIn = (root, name) => all(root, 'ss-widget').filter(el => el.getAttribute('name') === name);
-const cardOf = (root, name) => all(root, 'article.actor').find(card => text(card.querySelector('.name')).startsWith(name));
+// A member's hero props (ss.hero, bound as `value`), and the card of the member by name.
+const heroOf = el => propsOf(widgetsIn(el, 'ss.hero')[0])?.value ?? null;
+const cardOf = (root, name) => all(root, 'article.actor').find(card => heroOf(card)?.name.startsWith(name));
 
 // Story Block's own prop checks for each widget drawn (types, and the required props once bound).
 function checkProps(drawn) {
@@ -43,26 +45,25 @@ test('party: a card per member with portrait, pools, EXP, badges, skills and sta
     assert.ok(ren.classList.contains('you'));
     assert.ok(ren.classList.contains('can-spend'));
     assert.ok(!lyra.classList.contains('can-spend'));
-    assert.equal(text(ren.querySelector('.line')), 'Lv 3 · Sellsword · You');
-    assert.equal(text(ren.querySelector('.points')), '3');
+    assert.equal(heroOf(ren).line, 'Lv 3 · Sellsword · You');
+    assert.equal(text(ren.querySelector('.points')), '3 to spend');
 
-    assert.deepEqual(propsOf(widgetsIn(ren, 'ss.portrait')[0]), { src: 'https://example.org/ren.png', name: 'Ren', frame: 'circle', size: 'md', tone: 'accent' });
-    const meters = widgetsIn(ren, 'ss.meter').map(el => [el.className, propsOf(el)]);
-    assert.deepEqual(meters.map(([cls, props]) => [cls, props.label, props.value]), [
-        ['pool hp', 'HP', { cur: 57, max: 82 }], ['pool mp', 'MP', { cur: 30, max: 40 }], ['pool sp', 'SP', { cur: 20, max: 24 }], ['pool xp', 'EXP', { cur: 40, max: 100 }],
+    assert.equal(heroOf(ren).portrait, 'https://example.org/ren.png');
+    // The bars: HP, MP, SP, then the EXP bar under the Terms' word (ss.hero keeps six at most).
+    assert.deepEqual(heroOf(ren).bars.map(bar => [bar.kind, bar.label, bar.value, bar.max]), [
+        ['hp', 'HP', 57, 82], ['mp', 'MP', 30, 40], ['sp', 'SP', 20, 24], ['exp', 'EXP', 40, 100],
     ]);
-    assert.equal(meters[3][1].text, '40 / 100');
-    const badges = widgetsIn(ren, 'ss.badge').map(el => propsOf(el).value);
-    assert.deepEqual(badges.map(badge => [badge.label, badge.counter, badge.unit]), [['Poisoned', 3, 'turns left'], ['Bleeding', null, '']]);
-    assert.equal(widgetsIn(lyra, 'ss.badge').length, 0);
+    assert.equal(heroOf(ren).bars[3].text, '40 / 100');
+    assert.deepEqual(heroOf(ren).statuses.map(status => [status.label, status.left, status.unit]), [['Poisoned', 3, 'turns'], ['Bleeding', null, 'turns']]);
+    assert.deepEqual(heroOf(lyra).statuses, []);
     assert.equal(lyra.querySelector('.badges'), null);
 
-    const tree = propsOf(widgetsIn(ren, 'ss.skill-tree')[0]);
-    assert.deepEqual(tree.value.tiers.map(tier => tier.title), ['Tier 1', 'Tier 2', 'Taught by the story']);
-    assert.equal(tree.label, 'Skills of Ren');
-    assert.equal(widgetsIn(lyra, 'ss.skill-tree').length, 0);
+    const tiers = propsOf(widgetsIn(ren, 'ss.tiers')[0]);
+    assert.deepEqual(tiers.value.tiers.map(tier => tier.title), ['Tier 1', 'Tier 2', 'Taught by the story']);
+    assert.equal(tiers.label, 'Skills of Ren');
+    assert.equal(widgetsIn(lyra, 'ss.tiers').length, 0);
     assert.equal(text(lyra.querySelector('.skills .none')), 'No skills yet.');
-    assert.match(text(ren.querySelector('.skills h4')), /4 \/ 6 in use/);
+    assert.match(text(ren.querySelector('.skills .ss-label')), /4 \/ 6 in use/);
 
     const radar = propsOf(widgetsIn(ren, 'ss.radar')[0]);
     assert.equal(radar.value.length, 7);
@@ -106,7 +107,7 @@ test('party: Use and Set aside send party.setSkillActive for that skill', { skip
     const drawn = draw(partyScreen, makeState());
     const ren = cardOf(drawn.el, 'Ren');
     const rows = all(ren, 'li.skill');
-    assert.deepEqual(rows.map(row => text(row.querySelector('.nm'))), ['Power Strike', 'Quick Stab', 'Firebolt', 'Rending Strike', 'Shadow Cut']);
+    assert.deepEqual(rows.map(row => text(row.querySelector('.ss-listcard-title'))), ['Power Strike', 'Quick Stab', 'Firebolt', 'Rending Strike', 'Shadow Cut']);
     const firebolt = rows[2];
     assert.ok(firebolt.classList.contains('aside'));
     assert.equal(text(firebolt.querySelector('button')), 'Use');
@@ -125,7 +126,7 @@ test('party: the offers waiting for the reader, each with Accept and Dismiss', {
     const drawn = draw(partyScreen, state);
     assert.deepEqual(drawn.warnings, []);
     const rows = all(drawn.el, 'li.offer');
-    assert.deepEqual(rows.map(row => text(row.querySelector('.nm'))), ['Kael asks to join (scout).', 'Lyra means to leave the party: parts ways at the ford.']);
+    assert.deepEqual(rows.map(row => text(row.querySelector('.ss-listcard-title'))), ['Kael asks to join (scout).', 'Lyra means to leave the party: parts ways at the ford.']);
     assert.ok(rows[1].classList.contains('leave'));
     await click(buttons(rows[1], 'party.acceptOffer')[0]);
     assert.deepEqual(drawn.commands.pop(), { type: 'party.acceptOffer', payload: { offer: 'of_bbbbbbbb' } });
@@ -163,8 +164,10 @@ test('trade: the market line, then Sell / Buy / On order rows with short prices 
     assert.equal(drawn.el.querySelector('.purse').getAttribute('title'), '140 gold in the purse');
 
     const sells = buttons(drawn.el, 'trade.sell');
-    const draught = sells.filter(button => button.closest('li') && text(button.closest('li').querySelector('.nm')).startsWith('Minor Healing Draught'));
-    assert.deepEqual(draught.map(text), ['4 g', 'All']);
+    const draught = sells.filter(button => button.closest('li') && text(button.closest('li').querySelector('.ss-listcard-title')).startsWith('Minor Healing Draught'));
+    // The price is a pill beside the Sell button; the buttons are Sell and All.
+    assert.deepEqual(draught.map(text), ['Sell', 'All']);
+    assert.equal(text(draught[0].closest('li').querySelector('.price')), '4 g');
     assert.equal(draught[0].getAttribute('title'), 'Sell one Minor Healing Draught for 4 gold');
     await click(draught[0]);
     assert.deepEqual(drawn.commands.pop(), { type: 'trade.sell', payload: { stack: 'it_draught1', qty: 1 } });
@@ -176,7 +179,8 @@ test('trade: the market line, then Sell / Buy / On order rows with short prices 
     assert.equal(traders[0].getAttribute('open'), '');
     assert.equal(traders[1].getAttribute('open'), null);
     const buy = buttons(traders[0], 'trade.buy')[0];
-    assert.match(text(buy), /^\d+ g$/);
+    assert.equal(text(buy), 'Buy');
+    assert.match(text(buy.closest('li').querySelector('.price')), /^\d+ g$/);
     await click(buy);
     const bought = drawn.commands.pop();
     assert.equal(bought.type, 'trade.buy');
@@ -185,8 +189,8 @@ test('trade: the market line, then Sell / Buy / On order rows with short prices 
     assert.equal(bought.payload.qty, 1);
     assert.equal(bought.payload.def, drawn.q.trade.traders[0].items[0].def);
 
-    const orders = all(drawn.el, 'li.tline').filter(row => row.classList.contains('due') || /not ready/.test(text(row)));
-    assert.deepEqual(orders.map(row => text(row.querySelector('.nm'))), ['Skull Ring', 'Pelt Cloak']);
+    const orders = all(drawn.el, 'li.ss-listcard-row').filter(row => row.classList.contains('due') || /not ready/.test(text(row)));
+    assert.deepEqual(orders.map(row => text(row.querySelector('.ss-listcard-title'))), ['Skull Ring', 'Pelt Cloak']);
     assert.equal(buttons(orders[1], 'craft.collect').length, 0);
     await click(buttons(orders[0], 'craft.collect')[0]);
     assert.deepEqual(drawn.commands.pop(), { type: 'craft.collect', payload: { order: 'or_aaaaaaaa' } });
@@ -235,14 +239,14 @@ test('hud: your HP and MP and condition badges; no checks wait (MODULES §F80)',
     const drawn = draw(hudScreen, makeState());
     assert.deepEqual(drawn.warnings, []);
     const strip = drawn.el.querySelector('.rb-hud');
-    assert.equal(text(strip.querySelector('.nm')), 'Ren');
-    assert.equal(text(strip.querySelector('.lv')), 'Lv 3');
+    assert.equal(heroOf(strip).name, 'Ren');
+    assert.equal(heroOf(strip).line, 'Lv 3 · Sellsword · You');
     // Without party.toSpend the badge is your own points.
     assert.equal(text(strip.querySelector('.spend')), '3 to spend');
     assert.equal(strip.querySelector('.spend').getAttribute('title'), 'Stat points to spend: Ren 3');
-    assert.deepEqual(widgetsIn(strip, 'ss.meter').map(el => [propsOf(el).label, propsOf(el).value]), [['HP', { cur: 57, max: 82 }], ['MP', { cur: 30, max: 40 }]]);
-    assert.deepEqual(widgetsIn(strip, 'ss.badge').map(el => propsOf(el).value.icon), ['fa-skull-crossbones', 'fa-droplet']);
-    assert.deepEqual(widgetsIn(strip, 'ss.portrait').map(el => propsOf(el).size), ['sm']);
+    assert.deepEqual(heroOf(strip).bars.slice(0, 2).map(bar => [bar.label, bar.value, bar.max]), [['HP', 57, 82], ['MP', 30, 40]]);
+    assert.deepEqual(heroOf(strip).statuses.map(status => status.icon), ['fa-skull-crossbones', 'fa-droplet']);
+    assert.equal(propsOf(widgetsIn(strip, 'ss.hero')[0]).compact, true);
     assert.equal(strip.querySelector('.checks'), null);
     assert.equal(drawn.el.querySelector('.none-yet'), null);
     checkProps(drawn);
@@ -261,16 +265,15 @@ test('status card: HP and MP of each member from that reply, and what this reply
     const drawn = draw(statusCardScreen, makeState(), { changes });
     assert.deepEqual(drawn.warnings, []);
     const members = all(drawn.el, '.member');
-    assert.deepEqual(members.map(member => text(member.querySelector('.nm'))), ['Ren', 'Lyra']);
+    assert.deepEqual(members.map(member => heroOf(member).name), ['Ren', 'Lyra']);
     const [ren, lyra] = members;
     assert.ok(ren.classList.contains('moved'));
     assert.ok(ren.classList.contains('you'));
     assert.ok(!lyra.classList.contains('moved'));
-    const [hp, mp] = widgetsIn(ren, 'ss.meter');
-    assert.deepEqual(propsOf(hp).value, { cur: 57, max: 82 });
-    assert.ok(hp.classList.contains('hit'));
-    assert.ok(!mp.classList.contains('hit'));
-    assert.ok(!widgetsIn(lyra, 'ss.meter')[0].classList.contains('hit'));
+    assert.deepEqual(heroOf(ren).bars.slice(0, 2).map(bar => ({ cur: bar.value, max: bar.max })), [{ cur: 57, max: 82 }, { cur: 30, max: 40 }]);
+    // The hero is marked when its HP changed (the reply's own change), not for the others.
+    assert.ok(ren.querySelector('.hero').classList.contains('hit'));
+    assert.ok(!lyra.querySelector('.hero').classList.contains('hit'));
     const conditions = all(ren, '.cond');
     assert.deepEqual(conditions.map(text), ['poisoned3', 'bleeding']);
     assert.deepEqual(conditions.map(node => node.classList.contains('new')), [true, false]);
@@ -289,10 +292,8 @@ test('status card: the meters show each pool as it stands at that reply, fitted 
     const drawn = draw(statusCardScreen, state, { changes: [] });
     assert.deepEqual(drawn.warnings, []);
     const [ren, lyra] = all(drawn.el, '.member');
-    const [hp, mp] = widgetsIn(ren, 'ss.meter');
-    assert.deepEqual(propsOf(hp).value, { cur: 82, max: 82 });
-    assert.deepEqual(propsOf(mp).value, { cur: 40, max: 40 });
-    assert.deepEqual(propsOf(widgetsIn(lyra, 'ss.meter')[0]).value, { cur: 0, max: 60 });
+    assert.deepEqual(heroOf(ren).bars.slice(0, 2).map(bar => ({ cur: bar.value, max: bar.max })), [{ cur: 82, max: 82 }, { cur: 40, max: 40 }]);
+    assert.deepEqual(heroOf(lyra).bars.slice(0, 1).map(bar => ({ cur: bar.value, max: bar.max })), [{ cur: 0, max: 60 }]);
     assert.ok(lyra.classList.contains('down'));
     assert.ok(!ren.classList.contains('down'));
     checkProps(drawn);
@@ -303,7 +304,7 @@ test('status card: level-ups and skills are named; "only what changed" hides the
     const drawn = draw(statusCardScreen, makeState(), { changes, settings: { 'screens.cardOnlyChanged': true } });
     assert.deepEqual(drawn.warnings, []);
     const members = all(drawn.el, '.member');
-    assert.deepEqual(members.map(member => text(member.querySelector('.nm'))), ['Lyra']);
+    assert.deepEqual(members.map(member => heroOf(member).name), ['Lyra']);
     assert.deepEqual(all(members[0], '.chg').map(text), ['Lv 2', 'Skills']);
     assert.ok(drawn.el.querySelector('.rb-status').classList.contains('quiet'));
     assert.equal(drawn.el.querySelector('.changes'), null);
@@ -341,7 +342,7 @@ test('status card: a reply that changed nothing for the party says so; an older 
     assert.match(text(drawn.el.querySelector('.calm')), /Nothing changed for the party/);
     // The same screen for another reply, whose ops touched Lyra's MP.
     drawn.rerender(makeState(), ['/domains/party/actors/ac_lyra0001/mp']);
-    assert.deepEqual(all(drawn.el, '.member.moved').map(member => text(member.querySelector('.nm'))), ['Lyra']);
+    assert.deepEqual(all(drawn.el, '.member.moved').map(member => heroOf(member).name), ['Lyra']);
     assert.equal(drawn.el.querySelector('.calm'), null);
 });
 
@@ -377,8 +378,11 @@ test('every screen draws with Story Block\'s real standard widgets, none missing
     }
     const party = draw(partyScreen, makeState(), { real: true });
     const ren = party.el.querySelectorAll('article.actor')[0];
-    assert.equal(ren.querySelector('.pool.hp .ss-w-meter').getAttribute('aria-valuetext'), '57 / 82');
-    assert.deepEqual(ren.querySelectorAll('.ss-w-tree-skill').map(node => node.getAttribute('data-state')), ['active', 'active', 'learned', 'active', 'active']);
+    assert.equal(text(ren.querySelector('.ss-hero-name')), 'Ren');
+    assert.ok(ren.querySelector('.ss-hero .ss-bar-hp'), 'the HP bar is Story Block\'s bar');
+    // Skills are tiles: the four in use are ready (a tick), the set-aside one is not.
+    assert.equal(ren.querySelectorAll('.ss-tile').length, 5);
+    assert.equal(ren.querySelectorAll('.ss-tile-ready').length, 4);
     assert.equal(ren.querySelectorAll('.ss-w-stepper').length, 7);
-    assert.equal(ren.querySelectorAll('.ss-w-badge').length, 2);
+    assert.equal(ren.querySelectorAll('.ss-status').length, 2);
 });

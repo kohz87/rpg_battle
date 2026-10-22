@@ -34,7 +34,7 @@ test('the part exports the five default screens under the new `screens` key, its
     assert.deepEqual(screens.map(screen => screen.id), ['rpg-battle/party', 'rpg-battle/trade', 'rpg-battle/crafting', 'rpg-battle/hud', 'rpg-battle/status-card']);
     assert.equal(byId['rpg-battle/items'], undefined);
     assert.equal(part.screens, screens);
-    assert.deepEqual(Object.keys(part.queries).sort(), ['rpg-battle.cards', 'rpg-battle.carry', 'rpg-battle.crafting', 'rpg-battle.hud', 'rpg-battle.itemDetail', 'rpg-battle.trade']);
+    assert.deepEqual(Object.keys(part.queries).sort(), ['rpg-battle.cards', 'rpg-battle.carry', 'rpg-battle.crafting', 'rpg-battle.heroes', 'rpg-battle.hud', 'rpg-battle.itemDetail', 'rpg-battle.trade']);
     assert.deepEqual(Object.keys(part.widgets).sort(), ['rpg-battle.character-file', 'rpg-battle.item-detail']);
     for (const widget of Object.values(part.widgets)) {
         assert.equal(typeof widget.render, 'function');
@@ -90,7 +90,7 @@ test('data bindings name the view queries; the status card reads the reply\'s ow
     assert.deepEqual(byId['rpg-battle/crafting'].data, { craft: { query: 'rpg-battle.crafting' } });
     assert.deepEqual(byId['rpg-battle/trade'].data, { trade: { query: 'rpg-battle.trade' } });
     assert.deepEqual(byId['rpg-battle/hud'].data, { hud: { query: 'rpg-battle.hud' } });
-    assert.deepEqual(byId['rpg-battle/status-card'].data, { terms: { query: 'party.terms' }, pools: { query: 'party.pools' }, checks: { query: 'checks.view' } });
+    assert.deepEqual(byId['rpg-battle/status-card'].data, { terms: { query: 'party.terms' }, pools: { query: 'party.pools' }, heroes: { query: 'rpg-battle.heroes' }, checks: { query: 'checks.view' } });
     assert.match(byId['rpg-battle/status-card'].template, /changed\(state\.party\.actors\[id\]\.hp\)/);
     for (const screen of screens) {
         const aliases = new Set(Object.keys(screen.data ?? {}));
@@ -100,19 +100,17 @@ test('data bindings name the view queries; the status card reads the reply\'s ow
     }
 });
 
-test('css: under 64 KB, theme colours as custom properties, nothing the scoper would drop', () => {
+test('css: under 64 KB, Story Block tokens only (no colour of its own), nothing the scoper would drop', () => {
     for (const screen of screens) {
         const size = new TextEncoder().encode(screen.css).length;
         assert.ok(size < 64 * 1024, `${screen.id} css is ${size} bytes`);
         assert.ok(size < 16 * 1024, `${screen.id} css stays small (${size} bytes)`);
         assert.doesNotMatch(screen.css, /@import|@charset|@namespace|@page|position\s*:\s*fixed|url\(|expression\(|behavior\s*:|-moz-binding|javascript:/i, screen.id);
-        assert.match(screen.css, /var\(--SmartThemeBodyColor/, `${screen.id} follows the SillyTavern theme's text colour`);
-        assert.match(screen.css, /var\(--SmartThemeBlurTintColor/, `${screen.id} follows the SillyTavern theme's tint`);
-        for (const [key, value] of Object.entries(screen.theme)) {
-            assert.match(key, /^--[a-z0-9-]+$/);
-            assert.equal(typeof value, 'string');
-        }
-        for (const pool of ['--rb-hp', '--rb-mp', '--rb-sp', '--rb-xp']) assert.ok(screen.theme[pool], `${screen.id} theme sets ${pool}`);
+        // The look is Story Block's: colours come from its tokens, never a literal colour or a SillyTavern variable.
+        assert.doesNotMatch(screen.css, /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/, `${screen.id} has a colour of its own`);
+        assert.doesNotMatch(screen.css, /--rb-|--SmartTheme/, `${screen.id} keeps the old palette`);
+        assert.match(screen.css, /var\(--ss-/, `${screen.id} uses Story Block's tokens`);
+        assert.equal(screen.theme, undefined, `${screen.id} has no palette of its own (the tokens come from Story Block)`);
         // Mobile first: a block screen's root is a size container and wider layouts come from container
         // queries. The HUD item is sized by what it holds, so its root is never one (it would shrink to
         // nothing in the strip); it follows the viewport.
@@ -194,7 +192,9 @@ test('buttons run commands RPG Battle has; widgets are the standard ss.* set', (
     ]);
     assert.doesNotMatch(byId['rpg-battle/crafting'].template, /data-command|<button/);
     const widgets = new Set(screens.flatMap(screen => [...screen.template.matchAll(WIDGET_TAG)].map(match => match[1])));
-    for (const name of ['ss.meter', 'ss.portrait', 'ss.badge', 'ss.radar', 'ss.skill-tree', 'ss.stepper']) assert.ok(widgets.has(name), `a screen uses ${name}`);
+    for (const name of ['ss.hero', 'ss.tiers', 'ss.radar', 'ss.stepper']) assert.ok(widgets.has(name), `a screen uses ${name}`);
+    // Story Block's blocks replace the old widgets the screens used to draw (ss.meter, ss.portrait, ss.badge, ss.skill-tree).
+    for (const name of ['ss.meter', 'ss.portrait', 'ss.badge', 'ss.skill-tree']) assert.ok(!widgets.has(name), `no screen draws ${name} any more`);
 });
 
 test('feature tags (MODULES §F100): the Crafting screen is the crafting feature\'s', () => {
