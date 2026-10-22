@@ -3,11 +3,13 @@
 // head rebuilt from the chat equals the live head, and no block of valid input is skipped on
 // replay (store.problems()). Bookkeeping later replies write must be keyed by the reply (or an id),
 // add-only, never a list position or a field of an object an earlier reply made (SPEC §2). Pool changes,
-// level-ups (XP), the story's own XP awards (`+ xp`), spends and rests are counts (party/pools.js) and are in the mix.
+// level-ups (XP), the story's own XP awards (`+ xp`), spends and rests are counts (party/pools.js) and are in the mix;
+// a level a delete leaves unearned is undone where it is read (confirm C-2), checked after every step.
 // A few seeds run in `npm test`; FUZZ_DELETE_SEEDS=<n> FUZZ_DELETE_REPLIES=<n> run more.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { rpgHost, seeded } from '../integration/helpers/host.js';
+import { earnedLevel } from '../../../src/v2/party/pools.js';
 
 const SEEDS = Number(process.env.FUZZ_DELETE_SEEDS) || 4;
 const REPLIES = Number(process.env.FUZZ_DELETE_REPLIES) || 18;
@@ -184,7 +186,17 @@ for (const [seed, replies] of CASES) {
                     // Every member's numbers read fitted (party/pools.js): a pool's cur within 0…max, level from 1.
                     for (const actor of host.q('party.actors') ?? []) {
                         for (const pool of ['hp', 'mp', 'sp']) assert.ok(actor[pool].cur >= 0 && actor[pool].cur <= actor[pool].max, `seed ${seed} reply ${n}: ${actor.name}'s ${pool} reads ${actor[pool].cur}/${actor[pool].max}`);
-                        assert.ok(actor.level >= 1 && actor.xp >= 0 && actor.points >= 0, `seed ${seed} reply ${n}: ${actor.name}'s level, XP and points read fitted`);
+                        assert.ok(actor.level >= 1 && actor.xp >= 0 && Number.isInteger(actor.points), `seed ${seed} reply ${n}: ${actor.name}'s level, XP and points read fitted`);
+                    }
+                    // A level is earned (confirm C-2): what a member reads is the XP book fitted (pools.js
+                    // earnedLevel: no level its XP does not reach), the stored XP and earned XP never below 0,
+                    // and points below 0 only as owed, with a level step behind the level it reads.
+                    for (const raw of Object.values(host.head().domains.party?.actors ?? {})) {
+                        assert.ok(Number.isInteger(raw.xp) && raw.xp >= 0, `seed ${seed} reply ${n}: ${raw.name}'s stored XP is ${raw.xp}`);
+                        if (raw.earned !== undefined) assert.ok(Number.isInteger(raw.earned) && raw.earned >= 0, `seed ${seed} reply ${n}: ${raw.name}'s earned XP is ${raw.earned}`);
+                        const read = (host.q('party.actors') ?? []).find(actor => actor.id === raw.id);
+                        const book = earnedLevel(raw);
+                        if (book && read) assert.deepEqual([read.level, read.xp, read.points], [book.level, book.xp, book.points], `seed ${seed} reply ${n}: ${raw.name} reads the XP book`);
                     }
                     // Nothing throws to the reader: the fight's views always answer (a view or null).
                     assert.doesNotThrow(() => { host.q('combat.session'); host.q('combat.board'); }, `seed ${seed} reply ${n}: a fight view threw`);
