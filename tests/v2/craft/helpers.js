@@ -18,10 +18,15 @@ export const PACK = {
             { name: 'Bone Charm', kind: 'equipment', rarity: 'uncommon', value: 500, slot: 'accessory', stats: { DEF: 2 } },
         ],
         recipes: [
-            { name: 'Iron Sword', makes: 'iron-sword', materials: [{ item: 'iron-ore', qty: 3 }, { item: 'ember-salt', qty: 1 }], craft: 'smithing', dc: 12, minutes: 120, teaches: ['Hollis', 'Smithing Primer'] },
+            { name: 'Iron Sword', makes: 'iron-sword', materials: [{ item: 'iron-ore', qty: 3 }, { item: 'ember-salt', qty: 1 }], craft: 'smithing', dc: 12, minutes: 120, teaches: 'Hollis at the smithy, or the Smithing Primer' },
             { name: 'Healing Draught', makes: 'healing-draught', materials: [{ item: 'healing-herb', qty: 2 }], craft: 'alchemy', known: true, minutes: 60 },
             { name: 'Grilled Fish', makes: 'grilled-fish', materials: [{ item: 'river-fish', qty: 1 }], craft: 'cooking', known: true, minutes: 30 },
-            { name: 'Bone Charm', makes: 'bone-charm', materials: [{ item: 'bone-chip', qty: 2 }], craft: 'leatherwork', known: true, dc: 5 },
+            { name: 'Bone Charm', makes: 'bone-charm', materials: [{ item: 'bone-chip', qty: 2 }], craft: 'leather', known: true, dc: 5 },
+        ],
+        // Story Block's craft table with two crafts changed (PACKS.md "crafts"): smithing on STR alone, cooking on DEX.
+        crafts: [
+            { id: 'smithing', title: 'Smithing', stats: ['STR'], stations: ['forge'] },
+            { id: 'cooking', title: 'Cooking', stats: ['DEX'], stations: ['campfire', 'inn'] },
         ],
     },
 };
@@ -54,6 +59,7 @@ export async function replyWhen(host, text, wanted, lines, { place = 1, most = 4
         const now = rolls[place - 1];
         if (!wanted(now)) return 'Nothing happens.';
         die = now;
+        replyWhen.rolls = [...rolls];
         return host.reply('It is done.', lines(now));
     };
     const lazy = { toString: reply };

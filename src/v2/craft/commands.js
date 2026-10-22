@@ -16,7 +16,8 @@
 //   materials (a fail: half of them; a natural 1: all, and a botched item), makes the item (the
 //   quality's numbers, the materials' elements, worth what went into it; trade's resale cap set to
 //   what the materials would fetch), counts a use of the craft, and moves the clock on by the
-//   recipe's minutes. A story quality that disagrees with the dice is flagged on the reply's card
+//   recipe's minutes (Story Director's `director.advance`; without it no story time passes, and the
+//   receipt says so). A story quality that disagrees with the dice is flagged on the reply's card
 //   (`craft.last`) and in the receipt. Refused (nothing consumed): an unknown recipe, a recipe the
 //   crafter does not know, no station, missing materials, a third craft in one reply.
 //
@@ -27,11 +28,12 @@
 import { KEEPER, advanceClock, consume, grant, keepPaid, scaleOf, tryQuery } from './calls.js';
 import { MAX_KNOWN_EACH, MAX_MATERIALS, MAX_MADE, MAX_PER_REPLY, MAX_TAUGHT, draftCraft, knowKey, madeEntries, prune, usesOf } from './domain.js';
 import { defByName, envOfCtx, findRecipe, knownBy, planOf, recipes, rulesOf, tableOf } from './book.js';
-import { inputWorth, junkDef, outputDef } from './make.js';
+import { STORY_WORTH_TIMES, baseOutput, fitToWorth, inputWorth, junkDef, outputDef, outputWorth, qualityWithin } from './make.js';
 import {
     DC_BY_RARITY, QUALITY_TEXT, clip, craftKey, dcOfRank, halfOf, mismatchOf, nameKey, qualityOf, saidQuality, slugOf, stationKey, usesToMax,
 } from './rules.js';
 import { RARITIES } from '../../rules.js';
+import { slotFromWord } from '../../items.js';
 import { storyRarity } from '../limits.js';
 import { clipped } from '../lines.js';
 
@@ -96,8 +98,18 @@ function newId(ctx, craft) {
 
 const fromOf = value => clip(value, 60) || 'the story';
 
+// Words that name nobody: "the lay sealer at the yard" and "the lay sealer at the Salt-and-Ash Yard" share "sealer".
+const PLAIN_WORDS = new Set(['the', 'and', 'at', 'of', 'a', 'an', 'or', 'from', 'as', 'by', 'with', 'in', 'on', 'to', 'for', 'work', 'old', 'his', 'her', 'their']);
+const wordsOf = text => nameKey(text).split(/[^\p{L}\p{N}]+/u).filter(word => word.length >= 3 && !PLAIN_WORDS.has(word));
+
+/** Whether `from` (what the line says taught it) is the pack's `teaches`: one name word in common. */
+export function teachesFrom(teaches, from) {
+    const theirs = new Set(wordsOf(teaches));
+    return wordsOf(from).some(word => theirs.has(word));
+}
+
 /**
- * craft.learn { name, who?, from?, makes?, with?, craft?, rank? }: a pack recipe by its name, or a
+ * craft.learn { name, who?, from?, makes?, with?, craft?, rank?, slot? }: a pack recipe by its name, or a
  * story-taught one (makes + with), for `who` (your character when unsaid).
  */
 export function learn(ctx, request = {}) {
@@ -111,7 +123,7 @@ export function learn(ctx, request = {}) {
     let recipe = book.find(entry => nameKey(entry.name) === nameKey(name)) ?? null;
     const craft = draftCraft(ctx);
     let taughtNew = null;
-    if (recipe?.source === 'pack' && recipe.teaches.length && !recipe.teaches.some(who => nameKey(from).includes(nameKey(who)) || nameKey(who).includes(nameKey(from)))) {
+    if (recipe?.source === 'pack' && recipe.teaches.length && !recipe.teaches.some(who => teachesFrom(who, from))) {
         fail(ctx, 'REFUSED', `${recipe.name} is taught only by ${recipe.teaches.join(' or ')}.`);
     }
     if (!recipe) {
@@ -124,11 +136,25 @@ export function learn(ctx, request = {}) {
         if (!kind) fail(ctx, 'INVALID', `${said ? `${said} is not a craft` : 'Say the craft'}: ${Object.keys(table).join(', ')}.`);
         if (Object.keys(craft.taught).length >= MAX_TAUGHT) fail(ctx, 'REFUSED', `This chat keeps ${MAX_TAUGHT} story-taught recipes at most.`);
         const rarity = rarityOfStoryOutput(env, makes, materials);
+        // RX-E-3: an item a pack or the inventory already has may be named only when it is worth at most
+        // STORY_WORTH_TIMES × what it is made from (a material nobody has priced yet counts as nothing).
+        const named = defByName(env, makes);
+        if (named) {
+            const settings = rulesOf(ctx.settings?.() ?? null);
+            const level = Number.isInteger(actor.level) && actor.level > 0 ? actor.level : 1;
+            const scale = scaleOf((n, a) => tryQuery(ctx, n, a));
+            const inputs = inputWorth(materials.map(part => ({ def: defByName(env, part.name), qty: part.qty })), { level, rules: settings, scale }).worth;
+            const worth = outputWorth(baseOutput({ name, makes: { name: makes, def: named }, craft: kind }, []), 'normal', { level, rules: settings, scale, def: named });
+            if (worth > Math.floor(STORY_WORTH_TIMES * inputs)) {
+                fail(ctx, 'REFUSED', `${clip(named.name, 80)} is worth ${worth}, more than ${STORY_WORTH_TIMES}× what ${materials.map(part => part.name).join(', ')} ${materials.length === 1 && materials[0].qty === 1 ? 'is' : 'are'} worth (${inputs}): a recipe the story teaches cannot make it from that.`);
+            }
+        }
         const rankDc = dcOfRank(request.rank);
         const dc = Math.max(DC_BY_RARITY[rarity], rankDc ?? 0);
         let id = `story/${slugOf(name)}`;
         for (let n = 2; Object.hasOwn(craft.taught, id); n += 1) id = `story/${slugOf(name).slice(0, 44)}-${n}`;
-        taughtNew = { id, name, craft: kind, makes: { name: makes }, materials, dc, minutes: table[kind]?.minutes ?? 60, rarity, from, rev: revOf(ctx) };
+        const slot = slotFromWord(clip(request.slot, 20)) ?? null;
+        taughtNew = { id, name, craft: kind, makes: { name: makes, ...(slot ? { slot } : {}) }, materials, dc, minutes: table[kind]?.minutes ?? 60, rarity, from, rev: revOf(ctx) };
         recipe = { id, name, craft: kind, dc, known: false, source: 'story' };
     }
     const key = knowKey(actor.id, recipe.id);
@@ -231,6 +257,12 @@ function dieFor(ctx, craft, written) {
 // ---------------------------------------------------------------------------------------
 // Crafting
 
+/**
+ * The materials as they count toward what the item is worth: a key item (a story gift, a stack with
+ * `key: true`) counts for nothing, so gift → craft → sell pays nothing.
+ */
+export const worthParts = parts => parts.map(part => ({ def: part.def, qty: part.takes.length ? part.takes.reduce((sum, take) => sum + (take.key ? 0 : take.qty), 0) : part.need }));
+
 const plural = (qty, name) => (qty === 1 ? name : `${qty} ${name}`);
 const signed = amount => (amount < 0 ? `−${-amount}` : `+${amount}`);
 
@@ -254,22 +286,37 @@ export function make(ctx, request = {}) {
     }
     // A campfire can be made where the party is; a forge, a bench or a table cannot.
     const at = stationKey(request.at);
-    const made = at === 'fire' ? ['fire'] : [];
+    const made = at === 'campfire' ? ['campfire'] : [];
     const plan = planOf(env, actor, recipe, { made, rules });
     if (!plan.ready) fail(ctx, plan.code || 'REFUSED', `${actor.name} cannot craft ${recipe.name}: ${plan.why}`);
+    // RX-E-3: what a story-taught recipe makes is worth at most STORY_WORTH_TIMES × what goes into it, at
+    // whatever quality the dice give (pack recipes are as their pack wrote them).
+    const level = Number.isInteger(actor.level) && actor.level > 0 ? actor.level : 1;
+    const scale = scaleOf((n, a) => tryQuery(ctx, n, a));
+    const story = recipe.source === 'story';
+    const cap = story ? Math.floor(STORY_WORTH_TIMES * inputWorth(worthParts(plan.parts), { level, rules, scale }).worth) : Infinity;
+    const worthOptions = { level, rules, scale, def: recipe.makes?.def ?? null };
+    // What code builds is sized to the cap (a masterwork of it fits); a pack's or the inventory's item is not.
+    const built = baseOutput(recipe, plan.parts, { level, rules });
+    const base = story && !recipe.makes?.def ? fitToWorth(built, cap, worthOptions) ?? built : built;
+    if (story && outputWorth(base, 'normal', worthOptions) > cap) {
+        fail(ctx, 'REFUSED', `${actor.name} cannot craft ${recipe.name}: ${base.name} is worth more than ${STORY_WORTH_TIMES}× what goes into it (${cap}).`);
+    }
 
     const craft = draftCraft(ctx);
     const dice = dieFor(ctx, craft, request.roll);
     if (dice.refused) fail(ctx, 'REFUSED', `Only ${MAX_PER_REPLY} crafts count in one reply: ${recipe.name} was not made.`);
     const total = dice.die + plan.mod;
-    const quality = qualityOf(dice.die, total, plan.dc);
+    const rolled = qualityOf(dice.die, total, plan.dc);
+    const held = story && ['fine', 'masterwork'].includes(rolled) ? qualityWithin(base, rolled, cap, worthOptions) : rolled;
+    const quality = held ?? 'normal';
     const said = saidQuality(request.result);
     const mismatch = mismatchOf(said, quality);
-    const notes = [dice.note];
+    const notes = [dice.note, quality !== rolled ? `held to ${QUALITY_TEXT[quality]}: the dice gave ${QUALITY_TEXT[rolled]}, but the materials are worth too little for more` : ''];
     const named = parseMaterials(request.with).filter(part => !recipe.materials.some(own => nameKey(own.name) === nameKey(part.name) || nameKey(own.name).replace(/s$/, '') === nameKey(part.name).replace(/s$/, '')));
     if (named.length) notes.push(`the recipe does not use ${named.map(part => part.name).join(', ')}`);
     if (request.at && !at) notes.push(`${clip(request.at, 30)} is not a station`);
-    else if (at && at !== 'fire' && at !== recipe.station) notes.push(`a station is where the party is, not what the line says`);
+    else if (at && at !== 'campfire') notes.push('a station is where the party is, not what the line says');
 
     // The materials: all of them, but half on a fail.
     const parts = plan.parts.map(part => ({ ...part, qty: part.need }));
@@ -287,18 +334,16 @@ export function make(ctx, request = {}) {
     }
 
     // The item made (or the botched one).
-    const level = Number.isInteger(actor.level) && actor.level > 0 ? actor.level : 1;
-    const scale = scaleOf((n, a) => tryQuery(ctx, n, a));
     let item = null;
     let qty = 0;
     let refine = 0;
     if (quality === 'normal' || quality === 'fine' || quality === 'masterwork') {
-        const out = outputDef(recipe, quality, parts, { level, rules, scale });
+        const out = outputDef(recipe, quality, parts, { level, rules, scale, worthParts: worthParts(parts), base });
         qty = recipe.qty ?? 1;
         const granted = grant(ctx, out.def, qty, out.def.note);
         const defId = typeof granted?.data?.def === 'string' ? granted.data.def : out.def.id;
         // It never sells for more than its materials would have fetched (B-b3-13): no value made from nothing.
-        const { fetch } = inputWorth(parts.map(part => ({ def: part.def, qty: part.need })), { level, rules, scale });
+        const { fetch } = inputWorth(worthParts(parts), { level, rules, scale });
         keepPaid(ctx, defId, Math.floor(fetch / Math.max(1, qty)));
         item = { def: defId, name: out.def.name };
         refine = out.refine;
@@ -331,7 +376,7 @@ export function make(ctx, request = {}) {
     const lostText = lost.length ? ` ${quality === 'fail' ? 'Lost' : 'Used'} ${lost.map(part => plural(part.qty, part.name)).join(', ')}.` : '';
     const flag = mismatch ? ` The story ${mismatch.replace(/^narrated/, 'narrated it')}.` : '';
     return {
-        summary: `${actor.name} crafts ${text}.${madeText}${lostText}${minutes ? ` It took ${minutes} minutes.` : ''}${flag}`,
+        summary: `${actor.name} crafts ${text}.${madeText}${lostText}${minutes ? (clock ? ` It took ${minutes} minutes.` : ` No story time passes (no story clock moves here; it would take ${minutes} minutes).`) : ''}${flag}`,
         data: {
             craft: id, actor: actor.id, recipe: recipe.id, kind: recipe.craft, roll: dice.roll, die: dice.die, modifiers: JSON.parse(JSON.stringify(plan.modifiers)), mod: plan.mod,
             dc: plan.dc, total, quality, said, mismatch, note: craft.made[id].note, item, qty, lost, refine, minutes, clock, owner: KEEPER, carrier: dice.key,
@@ -355,7 +400,7 @@ function applyRecipe(ctx, line) {
     const request = {
         name: line?.name, who: labels.who ?? labels.by ?? labels.learner ?? null,
         from: labels.from ?? labels['taught by'] ?? labels.teacher ?? (String(line?.text ?? '').replace(/^from\s+/i, '') || null),
-        makes: labels.makes ?? null, with: labels.with ?? labels.materials ?? null, craft: labels.craft ?? null, rank: labels.rank ?? null,
+        makes: labels.makes ?? null, with: labels.with ?? labels.materials ?? null, craft: labels.craft ?? null, rank: labels.rank ?? null, slot: labels.slot ?? null,
     };
     if (line?.op === '-') return forget(ctx, request);
     if (line?.op === '+' || line?.op === '~' || !line?.op) return learn(ctx, request);
@@ -372,7 +417,7 @@ function applyCraft(ctx, line) {
 }
 
 export const GRAMMAR = Object.freeze({
-    recipe: '+ recipe Name | from: who or what taught it | who: Name (someone learns a recipe; one the packs lack also says | makes: Item | with: Material x2, Material | craft: smithing|leatherwork|alchemy|enchanting|cooking); - recipe Name | who: Name when forgotten',
+    recipe: '+ recipe Name | from: who or what taught it | who: Name (someone learns a recipe; one the packs lack also says | makes: Item | with: Material x2, Material | craft: smithing|leather|alchemy|enchanting|cooking or a pack\'s craft, and | slot: weapon|armour|… for gear); - recipe Name | who: Name when forgotten',
     craft: '! craft Recipe | with: Material x2, Material | by: Name | roll: <1 or 2> | result: fail|made|fine|masterwork (someone crafts a recipe they know; it takes the reply\'s next roll like a check; add | at: campfire for a fire made on the spot)',
 });
 

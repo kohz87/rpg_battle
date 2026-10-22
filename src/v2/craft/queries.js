@@ -1,7 +1,7 @@
 // RPG Battle v2, part **craft**: its queries (read-only, plain copies) and the tail's crafting line.
 //
 // * `craft.view {}` → the Crafting screen's data (RPG Battle's screens part draws it, read-only):
-//   { people: [{ id, name, you, skills: [{ craft, rank, uses, toNext, max }], recipes: [{ id, name,
+//   { people: [{ id, name, you, skills: [{ craft, rank, uses, toNext, max }], count, recipes: [{ id, name,
 //   craft, from, station?: { name, here }, materials: [{ name, need, have }], chances: { fail, normal,
 //   fine, masterwork } (whole percents; a natural 1 is in fail), dc, mod, ready, why? }] }] }, your
 //   character first.
@@ -10,8 +10,8 @@
 // * `craft.last {}` → the latest reply's crafts, for its card: { carrier, rev, results: [{ id, actor,
 //   name, text, quality, qualityText, item, mismatch, note }] } or null.
 // * `craft.log {}` → the crafts kept, oldest first.
-// * `craft.rollsUsed { carrier }` → the roll numbers that reply's crafts took (for the checks part,
-//   so a check after a craft takes the next roll).
+// * `craft.rollsUsed { carrier }` → the roll each of that reply's crafts took, in order (0: rolled by
+//   code), so the checks part counts them in its place and a check after a craft takes the next roll.
 // * `craft.skills { actor? }` → [{ craft, rank, uses, toNext, max }] for a member.
 
 import { madeEntries, usesOf } from './domain.js';
@@ -50,13 +50,12 @@ export function view(state, args = {}, tools = null) {
     const rules = rulesOf(tools?.settings ?? args?.settings ?? null);
     const { pc, actors } = people(env);
     const book = recipes(env);
-    const here = stationsOf(env);
+    const here = stationsOf(env, [], book);
     return copy({
-        people: actors.map(actor => ({
-            id: actor.id, name: actor.name, you: actor.id === pc?.id,
-            skills: skillsOf(env, actor.id, rules),
-            recipes: knownBy(env, actor.id, book).map(recipe => recipeRow(planOf(env, actor, recipe, { rules, here }), recipe)),
-        })),
+        people: actors.map(actor => {
+            const recipes = knownBy(env, actor.id, book).map(recipe => recipeRow(planOf(env, actor, recipe, { rules, here }), recipe));
+            return { id: actor.id, name: actor.name, you: actor.id === pc?.id, skills: skillsOf(env, actor.id, rules), count: recipes.length, recipes };
+        }),
     });
 }
 
@@ -70,7 +69,7 @@ export function known(state, args = {}, tools = null) {
 export function all(state, args = {}, tools = null) {
     const env = envOfState(state, tools?.query);
     return copy(recipes(env).map(recipe => ({
-        id: recipe.id, name: recipe.name, craft: recipe.craft, stat: recipe.stat, station: recipe.station, dc: recipe.dc, minutes: recipe.minutes,
+        id: recipe.id, name: recipe.name, craft: recipe.craft, stats: recipe.stats, stations: recipe.stations, dc: recipe.dc, minutes: recipe.minutes,
         known: recipe.known, source: recipe.source, makes: recipe.makes?.name ?? '', materials: recipe.materials.map(part => ({ name: part.name, qty: part.qty })),
     })));
 }
@@ -90,7 +89,7 @@ export const log = state => copy(madeEntries(state?.domains?.craft));
 
 export function rollsUsed(state, args = {}) {
     const carrier = String(args?.carrier ?? '');
-    return madeEntries(state?.domains?.craft).filter(entry => entry.carrier === carrier && entry.roll > 0).map(entry => entry.roll);
+    return madeEntries(state?.domains?.craft).filter(entry => entry.carrier === carrier).map(entry => (Number.isInteger(entry.roll) ? entry.roll : 0));
 }
 
 export function skills(state, args = {}, tools = null) {

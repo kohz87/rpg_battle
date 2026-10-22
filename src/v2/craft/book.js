@@ -12,11 +12,11 @@
 // before the dice: the station, the materials had and missing, code's modifiers and the DC; the
 // quality chances follow from them (rules.js chancesOf).
 
-import { DEFAULT_RULES, RARITIES, checkModifier, makeRules } from '../../rules.js';
+import { DEFAULT_RULES, RARITIES, makeRules } from '../../rules.js';
 import { knowKey, usesOf } from './domain.js';
 import {
-    STATIONS, chancesOf, clip, craftOfRecipe, craftTable, dcOf, materialBonus, nameKey, rankOf,
-    stationOf, stationsHere, statOf,
+    chancesOf, clip, craftOfRecipe, craftTable, dcOf, materialBonus, nameKey, rankOf,
+    stationsHere, stationsOfRecipe, stationsText, statsModifier, statsOf,
 } from './rules.js';
 
 const isRecord = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -54,10 +54,18 @@ export function envOfState(state, query) {
     return withPacks({ ask, craft: domains.craft ?? null, inventory: domains.inventory ?? null, party: domains.party ?? null, scene: domains.scene ?? null, time: () => domains.director?.time?.minutes ?? null });
 }
 
+// What one command or query reads more than once is read once (B-rxui-10: a screen with hundreds of
+// recipes must not ask the same queries per recipe): the packs' content by kind, and anything `memo`
+// keeps by its key (the craft table, the uses, a member's counted modifiers per craft).
 function withPacks(env) {
     const cache = {};
+    const kept = new Map();
     const content = kind => (cache[kind] ??= list(env.ask('packs.content', { kind })).filter(isRecord));
-    return Object.freeze({ ...env, content });
+    const memo = (key, make) => {
+        if (!kept.has(key)) kept.set(key, make());
+        return kept.get(key);
+    };
+    return Object.freeze({ ...env, content, memo });
 }
 
 /** The rules a craft reads: v1's, with a rules file's numbers (settings `rules`) over them. */
@@ -100,9 +108,10 @@ function packRecipe(env, record, table) {
         const def = defById(env, part.item);
         return { id: part.item, name: clip(def?.name ?? String(part.item ?? '').split('/').at(-1), 80), qty: Number.isInteger(part.qty) && part.qty > 0 ? part.qty : 1 };
     });
-    const teaches = (Array.isArray(record.teaches) ? record.teaches : record.teaches ? [record.teaches] : []).map(name => clip(name, 60)).filter(Boolean);
+    // Who teaches it (PACKS.md: one text of up to 120 characters; a list from an older pack is read too).
+    const teaches = (Array.isArray(record.teaches) ? record.teaches : record.teaches ? [record.teaches] : []).map(name => clip(name, 120)).filter(Boolean);
     return {
-        id: record.id, name: clip(record.name, 80), source: 'pack', craft, stat: statOf(record, craft, table), station: stationOf(record, craft, table),
+        id: record.id, name: clip(record.name, 80), source: 'pack', craft, craftTitle: table[craft]?.title ?? craft, stats: statsOf(record, craft, table), stations: stationsOfRecipe(record, craft, table),
         dc: dcOf(record, makes?.rarity), minutes: minutesOf(record, craft, table), qty: Number.isInteger(record.qty) && record.qty > 0 ? Math.min(record.qty, 20) : 1,
         known: record.known === true, teaches, materials, makes: { id: record.makes ?? null, name: clip(madeName, 80), def: makes ?? null },
         rarity: RARITIES.includes(makes?.rarity) ? makes.rarity : 'common',
@@ -116,18 +125,22 @@ function storyRecipe(env, record, table) {
     const craft = table[record.craft] ? record.craft : craftOfRecipe(record, table, record.makes?.name);
     const def = defByName(env, record.makes?.name);
     return {
-        id: record.id, name: record.name, source: 'story', craft, stat: statOf(record, craft, table), station: stationOf(record, craft, table),
+        id: record.id, name: record.name, source: 'story', craft, craftTitle: table[craft]?.title ?? craft, stats: statsOf(record, craft, table), stations: stationsOfRecipe(record, craft, table),
         dc: record.dc, minutes: record.minutes, qty: 1, known: false, teaches: [], from: record.from ?? '',
         materials: list(record.materials).map(part => ({ id: defByName(env, part.name)?.id ?? null, name: part.name, qty: part.qty })),
-        makes: { id: def?.id ?? null, name: record.makes.name, def: def ?? null }, rarity: record.rarity ?? 'common',
+        makes: { id: def?.id ?? null, name: record.makes.name, def: def ?? null, ...(record.makes.slot ? { slot: record.makes.slot } : {}) }, rarity: record.rarity ?? 'common',
     };
 }
 
 /** The crafts in use (the packs' `crafts` records over the built-in ones). */
-export const tableOf = env => craftTable(env.content('crafts'));
+export const tableOf = env => env.memo('crafts', () => craftTable(env.ask('packs.crafts', {})));
 
 /** Every recipe there is: the packs' (in pack order), then the story's; [{ …book shape }]. */
 export function recipes(env) {
+    return env.memo('recipes', () => readRecipes(env));
+}
+
+function readRecipes(env) {
     const table = tableOf(env);
     const out = env.content('recipes').filter(record => typeof record.id === 'string' && record.name).map(record => packRecipe(env, record, table));
     const taught = Object.values(env.craft?.taught ?? {}).filter(isRecord).sort((a, b) => (a.rev ?? 0) - (b.rev ?? 0));
@@ -159,17 +172,28 @@ export function knownBy(env, actorId, book = recipes(env)) {
 // ---------------------------------------------------------------------------------------
 // Where the party is
 
-/** The place as the scene has it, and its pack place when a pack names it. */
-export function placeOf(env) {
+/**
+ * What is said about where the party is: the scene's place (name, kind), its pack place (kind, note,
+ * aliases), and the pack shops there (name, kind): the words stations are read from.
+ */
+export function placeTexts(env) {
     const place = env.ask('scene.place', {}) ?? env.scene?.place ?? {};
     const name = String(place?.name ?? '');
-    const packPlace = name ? env.content('places').find(entry => sameName(entry.name, name) || list(entry.aliases).some(alias => sameName(alias, name))) ?? null : null;
-    return { place: { name, kind: String(place?.kind ?? '') }, packPlace };
+    const texts = [name, String(place?.kind ?? '')];
+    if (!name) return texts;
+    const packPlace = env.content('places').find(entry => sameName(entry.name, name) || list(entry.aliases).some(alias => sameName(alias, name))) ?? null;
+    if (packPlace) texts.push(packPlace.kind ?? '', packPlace.note ?? '', ...list(packPlace.aliases));
+    for (const shop of env.content('shops')) {
+        if (shop?.place && sameName(shop.place, name)) texts.push(shop.name ?? '', shop.kind ?? '');
+    }
+    return texts;
 }
 
 /** The stations here (rules.js stationsHere); `made`: a station the line says was made (a campfire). */
-export function stationsOf(env, made = []) {
-    return stationsHere({ ...placeOf(env), made });
+export function stationsOf(env, made = [], book = null) {
+    const known = new Set(Object.values(tableOf(env)).flatMap(craft => craft.stations));
+    for (const recipe of book ?? recipes(env)) for (const station of recipe.stations ?? []) known.add(station);
+    return stationsHere({ texts: placeTexts(env), known: [...known], made });
 }
 
 // ---------------------------------------------------------------------------------------
@@ -177,6 +201,10 @@ export function stationsOf(env, made = []) {
 
 /** The stacks a member may craft from: their own and the party's shared bag, not worn, oldest first. */
 export function stacksFor(env, actorId) {
+    return env.memo(`stacks|${actorId}`, () => readStacks(env, actorId));
+}
+
+function readStacks(env, actorId) {
     const stacks = Object.values(env.inventory?.stacks ?? {});
     const mine = stack => stack.owner === actorId ? 0 : 1;
     return stacks.filter(stack => isRecord(stack) && stack.qty > 0 && !stack.equipped && (stack.owner === actorId || stack.owner === 'party'))
@@ -190,10 +218,13 @@ function matches(env, stack, part) {
     return Boolean(def) && sameName(def.name, part.name);
 }
 
-/** The materials as had: [{ name, need, have, def, takes: [{ stack, qty }] }]; a stack counts for one line only. */
+/**
+ * The materials as had: [{ name, need, have, def, takes: [{ stack, qty, def, key? }] }]; a stack counts for one
+ * line only. `key`: a key item (a story gift, its own stack with `key: true`), worth nothing to a craft.
+ */
 export function materialsFor(env, actorId, recipe) {
-    const left = new Map(stacksFor(env, actorId).map(stack => [stack.id, stack.qty]));
     const stacks = stacksFor(env, actorId);
+    const left = new Map(stacks.map(stack => [stack.id, stack.qty]));
     return recipe.materials.map(part => {
         let need = part.qty;
         let have = 0;
@@ -207,7 +238,7 @@ export function materialsFor(env, actorId, recipe) {
             def ??= env.inventory?.defs?.[stack.def] ?? null;
             const take = Math.min(free, need);
             if (take > 0) {
-                takes.push({ stack: stack.id, qty: take, def: stack.def });
+                takes.push({ stack: stack.id, qty: take, def: stack.def, ...(stack.key === true ? { key: true } : {}) });
                 left.set(stack.id, free - take);
                 need -= take;
             }
@@ -222,7 +253,7 @@ export function materialsFor(env, actorId, recipe) {
 
 /** The member's craft rank: { rank, uses, toNext, max } for `craft`. */
 export function rankFor(env, actorId, craft, rules) {
-    return rankOf(usesOf(env.craft)[actorId]?.[craft] ?? 0, rules);
+    return rankOf(env.memo('uses', () => usesOf(env.craft))[actorId]?.[craft] ?? 0, rules);
 }
 
 /**
@@ -231,19 +262,15 @@ export function rankFor(env, actorId, craft, rules) {
  * skill, at most +3), the craft's rank, the station's bonus, the materials' quality.
  */
 export function modifiersFor(env, actor, recipe, { station = null, parts = [], rules = DEFAULT_RULES } = {}) {
-    const out = [];
-    const counted = env.ask('checks.modifiers', { actor: actor.id, skill: `craft ${recipe.craft}`, stat: recipe.stat });
-    if (Array.isArray(counted) && counted.length) {
-        for (const entry of counted) {
-            if (isRecord(entry) && Number.isInteger(entry.amount)) out.push({ source: entry.source === 'stat' ? 'stat' : entry.source, amount: entry.amount, reason: clip(entry.reason, 60) || recipe.stat });
-        }
-    } else {
-        const value = actor?.stats?.[recipe.stat];
-        out.push({ source: 'stat', amount: checkModifier(Number.isFinite(value) ? value : rules.character.startStat, rules), reason: recipe.stat });
+    const stats = recipe.stats?.length ? recipe.stats : ['INT'];
+    const out = [{ source: 'stat', amount: statsModifier(actor, stats, rules), reason: stats.join('+') }];
+    const counted = env.memo(`mods|${actor.id}|${recipe.craft}|${stats[0]}`, () => env.ask('checks.modifiers', { actor: actor.id, skill: `craft ${recipe.craft}`, stat: stats[0] }));
+    for (const entry of Array.isArray(counted) ? counted : []) {
+        if (isRecord(entry) && entry.source !== 'stat' && Number.isInteger(entry.amount)) out.push({ source: entry.source, amount: entry.amount, reason: clip(entry.reason, 60) || entry.source });
     }
     const rank = rankFor(env, actor.id, recipe.craft, rules).rank;
     if (rank) out.push({ source: 'rank', amount: rank, reason: `${recipe.craft} rank ${rank}` });
-    if (station?.bonus) out.push({ source: 'station', amount: station.bonus, reason: clip(station.from || STATIONS[station.key]?.name || 'station', 60) });
+    if (station?.bonus) out.push({ source: 'station', amount: station.bonus, reason: clip(station.from || station.name || 'station', 60) });
     const quality = materialBonus(parts.map(part => ({ qty: part.need, def: part.def })));
     if (quality) out.push({ source: 'materials', amount: quality, reason: 'material quality' });
     return out;
@@ -252,12 +279,18 @@ export function modifiersFor(env, actor, recipe, { station = null, parts = [], r
 export const sumOf = modifiers => modifiers.reduce((sum, entry) => sum + entry.amount, 0);
 
 /**
- * A craft before the dice: { recipe, station: { key, name, here, bonus, from } | null, parts, modifiers,
- * mod, dc, chances, ready, why, code }. `made`: stations the line says were made (a campfire).
+ * A craft before the dice: { recipe, station: { key (the one here, else the first), keys, name, here,
+ * bonus, from } | null (none needed), parts, modifiers, mod, dc, chances, ready, why, code }. `made`:
+ * stations the line says were made (a campfire).
  */
 export function planOf(env, actor, recipe, { made = [], rules = DEFAULT_RULES, here = null } = {}) {
     const stations = here ?? stationsOf(env, made);
-    const station = recipe.station ? { key: recipe.station, name: STATIONS[recipe.station]?.name ?? recipe.station, here: Object.hasOwn(stations, recipe.station), bonus: stations[recipe.station]?.bonus ?? 0, from: stations[recipe.station]?.from ?? '' } : null;
+    const keys = recipe.stations ?? [];
+    const found = keys.find(key => Object.hasOwn(stations, key)) ?? null;
+    const station = keys.length ? {
+        key: found ?? keys[0], keys: [...keys], name: stationsText(keys), here: Boolean(found),
+        bonus: found ? stations[found].bonus ?? 0 : 0, from: found ? stations[found].from ?? '' : '',
+    } : null;
     const parts = materialsFor(env, actor.id, recipe);
     const modifiers = modifiersFor(env, actor, recipe, { station: station?.here ? station : null, parts, rules });
     const mod = sumOf(modifiers);
@@ -265,7 +298,7 @@ export function planOf(env, actor, recipe, { made = [], rules = DEFAULT_RULES, h
     let why = '';
     let code = '';
     if (station && !station.here) {
-        why = `${cap(recipe.craft)} needs ${station.name}, and there is none here.`;
+        why = `${cap(recipe.craftTitle || recipe.craft)} here needs ${station.name}, and there is none.`;
         code = 'REFUSED';
     } else if (missing.length) {
         why = `Missing ${missing.map(part => `${part.need - part.have} ${part.name}`).join(', ')}.`;

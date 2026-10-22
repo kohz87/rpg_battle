@@ -213,7 +213,7 @@ function slotFromCategory(category) {
 
 const EQUIPMENT_CATEGORY = /equip|gear|weapon|armou?r|accessor|jewel/i;
 
-function kindOf(name) {
+export function kindOf(name) {
     return KINDS.find(kind => kind.pattern.test(String(name ?? ''))) ?? null;
 }
 

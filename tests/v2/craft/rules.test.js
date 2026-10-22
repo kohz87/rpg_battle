@@ -3,10 +3,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    CRAFTS, DC_BY_RARITY, chancesOf, craftKey, craftTable, dcOf, dcOfRank, halfOf, materialBonus, mismatchOf, qualityOf, rankOf, saidQuality,
-    scaled, stationKey, stationsHere, usesToMax,
+    DC_BY_RARITY, chancesOf, craftKey, craftTable, dcOf, dcOfRank, halfOf, materialBonus, mismatchOf, qualityOf, rankOf, saidQuality,
+    scaled, stationKey, stationsHere, stationsOfRecipe, stationsText, statList, statsModifier, statsOf, usesToMax,
 } from '../../../src/v2/craft/rules.js';
-import { parseMaterials } from '../../../src/v2/craft/commands.js';
+import { parseMaterials, teachesFrom, worthParts } from '../../../src/v2/craft/commands.js';
+import { clip, nameKey } from '../../../src/v2/craft/rules.js';
 import { inputWorth, junkDef, outputDef } from '../../../src/v2/craft/make.js';
 import { validateCraft, initialCraft } from '../../../src/v2/craft/domain.js';
 import { DEFAULT_RULES } from '../../../src/rules.js';
@@ -63,39 +64,54 @@ test('the story\'s quality words, and the mismatch flag', () => {
     assert.equal(mismatchOf(null, 'fail'), '');
 });
 
-test('stations: a forge by the place\'s words, a fire at a camp or an inn (a town too, but not worth telling), a pack place\'s list', () => {
-    assert.ok(stationsHere({ place: { name: "Hollis's Smithy", kind: 'settlement' } }).forge);
-    assert.equal(stationsHere({ place: { name: 'Bluewatch Village', kind: 'settlement' } }).forge, undefined);
-    const town = stationsHere({ place: { name: 'Bluewatch Village', kind: 'settlement' } });
-    assert.equal(town.fire.notable, false, 'a town has an inn, but is not a station to tell about');
-    assert.equal(stationsHere({ place: { name: 'The Drowned Inn', kind: '' } }).fire.notable, true);
-    assert.deepEqual(stationsHere({ place: { name: 'Deep Woods', kind: 'wild' } }), {});
-    assert.ok(stationsHere({ place: { name: 'Deep Woods', kind: 'wild' }, made: ['fire'] }).fire, 'a campfire made on the spot');
-    const packed = stationsHere({ place: { name: 'Tower' }, packPlace: { stations: ['enchanting table', { station: 'forge', bonus: 9 }] } });
-    assert.ok(packed.enchanting);
-    assert.equal(packed.forge.bonus, 3, 'a station\'s bonus is held to +3');
+test('stations: by what is said about the place (its name and kind, its pack place, the shops there); a town has an inn, not worth telling', () => {
+    assert.ok(stationsHere({ texts: ["Hollis's Smithy", 'settlement'] }).forge);
+    assert.ok(stationsHere({ texts: ["Hollis's Smithy"] }).workbench, 'a smithy has a workbench');
+    const town = stationsHere({ texts: ['Bluewatch Village', 'settlement'] });
+    assert.equal(town.forge, undefined);
+    assert.equal(town.inn.notable, false, 'a town has an inn, but is not a station to tell about');
+    assert.ok(stationsHere({ texts: ['Bluewatch Village', 'Salt-and-Ash Dispensary', 'apothecary'] })['alchemy-table'], 'an apothecary shop there');
+    assert.equal(stationsHere({ texts: ['The Drowned Inn'] }).inn.notable, true);
+    assert.deepEqual(stationsHere({ texts: ['Deep Woods', 'wild'] }), {});
+    assert.ok(stationsHere({ texts: ['Deep Woods'], made: ['campfire'] }).campfire, 'a campfire made on the spot');
+    assert.ok(stationsHere({ texts: ['Salt-and-Ash Yard', 'yard'], known: ['salt-yard'] })['salt-yard'], 'a pack\'s own station, every word of it said');
+    assert.equal(stationsHere({ texts: ['Salt Road'], known: ['salt-yard'] })['salt-yard'], undefined);
     assert.equal(stationKey('anvil'), 'forge');
-    assert.equal(stationKey('campfire'), 'fire');
+    assert.equal(stationKey('campfire'), 'campfire');
+    assert.equal(stationKey('alchemy table'), 'alchemy-table');
     assert.equal(stationKey('sofa'), null);
+    assert.equal(stationsText(['campfire', 'inn']), 'a campfire or an inn');
+    assert.equal(stationsText(['salt-yard']), 'a salt yard');
 });
 
-test('crafts: the built-in table, a written word, and a pack\'s `crafts` records over it', () => {
-    assert.equal(craftKey('brewing'), 'alchemy');
-    assert.equal(craftKey('Smithing'), 'smithing');
-    assert.equal(craftKey('tanning'), 'leatherwork');
-    assert.equal(craftKey('juggling'), null);
-    assert.equal(CRAFTS.smithing.stat, 'STR');
-    const table = craftTable([{ name: 'smithing', stat: 'VIT' }, { name: 'Tailoring', stat: 'DEX', station: 'none' }]);
-    assert.equal(table.smithing.stat, 'VIT');
-    assert.equal(table.smithing.station, 'forge');
-    assert.equal(table.tailoring.stat, 'DEX');
-    assert.equal(table.tailoring.station, null);
-    assert.equal(craftKey('tailoring', table), 'tailoring');
+test('crafts: Story Block\'s table (packs.crafts), the words a story writes for them, a recipe\'s own stat and station', () => {
+    const table = craftTable([
+        { craft: 'smithing', title: 'Smithing', stats: ['STR', 'DEX'], stations: ['forge'], pack: null },
+        { craft: 'leather', title: 'Leatherwork', stats: ['DEX'], stations: ['workbench', 'campfire', 'inn'], pack: null },
+        { craft: 'alchemy', title: 'Alchemy', stats: ['INT', 'DEX'], stations: ['alchemy-table'], pack: 'ersveil' },
+        { craft: 'fieldcraft', title: 'Fieldcraft', stats: ['DEX'], stations: [], pack: 'ersveil' },
+    ]);
+    assert.equal(craftKey('brewing', table), 'alchemy');
+    assert.equal(craftKey('Smithing', table), 'smithing');
+    assert.equal(craftKey('leatherwork', table), 'leather', 'RB\'s old word is Story Block\'s leather');
+    assert.equal(craftKey('Fieldcraft', table), 'fieldcraft');
+    assert.equal(craftKey('juggling', table), null);
+    assert.equal(craftKey('cooking', table), null, 'a craft the table does not have');
+    assert.deepEqual(statsOf({}, 'alchemy', table), ['INT', 'DEX']);
+    assert.deepEqual(statsOf({ stat: 'STR+VIT' }, 'alchemy', table), ['STR', 'VIT'], 'the recipe\'s own wins');
+    assert.deepEqual(statsOf({}, 'unknown', table), ['INT']);
+    assert.deepEqual(stationsOfRecipe({}, 'leather', table), ['workbench', 'campfire', 'inn']);
+    assert.deepEqual(stationsOfRecipe({ station: 'salt-yard' }, 'alchemy', table), ['salt-yard']);
+    assert.deepEqual(stationsOfRecipe({}, 'fieldcraft', table), [], 'anywhere');
+    assert.deepEqual(statList('STR+DEX+STR+XYZ'), ['STR', 'DEX']);
+    // Several stats: the average of their check modifiers, rounded down (STR 9 → +2, DEX 6 → +0: +1).
+    assert.equal(statsModifier({ stats: { STR: 9, DEX: 6 } }, ['STR', 'DEX']), 1);
+    assert.equal(statsModifier({ stats: { INT: 9 } }, ['INT']), 2);
 });
 
 test('DCs: the recipe\'s own (5–30), else its item\'s rarity; a rank\'s', () => {
     assert.equal(dcOf({ dc: 14 }), 14);
-    assert.equal(dcOf({ dc: 99 }), 30);
+    assert.equal(dcOf({ dc: 99 }), 40);
     assert.equal(dcOf({}, 'rare'), DC_BY_RARITY.rare);
     assert.equal(dcOfRank('D'), 12);
     assert.equal(dcOfRank('rank B'), 16);
@@ -153,4 +169,37 @@ test('the domain validator: the initial slice is fine, a record under the wrong 
     assert.deepEqual(validateCraft(initialCraft()), []);
     assert.ok(validateCraft({ ...initialCraft(), known: { x: { actor: 'ac_00000000', recipe: 'pack.x/y', name: 'Y', from: '', rev: 1 } } }).length);
     assert.ok(validateCraft(null).length);
+});
+
+test('a key item (a story gift, its own stack with key: true) adds nothing to what a craft is worth', () => {
+    const def = { name: 'Moon Pearl', kind: 'material', rarity: 'rare', value: 500, tags: [] };
+    const parts = [{ name: 'Moon Pearl', need: 2, def, takes: [{ stack: 'it_00000001', qty: 1, key: true }, { stack: 'it_00000002', qty: 1 }] }];
+    assert.deepEqual(worthParts(parts).map(part => part.qty), [1], 'only the plain pearl counts');
+    const gift = [{ name: 'Moon Pearl', need: 1, def, takes: [{ stack: 'it_00000001', qty: 1, key: true }] }];
+    const recipe = { id: 'story/charm', name: 'Pearl Charm', craft: 'leather', makes: { name: 'Pearl Charm', def: { name: 'Pearl Charm', kind: 'equipment', slot: 'accessory', stats: { DEF: 1 } } } };
+    assert.equal(outputDef(recipe, 'normal', gift, { worthParts: worthParts(gift) }).def.value, 0, 'gift → craft → sell pays nothing');
+    assert.equal(inputWorth(worthParts(gift)).fetch, 0);
+});
+
+test('names are flattened (Story Block cleanName): invisible format characters dropped', () => {
+    assert.equal(clip('\u202eSalve\u200b', 80), 'Salve');
+    assert.equal(nameKey('\u202eSalve\u200b'), nameKey('Salve'));
+    assert.deepEqual(parseMaterials('\u200bHerb x2'), [{ name: 'Herb', qty: 2 }]);
+});
+
+test('who teaches it: one name word in common with the pack\'s `teaches`', () => {
+    assert.equal(teachesFrom('the lay sealer at the Salt-and-Ash Yard, as licensed work', 'the lay sealer'), true);
+    assert.equal(teachesFrom('the lay sealer at the Salt-and-Ash Yard', 'Marrit'), false);
+    assert.equal(teachesFrom('Hollis at the Gate Forge', 'Hollis'), true);
+    assert.equal(teachesFrom('Hollis at the Gate Forge', 'a passing tinker'), false);
+});
+
+test('a pack\'s bare `damage: 6` is made as { amount, element: physical }: no "undefined" element', () => {
+    const pouch = { id: 'pack.e/pouch', name: 'Leech-salt Pouch', craft: 'fieldcraft', qty: 2, makes: { name: 'Leech-salt Pouch', def: { name: 'Leech-salt Pouch', kind: 'consumable', value: 6, effect: { damage: 6 }, tags: ['salt'] } } };
+    const parts = [{ name: 'Coarse Salt', need: 2, def: { name: 'Coarse Salt', kind: 'material', value: 3, tags: [] } }, { name: 'Burlap Sack', need: 1, def: { name: 'Burlap Sack', kind: 'goods', value: 2, tags: [] } }];
+    const { def } = outputDef(pouch, 'masterwork', parts);
+    assert.deepEqual(def.effect.damage, { amount: 9, element: 'physical', target: 'one' });
+    assert.match(def.note, /damage 9/);
+    assert.ok(!JSON.stringify(def).includes('undefined'));
+    assert.equal(def.value, 4, 'each of the two is worth half of the 8 that went in (RX-E-4)');
 });

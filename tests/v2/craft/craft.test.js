@@ -5,7 +5,7 @@
 // the tail only when crafting is likely; never from a screen; a swipe takes it all back.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DIRECTOR, craftHost, itemsNamed, personOf, qtyOf, replyWhen } from './helpers.js';
+import { DIRECTOR, PACK, craftHost, itemsNamed, personOf, qtyOf, replyWhen } from './helpers.js';
 import { part } from '../../../src/v2/craft/index.js';
 import { tail } from '../../../src/v2/craft/queries.js';
 
@@ -77,6 +77,18 @@ test('a story-taught recipe is kept for this chat, with code\'s DC from its item
     } finally { host.close(); }
 });
 
+test('a story-taught recipe\'s name is flattened: invisible characters dropped, the same recipe when taught again (B-rxui-6)', async t => {
+    quiet(t);
+    const host = await craftHost();
+    try {
+        await host.send('Taught.', host.reply('A salve.', ['+ recipe \u202eSalve\u200b | from: Hollis | makes: Salve Jar | with: Healing Herb x2 | craft: cooking']));
+        await host.send('Again.', host.reply('Again.', ['+ recipe Salve | from: Hollis | makes: Salve Jar | with: Healing Herb x2 | craft: cooking']));
+        assert.deepEqual(Object.keys(host.head().domains.craft.taught), ['story/salve']);
+        assert.equal(host.head().domains.craft.taught['story/salve'].name, 'Salve');
+        assert.ok(knownNames(host).includes('Salve'));
+    } finally { host.close(); }
+});
+
 test('`- recipe` forgets: a learned one goes, a basic one stays forgotten until learned again; a swipe undoes a learn', async t => {
     const host = await withSword(t);
     try {
@@ -124,7 +136,8 @@ test('companions learn and craft with their own stats', async t => {
 test('a craft takes the reply\'s roll by its place among the reply\'s checks and crafts (F80); naming another is noted', async t => {
     const host = await withSword(t);
     try {
-        const die = await replyWhen(host, 'I sneak, then forge.', () => true, () => [
+        // (Roll 2 is not a 1: a 1 is also "Roll 1" by its value, and then nothing needs noting.)
+        const die = await replyWhen(host, 'I sneak, then forge.', die => die !== 1, () => [
             '? check stealth — slipping in | dc: easy | roll: 1 | result: success',
             '! craft Iron Sword | roll: 1 | result: made',
         ], { place: 2 });
@@ -133,6 +146,78 @@ test('a craft takes the reply\'s roll by its place among the reply\'s checks and
         assert.equal(made.die, die);
         assert.match(made.note, /named Roll 1.*Roll 2 taken/);
         assert.deepEqual(host.q('craft.rollsUsed', { carrier: made.carrier }), [2]);
+    } finally { host.close(); }
+});
+
+test('a check after a craft in the same reply takes the next roll: one positional counter both ways (F80, B-b4-2)', async t => {
+    quiet(t);
+    const host = await craftHost({ goods: ['+ item River Fish | qty: 3'] });
+    try {
+        await replyWhen(host, 'I cook, then look around.', () => true, () => [
+            '! craft Grilled Fish | roll: 1',
+            '? check perception — spot the thief | dc: normal | roll: 1 | result: success',
+        ]);
+        const rolls = replyWhen.rolls;
+        assert.equal(lastCraft(host).roll, 1);
+        assert.equal(lastCraft(host).die, rolls[0]);
+        const check = host.q('checks.log').at(-1);
+        assert.equal(check.roll, 2, 'the check is the second uncertain attempt');
+        assert.equal(check.die, rolls[1]);
+        assert.match(check.note, /Roll 2 taken/);
+        // Two crafts and two checks: Rolls 1 and 2 by place, the rest rolled by code.
+        await replyWhen(host, 'Busy.', () => true, () => [
+            '! craft Grilled Fish | roll: 1',
+            '? check stealth — slip by | dc: normal | roll: 2 | result: success',
+            '! craft Grilled Fish | roll: 2',
+            '? check perception — look | dc: normal | roll: 2 | result: success',
+        ]);
+        const crafts = host.q('craft.last').results.map(result => host.q('craft.log').find(entry => entry.id === result.id));
+        const checks = host.q('checks.last').results.map(result => host.q('checks.log').find(entry => entry.id === result.id));
+        assert.deepEqual(crafts.map(entry => entry.roll), [1, 0]);
+        assert.deepEqual(checks.map(entry => entry.roll), [2, 0]);
+        assert.match(crafts[1].note, /every roll handed over was used: code rolled/);
+        assert.match(checks[1].note, /every roll handed over was used: code rolled/);
+        assert.deepEqual(host.q('craft.rollsUsed', { carrier: crafts[0].carrier }), [1, 0]);
+    } finally { host.close(); }
+});
+
+test('a story-taught tonic is a consumable, its heal held to its rarity\'s draught; gear only when it names a slot', async t => {
+    quiet(t);
+    const host = await craftHost({ place: '~ place Riverside Camp | kind: wild', goods: ['+ item Healing Herb | qty: 4', '+ item Iron Ore | qty: 3'] });
+    try {
+        await host.send('The hermit teaches me.', host.reply('He shows you.', [
+            '+ recipe Healing Tonic | from: the hermit | makes: Healing Tonic | with: Healing Herb x2 | craft: cooking',
+            '+ recipe Camp Knife | from: the hermit | makes: Camp Knife | with: Iron Ore x3 | craft: leatherwork | slot: weapon',
+        ]));
+        await replyWhen(host, 'I brew the tonic.', die => die > 1, () => ['! craft Healing Tonic | roll: 1']);
+        const made = lastCraft(host);
+        const def = host.head().domains.inventory.defs[made.item?.def];
+        if (made.quality !== 'fail') {
+            assert.equal(def.kind, 'consumable', 'drunk, not worn');
+            assert.equal(def.slot, null);
+            assert.deepEqual(def.stats, {});
+            assert.ok(def.effect.heal > 0 && def.effect.heal <= 30, `a common tonic heals at most 20 (×1.5): ${def.effect.heal}`);
+        }
+        await replyWhen(host, 'I make a knife.', die => die > 1, () => ['! craft Camp Knife | roll: 1']);
+        const knife = lastCraft(host);
+        assert.equal(knife.recipeName, 'Camp Knife');
+        if (knife.item) {
+            const def = host.head().domains.inventory.defs[knife.item.def];
+            assert.equal(def.kind, 'equipment', 'a slot was written: gear');
+            assert.ok(def.value <= 18, 'worth no more than 1.5× its three ore');
+        }
+    } finally { host.close(); }
+});
+
+test('without Story Director\'s clock a craft takes no story time, and its receipt says so', async t => {
+    quiet(t);
+    const host = await craftHost({ goods: ['+ item River Fish'] });
+    try {
+        await host.send('I cook.', host.reply('Fish.', ['! craft Grilled Fish | roll: 1']));
+        const receipt = host.store.receipts().map(entry => entry.receipt ?? entry).filter(entry => entry.type === 'capture.craft').at(-1);
+        assert.ok(receipt, 'the craft\'s receipt');
+        assert.match(receipt.summary, /No story time passes/);
+        assert.equal(receipt.data?.clock ?? false, false);
     } finally { host.close(); }
 });
 
@@ -314,17 +399,16 @@ test('no value from nothing: a crafted piece is worth its materials and never se
 
 test('F104: a material with no value of its own is priced by code times the pack\'s money scale (inventory.economy)', async t => {
     quiet(t);
-    const charmValue = async modules => {
-        const host = await craftHost({ goods: ['+ item Bone Chip | qty: 2'], modules });
+    const charmValue = async pack => {
+        const host = await craftHost({ goods: ['+ item Bone Chip | qty: 2'], pack });
         try {
             await replyWhen(host, 'I carve.', die => die >= 5 && die < 19, () => ['! craft Bone Charm | roll: 1']);
             const row = host.q('inventory.items').find(entry => /Bone Charm$/.test(entry.name));
             return host.head().domains.inventory.defs[row.def].value;
         } finally { host.close(); }
     };
-    const ECONOMY = { id: 'fake-economy', name: 'Fake economy', version: '0.0.0', queries: { 'inventory.economy': () => ({ scale: 10 }) } };
-    const plain = await charmValue([]);
-    const scaled = await charmValue([ECONOMY]);
+    const plain = await charmValue(PACK);
+    const scaled = await charmValue({ ...PACK, economy: { scale: 10 } });
     assert.ok(plain >= 2);
     assert.equal(scaled, Math.max(1, Math.round(plain / 2 * 10)) * 2);
 });
