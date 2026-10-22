@@ -11,6 +11,7 @@ import { queries } from './queries.js';
 import { context } from './context.js';
 import { SETTINGS_DEFAULTS, SETTINGS_SCHEMA } from './sheets.js';
 import { initialParty, validateParty } from './validate.js';
+import { PARTY_COUNTERS } from './pools.js';
 import { tabs } from './tab.js';
 import { FEATURES, effectCommands, effectKinds, initialEffects, turnBeforeReply, validateEffects } from './effects.js';
 
@@ -28,7 +29,9 @@ export const part = {
     // Optional mechanics (MODULES §F100): timed buffs and debuffs, on by default.
     features: FEATURES,
     domains: {
-        party: { initial: initialParty, validate: slice => validateParty(slice) },
+        // HP/MP/SP `lost` and `max`, level, XP, points and stats are counts (pools.js): a replay after a
+        // deleted reply adds each later change to what is there; readers fit them (pools.js fitActor).
+        party: { initial: initialParty, validate: slice => validateParty(slice), counters: [...PARTY_COUNTERS] },
         // Timed buffs and debuffs, keyed by effect id (effects.js).
         // `turns` is per-reply bookkeeping (SPEC §2.2 scratch): replay makes it when only a deleted reply had.
         effects: { initial: initialEffects, validate: slice => validateEffects(slice), scratch: ['turns'] },

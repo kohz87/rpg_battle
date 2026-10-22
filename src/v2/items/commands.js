@@ -19,12 +19,13 @@ import { useItemOutside } from '../../recovery.js';
 import { canCarry } from './carry.js';
 import { MAX_DOSES, planStoryUse, stackNamed } from './story-use.js';
 import { repairOf, useKit } from './wear.js';
+import { fitParty } from '../party/pools.js';
 import { baseSlot, helpsOutside, inventoryOf, itemOf, partyOf, partyOwns, rulesFrom, sheetOf, stackIds, wearerOf } from './shared.js';
 
 // Slots that hold several pieces (v1 gearLimits); every other slot holds one, a new piece replacing the old.
 const MANY_SLOTS = ['worn', 'accessory'];
 
-const stateOf = ctx => ({ domains: { inventory: ctx.read('inventory'), party: ctx.read('party') } });
+const stateOf = ctx => ({ domains: { inventory: ctx.read('inventory'), party: fitParty(ctx.read('party')) } });
 const text = value => (typeof value === 'string' ? value.trim() : '');
 
 /** The stack and its def, or a refusal: not there, not the party's. */
@@ -32,7 +33,7 @@ function stackFor(ctx, payload) {
     const id = text(payload?.stack);
     const inventory = inventoryOf(stateOf(ctx));
     const stack = id ? inventory.stacks?.[id] : null;
-    const party = ctx.read('party');
+    const party = fitParty(ctx.read('party'));
     if (!stack || !partyOwns(party, stack.owner)) ctx.fail('NOT_FOUND', 'That item is not among the party\'s things.');
     const def = inventory.defs?.[stack.def];
     if (!def) ctx.fail('NOT_FOUND', 'That item is not known any more.');
@@ -61,7 +62,7 @@ function limitWords(count, slot) {
 
 /** One dose of `def` from `stack` on `targetId`: consume, heal, restore. → { hp, mp, cured, message }. */
 function dose(ctx, stack, def, targetId) {
-    const actor = ctx.read('party').actors?.[targetId];
+    const actor = fitParty(ctx.read('party')).actors?.[targetId];
     const before = sheetOf(actor);
     const outcome = useItemOutside(before, { name: def.name, effect: def.effect });
     if (!outcome.used) ctx.fail('REFUSED', outcome.message);
@@ -76,7 +77,7 @@ function dose(ctx, stack, def, targetId) {
 
 /** The "now" numbers after the doses, as the party's owner keeps them (it may clamp to its own max). */
 function nowOf(ctx, targetId, fallback) {
-    const after = ctx.read('party').actors?.[targetId] ?? null;
+    const after = fitParty(ctx.read('party')).actors?.[targetId] ?? null;
     return {
         hp: { cur: after?.hp?.cur ?? fallback.hp.cur, max: after?.hp?.max ?? fallback.hp.max },
         mp: { cur: after?.mp?.cur ?? fallback.mp.cur, max: after?.mp?.max ?? fallback.mp.max },
@@ -148,7 +149,7 @@ export function storyUse(ctx, payload = {}) {
     if (!name && !text(payload?.stack)) ctx.fail('INVALID', 'Name the thing used: `! use Minor Healing Draught | on: Mira`.');
     const qty = payload?.qty === undefined || payload?.qty === null || payload?.qty === '' ? 1 : Number.parseInt(String(payload.qty), 10);
     if (!Number.isInteger(qty) || qty < 1 || qty > MAX_DOSES) ctx.fail('INVALID', `Use from 1 to ${MAX_DOSES} at once.`);
-    const party = ctx.read('party');
+    const party = fitParty(ctx.read('party'));
     if (!party?.pc) ctx.fail('NOT_FOUND', 'Make your character first.');
     const inventory = inventoryOf(stateOf(ctx));
     // A repair kit (`effect.repair`) patches a piece: `on:` names the piece, or whose most worn piece.

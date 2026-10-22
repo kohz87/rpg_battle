@@ -88,7 +88,7 @@ test('data bindings name the view queries; the status card reads the reply\'s ow
     assert.deepEqual(byId['rpg-battle/crafting'].data, { craft: { query: 'rpg-battle.crafting' } });
     assert.deepEqual(byId['rpg-battle/trade'].data, { trade: { query: 'rpg-battle.trade' } });
     assert.deepEqual(byId['rpg-battle/hud'].data, { hud: { query: 'rpg-battle.hud' } });
-    assert.deepEqual(byId['rpg-battle/status-card'].data, { terms: { query: 'party.terms' } });
+    assert.deepEqual(byId['rpg-battle/status-card'].data, { terms: { query: 'party.terms' }, pools: { query: 'party.pools' } });
     assert.match(byId['rpg-battle/status-card'].template, /changed\(state\.party\.actors\[id\]\.hp\)/);
     for (const screen of screens) {
         const aliases = new Set(Object.keys(screen.data ?? {}));

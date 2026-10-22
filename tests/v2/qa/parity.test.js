@@ -12,6 +12,7 @@ import { applyWounds, parseWounds } from '../../../src/story.js';
 import { effectByName } from '../../../src/items.js';
 import { act, replay, summarize } from '../../../src/combat.js';
 import { placePrices, sellPrice } from '../../../src/trade.js';
+import { fitPool } from '../../../src/v2/party/pools.js';
 import { rng, roll } from './vendor/src/v2/rng.js';
 import { fightOut, stacksOf, storyItem, withHero, each } from './helpers/harness.js';
 
@@ -78,7 +79,8 @@ each('party.rest short and long = v1 rest', () => {
         const v1 = restV1(v1Sheet(pcOf(h)), kind, { gear: [], rules: DEFAULT_RULES });
         const r = h.command('party.rest', { kind });
         assert.equal(r.ok, true, r.message);
-        assert.deepEqual([pcOf(h).hp, pcOf(h).mp, pcOf(h).sp], [v1.hp, v1.mp, v1.sp], kind);
+        // The record keeps a pool below full with its `lost` (party/pools.js); read as it stands now.
+        assert.deepEqual([fitPool(pcOf(h).hp), fitPool(pcOf(h).mp), fitPool(pcOf(h).sp)], [v1.hp, v1.mp, v1.sp], kind);
     }
 });
 

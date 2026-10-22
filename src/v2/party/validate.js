@@ -4,6 +4,7 @@
 // Pure.
 
 import { STATS } from '../../rules.js';
+import { statsFit } from './pools.js';
 
 export const ACTOR_ID = /^ac_[a-z0-9]{8}$/;
 export const OFFER_ID = /^of_[a-z0-9]{8}$/;
@@ -12,9 +13,14 @@ const isObject = value => Boolean(value) && typeof value === 'object' && !Array.
 const isInt = (value, min = 0) => Number.isInteger(value) && value >= min;
 const isText = (value, max = 200) => typeof value === 'string' && value.length <= max;
 
+// A pool is { cur, max, lost? } (pools.js): `lost` and `max` are counts a replay after a deleted
+// reply moves by each later change, so any whole numbers are taken here (a refusal would skip a later
+// reply's block, final soak); readers fit them (pools.js fitPool: cur held to 0…max). `cur` is as
+// it was written: 0 or more.
 function checkPool(errors, where, name, entry) {
-    if (!isObject(entry) || !isInt(entry.max) || !isInt(entry.cur) || entry.cur > entry.max) {
-        errors.push(`${where}: ${name} must be whole numbers with 0 ≤ cur ≤ max.`);
+    if (!isObject(entry) || !Number.isInteger(entry.max) || !isInt(entry.cur) || (entry.lost !== undefined && !Number.isInteger(entry.lost))
+        || Object.keys(entry).some(key => key !== 'cur' && key !== 'max' && key !== 'lost')) {
+        errors.push(`${where}: ${name} must be whole numbers: cur (0 or more), max and lost.`);
     }
 }
 
@@ -28,13 +34,11 @@ function checkActor(errors, id, actor) {
     if (actor.control !== 'player' && actor.control !== 'auto') errors.push(`${where}: control must be player or auto.`);
     if (actor.growth !== undefined && actor.growth !== 'auto' && actor.growth !== 'manual') errors.push(`${where}: growth must be auto or manual.`);
     if (!isText(actor.role, 60)) errors.push(`${where}: role must be text.`);
-    if (!isInt(actor.level, 1)) errors.push(`${where}: level must be a whole number from 1.`);
-    if (!isInt(actor.xp)) errors.push(`${where}: xp must be a whole number, 0 or more.`);
-    if (!isInt(actor.points)) errors.push(`${where}: points must be a whole number, 0 or more.`);
+    // Level, XP, points and stats are counts too (pools.js PARTY_COUNTERS): whole numbers, fitted to
+    // their floors where they are read.
+    for (const key of ['level', 'xp', 'points']) if (!Number.isInteger(actor[key])) errors.push(`${where}: ${key} must be a whole number.`);
     for (const name of ['hp', 'mp', 'sp']) checkPool(errors, where, name.toUpperCase(), actor[name]);
-    if (!isObject(actor.stats) || STATS.some(stat => !isInt(actor.stats[stat])) || Object.keys(actor.stats).some(key => !STATS.includes(key))) {
-        errors.push(`${where}: stats must be ${STATS.join(', ')} as whole numbers, 0 or more.`);
-    }
+    if (!statsFit(actor.stats)) errors.push(`${where}: stats must be ${STATS.join(', ')} as whole numbers.`);
     if (!Array.isArray(actor.skills)) errors.push(`${where}: skills must be a list.`);
     else {
         const seen = new Set();

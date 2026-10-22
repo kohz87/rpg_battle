@@ -5,6 +5,7 @@
 import { levelTag } from '../../terms.js';
 import { rulesFrom } from './sheets.js';
 import { actorsInOrder, waitingOffers } from './util.js';
+import { fitParty } from './pools.js';
 import { activeEffects, featureOn, leftText, nowOfState } from './effects.js';
 
 // The most effects named in the tail (the rest are still counted by code).
@@ -54,7 +55,8 @@ export function actorLine(actor, { pc = false, rules } = {}) {
 
 /** The party's tail: { lines, optional } for context.tail(view). */
 export function tail(view) {
-    const party = view?.state?.domains?.party;
+    // Every member's numbers as they stand now (pools.js fitParty).
+    const party = fitParty(view?.state?.domains?.party);
     if (!party) return { lines: [], optional: [] };
     const rules = rulesFrom(settingsFrom(view));
     const lines = actorsInOrder(party).map(actor => `Party: ${actorLine(actor, { pc: actor.id === party.pc, rules })}`);

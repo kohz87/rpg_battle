@@ -10,7 +10,9 @@
 // chat's terms (`party.terms`, MODULES §F25: the reader's, else a pack's, else Lv and EXP).
 //
 // It reads the state, not a query, for everything it marks: changed() knows where a value came
-// from only for `state.…` paths (query results are copies, TEMPLATES.md §1.3).
+// from only for `state.…` paths (query results are copies, TEMPLATES.md §1.3). The meters show
+// `party.pools`, run on this reply's state: a record's pool is kept as counts (party/pools.js) and
+// read fitted.
 
 import { THEME, sheet } from './style.js';
 
@@ -28,10 +30,10 @@ const template = `
   <div class="none start" data-if="len(state.party.order) == 0"><span>No character yet.</span><ss-widget class="create" name="rpg-battle.create-character" data-props='{"compact":true}'></ss-widget></div>
   <div class="member" data-each="state.party.order as id"
        data-if="${all} || changed(${actor})"
-       data-class="moved: changed(${actor}); you: id == state.party.pc; down: ${actor}.hp.cur == 0">
+       data-class="moved: changed(${actor}); you: id == state.party.pc; down: q.pools[id].down">
     <span class="nm">{{ ${actor}.name }}</span>
-    <ss-widget class="pool hp" data-class="hit: changed(${actor}.hp)" name="ss.meter" data-props='{"bind":"${actor}.hp","label":"HP","icon":"fa-heart"}'></ss-widget>
-    <ss-widget class="pool mp" data-class="hit: changed(${actor}.mp)" name="ss.meter" data-props='{"bind":"${actor}.mp","label":"MP","icon":"fa-droplet"}'></ss-widget>
+    <ss-widget class="pool hp" data-class="hit: changed(${actor}.hp)" name="ss.meter" data-props='{"bind":"q.pools[id].hp","label":"HP","icon":"fa-heart"}'></ss-widget>
+    <ss-widget class="pool mp" data-class="hit: changed(${actor}.mp)" name="ss.meter" data-props='{"bind":"q.pools[id].mp","label":"MP","icon":"fa-droplet"}'></ss-widget>
     <span class="tags">
       <span class="chg up" data-if="changed(${actor}.level)"><i class="fa-solid fa-arrow-up"></i>${levelWord} {{ ${actor}.level }}</span>
       <span class="chg" data-if="changed(${actor}.xp) && !changed(${actor}.level)"><i class="fa-solid fa-star"></i>${xpWord}</span>
@@ -102,7 +104,8 @@ export const statusCardScreen = Object.freeze({
     title: 'Party status',
     icon: 'fa-heart-pulse',
     mounts: Object.freeze(['card']),
-    data: Object.freeze({ terms: Object.freeze({ query: 'party.terms' }) }),
+    // The pools as they stand at this reply (party.pools: fitted from the record's counts, party/pools.js).
+    data: Object.freeze({ terms: Object.freeze({ query: 'party.terms' }), pools: Object.freeze({ query: 'party.pools' }) }),
     theme: THEME,
     template,
     css,

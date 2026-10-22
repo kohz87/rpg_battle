@@ -73,6 +73,13 @@ each in full. Every one can be switched off in Story Suite settings → **Featur
   chat's rules.
 - The status strip shows points to spend and effects under way.
 
+**Deleting a reply from the middle of the chat**
+- It takes back that reply's own changes to the party and nothing else. A wound, a heal, a level-up,
+  XP and a spend each count as a change on what is there, so the replies after it still apply.
+- A rest fills the party up to the max as it stands now, even when the reply that raised that max was
+  the one deleted. HP, MP and SP never read above max or below 0.
+- Chats from earlier versions load as they are.
+
 The screenshots below are from RPG Battle 1. There are no v2 screenshots here yet, because the current
 ones were taken before the encumbered line was added to the Party cards.
 

@@ -5,6 +5,7 @@
 // the Item shape v1's pure logic (src/items.js, src/recovery.js) works on.
 
 import { makeRules } from '../../rules.js';
+import { fitActor, fitParty } from '../party/pools.js';
 
 export const MODULE_ID = 'rpg-battle';
 
@@ -58,7 +59,8 @@ export function hostEconomyScale(query = null) {
 }
 
 export const inventoryOf = state => state?.domains?.inventory ?? { defs: {}, stacks: {}, wallets: {}, aliases: {} };
-export const partyOf = state => state?.domains?.party ?? { pc: null, order: [], actors: {} };
+// The party with every member's numbers as they stand now (party/pools.js: pools fitted to 0…max).
+export const partyOf = state => fitParty(state?.domains?.party ?? { pc: null, order: [], actors: {} });
 
 /** Whether `owner` is the party's: the shared bag or one of its people. */
 export function partyOwns(party, owner) {
@@ -99,7 +101,8 @@ export function helpsOutside(effect) {
 }
 
 /** A party actor as the sheet v1's useItemOutside takes (conditions by name). */
-export function sheetOf(actor) {
+export function sheetOf(record) {
+    const actor = fitActor(record);
     return {
         name: actor?.name ?? 'Someone',
         hp: { cur: actor?.hp?.cur ?? 0, max: actor?.hp?.max ?? 0 },

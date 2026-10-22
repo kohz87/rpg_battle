@@ -158,7 +158,7 @@ test('wounds: same HP and conditions as v1 applyWounds', () => {
     const hurt = capture(base, '~ wound Ren — fell | harm: grievous', { carrier: 1 }).state;
     const healed = capture(hurt, '~ wound Ren — a poultice | heal: wound', { carrier: 2 });
     const v1 = applyWounds({ pc: toSheet(pcOf(hurt)) }, parseWounds('Ren — heal wound: a poultice'), DEFAULT_RULES);
-    assert.deepEqual(pcOf(healed.state).hp, v1.pc.hp);
+    assert.deepEqual(toSheet(pcOf(healed.state)).hp, v1.pc.hp);
 });
 
 test('learning a skill at the cap sets aside as v1 learnSkill does', () => {

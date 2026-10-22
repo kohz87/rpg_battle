@@ -19,6 +19,7 @@ import { useItemOutside } from '../../recovery.js';
 import { levelTag, maxLevel, xpLabel } from '../../terms.js';
 import { isMaterial } from '../../trade.js';
 import { growthOf } from '../party/sheets.js';
+import { fitParty } from '../party/pools.js';
 
 export const MODULE_ID = 'rpg-battle';
 
@@ -82,9 +83,10 @@ export function tryQuery(tools, name, args = {}) {
     }
 }
 
+// The party with every member's numbers as they stand now (party/pools.js: pools fitted to 0…max).
 const partyOf = state => {
     const party = state?.domains?.party;
-    return isRecord(party) ? party : { pc: null, order: [], actors: {}, custom: {} };
+    return isRecord(party) ? fitParty(party) : { pc: null, order: [], actors: {}, custom: {} };
 };
 const inventoryOf = state => {
     const inventory = state?.domains?.inventory;

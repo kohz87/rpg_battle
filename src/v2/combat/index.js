@@ -29,6 +29,7 @@ import { buildSetup, COMBAT_DEFAULTS, fightNumbers, moneyScale, partyCombatants,
 import { beatenOf, bestiaryList, byRev, creatureSlug, fightRules, lastOf, latinSlug, offersOf, packCreature, packSetup, sessionStatus, unpackSetup, valuesOf } from './stored.js';
 export { beatenOf, lastOf, offersOf } from './stored.js';
 import { clipped } from '../lines.js';
+import { fitParty } from '../party/pools.js';
 import { applyStock, beatenFoes, boardToken, endSummary, foeNames, foeRanks, partyNames, rebuild, sessionView, tailLines } from './view.js';
 
 export { MAX_BEATEN, MAX_OFFERS } from './stored.js';
@@ -256,7 +257,8 @@ function consumeSpent(ctx, spent) {
 function syncPools(ctx, fight) {
     let party = null;
     try {
-        party = ctx.read('party');
+        // The pools as they stand now (party/pools.js), the numbers party.fightPools compares with.
+        party = fitParty(ctx.read('party'));
     } catch {
         party = null;
     }
