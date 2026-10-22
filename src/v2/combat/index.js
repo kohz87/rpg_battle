@@ -563,6 +563,20 @@ function end(ctx, payload) {
         if (xp > 0) ctx.call('party.grantXp', { actor: member.memberId, amount: xp });
     }
 
+    // Gear wears once a fight (the items part, TRS idea 1): armour by the blows its wearer took, a weapon by the fight.
+    let wear = null;
+    try {
+        wear = ctx.call('item.fightWear', {
+            fight: session.id,
+            members: fight.combatants.filter(c => c.side === 'party' && here(c.memberId) && !gone.has(c.memberId))
+                .map(c => ({ actor: c.memberId, taken: Math.max(0, Number(fight.stats?.damageTaken?.[c.id]) || 0), maxHp: Math.max(1, Number(c.hp?.max) || 1) })),
+        });
+    } catch (error) {
+        // Without the items part, or with gear wear off (nothing ran either way), there is no gear wear.
+        if (error?.code !== 'UNKNOWN_COMMAND' && error?.code !== 'FEATURE_OFF') throw error;
+    }
+    const worn = typeof wear?.summary === 'string' && wear.summary ? ` ${wear.summary}` : '';
+
     let leftBehind = [];
     if (result.outcome === 'victory') {
         // The drops under the names they were granted as (the summary and receipt tell those).
@@ -581,7 +595,7 @@ function end(ctx, payload) {
     const shown = terms && typeof terms === 'object' ? { ...rules, terms: { ...rules.terms, ...terms } } : rules;
     const lost = died.length ? ` ${died.map(entry => entry.name).join(', ').replace(/, ([^,]*)$/, ' and $1')} died and ${died.length === 1 ? 'is' : 'are'} gone from the party for good.` : '';
     const behind = leftBehind.length ? ` Left behind, too heavy to carry: ${leftBehind.map(item => (item.qty > 1 ? `${item.name} ×${item.qty}` : item.name)).join(', ')}.` : '';
-    const summary = `${endSummary(result, { pcName, rules: shown, names, currency: chatCurrency(ctx) })}${behind}${lost}`;
+    const summary = `${endSummary(result, { pcName, rules: shown, names, currency: chatCurrency(ctx) })}${behind}${lost}${worn}`;
     const combat = ctx.draft('combat');
     if (foes.length) {
         const beaten = recordOf(combat, 'beaten', 'fight');
@@ -599,6 +613,7 @@ function end(ctx, payload) {
             outcome: session.status,
             stakes: setup.stakes === 'death' ? 'death' : 'normal',
             died: died.map(entry => ({ ...entry })),
+            ...(wear?.data?.changes?.length ? { wear: wear.data.changes.map(change => ({ stack: change.stack, name: change.name, cond: change.to, band: change.band })) } : {}),
             foes,
             xp: { ...result.xp },
             loot: {

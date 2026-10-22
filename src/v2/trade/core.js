@@ -17,6 +17,7 @@ import {
 import { DEFAULT_RULES } from '../../rules.js';
 import { craftPiece } from './craft-plan.js';
 import { pcOf, sceneOf } from './calls.js';
+import { gearFeatures, pieceOf, resaleOf } from '../items/condition.js';
 
 export const DAY = 24 * 60;
 /** The trader kinds the page offers (v1 0.5.38). */
@@ -179,7 +180,7 @@ export function shortageAt(shortages, placeName) {
  * `currency`: the chat's one currency, Story Block's `inventory.currency` ({ name, short };
  * gold when it is not given). Amounts are whole numbers of it; only the words depend on it.
  */
-export function makeWorld({ scene, inventory, trade, party, settings = {}, now = null, currency = null, packs = null }) {
+export function makeWorld({ scene, inventory, trade, party, settings = {}, now = null, currency = null, packs = null, gear = null, features = null }) {
     const rules = makeRules(settings.rules ?? null);
     const place = { name: String(scene?.place?.name ?? ''), kind: String(scene?.place?.kind ?? '') };
     const present = Array.isArray(scene?.present) ? scene.present : [];
@@ -210,6 +211,10 @@ export function makeWorld({ scene, inventory, trade, party, settings = {}, now =
         currency: oneCurrency(currency),
         // The enabled packs' shops at this place (Story Block's packs.content), with their items' defs.
         packShops: packShopsAt(packs, place.name),
+        // Gear condition and refinement (items/condition.js): the records, the party, the features.
+        gear: gear ?? null,
+        party: party ?? null,
+        features: { wear: features?.wear !== false, refine: features?.refine !== false },
     };
 }
 
@@ -312,7 +317,17 @@ export function worldFromState(state, env = {}) {
         now: Number.isInteger(minutes) ? minutes : null,
         currency: currencyFrom(env.query),
         packs: packsFrom(env.query),
+        gear: domains.gear ?? null,
+        features: gearFeatures(env),
     });
+}
+
+/** What one `def` (stack `stackId`) fetches from a buyer paying `each` for one as new: a piece by its condition and refinement (items/condition.js resaleOf). */
+export function gearResale(world, stackId, def, each) {
+    if (def?.kind !== 'equipment') return each;
+    const piece = pieceOf(world.inventory, world.gear, stackId, world.features);
+    if (piece.fresh || (!world.features?.wear && !world.features?.refine)) return each;
+    return resaleOf(each, piece);
 }
 
 /** The chat's currency through a query function (`inventory.currency`), or null without one. */
@@ -435,7 +450,9 @@ export function planSell(world, { stack, qty = 1, kind = null, who = '' } = {}) 
     const buyer = traderKind(kind || who, world.rules);
     // A thing bought (or commissioned) never sells for more than was paid for it (B-b3-13, -14).
     const paid = Object.hasOwn(world.trade.paid ?? {}, def.id) ? world.trade.paid[def.id] : undefined;
-    const each = Number.isInteger(paid) ? Math.min(sellEach(def, buyer, world), paid) : sellEach(def, buyer, world);
+    // A piece sells for the condition it kept since its last proper repair and its refinement (TRS 1, 9).
+    const fetched = gearResale(world, stack, def, sellEach(def, buyer, world));
+    const each = Number.isInteger(paid) ? Math.min(fetched, paid) : fetched;
     const total = each * qty;
     const name = whoOf(who || kind, buyer);
     const line = tradeLine({ kind: 'sell', name: def.name, qty, total, who: name }, world.currency);

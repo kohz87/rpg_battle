@@ -19,6 +19,23 @@ Story Suite v2. RPG Battle v2 module: party, creation, checks, items, combat, ba
 - **Gear with final stats fights as it is.** A worn piece `items.gear` marks `final: true` (capped at the wearer's level, then scaled by condition and refinement) reaches the fight with those stats: no second cap by rarity, and a piece with no stats gets no default main stat. Other rows are capped as before.
 - **The pack's money scale** (F104). A fight's loot coin (RPG Battle's default money, by rank) is multiplied by Story Block's `inventory.economy` `scale`, read when the fight starts and kept in its setup: whole, at least 1; without the query, 1.
 - **A story's condition lasts no longer than a blow's.** A condition carried into a fight lasts at most `rules.generated.effectRounds` rounds: a story's "stunned" costs one turn, not three; a poison left at 9 comes back as 3.
+- **Gear condition, repair and refinement** (TRS ideas 1, 2, 9; features `rpg-battle.wear` and `rpg-battle.refine`, both on by default).
+  - **Condition bands.** good ≥75 gives all of a piece's stats, worn ≥40 gives 85%, tattered ≥10 gives 60%, broken <10 gives nothing. A broken piece stays equipped.
+  - **Wear.** Only code events wear gear:
+    - a fight: armour by the share of HP the blows took, a weapon 3 per fight;
+    - the story's word, `~ item X — … | wear: scuff|tear|ruin` (`item.wear`, which Story Block routes to). Code sets 5, 15 or 40, once per piece per reply.
+    - A band change is told to the next reply.
+  - **Field patches.** Repair kits (`effect.repair`) are used through `! use Kit | on: <piece>`. Each patch frays the piece's maximum by 5.
+  - **Smith and tailor work.** `! repair X | at: smith` (or `trade.repair`) puts a piece back to full. `! refine X | at: smith | with: …` (or `trade.refine`) refines to +1, +2 or +3 for materials and a fee: +8% stats per level, the name shows "+2", the rarity stays. The +3 attempt takes 60% of the time (seeded); a failure burns the materials. A piece that breaks may lose a level.
+  - **Resale and pricing.** Resale follows the condition kept since the last proper repair, and refinement. Repairs and refinements always cost at least what they add to the resale, under `trade.paid`.
+  - **Interface.**
+    - `items.condition { stack }` for screens.
+    - `items.gear` counted rows are final: condition and refinement applied (`final: true`), broken pieces in `unused` (`why: 'broken'`).
+    - `wornGear(state, actor)` for numbers.
+    - New `gear` domain: an add-only event per receipt and piece (`<stack>#<rev>`: wear, patch, repair, refine, a lost level), folded in order. It is the one source of truth for condition; Story Block's own `stack.cond` is not written. A deleted reply takes back exactly its own events, so what it paid for and what it did roll back together.
+    - The static line asks for the story's `| wear:` word only on a host whose inventory reads it.
+    - Feature-off refusals point to the Features settings, and a repair kit line with wear off is not narrated.
+  - **Money scale.** A kit's worth is scaled by the pack's `inventory.economy.scale` (F104).
 - **Wiring pass.** `src/v2/module.js` takes the creation, board and screens parts; every part's `screens` and `widgets` go to Story Block (a name two parts claim is refused); a hand-built tab a screen covers is dropped (Party, Items, Trade and Fight are screens now); the creation part reads the Character points budget (`party.startPoints`, `party.statCap`).
 - **Character creation into the party.** `party.create` takes `origin { race, talents }` (final stats from `creation.build`) and the persona's `background`, and keeps both on your character. Built-in races and talents are offered as `rpg-battle/<slug>`, as a pack's are `pack.<pack>/<slug>`.
 - **Ready-made characters.** The wizard's new Start step shows the packs' presets (widget `rpg-battle.preset-pick`): choosing one fills race, talents and points (name and background stay the persona's); `creation.finish { preset }` teaches its pack skills, built by the rules into `party.custom`.

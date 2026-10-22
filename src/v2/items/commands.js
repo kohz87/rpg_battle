@@ -17,7 +17,8 @@
 import { capItem, formatStats, gearLimits } from '../../items.js';
 import { useItemOutside } from '../../recovery.js';
 import { canCarry } from './carry.js';
-import { MAX_DOSES, planStoryUse } from './story-use.js';
+import { MAX_DOSES, planStoryUse, stackNamed } from './story-use.js';
+import { repairOf, useKit } from './wear.js';
 import { baseSlot, helpsOutside, inventoryOf, itemOf, partyOf, partyOwns, rulesFrom, sheetOf, stackIds, wearerOf } from './shared.js';
 
 // Slots that hold several pieces (v1 gearLimits); every other slot holds one, a new piece replacing the old.
@@ -97,6 +98,8 @@ export function itemUse(ctx, payload) {
     const { stack, def, party } = stackFor(ctx, payload);
     if (!(stack.qty > 0)) ctx.fail('NOT_ENOUGH', `There is no ${def.name} left.`);
     if (def.kind !== 'consumable') ctx.fail('REFUSED', `The ${def.name} is not something to use.`);
+    // A repair kit patches a piece (`piece`: its stack or name; else the user's most worn one).
+    if (repairOf(def)) return useKit(ctx, { kit: stack, on: text(payload?.piece), by: text(payload?.target) || party.pc, inFight: inFight(ctx) });
     if (!helpsOutside(def.effect)) ctx.fail('REFUSED', `${def.name} can only be used in a fight.`);
     const targetId = text(payload?.target) || party.pc;
     actorFor(ctx, party, targetId);
@@ -147,8 +150,14 @@ export function storyUse(ctx, payload = {}) {
     if (!Number.isInteger(qty) || qty < 1 || qty > MAX_DOSES) ctx.fail('INVALID', `Use from 1 to ${MAX_DOSES} at once.`);
     const party = ctx.read('party');
     if (!party?.pc) ctx.fail('NOT_FOUND', 'Make your character first.');
-    if (inFight(ctx)) return fightUse(ctx, payload, { name, qty, party });
     const inventory = inventoryOf(stateOf(ctx));
+    // A repair kit (`effect.repair`) patches a piece: `on:` names the piece, or whose most worn piece.
+    const kit = text(payload?.stack) ? inventory.stacks?.[text(payload.stack)] ?? null : stackNamed(inventory, party, name, party.pc);
+    if (kit && repairOf(inventory.defs?.[kit.def])) {
+        const by = text(payload?.by) ? storyTarget(ctx, party, { on: payload.by }) : party.pc;
+        return useKit(ctx, { kit, on: text(payload?.on), by: by ?? party.pc, story: true, inFight: inFight(ctx) });
+    }
+    if (inFight(ctx)) return fightUse(ctx, payload, { name, qty, party });
     const who = storyTarget(ctx, party, payload);
     const plan = planStoryUse({ inventory, party, name, stack: text(payload?.stack), who, qty, inFight: false });
     if (!plan.ok) {

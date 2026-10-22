@@ -16,12 +16,36 @@ import { describeRow, nameKey } from '../../items.js';
 import { materialAffinity } from '../../craft.js';
 import { isMaterial, itemWorth, kindOf } from '../../trade.js';
 import { maxLevel } from '../../terms.js';
-import { hostCurrency, hostSettings, rulesFrom } from './shared.js';
+import { hostCurrency, hostEconomyScale, hostSettings, rulesFrom } from './shared.js';
 import { capEffect, capStats, storyRarity } from '../limits.js';
 
 export { STORY_EFFECT_MAX, capEffect, capStats, storyRarity } from '../limits.js';
 
 const SLOTS = ['weapon', 'offhand', 'armour', 'worn', 'accessory'];
+
+// Repair kits (TRS idea 2): a thing named for mending gear is a consumable with `effect.repair`, the
+// condition one patch gives back (items/wear.js). Its size from its name, code's numbers: a minor kit
+// 15, a plain one 25, a fine one 35, a master's 50 (REPAIR_MAX, also the most a pack's kit may say).
+// Its worth: REPAIR_WORTH per point. A field patch never raises what a piece sells for (condition.js).
+export const REPAIR_MAX = 50;
+export const REPAIR_WORTH = 2;
+const KIT_NAME = /\b(?:repair|mending|patch(?:ing)?|sewing|tinker'?s|armou?rer'?s|smith'?s|field)\s+kits?\b|\bwhetstones?\b|\bsharpening\s+stones?\b|\b(?:armou?r|leather|weapon)\s+(?:oil|polish|patch(?:es)?)\b/i;
+
+/** A fixed coin amount × the money scale (MODULES §F104): whole, at least 1. */
+export function scaledCoin(amount, scale = 1) {
+    const factor = Number.isFinite(Number(scale)) && Number(scale) > 0 ? Number(scale) : 1;
+    return Math.max(1, Math.round(amount * factor));
+}
+
+/** A repair kit's amount by its name and note, or 0 for a thing that is no repair kit. */
+export function repairKitAmount(name, note = '') {
+    if (!KIT_NAME.test(String(name ?? ''))) return 0;
+    const words = `${name} ${note}`.toLowerCase();
+    if (/\b(?:master(?:'?s|work)?|grand|superior)\b/.test(words)) return 50;
+    if (/\b(?:fine|good|quality|large)\b/.test(words)) return 35;
+    if (/\b(?:minor|small|crude|makeshift|simple)\b/.test(words)) return 15;
+    return 25;
+}
 
 const forms = name => {
     const n = String(name).toLowerCase();
@@ -53,6 +77,8 @@ const whole = value => Math.max(0, Math.round(Number(value) || 0));
 
 function effectShape(effect) {
     const out = { heal: whole(effect?.heal), mp: whole(effect?.mp), cure: [...(effect?.cure ?? [])].map(String) };
+    // A repair kit's amount (TRS idea 2, items/wear.js) goes along; it mends gear, never a person.
+    if (whole(effect?.repair) > 0) out.repair = Math.min(REPAIR_MAX, whole(effect.repair));
     // A thrown flask's harm (v1 parseEffect's `damage`) goes along for a fight; outside one it does nothing.
     if (effect?.damage) out.damage = { amount: whole(effect.damage.amount), element: String(effect.damage.element), target: effect.damage.target === 'all' ? 'all' : 'one' };
     return out;
@@ -71,7 +97,7 @@ function effectShape(effect) {
  * What the story said wins; where it said nothing the def keeps what it had (a pack's numbers),
  * except Story Block's plain defaults, which are only placeholders: `goods`, `common`, worth 0.
  */
-export function defineItem(def, { note, owner = null, settings, currency, level = 1 } = {}) {
+export function defineItem(def, { note, owner = null, settings, currency, level = 1, scale } = {}) {
     void owner;
     const rules = rulesFrom(settings === undefined ? hostSettings() : settings);
     const name = String(def?.name ?? '').trim();
@@ -83,6 +109,14 @@ export function defineItem(def, { note, owner = null, settings, currency, level 
     const coin = coinValue(name, currency === undefined ? hostCurrency() : currency);
     if (coin !== null || def?.kind === 'money') {
         return { ...base, kind: 'money', rarity: 'common', value: coin ?? whole(def?.value), stack: true, slot: null, stats: {}, effect: {}, tags: [], note: text };
+    }
+
+    // A repair kit: a consumable that mends gear (its own amount when a pack gave one).
+    const kit = def?.kind === 'consumable' && whole(def?.effect?.repair) > 0 ? Math.min(REPAIR_MAX, whole(def.effect.repair)) : repairKitAmount(name, text);
+    if (kit && def?.kind !== 'equipment') {
+        // A kit's own coin number is scaled by the pack's money scale (MODULES §F104, `inventory.economy`).
+        const value = whole(def?.value) > 0 ? whole(def.value) : scaledCoin(kit * REPAIR_WORTH, scale === undefined ? hostEconomyScale() : scale);
+        return { ...base, kind: 'consumable', rarity: def?.rarity && def.rarity !== 'legendary' ? def.rarity : 'common', value, stack: true, slot: null, stats: {}, effect: { heal: 0, mp: 0, cure: [], repair: kit }, tags: [], note: text };
     }
 
     // A pack's piece already says it is gear; the story's plain `goods` says nothing.
