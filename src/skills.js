@@ -51,11 +51,16 @@ export const DEFAULT_SKILLS = Object.freeze([
 
 export const PRESETS = Object.freeze([
     // Every spread puts a little into VIT: a character with base VIT falls over by level 10.
-    { id: 'fighter', name: 'Fighter', points: { STR: 4, VIT: 3, AGI: 1, DEX: 2 }, skills: ['Power Strike', 'Sweep', 'Second Wind'] },
-    { id: 'skirmisher', name: 'Skirmisher', points: { STR: 2, VIT: 2, AGI: 3, DEX: 3 }, skills: ['Quick Stab', 'Poison Dart', 'Power Strike'] },
-    { id: 'caster', name: 'Caster', points: { VIT: 3, AGI: 1, DEX: 1, INT: 5 }, skills: ['Firebolt', 'Frost Shard', 'Ward'] },
-    { id: 'healer', name: 'Healer', points: { VIT: 3, AGI: 1, INT: 4, CHA: 2 }, skills: ['Mend', 'Firebolt', 'Rally'] },
-    { id: 'archer', name: 'Archer', points: { STR: 1, VIT: 2, AGI: 2, DEX: 4, LUK: 1 }, skills: ['Aimed Shot', 'Poison Dart', 'Second Wind'] },
+    // (v2 wave C) Rebalanced so the five meet a fight's danger alike at every level and headcount
+    // (scripts/balance-sim.mjs): the fighter a point of AGI for one of VIT and the healer one for CHA (speed and evasion),
+    // the caster a point of INT less, the skirmisher DEX before AGI; and each a skill that meets a
+    // group, opened by its own stats (the caster's Fireball, the skirmisher's and the archer's
+    // Volley). New characters only: a saved character keeps its stats and skills.
+    { id: 'fighter', name: 'Fighter', points: { STR: 4, VIT: 2, AGI: 2, DEX: 2 }, skills: ['Power Strike', 'Sweep', 'Second Wind'] },
+    { id: 'skirmisher', name: 'Skirmisher', points: { STR: 2, VIT: 2, AGI: 2, DEX: 4 }, skills: ['Quick Stab', 'Poison Dart', 'Volley'] },
+    { id: 'caster', name: 'Caster', points: { VIT: 3, AGI: 1, DEX: 2, INT: 4 }, skills: ['Firebolt', 'Fireball', 'Ward'] },
+    { id: 'healer', name: 'Healer', points: { VIT: 3, AGI: 2, INT: 4, CHA: 1 }, skills: ['Mend', 'Firebolt', 'Rally'] },
+    { id: 'archer', name: 'Archer', points: { STR: 1, VIT: 2, AGI: 2, DEX: 4, LUK: 1 }, skills: ['Aimed Shot', 'Volley', 'Second Wind'] },
 ]);
 
 const normal = name => String(name ?? '').replace(/\(\s*lv\.?\s*\d+\s*\)\s*$/i, '').toLowerCase().replace(/[^a-z0-9]+/g, '');

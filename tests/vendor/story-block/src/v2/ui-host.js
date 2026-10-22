@@ -249,6 +249,15 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
         extractorOn: () => {
             try { return typeof sdk.feature === 'function' ? sdk.feature(CORE_FEATURE.extractor) : sdk.settings('story-block')?.assistExtractor === true; } catch { return false; }
         },
+        // The extractor ran on reply `index` (this swipe, this chat) and its call failed: the note shows.
+        extractorFailed: (index, swipe) => {
+            try {
+                const chat = String(ctx.getCurrentChatId?.() ?? ctx.chatId ?? '');
+                const runs = sdk.query('assist.status')?.runs ?? [];
+                const last = runs.findLast(run => run?.helper === 'extractor' && run.index === index && run.swipe === swipe && (run.chat ?? '') === chat);
+                return last?.outcome === 'failed' || last?.outcome === 'timeout';
+            } catch { return false; }
+        },
         onChanged: index => mounts?.card?.refresh?.(index, { force: true }),
     });
     // What the Inspector lists as a reply's problems: blocks its replay skipped, and what the turn met

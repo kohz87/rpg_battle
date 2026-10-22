@@ -250,20 +250,20 @@ export const LEVEL_SHIFT = Object.freeze({
         [9.25, -1, -10.75, -13.75, -19.75, -25.75],
     ]),
     even: shifts([
-        [6.25, 1.75, 0, -1.75, -1.25, -1.25],
-        [10, 4, 0, -2, -1.75, -1.75],
-        [14.5, 6, 1.25, -1, -0.5, -0.5],
-        [23.25, 11, 2.5, -1.25, -1.25, -1.25],
-        [40, 15.25, 3.5, -1.25, -1.25, -1.25],
-        [76.25, 25, 6.75, -2, -2, -2],
+        [7, 2, 0.5, 0, 0, 0],
+        [10.5, 3.75, 1.75, 0.25, 0.25, 0.25],
+        [17.75, 6, 3.5, 2, 2, 2],
+        [30.75, 12.25, 7, 3.5, 3.5, 3.5],
+        [54, 23.5, 15, 8.25, 8.25, 8.25],
+        [104.75, 33, 21, 10.5, 10.5, 10.5],
     ]),
     strong: shifts([
-        [3.25, -1, -3, -4.75, -4.75, -4.75],
-        [7.75, 1, -3, -5, -5, -5],
-        [13, 3.75, -1.75, -4, -4, -4],
-        [21.25, 8.75, -0.25, -3.5, -3.5, -3.5],
-        [40, 13.75, 2, -4, -4, -4],
-        [84, 28.75, 4, -3, -3, -3],
+        [4.5, -1, -3.25, -3.75, -3.75, -3.75],
+        [9.5, 2.5, -1.75, -2.5, -2.5, -2.5],
+        [16.5, 5, 0.5, -1.75, -1.75, -1.75],
+        [32, 11.5, 5.5, 0.5, 0.5, 0.5],
+        [62.5, 25, 12.5, 6, 6, 6],
+        [128.5, 39.25, 19.5, 9, 9, 9],
     ]),
     deadly: shifts([
         [3.25, -2.25, -6, -7.25, -7.25, -7.25],
@@ -363,15 +363,21 @@ export function tierPower(tier, pcLevel, headcount = 1, { boss = false, rules = 
 
 /**
  * The offer's rows with no more foes in all than it fields: MAX_HEADCOUNT, or the least
- * MAX_FIELDED of its tiers for each member who can fight (the last rows give way first).
+ * MAX_FIELDED of its tiers for each member who can fight (the last rows give way first; a boss never).
  */
 function fielded(rows, partySize = 1) {
     let room = Math.min(MAX_HEADCOUNT, ...rows.map(row => (MAX_FIELDED[row.threat] ?? MAX_HEADCOUNT) * partySize));
-    return rows.map(row => {
-        const count = Math.max(0, Math.min(Math.max(1, Math.round(Number(row.count) || 1)), room));
-        room -= count;
-        return { ...row, count };
-    }).filter(row => row.count > 0);
+    // A boss is never the one held back (its fight's point, written after its followers as often as
+    // not, in a later wave too): bosses take their places first, then the rest in order.
+    const counts = rows.map(() => 0);
+    for (const boss of [true, false]) {
+        rows.forEach((row, index) => {
+            if (Boolean(row.boss) !== boss) return;
+            counts[index] = Math.max(0, Math.min(Math.max(1, Math.round(Number(row.count) || 1)), room));
+            room -= counts[index];
+        });
+    }
+    return rows.map((row, index) => ({ ...row, count: counts[index] })).filter(row => row.count > 0);
 }
 
 const stuns = enemy => (enemy.skills ?? []).some(skill => Number(skill?.effect?.stun) > 0);
@@ -440,11 +446,12 @@ export function tierXpLevel(tier, pcLevel, rules = DEFAULT_RULES) {
 
 /**
  * A projected foe of a tier row made as dangerous as its tier means: HP and attack × its creature's
- * powerScale (at least 1 for a boss) × the row's `levelScale`. Other foes as they are.
+ * powerScale for a character of `pcLevel` meeting it at the row's level (at least 1 for a boss) ×
+ * the row's `levelScale`. Other foes as they are.
  */
-export function normalizedFoe(enemy, row, entry, rules = DEFAULT_RULES) {
+export function normalizedFoe(enemy, row, entry, rules = DEFAULT_RULES, pcLevel = 1) {
     if (!row?.threat) return enemy;
-    const power = powerScale(entry, rules);
+    const power = powerScale(entry, pcLevel, Number(row.level) >= 1 ? Number(row.level) : pcLevel, rules);
     const factor = (row.boss ? Math.max(1, power) : power) * (Number(row.levelScale) > 0 ? Number(row.levelScale) : 1);
     if (factor === 1) return enemy;
     const hp = Math.max(1, Math.round(enemy.hp.max * factor));
@@ -473,7 +480,7 @@ export function buildSetup({ id, seed, offer, party, chatBestiary = [], numbers,
     // its tier means (normalizedFoe: its creature's power, a fraction of a level or levels past the cap).
     const rng = makeRng(`${seed}:enemies`);
     const projected = ranked.flatMap(row => enemiesFromRows([row], { bestiary, library: DEFAULT_SKILLS, rules, rng })
-        .map(enemy => normalizedFoe(enemy, row, findCreature(bestiary, row.name), rules))
+        .map(enemy => normalizedFoe(enemy, row, findCreature(bestiary, row.name), rules, pcLevel))
         // A tier foe's XP counts from its tier (tierXpLevel); a ranked foe's from its level.
         .map(enemy => (row.threat && !row.ladder ? { ...enemy, xpLevel: tierXpLevel(row.threat, pcLevel, rules) } : enemy)));
     const all = lessStunners(projected, partySize)
@@ -490,10 +497,16 @@ export function buildSetup({ id, seed, offer, party, chatBestiary = [], numbers,
         ...(waves.length ? { waves } : {}),
         stakes: offer.stakes === 'death' ? 'death' : 'normal',
         turns: numbers.turns,
-        speedOffset: numbers.speedOffset,
+        // The speed offset grows with the character's level: AGI's share of speed (and so how many
+        // more turns the swift get) stays about what it is at level 1 (setting + level).
+        speedOffset: numbers.speedOffset + pcLevel,
         hit: { ...numbers.hit },
         // Nobody is stunned two turns in a row: a second stun dazes (combat.js DAZE_POINTS).
         stunRule: 'daze',
+        // DEX against AGI as a share of the two (combat.js relativeDex): a hit at level 60 is not a 5 % roll;
+        // a spell rolls too, INT against AGI (spellRule), so a caster's spells are not sure hits.
+        hitRule: 'relative',
+        spellRule: 'roll',
         ...(numbers.xpRate ? { xpRate: numbers.xpRate } : {}),
         ...(offer.place ? { place: offer.place } : {}),
         // The pack's money scale as the fight began (moneyScale, F104): its loot coin is paid by it.

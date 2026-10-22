@@ -39,14 +39,21 @@ test('every skill has a valid shape and a unique name', () => {
     }
 });
 
-test('presets spend exactly the start points on three tier-1 skills', () => {
+// (v2 wave C) A preset may start with a tier-2 skill its own stats open (the caster's Fireball, the
+// skirmisher's and the archer's Volley): every preset has a way to meet a group.
+test('presets spend exactly the start points on three skills their stats open', () => {
     assert.deepEqual(PRESETS.map(p => p.id), ['fighter', 'skirmisher', 'caster', 'healer', 'archer']);
     for (const preset of PRESETS) {
         const sum = Object.values(preset.points).reduce((a, b) => a + b, 0);
         assert.equal(sum, DEFAULT_RULES.character.startPoints, preset.id);
         for (const stat of Object.keys(preset.points)) assert.ok(STATS.includes(stat));
         assert.equal(preset.skills.length, DEFAULT_RULES.character.starterSkills);
-        for (const name of preset.skills) assert.equal(findSkill(DEFAULT_SKILLS, name)?.tier, 1, name);
+        const stats = Object.fromEntries(STATS.map(stat => [stat, DEFAULT_RULES.character.startStat + (preset.points[stat] ?? 0)]));
+        for (const name of preset.skills) {
+            const skill = findSkill(DEFAULT_SKILLS, name);
+            assert.ok(skill && skill.tier <= 2, name);
+            assert.equal(canLearn(stats, skill).ok, true, `${preset.id}: ${name}`);
+        }
     }
 });
 
