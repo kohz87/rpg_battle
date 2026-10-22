@@ -19,6 +19,58 @@ Needs [Story Block](https://github.com/kohz87/Story_block) **0.7** or newer. Wit
 back as story time passes; with **0.8**, the fights it plans are offered when the story reaches
 them.
 
+## On the `v2` branch: gear, crafting and screens
+
+These are RPG Battle 2 (Story Suite v2 beta, needs Story Block 2). The player guide,
+[Story Block docs/v2/GUIDE.md](https://github.com/kohz87/Story_block/blob/v2/docs/v2/GUIDE.md), tells
+each in full. Every one can be switched off in Story Suite settings → **Features**.
+
+**Gear: wear, repair and refinement** (features *Gear wear and repair*, *Gear refinement*)
+- A piece is good, worn (85% of its stats), tattered (60%) or broken (none, but it stays on).
+- Armour wears with the damage taken in a fight, a weapon a little each fight. The story can say a piece
+  suffered (`~ item Coat — torn | wear: scuff|tear|ruin`), and code decides how much.
+- Repair kits patch a piece in the field (`! use Repair Kit | on: Coat`). Each patch takes a little off
+  how good it can get until a proper repair.
+- A smith or tailor repairs a piece to full for a fee (`! repair Chain Shirt | at: smith`, or on the
+  Trade screen).
+- A smith refines a piece to +1, +2 or +3 for materials and a fee (+8% stats a level, shown in the
+  name). The +3 attempt can fail and leave it at +2.
+- Repairing or refining and then selling never brings in more than selling the piece as it was.
+
+**Crafting** (feature *Crafting*)
+- Crafting is told by the story and refereed by code: `! craft Healing Salve | with: Bluecap Moss x2`.
+  Companions craft too, with their own stats.
+- The craft takes the reply's own dice. Code adds the stats for that craft, the craft skill, tools and
+  material quality against the recipe's difficulty. The result is fail (half the materials lost), made,
+  fine, masterwork, or botched on a natural 1.
+- Stations come from the place (a smith's forge, an apothecary's alchemy table, `at: campfire` in the
+  wild).
+- Recipes come from the pack or are learned in the story (`+ recipe Name | from: Hollis`).
+- **The carry limit is respected:** if the party couldn't carry what a craft makes, the whole craft is
+  refused and nothing is used up.
+- A made thing is worth what went into it. Key items count as worth nothing.
+- With Story Director, the clock moves on by the recipe's time.
+
+**Screens**
+- **One bag.** RPG Battle has no Items screen any more. Each row of Story Block's Inventory shows RPG
+  Battle's details: slot and stats, who wears it, condition and refinement, and for a potion what it
+  does and whom it would help now. **Equip on…**, **Take off** and **Give…** are there too.
+- **Party cards.** Each card shows the member's stats, what they wear (with condition and refinement),
+  active effects, carry load and when they are encumbered.
+- **Companion switches** on each companion's card: **In fights** (*On their own* / *You lead*) and
+  **Stat points** (*By build* / *By hand*).
+- **Crafting screen.** It is read-only: each character's craft skills and recipes, with materials had
+  and needed, the station, the difficulty and the chances. You craft in the story.
+- **Character creation.** **Random** appears on the Talents step only (with **Keep it**), and "Points
+  left" is said once per step.
+- **Character file.** **Save character file** on your own Party card exports your character. **Import
+  character** on the wizard's first step brings one into a new chat. Its things are held to that
+  chat's rules.
+- The status strip shows points to spend and effects under way.
+
+The screenshots below are from RPG Battle 1. There are no v2 screenshots here yet, because the current
+ones were taken before the encumbered line was added to the Party cards.
+
 ## Screenshots
 
 A three-stage plan from a demo session with [Story Block](https://github.com/kohz87/Story_block), [Story Director](https://github.com/kohz87/Story_director) and [NPC State Delta](https://github.com/kohz87/npc_state_delta). The story wrote `<Encounter>at the reed bank: 3 young wolf (weak); then at the den mouth: 2 wolf (weak); then inside the den: old dog wolf (boss, even)</Encounter>`.
