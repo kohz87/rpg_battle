@@ -304,13 +304,17 @@ export function createRuntime({
     events = createEvents();
     const rewind = createRewind({ ctx, store, events, ...(branch ? { branch } : {}) });
     let dialogOpener = null;
+    let dialogCurrent = null;
     const made = createSdk({ store, bus, registry, settings, events, chat: () => ctx.chat, onRegister: def => onRegister?.(def), rewind,
         substitute: text => substituteNames(text, ctx), dialog: (screenId, opts) => dialogOpener?.(screenId, opts) ?? null,
-        reread: index => turn?.reread(index) });
+        dialogCurrent: () => dialogCurrent?.() ?? null, reread: index => turn?.reread(index) });
     sdk = made.sdk;
     const initial = () => initialWithStart(registry);
     turn = createTurn({ ctx, live, store, bus, registry, settings, events, onBlocked, initial, ...(notify ? { notify } : {}) });
-    // The UI (ui-host.js) plugs its dialog mount in here, for sdk.dialog.open.
-    const setDialog = fn => { dialogOpener = typeof fn === 'function' ? fn : null; };
+    // The UI (ui-host.js) plugs its dialog mount in here, for sdk.dialog.open (and .current).
+    const setDialog = (fn, current = null) => {
+        dialogOpener = typeof fn === 'function' ? fn : null;
+        dialogCurrent = typeof current === 'function' ? current : null;
+    };
     return { registry, settings, features, store, bus, events, sdk, turn, markReady: made.markReady, initial, packs: packPart, setDialog };
 }

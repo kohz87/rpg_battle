@@ -43,6 +43,7 @@ import { createSavePoints } from './rewind.js';
 import { createInspectorWidget, INSPECTOR_WIDGET } from './screens/inspector.js';
 import { createSavePointsWidget, SAVEPOINTS_WIDGET } from './screens/savepoints.js';
 import { createPacksHintWidget, PACKS_HINT_WIDGET } from './screens/packs-hint.js';
+import { createReadyHintWidget, READY_HINT_WIDGET } from './screens/ready-hint.js';
 
 const IDS = Object.freeze({ bar: 'story_suite_v2_bar', panel: 'story_suite_v2_panel', drawer: 'story_suite_v2_drawer', menu: 'story_suite_v2_menu' });
 
@@ -150,6 +151,11 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
             enabled: () => coreOn(CORE_FEATURE.savepoints),
             notify: text => globalThis.toastr?.warning?.(text, S.savepoints.title),
         }),
+        // Home's "Before you start" while a module's canGenerate holds the story back (MODULES §F12).
+        [READY_HINT_WIDGET]: createReadyHintWidget({
+            blockers: () => (typeof runtime.turn?.blockers === 'function' ? runtime.turn.blockers() : []),
+            unblock: (moduleId, reason) => runtime.turn?.unblock?.(moduleId, reason) ?? false,
+        }),
         // Home's "Import a pack" while no pack is installed: the settings, open at the Packs fold.
         [PACKS_HINT_WIDGET]: createPacksHintWidget({
             list: () => {
@@ -225,7 +231,7 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
         on: (name, fn) => sdk.on(name, fn),
         rewind: options => sdk.rewind(options),
         substitute: text => sdk.substitute(text),
-        dialog: Object.freeze({ open: (screenId, opts) => sdk.dialog.open(screenId, opts) }),
+        dialog: Object.freeze({ open: (screenId, opts) => sdk.dialog.open(screenId, opts), current: () => sdk.dialog.current?.() ?? null }),
     });
     const carriers = () => (ctx.chat ?? []).map((message, index) => (message && !message.is_user ? index : -1)).filter(index => index >= 0);
     // Cards go under replies with a story record of their own; never under the greeting (every message
@@ -297,7 +303,7 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
         },
         document: doc,
     });
-    runtime.setDialog?.((screenId, opts) => mounts.dialog.open(screenId, opts));
+    runtime.setDialog?.((screenId, opts) => mounts.dialog.open(screenId, opts), () => mounts.dialog.current?.() ?? null);
     // The tab host sees the module tabs and the tab screens as one list, in navigation order (Home's
     // neighbours first: Party, Quests, Scene, Inventory, Map, then the rest; a tab's `order` moves it).
     const tabSource = { tabs: () => byNavOrder([...registry.tabs(), ...extraTabs.map(tab => ({ ...tab, moduleId: 'screens' }))]) };
@@ -438,13 +444,16 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
     menu();
 
     // ---- the canGenerate notice ------------------------------------------------------------
+    let blockedBy = null;
     function blocked(reason, moduleId) {
+        blockedBy = moduleId ?? null;
         const name = registry.module(moduleId)?.name ?? moduleId ?? S.bar.label;
         noticeText.textContent = fill(S.bar.blocked, { module: name, reason });
         notice.hidden = false;
         bar.classList.add('story-suite-bar-blocked');
     }
     function clearBlocked() {
+        blockedBy = null;
         notice.hidden = true;
         noticeText.textContent = '';
         bar.classList.remove('story-suite-bar-blocked');
@@ -495,6 +504,14 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
         mounts.dialog?.closeWhere?.(screenId => !screens.resolve(screenId));
         refresh();
         mounts.card?.refreshAll?.({ force: true });
+    }));
+    // The notice goes once the module that held the story back no longer does (the character was made).
+    offs.push(events.on('committed', async () => {
+        if (!blockedBy || typeof runtime.turn?.blockers !== 'function') return;
+        const was = blockedBy;
+        let still = true;
+        try { still = (await runtime.turn.blockers()).some(entry => entry.moduleId === was); } catch { still = true; }
+        if (!still && blockedBy === was) clearBlocked();
     }));
     offs.push(events.on('turn', done => {
         clearBlocked();

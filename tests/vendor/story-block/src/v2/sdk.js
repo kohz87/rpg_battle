@@ -242,11 +242,11 @@ export async function ensureModules({ store, bus, registry, events = null }) {
 /**
  * The public sdk. `deps`: { store, bus, registry, settings (createSettings), events
  * (createEvents), chat?: () => Message[], check?, onRegister?(def) (after each registerModule),
- * rewind?({ index, beforeRev }) (src/v2/rewind.js), substitute?(text), dialog?(screenId, opts), reread?(index) (turn.js) }.
+ * rewind?({ index, beforeRev }) (src/v2/rewind.js), substitute?(text), dialog?(screenId, opts), dialogCurrent?(), reread?(index) (turn.js) }.
  * Returns { sdk, events, markReady }:
  * `sdk.ready` resolves to the sdk once the host calls markReady().
  */
-export function createSdk({ store, bus, registry, settings, events = createEvents(), chat = () => [], check = checkModule, onRegister = null, rewind = null, substitute = text => String(text ?? ''), dialog = null, reread = null }) {
+export function createSdk({ store, bus, registry, settings, events = createEvents(), chat = () => [], check = checkModule, onRegister = null, rewind = null, substitute = text => String(text ?? ''), dialog = null, dialogCurrent = null, reread = null }) {
     let markReady;
     const ready = new Promise(resolve => { markReady = () => resolve(sdk); });
     const refused = message => ({ ok: false, code: 'REFUSED', message });
@@ -309,9 +309,13 @@ export function createSdk({ store, bus, registry, settings, events = createEvent
         substitute: text => substitute(text),
         /**
          * Dialogs and wizards (SPEC §13.6): `open(screenId, opts)` → the dialog handle, or null where no
-         * page is shown (opts as the dialog mount's: draft, submit, random, onDone, onClose…).
+         * page is shown (opts as the dialog mount's: draft, submit, random, onDone, onClose…);
+         * `current()` → the topmost open dialog's handle, or null (so a module does not open a second).
          */
-        dialog: Object.freeze({ open: (screenId, opts = {}) => (typeof dialog === 'function' ? dialog(screenId, opts) : null) }),
+        dialog: Object.freeze({
+            open: (screenId, opts = {}) => (typeof dialog === 'function' ? dialog(screenId, opts) : null),
+            current: () => (typeof dialogCurrent === 'function' ? dialogCurrent() ?? null : null),
+        }),
         id: newId,
         check: check ? Object.freeze({ ...check }) : null,
         settings: id => settings(id),

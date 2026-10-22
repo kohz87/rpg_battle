@@ -12,6 +12,11 @@
 // quest's state on its own. The first open quest's progress bar is drawn when the board says it has a
 // target (`meter`).
 //
+// First, while a module holds the story back (its canGenerate, MODULES §F12: RPG Battle until your
+// character exists), "Before you start" (the host's `story-block.ready-hint` widget): its reason and a
+// button that runs its onBlocked hook (RPG Battle's opens the character wizard). Without such a module
+// it draws nothing.
+//
 // Last, the save points (MODULES §F93): the host's `story-block.savepoints` widget, which draws nothing
 // while that feature is off; and, while no pack is installed, "Import a pack" (the host's
 // `story-block.packs-hint` widget), which opens the settings at the Packs fold.
@@ -23,6 +28,8 @@ import { BASE_CSS } from './style.js';
 const SAVEPOINTS_WIDGET = 'story-block.savepoints';
 // "Import a pack" while no pack is installed (screens/packs-hint.js), also a host widget.
 const PACKS_HINT_WIDGET = 'story-block.packs-hint';
+// "Before you start" while a module holds the story back (screens/ready-hint.js), also a host widget.
+const READY_HINT_WIDGET = 'story-block.ready-hint';
 
 const S = STRINGS.home;
 
@@ -33,6 +40,7 @@ const MAX_OFFERS = 2;   // offers shown below them
 
 const TEMPLATE = `
 <div class="home">
+  <ss-widget name="${READY_HINT_WIDGET}" class="ready-slot"></ss-widget>
   <section class="panel hero" data-if="q.pc">
     <ss-widget name="ss.portrait" class="face" data-props='{"src":"{{ q.pc.portrait }}","name":"{{ q.pc.name }}","frame":"rounded","size":"lg"}'></ss-widget>
     <div class="who">
@@ -123,6 +131,14 @@ const CSS = `${BASE_CSS}
 .worn { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .progress { margin-top: 4px; }
 .saves-slot:empty, .packs-slot:empty { display: none; }
+.ready-slot { grid-column: 1 / -1; }
+.ready-slot:empty { display: none; }
+.ready-hint { display: grid; gap: 6px; border-color: color-mix(in srgb, var(--sb-accent) 55%, var(--sb-border)); }
+.ready-hint > h4 { margin: 0; }
+.sb-ready-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.sb-ready-item { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; justify-content: space-between; }
+.sb-ready-reason { flex: 1 1 14em; min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.sb-ready-go { border-color: var(--sb-accent); font-weight: 600; }
 .packs-hint { display: grid; gap: 6px; }
 .packs-hint > h4 { margin: 0; }
 .packs-hint > .btn { justify-self: start; }
