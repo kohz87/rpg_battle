@@ -2,6 +2,7 @@
 // (MODULES §F96), the carry limit (§F39), a market shortage (§F36). Nothing is saved on a refusal.
 import assert from 'node:assert/strict';
 import { bytes, each, stacksOf, storyCoin, storyItem, withHero } from './helpers/harness.js';
+import { sessionOf } from '../../../src/v2/combat/stored.js';
 
 const stackOf = (h, defId) => stacksOf(h, defId)[0]?.stack;
 
@@ -47,12 +48,12 @@ each('! use during a fight is the fight\'s item action (combat.act), which takes
     inFight(h);
     const view = h.query('combat.session');
     assert.equal(view.actions.actor, view.combatants.find(c => c.name === 'Ren').id, 'Ren\'s turn');
-    const actions = h.state().domains.combat.session.actions.length;
+    const actions = sessionOf(h.state().domains.combat).actions.length;
     const r = h.capture({ op: '!', kind: 'use', name: 'Minor Healing Draught', labels: { on: 'Ren' } });
     assert.equal(r.ok, true, r.message);
     assert.equal(r.receipt.data.fight, true);
     assert.match(r.receipt.summary, /^Ren uses the Minor Healing Draught in the fight on Ren: /);
-    const session = h.state().domains.combat.session;
+    const session = sessionOf(h.state().domains.combat);
     assert.equal(session.actions.length, actions + 1);
     assert.deepEqual(session.actions.at(-1).type, 'item');
     assert.equal(stacksOf(h, pot)[0].qty, 1, 'one dose taken out at use');

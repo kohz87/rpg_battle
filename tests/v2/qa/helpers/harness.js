@@ -34,6 +34,7 @@ import { part as party } from '../../../../src/v2/party/index.js';
 import { part as items } from '../../../../src/v2/items/index.js';
 import { part as combat } from '../../../../src/v2/combat/index.js';
 import { part as trade } from '../../../../src/v2/trade/index.js';
+import { sessionOf } from '../../../../src/v2/combat/stored.js';
 
 const { deepFreeze } = sbOps;
 const makeRng = sbRng.rng;
@@ -317,7 +318,7 @@ export function winFight(h, name = 'Bandit', labels = { tier: 'weak' }) {
     const start = h.command('combat.start', { offer });
     if (!start.ok) throw new Error(`combat.start failed: ${start.message}`);
     fightOut(h);
-    const status = h.state().domains.combat.session.status;
+    const status = sessionOf(h.state().domains.combat).status;
     const end = h.command('combat.end');
     return { start, end, status };
 }

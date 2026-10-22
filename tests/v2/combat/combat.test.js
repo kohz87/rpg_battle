@@ -7,6 +7,7 @@ import { actor, baseDomains, createWorld, genericProblems, it, line } from './he
 import { part, STATIC_TEXT, foesBeaten, validateCombat } from '../../../src/v2/combat/index.js';
 import { beatenFoes } from '../../../src/v2/combat/view.js';
 import { packSetup, unpackSetup, bestiaryList } from '../../../src/v2/combat/stored.js';
+import { sessionOf } from '../../../src/v2/combat/stored.js';
 
 const hero = (over = {}) => actor(1, {
     level: 6,
@@ -58,11 +59,15 @@ test('a fight from offer to end: started, played, settled through the owners', (
     assert.equal(started.receipt.narrate, false);
     const combat = world.state.domains.combat;
     assert.deepEqual(combat.offers, {}, 'the offer fought is gone');
-    assert.deepEqual(Object.keys(combat.session).sort(), ['actions', 'id', 'setup', 'status'], 'the session stores only id, setup, actions, status');
-    assert.match(combat.session.id, /^fi_[0-9a-z]{8}$/);
-    assert.equal(combat.session.status, 'active');
+    // The fight is kept under its own id (stored.js), never in a field another fight's ops reach.
+    const session = sessionOf(combat);
+    assert.equal(combat.session, null, 'nothing is written to an older chat\'s one session');
+    assert.deepEqual(Object.keys(combat.fights), [session.id]);
+    assert.deepEqual(Object.keys(session).sort(), ['actions', 'id', 'rev', 'setup', 'status'], 'the session stores only id, rev, setup, actions, status');
+    assert.match(session.id, /^fi_[0-9a-z]{8}$/);
+    assert.equal(session.status, 'active');
     // The party came from party.actors with its gear and the party's consumables.
-    const ren = combat.session.setup.party[0];
+    const ren = session.setup.party[0];
     assert.equal(ren.id, 'ac_00000001');
     assert.equal(ren.hp.max, 220);
     assert.deepEqual(ren.items.map(i => [i.name, i.qty, i.stack]), [['Minor Healing Draught', 2, it(1)]]);
@@ -72,7 +77,7 @@ test('a fight from offer to end: started, played, settled through the owners', (
     assert.equal(view.turn.actor, 'ac_00000001');
 
     fightOut(world);
-    assert.equal(world.state.domains.combat.session.status, 'won');
+    assert.equal(sessionOf(world.state.domains.combat).status, 'won');
     const ended = world.run('combat.end');
     assert.equal(ended.ok, true, ended.message);
     assert.equal(ended.receipt.narrate, true);
@@ -80,7 +85,8 @@ test('a fight from offer to end: started, played, settled through the owners', (
     assert.match(ended.receipt.summary, /Foes defeated: Cellar Rat ×3\./);
     assert.ok(!ended.receipt.summary.includes('\n'), 'one line for [Happened]');
     const after = world.state.domains.combat;
-    assert.equal(after.session, null);
+    assert.equal(sessionOf(after), null);
+    assert.deepEqual(after.fights, {}, 'the settled fight\'s key is removed');
     // The latest result is written whole, as a one-entry list (B-b1r2-13); beaten is keyed by fight id.
     assert.equal(after.last.length, 1);
     assert.equal(after.last[0].summary, ended.receipt.summary);
@@ -119,7 +125,7 @@ test('the same seed plays the same fight: same log, same result', () => {
     const play = () => {
         const [world, offer] = offered('2 bandits and a bandit captain (boss)', { tier: 'even' }, { seed: 77 });
         world.run('combat.start', { offer });
-        const seed = world.state.domains.combat.session.setup.seed;
+        const seed = sessionOf(world.state.domains.combat).setup.seed;
         fightOut(world);
         const log = world.query('combat.session').log.map(e => e.text);
         const end = world.run('combat.end');
@@ -133,7 +139,7 @@ test('the same seed plays the same fight: same log, same result', () => {
     assert.deepEqual(a.state, b.state);
     const [other, offer] = offered('2 bandits and a bandit captain (boss)', { tier: 'even' }, { seed: 78 });
     other.run('combat.start', { offer });
-    assert.notEqual(other.state.domains.combat.session.setup.seed, a.seed, 'the seed comes from the receipt\'s dice');
+    assert.notEqual(sessionOf(other.state.domains.combat).setup.seed, a.seed, 'the seed comes from the receipt\'s dice');
 });
 
 test('a consumable used in the fight comes out of its stack at use, not at the end', () => {
@@ -157,11 +163,11 @@ test('flee: the party gets away; nothing is looted and nobody is counted beaten'
     for (let seed = 1; seed < 60 && !fled; seed++) {
         const [world, offer] = offered('3 wolves', { tier: 'strong' }, { seed: seed * 7 });
         world.run('combat.start', { offer });
-        for (let n = 0; n < 10 && world.state.domains.combat.session.status === 'active'; n++) {
+        for (let n = 0; n < 10 && sessionOf(world.state.domains.combat).status === 'active'; n++) {
             const r = world.run('combat.flee');
             assert.equal(r.ok, true, r.message);
         }
-        if (world.state.domains.combat.session.status === 'fled') fled = world;
+        if (sessionOf(world.state.domains.combat).status === 'fled') fled = world;
     }
     assert.ok(fled, 'some seed lets the party escape');
     const end = fled.run('combat.end');
@@ -177,11 +183,11 @@ test('a lost fight is settled as a defeat, without loot', () => {
     const [world, offer] = offered('Ogre', { tier: 'deadly', stakes: 'death' }, { actors: [weak] });
     assert.equal(world.run('combat.start', { offer }).ok, true);
     // The ogre may finish it before Ren's first turn: the session starts over, then.
-    if (world.state.domains.combat.session.status === 'active') {
+    if (sessionOf(world.state.domains.combat).status === 'active') {
         const r = world.run('combat.act', { action: { type: 'auto' } });
         assert.equal(r.ok, true, r.message);
     }
-    assert.equal(world.state.domains.combat.session.status, 'lost');
+    assert.equal(sessionOf(world.state.domains.combat).status, 'lost');
     assert.match(world.run('combat.act', { action: { type: 'defend' } }).message, /over/);
     const end = world.run('combat.end');
     assert.equal(end.ok, true, end.message);
@@ -266,7 +272,7 @@ test('every rejection keeps nothing', () => {
     // Settled already on this line of history (the claim holds): refused.
     const claimed = world.state.meta.claims;
     assert.deepEqual(claimed, {});
-    const id = world.state.domains.combat.session.id;
+    const id = sessionOf(world.state.domains.combat).id;
     const withClaim = { ...world.state, meta: { ...world.state.meta, claims: { [`combat:${id}:end`]: true } } };
     assert.equal(world.run('combat.end', {}, { on: withClaim }).code, 'CLAIMED');
     assert.match(world.run('combat.act', { action: { type: 'defend' } }).message, /over/);
@@ -370,7 +376,7 @@ test('names nobody wrote up are made once and kept in the bestiary', () => {
 test('a setup packs and unpacks to exactly what v1 built', () => {
     const [world, offer] = offered('2 Bog Wights', { tier: 'even' });
     world.run('combat.start', { offer });
-    const stored = world.state.domains.combat.session.setup;
+    const stored = sessionOf(world.state.domains.combat).setup;
     assert.deepEqual(packSetup(unpackSetup(stored)), JSON.parse(JSON.stringify(stored)));
     assert.ok(unpackSetup(stored).enemies.every(e => !Array.isArray(e.loot) || e.loot.every(row => Array.isArray(row.qty))));
 });
@@ -407,7 +413,7 @@ test('context: the static text never changes; the tail says what is under way or
 test('settings: a new fight takes the turn system and hit numbers; a running one keeps its own', () => {
     const [world, offer] = offered('Wolf', { tier: 'even' }, { settings: { turnOrder: 'rounds', hitBase: 90, hitPerPoint: 1, speedOffset: 4 } });
     world.run('combat.start', { offer });
-    const setup = world.state.domains.combat.session.setup;
+    const setup = sessionOf(world.state.domains.combat).setup;
     assert.equal(setup.turns, 'rounds');
     assert.deepEqual(setup.hit, { base: 90, perPoint: 1 });
     assert.equal(setup.speedOffset, 4);

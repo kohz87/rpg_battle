@@ -8,8 +8,9 @@ import { join } from 'node:path';
 import { boardOf, buttons, byAct, byText, enemyCards, labels, liveFight, mount } from './helpers.js';
 import { actor } from '../combat/helpers/fake-ctx.js';
 import { battleBoard, part, WIDGET_NAME, boardView } from '../../../src/v2/board/index.js';
+import { sessionOf } from '../../../src/v2/combat/stored.js';
 
-const sessionOf = world => world.query('combat.session');
+const viewOf = world => world.query('combat.session');
 // What the board sent, without the fight id and log length it stamps every action with (checked once below).
 const plain = sent => sent.map(([type, { session: _session, logLength: _length, board: _board, ...rest }]) => [type, rest]);
 
@@ -29,8 +30,8 @@ test('the part: the widget under its namespaced name, the board query, the Fight
 
 test('renders a live combat.session view: both sides, meters, turn order, actions, log', () => {
     const world = liveFight();
-    const session = sessionOf(world);
-    const { el, doc, root } = mount(world, { view: sessionOf });
+    const session = viewOf(world);
+    const { el, doc, root } = mount(world, { view: viewOf });
     const board = root();
     assert.equal(board.getAttribute('data-status'), 'active');
     assert.equal(board.getAttribute('aria-label'), 'Battle');
@@ -72,7 +73,7 @@ test('renders a live combat.session view: both sides, meters, turn order, action
 
 test('the board query: the session view plus costs, cooldowns, condition turns and talkers', () => {
     const world = liveFight();
-    const session = sessionOf(world);
+    const session = viewOf(world);
     const board = boardOf(world);
     for (const key of Object.keys(session)) if (!['combatants', 'actions'].includes(key)) assert.deepEqual(board[key], session[key], key);
     assert.equal(board.turns, 'timeline');
@@ -130,12 +131,12 @@ test('action buttons send combat.act with the combat part\'s payloads', () => {
     for (const [kind, action] of plays) {
         const world = liveFight();
         const { el, sent } = mount(world);
-        const shown = sessionOf(world);
+        const shown = viewOf(world);
         byAct(el, kind).click();
         assert.deepEqual(plain(sent), [['combat.act', { action }]], kind);
         assert.deepEqual([sent[0][1].session, sent[0][1].board, sent[0][1].logLength], [shown.id, shown.board, shown.logLength], 'the action names the fight and the moment it was chosen for');
         assert.equal(world.receipts.at(-1).type, 'combat.act', `${kind} was played`);
-        assert.deepEqual(world.state.domains.combat.session.actions.at(-1), action);
+        assert.deepEqual(sessionOf(world.state.domains.combat).actions.at(-1), action);
     }
 
     // Attack with three foes: pick one; the card is the button.
@@ -247,14 +248,14 @@ test('a refused skill shows why; disabled buttons send nothing', () => {
 test('the result: outcome, XP, loot, then Finish runs combat.end', () => {
     const world = liveFight();
     const { el, sent } = mount(world);
-    for (let n = 0; n < 200 && world.state.domains.combat.session.status === 'active'; n++) {
+    for (let n = 0; n < 200 && sessionOf(world.state.domains.combat).status === 'active'; n++) {
         const attack = byAct(el, 'attack');
         assert.ok(attack, 'an Attack button while the fight is on');
         attack.click();
         const pickable = el.querySelector('.rpg-bb-pickable');
         if (pickable) pickable.click();
     }
-    assert.equal(world.state.domains.combat.session.status, 'won');
+    assert.equal(sessionOf(world.state.domains.combat).status, 'won');
     assert.ok(sent.every(([type, payload]) => type === 'combat.act' && payload.action.type === 'attack'));
     const view = boardOf(world);
     const result = el.querySelector('.rpg-bb-result');
@@ -270,7 +271,7 @@ test('the result: outcome, XP, loot, then Finish runs combat.end', () => {
     assert.ok(result.querySelector('.rpg-bb-defeated').textContent.startsWith('Defeated: '));
 
     // Finish settles the fight; what it applies is what the panel showed.
-    const fightId = world.state.domains.combat.session.id;
+    const fightId = sessionOf(world.state.domains.combat).id;
     byText(el, 'Finish').click();
     assert.deepEqual(sent.at(-1), ['combat.end', { session: fightId }]);
     const ended = world.receipts.at(-1);
@@ -278,20 +279,20 @@ test('the result: outcome, XP, loot, then Finish runs combat.end', () => {
     assert.deepEqual(ended.data.loot.items.map(item => item.name), view.result.loot.items.map(item => item.name));
     assert.equal(ended.data.loot.money, view.result.loot.money);
     assert.deepEqual(Object.values(ended.data.xp), view.result.xp.map(row => row.amount));
-    assert.equal(world.state.domains.combat.session, null);
+    assert.equal(sessionOf(world.state.domains.combat), null);
     assert.equal(el.querySelector('.rpg-bb-empty').textContent, 'No fight under way.');
 });
 
 test('a lost fight and a fled one show their own title; the session view alone still gives a result', () => {
     const weak = actor(1, { level: 1, hp: { cur: 6, max: 6 }, stats: { STR: 3, VIT: 3, AGI: 3, DEX: 3, INT: 3, LUK: 3, CHA: 3 } });
     const world = liveFight('2 Cave Bears', { tier: 'deadly' }, { actors: [weak] });
-    for (let n = 0; n < 200 && world.state.domains.combat.session.status === 'active'; n++) {
-        const view = sessionOf(world);
+    for (let n = 0; n < 200 && sessionOf(world.state.domains.combat).status === 'active'; n++) {
+        const view = viewOf(world);
         assert.equal(world.run('combat.act', { action: { type: 'defend' } }).ok, true);
         if (!view) break;
     }
-    assert.equal(world.state.domains.combat.session.status, 'lost');
-    const { el } = mount(world, { view: sessionOf });
+    assert.equal(sessionOf(world.state.domains.combat).status, 'lost');
+    const { el } = mount(world, { view: viewOf });
     assert.equal(el.querySelector('.rpg-bb-outcome').textContent, 'Defeated');
     assert.ok(byText(el, 'Finish'));
     assert.equal(el.querySelectorAll('.rpg-bb-gains').length, 0, 'no XP rows from the bare session view');
@@ -446,7 +447,7 @@ test('the chat\'s terms (party.terms, MODULES §F25): level tags and XP rows use
     const tiered = mount(world, { view: w => ({ ...boardOf(w), terms: { ...terms, tiers: { size: 5, numerals: 'roman' } } }) });
     assert.ok(tagsOf(tiered.el).includes('Soul Class II'));
     // The result's XP rows.
-    for (let n = 0; n < 200 && world.state.domains.combat.session.status === 'active'; n++) {
+    for (let n = 0; n < 200 && sessionOf(world.state.domains.combat).status === 'active'; n++) {
         byAct(named.el, 'attack').click();
         named.el.querySelector('.rpg-bb-pickable')?.click();
     }

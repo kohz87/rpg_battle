@@ -15,6 +15,7 @@ import { placePrices, sellPrice } from '../../../src/trade.js';
 import { fitPool } from '../../../src/v2/party/pools.js';
 import { rng, roll } from './vendor/src/v2/rng.js';
 import { fightOut, stacksOf, storyItem, withHero, each } from './helpers/harness.js';
+import { sessionOf } from '../../../src/v2/combat/stored.js';
 
 /** A v1 Sheet for an actor record, field by field. */
 function v1Sheet(actor) {
@@ -115,7 +116,7 @@ each('a fight\'s blows and XP = v1 act/replay/summarize on the stored setup', ()
         const { h } = withHero({ seed });
         h.capture({ op: '!', kind: 'encounter', name: '2 Cellar Rats', text: '', labels: { tier: 'weak' } });
         assert.equal(h.command('combat.start', { offer: h.query('combat.offers')[0].id }).ok, true);
-        const session = structuredClone(h.state().domains.combat.session);
+        const session = structuredClone(sessionOf(h.state().domains.combat));
         const rules = makeRules({ turns: { mode: session.setup.turns, speedOffset: session.setup.speedOffset }, attack: { hitBase: session.setup.hit.base, hitPerPoint: session.setup.hit.perPoint } });
         // The setup with the loot ranges back in v1's shape (`range` → `qty`).
         const setup = JSON.parse(JSON.stringify(session.setup), (key, value) => (value && typeof value === 'object' && Array.isArray(value.range) ? (({ range, ...rest }) => ({ ...rest, qty: range }))(value) : value));
@@ -123,7 +124,7 @@ each('a fight\'s blows and XP = v1 act/replay/summarize on the stored setup', ()
         const marks = h.receipts.length;
         fightOut(h);
         const acts = h.receipts.slice(marks);
-        const actions = h.state().domains.combat.session.actions;
+        const actions = sessionOf(h.state().domains.combat).actions;
         actions.forEach((action, i) => {
             const before = fight.log.length;
             fight = act(fight, action, rules);

@@ -7,7 +7,7 @@ import { rulesFrom, toSheet, wornGear } from './sheets.js';
 import { moneyScale, packRanks, rankLadder, termsOf } from '../../terms.js';
 import { actorsInOrder, offerText, plainCopy, resolveName, waitingOffers } from './util.js';
 import { encumbranceOf } from '../checks/modifiers.js';
-import { fitParty, POOLS } from './pools.js';
+import { clockOf, fitParty, lapsed, POOLS } from './pools.js';
 import { FEATURE, activeEffects, combatShift, featureOn, nowOfState, shifted, shown } from './effects.js';
 
 /**
@@ -31,7 +31,7 @@ function withPortrait(record, tools) {
 
 // The party as it stands now: every member's numbers fitted (pools.js: a pool's cur from its `lost`,
 // held to 0…max), so every reader sees the same numbers whatever a replay left in the record.
-const partyOf = state => fitParty(state?.domains?.party ?? { pc: null, order: [], actors: {}, custom: {}, offers: [] });
+const partyOf = state => fitParty(state?.domains?.party ?? { pc: null, order: [], actors: {}, custom: {}, offers: [] }, { minutes: clockOf(state) });
 
 /** Every member, in display order (your character first). */
 export function actors(state, args = {}, tools = null) {
@@ -159,15 +159,20 @@ export function encumbered(state, args = {}, tools = null) {
 }
 
 /**
- * `party.pools({})` → { [actor id]: { hp, mp, sp: { cur, max }, down } }: every member's pools as
- * they stand now (pools.js fitPool), for a card that reads one reply's state (the status card).
+ * `party.pools({})` → { [actor id]: { hp, mp, sp: { cur, max }, down, lapsed: [condition kinds] } }:
+ * every member's pools as they stand now (pools.js fitPool), and the conditions a fight left that
+ * have worn off with story time (pools.js lapsed), for a card that reads one reply's state (the
+ * status card).
  */
 export function pools(state) {
     const party = partyOf(state);
+    const minutes = clockOf(state);
     const out = {};
     for (const actor of actorsInOrder(party)) {
         out[actor.id] = Object.fromEntries(POOLS.map(name => [name, { cur: actor[name]?.cur ?? 0, max: actor[name]?.max ?? 0 }]));
         out[actor.id].down = out[actor.id].hp.cur <= 0;
+        const kept = state?.domains?.party?.actors?.[actor.id]?.conditions;
+        out[actor.id].lapsed = (Array.isArray(kept) ? kept : []).filter(entry => lapsed(entry, minutes)).map(entry => entry.kind);
     }
     return plainCopy(out);
 }

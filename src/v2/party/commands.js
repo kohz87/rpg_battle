@@ -19,6 +19,7 @@ import { fromSheet, growthOf, wornGear, libraryOf, maxCompanionsOf, rulesFrom, s
 import { exportCharacter, originIds, readCharacter } from './portable.js';
 import { defineItem } from '../items/define.js';
 import { OUTCOMES, dcOf, outcomeOf, statForCheck } from './checks.js';
+import { sessionOf } from '../combat/stored.js';
 import { filledBy, fitActor, fitParty, fitPool, storedPool } from './pools.js';
 import { actorFrom, actorsInOrder, attempt, cleanName, cleanRole, fail, nameKey, newId, offersRecord, revOf, waitingOffers } from './util.js';
 
@@ -79,7 +80,18 @@ export function fightOn(ctx) {
     } catch {
         combat = null;
     }
-    return combat?.session ?? null;
+    return sessionOf(combat);
+}
+
+/** The story clock now (ctx.time(): Story Director's minutes), or null without one. */
+function storyMinute(ctx) {
+    try {
+        const now = typeof ctx?.time === 'function' ? ctx.time() : null;
+        const minutes = now && typeof now === 'object' ? now.minutes : now;
+        return Number.isInteger(minutes) && minutes >= 0 ? minutes : null;
+    } catch {
+        return null;
+    }
 }
 
 /** Is this actor dead (a lost fight to the death: party.applyResult's `dead` mark)? */
@@ -462,7 +474,9 @@ function rest(ctx, payload = {}) {
     for (const id of ids) {
         const actor = party.actors[id];
         const sheet = toSheet(actor);
-        const next = restV1(sheet, kind, { gear: wornGear((name, args) => ctx.query(name, args), inventory, id, { pc: party.pc }), rules });
+        const rested = restV1(sheet, kind, { gear: wornGear((name, args) => ctx.query(name, args), inventory, id, { pc: party.pc }), rules });
+        // Any rest ends what a fight left (a bleed with rounds to go, B-c1-1); a story's condition waits for a long one.
+        const next = { ...rested, conditions: (rested.conditions ?? []).filter(entry => !Number.isInteger(entry.rounds)) };
         const after = writeSheet(party, actor, next, rules, { filled: filledBy(kind) });
         const gain = gains(actor, after);
         data[id] = gain;
@@ -603,7 +617,8 @@ function applyResult(ctx, payload = {}) {
         if (id === party.pc && (payload.stakes ?? result.stakes) === 'death' && (result.outcome === 'defeat' || result.outcome === 'lost')) {
             sheet = { ...sheet, hp: { ...sheet.hp, cur: 0 }, conditions: [{ name: 'dead', rounds: null }] };
         }
-        writeSheet(party, actor, sheet, rules);
+        // What the fight left keeps its rounds and the story minute it ended (sheets.js conditionRecord).
+        writeSheet(party, actor, sheet, rules, { at: storyMinute(ctx) });
         if (applied.levelsGained) levels[id] = applied.levelsGained;
         if (applied.masteryGained.length) mastery[id] = applied.masteryGained;
     }

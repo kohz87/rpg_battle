@@ -5,7 +5,7 @@
 // the Item shape v1's pure logic (src/items.js, src/recovery.js) works on.
 
 import { makeRules } from '../../rules.js';
-import { fitActor, fitParty } from '../party/pools.js';
+import { clockOf, fitActor, fitParty } from '../party/pools.js';
 
 export const MODULE_ID = 'rpg-battle';
 
@@ -60,7 +60,7 @@ export function hostEconomyScale(query = null) {
 
 export const inventoryOf = state => state?.domains?.inventory ?? { defs: {}, stacks: {}, wallets: {}, aliases: {} };
 // The party with every member's numbers as they stand now (party/pools.js: pools fitted to 0…max).
-export const partyOf = state => fitParty(state?.domains?.party ?? { pc: null, order: [], actors: {} });
+export const partyOf = state => fitParty(state?.domains?.party ?? { pc: null, order: [], actors: {} }, { minutes: clockOf(state) });
 
 /** Whether `owner` is the party's: the shared bag or one of its people. */
 export function partyOwns(party, owner) {

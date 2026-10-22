@@ -294,8 +294,17 @@ export function worthOf(def, world) {
     return itemWorth(legacyItem(def), { level: world.plevel, rules: world.rules });
 }
 
-/** What `buyer` pays for one `def` here: its worth × v1's sell rate × the buyer's taste × the place's sell prices. */
+/**
+ * Whether code made `def` worth nothing: a crafted or commissioned thing (`craft/…`) whose value is 0
+ * (a botched craft, or one made of key items). The story's own things never are: the item.define hook
+ * prices a 0 written by the story. Such a thing sells for 0 to every buyer, whatever its resale cap
+ * (`trade.paid`) still holds.
+ */
+export const worthNothing = def => def?.value === 0 && typeof def?.id === 'string' && def.id.startsWith('craft/');
+
+/** What `buyer` pays for one `def` here: its worth × v1's sell rate × the buyer's taste × the place's sell prices (0 for a thing worth nothing). */
 export function sellEach(def, buyer, world) {
+    if (worthNothing(def)) return 0;
     if (!(Number.isInteger(def?.value) && def.value > 0)) return sellPrice(legacyItem(def), { buyer, prices: world.prices, level: world.plevel, rules: world.rules });
     const t = { ...DEFAULT_RULES.trade, ...(world.rules?.trade ?? {}) };
     const pays = t.buyers?.[buyer]?.[kindOf(legacyItem(def))] ?? 1;

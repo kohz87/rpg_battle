@@ -128,8 +128,14 @@ const dependent = why => /does not exist \(no "[a-z]{2}_[0-9a-z]{8}"\)/.test(why
     || /^Taken onto the story as it stands now, these changes no longer fit: Item stack it_[0-9a-z]{8} refers to an item definition that does not exist \([^)]*\)\.$/.test(why)
     || /^The change path "\/domains\/combat\/session\/actions\/-" goes through something that is not an object or a list\.$/.test(why);
 
-for (let seed = 1; seed <= SEEDS; seed += 1) {
-    test(`FUZZ_DELETE seed ${seed}: middle deletes rebuild to the live head and skip no valid block`, { timeout: 300000 }, async t => {
+// Seeds kept for what they found, at their own length: seed 3 at 40 replies started a fight whose start
+// block a delete made skip (it named a deleted companion), and its actions were played on the fight
+// before it, which then could not be rebuilt (fights are kept under their ids now, combat/stored.js).
+const PINNED = [[3, 40], [11, 40], [23, 40]];
+const CASES = [...Array.from({ length: SEEDS }, (_, i) => [i + 1, REPLIES]), ...PINNED.filter(([seed, replies]) => seed > SEEDS || replies > REPLIES)];
+
+for (const [seed, replies] of CASES) {
+    test(`FUZZ_DELETE seed ${seed} (${replies} replies): middle deletes rebuild to the live head and skip no valid block`, { timeout: 300000 }, async t => {
         t.mock.method(console, 'warn', () => {});
         await seeded(seed, async () => {
             const r = prng(seed * 7919);
@@ -139,7 +145,7 @@ for (let seed = 1; seed <= SEEDS; seed += 1) {
                 await host.send('We set out.', host.reply('Bluewatch Village.', ['~ place Bluewatch Village | kind: settlement', '+ coin 200',
                     '+ item Chain Shirt | note: armour DEF +3', '+ item Iron Sword | note: weapon ATK +4', '+ item Iron Ore | qty: 6', '+ item Repair Kit | qty: 2']));
                 for (const row of (host.q('inventory.items', {}) ?? []).filter(item => item.kind === 'equipment')) await host.cmd('item.equip', { stack: row.stack });
-                for (let n = 0; n < REPLIES; n += 1) {
+                for (let n = 0; n < replies; n += 1) {
                     await host.send(`turn ${n}`, host.reply(`Reply ${n}.`, lines(r, n)));
                     await clicks(host, r);
                     if (r.chance(0.25)) {
@@ -178,6 +184,8 @@ for (let seed = 1; seed <= SEEDS; seed += 1) {
                         for (const pool of ['hp', 'mp', 'sp']) assert.ok(actor[pool].cur >= 0 && actor[pool].cur <= actor[pool].max, `seed ${seed} reply ${n}: ${actor.name}'s ${pool} reads ${actor[pool].cur}/${actor[pool].max}`);
                         assert.ok(actor.level >= 1 && actor.xp >= 0 && actor.points >= 0, `seed ${seed} reply ${n}: ${actor.name}'s level, XP and points read fitted`);
                     }
+                    // Nothing throws to the reader: the fight's views always answer (a view or null).
+                    assert.doesNotThrow(() => { host.q('combat.session'); host.q('combat.board'); }, `seed ${seed} reply ${n}: a fight view threw`);
                     const live = json(host.head());
                     host.store.rebuild();
                     assert.equal(json(host.head()), live, `seed ${seed} reply ${n}: the rebuilt head differs from the live one`);

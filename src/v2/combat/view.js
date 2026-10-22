@@ -5,7 +5,7 @@
 import { act, availableActions, replay } from '../../combat.js';
 import { buildHandoff, grouped, HANDOFF_HEADER } from '../../handoff.js';
 import { oneCurrency } from '../../items.js';
-import { fightRules, offersOf, unpackSetup } from './stored.js';
+import { fightRules, offersOf, sessionOf, unpackSetup } from './stored.js';
 import { foesText } from './encounter.js';
 
 const LOG_SHOWN = 40;
@@ -33,14 +33,37 @@ export function playStored(fight, action, rules) {
     return act(start, played, rules);
 }
 
-/** The fight from its setup and every stored action, from scratch (v1 replay, one copy). */
+/**
+ * The fight from its setup and every stored action, from scratch (v1 replay, one copy). An action
+ * that cannot be played there (the fight is over, or it does not fit) ends the replay: the fight
+ * stands as the actions before it left it, and nothing throws to the reader (each action is stored
+ * under its own fight, stored.js, so this is a guard, never the rule).
+ */
 export function replayStored(setup, actions, rules) {
-    return replay({ setup, actions: actions.map(({ stock: _stock, ...played }) => played) }, rules, {
-        before: (fight, _played) => {
-            const stock = actions[fight.actions.length]?.stock;
-            if (stock?.length) applyStock(fight, stock);
-        },
-    });
+    try {
+        return replay({ setup, actions: actions.map(({ stock: _stock, ...played }) => played) }, rules, {
+            before: (fight, _played) => {
+                const stock = actions[fight.actions.length]?.stock;
+                if (stock?.length) applyStock(fight, stock);
+            },
+        });
+    } catch {
+        return playOn(replay({ setup, actions: [] }, rules), actions, 0, rules);
+    }
+}
+
+/** `fight` with `actions` from `from` on played, up to the first one that cannot be (a new fight each step). */
+function playOn(fight, actions, from, rules) {
+    let out = fight;
+    for (let index = from; index < actions.length; index++) {
+        if (out.status !== 'active') break;
+        try {
+            out = playStored(out, actions[index], rules);
+        } catch {
+            break;
+        }
+    }
+    return out;
 }
 
 // The last fights rebuilt, so a fight action or a view of it plays only what is new since (a
@@ -75,8 +98,7 @@ export function rebuild(session, { fresh = false } = {}) {
     }
     let fight;
     if (hit) {
-        fight = hit.fight;
-        for (let index = hit.keys.length; index < actions.length; index++) fight = playStored(fight, actions[index], rules);
+        fight = playOn(hit.fight, actions, hit.keys.length, rules);
     } else {
         fight = replayStored(setup, actions, rules);
     }
@@ -239,7 +261,7 @@ export function rankedFoeNames(session) {
 export function tailLines(combat) {
     const lines = [];
     const optional = [];
-    const session = combat?.session;
+    const session = sessionOf(combat);
     if (session?.status === 'active') {
         lines.push(`[Fight] Under way: ${partyNames(session.setup)} against ${rankedFoeNames(session)}. The reader is playing it in RPG Battle: narrate no blows and no outcome.`);
     } else if (session) {

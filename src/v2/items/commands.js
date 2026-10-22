@@ -20,6 +20,7 @@ import { canCarry } from './carry.js';
 import { MAX_DOSES, planStoryUse, stackNamed } from './story-use.js';
 import { repairOf, useKit } from './wear.js';
 import { fitParty } from '../party/pools.js';
+import { sessionOf } from '../combat/stored.js';
 import { baseSlot, helpsOutside, inventoryOf, itemOf, partyOf, partyOwns, rulesFrom, sheetOf, stackIds, wearerOf } from './shared.js';
 
 // Slots that hold several pieces (v1 gearLimits); every other slot holds one, a new piece replacing the old.
@@ -118,7 +119,7 @@ export function itemUse(ctx, payload) {
 // A fight going on (the combat part's domain, read only): its own Item action uses things then.
 function inFight(ctx) {
     try {
-        return ctx.read('combat')?.session?.status === 'active';
+        return sessionOf(ctx.read('combat'))?.status === 'active';
     } catch {
         return false;
     }

@@ -4,6 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { offerAndStart, playOut, seeded, started } from './helpers.js';
+import { sessionOf } from '../../../src/v2/combat/stored.js';
 
 test('B4-3: combat.act with a session id that is not the fight under way is refused', async () => {
     await seeded(11, async () => {
@@ -16,10 +17,10 @@ test('B4-3: combat.act with a session id that is not the fight under way is refu
             await offerAndStart(host, '! encounter 2 Bandit | tier: even');
             const now = host.q('combat.session');
             assert.notEqual(now.id, old);
-            const before = host.head().domains.combat.session.actions.length;
+            const before = sessionOf(host.head().domains.combat).actions.length;
             const stale = await host.cmd('combat.act', { session: old, action: { type: 'flee' } });
             assert.equal(stale.ok, false, 'an action for the finished fight was played on the new one');
-            assert.equal(host.head().domains.combat.session.actions.length, before);
+            assert.equal(sessionOf(host.head().domains.combat).actions.length, before);
             const bogus = await host.cmd('combat.act', { session: 'fi_zzzzzzzz', action: { type: 'defend' } });
             assert.equal(bogus.ok, false, 'an unknown session id is accepted');
         } finally {

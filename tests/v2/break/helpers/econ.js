@@ -1,6 +1,7 @@
 // Shared bits for the b3-economy break tests in RPG Battle: the integration host (vendored Story
 // Block runtime + this module), a character, a market and a fight played out.
 import { playOut, rpgHost, seeded } from '../../integration/helpers/host.js';
+import { sessionOf } from '../../../../src/v2/combat/stored.js';
 
 export { seeded };
 export const coin = (host, owner = 'party') => host.head().domains.inventory.wallets?.[owner]?.coin ?? 0;
@@ -21,7 +22,7 @@ export async function foughtOut(host, foes = '1 Cellar Rat', tier = 'trivial') {
     const offer = host.q('combat.offers').at(-1);
     const begun = await host.cmd('combat.start', { offer: offer.id });
     if (!begun.ok) throw new Error(begun.message);
-    const id = host.head().domains.combat.session.id;
+    const id = sessionOf(host.head().domains.combat).id;
     await playOut(host);
     return id;
 }

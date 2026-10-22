@@ -54,6 +54,9 @@ function checkActor(errors, id, actor) {
     }
     if (!Array.isArray(actor.conditions) || actor.conditions.some(entry => !isObject(entry) || !isText(entry.kind, 40) || !entry.kind.trim() || !isInt(entry.stacks, 1))) {
         errors.push(`${where}: each condition needs a kind and stacks from 1.`);
+    } else if (actor.conditions.some(entry => (entry.rounds !== undefined && !isInt(entry.rounds, 1)) || (entry.at !== undefined && !isInt(entry.at)))) {
+        // One a fight left keeps the rounds it had and the story minute the fight ended (sheets.js).
+        errors.push(`${where}: a condition's rounds must be a whole number from 1, and its at a story minute.`);
     }
     if (actor.npc !== null && !isText(actor.npc, 80)) errors.push(`${where}: npc must be a name or null.`);
     if (actor.portrait !== undefined && actor.portrait !== null && !isText(actor.portrait, 2048)) errors.push(`${where}: portrait must be an image path or null.`);

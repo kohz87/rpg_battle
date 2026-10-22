@@ -26,7 +26,7 @@ import { itemSlot, oneCurrency, parseEffect } from '../../items.js';
 import { combinedBestiary } from '../../templates.js';
 import { foesText, rankContext, readEncounter, STAKES, TIERS } from './encounter.js';
 import { buildSetup, COMBAT_DEFAULTS, fightNumbers, moneyScale, partyCombatants, scaledMoney } from './setup.js';
-import { beatenOf, bestiaryList, byRev, creatureSlug, fightRules, lastOf, latinSlug, offersOf, packCreature, packSetup, sessionStatus, unpackSetup, valuesOf } from './stored.js';
+import { beatenOf, bestiaryList, byRev, draftSession, dropSession, sessionOf, creatureSlug, fightRules, lastOf, latinSlug, offersOf, packCreature, packSetup, sessionStatus, unpackSetup, valuesOf } from './stored.js';
 export { beatenOf, lastOf, offersOf } from './stored.js';
 import { clipped } from '../lines.js';
 import { fitParty } from '../party/pools.js';
@@ -126,7 +126,7 @@ function sameSession(ctx, session, payload) {
 }
 
 function activeSession(ctx, payload) {
-    const session = ctx.read('combat').session;
+    const session = sessionOf(ctx.read('combat'));
     if (!session) ctx.fail('NOT_FOUND', 'There is no fight under way.');
     sameSession(ctx, session, payload);
     if (session.status !== 'active') ctx.fail('REFUSED', 'That fight is over: finish it to see the result.');
@@ -310,14 +310,15 @@ function playAction(ctx, action, payload = {}) {
     }
     const used = readInventory(ctx) ? consumeSpent(ctx, itemsSpent(fight, next)) : { taken: [], missing: [] };
     syncPools(ctx, next);
-    const combat = ctx.draft('combat');
-    combat.session.actions.push(stock.length ? { ...action, stock } : action);
-    combat.session.status = sessionStatus(next.status);
+    // Under the fight's own key (stored.js): replayed without this fight's start, the block does not apply.
+    const stored = draftSession(ctx.draft('combat'), session.id);
+    stored.actions.push(stock.length ? { ...action, stock } : action);
+    stored.status = sessionStatus(next.status);
     const told = next.log.slice(fight.log.length).map(entry => entry.text);
     return {
         summary: clip(told.join(' ') || 'The fight goes on.'),
         narrate: false,
-        data: { session: session.id, status: combat.session.status, log: told, used: used.taken, ...(used.missing.length ? { missing: used.missing } : {}) },
+        data: { session: session.id, status: stored.status, log: told, used: used.taken, ...(used.missing.length ? { missing: used.missing } : {}) },
     };
 }
 
@@ -431,7 +432,8 @@ function start(ctx, payload) {
     const combat = ctx.read('combat');
     const offer = offersOf(combat).find(entry => entry.id === offerId);
     if (!offer) ctx.fail('NOT_FOUND', 'That fight is no longer on offer.');
-    if (combat.session) ctx.fail('REFUSED', combat.session.status === 'active' ? 'A fight is already under way.' : 'Finish the last fight first.');
+    const under = sessionOf(combat);
+    if (under) ctx.fail('REFUSED', under.status === 'active' ? 'A fight is already under way.' : 'Finish the last fight first.');
     const numbers = fightNumbers(ctx.settings() ?? {});
     const party = partyCombatants(ctx, { rules: fightRules(numbers) });
     const chatBestiary = bestiaryList(ctx.read('bestiary'));
@@ -484,7 +486,9 @@ function start(ctx, payload) {
     delete recordOf(draft, 'offers')[offer.id];
     // The foes' written ranks (`rank: D`) go with the session, for the tail line (none: no key).
     const ranks = foeRanks(offer.foes);
-    draft.session = { id, setup: packSetup(setup), actions: [], status, ...(ranks.length ? { ranks } : {}) };
+    // Kept under its own id (stored.js sessionOf), with the rev it began at.
+    draft.fights ??= {};
+    draft.fights[id] = { id, rev, setup: packSetup(setup), actions: [], status, ...(ranks.length ? { ranks } : {}) };
     return {
         summary: `A fight begins: ${partyNames(setup)} against ${foeNames(setup)}${heldBack ? ` (${heldBack} more hang${heldBack === 1 ? 's' : ''} back)` : ''}.`,
         narrate: false,
@@ -526,7 +530,7 @@ function partyIds(ctx) {
  * to a member at the level cap is nothing, and the consumables were already taken at use.
  */
 function end(ctx, payload) {
-    const session = ctx.read('combat').session;
+    const session = sessionOf(ctx.read('combat'));
     if (!session) ctx.fail('NOT_FOUND', 'There is no fight to finish.');
     sameSession(ctx, session, payload);
     if (session.status === 'active') ctx.fail('REFUSED', 'The fight is not over yet.');
@@ -608,7 +612,7 @@ function end(ctx, payload) {
     }
     // Written whole (a one-entry list is one replace): the newest result left on the chat's line wins.
     combat.last = [{ summary, moments: [...result.keyMoments], outcome: session.status, rev }];
-    combat.session = null;
+    dropSession(combat, session.id);
     return {
         summary,
         narrate: true,
@@ -698,14 +702,33 @@ export function validateCombat(slice) {
             if (!isInt(offer?.rev)) errors.push(`${at}.rev must be a whole number.`);
         });
     }
+    const checkSession = (s, where) => {
+        if (!isText(s.id, 20) || !/^fi_[0-9a-z]{8}$/.test(s.id)) errors.push(`${where}.id must be a fight id like fi_k3f9a2qz.`);
+        if (!s.setup || typeof s.setup !== 'object' || !Array.isArray(s.setup.party) || !Array.isArray(s.setup.enemies)) errors.push(`${where}.setup must hold the party and the foes.`);
+        if (!Array.isArray(s.actions) || s.actions.some(action => !cleanAction(action) || !validStock(action.stock))) errors.push(`${where}.actions must be a list of actions.`);
+        if (!STATUSES.includes(s.status)) errors.push(`${where}.status must be ${STATUSES.join(', ')}.`);
+        if (s.ranks !== undefined && (!Array.isArray(s.ranks) || s.ranks.length > 6 || s.ranks.some(entry => !isText(entry?.name, 60) || !isText(entry?.rank, 40)))) errors.push(`${where}.ranks must be a short list of { name, rank }.`);
+        if (s.rev !== undefined && !isInt(s.rev)) errors.push(`${where}.rev must be a whole number.`);
+    };
+    // An older chat's one fight (before fights were kept under their ids).
     const s = slice.session;
-    if (s !== null && s !== undefined) {
-        if (!isText(s.id, 20) || !/^fi_[0-9a-z]{8}$/.test(s.id)) errors.push('combat.session.id must be a fight id like fi_k3f9a2qz.');
-        if (!s.setup || typeof s.setup !== 'object' || !Array.isArray(s.setup.party) || !Array.isArray(s.setup.enemies)) errors.push('combat.session.setup must hold the party and the foes.');
-        if (!Array.isArray(s.actions) || s.actions.some(action => !cleanAction(action) || !validStock(action.stock))) errors.push('combat.session.actions must be a list of actions.');
-        if (!STATUSES.includes(s.status)) errors.push(`combat.session.status must be ${STATUSES.join(', ')}.`);
-        if (s.ranks !== undefined && (!Array.isArray(s.ranks) || s.ranks.length > 6 || s.ranks.some(entry => !isText(entry?.name, 60) || !isText(entry?.rank, 40)))) errors.push('combat.session.ranks must be a short list of { name, rank }.');
-    } else if (s === undefined) errors.push('combat.session must be a fight or null.');
+    if (s !== null && s !== undefined) checkSession(s, 'combat.session');
+    else if (s === undefined && slice.fights === undefined) errors.push('combat.session must be a fight or null.');
+    // The fights, each under its own id (stored.js sessionOf). More than one is there only when a replay
+    // passed over an earlier fight's end; a generous bound, so no later block is refused for it.
+    if (slice.fights !== undefined) {
+        if (!record(slice.fights)) errors.push('combat.fights must be a record.');
+        else {
+            const keys = Object.keys(slice.fights);
+            if (keys.length > MAX_BEATEN) errors.push(`combat.fights keeps ${MAX_BEATEN} fights at most.`);
+            for (const key of keys) {
+                const fight = slice.fights[key];
+                if (!fight || typeof fight !== 'object') { errors.push(`combat.fights.${key} is not a fight.`); continue; }
+                checkSession(fight, `combat.fights.${key}`);
+                if (fight.id !== key) errors.push(`combat.fights.${key} is kept under another id.`);
+            }
+        }
+    }
     if (!record(slice.beaten)) errors.push('combat.beaten must be a record.');
     else {
         const beaten = valuesOf(slice.beaten);
@@ -753,7 +776,7 @@ export function foesBeaten(state, { sinceRev = -1 } = {}) {
 export const part = {
     domains: {
         combat: {
-            initial: () => ({ offers: {}, session: null, beaten: {}, last: [] }),
+            initial: () => ({ offers: {}, session: null, fights: {}, beaten: {}, last: [] }),
             validate: validateCombat,
         },
         bestiary: {
@@ -770,7 +793,10 @@ export const part = {
     },
     queries: {
         'combat.offers': state => offersOf(combatOf(state)).map(offer => ({ ...structuredClone(offer), text: foesText(offer.foes) })),
-        'combat.session': state => sessionView(combatOf(state).session),
+        // Never throws to the reader (a view that cannot be rebuilt reads as no fight).
+        'combat.session': state => {
+            try { return sessionView(sessionOf(combatOf(state))); } catch { return null; }
+        },
         'combat.last': state => (lastOf(combatOf(state)) ? structuredClone(lastOf(combatOf(state))) : null),
         'combat.foesBeaten': foesBeaten,
         'bestiary.creatures': state => bestiaryList(state?.domains?.bestiary).map(entry => ({ name: entry.name, level: entry.level, template: entry.template ?? null, look: entry.look ?? '' })),

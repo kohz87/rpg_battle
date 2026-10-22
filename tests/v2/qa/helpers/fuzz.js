@@ -5,6 +5,7 @@
 
 import { rng as makeRng } from '../vendor/src/v2/rng.js';
 import { withHero } from './harness.js';
+import { sessionOf } from '../../../../src/v2/combat/stored.js';
 
 const STATS = ['STR', 'VIT', 'AGI', 'DEX', 'INT', 'LUK', 'CHA', 'XYZ'];
 const ODD_NUMBERS = [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, '2', 1e9, null, undefined, 2 ** 53];
@@ -42,7 +43,7 @@ export function nextStep(h, p) {
     const ids = pools(h, p);
     // A fight under way is mostly played on, and a finished one mostly settled, so that sequences
     // reach combat.end often; a hurt party drinks more often.
-    const session = h.state().domains.combat.session;
+    const session = sessionOf(h.state().domains.combat);
     if (session?.status === 'active' && p.chance(0.6)) {
         const view = h.query('combat.session');
         const target = view?.actions?.targets?.enemies?.[0];

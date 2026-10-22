@@ -23,6 +23,39 @@ export const beatenOf = combat => valuesOf(combat?.beaten).filter(entry => entry
 /** The latest fight's result, or null (`last` is a one-entry list; an older chat's record is read too). */
 export const lastOf = combat => (Array.isArray(combat?.last) ? combat.last[0] ?? null : combat?.last ?? null);
 
+// The fight that has the party (SPEC §2.2): each one under its own key in `fights` (its fight id), so
+// every op a fight's actions write names that fight (`fights/fi_…/actions/-`, `fights/fi_…/status`).
+// A fight whose start is gone on replay (deleted, or its block skipped) has no key: its actions' and
+// its end's blocks do not apply and are listed as Problems, never played on another fight. An older
+// chat's `session` (one object, written before keys) is still read while it lasts.
+const isObject = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+/** The fights kept under their ids, oldest start first. */
+export const fightsOf = combat => (isObject(combat?.fights) ? Object.values(combat.fights).filter(isObject) : []).sort(byRev);
+
+/**
+ * The fight that has the party now, or null: the newest started of `fights` (a replay that skipped an
+ * earlier fight's end may leave that one too; it is shown, and settled, once the newer one is gone),
+ * else an older chat's `session`.
+ */
+export function sessionOf(combat) {
+    const keyed = fightsOf(combat).at(-1);
+    if (keyed) return keyed;
+    return isObject(combat?.session) ? combat.session : null;
+}
+
+/** The record of fight `id` in a combat draft, to change in place (its key, or an older chat's `session`). */
+export function draftSession(draft, id) {
+    if (isObject(draft?.fights?.[id])) return draft.fights[id];
+    return draft?.session?.id === id ? draft.session : null;
+}
+
+/** Fight `id` taken out of a combat draft once settled: its key removed (or an older chat's `session` emptied). */
+export function dropSession(draft, id) {
+    if (isObject(draft?.fights) && Object.hasOwn(draft.fights, id)) delete draft.fights[id];
+    if (draft?.session?.id === id) draft.session = null;
+}
+
 /** A loot row as stored: its `qty` range under `range`. Rows without a range stay as they are. */
 export function packLootRow(row) {
     if (!row || typeof row !== 'object' || !Array.isArray(row.qty)) return row;

@@ -15,6 +15,7 @@ import { bytes, each, holdings } from './helpers/harness.js';
 import { apply } from './vendor/src/v2/ops.js';
 import { committedNumbers, conservationProblem, hash, newStacksWithoutCause } from './helpers/invariants.js';
 import { runSequence } from './helpers/fuzz.js';
+import { sessionOf } from '../../../src/v2/combat/stored.js';
 
 const SEQUENCES = 500;
 const STEPS = 30;
@@ -125,7 +126,7 @@ each(`fuzz (${SMALL} sequences): a finished fight can always be settled (combat.
     const bad = [];
     for (let seed = 0; seed < SMALL && bad.length < 5; seed++) {
         runSequence(seed, STEPS, ({ type, after, h, n }) => {
-            const session = after.domains.combat.session;
+            const session = sessionOf(after.domains.combat);
             if (!session || session.status === 'active') return;
             const tried = h.preview('combat.end', {});
             if (!tried.ok) bad.push(`seed ${seed} step ${n} after ${type}: ${tried.code} ${tried.message}`);

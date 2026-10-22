@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { preparedEntries } from '../../../src/v2/checks/shared.js';
 import { playOut, rpgHost, seeded } from './helpers/host.js';
 import { MODULE_ID } from '../../../src/v2/module.js';
+import { sessionOf } from '../../../src/v2/combat/stored.js';
 
 const WEIR = '~ wound Ren — fell into the weir | harm: wound';
 
@@ -194,7 +195,7 @@ test('a story\'s poison is the party\'s "poisoned" and enters a fight as the fig
         await host.send('More of them.', host.reply('Something skitters.', ['! encounter 1 Cave Spider — out of the dark | tier: weak']));
         const begun = await host.cmd('combat.start', { offer: host.q('combat.offers')[0].id });
         assert.equal(begun.ok, true, begun.message);
-        const fighter = host.head().domains.combat.session.setup.party[0];
+        const fighter = sessionOf(host.head().domains.combat).setup.party[0];
         assert.deepEqual(fighter.conditions.map(entry => entry.name), ['poison']);
         assert.ok(host.q('combat.session').combatants[0].conditions.includes('poisoned'));
     } finally {
@@ -318,7 +319,7 @@ test('settings are namespaced per part; each part reads its own (combat.hitBase 
         await host.send('Rats.', host.reply('Rats!', ['! encounter 1 Cellar Rat — out of a crate | tier: weak']));
         const begun = await host.cmd('combat.start', { offer: host.q('combat.offers')[0].id });
         assert.equal(begun.ok, true, begun.message);
-        assert.equal(host.head().domains.combat.session.setup.hit.base, 60);
+        assert.equal(sessionOf(host.head().domains.combat).setup.hit.base, 60);
     } finally {
         host.close();
     }

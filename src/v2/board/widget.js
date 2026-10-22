@@ -87,7 +87,8 @@ function conditionOf(entry) {
     const name = str(entry.name) || str(entry.kind);
     if (!name) return null;
     const turns = entry.turns ?? entry.rounds;
-    return { name, label: str(entry.label) || name, turns: Number.isFinite(num(turns, NaN)) ? num(turns) : null };
+    // A condition that is still on lasts at least this turn: never "0 turns left" (B-c1-2).
+    return { name, label: str(entry.label) || name, turns: Number.isFinite(num(turns, NaN)) ? Math.max(1, num(turns)) : null };
 }
 
 /** Where an action with this scope is aimed: an enemy, an ally, the actor, or nobody to choose. */

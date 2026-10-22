@@ -9,6 +9,7 @@ import { part, STATIC_TEXT, validateCombat } from '../../../src/v2/combat/index.
 import { foeRanks, rankedFoeNames } from '../../../src/v2/combat/view.js';
 import { rpgHost } from '../integration/helpers/host.js';
 import { DEFAULT_TAIL_BUDGET, estimateTokens } from '../../vendor/story-block/src/v2/prompt.js';
+import { sessionOf } from '../../../src/v2/combat/stored.js';
 
 // The static text as it was before ranks were told (sha256): a fight line never changes it.
 const STATIC_SHA = 'fef1672f7a7f4cb55b0d60402818eb72126266e604ccbde7e42dd0f6ee5cec45';
@@ -35,7 +36,7 @@ test('a foe of a written rank: the fight\'s tail line says its rank; the session
     const offer = Object.values(world.state.domains.combat.offers).at(-1);
     assert.match(tail().optional[0], /Bandit ×3 \(rank Silver\)/, 'the offer said it already');
     assert.equal(world.run('combat.start', { offer: offer.id }).ok, true);
-    const session = world.state.domains.combat.session;
+    const session = sessionOf(world.state.domains.combat);
     assert.deepEqual(session.ranks, [{ name: 'Bandit', rank: 'Silver' }]);
     assert.deepEqual(validateCombat(world.state.domains.combat), []);
     assert.match(tail().lines[0], /^\[Fight\] Under way: Ren against Bandit ×3 \(rank Silver\)\. The reader is playing it/);
@@ -46,7 +47,7 @@ test('a foe of a written rank: the fight\'s tail line says its rank; the session
 test('a foe without a rank: the line is as before, and the session has no ranks key', () => {
     const { world, tail } = fightWith('3 Bandit', { tier: 'even' }, withLadder());
     world.run('combat.start', { offer: Object.values(world.state.domains.combat.offers).at(-1).id });
-    assert.equal(Object.hasOwn(world.state.domains.combat.session, 'ranks'), false);
+    assert.equal(Object.hasOwn(sessionOf(world.state.domains.combat), 'ranks'), false);
     assert.match(tail().lines[0], /^\[Fight\] Under way: Ren against Bandit ×3\. The reader/);
     assert.doesNotMatch(tail().lines[0], /rank/);
 });

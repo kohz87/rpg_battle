@@ -9,6 +9,7 @@ import { baseDomains, createWorld, line } from '../combat/helpers/fake-ctx.js';
 import { part as combat } from '../../../src/v2/combat/index.js';
 import { part, fightScreen, FIGHT_SCREEN_ID } from '../../../src/v2/board/index.js';
 import { boardOf, hero, liveFight } from './helpers.js';
+import { sessionOf } from '../../../src/v2/combat/stored.js';
 
 // Story Block's src/v2 (override with STORY_BLOCK_V2=/path/to/story_block/src/v2).
 const STORY_BLOCK = process.env.STORY_BLOCK_V2 || '/home/user/_wt/sb-templates/src/v2';
@@ -110,7 +111,7 @@ test('the screen: offer cards with Fight and Not now; Fight starts it and the bo
     again.el.querySelector('.rb-fight-go').click();
     await settle();
     assert.deepEqual(again.sent.at(-1), ['combat.start', { offer: first }]);
-    assert.ok(world.state.domains.combat.session, 'the fight started');
+    assert.ok(sessionOf(world.state.domains.combat), 'the fight started');
 
     // The board is drawn by the widget from q.fight (combat.board).
     const board = again.el.querySelector('.rb-fight-board .rpg-bb');
@@ -129,13 +130,13 @@ test('the screen: board clicks run through the template\'s command runner, Finis
     // A fight is on: the other offer can be turned down, not fought.
     assert.deepEqual(texts(el, '.rb-fight-offer button'), ['Not now']);
     assert.equal(el.querySelectorAll('.rb-fight-last').length, 0);
-    for (let n = 0; n < 100 && world.state.domains.combat.session?.status === 'active'; n++) {
+    for (let n = 0; n < 100 && sessionOf(world.state.domains.combat)?.status === 'active'; n++) {
         el.querySelector('.rpg-bb [data-act="attack"]').click();
         await settle();
     }
     assert.ok(sent.length > 0 && sent.every(([type, payload]) => type === 'combat.act' && payload.action.type === 'attack'));
     assert.equal(el.querySelector('.rpg-bb-outcome').textContent, 'Victory');
-    const fightId = world.state.domains.combat.session.id;
+    const fightId = sessionOf(world.state.domains.combat).id;
     el.querySelector('.rpg-bb-finish').click();
     await settle();
     assert.deepEqual(sent.at(-1), ['combat.end', { session: fightId }]);
