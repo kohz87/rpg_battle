@@ -68,8 +68,10 @@ const ACTION_FIELDS = ['target', 'skill', 'item', 'actor'];
 const MAX_SUMMARY = 400;
 
 // The instruction every reply carries (byte-identical: no names, no numbers). The line's own
-// grammar is added by Story Block from `kinds.encounter.grammar`.
-export const STATIC_TEXT = 'Fights are RPG Battle\'s: when one starts, write its encounter line (tier: how dangerous the foes are to the party; stakes: death only when losing means dying), then stop at the first blow. Never narrate a fight\'s blows or how it ends: the reader plays it, and the next reply is told what happened.';
+// grammar is added by Story Block from `kinds.encounter.grammar`. "in <Changes>" (fix-encounter): told
+// only "write its encounter line", a model wrote it in the story where the fight began, and no fight
+// could start; the line goes in the block with the reply's other changes.
+export const STATIC_TEXT = 'Fights are RPG Battle\'s: when one starts, write its encounter line in <Changes> (tier: how dangerous the foes are to the party; stakes: death only when losing means dying), then stop at the first blow. Never narrate a fight\'s blows or how it ends: the reader plays it, and the next reply is told what happened.';
 
 // v1's example (story.STORY_INSTRUCTION: "3 wolf (weak)"): a count of single foes. A swarm is one
 // foe made of many in v1's reading ("a swarm of rats"), so an example of six swarms taught the
