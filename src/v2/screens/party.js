@@ -4,6 +4,7 @@
 // Dismiss. Each card: portrait, name, the level and class line, HP / MP / SP meters, the EXP meter,
 // condition badges with the turns left, active effects (feature `rpg-battle.effects`), what they wear
 // with each piece's condition band and refinement (features `rpg-battle.wear`, `rpg-battle.refine`),
+// a line when they carry too much (`party.encumbered`),
 // the skills as a tree by tier (those in use checked) with Use / Set aside, the stats as a radar with
 // their check modifiers, and, while the member has points to spend, a stepper per stat and Spend
 // (`party.spend { actor, points }`). A companion's card has two switches (`party.edit`, MODULES §F29,
@@ -63,6 +64,7 @@ const template = `
       <div class="badges" data-if="len(a.badges) > 0">
         <ss-widget data-each="a.badges as b" name="ss.badge" data-props='{"bind":"b"}'></ss-widget>
       </div>
+      <p class="burden" data-if="a.encumbered"><i class="fa-solid fa-weight-hanging"></i>{{ a.encumbered.text }}</p>
       <div class="badges effects" data-if="len(a.effects) > 0" role="group" aria-label="Active effects">
         <ss-widget data-each="a.effects as e" name="ss.badge" data-props='{"bind":"e"}'></ss-widget>
       </div>
@@ -193,6 +195,7 @@ const css = sheet(`
 .carry { margin: 0; font-size: 0.85em; color: var(--rb-muted); }
 .carry i { margin-right: 6px; }
 .carry.over { color: var(--rb-bad); }
+.burden { display: flex; align-items: center; gap: 6px; font-size: 0.84em; font-weight: 600; color: var(--rb-warn); }
 
 .piece.aside .nm { color: var(--rb-muted); font-weight: 500; }
 .piece .refine { margin-right: 5px; padding: 0 6px; border-radius: 999px; font-size: 0.8em; color: var(--rb-accent); background: color-mix(in srgb, var(--rb-accent) 18%, transparent); }

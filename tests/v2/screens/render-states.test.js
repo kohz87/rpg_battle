@@ -48,7 +48,7 @@ test('party: a companion has the fight and stat-point switches, sending party.ed
     assert.deepEqual(drawn.warnings, []);
     const ren = cardOf(drawn.el, 'Ren');
     const lyra = cardOf(drawn.el, 'Lyra');
-    assert.equal(ren.querySelector('.switches'), null);
+    assert.equal(ren.querySelector('.switches') === null, true);
     const groups = all(lyra, '.switch');
     assert.deepEqual(groups.map(group => group.getAttribute('aria-label')), ['Who gives Lyra orders in fights', 'Who spends the stat points of Lyra']);
     // The chosen side is a label, not a button (party.edit refuses "Nothing to change").
@@ -83,21 +83,35 @@ test('party: worn gear with its condition band and refinement, active effects, t
     assert.equal(text(band), 'Worn');
     assert.equal(band.getAttribute('title'), 'Condition: Worn · 52/100');
     assert.equal(band.querySelector('.bar').styleProps['--rb-ratio'], '0.52');
-    assert.equal(cardOf(drawn.el, 'Lyra').querySelector('.gear'), null, 'Lyra wears nothing');
+    assert.equal(cardOf(drawn.el, 'Lyra').querySelector('.gear') === null, true, 'Lyra wears nothing');
     assert.deepEqual(widgetsIn(ren.querySelector('.effects'), 'ss.badge').map(el => propsOf(el).value.label), ['Blessed, 2 h left, from a shrine']);
-    assert.equal(cardOf(drawn.el, 'Lyra').querySelector('.effects'), null);
+    assert.equal(cardOf(drawn.el, 'Lyra').querySelector('.effects') === null, true);
     assert.match(text(drawn.el.querySelector('.carry')), /^Carrying \d+ of \d+/);
     checkProps(drawn);
 });
 
-test('party: without the gear and party queries the piece shows plainly, with no band, refinement or effects', { skip }, () => {
-    const drawn = draw(partyScreen, makeState());
+test('party: with wear, refinement and effects off (their queries give nothing) the piece shows plainly', { skip }, () => {
+    const drawn = draw(partyScreen, makeState(), { queries: { 'items.condition': () => null, 'party.effects': () => [], 'party.encumbered': () => null } });
     assert.deepEqual(drawn.warnings, []);
     const ren = cardOf(drawn.el, 'Ren');
     assert.equal(all(ren, '.gear li.piece').length, 1);
-    assert.equal(ren.querySelector('.band'), null);
-    assert.equal(ren.querySelector('.refine'), null);
-    assert.equal(ren.querySelector('.effects'), null);
+    assert.equal(ren.querySelector('.band') === null, true, 'no band');
+    assert.equal(ren.querySelector('.refine') === null, true, 'no refinement');
+    assert.equal(ren.querySelector('.effects') === null, true, 'no effects');
+    assert.equal(ren.querySelector('.burden') === null, true, 'not encumbered');
+});
+
+test('party and hud: a member carrying too much says so (party.encumbered)', { skip }, () => {
+    const burden = { penalty: -2, stats: ['AGI', 'DEX'], text: 'Encumbered: AGI and DEX checks −2' };
+    const queries = { 'party.encumbered': ({ actor }) => (actor === PC ? burden : null) };
+    const drawn = draw(partyScreen, makeState(), { queries });
+    assert.deepEqual(drawn.warnings, []);
+    assert.equal(text(cardOf(drawn.el, 'Ren').querySelector('.burden')), 'Encumbered: AGI and DEX checks −2');
+    assert.equal(cardOf(drawn.el, 'Lyra').querySelector('.burden') === null, true);
+    const strip = draw(hudScreen, makeState(), { queries });
+    assert.deepEqual(strip.warnings, []);
+    assert.equal(strip.el.querySelector('.rb-hud .burden').getAttribute('aria-label'), 'Encumbered: AGI and DEX checks −2');
+    assert.equal(draw(hudScreen, makeState(), { queries: { 'party.encumbered': () => null } }).el.querySelector('.burden') === null, true);
 });
 
 test('party: every wear band gets its class; a broken piece its own icon', { skip }, () => {
@@ -107,7 +121,7 @@ test('party: every wear band gets its class; a broken piece its own icon', { ski
         const chip = cardOf(drawn.el, 'Ren').querySelector('.band');
         assert.ok(chip.classList.contains(`b-${band}`), band);
         assert.equal(chip.querySelectorAll('.fa-heart-crack').length, band === 'broken' ? 1 : 0, band);
-        assert.equal(cardOf(drawn.el, 'Ren').querySelector('.refine'), null);
+        assert.equal(cardOf(drawn.el, 'Ren').querySelector('.refine') === null, true);
     }
 });
 
@@ -180,8 +194,8 @@ test('hud: nobody with points and nothing on them: no badge and no badges row', 
     calm.domains.party.actors[PC].conditions = [];
     const drawn = draw(hudScreen, calm, { queries: { 'party.toSpend': () => ({ total: 0, people: [] }), 'party.effects': () => [] } });
     assert.deepEqual(drawn.warnings, []);
-    assert.equal(drawn.el.querySelector('.spend'), null);
-    assert.equal(drawn.el.querySelector('.badges'), null);
+    assert.equal(drawn.el.querySelector('.spend') === null, true);
+    assert.equal(drawn.el.querySelector('.badges') === null, true);
     // Effects alone still show the row.
     const blessed = draw(hudScreen, calm, { queries: { 'party.effects': ({ actor }) => EFFECTS[actor] ?? [] } });
     assert.equal(widgetsIn(blessed.el.querySelector('.badges'), 'ss.badge').length, 1);
@@ -198,7 +212,7 @@ test('hud: the root is no size container, so the strip item keeps its width (the
 test('hud: before creation, still one line', { skip }, () => {
     const drawn = draw(hudScreen, emptyState(), { queries: SIBLINGS });
     assert.deepEqual(drawn.warnings, []);
-    assert.equal(drawn.el.querySelector('.spend'), null);
+    assert.equal(drawn.el.querySelector('.spend') === null, true);
     assert.match(text(drawn.el), /Create your character to begin the story\./);
 });
 
@@ -233,7 +247,7 @@ test('crafting: per character, the recipes with materials had and missing, stati
     assert.deepEqual(all(draught, '.odds-key li').map(text), ['Fail 35%', 'Normal 45%', 'Fine 15%', 'Masterwork 5%']);
     assert.deepEqual(all(draught, '.odds-bar > span').map(bar => bar.styleProps['--rb-share']), ['0.35', '0.45', '0.15', '0.05']);
     assert.deepEqual(all(torch, '.odds-key li').map(text), ['Normal 80%', 'Fine 20%']);
-    assert.equal(torch.querySelector('.why'), null);
+    assert.equal(torch.querySelector('.why') === null, true);
     assert.deepEqual(all(drawn.el, 'button'), []);
     assert.deepEqual(drawn.commands, []);
     assert.match(text(drawn.el.querySelector('.lead')), /Crafting happens in the story/);
@@ -244,7 +258,7 @@ test('crafting: nobody knows a recipe; without the craft part (or with the featu
     const none = draw(craftingScreen, makeState(), { queries: { 'craft.view': () => ({ people: [{ id: PC, name: 'Ren', recipes: [] }] }) } });
     assert.deepEqual(none.warnings, []);
     assert.deepEqual(all(none.el, '.empty').map(text), ['Nobody knows a recipe yet. The story can teach one.']);
-    assert.equal(none.el.querySelector('.lead'), null);
+    assert.equal(none.el.querySelector('.lead') === null, true);
     const off = draw(craftingScreen, makeState());
     assert.deepEqual(off.warnings, []);
     assert.deepEqual(all(off.el, '.empty').map(text), ['Crafting is not set up in this chat.']);

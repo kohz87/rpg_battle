@@ -10,7 +10,8 @@ import { costPool } from '../../rules.js';
 import { rebuild, sessionView } from '../combat/view.js';
 
 // The condition words the session view uses (view.js LABELS), so both views read the same.
-const LABELS = { poison: 'poisoned', burn: 'burning', bleed: 'bleeding', stun: 'stunned', slow: 'slowed', weaken: 'weakened', shield: 'shielded', regen: 'regenerating', guard: 'on guard' };
+export const CONDITION_LABELS = Object.freeze({ poison: 'poisoned', burn: 'burning', bleed: 'bleeding', stun: 'stunned', daze: 'dazed', slow: 'slowed', weaken: 'weakened', shield: 'shielded', regen: 'regenerating', guard: 'on guard' });
+const LABELS = CONDITION_LABELS;
 
 /** The money's name for the result, from Story Block's one currency (MODULES §F1); '' when unknown. */
 function currencyName(tools) {

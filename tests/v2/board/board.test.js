@@ -455,3 +455,14 @@ test('the chat\'s terms (party.terms, MODULES §F25): level tags and XP rows use
     assert.ok(rows.length >= 1);
     assert.ok(rows.every(text => /^\+\d+ Soul Growth$/.test(text)), rows.join(', '));
 });
+
+test('the board names a condition as the session view does, a daze included (stun rule: a second stun dazes)', async () => {
+    const { CONDITION_LABELS } = await import('../../../src/v2/board/index.js');
+    assert.equal(CONDITION_LABELS.daze, 'dazed');
+    // The same words as the combat session view (src/v2/combat/view.js LABELS), key for key.
+    const source = readFileSync(join(import.meta.dirname, '../../../src/v2/combat/view.js'), 'utf8');
+    const literal = source.match(/const LABELS = (\{[^}]*\});/)[1];
+    const session = Object.fromEntries([...literal.matchAll(/(\w+): '([^']*)'/g)].map(([, key, word]) => [key, word]));
+    assert.deepEqual({ ...CONDITION_LABELS }, Object.fromEntries(Object.keys(CONDITION_LABELS).map(key => [key, session[key]])));
+    assert.deepEqual(Object.keys(session).sort(), Object.keys(CONDITION_LABELS).sort());
+});

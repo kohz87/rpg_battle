@@ -175,8 +175,8 @@ test('cards: what each member wears, with condition bands and refinement from it
     assert.deepEqual(ren.gear[0].condition, { band: 'worn', label: 'Worn', tone: 'warn', icon: 'fa-shield-halved', cur: 52, max: 100, meter: true, text: 'Worn · 52/100' });
     assert.deepEqual(ren.gear[0].refine, { level: 2, label: '+2', text: 'Refined +2' });
     assert.deepEqual(lyra.gear, []);
-    // Without the gear part's query: the pieces, no condition or refinement.
-    const [plain] = ask(cards, state);
+    // With wear and refinement off (items.condition is null): the pieces, no condition or refinement.
+    const [plain] = cards(state, {}, withQueries(state, { 'items.condition': () => null }));
     assert.deepEqual([plain.gear[0].condition, plain.gear[0].refine], [null, null]);
     // Only refinement on (wear off): RB-gear's { band: null, refine } shape.
     assert.deepEqual(conditionView({ band: null, cur: null, max: null, refine: 1 }), { condition: null, refine: { level: 1, label: '+1', text: 'Refined +1' } });
@@ -226,8 +226,8 @@ test('itemDetail: gear slot, stats, wearer, condition and refinement; a draught 
     assert.equal(dagger.condition.band, 'tattered');
     assert.equal(dagger.refine.label, '+1');
     assert.deepEqual(dagger.lines, ['Weapon · ATK +3', 'Worn by Ren', 'Tattered · 20/100 · Refined +1']);
-    // A blade in the bag: no wearer, and nothing about its condition without the gear part.
-    const blade = itemDetail(state, { stack: 'it_blade001' }, toolsFor(state));
+    // A blade in the bag: no wearer, and nothing about its condition with wear and refinement off.
+    const blade = itemDetail(state, { stack: 'it_blade001' }, withQueries(state, { 'items.condition': () => null }));
     assert.deepEqual([blade.wearer, blade.condition, blade.refine, blade.lines], ['', null, null, ['Weapon · ATK +6, DEX +1']]);
     // Ren is hurt, Lyra is not: the draught would help Ren only.
     const draught = itemDetail(state, { stack: 'it_draught1' }, toolsFor(state));

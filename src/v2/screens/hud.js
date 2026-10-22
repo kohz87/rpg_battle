@@ -2,7 +2,8 @@
 // state): your character's portrait, name and level, HP and MP meters, a "points to spend" badge when
 // anyone in the party has stat points waiting (MODULES §F91, the party part's `party.toSpend`),
 // condition badges (icons with the turns left) and active effects (feature `rpg-battle.effects`, the
-// party part's `party.effects`; left out without it). Before a character exists it says so in one line
+// party part's `party.effects`; left out without it), and a weight icon while you carry too much
+// (`party.encumbered`). Before a character exists it says so in one line
 // (creation is mandatory, MODULES §F12). Checks are rolled in the reply that writes them (MODULES
 // §F80): nothing waits here.
 //
@@ -23,6 +24,7 @@ const template = `
     <ss-widget class="pool hp" name="ss.meter" data-props='{"bind":"q.hud.pc.hp","label":"HP","icon":"fa-heart"}'></ss-widget>
     <ss-widget class="pool mp" name="ss.meter" data-props='{"bind":"q.hud.pc.mp","label":"MP","icon":"fa-droplet"}'></ss-widget>
   </div>
+  <span class="burden" data-if="q.hud.pc.encumbered" title="{{ q.hud.pc.encumbered.text }}" aria-label="{{ q.hud.pc.encumbered.text }}"><i class="fa-solid fa-weight-hanging"></i></span>
   <span class="spend" data-if="q.hud.toSpend.on" title="{{ q.hud.toSpend.title }}" aria-label="{{ q.hud.toSpend.title }}"><i class="fa-solid fa-circle-up"></i><b>{{ q.hud.toSpend.total }}</b><span class="spend-word"> to spend</span></span>
   <div class="badges" data-if="len(q.hud.pc.badges) > 0 || len(q.hud.pc.effects) > 0">
     <ss-widget data-each="q.hud.pc.badges as b" name="ss.badge" data-props='{"bind":"b"}'></ss-widget>
@@ -55,6 +57,8 @@ const css = sheet(`
   background: color-mix(in srgb, var(--rb-good) 22%, transparent); border: 1px solid color-mix(in srgb, var(--rb-good) 55%, transparent);
 }
 .spend i { color: var(--rb-good); }
+.burden { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 1.9em; height: 1.9em; border-radius: 999px; color: var(--rb-warn);
+  background: color-mix(in srgb, var(--rb-warn) 18%, transparent); border: 1px solid color-mix(in srgb, var(--rb-warn) 50%, transparent); }
 .spend-word { font-weight: 600; }
 .badges { flex: 0 1 auto; flex-wrap: nowrap; overflow: hidden; min-width: 0; }
 .none-yet { justify-content: center; color: var(--rb-muted); font-style: italic; }

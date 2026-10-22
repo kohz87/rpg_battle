@@ -255,8 +255,19 @@ function effectsOf(tools, actorId) {
 }
 
 /**
+ * A member carrying too much (the party part's `party.encumbered`, from Story Block's encumbrance):
+ * { text: 'Encumbered: AGI and DEX checks −2', penalty, stats } or null.
+ */
+function burdenOf(tools, actorId) {
+    const found = tryQuery(tools, 'party.encumbered', { actor: actorId });
+    const text = isRecord(found) ? String(found.text ?? '').trim() : '';
+    return text ? { text, penalty: int(found.penalty), stats: (Array.isArray(found.stats) ? found.stats : []).map(String) } : null;
+}
+
+/**
  * `rpg-battle.cards({ settings? })`: a card per party member, your character first, each with what
- * they wear (`gear`, from items.gear and items.condition) and their active effects (`effects`).
+ * they wear (`gear`, from items.gear and items.condition), their active effects (`effects`) and
+ * whether they carry too much (`encumbered`, null when not).
  */
 export function cards(state, args = {}, tools = null) {
     const party = partyOf(state);
@@ -268,6 +279,7 @@ export function cards(state, args = {}, tools = null) {
         ...actorCard(party.actors[id], party, { rules, portrait: portraits.get(id) }),
         gear: gearOf(tools, id),
         effects: effectsOf(tools, id),
+        encumbered: burdenOf(tools, id),
     })));
 }
 
@@ -363,8 +375,15 @@ const conditionFor = (tools, stack) => conditionView(tryQuery(tools, 'items.cond
 function gearOf(tools, actorId) {
     const found = tryQuery(tools, 'items.gear', { actor: actorId });
     if (!isRecord(found)) return [];
+    // The items part names a refined piece with its level ("Iron Sword +2"); the card shows the level
+    // as its own tag, so the name is the piece's own.
+    const plainName = entry => {
+        const name = String(entry?.name ?? '');
+        const tag = ` +${int(entry?.refine)}`;
+        return int(entry?.refine) > 0 && name.endsWith(tag) ? name.slice(0, -tag.length) : name;
+    };
     const piece = (entry, counted) => ({
-        stack: String(entry?.stack ?? ''), name: String(entry?.name ?? ''), slot: String(entry?.slot ?? ''), slotLabel: slotLabel(entry?.slot),
+        stack: String(entry?.stack ?? ''), name: plainName(entry), slot: String(entry?.slot ?? ''), slotLabel: slotLabel(entry?.slot),
         rarity: String(entry?.rarity ?? 'common'), stats: counted ? statText(entry?.stats) : '', counted, why: counted ? '' : capital(entry?.why ?? 'not counted'),
         ...conditionFor(tools, entry?.stack),
     });

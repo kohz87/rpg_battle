@@ -61,9 +61,9 @@ test('item-detail: a bound detail draws without asking; no query api, no stack, 
     const doc = installDom();
     const state = makeState();
     const root = doc.createElement('div');
-    drawItemDetail(root, itemDetail(state, { stack: 'it_blade001' }, toolsFor(state)));
+    drawItemDetail(root, itemDetail(state, { stack: 'it_blade001' }, toolsFor(state, undefined, { 'items.condition': () => null })));
     assert.deepEqual(root.querySelectorAll('.rpg-id-line').map(text), ['Weapon · ATK +6, DEX +1']);
-    assert.equal(root.querySelector('.rpg-id-band'), null, 'no gear part: no band');
+    assert.equal(root.querySelector('.rpg-id-band'), null, 'wear off: no band');
     for (const props of [{}, { stack: 'it_dagger01' }, { value: 'x' }, { stack: 7 }]) {
         const el = doc.createElement('div');
         assert.doesNotThrow(() => renderItemDetail(el, props, {}));
