@@ -4,7 +4,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { part, validateTrade, initialTrade, tradeTail } from '../../../src/v2/trade/index.js';
-import { makeWorld, worldFromState, stockOf, legacyItem, DAY, currentShops } from '../../../src/v2/trade/core.js';
+import { makeWorld, worldFromState, stockOf, legacyItem, worthOf, DAY, currentShops } from '../../../src/v2/trade/core.js';
+import { DEFAULT_RULES } from '../../../src/rules.js';
 import { commissionHours, placePrices, readyAt, sellPrice } from '../../../src/trade.js';
 import { baseState, createHost } from './helpers/fake-ctx.js';
 
@@ -41,7 +42,10 @@ test('part shape: domain, commands, queries, settings, tab', () => {
 test('trade.sell: the stack goes down, the purse up by v1 pricing, told in one line', () => {
     const host = createHost(part, { state: baseState() });
     const world = makeWorld({ scene: host.state.domains.scene, inventory: host.state.domains.inventory, party: host.state.domains.party });
-    const each = sellPrice(legacyItem(host.state.domains.inventory.defs['story/rat-tail']), { buyer: 'general', prices: world.prices, level: 3 });
+    // v1 pricing, held to worth × the sell rate for the story's own things (RB #104 follow-up: a reply's
+    // story goods never sell for more than the money that reply may give).
+    const rat = host.state.domains.inventory.defs['story/rat-tail'];
+    const each = Math.min(sellPrice(legacyItem(rat), { buyer: 'general', prices: world.prices, level: 3 }), Math.max(1, Math.floor(worthOf(rat, world) * DEFAULT_RULES.trade.sellRate)));
     const result = host.command('trade.sell', { stack: 'it_00000001', qty: 3 });
     assert.equal(result.ok, true, result.message);
     assert.equal(stackQty(host, 'it_00000001'), 2);
@@ -53,10 +57,18 @@ test('trade.sell: the stack goes down, the purse up by v1 pricing, told in one l
 });
 
 test('trade.sell: who buys changes the price (an apothecary pays well for parts, a fence little)', () => {
-    const host = createHost(part, { state: baseState() });
+    const state = baseState();
+    // A pack's wolf fang (its worth is the pack's): every buyer's taste counts.
+    state.domains.inventory.defs['ersveil/wolf-fang'] = { ...state.domains.inventory.defs['story/wolf-fang'], id: 'ersveil/wolf-fang', value: 40 };
+    state.domains.inventory.stacks.it_00000009 = { ...state.domains.inventory.stacks.it_00000002, id: 'it_00000009', def: 'ersveil/wolf-fang' };
+    const host = createHost(part, { state });
+    const packQuote = kind => host.query('trade.quote', { type: 'sell', stack: 'it_00000009', qty: 1, kind }).each;
+    assert.ok(packQuote('apothecary') > packQuote('general'));
+    assert.ok(packQuote('fence') < packQuote('general'));
+    // The story's own fang: a fence still pays less, and no buyer more than its worth × the sell rate.
     const quote = kind => host.query('trade.quote', { type: 'sell', stack: 'it_00000002', qty: 1, kind }).each;
-    assert.ok(quote('apothecary') > quote('general'));
-    assert.ok(quote('fence') < quote('general'));
+    assert.ok(quote('apothecary') >= quote('general'));
+    assert.ok(quote('fence') <= quote('general'));
     assert.equal(host.query('trade.quote', { type: 'sell', stack: 'it_00000002', qty: 1, who: 'Hesk the bone-carver' }).buyer, 'crafter');
     const result = host.command('trade.sell', { stack: 'it_00000002', qty: 1, kind: 'apothecary' });
     assert.equal(result.receipt.data.total, quote('apothecary'));
