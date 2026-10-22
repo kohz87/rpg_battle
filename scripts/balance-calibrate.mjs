@@ -84,7 +84,24 @@ if (import.meta.url === `file://${process.argv[1]}`) {
             });
             console.error(`step ${step + 1}/${steps} done ${new Date().toISOString()}`);
         }
-        const found = groups.map((_, index) => Math.round((lo[index] + hi[index]) / 2 * 4) / 4);
+        let found = groups.map((_, index) => Math.round((lo[index] + hi[index]) / 2 * 4) / 4);
+        // REFINE=1: around each found shift, the one that puts the most cells on target (even and
+        // strong: the median aim is a proxy for that; the closest to the bisection wins a tie).
+        if (process.env.REFINE) {
+            const steps = (process.env.REFINE_STEPS ?? '-3,-2,-1,-0.5,0.5,1,2,3').split(',').map(Number);
+            const best = groups.map((group, index) => ({ shift: found[index], share: -1, step: Infinity }));
+            for (const step of [0, ...steps]) {
+                const per = await rates(groups, found.map(shift => shift + step), options);
+                per.forEach((rows, index) => {
+                    const value = share(groups[index], rows);
+                    const b = best[index];
+                    if (value > b.share + 1e-9 || (Math.abs(value - b.share) < 1e-9 && Math.abs(step) < Math.abs(b.step))) Object.assign(b, { shift: found[index] + step, share: value, step });
+                });
+                console.error(`refine ${step} done ${new Date().toISOString()}`);
+            }
+            found = best.map(entry => entry.shift);
+            groups.forEach((group, index) => console.error(`${group.tier} L${group.level} ×${group.count}: ${best[index].share.toFixed(0)} % on target at ${best[index].shift}`));
+        }
         const table = structuredClone(LEVEL_SHIFT);
         const plain = Object.fromEntries(Object.entries(table).map(([tier, bands]) => [tier, bands.map(row => [...row])]));
         groups.forEach((group, index) => {

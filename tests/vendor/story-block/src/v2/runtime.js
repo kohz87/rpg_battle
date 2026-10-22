@@ -108,24 +108,64 @@ export function storeSaving({ ctx, live = () => ctx, fetch = null, onSaveError =
         chat: () => ctx.chat,
         chatId: () => (typeof ctx.getCurrentChatId === 'function' ? ctx.getCurrentChatId() : ctx.chatId),
         place: () => file.where(),
-        save: (change, { keepalive = false } = {}) => {
+        save: (change, { keepalive = false, signal = null } = {}) => {
             markUsed(context().chatMetadata, ctx.chat);
             const place = file.where();
             if (!place) return ctx.saveChat();
-            return file.write(place, ctx.chat, context().chatMetadata ?? {}, { keepalive });
+            return file.write(place, ctx.chat, context().chatMetadata ?? {}, { keepalive, signal });
         },
         async rescue(change, entries) {
             if (!entries.length) return;
             if (!change?.place) throw new Error('this page cannot write to that chat\'s file');
             const [header, ...messages] = await file.read(change.place);
             if (!header || !messages.length) throw new Error('its chat file is no longer on the server (deleted, or renamed elsewhere)');
+            let wrote = false;
             for (const { message, index } of entries) {
-                if (!carryRecord(message, messages[index])) throw new Error(`its chat file no longer holds message ${index} as it was`);
+                const at = rescueIndex(message, messages, index);
+                if (at < 0) throw new Error(`its chat file no longer holds message ${index} as it was`);
+                if (holdsRecord(messages[at], message)) continue;
+                if (!carryRecord(message, messages[at])) throw new Error(`its chat file no longer holds message ${index} as it was`);
+                wrote = true;
             }
-            await file.write(change.place, messages, header.chat_metadata ?? {});
+            if (!wrote) return;    // the file holds every change already (SillyTavern saved it itself)
+            // C4-5: the rescued file is marked as used too (markUsed), as a save of the open chat is.
+            const metadata = isPlain(header.chat_metadata) ? header.chat_metadata : {};
+            markUsed(metadata, messages);
+            await file.write(change.place, messages, metadata);
         },
         onSaveError,
     };
+}
+
+const isPlain = value => !!value && typeof value === 'object' && !Array.isArray(value);
+const sidOf = message => message?.extra?.storySuite?.sid;
+// The story text before any tag (the change block, hidden or not, comes after it).
+const storyText = message => String(message?.mes ?? '').split('<')[0].trimEnd();
+const sameText = (a, b) => !!a && !!b && storyText(a) === storyText(b);
+
+// C4-4: where the message a rescued change was written on is in its chat file now. The index it had
+// when the record was written is a guess only (a message deleted before it shifts it, and SillyTavern
+// saves the chat itself then): the message holding the same record (`sid`) comes first, then the one
+// at that index with the same story text, then the only other one with it. carryRecord checks the
+// swipe, the author and the date. → its index, or -1.
+function rescueIndex(message, messages, index) {
+    const sid = sidOf(message);
+    if (typeof sid === 'string') {
+        const at = messages.findIndex(other => sidOf(other) === sid);
+        if (at >= 0) return at;
+    }
+    if (sameText(messages[index], message)) return index;
+    const same = [];
+    messages.forEach((other, at) => { if (sameText(other, message)) same.push(at); });
+    return same.length === 1 ? same[0] : -1;
+}
+
+// The file's message already holds this record as it is (same `sid` and `rev`).
+function holdsRecord(there, message) {
+    const own = message?.extra?.storySuite;
+    const kept = there?.extra?.storySuite;
+    return isPlain(own) && isPlain(kept) && typeof own.sid === 'string' && kept.sid === own.sid && kept.rev === own.rev
+        && JSON.stringify(kept.ops) === JSON.stringify(own.ops);
 }
 
 /**

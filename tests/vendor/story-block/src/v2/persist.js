@@ -305,8 +305,9 @@ export function carryRecord(from, to) {
 // must start writing before it returns):
 //   ''                  → save the chat that is open;
 //   { wait: reason }    → a chat is being loaded (SillyTavern empties the chat before it reads the next
-//                         one): nothing is written, it is tried again shortly (`waitMs`, up to `waits`
-//                         times; a chat that stays empty has nothing of the change left to save);
+//                         one): nothing is written, it is tried again shortly (`waitMs`, `waits` times),
+//                         then less often (`retry`'s longest) for as long as it takes: the change stays
+//                         unsaved, never dropped (a big chat on a slow connection can take a while);
 //   { moved: reason }   → another chat is open: the change is the other chat's, so the chat that is open
 //                         is NOT saved; `rescue(target)` puts the change into that chat's own file;
 //   { gone: reason }    → nothing of the change is left in the chat (its reply was deleted): nothing to save.
@@ -314,9 +315,14 @@ export function carryRecord(from, to) {
 // A failed save stays dirty: the reader is told once (`onError`) until a save works again, and it is
 // tried again after `retry` ms (growing). `verify` (SPEC §3.3): `{ before() → token, after(token) → '' |
 // problem }` around each save; a problem counts as a failed save.
+// A save (or a rescue) the server does not answer within `timeout` ms counts as failed too: it is given
+// up (`save` gets `{ signal }`, aborted then) and tried again, so a request left hanging (a dropped
+// connection, a stuck proxy) never holds the next save, the reader's command or the next reply.
+// A save of a chat renamed while it was on its way (`renamed`) landed under the old name: it does not
+// count, and the change is saved again, into the renamed chat's file.
 export function createSaver({
     save, onError = null, timers = globalThis, verify = null, target = null, check = null, rescue = null,
-    retry = [1000, 2000, 4000, 8000, 15000], waitMs = 200, waits = 50,
+    retry = [1000, 2000, 4000, 8000, 15000], waitMs = 200, waits = 50, timeout = 20000,
 } = {}) {
     if (typeof save !== 'function') throw new TypeError('createSaver needs a save function.');
     let version = 0;
@@ -328,6 +334,7 @@ export function createSaver({
     let failures = 0;           // failed saves in a row
     let told = false;           // the reader was told about this run of failures
     let waited = 0;             // saves put off in a row because a chat was being opened
+    let sending = null;         // { chatId, renamed } of the save on its way
 
     const dirty = () => version !== saved || orphans.length > 0;
     const backoff = () => retry[Math.max(0, Math.min(failures, retry.length) - 1)];
@@ -353,8 +360,9 @@ export function createSaver({
     }
 
     // A save that did not happen: told once, tried again later (a wait is not a failure).
+    const waitDelay = () => (waited > waits ? retry[retry.length - 1] : waitMs);
     function failed(error) {
-        if (error?.wait) later(waitMs);
+        if (error?.wait) later(waitDelay());
         else {
             tell(error);
             later(backoff());
@@ -364,6 +372,28 @@ export function createSaver({
     // Another chat's change that could not be written yet is tried again later.
     function followUp() {
         if (orphans.length && timer === null) later(backoff());
+    }
+
+    // `start(signal)`'s promise, failed after `timeout` ms without an answer (and `signal` aborted).
+    function answered(start) {
+        const controller = typeof AbortController === 'function' ? new AbortController() : null;
+        let job;
+        try { job = Promise.resolve(start(controller?.signal)); } catch (error) { return Promise.reject(error); }
+        if (!(timeout > 0)) return job;
+        return new Promise((resolve, reject) => {
+            const timer = timers.setTimeout(() => {
+                try { controller?.abort(); } catch { /* nothing to abort */ }
+                reject(new Error(`the server did not answer within ${Math.round(timeout / 1000)} seconds`));
+            }, timeout);
+            timer?.unref?.();
+            job.then(value => {
+                timers.clearTimeout(timer);
+                resolve(value);
+            }, error => {
+                timers.clearTimeout(timer);
+                reject(error);
+            });
+        });
     }
 
     // One write at a time. `fn` runs in the same tick as the last wait ends: nothing can come between
@@ -392,7 +422,7 @@ export function createSaver({
             }
             try {
                 if (typeof rescue !== 'function') throw new Error('this page cannot write to another chat');
-                await exclusive(() => rescue(orphan.target));
+                await exclusive(() => answered(() => rescue(orphan.target)));
                 orphans.splice(orphans.indexOf(orphan), 1);
             } catch (error) {
                 orphan.tries++;
@@ -417,9 +447,14 @@ export function createSaver({
             goal = version;
             const now = latest;
             const verdict = now && typeof check === 'function' ? check(now) : '';
-            if (verdict?.wait && ++waited <= waits) return verdict;
+            // C4-3: a chat being opened is waited for however long it takes; the change is never
+            // dropped for it (the same chat read again takes the change back on, see `check`).
+            if (verdict?.wait) {
+                waited++;
+                return verdict;
+            }
             waited = 0;
-            if (verdict?.gone || verdict?.wait) {
+            if (verdict?.gone) {
                 saved = goal;
                 return 'clean';
             }
@@ -429,9 +464,13 @@ export function createSaver({
                 return 'moved';
             }
             token = verify?.before?.();
-            return Promise.resolve(save(now, options)).then(() => 'saved', error => {
+            const trip = { chatId: now?.chatId, renamed: false };
+            sending = trip;
+            return answered(signal => save(now, signal ? { ...options, signal } : options)).then(() => (trip.renamed ? 'renamed' : 'saved'), error => {
                 failures++;
                 throw error;
+            }).finally(() => {
+                if (sending === trip) sending = null;
             });
         });
         if (outcome?.wait) {
@@ -440,6 +479,8 @@ export function createSaver({
             throw error;
         }
         if (outcome === 'moved') await rescueOrphans();
+        // C4-2: it landed under the chat's old name; the renamed chat's file is written next.
+        if (outcome === 'renamed') return saveNow(options);
         if (outcome !== 'saved') return;
         // A change made while the save ran goes with the next save, which checks it then.
         const problem = version === goal ? verify?.after?.(token) : '';
@@ -475,6 +516,10 @@ export function createSaver({
             };
             latest = move(latest);
             for (const orphan of orphans) orphan.target = move(orphan.target);
+            if (sending && sending.chatId === from) {
+                sending.renamed = true;
+                moved = true;
+            }
             return moved;
         },
         pending: () => timer !== null || running !== null,
@@ -500,7 +545,7 @@ export function createSaver({
                 await saveNow();
             } catch (error) {
                 // The caller tells the reader; the save is still tried again.
-                later(error?.wait ? waitMs : backoff());
+                later(error?.wait ? waitDelay() : backoff());
                 throw error;
             }
             followUp();

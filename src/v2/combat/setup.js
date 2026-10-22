@@ -248,20 +248,20 @@ export const LEVEL_SHIFT = Object.freeze({
         [9.25, -1, -10.75, -13.75, -19.75, -25.75],
     ]),
     even: shifts([
-        [6.25, 1.75, 0, -1.75, -1.25, -1.25],
-        [10, 4, 0, -2, -1.75, -1.75],
-        [14.5, 6, 1.25, -1, -0.5, -0.5],
-        [23.25, 11, 2.5, -1.25, -1.25, -1.25],
-        [40, 15.25, 3.5, -1.25, -1.25, -1.25],
-        [76.25, 25, 6.75, -2, -2, -2],
+        [7, 2, 0.5, -0.75, -0.75, -0.75],
+        [11, 4, 1, -1.25, -1.25, -1.25],
+        [16, 6.5, 2, 0.25, 0.25, 0.25],
+        [26, 8.5, 4, -0.5, -0.5, -0.5],
+        [46, 20.25, 3, -3, -3, -3],
+        [97, 28.5, 10.5, 1, 1, 1],
     ]),
     strong: shifts([
-        [3.25, -1, -3, -4.75, -4.75, -4.75],
-        [7.75, 1, -3, -5, -5, -5],
-        [13, 3.75, -1.75, -4, -4, -4],
-        [21.25, 8.75, -0.25, -3.5, -3.5, -3.5],
-        [40, 13.75, 2, -4, -4, -4],
-        [84, 28.75, 4, -3, -3, -3],
+        [4, -0.5, -3.25, -4, -4, -4],
+        [8.25, 1.25, -1.25, -4.5, -4.5, -4.5],
+        [14, 4.75, -0.25, -2.25, -2.25, -2.25],
+        [30.25, 7, 0.5, -3.5, -3.5, -3.5],
+        [54, 17.25, 0, -3.25, -3.25, -3.25],
+        [114.25, 29, 11, -1.5, -1.5, -1.5],
     ]),
     deadly: shifts([
         [3.25, -2.25, -6, -7.25, -7.25, -7.25],
@@ -438,11 +438,12 @@ export function tierXpLevel(tier, pcLevel, rules = DEFAULT_RULES) {
 
 /**
  * A projected foe of a tier row made as dangerous as its tier means: HP and attack × its creature's
- * powerScale (at least 1 for a boss) × the row's `levelScale`. Other foes as they are.
+ * powerScale for a character of `pcLevel` meeting it at the row's level (at least 1 for a boss) ×
+ * the row's `levelScale`. Other foes as they are.
  */
-export function normalizedFoe(enemy, row, entry, rules = DEFAULT_RULES) {
+export function normalizedFoe(enemy, row, entry, rules = DEFAULT_RULES, pcLevel = 1) {
     if (!row?.threat) return enemy;
-    const power = powerScale(entry, rules);
+    const power = powerScale(entry, pcLevel, Number(row.level) >= 1 ? Number(row.level) : pcLevel, rules);
     const factor = (row.boss ? Math.max(1, power) : power) * (Number(row.levelScale) > 0 ? Number(row.levelScale) : 1);
     if (factor === 1) return enemy;
     const hp = Math.max(1, Math.round(enemy.hp.max * factor));
@@ -471,7 +472,7 @@ export function buildSetup({ id, seed, offer, party, chatBestiary = [], numbers,
     // its tier means (normalizedFoe: its creature's power, a fraction of a level or levels past the cap).
     const rng = makeRng(`${seed}:enemies`);
     const projected = ranked.flatMap(row => enemiesFromRows([row], { bestiary, library: DEFAULT_SKILLS, rules, rng })
-        .map(enemy => normalizedFoe(enemy, row, findCreature(bestiary, row.name), rules))
+        .map(enemy => normalizedFoe(enemy, row, findCreature(bestiary, row.name), rules, pcLevel))
         // A tier foe's XP counts from its tier (tierXpLevel); a ranked foe's from its level.
         .map(enemy => (row.threat && !row.ladder ? { ...enemy, xpLevel: tierXpLevel(row.threat, pcLevel, rules) } : enemy)));
     const all = lessStunners(projected, partySize)
