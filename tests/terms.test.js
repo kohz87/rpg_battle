@@ -12,7 +12,7 @@ const SOUL = makeRules({ terms: { levelName: 'Soul Class', xpName: 'Soul Growth'
 const POWER = makeRules({ terms: { levelName: 'Soul Power', xpName: 'Power Growth' } });
 
 test('the plain terms: Level and XP, cap 99, nothing custom', () => {
-    assert.deepEqual(termsOf(R), { levelName: 'Level', xpName: 'XP', tiers: null, cap: 99, custom: false });
+    assert.deepEqual(termsOf(R), { levelName: 'Level', xpName: 'XP', tiers: null, cap: 99, custom: false, named: false });
     assert.equal(levelLabel(4, R), 'Level 4');
     assert.equal(levelText(4, R), 'Level 4');
     assert.equal(levelTag(4, R), 'Lv 4');

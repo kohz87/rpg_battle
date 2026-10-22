@@ -26,6 +26,9 @@ export const SETTINGS_DEFAULTS = Object.freeze({
     autoSpend: true,
     // MODULES §F48: you and this many companions at most.
     maxCompanions: 3,
+    // MODULES §F105: the world's words for XP and levels (blank: the pack's, else XP and Level).
+    xpName: '',
+    levelName: '',
 });
 
 export const SETTINGS_SCHEMA = Object.freeze({
@@ -37,6 +40,9 @@ export const SETTINGS_SCHEMA = Object.freeze({
     activeSkills: { type: 'int', min: 3, max: 12, label: 'Skills each member fights with' },
     autoSpend: { type: 'bool', label: 'Companions on auto spend their points by build' },
     maxCompanions: { type: 'int', min: 0, max: 12, label: 'Companions beside you at most' },
+    // Folded into `terms` for every part (src/v2/module.js, terms.js foldReaderTerms).
+    xpName: { type: 'text', group: 'Terms', max: 30, label: 'XP word (blank: the pack\'s, else XP)', help: 'What this world calls experience: "Soul Growth", "Power". Every screen, fight summary and note to the model uses it.' },
+    levelName: { type: 'text', group: 'Terms', max: 30, label: 'Level word (blank: the pack\'s, else Level)', help: 'What this world calls a level: "Soul Class", "Circle". The rank ladder is in Story Block\'s Terms.' },
 });
 
 const COMBAT_CONDITIONS = ['poison', 'burn', 'bleed', 'stun', 'slow', 'weaken', 'shield', 'regen', 'guard'];

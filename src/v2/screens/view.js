@@ -449,8 +449,11 @@ export function itemDetail(state, args = {}, tools = null) {
 /** The carry line from `items.carry` (no `add`): { on, text, over }; off (text '') without the limit. */
 export function carryText(view) {
     if (!isRecord(view) || view.on !== true) return { on: false, text: '', over: false };
-    const people = (Array.isArray(view.people) ? view.people : []).map(person => `${person.name} ${int(person.load)}/${int(person.capacity)}`);
-    const text = [`Carrying ${int(view.load)} of ${int(view.capacity)}`, ...(people.length > 1 ? people : [])].join(' · ');
+    // What things add (MODULES §F106): "+80 carry" beside the one it counts for.
+    const plus = n => (int(n) > 0 ? ` (+${int(n)} carry)` : '');
+    const people = (Array.isArray(view.people) ? view.people : []).map(person => `${person.name} ${int(person.load)}/${int(person.capacity)}${plus(person.bonus)}`);
+    const added = int(view.bagBonus) + (Array.isArray(view.people) ? view.people : []).reduce((sum, person) => sum + int(person.bonus), 0);
+    const text = [`Carrying ${int(view.load)} of ${int(view.capacity)}${people.length > 1 ? plus(view.bagBonus) : plus(added)}`, ...(people.length > 1 ? people : [])].join(' · ');
     return { on: true, text, over: int(view.load) > int(view.capacity) };
 }
 
@@ -504,7 +507,8 @@ export function trade(state, args = {}, tools = null) {
     const coin = Math.max(0, int(wallet?.coin));
     const open = market?.open === true;
     const place = String(market?.place ?? state?.domains?.scene?.place?.name ?? '') || 'Somewhere';
-    const prices = market?.level ? `${market.level} prices` : market?.tier ? `${market.tier} prices` : '';
+    // Why prices are what they are here (MODULES §F107: "Town · coastal: fish −20%"), with the reader's word.
+    const prices = [market?.why || (market?.tier ? `${market.tier} prices` : ''), market?.level ? `${market.level} prices` : ''].filter(Boolean).join(' · ');
     const out = {
         open,
         available: market !== undefined && market !== null,

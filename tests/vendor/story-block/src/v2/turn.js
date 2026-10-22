@@ -541,6 +541,9 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
         const carrier = { index, swipe: Number.isInteger(message?.swipe_id) ? message.swipe_id : 0, sid: store.carrierSid?.(index) ?? null };
         const reader = (ctx?.chat ?? []).slice(0, index).findLast(item => item?.is_user);
         const chat = { lastUser: String(reader?.mes ?? ''), reply: stripBlock(String(message?.mes ?? '')) };
+        // A Re-read (a2-3): the reply as it stands now, for bookkeeping its kept blocks wrote (ctx.standing).
+        let standing = null;
+        if (base) { try { standing = store.at(index); } catch { standing = null; } }
         for (const line of lines) {
             const entry = registry.capture(line.kind);
             if (!entry) {
@@ -560,7 +563,7 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
             }
             let result;
             try {
-                const run = opts => bus.run(`${CAPTURE_PREFIX}${entry.kind}`, { ...line, kind: entry.kind, word: line.kind }, { cause: 'story', state, capture: entry, carrier, chat, ...(seed === undefined ? {} : { seed }), ...opts });
+                const run = opts => bus.run(`${CAPTURE_PREFIX}${entry.kind}`, { ...line, kind: entry.kind, word: line.kind }, { cause: 'story', state, capture: entry, carrier, chat, standing, ...(seed === undefined ? {} : { seed }), ...opts });
                 result = entry.off ? await run({ capture: { ...entry, off: false }, again: true }) : await run();
                 // Refused by a feature that is off (a command it called, ctx.feature): run as it ran before.
                 if (again && !entry.off && result?.code === 'FEATURE_OFF') result = await run({ again: true });

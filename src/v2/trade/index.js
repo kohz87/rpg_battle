@@ -373,13 +373,15 @@ export const part = {
     settings: {
         section: 'Trade',
         // (v1 0.5.46) The reader's word for a place's prices; a place not listed reads by its name.
-        defaults: { placePrices: [], shortagePrices: SHORTAGE_PRICES },
+        defaults: { placePrices: [], shortagePrices: SHORTAGE_PRICES, guessPrices: false },
         schema: {
+            // MODULES §F107: v1's guess from the words of a place's name, only where nothing names its market.
+            guessPrices: { type: 'bool', label: 'Guess prices from place names (v1)', help: 'Off: a place\'s prices come from its settlement type and surroundings (the lorebook\'s market line, the pack, the scene\'s place kind), else the usual prices. On: a place none of those names reads its prices from words in its name ("Harbour", "Royal").' },
             shortagePrices: { type: 'int', label: 'Prices during a shortage (%)', min: 100, max: 400, help: 'While the story marks a shortage at a place, its shops do not restock and charge this much of their usual prices.' },
             placePrices: {
                 type: 'list',
                 label: 'Prices by place',
-                help: 'A place listed here trades at your word for it (cheap, fair or dear) and always has a market. Others read their prices from their name: a village pays less than a city.',
+                help: 'A place listed here trades at your word for it (cheap, fair or dear) on top of its own prices, and always has a market.',
                 of: {
                     place: { type: 'text', label: 'Place', max: 80 },
                     level: { type: 'choice', label: 'Prices', options: [...PRICE_LEVELS] },

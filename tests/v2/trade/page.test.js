@@ -21,9 +21,10 @@ function draw(host) {
 const find = (root, selector, text) => root.querySelectorAll(selector).find(node => node.textContent.includes(text));
 
 test('page: at a market, the place and its prices, Buy rows with short prices, Sell rows', () => {
-    const host = createHost(part, { state: baseState() });
+    const host = createHost(part, { state: baseState({ place: { name: 'Bluewatch Village', kind: 'village' } }) });
     const { pane } = draw(host);
-    assert.match(pane.querySelector('.rpg-trade-place').textContent, /^Bluewatch Village · village prices$/);
+    // Why its prices are what they are (MODULES §F107).
+    assert.match(pane.querySelector('.rpg-trade-place').textContent, /^Bluewatch Village · Village: prices −10%, pays −15%$/);
     const stock = host.query('trade.stock', { kind: 'general' });
     const names = texts(pane, '.rpg-trade-name');
     for (const item of stock.items) assert.ok(names.includes(item.def.name), item.def.name);

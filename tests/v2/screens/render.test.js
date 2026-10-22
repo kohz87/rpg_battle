@@ -158,7 +158,7 @@ test('trade: the market line, then Sell / Buy / On order rows with short prices 
     const drawn = draw(tradeScreen, makeState());
     assert.deepEqual(drawn.warnings, []);
     assert.equal(text(drawn.el.querySelector('.market .place')), 'Bluewatch Village');
-    assert.equal(text(drawn.el.querySelector('.market .line')), 'Market · village prices');
+    assert.equal(text(drawn.el.querySelector('.market .line')), 'Market · Village: prices −10%, pays −15%');
     assert.equal(text(drawn.el.querySelector('.purse')), '140 g');
     assert.equal(drawn.el.querySelector('.purse').getAttribute('title'), '140 gold in the purse');
 

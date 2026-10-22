@@ -293,7 +293,7 @@ test('trade: at a market — the line, the purse, sell prices from trade.quote, 
     const view = ask(trade, makeState());
     assert.equal(view.open, true);
     assert.equal(view.place, 'Bluewatch Village');
-    assert.equal(view.line, 'Market · village prices');
+    assert.equal(view.line, 'Market · Village: prices −10%, pays −15%');
     assert.equal(view.purse, '140 g');
     assert.equal(view.purseTitle, '140 gold in the purse');
     const draught = view.sell.find(row => row.stack === 'it_draught1');

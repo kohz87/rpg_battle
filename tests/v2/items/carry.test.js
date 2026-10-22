@@ -57,7 +57,7 @@ test('items.carry: the overview, and a check of things not yet in the inventory 
     const byId = part.queries['items.carry'](state, { owner: LYRA, add: [{ defId: 'story/greatsword', qty: 1 }], move: true, settings: { carrySize: 10 } });
     assert.deepEqual([byId.ok, byId.message], [false, 'Lyra cannot carry that: 1 of 4 carried, and the Greatsword weighs 8.']);
     assert.equal(part.queries['items.carry'](state, { add: [], settings: {} }).ok, true);
-    assert.deepEqual(part.settings.defaults, { carryLimit: true, carrySize: 100 });
+    assert.deepEqual(part.settings.defaults, { carryLimit: true, carrySize: 100, carryItems: [] });
     assert.equal(part.settings.schema.carryLimit.type, 'bool');
 });
 

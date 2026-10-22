@@ -51,6 +51,35 @@ each in full. Every one can be switched off in Story Suite settings → **Featur
 - A made thing is worth what went into it. Key items count as worth nothing.
 - With Story Director, the clock moves on by the recipe's time.
 
+**Your world's words** (settings → RPG Battle → **Terms**; Story Block → **Terms**)
+- **XP word** and **Level word**: "Soul Growth" and "Soul Class" in one game, XP and Level in another.
+  Blank: the pack's words, else XP and Level. The party cards, the status strip, the fight board and its
+  summary, the notes to the model and its fixed instructions all use them.
+- **Rank ladder** (Story Block's setting, so Story Director's quest ranks use it too, with or without RPG
+  Battle): one rank a line, lowest first, `Soul Class I` … `Soul Class IX` or `F` … `SSS`, optionally with
+  each rank's first level (`Soul Class II: 11`). Without levels the ranks are spread over the levels (by
+  your tiers, else evenly up to the level cap). A level then shows as its rank, `Soul Class III (Lv 24)`;
+  `party.ranks`, a foe line's `rank: Soul Class II` and the money a reply may give follow it.
+
+**Things that carry** (the carry limit)
+- An item may add carry capacity while it is owned: a pack's item with `carry` (Ersveil's Pack Mule +80,
+  Barge Hold Share +200, Backpack +20), or one you name under **Items that add carry capacity**
+  (`Spatial Ring: 100`, one per line). A member's own adds to them, a thing in the shared bag (a cart) to
+  the party, gear only while worn. A thing taken on makes room for itself.
+- The story's words never add capacity. Losing such a thing lowers it again: the party is encumbered,
+  nothing is dropped. The Party card and the Inventory say "+80 carry".
+
+**Prices by place** (Trade)
+- A place's prices come from its **settlement type** (hamlet and village cheaper, with little stock; city
+  and capital dearer, with more; outpost and camp dear) and its **environment** (coastal, river, port,
+  mountain, mining, forest, desert, farmland, frontier, swamp: fish cheaper by the water, ore in a mining
+  town, everything dearer on the frontier; at most ±30 % on one kind of thing).
+- Where that comes from: the lorebook entry for the place (`market: town; coastal, port`), the pack (its
+  places' `market` and `tags`, its own types and tags in `markets`), the scene's place kind. Unknown: the
+  usual prices. The Trade screen says why: *Town · coastal: fish −20%, salt −10%*.
+- Built-in prices and worths follow the money scale (Story Block's `inventory.economy`); a pack's own
+  prices stay as written. **Guess prices from place names (v1)** (off) brings back v1's guess.
+
 **Screens**
 - **One bag.** RPG Battle has no Items screen any more. Each row of Story Block's Inventory shows RPG
   Battle's details: slot and stats, who wears it, condition and refinement, and for a potion what it
