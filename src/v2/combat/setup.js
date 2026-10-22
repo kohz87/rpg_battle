@@ -231,6 +231,8 @@ export function partyCombatants(ctx, { rules = DEFAULT_RULES } = {}) {
 // the cells' 10th percentile at 99 % and 93 %, their median at 62.5 % and 35 %, their 90th
 // percentile at 13 %), then trivial and weak made 0.75 of a level easier for room, and each tier
 // kept at least a level below the next; even and strong then searched for the most cells on target.
+// Even was searched again with the presets' final builds (AIM=band): the presets' band, each one's
+// median over the creatures, centred on 62.5 %, so the low preset sits as near the target as the high one allows.
 // The columns are foes at once (the 6 and 9 calibrated with the field set to hold them); waves read
 // them through effectiveHeadcount. Between the band levels the shift is read along a straight line
 // (past 60, as at 60), and between headcounts too (past 9, the line from 6 to 9 goes on).
@@ -256,12 +258,12 @@ export const LEVEL_SHIFT = Object.freeze({
         [9.25, -1, -10.75, -13.75, -19.75, -25.75],
     ]),
     even: shifts([
-        [7, 2, 0.5, 0, -2, -2.75],
-        [10.5, 3.75, 1.75, 0.25, -2.25, -3],
-        [17.75, 6, 3.5, 2, -1.5, -3.5],
-        [30.75, 12.25, 7, 3.5, -3, -4],
-        [54, 23.5, 15, 8.25, -1.5, -7],
-        [104.75, 33, 21, 10.5, -1.25, -10.5],
+        [6, 2, 0.75, 0, -3.25, -6.75],
+        [11, 4.75, 1, 0, -2.25, -4.25],
+        [17.25, 7.5, 2.5, 1, -1.75, -4],
+        [27, 14, 5, 3, -1, -5],
+        [48.5, 21, 10.5, 5, -1.75, -7],
+        [91.25, 30, 16.25, 8, -2, -12],
     ]),
     strong: shifts([
         [4.5, -1, -3.25, -3.75, -4.5, -5.75],

@@ -47,7 +47,13 @@ async function rates(groups, shifts, options) {
     return per;
 }
 
-const stat = (group, rows) => quantile(rows.map(row => row.rate), AIMS[group.tier][0]);
+// AIM=band (even and strong): the presets' band, each preset's median over the creatures, centred
+// on the aim, so the low preset (the fighter) sits as near the target as the high one allows.
+const presetBand = rows => {
+    const medians = PRESET_IDS.map(preset => quantile(rows.filter(row => row.preset === preset).map(row => row.rate), 0.5));
+    return (Math.min(...medians) + Math.max(...medians)) / 2;
+};
+const stat = (group, rows) => (process.env.AIM === 'band' && AIMS[group.tier][0] === 0.5 ? presetBand(rows) : quantile(rows.map(row => row.rate), AIMS[group.tier][0]));
 const share = (group, rows) => rows.filter(row => onTarget(group.tier, row.rate)).length / rows.length * 100;
 
 if (import.meta.url === `file://${process.argv[1]}`) {
