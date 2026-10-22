@@ -11,8 +11,9 @@ import { rpgHost } from '../integration/helpers/host.js';
 import { DEFAULT_TAIL_BUDGET, estimateTokens } from '../../vendor/story-block/src/v2/prompt.js';
 import { sessionOf } from '../../../src/v2/combat/stored.js';
 
-// The static text as it was before ranks were told (sha256): a fight line never changes it.
-const STATIC_SHA = 'fef1672f7a7f4cb55b0d60402818eb72126266e604ccbde7e42dd0f6ee5cec45';
+// The static text (sha256): a fight line never changes it. Changed once on purpose since ranks were told
+// (fix-encounter: "write its encounter line in <Changes>").
+const STATIC_SHA = 'e681abf5c067e66316e6093155447c08a3a479b68f4c4acc645e86a645c910d1';
 const sha = text => createHash('sha256').update(text).digest('hex');
 
 const hero = () => actor(1, { level: 6, hp: { cur: 220, max: 220 }, stats: { STR: 16, VIT: 14, AGI: 14, DEX: 14, INT: 8, LUK: 8, CHA: 8 } });
