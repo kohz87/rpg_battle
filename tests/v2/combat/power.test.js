@@ -96,9 +96,11 @@ test('a tier\'s level: offset plus LEVEL_SHIFT, lone foes on the same table (no 
             const raw = level + offsets[tier] * DEFAULT_RULES.threat.step + LEVEL_SHIFT[tier][band][0];
             if (raw >= 1) assert.equal(tierPower(tier, level, 1).level, Math.min(99, Math.ceil(raw - 1e-9)), `lone ${tier} at ${level}`);
         }
-        // Past the last band as at it, and the headcount held to MAX_HEADCOUNT.
+        // Past the last band as at it; past nine foes the line from six to nine goes on, to MAX_EFFECTIVE.
         assert.equal(levelShift(tier, 99, 1), LEVEL_SHIFT[tier].at(-1)[0]);
-        assert.equal(levelShift(tier, 10, 30), levelShift(tier, 10, 9));
+        const row = LEVEL_SHIFT[tier][2];
+        assert.ok(Math.abs(levelShift(tier, 10, 12) - (row[5] + (row[5] - row[4]))) < 0.011, tier);
+        assert.equal(levelShift(tier, 10, 100), levelShift(tier, 10, 24));
     }
     // Between bands and headcounts, along a straight line.
     const mid = levelShift('even', 7.5, 1);

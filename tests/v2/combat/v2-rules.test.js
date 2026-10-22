@@ -50,6 +50,17 @@ test('with the spell rule a spell can miss (INT against AGI); without it a spell
     assert.equal(v1.hits, v1.all);
 });
 
+test('a spell rolls on the same curve as a blow: INT against AGI hits as often as the same DEX against AGI', () => {
+    const bolt = { name: 'Bolt', type: 'magic', stat: 'INT', power: 1.5, mp: 0, cooldown: 0, target: 'one', effect: null, mastery: 1 };
+    const target = foe();
+    for (const value of [5, 20, 45, 60, 90, 120]) {
+        const blade = previewStrike(fighter({ stats: stats({ DEX: value }) }), target, null, makeRules(), { relative: true, spells: true }).hit;
+        const spell = previewStrike(fighter({ stats: stats({ INT: value }) }), target, bolt, makeRules(), { relative: true, spells: true }).hit;
+        assert.equal(spell, blade, `stat ${value}`);
+    }
+    assert.equal(previewStrike(fighter(), target, bolt, makeRules()).hit, 100, 'v1: spells never miss');
+});
+
 test('every v2 setup asks for both rules, and its speed offset is the setting plus the character\'s level', () => {
     const party = [fighter({ level: 20 })];
     const { setup } = buildSetup({ id: 'fi_00000001', seed: 7, offer: { foes: [{ name: 'Wolf', count: 1, tier: 'even' }] }, party, numbers: fightNumbers({}) });
