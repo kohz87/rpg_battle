@@ -8,6 +8,7 @@
 // loaded: no v1 interceptor, blocks or tabs.
 
 import { MODULE_ID, MODULE_NAME, VERSION, createModule } from './src/v2/module.js';
+import { migrateRankLadder } from './src/terms.js';
 
 // How long to wait for Story Block to come up (it loads first, as a dependency, but sets itself
 // up asynchronously), and how often to look.
@@ -54,6 +55,11 @@ export async function boot({ global = globalThis, doc = global.document, waitMs 
     }
     try {
         const sdk = await host.ready;
+        // terms2: a rank ladder typed in Story Block's Terms (SB #121) moves to RPG Battle's Terms, once.
+        try {
+            const st = global.SillyTavern?.getContext?.();
+            if (migrateRankLadder(st?.extensionSettings?.storySuite)) st.saveSettingsDebounced?.();
+        } catch (error) { console.warn(`[${MODULE_NAME}] the rank ladder could not be moved`, error); }
         await sdk.registerModule(createModule({ settings: () => sdk.settings(MODULE_ID) }));
         return { ok: true, sdk };
     } catch (error) {

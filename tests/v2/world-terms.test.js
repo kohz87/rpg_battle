@@ -64,7 +64,7 @@ test('the static line names the world\'s words; byte-identical reply to reply, a
 const readerQuery = list => (name, args) => (name === 'packs.content' && args.kind === 'ranks' ? list : []);
 const asReader = titles => titles.map(title => ({ id: title.split(' ').at(-1), title, pack: null, reader: true }));
 
-test('Story Block\'s Rank ladder is the terms\' ranks: spread by the tiers, else evenly to the cap; levels shown by it', () => {
+test('the Rank ladder (via Story Block\'s packs.content) is the terms\' ranks: spread by the tiers, else evenly to the cap; levels shown by it', () => {
     assert.equal(readerRanks(readerQuery([{ id: 'F', pack: 'guild' }])), null, 'a pack\'s ladder is not the reader\'s');
     const soul = withTerms({ terms: { tiers: { size: 10 } } }, readerQuery(asReader(SOUL)));
     const ladder = rankLadder(makeRules({ terms: soul.terms }));
@@ -90,7 +90,7 @@ test('Story Block\'s Rank ladder is the terms\' ranks: spread by the tiers, else
 
 test('on the host (no Story Director): party.ranks, the Party screen and the tail use the reader\'s ladder and words', async t => {
     quiet(t);
-    const host = await rpgHost({ settings: { modules: { 'story-block': { ranks: rows(SOUL) }, 'rpg-battle': { 'party.xpName': 'Soul Growth', 'party.levelName': 'Soul Class' } } } });
+    const host = await rpgHost({ settings: { modules: { 'rpg-battle': { 'party.ranks': rows(SOUL), 'party.xpName': 'Soul Growth', 'party.levelName': 'Soul Class' } } } });
     t.after(() => host.close());
     assert.equal((await host.cmd('party.create', { name: 'Wessel', preset: 'fighter' })).ok, true);
     const ladder = host.q('party.ranks');

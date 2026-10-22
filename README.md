@@ -51,22 +51,29 @@ each in full. Every one can be switched off in Story Suite settings → **Featur
 - A made thing is worth what went into it. Key items count as worth nothing.
 - With Story Director, the clock moves on by the recipe's time.
 
-**Your world's words** (settings → RPG Battle → **Terms**; Story Block → **Terms**)
+**Your world's words and ranks** (settings → RPG Battle → **Terms**: every ranking term in one place)
 - **XP word** and **Level word**: "Soul Growth" and "Soul Class" in one game, XP and Level in another.
   Blank: the pack's words, else XP and Level. The party cards, the status strip, the fight board and its
   summary, the notes to the model and its fixed instructions all use them.
-- **Rank ladder** (Story Block's setting, so Story Director's quest ranks use it too, with or without RPG
-  Battle): one rank a line, lowest first, `Soul Class I` … `Soul Class IX` or `F` … `SSS`, optionally with
-  each rank's first level (`Soul Class II: 11`). Without levels the ranks are spread over the levels (by
-  your tiers, else evenly up to the level cap). A level then shows as its rank, `Soul Class III (Lv 24)`;
-  `party.ranks`, a foe line's `rank: Soul Class II` and the money a reply may give follow it.
+- **Rank ladder**: one rank a line, lowest first, `Soul Class I` … `Soul Class IX` or `F` … `SSS`,
+  optionally with a rank's first level (`Soul Class II: 15`). Moved here from Story Block's Terms (a
+  ladder there moves over by itself, once).
+- **Levels per rank**: how many levels a rank spans when its line gives no first level (10: Soul Class I is
+  levels 1–10, II 11–20); a line's own first level wins. 0: the ranks are spread over the levels (by your
+  tiers, else evenly up to the level cap).
+- The field's help ends with a preview of the ladder in use: `Soul Class I: Lv 1–10 · II: 11–20 · …`.
+- RPG Battle hands the ladder to Story Block (hook `ranks.reader`), which answers `packs.content({ kind:
+  'ranks' })` with it, so Story Director's quest ranks, `party.ranks`, a foe line's `rank: Soul Class II`,
+  a fight's tier and the money a reply may give all use the same bands. A level shows as its rank,
+  `Soul Class III (Lv 24)`; a fight card as `Weir Rat ×8 · Soul Class I · weak` (`combat.offers`' `card`).
 
 **Things that carry** (the carry limit)
 - An item may add carry capacity while it is owned: a pack's item with `carry` (Ersveil's Pack Mule +80,
   Barge Hold Share +200, Backpack +20), or one you name under **Items that add carry capacity**
   (`Spatial Ring: 100`, one per line). A member's own adds to them, a thing in the shared bag (a cart) to
   the party, gear only while worn. A thing taken on makes room for itself.
-- The story's words never add capacity. Losing such a thing lowers it again: the party is encumbered,
+- The list goes by name, so it counts for a thing the story gave you too (`Saddlebags: 60` and the story's
+  Saddlebags). The story's words never set a capacity. Losing such a thing lowers it again: the party is encumbered,
   nothing is dropped. The Party card and the Inventory say "+80 carry".
 
 **Prices by place** (Trade)

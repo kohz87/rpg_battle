@@ -45,7 +45,8 @@ import { part as returnPart } from './return/index.js';
 import { part as trade } from './trade/index.js';
 import { part as craft } from './craft/index.js';
 import { part as screens } from './screens/index.js';
-import { foldReaderTerms, withTerms } from '../terms.js';
+import { foldReaderTerms, ladderPreview, readerLadderLines, withTerms } from '../terms.js';
+import { LEVELS_PER_RANK_HELP } from './party/sheets.js';
 
 export { TERM_FIELDS, foldReaderTerms, mergeTerms, packTerms, readerRanks, withTerms } from '../terms.js';
 
@@ -258,6 +259,23 @@ export function createModule({ settings = null, query = null } = {}) {
 
     const mergedHooks = {};
     for (const [name, list] of Object.entries(hooks)) mergedHooks[name] = mergeHook(name, list, { viewFor, settings: id => partSettings(moduleSettings(), id) });
+    // terms2 (MODULES §F105): the reader's rank ladder lines for Story Block, which answers
+    // packs.content's ranks with them, so every module bands ranks the same way.
+    mergedHooks['ranks.reader'] = () => readerLadderLines(moduleSettings());
+    // The Levels per rank field's help ends with a read-only preview of the ladder in use (its levels),
+    // worked out each time the settings are drawn: "Soul Class I: Lv 1–10 · II: 11–20 · …".
+    const perRank = schema['party.levelsPerRank'];
+    if (perRank) {
+        Object.defineProperty(perRank, 'help', {
+            enumerable: true,
+            configurable: true,
+            get() {
+                let preview = '';
+                try { preview = ladderPreview(staticQuery('party.ranks', {})); } catch { preview = ''; }
+                return preview ? `${LEVELS_PER_RANK_HELP} Now: ${preview}` : LEVELS_PER_RANK_HELP;
+            },
+        });
+    }
 
     return {
         id: MODULE_ID,

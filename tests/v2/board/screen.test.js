@@ -96,7 +96,7 @@ test('the screen: offer cards with Fight and Not now; Fight starts it and the bo
     world.capture(line('!', 'encounter', '3 Cellar Rats', 'boiling out of the bins', { tier: 'weak', stakes: 'death' }));
     world.capture(line('!', 'encounter', 'Giant Rat', '', { tier: 'weak' }));
     const again = await show(world);
-    assert.deepEqual(texts(again.el, '.rb-fight-offer-text'), ['Cellar Rat ×3 (weak)', 'Giant Rat (weak)']);
+    assert.deepEqual(texts(again.el, '.rb-fight-offer-text'), ['Cellar Rat ×3 · weak', 'Giant Rat · weak']);
     assert.deepEqual(texts(again.el, '.rb-fight-stakes'), ['To the death']);
     assert.deepEqual(texts(again.el, '.rb-fight-note'), ['boiling out of the bins'], 'an offer without a note shows none');
     assert.deepEqual(texts(again.el, '.rb-fight-place'), ['Bluewatch Village', 'Bluewatch Village']);

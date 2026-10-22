@@ -22,7 +22,7 @@
 import { DEFAULT_RULES, threatForGap, threatStep } from '../../rules.js';
 import { parseEncounter } from '../../story.js';
 import { isNoteName } from '../../templates.js';
-import { maxLevel, rankNamed } from '../../terms.js';
+import { maxLevel, rankAt, rankNamed } from '../../terms.js';
 
 // v1's five threat words (story.THREATS): 'trivial' is a tier of its own, two steps below the
 // party (rules.threat.offsets), never read as 'weak'.
@@ -175,5 +175,33 @@ export function foesText(foes, { tiers = true } = {}) {
         const count = foe.count > 1 ? ` ×${foe.count}` : '';
         const notes = [foe.boss ? 'boss' : '', foe.rank ? `rank ${foe.rank}` : tiers ? foe.tier : ''].filter(Boolean).join(', ');
         return `${foe.name}${count}${notes ? ` (${notes})` : ''}`;
+    }).join(', ');
+}
+
+/**
+ * The level a tier foe's rank is read at on the card: the character's plus the tier's offset
+ * (rules.threat.offsets × step, as setup.tierXpLevel counts its XP), at least 1.
+ */
+export function tierLevel(tier, pcLevel, rules = DEFAULT_RULES) {
+    const offset = Number(rules?.threat?.offsets?.[tier] ?? DEFAULT_RULES.threat.offsets[tier]);
+    const pc = Math.max(1, Math.round(Number(pcLevel) || 1));
+    return Math.max(1, Math.round(pc + (Number.isFinite(offset) ? offset : 0) * threatStep(rules)));
+}
+
+/**
+ * An offer's foes for its card (terms2): "Weir Rat ×8 · Soul Class I · weak", a boss "Rat King (boss) ·
+ * Soul Class II · strong"; foes joined by ", ". The rank is the ladder's (`party.ranks`, the same bands the
+ * party's rank and a written `rank:` use): a ranked foe's own, a tier foe's at its tier's level for a
+ * character of `pcLevel` (tierLevel). The tier is the fight's word for it. No ladder: name and tier.
+ */
+export function foesCard(foes, { ladder = null, pcLevel = 1, rules = DEFAULT_RULES } = {}) {
+    const ranks = Array.isArray(ladder) ? ladder.filter(rank => rank && typeof rank.id === 'string' && Array.isArray(rank.levels)) : [];
+    return (foes ?? []).map(foe => {
+        const count = foe.count > 1 ? ` ×${foe.count}` : '';
+        const rank = !ranks.length ? null
+            : foe.rank ? ranks.find(entry => entry.id === foe.rank) ?? rankNamed(foe.rank, ranks)
+                : rankAt(Number.isInteger(foe.level) ? foe.level : tierLevel(foe.tier, pcLevel, rules), ranks);
+        const title = rank ? String(rank.title || rank.id) : foe.rank ? `rank ${foe.rank}` : '';
+        return [`${foe.name}${count}${foe.boss ? ' (boss)' : ''}`, title, foe.tier ?? ''].filter(Boolean).join(' · ');
     }).join(', ');
 }
