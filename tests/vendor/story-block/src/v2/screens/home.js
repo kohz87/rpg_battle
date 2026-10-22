@@ -13,13 +13,16 @@
 // target (`meter`).
 //
 // Last, the save points (MODULES §F93): the host's `story-block.savepoints` widget, which draws nothing
-// while that feature is off.
+// while that feature is off; and, while no pack is installed, "Import a pack" (the host's
+// `story-block.packs-hint` widget), which opens the settings at the Packs fold.
 
 import { STRINGS, html, jsonText } from '../strings.js';
 import { BASE_CSS } from './style.js';
 
 // The save points panel (MODULES §F93) is a host widget (screens/savepoints.js), drawn by the page.
 const SAVEPOINTS_WIDGET = 'story-block.savepoints';
+// "Import a pack" while no pack is installed (screens/packs-hint.js), also a host widget.
+const PACKS_HINT_WIDGET = 'story-block.packs-hint';
 
 const S = STRINGS.home;
 
@@ -99,6 +102,7 @@ const TEMPLATE = `
   </section>
 
   <ss-widget name="${SAVEPOINTS_WIDGET}" class="saves-slot"></ss-widget>
+  <ss-widget name="${PACKS_HINT_WIDGET}" class="packs-slot"></ss-widget>
 </div>`;
 
 const CSS = `${BASE_CSS}
@@ -118,7 +122,10 @@ const CSS = `${BASE_CSS}
 .panel p { margin: 2px 0; }
 .worn { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .progress { margin-top: 4px; }
-.saves-slot:empty { display: none; }
+.saves-slot:empty, .packs-slot:empty { display: none; }
+.packs-hint { display: grid; gap: 6px; }
+.packs-hint > h4 { margin: 0; }
+.packs-hint > .btn { justify-self: start; }
 .saves { display: grid; gap: 6px; }
 .saves > h4 { margin: 0; }
 .saves > .btn { justify-self: start; }

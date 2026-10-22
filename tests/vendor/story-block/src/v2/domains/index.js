@@ -153,10 +153,11 @@ export function createCorePart({ hooks = () => [], settings = () => ({}), hookEn
  * side (a name in two parts throws), capture by `line.kind`, statics joined in part order, tails
  * concatenated, budgets summed, a hook name shared by parts called in part order (beforeGenerate
  * lines and commands added up; for any other hook the first answer that is not null/undefined),
- * and each part's settings section drawn as its own block in the module's settings panel.
+ * and each part's settings section drawn as its own block in the module's settings panel (or, with
+ * `settings.fold`, as a fold of its own at the top of the settings: `folds`).
  */
 export function mergeParts(parts) {
-    const out = { domains: {}, commands: {}, queries: {}, kinds: {}, hooks: {}, tabs: [], statics: [], tails: [], budget: 0, sections: [], defaults: {}, schema: {} };
+    const out = { domains: {}, commands: {}, queries: {}, kinds: {}, hooks: {}, tabs: [], statics: [], tails: [], budget: 0, sections: [], folds: [], defaults: {}, schema: {} };
     const put = (table, name, value, what) => {
         if (Object.hasOwn(out[table], name)) throw new Error(`Story Block: two parts both define the ${what} "${name}".`);
         out[table][name] = value;
@@ -176,7 +177,11 @@ export function mergeParts(parts) {
         for (const [key, value] of Object.entries(settings.defaults ?? {})) put('defaults', key, value, 'setting');
         Object.assign(out.schema, settings.schema ?? {});
         const render = typeof settings.render === 'function' ? settings.render : typeof settings.section === 'function' ? settings.section : null;
-        if (render) out.sections.push({ title: typeof settings.section === 'string' ? settings.section : '', render });
+        const title = typeof settings.section === 'string' ? settings.section : '';
+        // A part whose panel is a fold of its own (`settings.fold: { id, hint? }`, the Packs) goes to the top
+        // of the settings instead of the module's section.
+        if (render && settings.fold && typeof settings.fold.id === 'string') out.folds.push({ id: settings.fold.id, title: title || settings.fold.id, hint: settings.fold.hint ?? '', render });
+        else if (render) out.sections.push({ title, render });
     }
     for (const [name, fns] of Object.entries(hookLists)) {
         out.hooks[name] = fns.length === 1 ? fns[0] : name === 'beforeGenerate'
@@ -253,6 +258,8 @@ export function createCoreModule({ hooks = () => [], settings = () => ({}), vers
         settings: {
             defaults: merged.defaults,
             schema: merged.schema,
+            // The Packs: a fold of its own, second after Story Suite's, so it is found (host-ui.js).
+            folds: merged.folds.map(item => ({ ...item, render: (el, api) => item.render(el, { ...api, query: (name, args) => api?.sdk?.query?.(name, args), notify: text => globalThis.toastr?.info?.(text, 'Story Suite') }) })),
             // Each part's own panel (Packs, Events) under its title, below the schema rows.
             render(el, api) {
                 const doc = el.ownerDocument ?? globalThis.document;

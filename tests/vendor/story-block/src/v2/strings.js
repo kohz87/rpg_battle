@@ -221,6 +221,13 @@ export const STRINGS = deepFreeze({
         failed: 'The save point was not made: {reason}',
         returnFailed: 'Could not return there: {reason}',
     },
+    // Home's line while no pack is installed (screens/packs-hint.js).
+    packsHint: {
+        title: 'Packs',
+        none: 'No pack installed. A pack adds a ready-made setting: items, shops, places, quests and a start.',
+        import: 'Import a pack',
+        importTitle: 'Open the Story Suite settings at Packs',
+    },
     home: {
         title: 'Home',
         level: 'Level {level}',

@@ -15,7 +15,9 @@
 // * The tab panel: the tab host (src/v2/host-ui.js) with every module tab and every `tab` screen, a
 //   side sheet on wide screens and a bottom sheet on phones. Redrawn from the head on every change.
 // * The Story Block drawer in Extensions: version, modules, the same buttons.
-// * The wand menu: Story Suite (the overlay).
+// * The wand menu: Story Suite (the overlay). The overlay's prompt size counts what the next reply would
+//   be sent (turn.preview) with SillyTavern's tokenizer when there is one; `openSettings({ fold })` opens
+//   it at one fold (Home's "Import a pack" → the Packs fold, while no pack is installed).
 // * The five mounts (SPEC §13.4) over the screen registry, drawn by the layout renderer (and the
 //   template renderer when it is in this checkout), with the standard and module widgets, and the
 //   host's own two that need the store and the chat: `story-block.inspector` (the Inspector screen,
@@ -25,7 +27,7 @@
 // Every text is set with textContent; nothing a module or a pack wrote becomes markup here. The texts are
 // in src/v2/strings.js.
 
-import { createTabHost, openSettingsOverlay } from './host-ui.js';
+import { PACKS_FOLD, createTabHost, openSettingsOverlay } from './host-ui.js';
 import { mountQuery } from './sdk.js';
 import { createMounts } from './view/mounts/index.js';
 import { createScreenRenderer } from './view/render-screen.js';
@@ -40,6 +42,7 @@ import { createInspectorSource } from './inspect.js';
 import { createSavePoints } from './rewind.js';
 import { createInspectorWidget, INSPECTOR_WIDGET } from './screens/inspector.js';
 import { createSavePointsWidget, SAVEPOINTS_WIDGET } from './screens/savepoints.js';
+import { createPacksHintWidget, PACKS_HINT_WIDGET } from './screens/packs-hint.js';
 
 const IDS = Object.freeze({ bar: 'story_suite_v2_bar', panel: 'story_suite_v2_panel', drawer: 'story_suite_v2_drawer', menu: 'story_suite_v2_menu' });
 
@@ -146,6 +149,18 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
             points: savePoints,
             enabled: () => coreOn(CORE_FEATURE.savepoints),
             notify: text => globalThis.toastr?.warning?.(text, S.savepoints.title),
+        }),
+        // Home's "Import a pack" while no pack is installed: the settings, open at the Packs fold.
+        [PACKS_HINT_WIDGET]: createPacksHintWidget({
+            list: () => {
+                if (typeof runtime.packs?.packs?.list === 'function') return runtime.packs.packs.list();
+                try { return registry.query('packs.list') ? sdk.query('packs.list') ?? [] : null; } catch { return null; }
+            },
+            subscribe: fn => runtime.packs?.packs?.subscribe?.(fn) ?? null,
+            open: () => {
+                mounts.screen.close?.();
+                openSettings({ fold: PACKS_FOLD });
+            },
         }),
     };
     const renderer = createScreenRenderer({
@@ -314,7 +329,24 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
     }
     panelClose.addEventListener('click', closePanel);
 
-    const openSettings = () => openSettingsOverlay({ registry, settings, doc, sdk, features: runtime.features ?? null });
+    // The settings overlay. Its prompt size is what the next ordinary reply would be sent (turn.preview:
+    // built on demand, never sent, nothing changed), counted with SillyTavern's tokenizer when the context
+    // has one; it is counted again when a feature flips or the story moves while the overlay is open.
+    let overlay = null;
+    const countTokens = () => {
+        const live = liveCtx();
+        return typeof live?.getTokenCountAsync === 'function' ? text => live.getTokenCountAsync(text) : null;
+    };
+    function openSettings(options = null) {
+        const fold = typeof options?.fold === 'string' ? options.fold : null;
+        overlay = openSettingsOverlay({
+            registry, settings, doc, sdk, features: runtime.features ?? null, fold,
+            promptParts: typeof runtime.turn?.preview === 'function' ? () => runtime.turn.preview() : null,
+            countTokens: countTokens(),
+            onClose: () => { overlay = null; },
+        });
+        return overlay;
+    }
 
     // ---- the bar above the message box ------------------------------------------------------
     const bar = el(doc, 'div', 'story-suite-bar');
@@ -334,7 +366,7 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
     bar.append(storyButton, gameButton, settingsButton, notice);
     storyButton.addEventListener('click', () => (panel.hidden ? openPanel() : closePanel()));
     gameButton.addEventListener('click', () => mounts.screen.open(HOME_SCREEN_ID));
-    settingsButton.addEventListener('click', openSettings);
+    settingsButton.addEventListener('click', () => openSettings());
     noticeClose.addEventListener('click', () => clearBlocked());
 
     // Alt+G: the game view, open or closed (MODULES §F53). The bar button stays the visible way in.
@@ -375,7 +407,7 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
         const buttons = el(doc, 'div', 'story-suite-drawer-buttons');
         const one = iconButton(doc, '', 'fa-sliders', S.drawer.settings);
         const two = iconButton(doc, '', 'fa-book-open', S.drawer.panel);
-        one.addEventListener('click', openSettings);
+        one.addEventListener('click', () => openSettings());
         two.addEventListener('click', openPanel);
         buttons.append(one, two);
         // The status strip's switch (on by default, MODULES §F54).
@@ -398,7 +430,7 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
         item.id = IDS.menu;
         item.tabIndex = 0;
         item.append(el(doc, 'div', 'fa-solid fa-sliders extensionsMenuExtensionButton'), el(doc, 'span', '', S.menu.suite));
-        item.addEventListener('click', openSettings);
+        item.addEventListener('click', () => openSettings());
         host.appendChild(item);
     }
     drawer();
@@ -453,7 +485,10 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
     const offs = [];
     for (const name of ['head', 'committed']) offs.push(events.on(name, () => { if (!panel.hidden) tabHost?.refresh(); }));
     // A feature turned on or off: its screens, tabs, widgets and cards come and go; nothing else changes.
+    for (const name of ['head', 'committed', 'turn']) offs.push(events.on(name, () => overlay?.refreshSize?.()));
     offs.push(events.on('feature', () => {
+        // The overlay draws the switch and the fields of that feature again, and the prompt size.
+        overlay?.refresh?.();
         syncScreens();
         // A dialog open on a screen that is gone now closes: its controls belong to a part turned off.
         mounts.dialog?.closeWhere?.(screenId => !screens.resolve(screenId));
@@ -489,6 +524,7 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
         savePoints,
         inspector,
         destroy() {
+            overlay?.close?.();
             doc.removeEventListener?.('keydown', onKey);
             offs.splice(0).forEach(off => off?.());
             notes.destroy();
