@@ -683,6 +683,23 @@ function end(ctx, payload) {
     };
 }
 
+/**
+ * beforeGenerate (SPEC §4.1 step 3; beta.1 live test "fight doesn't go off after a turn"): a fight that
+ * is over (won, lost or fled) and not yet settled with Finish is settled before the next reply, as
+ * Finish would (the `combat.end` cue, a system step kept on the turn it ran for): the board and the
+ * tail's "being settled" line clear, the party gets its HP, XP, skill uses and loot, and this reply
+ * tells the fight. Only for a new reply (not a swipe, a Continue, a quiet or an impersonated one); a
+ * fight still under way stays the reader's to play. combat.end's claim settles it once.
+ */
+export function settleBeforeReply(view, info = {}) {
+    const type = String(info?.type ?? 'normal').toLowerCase();
+    if (type === 'swipe' || type === 'continue' || type === 'quiet' || type === 'impersonate') return { commands: [] };
+    let session = null;
+    try { session = sessionOf(view?.state?.domains?.combat); } catch { session = null; }
+    if (!session || session.status === 'active' || !STATUSES.includes(session.status)) return { commands: [] };
+    return { commands: [{ type: 'combat.end', payload: { session: session.id } }] };
+}
+
 /** combat.dismiss({ offer }): the reader turns an offered fight down. */
 function dismiss(ctx, payload) {
     const combat = ctx.read('combat');
@@ -893,7 +910,7 @@ export const part = {
         tail: view => tailLines(view?.state?.domains?.combat),
         budget: 150,
     },
-    hooks: {},
+    hooks: { beforeGenerate: settleBeforeReply },
     settings: {
         section: 'Combat',
         defaults: { ...COMBAT_DEFAULTS },

@@ -110,7 +110,7 @@ const template = `
             <li class="row skill" data-each="a.skills as k" data-class="aside: !k.active">
               <div class="main">
                 <span class="nm">{{ k.name }}</span>
-                <small class="sub">Lv {{ k.level }}<span data-if="k.cost != ''"> · {{ k.cost }}</span><span data-if="k.tier > 0"> · tier {{ k.tier }}</span></small>
+                <small class="sub">Lv {{ k.level }}<span data-if="k.progress != ''"> · {{ k.progress }}</span><span data-if="k.cost != ''"> · {{ k.cost }}</span><span data-if="k.tier > 0"> · tier {{ k.tier }}</span></small>
               </div>
               <div class="acts">
                 <button class="btn ghost" data-if="k.active" data-command="party.setSkillActive" data-payload='{"actor":"{{ a.id }}","name":"{{ k.name }}","active":false}'>Set aside</button>

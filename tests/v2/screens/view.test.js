@@ -69,7 +69,8 @@ test('cards: skills grouped by tier for the skill tree, those in use first, stor
     const [ren, lyra] = ask(cards, makeState());
     assert.deepEqual(ren.tree.tiers.map(tier => tier.title), ['Tier 1', 'Tier 2', 'Taught by the story']);
     assert.deepEqual(ren.tree.tiers[0].skills.map(skill => [skill.name, skill.active]), [['Power Strike', true], ['Quick Stab', true], ['Firebolt', false]]);
-    assert.deepEqual(ren.tree.tiers[0].skills[0], { id: 'Power Strike', name: 'Power Strike', icon: 'fa-hand-fist', level: 2, max: 5, active: true });
+    // The badge shows the level alone (beta.1: "1/5" read as uses); the uses are the list's progress.
+    assert.deepEqual(ren.tree.tiers[0].skills[0], { id: 'Power Strike', name: 'Power Strike', icon: 'fa-hand-fist', level: 2, active: true });
     assert.equal(ren.tree.tiers[2].skills[0].name, 'Shadow Cut');
     assert.equal(ren.activeCount, 4);
     assert.equal(ren.activeCap, 6);
