@@ -33,6 +33,8 @@ export const part = {
         label: 'Crafting',
         describe: 'Characters and companions learn recipes and craft from the story; code rolls the result with the reply\'s dice and decides the quality.',
         default: true,
+        // Its two kinds' grammar is in the fixed prompt part: turning it on or off changes that part once.
+        prompt: true,
     }],
     domains: {
         craft: { initial: initialCraft, validate: slice => validateCraft(slice) },

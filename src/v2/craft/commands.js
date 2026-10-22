@@ -371,7 +371,7 @@ export function make(ctx, request = {}) {
     };
     prune(craft.made, MAX_MADE, id);
 
-    const clock = advanceClock(ctx, minutes, `${actor.name} crafts ${recipe.name}`);
+    const clock = advanceClock(ctx, minutes, `rpg-battle.craft.${id}`, `${actor.name} crafts ${recipe.name}`);
     const madeText = item ? ` Made ${plural(qty, item.name)}.` : '';
     const lostText = lost.length ? ` ${quality === 'fail' ? 'Lost' : 'Used'} ${lost.map(part => plural(part.qty, part.name)).join(', ')}.` : '';
     const flag = mismatch ? ` The story ${mismatch.replace(/^narrated/, 'narrated it')}.` : '';

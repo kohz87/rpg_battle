@@ -77,7 +77,10 @@ export const DIRECTOR = {
     domains: { director: { initial: () => ({ time: { minutes: 600 } }), validate: () => [] } },
     queries: { 'director.time': state => ({ minutes: state?.domains?.director?.time?.minutes ?? null }) },
     commands: {
+        // As Story Director's (time/advance.js): `cause` a short label, `reason` the words; refused otherwise.
         'director.advance'(ctx, payload = {}) {
+            if (!/^[a-z0-9][a-z0-9._-]{0,39}$/.test(String(payload.cause ?? ''))) ctx.fail('INVALID', 'director.advance: "cause" must be a short label.');
+            if (!Number.isInteger(payload.minutes) || payload.minutes < 1 || payload.minutes > 1440) ctx.fail('INVALID', 'director.advance: minutes 1–1440.');
             const director = ctx.draft('director');
             director.time.minutes += payload.minutes;
             return { summary: `${payload.minutes} minutes pass.`, data: { minutes: payload.minutes }, narrate: false };

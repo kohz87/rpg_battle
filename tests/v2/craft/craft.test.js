@@ -350,7 +350,12 @@ test('the clock moves on by the recipe\'s minutes through Story Director\'s comm
         assert.equal(host.q('director.time').minutes, 600);
         await replyWhen(host, 'I forge.', die => die > 1, () => ['! craft Iron Sword | roll: 1']);
         assert.equal(host.q('director.time').minutes, 720, 'two hours at the anvil');
-        assert.equal(lastCraft(host).minutes, 120);
+        // Two crafts in one reply each take their time (a cause per craft: Story Director moves once per cause a reply).
+        await host.send('More ore.', host.reply('Ore.', ['+ item Iron Ore | qty: 3', '+ item Ember Salt']));
+        await host.send('Fish.', host.reply('Fish.', ['+ item River Fish | qty: 2']));
+        await replyWhen(host, 'I forge and cook.', die => die > 1, () => ['! craft Iron Sword | roll: 1', '! craft Grilled Fish | roll: 2']);
+        assert.equal(host.q('director.time').minutes, 720 + 120 + 30);
+        assert.equal(host.q('craft.log').find(entry => entry.recipeName === 'Iron Sword').minutes, 120);
     } finally { host.close(); }
     const plain = await withSword(t);
     try {

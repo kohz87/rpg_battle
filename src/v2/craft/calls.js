@@ -8,7 +8,7 @@
 // * The dice are the checks part's (MODULES §F80), read through its queries, never imported:
 //   `checks.rolls({ for })` (the rolls handed over for the reply) and `checks.log` (the checks the
 //   reply already wrote, which took their rolls by place).
-// * The clock moves by Story Director's `director.advance { minutes, cause }` (system, code-only) when
+// * The clock moves by Story Director's `director.advance { minutes, cause, reason }` (system, code-only) when
 //   it is there and the story time is set; without it crafting takes no story time, and the receipt says so.
 // * The money scale is Story Block's `inventory.economy` → { scale } (F104), 1 when it is not there.
 // * The resale cap is the trade part's `trade.paid` (B-b3-14): what one of a def sells for at most,
@@ -48,13 +48,15 @@ export function grant(ctx, def, qty, note = '') {
  * (ctx.time is a number): an unknown command throws UNKNOWN_COMMAND before anything runs, so it is
  * caught and the clock is left to the story. → true when the clock was moved.
  */
-export function advanceClock(ctx, minutes, cause) {
+export function advanceClock(ctx, minutes, cause, reason = '') {
     if (!(minutes > 0)) return false;
     let now = null;
     try { now = ctx.time?.() ?? null; } catch { now = null; }
     if (!Number.isInteger(now)) return false;
     try {
-        ctx.call(CLOCK_COMMAND, { minutes, cause });
+        // `cause` is Story Director's short label (letters, digits, . _ -, at most 40): one per craft, so
+        // two crafts in one reply both take their time; `reason` the plain words its receipt tells.
+        ctx.call(CLOCK_COMMAND, { minutes: Math.min(Math.round(minutes), 1440), cause, reason: String(reason ?? '').slice(0, 120) });
         return true;
     } catch (error) {
         if (error?.code === 'UNKNOWN_COMMAND' || error?.code === 'FEATURE_OFF') return false;
