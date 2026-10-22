@@ -12,14 +12,14 @@ test('the merged module is a valid Story Block module with every part\'s pieces'
     assert.equal(module.id, MODULE_ID);
     assert.equal(module.version, VERSION);
     assert.deepEqual(PARTS.map(([id]) => id), ['party', 'creation', 'checks', 'items', 'combat', 'board', 'return', 'trade', 'screens']);
-    assert.deepEqual(Object.keys(module.domains).sort(), ['bestiary', 'checks', 'combat', 'creation', 'party', 'trade']);
+    assert.deepEqual(Object.keys(module.domains).sort(), ['bestiary', 'checks', 'combat', 'creation', 'effects', 'party', 'trade']);
     for (const [, part] of PARTS) {
         for (const type of Object.keys(part.commands ?? {})) assert.equal(typeof module.commands[type], 'function', type);
         for (const name of Object.keys(part.queries ?? {})) assert.equal(typeof module.queries[name], 'function', name);
         for (const name of Object.keys(part.widgets ?? {})) assert.ok(module.widgets[name], name);
         for (const screen of part.screens ?? []) assert.ok(module.screens.includes(screen), screen.id);
     }
-    assert.deepEqual(Object.keys(module.capture.kinds).sort(), ['check', 'encounter', 'join', 'leave', 'market', 'rest', 'skill', 'use', 'wound']);
+    assert.deepEqual(Object.keys(module.capture.kinds).sort(), ['check', 'effect', 'encounter', 'join', 'leave', 'market', 'rest', 'skill', 'use', 'wound']);
     assert.deepEqual(Object.keys(module.widgets).sort(), ['rpg-battle.battle-board', 'rpg-battle.preset-pick', 'rpg-battle.return-card']);
     assert.deepEqual(module.screens.map(screen => screen.id), ['rpg-battle/create', 'rpg-battle/fight', 'rpg-battle/party', 'rpg-battle/items', 'rpg-battle/trade', 'rpg-battle/hud', 'rpg-battle/status-card']);
     assert.equal(typeof module.queries[REV_QUERY], 'function');

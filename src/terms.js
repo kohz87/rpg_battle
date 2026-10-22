@@ -323,3 +323,168 @@ export function withTerms(settings, query) {
     if (!pack) return settings;
     return { ...settings, terms: mergeTerms(settings?.terms, pack) };
 }
+
+// ---------------------------------------------------------------------------------------
+// The rank ladder (Story Suite v2, MODULES §F86, §F91)
+//
+// There is one ladder in the suite and it is these terms: a rank is a band of levels,
+// `{ id, title, levels: [lo, hi] }`, lowest first. Where it comes from, first that has any:
+// 1. the reader's own named list (`terms.ranks`, the same fields a pack's ranks have);
+// 2. the first enabled pack's `ranks` content (Story Block's `packs.content({ kind: 'ranks' })`),
+//    a named list whose bands may be uneven and may overlap;
+// 3. uniform tiers (`terms.tiers`: size and numerals), one rank per tier ("Soul Class II",
+//    levels 11–20);
+// 4. the built-in F to S ladder (Story Director's DEFAULT_RANKS bands, the last one reaching the
+//    level cap).
+// A rank with no levels of its own takes the built-in band at its place, past those the band
+// after the one before it, as wide. Each rank has a `reward` range too (in the chat's currency):
+// a pack's as written (by place where it gives none, as Story Director reads a pack's); every
+// other ladder's by place (rankReward, Story Director's rewardByPlace) times the pack's money
+// scale (`inventory.economy`'s `scale`, F104), whole units, at least 1. Bands are held to the level cap; a rank that would start
+// above it is left out (the lowest rank always stays). Story Director reads this as
+// `party.ranks` (rewards are its own); RPG Battle reads it for a foe line's `rank: D`.
+
+export const DEFAULT_RANK_BANDS = Object.freeze([
+    ['F', [1, 5]], ['E', [6, 12]], ['D', [13, 20]], ['C', [21, 30]], ['B', [31, 40]], ['A', [41, 50]], ['S', [51, 60]],
+].map(([id, levels]) => Object.freeze({ id, levels: Object.freeze(levels) })));
+
+// The most ranks a ladder holds (a tiered world with tiers of 1 level stops here).
+export const MAX_RANKS = 40;
+const RANK_ID = /^[A-Za-z0-9+-]{1,8}$/;
+
+const isPair = value => Array.isArray(value) && value.length === 2 && value.every(n => Number.isInteger(n) && n >= 1 && n <= MAX_CAP) && value[0] <= value[1];
+const isRange = value => Array.isArray(value) && value.length === 2 && value.every(n => Number.isSafeInteger(n) && n >= 0) && value[0] <= value[1];
+
+// Rewards by place (Story Director's rewardByPlace): the first rank about 10 to 50, each rank after it
+// about four and a half times the one before, two significant digits.
+const FIRST_REWARD = Object.freeze([10, 50]);
+const REWARD_STEP = 4.5;
+const roughly = value => {
+    if (value < 100) return Math.round(value / 5) * 5;
+    const scale = 10 ** (Math.floor(Math.log10(value)) - 1);
+    return Math.round(value / scale) * scale;
+};
+
+/** The built-in reward range `[lo, hi]` of the rank at `index` (0 = the lowest), times `scale` (whole, at least 1). */
+export function rankReward(index, scale = 1) {
+    let range = [...FIRST_REWARD];
+    for (let n = 1; n <= Math.min(Math.max(0, Math.floor(index)), MAX_RANKS); n += 1) range = [range[1], roughly(FIRST_REWARD[1] * REWARD_STEP ** n)];
+    const k = typeof scale === 'number' && Number.isFinite(scale) && scale > 0 ? scale : 1;
+    return k === 1 ? range : range.map(n => Math.max(1, Math.round(n * k)));
+}
+
+/** A list of rank records (`{ id, title?, levels? }`) cleaned: good ids only, once each (ignoring case), in order. */
+function cleanRanks(list) {
+    const out = [];
+    for (const record of Array.isArray(list) ? list : []) {
+        if (!isRecord(record) || out.length >= MAX_RANKS) continue;
+        const id = String(record.id ?? '').trim();
+        if (!RANK_ID.test(id) || out.some(rank => rank.id.toLowerCase() === id.toLowerCase())) continue;
+        const title = cleanTerm(record.title ?? '', '');
+        out.push({ id, title, levels: isPair(record.levels) ? [...record.levels] : null, reward: isRange(record.reward) ? [...record.reward] : null });
+    }
+    return out;
+}
+
+/** Bands filled in (the built-in band at a place, else the next band as wide as the last) and held to the cap. */
+function settle(list, cap, { extendLast = false, scale = 1, ownRewards = false } = {}) {
+    const out = [];
+    for (const [index, rank] of list.entries()) {
+        let levels = rank.levels;
+        if (!levels) {
+            const before = out.at(-1)?.levels;
+            levels = DEFAULT_RANK_BANDS[index] ? [...DEFAULT_RANK_BANDS[index].levels]
+                : before ? [before[1] + 1, before[1] + 1 + (before[1] - before[0])] : [1, 1];
+        }
+        if (levels[0] > cap && out.length) break;
+        const reward = ownRewards && rank.reward ? [...rank.reward] : rankReward(out.length, ownRewards ? 1 : scale);
+        out.push({ id: rank.id, title: rank.title || rank.id, levels: [Math.min(levels[0], cap), Math.min(levels[1], cap)], reward });
+    }
+    if (extendLast && out.length) out.at(-1).levels[1] = Math.max(out.at(-1).levels[1], cap);
+    return out;
+}
+
+/**
+ * The ladder in use: `[{ id, title, levels: [lo, hi], reward: [lo, hi] }]`, lowest first (see
+ * above). `pack` is the pack's ranks (packRanks), when there are any; `scale` the money scale.
+ */
+export function rankLadder(rules = DEFAULT_RULES, { pack = null, scale = 1 } = {}) {
+    const terms = termsOf(rules);
+    const own = cleanRanks(rules?.terms?.ranks);
+    if (own.length) return settle(own, terms.cap, { scale });
+    const packed = cleanRanks(pack);
+    if (packed.length) return settle(packed, terms.cap, { ownRewards: true });
+    if (terms.tiers) {
+        const out = [];
+        for (let tier = 1; (tier - 1) * terms.tiers.size + 1 <= terms.cap && out.length < MAX_RANKS; tier++) {
+            const lo = (tier - 1) * terms.tiers.size + 1;
+            const id = numeral(tier, terms.tiers.numerals);
+            out.push({ id, title: `${terms.levelName} ${id}`, levels: [lo, Math.min(terms.cap, lo + terms.tiers.size - 1)], reward: rankReward(out.length, scale) });
+        }
+        return out;
+    }
+    return settle(DEFAULT_RANK_BANDS.map(rank => ({ id: rank.id, title: `${rank.id}-rank`, levels: [...rank.levels], reward: null })), terms.cap, { extendLast: true, scale });
+}
+
+/** The pack's money scale (F104): `inventory.economy` → `{ scale }`, a positive number; 1 without it. */
+export function moneyScale(query) {
+    if (typeof query !== 'function') return 1;
+    let scale;
+    try {
+        scale = query('inventory.economy', {})?.scale;
+    } catch {
+        return 1;
+    }
+    return typeof scale === 'number' && Number.isFinite(scale) && scale > 0 ? scale : 1;
+}
+
+/**
+ * The ranks the first enabled pack suggests, or null: `packs.content({ kind: 'ranks' })` lists
+ * every pack's ladder one after another, each record with its `pack`; one pack's ranks are taken
+ * (the first that has any). Read defensively, like packTerms.
+ */
+export function packRanks(query) {
+    if (typeof query !== 'function') return null;
+    let list;
+    try {
+        list = query('packs.content', { kind: 'ranks' });
+    } catch {
+        return null;
+    }
+    if (!Array.isArray(list)) return null;
+    const first = list.find(isRecord);
+    if (!first) return null;
+    const ranks = list.filter(record => isRecord(record) && record.pack === first.pack);
+    return cleanRanks(ranks).length ? ranks : null;
+}
+
+// "D", "d-rank", "Rank D", "D rank", "Soul Class II" read alike: lower case, the word "rank" set aside.
+const rankWords = value => String(value ?? '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}+]+/gu, ' ').split(' ').filter(word => word && word !== 'rank');
+
+/**
+ * The rank a written value names on `ladder`, or null: its id or title (case and the word "rank"
+ * ignored), else a value that is the end of one title ("II" for "Soul Class II"). Exact first.
+ */
+export function rankNamed(value, ladder) {
+    const want = rankWords(String(value ?? '').slice(0, 60)).join(' ');
+    if (!want || !Array.isArray(ladder)) return null;
+    const exact = ladder.find(rank => rankWords(rank.id).join(' ') === want || rankWords(rank.title).join(' ') === want);
+    if (exact) return exact;
+    const tail = want.split(' ');
+    const ends = ladder.filter(rank => {
+        const title = rankWords(rank.title);
+        return tail.length < title.length && tail.every((word, i) => title[title.length - tail.length + i] === word);
+    });
+    return ends.length === 1 ? ends[0] : null;
+}
+
+/** The rank whose band holds `level` (the lowest such), else the highest band below it, else the lowest rank. */
+export function rankAt(level, ladder) {
+    if (!Array.isArray(ladder) || !ladder.length) return null;
+    const lv = Math.max(1, Math.round(num(level) ?? 1));
+    const holding = ladder.find(rank => lv >= rank.levels[0] && lv <= rank.levels[1]);
+    if (holding) return holding;
+    let best = ladder[0];
+    for (const rank of ladder) if (rank.levels[1] < lv) best = rank;
+    return best;
+}

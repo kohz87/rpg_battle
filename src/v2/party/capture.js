@@ -15,6 +15,7 @@ import { parseLevelLabel, maxLevel } from '../../terms.js';
 import { fromSheet, rulesFrom, settingsOf, toSheet } from './sheets.js';
 import { COMPANION_LEVELS_ABOVE, addOffer, fightOn, handlers } from './commands.js';
 import { clipped } from '../lines.js';
+import { presetFor } from './formula.js';
 import { MAX_LABEL, cleanName, cleanRole, fail, labelsOf, nameKey, replyOf, resolveName, waitingOffers } from './util.js';
 
 // The static grammar each kind adds to the change-line instruction (SPEC §5): fixed words only,
@@ -110,7 +111,9 @@ function applyJoin(ctx, line) {
     const focus = cleanFocus(labels.focus ? list(labels.focus).map(stat => stat.toUpperCase()) : guessFocus(role, text));
     const skills = labels.skills ? list(labels.skills).slice(0, rules.character.starterSkills) : [];
     const npc = labels.npc ? String(labels.npc).slice(0, 80) : null;
-    const offer = addOffer(ctx, party, { kind: 'join', name, role, level, focus, skills, npc, text });
+    // A preset's name (F91: its points are the weights the formula spreads); only a known one is kept.
+    const preset = presetFor({ preset: labels.preset ?? null })?.id ?? null;
+    const offer = addOffer(ctx, party, { kind: 'join', name, role, level, focus, skills, npc, text, ...(preset ? { preset } : {}) });
     return { summary: `${name} offers to join the party.`, data: { offer: offer.id, name }, narrate: false };
 }
 

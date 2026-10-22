@@ -112,6 +112,17 @@ export function originIds(origin) {
 }
 
 /**
+ * A file's version as a refusal may show it (B-rxui-5): a string or a number, flattened to one line
+ * and cut to VERSION_SHOWN code points ("version 3"), anything else "an unknown version".
+ */
+export const VERSION_SHOWN = 24;
+export function versionText(value) {
+    if (typeof value !== 'string' && !(typeof value === 'number' && Number.isFinite(value))) return 'an unknown version';
+    const flat = Array.from(String(value).slice(0, VERSION_SHOWN * 8).replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim()).slice(0, VERSION_SHOWN).join('').trim();
+    return flat ? `version ${flat}` : 'an unknown version';
+}
+
+/**
  * A character file checked by this chat's `rules` → { ok: true, character } with
  * character = { name, role, background, origin, sheet (a v1 Sheet, rested, no conditions),
  * custom: [skill defs to keep in party.custom], items: [{ def, qty, equipped }], purse }, or
@@ -128,7 +139,7 @@ export function originIds(origin) {
  */
 export function readCharacter(file, { rules, bonus = 0, penalty = {}, name: nameOverride = null, worth = null } = {}) {
     if (!isRecord(file) || file.rpgBattleCharacter === undefined) return refuse('INVALID', 'That is not an RPG Battle character file.');
-    if (file.rpgBattleCharacter !== CHARACTER_FILE_VERSION) return refuse('INVALID', `That character file is version ${file.rpgBattleCharacter}; this RPG Battle reads version ${CHARACTER_FILE_VERSION}.`);
+    if (file.rpgBattleCharacter !== CHARACTER_FILE_VERSION) return refuse('INVALID', `That character file is ${versionText(file.rpgBattleCharacter)}; this RPG Battle reads version ${CHARACTER_FILE_VERSION}.`);
     const name = cleanName(nameOverride ?? file.name);
     if (!name) return refuse('INVALID', 'The character file has no name.');
     const r = rules;

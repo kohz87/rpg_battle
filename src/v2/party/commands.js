@@ -12,9 +12,10 @@ import { applyResult as applyResultV1, forgetSkill as forgetV1, learnSkill as le
 import { newCompanion } from '../../party.js';
 import { QUEST_DIFFICULTIES, awardShare, gainXp, settleCompanions, spendByBuild, xpAward } from '../../growth.js';
 import { rest as restV1, useItemOutside } from '../../recovery.js';
-import { buildStats, cleanFocus, guessFocus, lockedReason, suggestSkills } from '../../builds.js';
+import { cleanFocus, guessFocus, lockedReason, suggestSkills } from '../../builds.js';
+import { COMPANION_LEVELS_ABOVE, companionStats, companionWeights, joinLevel } from './formula.js';
 import { levelText, maxLevel, xpGainText, xpLabel } from '../../terms.js';
-import { fromSheet, gearOf, growthOf, libraryOf, maxCompanionsOf, rulesFrom, settingsOf, toSheet } from './sheets.js';
+import { fromSheet, growthOf, wornGear, libraryOf, maxCompanionsOf, rulesFrom, settingsOf, toSheet } from './sheets.js';
 import { exportCharacter, originIds, readCharacter } from './portable.js';
 import { defineItem } from '../items/define.js';
 import { OUTCOMES, dcOf, outcomeOf, statForCheck } from './checks.js';
@@ -208,14 +209,15 @@ function create(ctx, payload = {}) {
 }
 
 /**
- * party.addCompanion { name, role?, level?, focus?: [stats], skills?: [names], control?:
- * 'auto' | 'player', growth?: 'auto' | 'manual', npc?, portrait? }: a companion built by v1
- * newCompanion at the level given (else your character's), their stats spread over the focus
- * (else the role's words), and the skills given or, without any, the ones v1 suggestSkills picks
- * for that build. Fights on auto and points spent by build unless told otherwise (MODULES §F29,
- * §F49); refused when the party already has as many companions as the setting allows (§F48). The
- * level is held to at most COMPANION_LEVELS_ABOVE above your character's. Internal (an accepted
- * join offer, another part): refused from a click.
+ * party.addCompanion { name, role?, level?, preset?, focus?: [stats], skills?: [names], control?:
+ * 'auto' | 'player', growth?: 'auto' | 'manual', npc?, portrait? }: a companion by formula
+ * (MODULES §F91, formula.js): the level given, held to at most COMPANION_LEVELS_ABOVE above your
+ * character's, else within one level of your character; the stats `base + perLevel × level`
+ * points spread by the preset's or the role's (focus) weights; the skills given or, without any,
+ * the ones v1 suggestSkills picks for those stats. Fights on auto and points spent by build
+ * unless told otherwise (MODULES §F29, §F49); refused when the party already has as many
+ * companions as the setting allows (§F48). Internal (an accepted join offer, another part):
+ * refused from a click.
  */
 function addCompanion(ctx, payload = {}) {
     internalOnly(ctx, 'A companion joins from the story (an accepted join offer), not from a button.');
@@ -238,25 +240,37 @@ function joinParty(ctx, payload = {}) {
     const pc = party.pc ? party.actors[party.pc] : null;
     const asked = Number(payload.level);
     if (payload.level !== undefined && payload.level !== null && !(Number.isInteger(asked) && asked >= 1)) fail(ctx, 'INVALID', 'The level must be a whole number from 1.');
-    // Never more than two levels above your character (B-b3-16): the level a story line or a caller
-    // asks for is held there, whatever it says.
-    const top = Math.min(maxLevel(rules), Math.max(1, pc?.level ?? 1) + COMPANION_LEVELS_ABOVE);
-    const level = Math.max(1, Math.min(top, payload.level ? asked : Math.max(1, pc?.level ?? 1)));
+    // MODULES §F91 (formula.js): the level given is held to at most two above your character's
+    // (B-b3-16); without one, within one level of your character, by the receipt's dice.
+    const level = joinLevel({ asked: payload.level ? asked : null, pcLevel: pc?.level ?? 1, rules, rng: () => ctx.rng() });
     const focus = cleanFocus(payload.focus?.length ? payload.focus : guessFocus(role, payload.text ?? ''));
+    // The stats by formula: base + per level points spread by the preset's or the role's weights.
+    const stats = companionStats({ level, weights: companionWeights({ preset: payload.preset ?? null, role, focus }), rules, settings: settingsFor(ctx) });
     const library = libraryOf(party);
-    const skills = Array.isArray(payload.skills) && payload.skills.length
+    const wanted = Array.isArray(payload.skills) && payload.skills.length
         ? payload.skills.map(skill => findSkill(library, skill)?.name ?? String(skill ?? '').trim()).filter(Boolean)
-        : suggestSkills(buildStats(focus, level, rules), focus, DEFAULT_SKILLS, { role, count: rules.character.starterSkills });
-    const member = attempt(ctx, () => newCompanion({ name, role, control: payload.control === 'player' ? 'command' : 'auto', level, focus, skills }, { rules, existing: [], library }));
+        : suggestSkills(stats, focus, DEFAULT_SKILLS, { role, count: rules.character.starterSkills });
+    const skills = [...new Set(wanted)];
+    if (skills.length > rules.character.starterSkills) fail(ctx, 'REFUSED', `A new companion starts with ${rules.character.starterSkills} skills at most.`);
+    for (const skillName of skills) {
+        const found = findSkill(library, skillName);
+        if (!found) fail(ctx, 'REFUSED', `"${skillName}" is not in the skill library.`);
+        const why = lockedReason(stats, found);
+        if (why) fail(ctx, 'REFUSED', `${name} cannot take ${found.name}: it ${why}.`);
+    }
+    const member = attempt(ctx, () => newCompanion({ name, role, control: payload.control === 'player' ? 'command' : 'auto', level, focus, skills: [] }, { rules, existing: [], library }));
+    // The formula's stats with full HP, MP and SP for them, then the skills (v1 learnSkill).
+    let sheet = { ...member.sheet, level, stats: { ...stats } };
+    for (const [pool, fn] of [['hp', maxHp], ['mp', maxMp], ['sp', maxSp]]) { const max = fn(stats, level, rules); sheet[pool] = { cur: max, max }; }
+    sheet = attempt(ctx, () => newSheetSkills(sheet, skills, rules));
     const id = newId(ctx, 'ac', candidate => Boolean(party.actors[candidate]));
     const npc = payload.npc ? String(payload.npc).trim().slice(0, 80) || null : null;
-    writeSheet(party, { id, kind: 'companion', control: payload.control === 'player' ? 'player' : 'auto', growth: payload.growth === 'manual' ? 'manual' : 'auto', role: member.role, npc, portrait: portraitOf(ctx, payload.portrait) }, member.sheet, rules);
+    writeSheet(party, { id, kind: 'companion', control: payload.control === 'player' ? 'player' : 'auto', growth: payload.growth === 'manual' ? 'manual' : 'auto', role: member.role, npc, portrait: portraitOf(ctx, payload.portrait) }, sheet, rules);
     party.order.push(id);
     return { summary: `${name} joins the party (${levelText(level, rules)}, ${member.role}).`, data: { actor: id, level }, narrate: true };
 }
 
-// How far above your character's level a companion may join.
-export const COMPANION_LEVELS_ABOVE = 2;
+export { COMPANION_LEVELS_ABOVE };
 
 /**
  * party.edit { actor, name?, role?, control?, growth?, npc?, portrait? }: v1 editCompanion's rules
@@ -440,7 +454,7 @@ function rest(ctx, payload = {}) {
     for (const id of ids) {
         const actor = party.actors[id];
         const sheet = toSheet(actor);
-        const next = restV1(sheet, kind, { gear: gearOf(inventory, id, { pc: party.pc }), rules });
+        const next = restV1(sheet, kind, { gear: wornGear((name, args) => ctx.query(name, args), inventory, id, { pc: party.pc }), rules });
         const after = writeSheet(party, actor, next, rules);
         const gain = gains(actor, after);
         data[id] = gain;
@@ -818,7 +832,7 @@ function acceptOffer(ctx, payload = {}) {
     if (offer.kind === 'leave') return removeCompanion(ctx, { actor: offer.actor });
     if (offer.kind === 'join') {
         return joinParty(ctx, {
-            name: offer.name, role: offer.role, level: offer.level ?? undefined, npc: offer.npc, text: offer.text,
+            name: offer.name, role: offer.role, level: offer.level ?? undefined, npc: offer.npc, text: offer.text, preset: offer.preset ?? null,
             focus: payload.focus ?? offer.focus, skills: payload.skills ?? offer.skills, control: payload.control,
         });
     }

@@ -4,9 +4,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { byName, capture, makeState, pcOf, run, withPc } from './helpers/fake-ctx.js';
-import { DEFAULT_RULES, makeRules } from '../../../src/rules.js';
+import { DEFAULT_RULES, makeRules, maxHp } from '../../../src/rules.js';
+import { companionStats, companionWeights } from '../../../src/v2/party/formula.js';
 import { applyResult, learnSkill, newSheet, spendPoints } from '../../../src/sheet.js';
-import { newCompanion } from '../../../src/party.js';
 import { guessFocus } from '../../../src/builds.js';
 import { awardParty, awardShare, gainXp, settleCompanions } from '../../../src/growth.js';
 import { rest } from '../../../src/recovery.js';
@@ -112,16 +112,18 @@ test('a fight result: same as v1 applyResult then settleCompanions', () => {
     assert.deepEqual(pcOf(out.state).conditions, [{ kind: 'bleeding', stacks: 1 }]);
 });
 
-test('a companion: same as v1 newCompanion', () => {
+test('a companion: v1 newCompanion\'s skills, pools by v1 rules, stats by the F91 formula', () => {
     for (const [name, role, level, focus, skills] of [['Lyra', 'healer', 6, ['INT', 'VIT', 'CHA'], ['Mend', 'Ward']], ['Bram', 'tank', 1, [], ['Shield Bash']], ['Ilse', 'mage', 12, ['INT'], ['Firebolt', 'Fireball']]]) {
-        // Your character at the companion's level: a companion joins two levels above yours at most.
         const state = withPc();
         state.domains.party.actors[state.domains.party.pc].level = level;
         const out = run(state, 'party.addCompanion', { name, role, level, focus, skills });
         assert.ok(out.ok, out.message);
-        // An empty focus is read from the role's words (v1's Joins form prefilled it so).
-        const v1 = newCompanion({ name, role, level, focus: focus.length ? focus : guessFocus(role), skills }, { rules: DEFAULT_RULES, existing: [], library: null });
-        assert.deepEqual(numbers(toSheet(byName(out.state, name))), numbers(v1.sheet));
+        const made = byName(out.state, name);
+        const stats = companionStats({ level, weights: companionWeights({ role, focus: focus.length ? focus : guessFocus(role) }), rules: DEFAULT_RULES });
+        assert.deepEqual(made.stats, stats);
+        assert.equal(Object.values(made.stats).reduce((a, b) => a + b, 0), 55 + 5 * level);
+        assert.deepEqual(made.hp, { cur: maxHp(stats, level, DEFAULT_RULES), max: maxHp(stats, level, DEFAULT_RULES) });
+        assert.deepEqual(made.skills.map(skill => skill.name), skills);
     }
 });
 

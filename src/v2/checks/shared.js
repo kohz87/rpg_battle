@@ -33,7 +33,7 @@ export const slack = most => most * 4;
 /** Up to 2 checks per reply (MODULES §F32); a reply gets as many rolls. */
 export const MAX_PER_REPLY = 2;
 export const ROLLS_PER_REPLY = MAX_PER_REPLY;
-export const SOURCES = Object.freeze(['stat', 'skill', 'talent', 'item', 'ability', 'custom']);
+export const SOURCES = Object.freeze(['stat', 'skill', 'talent', 'item', 'ability', 'custom', 'effect']);
 export const OUTCOME_KEYS = Object.freeze(Object.keys(OUTCOMES));
 
 const CHECK_ID = /^ck_[0-9a-z]{8}$/;

@@ -21,6 +21,10 @@
 //      counts for a check (the first by name).
 //    Together these add at most **+3** (EXTRA_CAP); the stat is on top of that. One source counts
 //    once, even when it falls under two of the check's topics.
+// 4. **Effects** (feature `rpg-battle.effects`, party/effects.js): a timed buff or debuff on the
+//    member (or on everyone) whose `on` is `all`, the check's stat, or one of its topics adds its
+//    amount (code's: ±1 to ±3 by its word band), each effect once; all of them together move a
+//    check by at most ±3 (EFFECT_CAP), on top of the stat and the extras.
 
 import { DEFAULT_RULES, STATS, checkModifier } from '../../rules.js';
 import { statForCheck } from '../party/checks.js';
@@ -67,6 +71,7 @@ export const ITEM_TOPICS = Object.freeze([
 
 export const AMOUNTS = Object.freeze({ skill: 2, talent: 1, item: 1 });
 export const EXTRA_CAP = 3;
+export const EFFECT_CAP = 3;
 const ITEM_KINDS_LEFT_OUT = ['money', 'consumable', 'quest'];
 
 const lower = value => ` ${String(value ?? '').normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim()} `;
@@ -154,7 +159,29 @@ export function modifiersFor(member, skill, stat = null, rules = DEFAULT_RULES) 
         left -= amount;
         out.push({ source: extra.source, amount, reason: extra.name });
     }
+    // Effects: each that matches once, all together within ±EFFECT_CAP.
+    let up = EFFECT_CAP;
+    let down = EFFECT_CAP;
+    for (const effect of member?.effects ?? []) {
+        const amount = effectAmount(effect, used, wanted);
+        if (!amount) continue;
+        const kept = amount > 0 ? Math.min(amount, up) : -Math.min(-amount, down);
+        if (!kept) continue;
+        if (kept > 0) up -= kept;
+        else down += kept;
+        out.push({ source: 'effect', amount: kept, reason: String(effect.name).slice(0, 60) });
+    }
     return out;
+}
+
+/** What one effect adds to a check answered by `stat` with topics `wanted` (its largest matching entry, by size). */
+function effectAmount(effect, stat, wanted) {
+    let best = 0;
+    for (const entry of Array.isArray(effect?.checks) ? effect.checks : []) {
+        if (!(entry.on === 'all' || entry.on === stat || wanted.has(entry.on))) continue;
+        if (Math.abs(entry.amount) > Math.abs(best)) best = entry.amount;
+    }
+    return Number.isInteger(best) ? best : 0;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -191,9 +218,16 @@ export function itemsOf(query, actor, defs = {}) {
         .map(row => ({ name: row.name, kind: row.kind, tags: defs?.[row.def]?.tags ?? [] }));
 }
 
-/** A member as the rule reads them: { actor, extras }. `defs`: the inventory's defs (for item tags). */
+/** The effects on a member now ([{ name, checks }]; party.effects, [] while the feature is off). */
+export function effectsOf(query, actor) {
+    const list = actor?.id ? ask(query, 'party.effects', { actor: actor.id }) : null;
+    return (Array.isArray(list) ? list : []).filter(effect => effect?.name && Array.isArray(effect.checks) && effect.checks.length)
+        .map(effect => ({ name: String(effect.name), checks: effect.checks.map(entry => ({ on: entry.on, amount: entry.amount })) }));
+}
+
+/** A member as the rule reads them: { actor, extras, effects }. `defs`: the inventory's defs (for item tags). */
 export function memberOf(query, actor, defs = {}) {
-    return { actor, extras: extrasOf({ actor, talents: talentsOf(query, actor), items: itemsOf(query, actor, defs) }) };
+    return { actor, extras: extrasOf({ actor, talents: talentsOf(query, actor), items: itemsOf(query, actor, defs) }), effects: effectsOf(query, actor) };
 }
 
 /** The rules checks read: v1's, with a rules file's `checks` numbers (settings `rules.checks`) over them. */
@@ -212,5 +246,7 @@ export function tableLine(member, { you = false, rules = DEFAULT_RULES } = {}) {
     const stats = statModifiers(member.actor, rules);
     const head = `${member.actor?.name ?? 'Someone'}${you ? ' (you)' : ''}: ${STATS.map(stat => `${stat} ${signed(stats[stat])}`).join(', ')}`;
     const extras = member.extras.map(extra => `${signed(extra.amount)} ${extra.topics.join('/')} (${extra.name})`);
-    return `${head}${extras.length ? `; ${extras.join(', ')}` : ''}.`;
+    const effects = (member.effects ?? []).flatMap(effect => effect.checks.map(entry => `${signed(entry.amount)} ${entry.on === 'all' ? 'all checks' : STATS.includes(entry.on) ? `${entry.on} checks` : entry.on} (${effect.name})`));
+    const more = [...extras, ...effects];
+    return `${head}${more.length ? `; ${more.join(', ')}` : ''}.`;
 }

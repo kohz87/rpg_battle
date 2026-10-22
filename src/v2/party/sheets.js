@@ -25,6 +25,9 @@ export const SETTINGS_DEFAULTS = Object.freeze({
     autoSpend: true,
     // MODULES §F48: you and this many companions at most.
     maxCompanions: 3,
+    // MODULES §F91: a new companion of level L has companionBase + companionPerLevel × L stat points.
+    companionBase: 55,
+    companionPerLevel: 5,
 });
 
 export const SETTINGS_SCHEMA = Object.freeze({
@@ -36,6 +39,8 @@ export const SETTINGS_SCHEMA = Object.freeze({
     activeSkills: { type: 'int', min: 3, max: 12, label: 'Skills each member fights with' },
     autoSpend: { type: 'bool', label: 'Companions on auto spend their points by build' },
     maxCompanions: { type: 'int', min: 0, max: 12, label: 'Companions beside you at most' },
+    companionBase: { type: 'int', min: 0, max: 500, label: 'A new companion\'s stat points (base)' },
+    companionPerLevel: { type: 'int', min: 0, max: 50, label: 'A new companion\'s stat points per level' },
 });
 
 const COMBAT_CONDITIONS = ['poison', 'burn', 'bleed', 'stun', 'slow', 'weaken', 'shield', 'regen', 'guard'];
@@ -178,4 +183,30 @@ export function gearOf(inventory, owner, { pc = null } = {}) {
     }
     // In the inventory's own key order: v1 counts the first equipped piece per slot.
     return out;
+}
+
+/**
+ * What `owner` wears as the items part counts it, as v1 Items: the items part's `items.gear`
+ * (through `query`: the pieces it counts, with their stats as it gives them: capped at the
+ * wearer's level, and with the items part's wear and refinement where it has them; broken pieces
+ * left out) marked `final`, else, without the items part, gearOf on the inventory.
+ */
+export function wornGear(query, inventory, owner, { pc = null } = {}) {
+    let listed = null;
+    if (typeof query === 'function' && owner) {
+        try {
+            listed = query('items.gear', { actor: owner });
+        } catch {
+            listed = null;
+        }
+    }
+    const counted = Array.isArray(listed) ? listed : Array.isArray(listed?.counted) ? listed.counted : null;
+    if (!counted) return gearOf(inventory, owner, { pc });
+    return counted.filter(row => row && row.name && V1_SLOTS.includes(row.slot)).map(row => {
+        const def = inventory?.defs?.[inventory?.stacks?.[row.stack]?.def];
+        return {
+            name: row.name, equipped: true, slot: row.slot, rarity: row.rarity ?? 'common', stats: { ...(row.stats ?? {}) },
+            tags: [...(Array.isArray(row.tags) ? row.tags : def?.tags ?? [])], qty: 1, final: true, ...(row.stack ? { stack: row.stack } : {}),
+        };
+    });
 }

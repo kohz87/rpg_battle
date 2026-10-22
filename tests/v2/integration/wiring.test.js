@@ -106,7 +106,7 @@ test('a companion who goes down in a fight to the death is gone for good; the fi
         const host = await withLyra();
         try {
             const lyra = host.q('party.actor', { name: 'Lyra' });
-            await host.send('Into the crypt.', host.reply('It wakes.', ['! encounter 3 Grave Wight — out of the dark | tier: deadly | stakes: death']));
+            await host.send('Into the crypt.', host.reply('It wakes.', ['! encounter 4 Grave Wight — out of the dark | tier: deadly | stakes: death']));
             assert.equal((await host.cmd('combat.start', { offer: host.q('combat.offers')[0].id })).ok, true);
             assert.equal(await playOut(host), 'lost');
             const ended = await host.cmd('combat.end');
