@@ -44,6 +44,8 @@ const css = sheet(`
 .rb-craft { gap: 12px; }
 .lead { font-size: 0.86em; color: var(--rb-muted); }
 .crafter { display: grid; gap: 8px; }
+.crafter > h4 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.crafter > h4 i { color: var(--rb-accent); }
 .recipe { align-items: flex-start; }
 .recipe .main { flex: 1 1 14em; }
 .recipe .ok { margin-right: 5px; color: var(--rb-good); font-size: 0.85em; }
