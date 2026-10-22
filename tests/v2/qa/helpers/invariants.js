@@ -94,8 +94,15 @@ export function conservationProblem({ type, payload, result, before, after }) {
             const sign = type === 'wallet.pay' || (type === 'capture.coin' && payload?.op === '-') ? -1 : 1;
             return !goods.length && Math.abs(d.money) === data.amount && Math.sign(d.money) === sign ? '' : say('a coin change must move exactly its amount');
         }
-        case 'capture.item':
+        case 'capture.item': {
+            // A money-named item ("+ item Gold Coins") is the story's coin (Story Block MODULES §F108): it moves
+            // exactly its amount, as a coin line does, and no goods. Any other item line moves no money.
+            if (Number.isInteger(data?.amount) && data?.owner !== undefined && data?.now !== undefined) {
+                const sign = payload?.op === '-' ? -1 : 1;
+                return !goods.length && Math.abs(d.money) === data.amount && (data.amount === 0 || Math.sign(d.money) === sign) ? '' : say('a money-named item must move exactly its amount');
+            }
             return d.money === 0 ? '' : say('an item line moves no money');
+        }
         default:
             return none ? '' : say('this command must not create or remove goods or money');
     }

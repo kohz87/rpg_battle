@@ -10,7 +10,7 @@ import {
     OWNER_RE, isPlainObject, clone, labelOf, parseCount, newId, ownerName, ownerNameIn, capitalize,
 } from './common.js';
 import { aliasKey, cleanName, resolveDef, slugify, trimText } from './names.js';
-import { WALLET_KEY, coinValue, currencyOf, formatAmount, formatWallet, isCurrencyName, parseAmount } from './money.js';
+import { WALLET_KEY, coinValue, countedMoney, currencyOf, formatAmount, formatWallet, isCurrencyName, parseAmount } from './money.js';
 import { DEF_ID, isId } from '../check.js';
 
 export const KINDS = Object.freeze(['goods', 'material', 'consumable', 'equipment', 'quest', 'money']);
@@ -1468,9 +1468,10 @@ export function captureItem(ctx, line, env) {
     const name = cleanName(line?.name);
     if (!name) ctx.fail('INVALID', 'An item line needs the item\'s name.');
     const text = String(line.text ?? '').trim();
-    // An "item" named exactly the currency (singular or plural) is money: it goes to the wallet.
+    // An "item" named as money (the currency, a coin, "Silver Coins", "3 silver coins") goes to the
+    // wallet, as the coin and loot lines read the same words (B-a1-7).
     const currency = currencyOf(ctx.settings());
-    if (isCurrencyName(name, currency)) return itemAsCoin(ctx, line, env, currency);
+    if (isCurrencyName(name, currency) || countedMoney(name, currency)) return itemAsCoin(ctx, line, env, currency);
     if (line.op === '+') {
         const qty = lineQty(ctx, line, 1);
         if (qty < 1) ctx.fail('INVALID', 'A gained item needs a quantity of at least 1.');
@@ -1575,8 +1576,10 @@ function itemAsCoin(ctx, line, env, currency) {
     }
     const count = lineQty(ctx, line, 1);
     if (count < 1) ctx.fail('INVALID', 'An amount of money must be more than nothing.');
-    // `+ item Silver | qty: 3` is 3 silver: counted in the smallest unit (money.js coinValue).
-    const amount = count * Math.max(1, coinValue(cleanName(line?.name), currency));
+    // `+ item Silver | qty: 3` is 3 silver: counted in the smallest unit (money.js coinValue); `+ item 3
+    // silver coins` too (the number in the name times the quantity).
+    const counted = countedMoney(cleanName(line?.name), currency);
+    const amount = counted ? count * counted.count * counted.value : count * Math.max(1, coinValue(cleanName(line?.name), currency));
     if (!Number.isSafeInteger(amount)) ctx.fail('INVALID', 'That amount is too large.');
     const who = labelOf(line, line.op === '+' ? 'from' : 'to');
     const note = who ? `${line.op === '+' ? 'from' : 'to'} ${trimText(who, 80)}` : '';
