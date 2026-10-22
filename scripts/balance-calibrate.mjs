@@ -29,7 +29,9 @@ export const CALIBRATION_SET = Object.freeze(['bestiary:Giant Rat', 'bestiary:Sl
 const chosen = process.env.CALIBRATE === 'all' ? CREATURES : CREATURES.filter(creature => CALIBRATION_SET.includes(`${creature.set}:${creature.name}`));
 
 function groupCells({ tier, level, count }, shift) {
-    return PRESET_IDS.flatMap(preset => chosen.map(creature => ({ tier, level, count, preset, creature, shift })));
+    // FIELD=n: n foes a member on the field at once (the at-once columns of LEVEL_SHIFT past four).
+    const settings = process.env.FIELD ? { fieldPerMember: Number(process.env.FIELD), fieldMax: 24 } : undefined;
+    return PRESET_IDS.flatMap(preset => chosen.map(creature => ({ tier, level, count, preset, creature, shift, ...(settings ? { settings } : {}) })));
 }
 
 async function rates(groups, shifts, options) {

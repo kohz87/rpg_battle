@@ -25,7 +25,7 @@ import { DEFAULT_BESTIARY } from '../../enemies.js';
 import { itemSlot, oneCurrency, parseEffect } from '../../items.js';
 import { combinedBestiary } from '../../templates.js';
 import { foesText, rankContext, readEncounter, STAKES, TIERS } from './encounter.js';
-import { buildSetup, COMBAT_DEFAULTS, fightNumbers, moneyScale, partyCombatants, scaledMoney } from './setup.js';
+import { buildSetup, COMBAT_DEFAULTS, COMBAT_LIMITS, fightNumbers, moneyScale, partyCombatants, scaledMoney } from './setup.js';
 import { beatenOf, bestiaryList, byRev, draftSession, dropSession, sessionOf, creatureSlug, fightRules, lastOf, latinSlug, offersOf, packCreature, packSetup, sessionStatus, unpackSetup, valuesOf } from './stored.js';
 export { beatenOf, lastOf, offersOf } from './stored.js';
 import { clipped } from '../lines.js';
@@ -822,6 +822,9 @@ export const part = {
             speedOffset: { type: 'int', label: 'Speed (AGI +)', min: 0, max: 50 },
             hitBase: { type: 'int', label: 'Hit chance base %', min: 5, max: 95 },
             hitPerPoint: { type: 'int', label: 'Hit chance per DEX–AGI point', min: 0, max: 10 },
+            // Fights: foes on the field at once; the rest of an encounter comes in later waves (setup.planWaves).
+            fieldPerMember: { type: 'int', label: 'Fights: foes on the field per party member', min: COMBAT_LIMITS.fieldPerMember[0], max: COMBAT_LIMITS.fieldPerMember[1], help: 'More foes than this come in later waves, each when the one before is down. The tier still means the same danger: it counts the whole encounter.' },
+            fieldMax: { type: 'int', label: 'Fights: foes on the field at most', min: COMBAT_LIMITS.fieldMax[0], max: COMBAT_LIMITS.fieldMax[1] },
         },
     },
     // The Fight tab is the board part's screen `rpg-battle/fight` (SPEC §13.1).
