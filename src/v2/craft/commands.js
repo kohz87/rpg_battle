@@ -19,13 +19,14 @@
 //   recipe's minutes (Story Director's `director.advance`; without it no story time passes, and the
 //   receipt says so). A story quality that disagrees with the dice is flagged on the reply's card
 //   (`craft.last`) and in the receipt. Refused (nothing consumed): an unknown recipe, a recipe the
-//   crafter does not know, no station, missing materials, a third craft in one reply.
+//   crafter does not know, no station, missing materials, an item the party could not carry (the
+//   carry limit, items.carry, asked with the materials already taken off), a third craft in one reply.
 //
 // The commands `craft.learn`, `craft.forget` and `craft.make` are the same rules for templates and
 // tests: never from a reader's click (F95, F96: crafting is the story's). The trade part's
 // `craft.commission` and `craft.collect` (having a crafter make something for a fee) are unchanged.
 
-import { KEEPER, advanceClock, consume, grant, keepPaid, scaleOf, tryQuery } from './calls.js';
+import { KEEPER, advanceClock, consume, grant, keepPaid, scaleOf, tooHeavy, tryQuery } from './calls.js';
 import { MAX_KNOWN_EACH, MAX_MATERIALS, MAX_MADE, MAX_PER_REPLY, MAX_TAUGHT, draftCraft, knowKey, madeEntries, prune, usesOf } from './domain.js';
 import { defByName, envOfCtx, findRecipe, knownBy, planOf, recipes, rulesOf, tableOf } from './book.js';
 import { STORY_WORTH_TIMES, baseOutput, fitToWorth, inputWorth, junkDef, outputDef, outputWorth, qualityWithin } from './make.js';
@@ -263,6 +264,15 @@ function dieFor(ctx, craft, written) {
  */
 export const worthParts = parts => parts.map(part => ({ def: part.def, qty: part.takes.length ? part.takes.reduce((sum, take) => sum + (take.key ? 0 : take.qty), 0) : part.need }));
 
+/**
+ * The carry limit (the user's rule): an item that would not fit, the materials already taken off, is
+ * refused, and the whole craft with it, so nothing is consumed (the command is one transaction).
+ */
+function carries(ctx, actor, recipe, def, qty) {
+    const heavy = tooHeavy(ctx, def, qty);
+    if (heavy) fail(ctx, 'REFUSED', `${actor.name} cannot craft ${recipe.name}: ${heavy.message ?? `the party cannot carry ${def.name}.`}`);
+}
+
 const plural = (qty, name) => (qty === 1 ? name : `${qty} ${name}`);
 const signed = amount => (amount < 0 ? `−${-amount}` : `+${amount}`);
 
@@ -340,6 +350,7 @@ export function make(ctx, request = {}) {
     if (quality === 'normal' || quality === 'fine' || quality === 'masterwork') {
         const out = outputDef(recipe, quality, parts, { level, rules, scale, worthParts: worthParts(parts), base });
         qty = recipe.qty ?? 1;
+        carries(ctx, actor, recipe, out.def, qty);
         const granted = grant(ctx, out.def, qty, out.def.note);
         const defId = typeof granted?.data?.def === 'string' ? granted.data.def : out.def.id;
         // It never sells for more than its materials would have fetched (B-b3-13): no value made from nothing.
@@ -349,6 +360,7 @@ export function make(ctx, request = {}) {
         refine = out.refine;
     } else if (quality === 'ruined') {
         const junk = junkDef(recipe, parts, { level, rules });
+        carries(ctx, actor, recipe, junk, 1);
         const granted = grant(ctx, junk, 1, junk.note);
         item = { def: typeof granted?.data?.def === 'string' ? granted.data.def : junk.id, name: junk.name };
         qty = 1;

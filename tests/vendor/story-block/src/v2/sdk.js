@@ -4,6 +4,7 @@
 // module's initial state. No SillyTavern import (turn.js wires SillyTavern).
 
 import { INIT_PREFIX, normalizeField } from './registry.js';
+import { headReply } from './commands.js';
 import { cutAt } from '../text.js';
 
 // sdk.check comes from check.js (SB-commands); the sdk still loads without it.
@@ -150,14 +151,17 @@ export function createSettings({ root, registry, save = () => {} }) {
 
 /**
  * Runs a registered query on `state`; the answer is a plain copy. Throws for an unknown query.
- * A query is called (state, args, tools) with tools.query(name, args) over the same state and
- * tools.receipts() → [{ index, receipt }], the stored receipts in chat order (`receipts` option).
+ * A query is called (state, args, tools) with tools.query(name, args) over the same state,
+ * tools.receipts() → [{ index, receipt }], the stored receipts in chat order (`receipts` option), and
+ * tools.reply ({ index, sid } or null, the `reply` option): the reply the state is the head of, as a
+ * command's ctx.reply (commands.js).
  */
-export function runQuery(registry, state, name, args, { receipts = () => [] } = {}) {
+export function runQuery(registry, state, name, args, { receipts = () => [], reply = null } = {}) {
     const query = registry.query(name);
     if (!query) throw new Error(`Story Suite: no module answers the query "${name}".`);
     const tools = Object.freeze({
-        query: (other, otherArgs) => runQuery(registry, state, other, otherArgs, { receipts }),
+        reply,
+        query: (other, otherArgs) => runQuery(registry, state, other, otherArgs, { receipts, reply }),
         receipts: () => receipts() ?? [],
     });
     const answer = query(state, args === undefined ? undefined : structuredClone(args), tools);
@@ -182,7 +186,7 @@ export function makeView({ store, registry, settings, chat = [] }) {
     const lastUser = [...messages].reverse().find(message => message?.is_user);
     return Object.freeze({
         state,
-        query: (name, args) => runQuery(registry, state, name, args, { receipts: () => store.receipts?.() ?? [] }),
+        query: (name, args) => runQuery(registry, state, name, args, { receipts: () => store.receipts?.() ?? [], reply: headReply(store) }),
         settings,
         feature: id => featureOn(registry, id),
         chat: Object.freeze({ length: messages.length, lastUser: String(lastUser?.mes ?? '') }),
@@ -280,7 +284,7 @@ export function createSdk({ store, bus, registry, settings, events = createEvent
             ? refused(`"${type}" is a step Story Block takes itself; it cannot be sent as an action.`)
             : bus.preview(type, payload)),
         commit: async token => saved(committed(await bus.commit(token))),
-        query: (name, args) => runQuery(registry, store.head(), name, args, { receipts: () => store.receipts?.() ?? [] }),
+        query: (name, args) => runQuery(registry, store.head(), name, args, { receipts: () => store.receipts?.() ?? [], reply: headReply(store) }),
         /** The stored receipts on the current line of history, in chat order: [{ index, receipt }]. */
         receipts: () => store.receipts?.() ?? [],
         /**

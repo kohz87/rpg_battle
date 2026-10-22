@@ -402,6 +402,48 @@ test('no value from nothing: a crafted piece is worth its materials and never se
     } finally { host.close(); }
 });
 
+test('a key item (the story\'s notable gift) crafted into something sells for nothing: gift → craft → sell pays 0', async t => {
+    quiet(t);
+    const pack = {
+        ...PACK,
+        content: {
+            ...PACK.content,
+            items: [...PACK.content.items, { name: 'Moon Pearl', kind: 'material', rarity: 'rare', value: 3000 }],
+            recipes: [...PACK.content.recipes, { name: 'Pearl Charm', makes: 'bone-charm', materials: [{ item: 'moon-pearl', qty: 1 }], craft: 'leather', known: true, dc: 5 }],
+        },
+    };
+    const host = await craftHost({ pack });
+    try {
+        await host.send('A gift.', host.reply('The old man hands you a pearl.', ['+ item Moon Pearl']));
+        assert.equal(host.q('inventory.items').find(row => row.name === 'Moon Pearl')?.key, true, 'the gift is a key item');
+        const coin = () => host.q('inventory.wallet', { owner: 'party' }).coin ?? 0;
+        const before = coin();
+        await replyWhen(host, 'I set the pearl.', die => die >= 5 && die < 19, () => ['! craft Pearl Charm | roll: 1']);
+        const row = host.q('inventory.items').find(entry => /Bone Charm$/.test(entry.name));
+        assert.ok(row, 'the charm was made');
+        assert.equal(host.head().domains.inventory.defs[row.def].value, 0, 'worth nothing: the pearl counts 0');
+        const quote = host.q('trade.quote', { type: 'sell', stack: row.stack, qty: 1, kind: 'general' });
+        assert.ok(!quote.ok || quote.total === 0, `selling it pays ${quote.total}`);
+        if (quote.ok) await host.cmd('trade.sell', { stack: row.stack, qty: 1, kind: 'general' });
+        assert.equal(coin(), before, 'no money from the gift');
+    } finally { host.close(); }
+});
+
+test('the carry limit: a craft whose item the party could not carry is refused, and nothing is used up', async t => {
+    quiet(t);
+    const host = await craftHost({ settings: { modules: { 'rpg-battle': { 'items.carrySize': 10 } } }, goods: ORE });
+    try {
+        await host.send('Hollis teaches me.', host.reply('He shows you.', ['+ recipe Iron Sword | from: Hollis']));
+        await host.send('A heavy load.', host.reply('Sacks.', ['+ item River Fish | qty: 20']));
+        // A roll that makes the sword (a fail makes nothing, so there is nothing to carry).
+        await replyWhen(host, 'I forge.', die => die >= 10, () => ['! craft Iron Sword | roll: 1']);
+        assert.equal(host.q('craft.log').length, 0, 'not crafted');
+        assert.equal(qtyOf(host, 'Iron Ore'), 3, 'the ore is still there');
+        assert.equal(qtyOf(host, 'Ember Salt'), 1);
+        assert.ok(host.turn.problems().some(problem => /cannot craft Iron Sword/.test(problem.message)), JSON.stringify(host.turn.problems().map(problem => problem.message)));
+    } finally { host.close(); }
+});
+
 test('F104: a material with no value of its own is priced by code times the pack\'s money scale (inventory.economy)', async t => {
     quiet(t);
     const charmValue = async pack => {

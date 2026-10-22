@@ -14,6 +14,7 @@
 
 import { DEFAULT_RULES, RARITIES, makeRules } from '../../rules.js';
 import { knowKey, usesOf } from './domain.js';
+import { isKeyItem } from '../trade/core.js';
 import {
     chancesOf, clip, craftOfRecipe, craftTable, dcOf, materialBonus, nameKey, rankOf,
     stationsHere, stationsOfRecipe, stationsText, statsModifier, statsOf,
@@ -238,7 +239,7 @@ export function materialsFor(env, actorId, recipe) {
             def ??= env.inventory?.defs?.[stack.def] ?? null;
             const take = Math.min(free, need);
             if (take > 0) {
-                takes.push({ stack: stack.id, qty: take, def: stack.def, ...(stack.key === true ? { key: true } : {}) });
+                takes.push({ stack: stack.id, qty: take, def: stack.def, ...(isKeyItem(stack) ? { key: true } : {}) });
                 left.set(stack.id, free - take);
                 need -= take;
             }

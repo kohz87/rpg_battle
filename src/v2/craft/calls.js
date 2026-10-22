@@ -10,11 +10,14 @@
 //   reply already wrote, which took their rolls by place).
 // * The clock moves by Story Director's `director.advance { minutes, cause, reason }` (system, code-only) when
 //   it is there and the story time is set; without it crafting takes no story time, and the receipt says so.
+// * The carry limit is the items part's `items.carry` (MODULES §F39), asked as the trade part asks it
+//   (trade/calls.js tooHeavy): an item that would not fit is refused, the whole craft with it.
 // * The money scale is Story Block's `inventory.economy` → { scale } (F104), 1 when it is not there.
 // * The resale cap is the trade part's `trade.paid` (B-b3-14): what one of a def sells for at most,
 //   written as the trade part writes it (a key `<def>#<rev>` per write, the least one holding).
 
 import { leastPaid, writeKey, writesOf } from '../trade/core.js';
+export { tooHeavy } from '../trade/calls.js';
 
 export const KEEPER = 'party';
 export const CLOCK_COMMAND = 'director.advance';

@@ -971,11 +971,13 @@ export function createInventoryCommands(env) {
             });
         },
 
-        // `story: true` (a module's call during a reply's capture): money the story alone vouched for (a
-        // quest the story closed with nothing code could count). It is held to the same per-reply coin
-        // budget as the story's own coin lines, but never refused: past the budget what is left is paid,
-        // which may be nothing; `data.amount` is what was paid and `problem` (a LIMITED note) says why.
-        // Outside a story capture, or without the flag, a module's payout is not counted.
+        // `story: true` (a module's call): money the story alone vouched for (a quest reward the story
+        // wrote). It is held to the same per-reply coin budget as the story's own coin lines, but never
+        // refused: past the budget what is left is paid, which may be nothing; `data.amount` is what was
+        // paid and `problem` (a LIMITED note) says why. During a capture it counts against the reply being
+        // read; outside one (a click after the reply, RX-E-2) against the reply the click is stored on,
+        // the head carrier (ctx.reply), so one reply's `+ coin` lines and the clicks after it share one
+        // budget. Without the flag, a module's payout is not counted.
         'wallet.receive'(ctx, payload = {}) {
             byModule(ctx, 'Money cannot be handed out from a button; it comes from the story or from another module\'s action.');
             if (payload.story !== undefined && typeof payload.story !== 'boolean') ctx.fail('INVALID', 'story must be true or false.');
@@ -1001,7 +1003,9 @@ export function createInventoryCommands(env) {
 
 // What one reply's story lines may make out of nothing (B1-2). Code's own payouts (a module's
 // wallet.receive or inventory.grant through ctx.call) are not counted here, except a payout a module
-// says the story alone vouched for (`wallet.receive { story: true }`, below).
+// says the story alone vouched for (`wallet.receive { story: true }`, below), during the reply's capture
+// or by a click after it (counted against the reply the click is stored on, ctx.reply; RX-E-2).
+// `inventory.storyBudget` tells a module what is left (createInventoryQueries).
 // * Coin: `storyCoinPerReply` in Story Block's settings, or with 0 (the default) the top reward of the
 //   quest rank for the player character's level (`quest.ranks` and `party.pc`, when modules answer),
 //   else 1000 × that level. Past it a line is paid what is left, and the Problems list says so.
@@ -1022,10 +1026,12 @@ export function createInventoryCommands(env) {
 // * New kinds: at most STORY_NEW_DEFS item definitions made by one reply's story lines; past that a
 //   line naming something new is refused.
 // The tally is kept in the inventory slice under the reply's record ID (`perReply[<sid>]` =
-// { coin, worth, made, items, notable }, ctx.carrier.sid, which stays with the reply when earlier messages are
+// { coin, worth, made, items, notable, vouched }, ctx.carrier.sid, which stays with the reply when earlier messages are
 // deleted), so it rolls back with the reply and starts again on the next one or another swipe. A reply
 // adds its own entry and drops the others; `perReply` is the domain's `scratch` (ops.js): on replay a
 // drop of an entry already gone (its reply deleted) is passed over, so no reply's gains hang on another's.
+// A click's vouched payout writes the same entry from the click's receipt, on the same carrier: a swipe
+// or delete of the reply takes it back with the reply, and a Continue's lines count on from it.
 export const STORY_ITEM_QTY = 20;
 export const STORY_COIN_PER_LEVEL = 1000;
 export const STORY_WORTH_TIMES = 2;
@@ -1060,6 +1066,7 @@ export function scaledDefault(amount, scale = 1) {
     return Math.max(1, Math.round(amount * (scaleIn(scale) ?? 1)));
 }
 
+// `ctx` needs settings() and query(); a query passes its own (createInventoryQueries).
 function storyCoinBudget(ctx) {
     const set = Number(ctx.settings()?.storyCoinPerReply);
     if (Number.isSafeInteger(set) && set > 0) return set;
@@ -1092,13 +1099,31 @@ function storyCoinBudget(ctx) {
 
 const tallied = value => (isCount(value, 0) ? value : 0);
 
-// A copy of the tally for this reply (a fresh one when none is stored); null outside a story capture. A
-// module's own call is counted only when it says the story vouched for it (`vouched`). Kept with keepTally.
+// The reply a tally is kept for: during a story capture its carrier's record ID; for a module's vouched
+// payout outside one (a click), the reply its changes are stored on (ctx.reply, the head carrier). null
+// when nothing is counted: a module's own call it does not vouch for, or a command with no reply.
+function tallyId(ctx, vouched = false) {
+    if (ctx.caller && !vouched) return null;
+    const id = ctx.cause === 'story' ? ctx.carrier?.sid ?? ctx.carrier?.key : null;
+    const out = id ?? (vouched && ctx.caller ? ctx.reply?.sid : null);
+    return typeof out === 'string' && out ? out : null;
+}
+
+// What reply `id` has given so far: its stored entry, or null.
+function storedTally(inv, id) {
+    return id && isPlainObject(inv?.perReply) && Object.hasOwn(inv.perReply, id) && isPlainObject(inv.perReply[id]) ? inv.perReply[id] : null;
+}
+
+// A copy of the tally for this reply (a fresh one when none is stored); null when nothing is counted
+// (tallyId). A module's own call is counted only when it says the story vouched for it (`vouched`).
+// Kept with keepTally.
 function tallyOf(ctx, inv, vouched = false) {
-    const id = ctx.carrier?.sid ?? ctx.carrier?.key;
-    if (ctx.cause !== 'story' || typeof id !== 'string' || !id || (ctx.caller && !vouched)) return null;
-    const stored = isPlainObject(inv.perReply) && Object.hasOwn(inv.perReply, id) && isPlainObject(inv.perReply[id]) ? inv.perReply[id] : null;
+    const id = tallyId(ctx, vouched);
+    if (!id) return null;
+    const stored = storedTally(inv, id);
     const tally = { id, coin: tallied(stored?.coin), worth: tallied(stored?.worth), made: tallied(stored?.made), items: {}, ...(stored?.notable === true ? { notable: true } : {}) };
+    // Of `coin`, what modules' vouched payouts gave (quest rewards), kept only once there is some.
+    if (tallied(stored?.vouched)) tally.vouched = tallied(stored.vouched);
     for (const [def, n] of Object.entries(isPlainObject(stored?.items) ? stored.items : {})) if (isCount(n, 0)) tally.items[def] = n;
     return tally;
 }
@@ -1121,6 +1146,7 @@ function storyCoin(ctx, inv, amount, currency, vouched = false) {
     if (!left && !vouched) ctx.fail('REFUSED', `This reply has already given all the money one reply may give (${formatAmount(budget, currency)}); the rest was not paid.`);
     const paid = Math.min(amount, left);
     tally.coin += paid;
+    if (vouched && paid) tally.vouched = (tally.vouched ?? 0) + paid;
     keepTally(inv, tally);
     return {
         amount: paid,
@@ -1522,6 +1548,19 @@ export const createInventoryQueries = env => ({
     // { name, plural, short }: the chat's one currency (MODULES.md F1); name singular ("mark").
     'inventory.currency': () => currencyOf(env.settings()),
     'inventory.items': (state, args = {}) => listItems(state?.domains?.inventory, args?.owner ?? null),
+    // { budget, paid, left, vouched }: the story money (`+ coin` lines and modules' `wallet.receive { story:
+    // true }`) the current reply may give, has given and has left (RX-E-2); `vouched` is the part of
+    // `paid` that modules' vouched payouts gave (quest rewards), so a module can tell a reply whose
+    // budget its own payouts used from one whose coin lines did. The budget is the reader's
+    // `storyCoinPerReply`, else the party rank's top (storyCoinBudget). The current reply is the one
+    // the asking command is stored on (tools.reply: a capture's carrier, else the head carrier); with
+    // none known, nothing is counted as given yet.
+    'inventory.storyBudget': (state, args, tools) => {
+        const budget = storyCoinBudget({ settings: () => env.settings(), query: (name, more) => tools.query(name, more) });
+        const stored = storedTally(state?.domains?.inventory, tools?.reply?.sid);
+        const paid = Math.min(budget, tallied(stored?.coin));
+        return { budget, paid, left: Math.max(0, budget - paid), vouched: Math.min(paid, tallied(stored?.vouched)) };
+    },
     'inventory.wallet': (state, args = {}) => ({ ...(state?.domains?.inventory?.wallets?.[args?.owner ?? 'party'] ?? {}) }),
     // { status: 'found' | 'ambiguous' | 'none', defs: [def copies], stacks: [items of the found def] }
     'inventory.find': (state, args = {}) => {
