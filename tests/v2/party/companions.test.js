@@ -125,3 +125,23 @@ test('terms (§F25): summaries and party.terms speak the terms in the settings',
     assert.deepEqual(part.queries['party.terms'](state, { settings: { terms } }), terms);
     assert.deepEqual(part.queries['party.terms'](state, {}), { levelName: 'Level', xpName: 'XP', tiers: null });
 });
+
+test('rx-combat: a companion has your character\'s points for their level; every preset still makes a working companion', async () => {
+    const { PRESETS } = await import('../../../src/skills.js');
+    const { companionTotal } = await import('../../../src/v2/party/formula.js');
+    const { DEFAULT_RULES } = await import('../../../src/rules.js');
+    const total = stats => Object.values(stats).reduce((a, b) => a + b, 0);
+    for (const preset of PRESETS) {
+        for (const level of [1, 5, 20]) {
+            const state = withPc();
+            state.domains.party.actors[state.domains.party.pc].level = level;
+            const out = run(state, 'party.addCompanion', { name: 'Kit', role: preset.id, level, skills: preset.skills });
+            assert.ok(out.ok, `${preset.id} at level ${level}: ${out.message}`);
+            const kit = byName(out.state, 'Kit');
+            assert.equal(total(kit.stats), companionTotal(level, DEFAULT_RULES));
+            assert.deepEqual(kit.skills.map(skill => skill.name), preset.skills);
+        }
+    }
+    // Your character's own rule: at level 1 the same points a new character has.
+    assert.equal(companionTotal(1, DEFAULT_RULES), total(pcOf(withPc()).stats));
+});

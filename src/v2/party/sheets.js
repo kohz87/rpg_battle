@@ -25,9 +25,6 @@ export const SETTINGS_DEFAULTS = Object.freeze({
     autoSpend: true,
     // MODULES §F48: you and this many companions at most.
     maxCompanions: 3,
-    // MODULES §F91: a new companion of level L has companionBase + companionPerLevel × L stat points.
-    companionBase: 55,
-    companionPerLevel: 5,
 });
 
 export const SETTINGS_SCHEMA = Object.freeze({
@@ -39,8 +36,6 @@ export const SETTINGS_SCHEMA = Object.freeze({
     activeSkills: { type: 'int', min: 3, max: 12, label: 'Skills each member fights with' },
     autoSpend: { type: 'bool', label: 'Companions on auto spend their points by build' },
     maxCompanions: { type: 'int', min: 0, max: 12, label: 'Companions beside you at most' },
-    companionBase: { type: 'int', min: 0, max: 500, label: 'A new companion\'s stat points (base)' },
-    companionPerLevel: { type: 'int', min: 0, max: 50, label: 'A new companion\'s stat points per level' },
 });
 
 const COMBAT_CONDITIONS = ['poison', 'burn', 'bleed', 'stun', 'slow', 'weaken', 'shield', 'regen', 'guard'];

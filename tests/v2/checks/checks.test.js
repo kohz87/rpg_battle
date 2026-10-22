@@ -369,7 +369,7 @@ test('the tail: this reply\'s rolls tied to attempts, then code\'s table, one li
     assert.deepEqual(lines, [
         'Dice for this reply: Roll 1 = 12 · Roll 2 = 5 (the first uncertain attempt takes Roll 1, the next Roll 2, whatever they say).',
         'Check modifiers — Ren (you): STR +1, VIT +1, AGI +1, DEX +2, INT +0, LUK +0, CHA +0.',
-        'Check modifiers — Lyra: STR +1, VIT +1, AGI +4, DEX +5, INT +1, LUK +1, CHA +1.',
+        'Check modifiers — Lyra: STR +0, VIT +0, AGI +3, DEX +4, INT +0, LUK +0, CHA +0.',
     ]);
     assert.ok(lines.join(' ').length / 4 < part.context.budget, 'within the budget');
 });
@@ -423,7 +423,7 @@ test('queries: checks.log, checks.rolls, checks.last and the whole table', () =>
     assert.deepEqual(part.queries['checks.rolls'](state, { for: 4 }).rolls, [12, 5]);
     assert.equal(part.queries['checks.last'](state).carrier, '4:0');
     const table = part.queries['checks.modifiers'](state, {}, tools);
-    assert.deepEqual(table.map(row => [row.name, row.you, row.stats.DEX]), [['Ren', true, 2], ['Lyra', false, 5]]);
+    assert.deepEqual(table.map(row => [row.name, row.you, row.stats.DEX]), [['Ren', true, 2], ['Lyra', false, 4]]);
     assert.equal(part.queries['checks.modifiers'](state, { skill: 'x', actor: 'ac_nobody00' }, tools), null);
     assert.deepEqual(Object.keys(part.commands), ['checks.prepare'], 'no reader-rolled or modifier commands any more');
     assert.deepEqual(Object.keys(part.queries).sort(), ['checks.last', 'checks.log', 'checks.modifiers', 'checks.rolls']);

@@ -12,7 +12,7 @@ import { context } from './context.js';
 import { SETTINGS_DEFAULTS, SETTINGS_SCHEMA } from './sheets.js';
 import { initialParty, validateParty } from './validate.js';
 import { tabs } from './tab.js';
-import { FEATURES, effectCommands, effectKinds, initialEffects, pruneBeforeReply, validateEffects } from './effects.js';
+import { FEATURES, effectCommands, effectKinds, initialEffects, turnBeforeReply, validateEffects } from './effects.js';
 
 /**
  * canGenerate(view) (MODULES §F12): character creation is mandatory, so no story reply is
@@ -29,13 +29,14 @@ export const part = {
     domains: {
         party: { initial: initialParty, validate: slice => validateParty(slice) },
         // Timed buffs and debuffs, keyed by effect id (effects.js).
-        effects: { initial: initialEffects, validate: slice => validateEffects(slice) },
+        // `turns` is per-reply bookkeeping (SPEC §2.2 scratch): replay makes it when only a deleted reply had.
+        effects: { initial: initialEffects, validate: slice => validateEffects(slice), scratch: ['turns'] },
     },
     commands: { ...commands, ...effectCommands },
     queries,
     kinds: { ...kinds, ...effectKinds },
     context,
-    hooks: { canGenerate, beforeGenerate: pruneBeforeReply },
+    hooks: { canGenerate, beforeGenerate: turnBeforeReply },
     settings: { section: 'Character', defaults: { ...SETTINGS_DEFAULTS }, schema: SETTINGS_SCHEMA },
     tabs,
 };

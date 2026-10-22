@@ -19,8 +19,7 @@ export function effectsLine(view, party) {
     if (!featureOn(view)) return null;
     const state = view?.state;
     const query = typeof view?.query === 'function' ? (name, args) => { try { return view.query(name, args); } catch { return null; } } : null;
-    const length = view?.chat?.length;
-    const now = nowOfState(state, query, { fallbackAt: Number.isInteger(length) ? length : null });
+    const now = nowOfState(state, query);
     const on = activeEffects(state, now);
     if (!on.length) return null;
     const parts = on.slice(0, TAIL_EFFECTS).map(effect => {
