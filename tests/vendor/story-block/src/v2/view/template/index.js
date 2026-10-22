@@ -26,7 +26,7 @@
 
 import { compileExpr, isLoopName, parseInterpolation, parsePath, splitPairs } from '../bind.js';
 import { PURIFY_CONFIG, attrAllowed, sanitizeNodes, strictSanitize } from './sanitize.js';
-import { compileJson } from './json.js';
+import { MAX_JSON_DEPTH, compileJson, jsonDepth } from './json.js';
 import { destroyTemplate, renderTemplate } from './render.js';
 
 export { PURIFY_CONFIG, strictSanitize, renderTemplate, destroyTemplate };
@@ -58,6 +58,30 @@ export function compileTemplate(html, { sanitize = null } = {}) {
     warnings.push(...filtered.warnings);
     const nodes = compileChildren(filtered.nodes, warnings);
     return Object.freeze({ [COMPILED]: true, nodes, warnings: Object.freeze([...new Set(warnings)]) });
+}
+
+// How deep data-each loops may nest in a pack's template (B-b5b-robust-r2-2): each loop multiplies
+// what the one around it draws.
+export const MAX_LOOP_DEPTH = 3;
+
+/**
+ * What a pack check needs to know of a template: { loops: how deep data-each nests, deepJson: true when
+ * a data-props or data-payload nests past MAX_JSON_DEPTH }.
+ */
+export function templateShape(html) {
+    const compiled = compileTemplate(html);
+    let loops = 0;
+    let deepJson = false;
+    const stack = compiled.nodes.map(node => [node, 0]);
+    while (stack.length) {
+        const [node, around] = stack.pop();
+        if (node.kind !== 'element') continue;
+        const depth = around + (node.each ? 1 : 0);
+        loops = Math.max(loops, depth);
+        if (node.deepJson) deepJson = true;
+        for (const child of node.children ?? []) stack.push([child, depth]);
+    }
+    return { loops, deepJson };
 }
 
 function compileChildren(nodes, warnings) {
@@ -123,6 +147,7 @@ function compileElement(node, warnings) {
 
     const command = attrs.get('data-command');
     const payload = take('data-payload');
+    if ([payload, attrs.get('data-props')].some(text => text !== undefined && jsonDepth(text) > MAX_JSON_DEPTH)) out.deepJson = true;
     if (command !== undefined) {
         if (COMMAND_TYPE.test(command.trim())) {
             out.payload = payload === undefined ? null : compileJson(payload, warnings, `data-payload of ${command}`);

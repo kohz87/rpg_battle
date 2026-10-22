@@ -4,7 +4,7 @@
 // Order decides ties: a pack earlier in the installed list wins over a later one, for an
 // item name two packs both define and for the start place.
 
-import { CONTENT_KINDS } from './limits.js';
+import { CONTENT_KINDS, DEFAULT_CRAFTS } from './limits.js';
 import { slugify } from './validate.js';
 import { foldKey } from '../../text.js';
 
@@ -25,7 +25,9 @@ export function itemDef(item) {
  * `kind`: a content kind (items, creatures, shops, recipes, events, quests, races, talents,
  * skills, presets, places, routes, terms: `{ id, slug, pack, name?, levelName?, xpName?, tiers? }`, the
  * words a world uses for levels and XP, MODULES §F25; ranks: `{ id, pack, title?, levels?, reward? }`,
- * each pack's ladder lowest first, so a reader takes one pack's ranks),
+ * each pack's ladder lowest first, so a reader takes one pack's ranks; crafts: `{ id, slug, pack, title,
+ * stats, stations, note? }`, see craftsOf for the merged table; meterPresets: `{ id, slug, pack, title,
+ * meters, stages? }`, ready-made NPC meter sets),
  * `currency` (one `{ pack, name, short }` per pack that suggests one), `layouts`,
  * `screens` (each with its `pack`), or `theme` (one `{ pack, tokens }` per pack that has a
  * theme). Unknown kinds give [].
@@ -48,6 +50,35 @@ export function contentOf(packs, kind, { pack = null } = {}) {
 export function calendarOf(packs) {
     const pack = packs.find(entry => entry.calendar);
     return pack ? copy({ pack: pack.id, ...pack.calendar }) : null;
+}
+
+/**
+ * The money scale of the first enabled pack (in list order) that sets one, as `{ pack, scale, note }`, or
+ * null (MODULES §F104). Scales are not mixed across packs. Story Block's `inventory.economy` reads it.
+ */
+export function economyOf(packs) {
+    const pack = packs.find(entry => entry.economy);
+    return pack ? { pack: pack.id, scale: pack.economy.scale, note: pack.economy.note } : null;
+}
+
+/**
+ * The craft table crafting reads (MODULES §F102): the default crafts with the enabled packs' `crafts`
+ * laid over them, as `[{ craft, title, stats, stations, note?, pack }]`. `craft` is the id recipes
+ * write ('alchemy'); `pack` is null for a default. A pack's craft with a default's id replaces it in
+ * place; a new id is added after the defaults, in pack order. When two packs declare the same craft,
+ * the pack earlier in the list wins, as for items.
+ */
+export function craftsOf(packs) {
+    const table = new Map(DEFAULT_CRAFTS.map(craft => [craft.craft, { ...copy(craft), pack: null }]));
+    const taken = new Set();
+    for (const pack of packs) {
+        for (const craft of pack.content.crafts ?? []) {
+            if (taken.has(craft.slug)) continue;
+            taken.add(craft.slug);
+            table.set(craft.slug, { craft: craft.slug, title: craft.title, stats: [...craft.stats], stations: [...craft.stations], ...(craft.note ? { note: craft.note } : {}), pack: pack.id });
+        }
+    }
+    return [...table.values()];
 }
 
 /**

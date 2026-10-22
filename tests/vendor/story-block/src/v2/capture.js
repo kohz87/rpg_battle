@@ -4,6 +4,8 @@
 // becomes a problem, never an exception. Each line is handed to the module that owns its kind
 // (turn.js), which decides what it means. Pure: no DOM, no SillyTavern.
 
+import { cutAt } from '../text.js';
+
 // + new or gained, - gone or lost, ~ changed, ! happened, ? asks code to decide.
 export const OPS = Object.freeze(['+', '-', '~', '!', '?']);
 
@@ -15,7 +17,45 @@ const escapeRe = text => String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // An open or a close tag. Attributes stay on the tag's own line and are short, so a tag cut off
 // mid-way never reaches far ahead (and no tag costs more than its own few characters to read).
 const tagRe = tag => new RegExp(`<(/?)${escapeRe(tag)}(?:[ \\t][^>\\n]{0,200})?[ \\t]*>`, 'gi');
-const HIDDEN_RE = new RegExp(`<!--\\s*${HIDDEN_MARKER}\\b([\\s\\S]*?)-->`, 'g');
+// The hidden comment's open and its end, found apart (closedPairs): a lazy `<!--…[\s\S]*?-->` tried
+// again from every unclosed open costs the square of the text (B-b5b-robust-r2-4).
+const HIDDEN_OPEN = new RegExp(`<!--\\s*${HIDDEN_MARKER}\\b`, 'g');
+const HIDDEN_CLOSE = /-->/g;
+
+/**
+ * Every closed pair in `text` in one pass: an open (`openRe`, global), then the first close after it
+ * (`closeRe`, global), then on from there. An open with no close after it ends the search, since no
+ * later open has one either. → [{ start, end, bodyStart, bodyEnd }].
+ */
+function closedPairs(text, openRe, closeRe) {
+    const out = [];
+    let at = 0;
+    while (at < text.length) {
+        openRe.lastIndex = at;
+        const open = openRe.exec(text);
+        if (!open) break;
+        closeRe.lastIndex = openRe.lastIndex;
+        const close = closeRe.exec(text);
+        if (!close) break;
+        out.push({ start: open.index, end: closeRe.lastIndex, bodyStart: openRe.lastIndex, bodyEnd: close.index });
+        at = closeRe.lastIndex;
+    }
+    return out;
+}
+
+// `text` with each pair put back as `fn(pair)` gives.
+function replacePairs(text, pairs, fn) {
+    let out = '';
+    let at = 0;
+    for (const pair of pairs) {
+        out += text.slice(at, pair.start) + fn(pair);
+        at = pair.end;
+    }
+    return out + text.slice(at);
+}
+
+const hiddenPairs = text => closedPairs(text, HIDDEN_OPEN, HIDDEN_CLOSE);
+const blank = pair => ' '.repeat(pair.end - pair.start);
 
 // Every function here is linear in the length of the reply: a looping model can write a run of
 // thousands of spaces or blank lines, and the text is read again for every later prompt (turn.js).
@@ -156,19 +196,27 @@ export function cutLine(mes, tag = 'Changes', at = null, { stopped = false } = {
 // drafts it there and writes it again at the end is read once. An unclosed tag is left alone,
 // so a reply cut off mid-thought never loses a block written before it. A pair that does not
 // match (`<thinking>…</think>`, as some models write) is reasoning too.
-const REASONING_RE = /<(?:think|thinking|reasoning)(?:[ \t][^>\n]{0,200})?>[\s\S]*?<\/(?:think|thinking|reasoning)\s*>/gi;
+// Opens and closes found apart, in one pass (closedPairs), so many unclosed tags cost no more than
+// the text's length (B-b5b-robust-r2-4).
+const REASONING_OPEN = /<(?:think|thinking|reasoning)(?:[ \t][^>\n]{0,200})?>/gi;
+const REASONING_CLOSE = /<\/(?:think|thinking|reasoning)\s*>/gi;
+const reasoningPairs = text => closedPairs(text, REASONING_OPEN, REASONING_CLOSE);
 
 /** `mes` without its closed reasoning blocks. */
 export function withoutReasoning(mes) {
-    return String(mes ?? '').replace(REASONING_RE, '');
+    const text = String(mes ?? '');
+    return replacePairs(text, reasoningPairs(text), () => '');
 }
 
 // `text` with its closed reasoning blocks blanked to spaces of the same length, so the
 // positions of what is outside them stay where they are.
-const maskReasoning = text => text.replace(REASONING_RE, match => ' '.repeat(match.length));
+const maskReasoning = text => replacePairs(text, reasoningPairs(text), blank);
 // The bare blocks of `mes` (not hidden in Story Suite's comment, not inside closed reasoning), at
 // their places in `mes`.
-const bareBlocks = (mes, tag) => findBlocks(maskReasoning(String(mes ?? '').replace(HIDDEN_RE, match => ' '.repeat(match.length))), tag);
+const bareBlocks = (mes, tag) => {
+    const text = String(mes ?? '');
+    return findBlocks(maskReasoning(replacePairs(text, hiddenPairs(text), blank)), tag);
+};
 // The bare blocks a Continue added: from the `skip`th bare block on, starting at or after `from`.
 const laterBlocks = (mes, tag, { from = 0, skip = 0 } = {}) => bareBlocks(mes, tag).filter((block, i) => i >= skip && block.start >= from);
 
@@ -219,7 +267,8 @@ export function extractBlock(mes, tag = 'Changes', at = null, { stopped = false 
  * Whitespace left at the end is trimmed.
  */
 export function stripBlock(mes, tag = 'Changes') {
-    let text = String(mes ?? '').replace(HIDDEN_RE, (whole, body) => (findBlocks(body, tag).length ? '' : whole));
+    const raw = String(mes ?? '');
+    let text = replacePairs(raw, hiddenPairs(raw), pair => (findBlocks(raw.slice(pair.bodyStart, pair.bodyEnd), tag).length ? '' : raw.slice(pair.start, pair.end)));
     const blocks = findBlocks(text, tag);
     for (const block of blocks.reverse()) text = text.slice(0, block.start) + text.slice(block.end);
     return trimEnd(text);
@@ -290,22 +339,34 @@ function parseLine(source) {
 /**
  * Parses change lines, one per line. Blank lines, code fences, the block's own tags and "none"
  * are skipped; any other line that is not a change goes to `problems` as a plain sentence.
- * Returns { lines: [{ op, kind, name, text, labels, raw, index }], problems: string[] }; `index`
- * is the line's place among the lines read (0-based), `raw` the line as written.
+ * Returns { lines: [{ op, kind, name, text, labels, raw, index }], problems: string[], over? }; `index`
+ * is the line's place among the lines read (0-based), `raw` the line as written. With `max`, at most
+ * that many written lines (change lines or not) are read; `over` = { count, total, first } tells the rest.
  */
-export function parseChanges(text) {
+export function parseChanges(text, { max = Infinity } = {}) {
     const lines = [];
     const problems = [];
-    String(text ?? '').split(/\r?\n/).forEach((source, number) => {
-        const raw = source.trim();
-        if (!raw || raw.startsWith('```') || raw.startsWith('~~~') || /^<\/?[A-Za-z_]+\s*>$/.test(raw) || NOTHING.test(raw)) return;
+    const sources = String(text ?? '').split(/\r?\n/);
+    let read = 0;
+    let over = null;
+    for (let number = 0; number < sources.length; number += 1) {
+        const raw = sources[number].trim();
+        if (!raw || raw.startsWith('```') || raw.startsWith('~~~') || /^<\/?[A-Za-z_]+\s*>$/.test(raw) || NOTHING.test(raw)) continue;
+        // Every line written counts against `max`, read or not (B-b5b-robust-r2-5): past it the rest are
+        // counted, not read, and told once (`over`).
+        read += 1;
+        if (read > max) {
+            over ??= { first: raw, count: 0 };
+            over.count += 1;
+            continue;
+        }
         if (raw.length > MAX_LINE) {
-            problems.push(`Line ${number + 1} "${raw.slice(0, 60)}…" is longer than ${MAX_LINE} characters, so it was not read.`);
-            return;
+            problems.push(`Line ${number + 1} "${cutAt(raw, 60)}…" is longer than ${MAX_LINE} characters, so it was not read.`);
+            continue;
         }
         const parsed = parseLine(raw);
         if (parsed.error) problems.push(`Line ${number + 1} "${raw}" is not a change line: ${parsed.error}.`);
         else lines.push({ ...parsed, raw, index: lines.length });
-    });
-    return { lines, problems };
+    }
+    return over ? { lines, problems, over: { ...over, total: read } } : { lines, problems };
 }

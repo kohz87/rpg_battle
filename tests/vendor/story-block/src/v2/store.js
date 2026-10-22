@@ -3,10 +3,16 @@
 // * State at carrier N = the latest checkpoint at or before N, then every carrier's `ops` from there
 //   through N. Head state = state at the last carrier. Rebuilding replays stored ops only; it never runs a
 //   command handler.
-// * A carrier that gets its first record also gets a checkpoint (the state before its own ops) when 20
-//   carriers have passed since the last checkpoint, or the ops since then exceed 32 KB of JSON.
+// * A carrier that gets its first record also gets a checkpoint (the state before its own ops) when 100
+//   carriers have passed since the last checkpoint, or the ops since then exceed 128 KB of JSON. Older
+//   chats have them every 20 carriers / 32 KB: a checkpoint is read wherever it is.
 // * Writes go to the head carrier (actions after reply N belong to reply N, so swiping or deleting reply N
 //   takes them back) and only ever touch `extra.storySuite` and the matching `swipe_info` extra.
+// * Each record is kept once (persist.js): the shown swipe's copy in `swipe_info` only on the last
+//   carrier and on carriers with more than one swipe. When a reply gets its first record, the carrier
+//   before it drops that copy, and the carrier `receiptKeep` back drops its receipts' `data`; a rebuild
+//   does the same over the whole chat (so an older chat shrinks with its next save) and gives the last
+//   carrier its copy back. Neither changes any state: replay reads `message.extra` only.
 // * Told and untold (§4.1 step 2): a receipt is told once a carrier at or after its own lists its ID in
 //   `narrated`. Untold receipts are the `narrate: true` ones that no such carrier lists, oldest first. "At
 //   or after" rather than "after" so a cue committed on the head carrier while it is being re-generated
@@ -20,12 +26,16 @@
 
 import { apply as applyOps, rebaseOps } from './ops.js';
 import {
-    KEY, carrierIndexes, carryRecord, createSaver, isCarrier, lastCarrier, newRecordId, readRecord, recordFault, restamp,
-    swipeOf, writeRecord,
+    KEY, RECEIPT_KEEP, carrierIndexes, carryRecord, createSaver, dropCopy, isCarrier, keepsCopy, lastCarrier,
+    newRecordId, readRecord, recordFault, restamp, restoreCopy, swipeOf, trimReceipts, writeRecord,
 } from './persist.js';
 
-export const CHECKPOINT_EVERY = 20;
-export const CHECKPOINT_BYTES = 32 * 1024;
+export const CHECKPOINT_EVERY = 100;
+export const CHECKPOINT_BYTES = 128 * 1024;
+// The bytes rule never puts checkpoints closer than this many carriers, and waits for at least twice
+// the last checkpoint's own size of ops: one domain that rewrites a large list whole on every reply
+// cannot make every few replies write the whole state again (b6-soak).
+export const CHECKPOINT_MIN_GAP = 10;
 
 const isObject = value => !!value && typeof value === 'object' && !Array.isArray(value);
 const utf8 = new TextEncoder();
@@ -54,7 +64,8 @@ const revOf = state => (Number.isInteger(state?.meta?.rev) ? state.meta.rev : 0)
  * @param {(state, ops) => object} [options.apply]  defaults to ops.js; tests inject a fake
  * @param {(error) => void} [options.onSaveError]   told when a scheduled (not flushed) save fails, once until one works
  * @param {object} [options.timers]          { setTimeout, clearTimeout } for tests
- * @param {number} [options.checkpointEvery] / [options.checkpointBytes]  thresholds (default 20 / 32 KB)
+ * @param {number} [options.checkpointEvery] / [options.checkpointBytes]  thresholds (default 100 / 128 KB)
+ * @param {number} [options.receiptKeep]     carriers back (the head is 0) from which receipts drop `data` (200)
  * @param {() => string} [options.recordId]  ID of a new carrier record
  * @param {(state, domains: string[]) => string[]} [options.validate]  the domains' validators, run on a
  *   state whose counts were moved by a replay (ops.js rebaseOps), and on every replayed block's touched
@@ -64,12 +75,13 @@ const revOf = state => (Number.isInteger(state?.meta?.rev) ? state.meta.rev : 0)
 export function createStore({
     chat, save, now = null, apply = applyOps, onSaveError = null, timers = globalThis,
     checkpointEvery = CHECKPOINT_EVERY, checkpointBytes = CHECKPOINT_BYTES, recordId = newRecordId, validate = null,
-    chatId = () => undefined, place = () => null, rescue = null, scratch = null,
+    chatId = () => undefined, place = () => null, rescue = null, scratch = null, receiptKeep = RECEIPT_KEEP,
 } = {}) {
     if (typeof chat !== 'function') throw new TypeError('createStore needs a chat() function.');
     if (typeof apply !== 'function') throw new TypeError('createStore needs an apply(state, ops) function.');
     void now;
     let frozenCheckpoints = new WeakMap();
+    const checkpointBytesOf = new WeakMap();
     let cache = null;          // { key, state, problems }
     let lastWrite = null;      // { message, swipe, rev } of the last record written, for save verification
     let holding = 0;           // inside batch(): swipe_info copies wait until it ends
@@ -83,7 +95,9 @@ export function createStore({
     // left in a chat that is no longer open can be found again (rescue).
     function write(message, record) {
         if (holding) held.add(message);
-        const stored = writeRecord(message, record, { mirror: !holding });
+        const keep = keeps(message);
+        const stored = writeRecord(message, record, { mirror: !holding && keep });
+        if (!keep) dropCopy(message);
         lastWrite = { message, swipe: stored.swipe, rev: stored.rev };
         unsaved.set(message, { index: list().indexOf(message), chatId: chatId(), n: ++writes });
         return stored;
@@ -158,6 +172,49 @@ export function createStore({
         const arr = chat();
         return Array.isArray(arr) ? arr : [];
     };
+
+    // Is the shown swipe's copy of this carrier's record kept in swipe_info (persist.js keepsCopy)?
+    function keeps(message, arr = list()) {
+        return keepsCopy(message, arr[lastCarrier(arr)] === message);
+    }
+
+    // A rebuild's pass over the whole chat (persist.js): the last carrier gets its copy (again), the
+    // others with one swipe drop theirs, and receipts `receiptKeep` or more carriers back drop `data`.
+    // Only records that are the shown swipe's own are touched. In memory: the next save writes it.
+    // True when a record was stamped again (that one is a change to save).
+    function settleAll(arr) {
+        const carriers = carrierIndexes(arr);
+        let stamped = false;
+        carriers.forEach((i, at) => {
+            const message = arr[i];
+            const last = at === carriers.length - 1;
+            const keep = keepsCopy(message, last);
+            // A swipe deleted before another shifts that one's index: stamp it again, so the copy
+            // SillyTavern makes for the next new swipe is not taken for the new swipe's own.
+            stamped = restamp(message, { mirror: keep }) || stamped;
+            if (!readRecord(message)) return;
+            if (last) restoreCopy(message);
+            else if (!keep) dropCopy(message);
+            if (carriers.length - 1 - at >= receiptKeep) trimReceipts(message);
+        });
+        return stamped;
+    }
+
+    // A new record on the last carrier `index`: the carrier before it is no longer the one the reader
+    // can swipe, so it drops its copy (unless it has other swipes), and the one `receiptKeep` back drops
+    // its receipts' data.
+    function settleBehind(arr, index) {
+        let back = 0;
+        for (let i = index - 1; i >= 0; i--) {
+            if (!isCarrier(arr[i])) continue;
+            back += 1;
+            if (back === 1 && !keepsCopy(arr[i], false) && readRecord(arr[i])) dropCopy(arr[i]);
+            if (back >= receiptKeep) {
+                trimReceipts(arr[i]);
+                return;
+            }
+        }
+    }
 
     function checkpointState(raw) {
         let state = frozenCheckpoints.get(raw);
@@ -289,9 +346,24 @@ export function createStore({
 
     const sameKey = (a, b) => Object.keys(a).every(name => a[name] === b[name]);
 
+    // The cached head still holds when all that changed is messages after its carrier that hold no
+    // record (the reader's next message, a reply not read yet): replaying them would give it again.
+    function stillHolds(arr, key) {
+        const old = cache?.key;
+        if (!cache?.state || old.arr !== arr || old.index < 0 || key.index < old.index || arr.length < old.length) return false;
+        const message = arr[old.index];
+        if (message !== old.message || message?.swipe_id !== old.swipe || message?.extra !== old.extra || message?.extra?.[KEY] !== old.record) return false;
+        for (let i = old.index + 1; i < arr.length; i++) if (arr[i]?.extra?.[KEY] !== undefined) return false;
+        return true;
+    }
+
     function current() {
         const arr = list();
         const key = headKey(arr);
+        if (cache && !sameKey(cache.key, key) && stillHolds(arr, key)) {
+            cache = { ...cache, key };
+            known = carrierIndexes(arr).map(i => arr[i]);
+        }
         if (!cache || !sameKey(cache.key, key)) {
             const { state, problems } = key.index < 0 ? { state: null, problems: [] } : replay(arr, key.index);
             cache = { key, state, problems };
@@ -319,7 +391,8 @@ export function createStore({
     }
 
     // Does a new record on carrier `index` need a checkpoint? Counts the carriers and the op JSON since
-    // the last checkpoint before it.
+    // the last checkpoint before it: due after `checkpointEvery` carriers, or once the ops exceed
+    // `checkpointBytes` and twice the last checkpoint's size, `CHECKPOINT_MIN_GAP` carriers on at least.
     function needsCheckpoint(arr, index) {
         let carriers = 0;
         let bytes = 0;
@@ -328,10 +401,21 @@ export function createStore({
             carriers++;
             const record = readRecord(arr[i]);
             if (record?.ops.length) bytes += jsonBytes(record.ops);
-            if (record?.checkpoint) return carriers >= checkpointEvery || bytes > checkpointBytes;
+            if (record?.checkpoint) {
+                if (carriers >= checkpointEvery) return true;
+                const gap = Math.min(CHECKPOINT_MIN_GAP, checkpointEvery);
+                return carriers >= gap && bytes > Math.max(checkpointBytes, 2 * checkpointSize(record.checkpoint));
+            }
             if (carriers >= checkpointEvery) return true;
         }
         return false;
+    }
+
+    // A checkpoint's JSON size, worked out once per stored checkpoint.
+    function checkpointSize(raw) {
+        let size = checkpointBytesOf.get(raw);
+        if (size === undefined) checkpointBytesOf.set(raw, size = jsonBytes(raw));
+        return size;
     }
 
     // The carrier's record to build on: its own, or a fresh one (with a checkpoint when one is due).
@@ -341,6 +425,7 @@ export function createStore({
         const own = readRecord(message);
         if (own) return { message, record: own, fresh: false };
         const record = { v: 2, sid: sidFor(message), ops: [], receipts: [], narrated: [], spans: [] };
+        if (index === lastCarrier(arr)) settleBehind(arr, index);
         if (needsCheckpoint(arr, index)) {
             const base = before === undefined ? stateBefore(arr, index) : before;
             if (base) {
@@ -703,12 +788,9 @@ export function createStore({
         rebuild() {
             frozenCheckpoints = new WeakMap();
             cache = null;
-            // A swipe deleted before another shifts that one's index: stamp it again (persist.js), so
-            // the copy SillyTavern makes for the next new swipe is not taken for the new swipe's own.
-            const arr = list();
-            let stamped = false;
-            for (const i of carrierIndexes(arr)) stamped = restamp(arr[i]) || stamped;
-            if (stamped) saver.touch();
+            // The record copies and old receipts are settled over the whole chat, and a record whose
+            // swipe moved is stamped again (settleAll).
+            if (settleAll(list())) saver.touch();
             current();
         },
 
@@ -722,16 +804,45 @@ export function createStore({
             } finally {
                 holding -= 1;
                 if (!holding) {
+                    // The copies are written again as they are: a head cached before stays the head.
+                    const arr = list();
+                    const kept = cache && sameKey(cache.key, headKey(arr)) ? cache : null;
                     for (const message of held) {
                         const record = message.extra?.[KEY];
-                        if (record) writeRecord(message, record);
+                        if (!record) continue;
+                        if (keeps(message, arr)) writeRecord(message, record);
+                        else dropCopy(message);
                     }
                     held.clear();
+                    if (kept) retain(arr, kept.state, kept.problems);
                 }
             }
         },
 
+        /**
+         * B-b2-timeline-r2-2: chat `from` was renamed `to` (SillyTavern's CHAT_RENAMED). A change not yet
+         * saved, or left for its old chat's file, goes into the renamed chat's file instead: the old one
+         * is gone, and a renamed open chat is read back as new messages, which looks like another chat.
+         */
+        renamed(from, to) {
+            if (typeof from !== 'string' || typeof to !== 'string' || !from || !to || from === to) return false;
+            let moved = saver.renamed(from, to);
+            for (const entry of unsaved.values()) {
+                if (entry.chatId !== from) continue;
+                entry.chatId = to;
+                moved = true;
+            }
+            if (moved && saver.dirty()) saver.schedule();
+            return moved;
+        },
+
         scheduleSave(ms = 400) { saver.schedule(ms); },
+        /**
+         * Puts off a save that was only scheduled (not one already running): the turn's cues before a reply
+         * are saved with the reply's own save, one write of the chat file instead of two. The change stays
+         * dirty; the caller saves it (or schedules it again) when the reply comes or the generation ends.
+         */
+        deferSave() { saver.cancel(); },
         /** Saves now (a reader's action is saved at once); → Promise<true | false>, never throws: a failure is told and tried again. */
         saveSoon(options) { return saver.saveSoon(options); },
         flush() { return saver.flush(); },

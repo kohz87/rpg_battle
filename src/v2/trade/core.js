@@ -413,6 +413,14 @@ export function packShopsHere(world) {
     return world.packShops?.length ? world.packShops.map(shop => ({ slug: shop.slug, name: shop.name, kind: traderKind(shop.kindWords || shop.name, world.rules) })) : null;
 }
 
+/**
+ * Whether a stack is a key item (Story Block 2.0.0-beta.1 `key: true`): the one notable item a reply's
+ * story gave outside its goods budget. It is used, worn and given as any other, but has no cash
+ * value: no trader buys it, and a commission counts it as worth 0, so story text never turns into
+ * money past one reply's goods.
+ */
+export const isKeyItem = row => row?.key === true;
+
 /** Selling `qty` of `stack` to `kind` (or `who`, read for their trade): what is paid. */
 export function planSell(world, { stack, qty = 1, kind = null, who = '' } = {}) {
     if (!world.market.open) return noMarket(world);
@@ -422,6 +430,7 @@ export function planSell(world, { stack, qty = 1, kind = null, who = '' } = {}) 
     if (!row || !def) return no(CODES.notFound, 'That is not in the inventory.');
     if (row.equipped) return no(CODES.refused, `Take off the ${def.name} before selling it.`);
     if (def.kind === 'money' || def.kind === 'quest') return no(CODES.refused, `The ${def.name} cannot be sold.`);
+    if (isKeyItem(row)) return no(CODES.refused, `${def.name} is a key item; it can't be sold.`);
     if (row.qty < qty) return no(CODES.notEnough, row.qty ? `There ${row.qty === 1 ? 'is' : 'are'} only ${row.qty} ${def.name}.` : `There is no ${def.name} left.`);
     const buyer = traderKind(kind || who, world.rules);
     // A thing bought (or commissioned) never sells for more than was paid for it (B-b3-13, -14).
@@ -484,7 +493,7 @@ export function planCommission(world, { piece, materials, crafter } = {}) {
         if (!row || !def) return no(CODES.notFound, 'One of those materials is not in the inventory.');
         if (row.equipped || !isMaterial(legacyItem(def))) return no(CODES.refused, `The ${def.name} is not a material a piece can be made from.`);
         if (row.qty < qty) return no(CODES.notEnough, `There ${row.qty === 1 ? 'is' : 'are'} only ${row.qty} ${def.name}.`);
-        parts.push({ stack, def, qty });
+        parts.push({ stack, def, qty, key: isKeyItem(row) });
     }
     const made = craftPiece({ name, slot, parts }, { level: world.plevel, rules: world.rules });
     const fee = craftFee(made, { prices: world.prices, level: world.plevel, rules: world.rules });
@@ -498,8 +507,9 @@ export function planCommission(world, { piece, materials, crafter } = {}) {
     // The piece is worth what went into it (B-b3-13): its materials' worth and the fee; and it
     // never sells for more than the fee and what the materials would have fetched (`cap`, kept as
     // what was paid for it when it is collected), so a commission mints nothing.
-    const inputs = parts.reduce((sum, part) => sum + worthOf(part.def, world) * part.qty, 0);
-    const raw = parts.reduce((sum, part) => sum + Math.min(...TRADER_KINDS.map(buyer => sellEach(part.def, buyer, world))) * part.qty, 0);
+    // A key item counts as worth 0 (isKeyItem).
+    const inputs = parts.reduce((sum, part) => sum + (part.key ? 0 : worthOf(part.def, world) * part.qty), 0);
+    const raw = parts.reduce((sum, part) => sum + (part.key ? 0 : Math.min(...TRADER_KINDS.map(buyer => sellEach(part.def, buyer, world))) * part.qty), 0);
     const def = {
         name: made.name, kind: 'equipment', rarity: made.rarity, value: Math.max(1, inputs + fee), stack: false,
         slot: made.slot, stats: { ...made.stats }, effect: {}, tags: [...(made.tags ?? [])], note,

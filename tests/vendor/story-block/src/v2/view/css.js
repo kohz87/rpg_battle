@@ -309,7 +309,18 @@ function prefixIds(selector, prefix) {
         else if (char === '\\' && i + 1 < selector.length) out += selector[++i];
         else if (char === '[') bracket += 1;
         else if (char === ']') bracket = Math.max(0, bracket - 1);
-        else if (char === '#' && !bracket && /[-\w\\\u0080-\uffff]/.test(selector[i + 1] ?? '')) out += prefix;
+        else if (char === '#' && !bracket && /[-\w\\\u0080-\uffff]/.test(selector[i + 1] ?? '')) {
+            // `#name` reaches the screen's first copy (`#<prefix>name`) and every other copy drawn at the
+            // same time (`<prefix>name--c<n>`, template render.js); a name written with escapes, the first.
+            const name = /^[-\w\u0080-\uffff]+/.exec(selector.slice(i + 1))?.[0] ?? '';
+            const next = selector[i + 1 + name.length] ?? '';
+            if (!name || next === '\\') {
+                out += prefix;
+                continue;
+            }
+            out = `${out.slice(0, -1)}:is(#${prefix}${name}, [id^="${prefix}${name}--c"])`;
+            i += name.length;
+        }
     }
     return out;
 }

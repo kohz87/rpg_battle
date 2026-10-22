@@ -5,13 +5,15 @@
 // The name is singular ("1 mark"); the plural is its own setting, blank for the name + "s" ("44 marks",
 // see pluralOf). The default, gold, has no plural form of its own ("44 gold").
 
+import { cutAt } from '../../text.js';
+
 export const WALLET_KEY = 'coin';
 export const DEFAULT_CURRENCY = Object.freeze({ name: 'gold', plural: 'gold', short: 'g' });
 
 const MAX_NAME = 24;
 const MAX_SHORT = 6;
 
-const tidy = (text, max) => String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
+const tidy = (text, max) => cutAt(String(text ?? '').replace(/\s+/g, ' ').trim(), max);
 
 /**
  * The plural a currency name gets when none is set: the name + "s" ("marks"). Gold stays gold, and a
@@ -31,8 +33,8 @@ export function pluralOf(name) {
 export function currencyOf(settings) {
     const name = tidy(settings?.currency, MAX_NAME) || DEFAULT_CURRENCY.name;
     const plural = tidy(settings?.currencyPlural, MAX_NAME) || pluralOf(name);
-    const short = String(settings?.currencyShort ?? '').trim().slice(0, MAX_SHORT)
-        || (name === DEFAULT_CURRENCY.name ? DEFAULT_CURRENCY.short : name[0].toLowerCase());
+    const short = cutAt(String(settings?.currencyShort ?? '').trim(), MAX_SHORT)
+        || (name === DEFAULT_CURRENCY.name ? DEFAULT_CURRENCY.short : Array.from(name)[0].toLowerCase());
     return { name, plural, short };
 }
 
