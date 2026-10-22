@@ -64,10 +64,13 @@ function fightConditionOf(entry) {
     return name && CARRIED.has(name) ? name : null;
 }
 // A party condition's `stacks` are the rounds a fight left on it; a story's (stacks 1, no
-// rounds) lasts the fight's usual 3.
-const roundsOf = entry => {
+// rounds) lasts the fight's usual 3. Either way no longer than the same condition from a blow in a
+// fight (rules.generated.effectRounds: a stun 1, a poison 3), so a story's "stunned" costs one turn
+// at most and model text never sets a longer one (rx-combat: it came in as three stunned turns).
+const roundsOf = (entry, name, rules = DEFAULT_RULES) => {
     const stacks = Math.round(Number(entry?.stacks ?? entry?.rounds) || 0);
-    return stacks > 1 ? stacks : 3;
+    const most = Math.round(Number(rules?.generated?.effectRounds?.[name] ?? DEFAULT_RULES.generated.effectRounds[name])) || 3;
+    return Math.max(1, Math.min(most, stacks > 1 ? stacks : 3));
 };
 
 /** One row of `inventory.items` / `items.gear` as v1's item fields, its def looked up when it is only an id. */
@@ -164,7 +167,8 @@ export function partyCombatants(ctx, { rules = DEFAULT_RULES } = {}) {
             stats: { ...actor.stats },
             hp: actor.hp, mp: actor.mp, sp: actor.sp,
             skills: (actor.skills ?? []).map(skill => ({ name: skill.name, mastery: skill.level ?? skill.mastery ?? 1, aside: skill.active === false })),
-            conditions: (actor.conditions ?? []).map(entry => ({ name: fightConditionOf(entry), rounds: roundsOf(entry) }))
+            conditions: (actor.conditions ?? []).map(entry => ({ name: fightConditionOf(entry), entry })).filter(({ name }) => name)
+                .map(({ name, entry }) => ({ name, rounds: roundsOf(entry, name, rules) }))
                 .filter(entry => entry.name),
         };
         const c = combatantFromSheet(sheet, {
