@@ -3,7 +3,7 @@
 // head rebuilt from the chat equals the live head, and no block of valid input is skipped on
 // replay (store.problems()). Bookkeeping later replies write must be keyed by the reply (or an id),
 // add-only, never a list position or a field of an object an earlier reply made (SPEC §2). Pool changes,
-// level-ups (XP), spends and rests are counts (party/pools.js) and are in the mix.
+// level-ups (XP), the story's own XP awards (`+ xp`), spends and rests are counts (party/pools.js) and are in the mix.
 // A few seeds run in `npm test`; FUZZ_DELETE_SEEDS=<n> FUZZ_DELETE_REPLIES=<n> run more.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -52,7 +52,7 @@ function lines(r, n) {
     const count = r.int(1, 4);
     for (let i = 0; i < count; i += 1) {
         const kind = r.pick(['check', 'check', 'place', 'market', 'lift', 'item', 'coin', 'encounter', 'join', 'skill', 'effect', 'effect', 'unbuff', 'ranked', 'wear', 'wear', 'kit', 'repair', 'refine',
-            'harm', 'harm', 'heal', 'rest']);
+            'harm', 'harm', 'heal', 'rest', 'xp', 'xp']);
         if (kind === 'check') out.push(`? check ${r.pick(SKILLS)} — try ${n}.${i} | dc: ${r.pick(['easy', 'normal', 'hard'])} | roll: ${r.int(1, 2)} | result: ${r.pick(['success', 'fail'])}`);
         if (kind === 'place') out.push(`~ place ${r.pick(PLACES)} | kind: settlement`);
         if (kind === 'market') out.push(`! market ${r.pick(PLACES)} — short of bread ${n}`);
@@ -75,6 +75,8 @@ function lines(r, n) {
         if (kind === 'harm') out.push(`~ wound ${r.pick(['Ren', 'Ren', 'Lyra', 'Bram'])} — a blow ${n} | harm: ${r.pick(['scratch', 'wound', 'severe', 'grievous'])}`);
         if (kind === 'heal') out.push(`~ wound ${r.pick(['Ren', 'Lyra'])} — a poultice ${n} | heal: ${r.pick(['scratch', 'wound', 'severe'])}`);
         if (kind === 'rest') out.push(`! rest ${r.pick(['short', 'long'])} — a camp ${n}`);
+        // The story's own XP awards (party/capture.js xp): code's amounts, level-ups, a cap per reply.
+        if (kind === 'xp') out.push(`+ xp ${r.pick(['minor', 'minor', 'major', 'milestone'])} — a deed ${n}.${i}`);
     }
     // At most 2 checks count in a reply; the third would be a Problem by design, not a replay skip.
     let checks = 0;

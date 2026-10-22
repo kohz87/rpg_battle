@@ -38,6 +38,8 @@ export const PARTY_COUNTERS = Object.freeze([
     'actors/*/xp',
     'actors/*/points',
     'actors/*/stats/*',
+    // The story minute the party has recovered up to (recovery.js): moved as Story Director's clock is.
+    'rested',
 ]);
 
 const isObject = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);

@@ -221,7 +221,7 @@ export function createModule({ settings = null, query = null } = {}) {
             if (KIND_OVERRIDES[kind] && Object.hasOwn(owners.kind, kind) && KIND_OVERRIDES[kind] === id) delete owners.kind[kind];
             if (KIND_OVERRIDES[kind] && Object.hasOwn(owners.kind, kind) && KIND_OVERRIDES[kind] !== id) continue;
             claim(owners.kind, kind, id, 'change-line kind');
-            kinds[kind] = { part: id, grammar: spec.grammar, apply: spec.apply, ...(spec.feature ? { feature: spec.feature } : {}) };
+            kinds[kind] = { part: id, grammar: spec.grammar, apply: spec.apply, ...(spec.feature ? { feature: spec.feature } : {}), ...(typeof spec.grammarFor === 'function' ? { grammarFor: spec.grammarFor } : {}) };
         }
         for (const [name, fn] of Object.entries(part.hooks ?? {})) {
             if (typeof fn === 'function') (hooks[name] ??= []).push({ part: id, fn });
@@ -290,7 +290,7 @@ export function createModule({ settings = null, query = null } = {}) {
         commands,
         queries,
         capture: {
-            kinds: Object.fromEntries(Object.entries(kinds).map(([kind, spec]) => [kind, { grammar: spec.grammar, ...(spec.feature ? { feature: spec.feature } : {}) }])),
+            kinds: Object.fromEntries(Object.entries(kinds).map(([kind, spec]) => [kind, grammarOf(spec, () => withTerms(partSettings(moduleSettings(), spec.part), staticQuery))])),
             apply(ctx, line) {
                 const entry = kinds[line?.kind];
                 if (!entry) return ctx.fail('INVALID', `RPG Battle does not read "${line?.kind}" lines.`);
@@ -334,6 +334,28 @@ export function createModule({ settings = null, query = null } = {}) {
         widgets,
         screens,
     };
+}
+
+/**
+ * A capture kind as Story Block reads it: { grammar, feature? }. A kind with `grammarFor(settings)` (the
+ * world's words, §F105) has its grammar worked out each time the prompt is built, from the part's
+ * settings with the terms, so it changes only when they do; a throw gives the fixed `grammar`.
+ */
+function grammarOf(spec, settings) {
+    const out = spec.feature ? { feature: spec.feature } : {};
+    if (typeof spec.grammarFor !== 'function') return { grammar: spec.grammar, ...out };
+    Object.defineProperty(out, 'grammar', {
+        enumerable: true,
+        get() {
+            try {
+                const line = spec.grammarFor(settings());
+                return typeof line === 'string' && line.trim() ? line : spec.grammar;
+            } catch {
+                return spec.grammar;
+            }
+        },
+    });
+    return out;
 }
 
 /** `tools` with a `settings` worked out by `make()` the first time it is read (then kept), frozen. */

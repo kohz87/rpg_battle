@@ -264,8 +264,8 @@ test('party.toSpend lists who has points to spend', () => {
 test('the merged module declares the feature and marks what it owns (MODULES §F100)', async () => {
     const { rpgBattleModule } = await import('../../../src/v2/module.js');
     assert.deepEqual(rpgBattleModule.features.filter(feature => feature.id === FEATURE || feature.id === 'rpg-battle.crafting').map(feature => [feature.id, feature.default, feature.prompt]), [[FEATURE, true, true], ['rpg-battle.crafting', true, true]]);
-    // Beside the items part's gear features (RB #88).
-    assert.deepEqual(rpgBattleModule.features.map(feature => feature.id).sort(), [FEATURE, 'rpg-battle.crafting', 'rpg-battle.refine', 'rpg-battle.wear'].sort());
+    // Beside the items part's gear features (RB #88) and story-time recovery (party/recovery.js).
+    assert.deepEqual(rpgBattleModule.features.map(feature => feature.id).sort(), [FEATURE, 'rpg-battle.crafting', 'rpg-battle.recovery', 'rpg-battle.refine', 'rpg-battle.wear'].sort());
     assert.equal(rpgBattleModule.capture.kinds.effect.feature, FEATURE);
     for (const type of ['party.addEffect', 'party.endEffect', 'party.effectsTurn']) assert.equal(rpgBattleModule.commands[type].feature, FEATURE, type);
     assert.equal(rpgBattleModule.queries['party.effects'].feature, FEATURE);

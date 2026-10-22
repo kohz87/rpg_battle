@@ -11,7 +11,7 @@ import { PRESETS, findSkill, skillFromTemplate, DEFAULT_SKILLS, canLearn } from 
 import { applyResult as applyResultV1, forgetSkill as forgetV1, learnSkill as learnV1, newSheet, setSkillActive as setActiveV1, spendPoints } from '../../sheet.js';
 import { newCompanion } from '../../party.js';
 import { QUEST_DIFFICULTIES, awardShare, gainXp, settleCompanions, spendByBuild, xpAward } from '../../growth.js';
-import { rest as restV1, useItemOutside } from '../../recovery.js';
+import { rest as restV1, restAfter, useItemOutside } from '../../recovery.js';
 import { cleanFocus, guessFocus, lockedReason, suggestSkills } from '../../builds.js';
 import { COMPANION_LEVELS_ABOVE, companionStats, companionWeights, joinLevel } from './formula.js';
 import { levelText, maxLevel, xpGainText, xpLabel } from '../../terms.js';
@@ -21,6 +21,7 @@ import { defineItem } from '../items/define.js';
 import { OUTCOMES, dcOf, outcomeOf, statForCheck } from './checks.js';
 import { sessionOf } from '../combat/stored.js';
 import { filledBy, fitActor, fitParty, fitPool, storedPool } from './pools.js';
+import { foldStoryTime } from './recovery.js';
 import { actorFrom, actorsInOrder, attempt, cleanName, cleanRole, fail, nameKey, newId, offersRecord, revOf, waitingOffers } from './util.js';
 
 // Skills learned onto a built sheet, in order (v1 newSheet's own loop, for a sheet made from final stats).
@@ -455,8 +456,11 @@ const gainText = gain => [gain.hp ? `HP +${gain.hp}` : '', gain.mp ? `MP +${gain
  * stacks): a short rest gives back rules.recovery.shortRestShare, a long one fills everything
  * and ends fight conditions; any rest fills stamina. What it fills is stored as full ("restore to
  * full", pools.js), so a replay after an earlier reply was deleted still finds the member rested.
+ * Story time is folded in first (recovery.js); a short rest then gives only what its share adds beyond
+ * what that time gave (v1 restAfter: one stretch of time, not two).
  */
 function rest(ctx, payload = {}) {
+    const timeFold = payload.kind === 'short' || payload.kind === 'long' ? foldStoryTime(ctx) : null;
     const party = ctx.draft('party');
     const rules = rulesFor(ctx);
     const kind = payload.kind;
@@ -474,7 +478,9 @@ function rest(ctx, payload = {}) {
     for (const id of ids) {
         const actor = party.actors[id];
         const sheet = toSheet(actor);
-        const rested = restV1(sheet, kind, { gear: wornGear((name, args) => ctx.query(name, args), inventory, id, { pc: party.pc }), rules });
+        const gear = wornGear((name, args) => ctx.query(name, args), inventory, id, { pc: party.pc });
+        const already = timeFold?.gains?.[id] ?? null;
+        const rested = already ? restAfter(sheet, kind, { gear, rules, already }) : restV1(sheet, kind, { gear, rules });
         // Any rest ends what a fight left (a bleed with rounds to go, B-c1-1); a story's condition waits for a long one.
         const next = { ...rested, conditions: (rested.conditions ?? []).filter(entry => !Number.isInteger(entry.rounds)) };
         const after = writeSheet(party, actor, next, rules, { filled: filledBy(kind) });
@@ -502,6 +508,8 @@ function whole(ctx, value, what) {
  */
 function heal(ctx, payload = {}) {
     internalOnly(ctx, 'HP and MP come back by using something (item.use) or resting, not from a button.');
+    // Story time first (recovery.js), so the item heals what is still missing after it.
+    if (fightOn(ctx)?.status !== 'active') foldStoryTime(ctx);
     const party = ctx.draft('party');
     const rules = rulesFor(ctx);
     const actor = actorFrom(ctx, party, payload, { pcDefault: false });

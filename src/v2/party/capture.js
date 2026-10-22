@@ -1,5 +1,5 @@
 // The party part's change-line kinds (SPEC §4.4, MODULES §B1): wound, join, skill, check, rest,
-// leave (MODULES §F26).
+// leave (MODULES §F26), xp (the story's own awards: minor, major, milestone; code sets the amount).
 // Each `apply(ctx, line)` runs as a `story` command: it finds the member the line names (v1
 // story.findTarget rules), sets every number by code, and rejects what it cannot accept (the
 // host keeps those as Problems). A join, skill or leave line is never applied by itself: it waits in
@@ -11,10 +11,11 @@
 import { applyWounds, describeWound, guessSkill, parseHints, parseWounds } from '../../story.js';
 import { cleanFocus, guessFocus } from '../../builds.js';
 import { findSkill, DEFAULT_SKILLS } from '../../skills.js';
-import { parseLevelLabel, maxLevel } from '../../terms.js';
+import { DEFAULT_TERMS, parseLevelLabel, maxLevel, termsOf } from '../../terms.js';
 import { fromSheet, rulesFrom, settingsOf, toSheet } from './sheets.js';
 import { COMPANION_LEVELS_ABOVE, addOffer, fightOn, handlers } from './commands.js';
 import { clipped } from '../lines.js';
+import { foldStoryTime } from './recovery.js';
 import { presetFor } from './formula.js';
 import { MAX_LABEL, cleanName, cleanRole, fail, labelsOf, nameKey, replyOf, resolveName, waitingOffers } from './util.js';
 
@@ -27,7 +28,23 @@ export const GRAMMAR = Object.freeze({
     check: '? check <skill or stat> — what is attempted | dc: easy|normal|hard|<number> | who: Name (then stop before the outcome; code rolls it)',
     rest: '! rest short|long — where and how the party rests',
     leave: '- leave Name — why they go (a companion parts ways with the party; the reader decides)',
+    xp: xpGrammar(null),
 });
+
+/**
+ * The `xp` kind's grammar line in the world's XP word (MODULES §F105: the reader's or the pack's,
+ * else XP): fixed words otherwise, so the static prompt changes only when that word does.
+ */
+export function xpGrammar(settings) {
+    const { xpName } = termsOf(rulesFrom(settingsOf(settings)));
+    const word = String(xpName ?? '').replace(/[\r\n|]+/g, ' ').replace(/\s+/g, ' ').trim();
+    const xp = !word || word === DEFAULT_TERMS.xpName ? 'XP' : word;
+    return `+ xp minor|major|milestone — what the party achieved (a story ${xp} award; code sets the amount; at most one major or milestone and two minor a reply)`;
+}
+
+// The most story awards one reply may give (rule 1: a cap per reply): one major or milestone, two minor.
+export const XP_AWARDS_PER_REPLY = Object.freeze({ big: 1, minor: 2 });
+const XP_SIZES = Object.freeze(['minor', 'major', 'milestone']);
 
 const rulesFor = ctx => rulesFrom(settingsOf(typeof ctx?.settings === 'function' ? ctx.settings() : null));
 
@@ -50,6 +67,8 @@ function severityWord(ctx, value) {
  * never a number; a condition added or lifted), at most one harm or heal per person per reply.
  */
 function applyWound(ctx, line) {
+    // Story time this reply wrote before the wound heals first (recovery.js); the wound stays.
+    if (!fightOn(ctx)) foldStoryTime(ctx);
     const party = ctx.draft('party');
     const rules = rulesFor(ctx);
     const actor = memberOf(ctx, party, line.name);
@@ -173,6 +192,35 @@ function applyRest(ctx, line) {
     return handlers.rest(ctx, { kind, reason: line.text ?? '' });
 }
 
+/**
+ * `+ xp major — rescued the caravan` (also `+ xp minor | reason: …`): the story's own award, v1's
+ * <XP> block. The size is the story's word; the amount is code's (party.grantXp: a share of each
+ * member's next level, v1 rules.xpAwards, at the reader's XP rate), never a number the story
+ * writes. At most one major or milestone and two minor a reply (claimed by the reply); level-ups
+ * follow as for any XP. Not while a fight has the party: its XP is the fight's.
+ */
+function applyXp(ctx, line) {
+    if (line.op !== '+' && line.op !== '!') fail(ctx, 'INVALID', 'The story only gives XP: "+ xp minor|major|milestone — why".');
+    const labels = labelsOf(line);
+    const text = String(line.text ?? '').trim();
+    const words = [line.name, labels.kind, labels.size, labels.award, text.split(/[\s:—–-]+/)[0]].map(value => String(value ?? '').trim().toLowerCase());
+    const size = words.map(word => XP_SIZES.find(entry => word === entry || word.startsWith(`${entry} `) || word.startsWith(`${entry}:`))).find(Boolean);
+    if (!size) fail(ctx, 'INVALID', 'An XP award is minor, major or milestone.');
+    if (fightOn(ctx)) fail(ctx, 'REFUSED', 'A fight has the party: its XP comes from the fight, at its end.');
+    const reason = (labels.reason ?? labels.why ?? labels.for ?? (text.toLowerCase().startsWith(size) ? text.slice(size.length).replace(/^[\s:—–-]+/, '') : text)).slice(0, 120).trim();
+    const reply = replyOf(ctx, line);
+    if (reply !== null) {
+        const big = size !== 'minor';
+        const slots = big ? XP_AWARDS_PER_REPLY.big : XP_AWARDS_PER_REPLY.minor;
+        const taken = Array.from({ length: slots }, (_, n) => `xp:story:${reply}:${big ? 'big' : 'minor'}:${n + 1}`).find(key => ctx.claim(key));
+        if (!taken) fail(ctx, 'CLAIMED', big ? 'A major or milestone award was already given in this reply.' : `${XP_AWARDS_PER_REPLY.minor} minor awards were already given in this reply.`);
+    }
+    const out = handlers.grantXp(ctx, { kind: size, reason });
+    // A number the story wrote is never the amount (rule 1); say so when there was one.
+    const written = ['amount', 'xp', 'value', 'points'].some(key => labels[key] !== undefined) || /\d/.test(String(line.name ?? ''));
+    return { ...out, data: { ...(out?.data ?? {}), kind: size }, ...(written ? { problem: 'Code sets the XP an award gives; the number written was not used.' } : {}) };
+}
+
 export const kinds = {
     wound: { grammar: GRAMMAR.wound, apply: clipped(applyWound) },
     join: { grammar: GRAMMAR.join, apply: clipped(applyJoin) },
@@ -180,4 +228,6 @@ export const kinds = {
     check: { grammar: GRAMMAR.check, apply: clipped(applyCheck) },
     rest: { grammar: GRAMMAR.rest, apply: clipped(applyRest) },
     leave: { grammar: GRAMMAR.leave, apply: clipped(applyLeave) },
+    // The grammar in the world's XP word (src/v2/module.js reads `grammarFor` with the part's settings).
+    xp: { grammar: GRAMMAR.xp, grammarFor: settings => xpGrammar(settings), apply: clipped(applyXp) },
 };
