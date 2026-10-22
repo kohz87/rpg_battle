@@ -23,13 +23,15 @@ import { promptRolls } from './dice.js';
 import { memberOf, rulesFor, tableLine } from './modifiers.js';
 import { queries } from './queries.js';
 import { diagnostics, replyCard } from './card.js';
+import { DEFAULT_CAP, MAX_CAP } from './outside.js';
 import { initialChecks, validateChecks } from './shared.js';
 
 // The instruction every reply carries (byte-identical: no names, no numbers that change). The
 // line's own grammar is added by Story Block from `kinds.check.grammar`.
 export const STATIC_TEXT = 'Uncertain actions (sneaking, climbing, persuading, searching, picking a lock, resisting) are settled by the dice handed over in this reply\'s notes: the first uncertain attempt takes Roll 1, the next Roll 2, at most two per reply. Add the acting character\'s modifier from the notes\' table (the stat that answers the skill, plus a bonus listed for that kind of check), set the difficulty (easy 10, normal 15, hard 20, very hard 25) and compare: reaching it succeeds, 1 or 2 short succeeds at a cost, less fails; a natural 20 always succeeds and a natural 1 always fails. Narrate the outcome in this same reply, then write `? check <skill> — <what> | dc: … | roll: <1 or 2> | result: success|cost|fail` in <Changes> (add `| who: Name` for a companion).';
 
-export const BUDGET = 260;
+// 260 for the dice and the table, 60 more for up to two "[Dice] … actually …" lines.
+export const BUDGET = 320;
 
 function ask(view, name, args) {
     if (typeof view?.query !== 'function') return null;
@@ -58,6 +60,11 @@ export function tail(view) {
     if (!pc) return { lines: [], optional: [] };
     const lines = [];
     const prepared = preparedFor(view?.state?.domains?.checks, null);
+    // The reply before wrote a result the dice did not give: told once, to this reply (card.js toldBack).
+    if (Number.isInteger(prepared?.for)) {
+        const told = ask(view, 'checks.toldBack', { for: prepared.for });
+        if (Array.isArray(told)) lines.push(...told.filter(line => typeof line === 'string'));
+    }
     if (prepared?.rolls?.length) lines.push(`Dice for this reply: ${promptRolls(prepared.rolls)}.`);
     const rules = rulesFor(settingsOf(view));
     const defs = view?.state?.domains?.inventory?.defs ?? {};
@@ -91,5 +98,13 @@ export const part = {
     queries,
     kinds,
     context: { static: () => STATIC_TEXT, tail, budget: BUDGET },
+    // Other modules' check modifiers (outside.js, Story Block MODULES §F124): the sum held to ±this.
+    settings: {
+        section: 'Checks',
+        defaults: { outsideCap: DEFAULT_CAP },
+        schema: {
+            outsideCap: { type: 'int', label: 'Other modules\' check modifiers, at most (±)', min: 0, max: MAX_CAP, help: 'What other modules add to a check (NPC State Delta: how a person feels about you) is held to this much, up or down. 0 turns it off.' },
+        },
+    },
     hooks: { beforeGenerate, replyCard, diagnostics: () => diagnostics() },
 };

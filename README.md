@@ -106,6 +106,17 @@ each in full. Every one can be switched off in Story Suite settings → **Featur
   result than the dice gave, the card says so (*Story said success; dice said fail*); the dice's result is
   the one kept. **Settings → Diagnostics** names the dice handed over for the latest reply and which a
   check took (fresh dice are rolled when each reply, swipe or regenerate starts).
+- **Other modules can move a check, a little.** Before a check is worked out, RPG Battle asks the other
+  modules (Story Block's `checkModifiers` hook) and, for persuading, charming or seducing, intimidating and
+  deceiving someone, NPC State Delta (how that person feels about you, its feature *Social*). Whom the
+  check is against: its `vs:` or `target:`, else someone here named in the line. Each shows on the check's
+  line with where it came from (*− 2 Elula is wary (Delta)*); together they move a check by at most ±5
+  (**Checks: Other modules' check modifiers, at most**; 0 turns them off). They are read from the story
+  as it stood at that reply, so Re-read and swipes agree.
+- **The dice told back.** When a reply's check line wrote another result than the dice gave, the next
+  reply is told in one line (at most two), e.g. *[Dice] Wessel's AGI check (pursuing the wounded wolf)
+  actually failed (5 vs DC 10): let the consequence show.* Only that next reply (and its swipes); not for
+  a check Story Block's pre-roll made, whose outcome the narrator already had.
 - **Skill uses.** A skill grows from use in fights (v1's rule: 5 uses for level 2, 12 for 3, 22 for 4, 35
   for 5), counted when the fight is settled. The Party card's skill list says how far each is
   (`Lv 1 · 1/5 uses to Lv 2`); the skill tree's badge shows the level alone.

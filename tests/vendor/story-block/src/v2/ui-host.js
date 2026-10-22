@@ -301,7 +301,7 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
         return out;
     }
     // A card's scope also gets `refused`: that reply's change lines the code did not apply; the "Changed this
-    // reply" card also `moduleLines`: the modules' own lines for that reply (hooks.replyCard, MODULES §F122).
+    // reply" card also `moduleLines`: the modules' own lines for that reply (hooks.replyCard, MODULES §F123).
     const cardLines = (index, state, changes) => replyCardLines(registry.hookEntries?.('replyCard') ?? [], { index, state, changes });
     const drawScreen = renderer.render;
     renderer.render = (el, screen, scope) => drawScreen(el, screen, scope?.mount === 'card'

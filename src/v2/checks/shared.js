@@ -33,7 +33,8 @@ export const slack = most => most * 4;
 /** Up to 2 checks per reply (MODULES §F32); a reply gets as many rolls. */
 export const MAX_PER_REPLY = 2;
 export const ROLLS_PER_REPLY = MAX_PER_REPLY;
-export const SOURCES = Object.freeze(['stat', 'skill', 'talent', 'item', 'ability', 'custom', 'effect']);
+// `module`: another module's say (outside.js, Story Block MODULES §F124).
+export const SOURCES = Object.freeze(['stat', 'skill', 'talent', 'item', 'ability', 'custom', 'effect', 'module']);
 export const OUTCOME_KEYS = Object.freeze(Object.keys(OUTCOMES));
 
 const CHECK_ID = /^ck_[0-9a-z]{8}$/;
@@ -153,6 +154,8 @@ function checkResult(entry, where, errors) {
     if (entry?.said !== undefined && entry.said !== null && !OUTCOME_KEYS.includes(entry.said)) errors.push(`${where}: ${entry.said} is not an outcome.`);
     if (entry?.mismatch !== undefined && !str(entry.mismatch, 120)) errors.push(`${where}: the mismatch note is too long.`);
     if (entry?.note !== undefined && !str(entry.note, 160)) errors.push(`${where}: the note is too long.`);
+    if (entry?.target !== undefined && !str(entry.target, 60)) errors.push(`${where}: the target is too long.`);
+    if (entry?.pre !== undefined && entry.pre !== true) errors.push(`${where}: pre is true or absent.`);
 }
 
 function checkShown(entry, where, errors) {

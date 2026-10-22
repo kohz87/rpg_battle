@@ -20,6 +20,7 @@
 import { OUTCOMES, dcOf, outcomeOf, statForCheck } from '../party/checks.js';
 import { drawFrom, promptRolls, rollDice } from './dice.js';
 import { memberOf, modifiersFor, rulesFor } from './modifiers.js';
+import { capOf, outsideModifiers, targetOf } from './outside.js';
 import { clipped } from '../lines.js';
 import {
     MAX_LOG, MAX_PER_REPLY, MAX_PREPARED, ROLLS_PER_REPLY,
@@ -274,7 +275,14 @@ function applyCheck(ctx, line) {
     let defs = {};
     try { defs = ctx.read('inventory')?.defs ?? {}; } catch { defs = {}; }
     const member = memberOf((name, args) => ask(ctx, name, args), actor, defs);
-    const modifiers = modifiersFor(member, skill, statWord || null, rules);
+    // Other modules' say (Story Block MODULES §F124, outside.js): asked on this reply's state, bounded.
+    let present = [];
+    try { present = ctx.read('scene')?.present ?? []; } catch { present = []; }
+    const against = targetOf(labels, line?.text ?? '', present, actor.name);
+    let settings = null;
+    try { settings = ctx.settings?.() ?? null; } catch { settings = null; }
+    const outside = outsideModifiers(ctx, { actor: { id: actor.id, name: actor.name }, skill, stat, target: against, dc: target.dc }, capOf(settings));
+    const modifiers = [...modifiersFor(member, skill, statWord || null, rules), ...outside];
     const mod = sumOf(modifiers);
     const outcome = outcomeOf(picked.die, mod, target.dc);
     const said = saidOutcome(labels.result);
@@ -284,6 +292,9 @@ function applyCheck(ctx, line) {
         id: newId(ctx, checks), actor: actor.id, name: clip(actor.name, 80), skill, stat, dc: target.dc, word: target.word, what, rev,
         carrier: key, roll: picked.roll, die: picked.die, modifiers, mod, total: picked.die + mod, outcome, outcomeText: OUTCOMES[outcome],
         said, mismatch, note: clip(picked.note, 160),
+        ...(against ? { target: clip(against, 60) } : {}),
+        // Made by Story Block's pre-roll (assist.precheck, a system step before the reply): the narrator was told it.
+        ...(ctx?.cause === 'system' ? { pre: true } : {}),
     };
     entry.text = clip(`${attemptText(entry)}: ${rollText(entry)}`, 240);
     // Under its own id (B-b1r2-13): an earlier reply deleted never moves it.

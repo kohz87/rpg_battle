@@ -58,3 +58,16 @@ time F17); this repo's README "A fight", "Fights from the story", "Monsters on t
 
 - Re-run the balance tests and say in the PR how the tier hit rates moved; one tier change shifts all presets.
 - New combat command or kind: add it to `tests/v2/qa/helpers/fuzz.js` and prove replay == live.
+
+## Checks: other modules' modifiers and the dice told back
+
+- Before a check is resolved (`checks/commands.js` applyCheck), `checks/outside.js` asks Story Block's
+  `ctx.gather('checkModifiers', { actor, skill, stat, target, dc })` (every other module's hook, MODULES §F124)
+  and, for a social skill against someone, NSD's `npc.socialModifier({ name, skill })` (feature
+  `npc-state-delta.social`; absent, off or throwing → nothing). Target: `vs:` / `target:`, else the first
+  `scene.present` name the line's text has (`who:` stays the member making it). Each entry ±5, at most 4,
+  the sum held to ±`checks.outsideCap` (default 5, 0 off) with a "held to ±N" entry; stored as modifiers with
+  source `module`, so the card and the total show them. Read on the reply's state: Re-read and swipe agree.
+- `checks.toldBack({ for })` (card.js): the next reply's tail lines "[Dice] … actually failed (5 vs DC 10): …"
+  for the checks of the last carrier with a receipt before it (receipts), at most 2, not for `pre` checks
+  (made by Story Block's `assist.precheck`). Tests: `tests/v2/checks/outside.test.js`.

@@ -9,7 +9,7 @@
 // "+1 Moonveil Trout, −1 Rope · +30 gold · to Bluewatch Village · Fenna arrived". A stack used up
 // completely is gone from the reply's state, so only the header (which sees the state before) names it.
 //
-// Modules add their own lines (MODULES §F122): a module's `hooks.replyCard({ index, state, before, changes })`
+// Modules add their own lines (MODULES §F123): a module's `hooks.replyCard({ index, state, before, changes })`
 // answers [{ text, summary?, flag?, note?, icon? }] for that reply (RPG Battle: the checks it rolled, the die,
 // the modifiers and the total against the difficulty). `replyCardLines` cleans them (one line each, cut by
 // code points, at most REPLY_LINES_MAX per module, a Font Awesome icon name or a default); the host puts them in
@@ -134,7 +134,7 @@ const PLACE = /^\/domains\/scene\/place(\/|$)|^\/domains\/scene$/;
 const PRESENT = /^\/domains\/scene\/present(\/|$)|^\/domains\/scene$/;
 const LOOT = /^\/domains\/inventory\/loot(?:\/([^/]+))?$/;
 const MAX_ITEMS = 3;
-/** The most lines one module adds to a reply's card (MODULES §F122). */
+/** The most lines one module adds to a reply's card (MODULES §F123). */
 export const REPLY_LINES_MAX = 6;
 const ICON = /^fa-[a-z0-9-]{1,40}$/;
 
@@ -234,7 +234,7 @@ export function changesDigest({ state = null, before = null, changes = [] } = {}
 }
 
 /**
- * The modules' own lines for one reply's card (MODULES §F122). `entries`: [{ moduleId, fn }] (the registry's
+ * The modules' own lines for one reply's card (MODULES §F123). `entries`: [{ moduleId, fn }] (the registry's
  * `hookEntries('replyCard')`); `info`: { index, state, before, changes } of that reply. Each hook is called
  * with a copy of `info`; one that throws or answers anything but a list (a promise too) adds nothing.
  * → [{ module, icon, text, summary, flag, note }], each field one line: text ≤ 200, summary ≤ 80, flag and

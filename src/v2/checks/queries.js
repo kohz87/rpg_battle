@@ -6,7 +6,7 @@
 import { memberOf, modifiersFor, rulesFor, statModifiers } from './modifiers.js';
 import { MAX_LOG, latestChecks, logEntries, preparedEntries } from './shared.js';
 import { OUTCOMES } from '../party/checks.js';
-import { viewAll } from './card.js';
+import { toldBack, viewAll } from './card.js';
 
 const copy = value => JSON.parse(JSON.stringify(value ?? null));
 const checksOf = state => state?.domains?.checks ?? { prepared: {}, log: {} };
@@ -82,6 +82,8 @@ export const queries = {
     'checks.log': log,
     // { [check id]: { text, summary, flag, note, outcomeText, pass, … } }: each result as the reader sees it (card.js).
     'checks.view': state => copy(viewAll(state)),
+    // The next reply's "[Dice] … actually failed …" lines (card.js): the reply before it wrote another result.
+    'checks.toldBack': (state, args, tools) => copy(toldBack(state, args, tools)),
     'checks.rolls': rolls,
     'checks.last': last,
     'checks.modifiers': modifiers,

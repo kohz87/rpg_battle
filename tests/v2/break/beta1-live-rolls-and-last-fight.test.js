@@ -4,7 +4,7 @@
 //    dc: 10 | roll: 1 | result: success` (and a second check also naming `roll: 1`); `roll: 1` is "Roll 1",
 //    the first die handed over, and the dice were shown only on RPG Battle's own status card, which is off by
 //    default. Fixed: each check is a line on the reply's "Changed this reply" card (Story Block's
-//    hooks.replyCard, MODULES §F122; checks/card.js): skill and stat, the d20 and which roll it was, the
+//    hooks.replyCard, MODULES §F123; checks/card.js): skill and stat, the d20 and which roll it was, the
 //    modifiers, the total against the DC, code's outcome, and "Story said …; dice said …" when the written
 //    result disagrees. Code's outcome is the one kept. The dice handed over are in Settings → Diagnostics.
 // 2. "it still shows the last battle result after 2 more messages". Fixed: the Fight screen shows the last

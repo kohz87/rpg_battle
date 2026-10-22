@@ -12,7 +12,7 @@
 // fail). Nothing else reads a check's outcome, so a disagreement changes no number; it is told on the
 // card, not listed as a Problem (the line was used).
 //
-// `replyCard` is Story Block's `hooks.replyCard` (MODULES §F122): the checks that reply's ops added, as lines
+// `replyCard` is Story Block's `hooks.replyCard` (MODULES §F123): the checks that reply's ops added, as lines
 // on its "Changed this reply" card. `diagnostics` is this part's section of Settings → Diagnostics: the dice
 // handed over for the latest reply and which a check took (behind a click, never in the prompt's view).
 // Pure apart from `diagnostics`' default sdk.
@@ -96,7 +96,7 @@ export function viewAll(state) {
 }
 
 /**
- * Story Block's `hooks.replyCard({ state, changes })` (MODULES §F122): the checks this reply's ops added
+ * Story Block's `hooks.replyCard({ state, changes })` (MODULES §F123): the checks this reply's ops added
  * (a log key its ops touched, still in its state), oldest first, as lines for "Changed this reply".
  */
 export function replyCard({ state = null, changes = [] } = {}) {
@@ -132,4 +132,46 @@ export function diagnostics(sdk = globalThis.StoryBlock?.sdk) {
     lines.push(taken.length ? `Taken by a check: ${taken.map(roll => `Roll ${roll}`).join(', ')}.` : 'No check took them yet.');
     lines.push('Every new reply, swipe or regenerate rolls fresh dice when it starts; a Continue keeps them.');
     return lines;
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Dice told back (lead, after the beta.1 live test): a reply whose check line wrote another result than
+// the dice gave gets, in the NEXT reply's tail, one line per such check (at most MAX_TOLD_BACK), e.g.
+// "[Dice] Wessel's AGI check (pursuing the wounded wolf) actually failed (5 vs DC 10): let the consequence
+// show." Derived from the stored checks and receipts, so a swipe, a delete or a rebuild tells the same:
+// the checks of the reply right before the one being written (the last carrier with a receipt before it;
+// every reply leaves at least its dice there), not repeated after that. Not for a check Story Block's
+// pre-roll made (`pre`, assist.precheck: the narrator was told that outcome before it wrote).
+
+export const MAX_TOLD_BACK = 2;
+
+const ACTUALLY = Object.freeze({
+    crit: 'actually succeeded, brilliantly', success: 'actually succeeded', cost: 'actually succeeded only at a cost',
+    fail: 'actually failed', critfail: 'actually failed badly',
+});
+
+/** The tail line for one result that disagrees, else ''. */
+export function toldBackLine(entry, name = '') {
+    if (!entry || entry.pre || !disagreement(entry) || entry.said === undefined) return '';
+    const who = flat(entry.name || name, 40);
+    const what = flat(entry.what, 50);
+    const skill = skillLabel(entry).replace(/ \(.*\)$/, '');
+    return `[Dice] ${who ? `${who}'s ` : ''}${skill} check${what ? ` (${what})` : ''} ${ACTUALLY[entry.outcome] ?? entry.outcome} (${entry.total} vs DC ${entry.dc}): let the consequence show.`;
+}
+
+/**
+ * `checks.toldBack({ for })` (state, args, tools): the lines for the reply at chat index `for`, from the
+ * checks of the last reply before it with a receipt (tools.receipts). [] without receipts or an index.
+ */
+export function toldBack(state, args = {}, tools = null) {
+    const at = args?.for;
+    if (!Number.isInteger(at)) return [];
+    let receipts = [];
+    try { receipts = typeof tools?.receipts === 'function' ? tools.receipts() ?? [] : []; } catch { receipts = []; }
+    const before = receipts.filter(item => Number.isInteger(item?.index) && item.index < at);
+    if (!before.length) return [];
+    const last = Math.max(...before.map(item => item.index));
+    const ids = new Set(before.filter(item => item.index === last).map(item => item.receipt?.data?.check).filter(id => typeof id === 'string'));
+    return logEntries(state?.domains?.checks).filter(entry => ids.has(entry.id))
+        .map(entry => toldBackLine(entry, actorName(state, entry.actor))).filter(Boolean).slice(0, MAX_TOLD_BACK);
 }
