@@ -303,9 +303,11 @@ export function resaleFactor(piece) {
 
 /**
  * What a piece fetches from a buyer who pays `each` for one as new: × resaleFactor, and never more
- * than it would fetch at the worst it ever was plus the repair fees paid for it (whole, at least 1).
+ * than it would fetch at the worst it ever was plus the repair fees paid for it (whole, at least 1;
+ * 0 for a piece a buyer pays nothing for, so a piece worth 0 never sells for a coin).
  */
 export function resaleOf(each, piece) {
+    if (!(each > 0)) return 0;
     const ref = refineFactor(piece?.refine ?? 0);
     const now = Math.floor(each * resaleFactor(piece));
     const ever = Math.max(0, Math.min(piece?.ever ?? FULL, piece?.cond ?? FULL, piece?.low ?? FULL)) / FULL;
