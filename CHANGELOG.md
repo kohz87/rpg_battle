@@ -26,6 +26,7 @@ Story Suite v2. RPG Battle v2 module: party, creation, checks, items, combat, ba
 - **Rule refusals are `REFUSED`** in items and trade (full HP, the wrong kind of thing, slot limits, no market, not ready); malformed requests stay `INVALID`.
 - A fight reads the party's conditions (`stacks`) through the one condition table (v1 `combat.js`), the gear `items.gear` counts, and the shared bag's worn pieces as your character's; loot is priced by the item.define hook; `inventory.grant` gets `{ def, qty, owner, note? }`.
 - Tests on the real Story Block host (`tests/vendor/story-block`, `npm run sync-testkit`): creation, an encounter fought and settled, items, checks, trade, swipe and delete rollback, death, the fixed prompt byte-identical.
+- **Key items are not for sale.** The one notable item a reply's story gives outside its goods budget is a key item in Story Block (its own stack, `key: true`): `trade.sell` refuses it ("<name> is a key item; it can't be sold.") and a commission counts it as worth 0, so story text never sells for more than one reply's goods. Bought things still sell for at most what was paid.
 
 ## 0.5.51
 
