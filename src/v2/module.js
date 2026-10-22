@@ -177,6 +177,7 @@ export function createModule({ settings = null } = {}) {
     const screens = [];
     const features = [];
     const statics = [];
+    const contextParts = [];
     const tails = [];
     let budget = 0;
 
@@ -233,6 +234,8 @@ export function createModule({ settings = null } = {}) {
         }
         if (typeof part.context?.static === 'function') statics.push(part.context.static);
         if (typeof part.context?.tail === 'function') tails.push({ part: id, tail: part.context.tail });
+        // Context parts under a feature (MODULES §F100): Story Block leaves one out while its feature is off.
+        for (const piece of Array.isArray(part.context?.parts) ? part.context.parts : []) contextParts.push({ part: id, piece });
         budget += Number.isInteger(part.context?.budget) && part.context.budget > 0 ? part.context.budget : 0;
     }
     claim(owners.query, REV_QUERY, 'module', 'query');
@@ -285,6 +288,13 @@ export function createModule({ settings = null } = {}) {
                 return { lines, optional };
             },
             budget: budget || 1,
+            ...(contextParts.length ? {
+                parts: contextParts.map(({ part, piece }) => ({
+                    ...(piece.feature ? { feature: piece.feature } : {}),
+                    ...(typeof piece.static === 'function' ? { static: () => piece.static() } : {}),
+                    ...(typeof piece.tail === 'function' ? { tail: view => piece.tail(viewFor(view, part)) } : {}),
+                })),
+            } : {}),
         },
         hooks: mergedHooks,
         ...(features.length ? { features } : {}),

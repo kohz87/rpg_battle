@@ -30,15 +30,27 @@ function prng(seed) {
 const PLACES = ['Bluewatch Village', 'Constructor', 'Old Weir', 'Mill Town'];
 const SKILLS = ['stealth', 'athletics', 'STR', 'perception', 'persuasion'];
 const FOES = ['Wolf', 'Giant Rat', 'Bandit'];
-const GOODS = ['Wolf Pelt', 'Rope', 'Minor Healing Draught', 'Iron Ore'];
+const GOODS = ['Wolf Pelt', 'Rope', 'Minor Healing Draught', 'Iron Ore', 'Repair Kit'];
 const EFFECTS = ['Keen Sight', 'Shaken', 'Warmth'];
+const PIECES = ['Chain Shirt', 'Iron Sword'];
+
+// Stands in for Story Block's route of `~ item X | wear: tear` to item.wear (gear wear, TRS idea 1).
+const WEAR_ROUTE = {
+    id: 'fuzz-wear-route',
+    name: 'fuzz wear route',
+    version: '0.0.0',
+    capture: {
+        kinds: { testwear: { grammar: '~ testwear <piece> | wear: scuff|tear|ruin' } },
+        apply: (ctx, line) => ctx.call('item.wear', { name: line.name, wear: line.labels?.wear ?? '', story: true }),
+    },
+};
 
 /** One reply's change lines: valid input only. */
 function lines(r, n) {
     const out = [];
     const count = r.int(1, 4);
     for (let i = 0; i < count; i += 1) {
-        const kind = r.pick(['check', 'check', 'place', 'market', 'lift', 'item', 'coin', 'encounter', 'join', 'skill', 'effect', 'effect', 'unbuff', 'ranked']);
+        const kind = r.pick(['check', 'check', 'place', 'market', 'lift', 'item', 'coin', 'encounter', 'join', 'skill', 'effect', 'effect', 'unbuff', 'ranked', 'wear', 'wear', 'kit', 'repair', 'refine']);
         if (kind === 'check') out.push(`? check ${r.pick(SKILLS)} — try ${n}.${i} | dc: ${r.pick(['easy', 'normal', 'hard'])} | roll: ${r.int(1, 2)} | result: ${r.pick(['success', 'fail'])}`);
         if (kind === 'place') out.push(`~ place ${r.pick(PLACES)} | kind: settlement`);
         if (kind === 'market') out.push(`! market ${r.pick(PLACES)} — short of bread ${n}`);
@@ -53,6 +65,10 @@ function lines(r, n) {
         if (kind === 'unbuff') out.push(`- effect ${r.pick(EFFECTS)}`);
         // A foe of an absolute rank (F91).
         if (kind === 'ranked') out.push(`! encounter 1 ${r.pick(FOES)} — on the road | rank: ${r.pick(['F', 'E'])}`);
+        if (kind === 'wear') out.push(`~ testwear ${r.pick(PIECES)} | wear: ${r.pick(['scuff', 'tear', 'ruin'])}`);
+        if (kind === 'kit') out.push(`! use Repair Kit | on: ${r.pick([...PIECES, 'Ren'])}`);
+        if (kind === 'repair') out.push(`! repair ${r.pick(PIECES)} | at: ${r.pick(['smith', 'tailor'])}`);
+        if (kind === 'refine') out.push(`! refine ${r.pick(PIECES)} | at: smith`);
     }
     // At most 2 checks count in a reply; the third would be a Problem by design, not a replay skip.
     let checks = 0;
@@ -78,6 +94,10 @@ async function clicks(host, r) {
     }
     // A quest's Setback, once per quest (as Story Director sends it).
     if (r.chance(0.1)) await host.internal('party.addEffect', { preset: 'setback', source: { name: 'Rats', ref: `qu_${r.int(1, 3)}` } });
+    if (r.chance(0.2)) {
+        const piece = (host.q('inventory.items', {}) ?? []).find(row => row.kind === 'equipment');
+        if (piece) await host.cmd(r.chance(0.5) ? 'trade.repair' : 'trade.refine', { stack: piece.stack, at: 'smith' });
+    }
     if (r.chance(0.3)) {
         const stack = (host.q('inventory.items', {}) ?? []).find(row => !row.equipped);
         if (stack) await host.cmd('trade.sell', { stack: stack.stack, qty: 1, kind: 'general' });
@@ -100,10 +120,12 @@ for (let seed = 1; seed <= SEEDS; seed += 1) {
         t.mock.method(console, 'warn', () => {});
         await seeded(seed, async () => {
             const r = prng(seed * 7919);
-            const host = await rpgHost();
+            const host = await rpgHost({ modules: [WEAR_ROUTE] });
             try {
                 assert.equal((await host.cmd('party.create', { name: 'Ren', preset: 'fighter' })).ok, true);
-                await host.send('We set out.', host.reply('Bluewatch Village.', ['~ place Bluewatch Village | kind: settlement', '+ coin 200']));
+                await host.send('We set out.', host.reply('Bluewatch Village.', ['~ place Bluewatch Village | kind: settlement', '+ coin 200',
+                    '+ item Chain Shirt | note: armour DEF +3', '+ item Iron Sword | note: weapon ATK +4', '+ item Iron Ore | qty: 6', '+ item Repair Kit | qty: 2']));
+                for (const row of (host.q('inventory.items', {}) ?? []).filter(item => item.kind === 'equipment')) await host.cmd('item.equip', { stack: row.stack });
                 for (let n = 0; n < REPLIES; n += 1) {
                     await host.send(`turn ${n}`, host.reply(`Reply ${n}.`, lines(r, n)));
                     await clicks(host, r);
@@ -118,8 +140,26 @@ for (let seed = 1; seed <= SEEDS; seed += 1) {
                     }
                     // A block that used a thing a deleted reply made (a stack, a companion, an offer) is
                     // rightly passed over; RPG Battle's own bookkeeping must never be.
-                    const skipped = host.store.problems().map(p => String(p.why ?? p.message)).filter(why => !dependent(why));
+                    // A later block of the same reply that only failed because a dependent one before it was
+                    // passed over (a fight a deleted companion took part in, then that fight's actions) goes with it.
+                    const cascade = new Set();
+                    const skipped = host.store.problems().filter(p => {
+                        const why = String(p.why ?? p.message);
+                        if (dependent(why)) {
+                            cascade.add(p.index);
+                            return false;
+                        }
+                        return !(cascade.has(p.index) && /^The change path "\/domains\/combat\/session\//.test(why));
+                    }).map(p => String(p.why ?? p.message));
                     assert.deepEqual(skipped, [], `seed ${seed} reply ${n}: a valid block was skipped on replay`);
+                    // Gear (RX-TL-1): every gear event is the change of a receipt still on the chat's line,
+                    // so a deleted repair or refinement takes its effect with its payment, and a later
+                    // reply's event never carries an earlier reply's result.
+                    const revs = new Set(host.st.ctx.chat.flatMap(m => m?.extra?.storySuite?.receipts ?? []).map(rc => rc.rev));
+                    for (const key of Object.keys(host.head().domains.gear?.events ?? {})) {
+                        const rev = Number(/#(\d+)/.exec(key)?.[1]);
+                        assert.ok(revs.has(rev), `seed ${seed} reply ${n}: gear event ${key} has no receipt on the chat`);
+                    }
                     const live = json(host.head());
                     host.store.rebuild();
                     assert.equal(json(host.head()), live, `seed ${seed} reply ${n}: the rebuilt head differs from the live one`);

@@ -1,10 +1,15 @@
 // RPG Battle v2, items part: read-only views of the party's things (MODULES §B2). Pure: each
 // takes the State and returns plain copies.
 
-import { capItem, equipped, gearBonuses } from '../../items.js';
+import { capItem, equipped, gearBonuses, gearLimits } from '../../items.js';
 import { useItemOutside } from '../../recovery.js';
 import { canCarry, carryView } from './carry.js';
 import { helpsOutside, hostSettings, inventoryOf, itemOf, partyOf, rulesFrom, sheetOf, stackIds, wearerOf } from './shared.js';
+import { gearFeatures, pieceName, pieceOf, scaleStats } from './condition.js';
+import { RARITIES } from '../../rules.js';
+
+/** The rarity one step above (legendary stays legendary). */
+const nextRarity = rarity => RARITIES[Math.min(RARITIES.length - 1, Math.max(0, RARITIES.indexOf(rarity)) + 1)];
 
 const copy = value => JSON.parse(JSON.stringify(value));
 
@@ -40,26 +45,89 @@ export function usable(state, { actor = null } = {}) {
  * `bonuses` the summed stats, tags and on-hit elements (gearBonuses). Null for no such actor.
  * `settings` (RPG Battle's, for the rules' limits) defaults to the host's.
  */
-export function gear(state, { actor = null, settings } = {}) {
+export function gear(state, { actor = null, settings } = {}, tools = null) {
     const inventory = inventoryOf(state);
     const party = partyOf(state);
     const id = actor || party.pc;
     const who = id ? party.actors?.[id] : null;
     if (!who) return null;
-    const rules = rulesFrom(settings === undefined ? hostSettings() : settings);
+    const rules = rulesFrom(settings === undefined ? tools?.settings ?? hostSettings() : settings);
     const level = Math.max(1, Math.round(Number(who.level) || 1));
+    const features = gearFeatures(tools);
+    const gearSlice = state?.domains?.gear ?? null;
     const items = stackIds(inventory)
         .map(stackId => inventory.stacks[stackId])
         .filter(stack => stack.equipped && stack.qty > 0 && wearerOf(stack, party) === id)
         .map(stack => itemOf(stack, inventory.defs?.[stack.def]));
     const worn = equipped(items, rules);
-    const counted = [worn.weapon, worn.offhand, worn.armour, ...worn.worn, ...worn.accessory].filter(Boolean).map(item => {
+    const counted = [];
+    const broken = [];
+    for (const item of [worn.weapon, worn.offhand, worn.armour, ...worn.worn, ...worn.accessory].filter(Boolean)) {
+        const piece = pieceOf(inventory, gearSlice, item.stack, features);
+        const name = pieceName(item.name, piece.refine);
+        const look = { cond: piece.cond, max: piece.max, band: piece.band, refine: piece.refine };
+        // A broken piece stays on but gives nothing: it is not counted (its stats, its elements).
+        if (piece.factor === 0) {
+            broken.push({ stack: item.stack, name, slot: item.slot, rarity: item.rarity, why: 'broken', ...look });
+            continue;
+        }
         const result = capItem(item, level, rules);
-        return { stack: item.stack, name: item.name, slot: item.slot, rarity: item.rarity, stats: result.stats, capped: result.capped, from: result.capped ? { ...item.stats } : null };
-    });
-    const unused = worn.unused.map(({ item, why }) => ({ stack: item.stack, name: item.name, slot: item.slot, rarity: item.rarity, why }));
-    const { capped: _capped, ...bonuses } = gearBonuses(items, level, rules);
+        // A refined piece never passes the next rarity's budget for its slot at the wearer's level.
+        const scaled = scaleStats(result.stats, piece);
+        const stats = piece.refine > 0 ? capItem({ ...item, rarity: nextRarity(item.rarity), stats: scaled }, level, rules).stats : scaled;
+        // `final`: the stats are what the piece gives (capped at the wearer's level, then its
+        // condition and refinement), to be counted as they are, never capped again.
+        counted.push({
+            stack: item.stack, name, slot: item.slot, rarity: item.rarity, stats, capped: result.capped,
+            from: result.capped ? { ...item.stats } : null, tags: [...item.tags], final: true, ...look,
+        });
+    }
+    const unused = [...worn.unused.map(({ item, why }) => ({ stack: item.stack, name: item.name, slot: item.slot, rarity: item.rarity, why })), ...broken];
+    const bonuses = sumBonuses(counted, items);
     return copy({ actor: id, level, counted, unused, bonuses });
+}
+
+/** The summed stats, tags and on-hit elements of the counted pieces (v1 gearBonuses' shape, of what each gives now). */
+function sumBonuses(counted, items) {
+    const total = gearBonuses([], 1);
+    delete total.capped;
+    const tags = new Set();
+    const onHit = new Set();
+    for (const row of counted) {
+        for (const [name, value] of Object.entries(row.stats)) total[name] = (total[name] ?? 0) + value;
+        for (const tag of row.tags ?? []) tags.add(tag);
+    }
+    // The elements that strike (weapon, off-hand, accessory), as v1 counts them, of the pieces counted.
+    const kept = new Set(counted.map(row => row.stack));
+    const v1 = gearBonuses(items.filter(item => kept.has(item.stack)), 1);
+    for (const tag of v1.onHit ?? []) onHit.add(tag);
+    return { ...total, tags: [...tags], onHit: [...onHit] };
+}
+
+/**
+ * `items.condition({ stack })` (TRS ideas 1 and 9): a piece's condition and refinement, for the
+ * screens: { stack, band, cur, max, refine, name, factor } — `band` 'good' | 'worn' | 'tattered' |
+ * 'broken', `factor` the share of its stats it gives now, `name` with its refinement ("Iron Sword
+ * +2"). With gear wear off, `band`, `cur`, `max` are null (and `factor` 1); with refinement off,
+ * `refine` is 0. Null for a stack that is not equipment, or when both are off.
+ */
+export function condition(state, { stack = null } = {}, tools = null) {
+    const inventory = inventoryOf(state);
+    const row = typeof stack === 'string' ? inventory.stacks?.[stack] : null;
+    const def = row ? inventory.defs?.[row.def] : null;
+    if (!row || def?.kind !== 'equipment') return null;
+    const features = gearFeatures(tools);
+    if (!features.wear && !features.refine) return null;
+    const piece = pieceOf(inventory, state?.domains?.gear ?? null, stack, features);
+    return {
+        stack,
+        band: features.wear ? piece.band : null,
+        cur: features.wear ? piece.cond : null,
+        max: features.wear ? piece.max : null,
+        refine: piece.refine,
+        name: pieceName(def.name, piece.refine),
+        factor: features.wear ? piece.factor : 1,
+    };
 }
 
 /**
@@ -80,4 +148,54 @@ export function carry(state, args = {}, tools = null) {
         qty: Number.isInteger(entry?.qty) ? entry.qty : 1,
     }));
     return copy(canCarry(inventory, party, { owner: args.owner ?? 'party', add, move: args.move === true, settings }));
+}
+
+/**
+ * What `actor` wears as v1 Items that count as they are (`final: true`: capped at their level, then
+ * scaled by condition and refinement; a broken piece left out), for a sheet's or a fight's numbers
+ * (v1 gearBonuses / combatNumbers count a `final` item's stats without capping them again).
+ */
+export function wornGear(state, actor, { settings, tools = null } = {}) {
+    const view = gear(state, { actor, ...(settings !== undefined ? { settings } : {}) }, tools);
+    return (view?.counted ?? []).map(row => ({ name: row.name, qty: 1, slot: row.slot, rarity: row.rarity, stats: { ...row.stats }, tags: [...(row.tags ?? [])], equipped: true, final: true, stack: row.stack }));
+}
+
+const clampSlots = value => Math.max(0, Math.min(3, Math.round(Number(value) || 0)));
+
+/**
+ * `items.slots()` (Story Block's Equip on… picker): how many accessories and worn pieces count at
+ * once, by the rules in force (v1 gearLimits, the reader's `gear` settings): { accessory, worn }, 0–3.
+ */
+export function slots(state, args = {}, tools = null) {
+    const rules = rulesFrom(args?.settings ?? tools?.settings ?? hostSettings());
+    const limits = gearLimits(rules);
+    return { accessory: clampSlots(limits.accessory), worn: clampSlots(limits.worn) };
+}
+
+/**
+ * `items.canWear({ actor, stack | defId })`: whether that party member could put the piece on, by
+ * the same rules item.equip keeps: { ok, why? }. Not equipment or no slot: no. A slot of many
+ * (accessories, worn pieces) the rules allow none of: no. An off-hand beside their two-handed weapon:
+ * no. Otherwise yes (a full slot of one is swapped, a full slot of many is the picker's to say).
+ */
+export function canWear(state, args = {}, tools = null) {
+    const inventory = inventoryOf(state);
+    const party = partyOf(state);
+    const actor = party.actors?.[args?.actor] ?? null;
+    if (!actor) return { ok: false, why: 'That is not someone in the party.' };
+    const stack = typeof args?.stack === 'string' ? inventory.stacks?.[args.stack] : null;
+    const def = inventory.defs?.[stack?.def ?? args?.defId ?? args?.def] ?? null;
+    if (!def) return { ok: false, why: 'That item is not known.' };
+    if (def.kind !== 'equipment' || !def.slot) return { ok: false, why: `The ${def.name} is not something to wear or wield.` };
+    const rules = rulesFrom(args?.settings ?? tools?.settings ?? hostSettings());
+    const limits = gearLimits(rules);
+    if ((def.slot === 'accessory' || def.slot === 'worn') && !(limits[def.slot] > 0)) {
+        return { ok: false, why: `In this chat's rules no ${def.slot === 'accessory' ? 'accessories' : 'worn pieces'} count.` };
+    }
+    if (def.slot === 'offhand') {
+        const weapon = stackIds(inventory).map(id => inventory.stacks[id])
+            .find(row => row.equipped === 'weapon' && wearerOf(row, party) === actor.id && inventory.defs?.[row.def]?.tags?.includes('two-handed'));
+        if (weapon) return { ok: false, why: `${actor.name}'s ${inventory.defs[weapon.def].name} is two-handed.` };
+    }
+    return { ok: true };
 }

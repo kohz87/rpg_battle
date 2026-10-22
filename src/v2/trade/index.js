@@ -21,6 +21,8 @@ import {
 // What was paid is kept for this many things at most (the oldest written first out).
 export const MAX_PAID = 500;
 import { renderTradePage } from './page.js';
+import { gearFeatures } from '../items/condition.js';
+import { REFINE_GRAMMAR, REPAIR_GRAMMAR, applyRefine, applyRepair, planRefine, planRepair, tradeRefine, tradeRepair } from './repair.js';
 import { clipped } from '../lines.js';
 
 const ORDER_ID = /^or_[0-9a-z]{8}$/;
@@ -71,6 +73,8 @@ function worldFromCtx(ctx) {
         now: ctx.time?.() ?? null,
         currency: currencyFrom(ctx.query),
         packs: packsFrom(ctx.query),
+        gear: safeRead(ctx, 'gear'),
+        features: gearFeatures(ctx),
     });
 }
 
@@ -101,6 +105,9 @@ function orderId(ctx, orders) {
 }
 
 const commands = {
+    // A smith's or tailor's work on a piece (repair.js), each under its feature (MODULES §F100).
+    'trade.repair': Object.assign((ctx, payload) => tradeRepair(ctx, payload, worldFromCtx(ctx)), { feature: 'rpg-battle.wear' }),
+    'trade.refine': Object.assign((ctx, payload) => tradeRefine(ctx, payload, worldFromCtx(ctx)), { feature: 'rpg-battle.refine' }),
     /** Sell { stack, qty } (and optionally { kind | who }: to whom; the general store when unsaid). */
     'trade.sell'(ctx, payload = {}) {
         const world = worldFromCtx(ctx);
@@ -192,7 +199,7 @@ const commands = {
 
 // A query's settings and query tools: the host's third argument ({ query } per MODULES §F3, and
 // the part's `settings` from src/v2/module.js), else what the args carry, else the defaults.
-const envOf = (args, env) => ({ settings: env?.settings ?? args?.settings ?? null, query: env?.query ?? null });
+const envOf = (args, env) => ({ settings: env?.settings ?? args?.settings ?? null, query: env?.query ?? null, ...(typeof env?.feature === 'function' ? { feature: env.feature } : {}) });
 
 const queries = {
     /** { open, by, place, tier, buy, sell, level, day } */
@@ -205,8 +212,8 @@ const queries = {
      */
     'trade.quote': (state, args = {}, env) => {
         const world = worldFromState(state, envOf(args, env));
-        const plan = { sell: planSell, buy: planBuy, commission: planCommission, collect: planCollect }[args.type];
-        return plan ? plan(world, args) : { ok: false, code: CODES.invalid, message: 'Say what to quote: sell, buy, commission or collect.' };
+        const plan = { sell: planSell, buy: planBuy, commission: planCommission, collect: planCollect, repair: planRepair, refine: planRefine }[args.type];
+        return plan ? plan(world, args) : { ok: false, code: CODES.invalid, message: 'Say what to quote: sell, buy, commission, collect, repair or refine.' };
     },
     /** The shops here: the packs' for this place [{ slug, name, kind }], or null (the generic traders trade). */
     'trade.shops': (state, args = {}, env) => packShopsHere(worldFromState(state, envOf(args, env))),
@@ -357,6 +364,9 @@ export const part = {
     queries,
     kinds: {
         market: { grammar: MARKET_GRAMMAR, apply: clipped(applyMarket) },
+        // A smith's or tailor's work on a piece (TRS ideas 2 and 9, repair.js).
+        repair: { grammar: REPAIR_GRAMMAR, apply: clipped((ctx, line) => applyRepair(ctx, line, worldFromCtx(ctx))), feature: 'rpg-battle.wear' },
+        refine: { grammar: REFINE_GRAMMAR, apply: clipped((ctx, line) => applyRefine(ctx, line, worldFromCtx(ctx))), feature: 'rpg-battle.refine' },
     },
     context: { static: () => '', tail: tradeTail, budget: 140 },
     hooks: {},

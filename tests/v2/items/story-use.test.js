@@ -3,7 +3,7 @@
 // story told why), and the static line.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { part, USE_STATIC, usedByLine } from '../../../src/v2/items/index.js';
+import { part, USE_STATIC, WEAR_STATIC, WEAR_STATIC_KITS, wearStatic, usedByLine } from '../../../src/v2/items/index.js';
 import { makeCtx } from './helpers/fake-ctx.js';
 import { LYRA, PC, makeState } from './helpers/state.js';
 
@@ -116,6 +116,11 @@ test('usedByLine: a `- item` line is a use when it or the reply says so, never w
 test('the static line tells the story how to write a use, and never changes', () => {
     assert.equal(part.context.static(), USE_STATIC);
     assert.equal(part.context.static(), USE_STATIC);
+    // The gear line is a context part of its own, under gear wear (left out while it is off).
+    // It asks for the story's `| wear:` word only on a host that reads it.
+    assert.deepEqual(part.context.parts.map(piece => [piece.feature, piece.static()]), [['rpg-battle.wear', WEAR_STATIC_KITS]]);
+    assert.equal(wearStatic({ modules: () => [{ id: 'story-block', commands: ['inventory.wear'] }] }), WEAR_STATIC);
+    assert.equal(wearStatic({ modules: () => [{ id: 'story-block', commands: ['inventory.grant'] }] }), WEAR_STATIC_KITS);
     assert.match(USE_STATIC, /`! use <item> \| on: <who>`/);
     assert.match(part.kinds.use.grammar, /^! use <item> \| on: Name \| by: Name \| qty: 1/);
     assert.equal(typeof part.commands['item.use'], 'function', 'item.use stays a command');

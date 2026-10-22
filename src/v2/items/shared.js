@@ -42,6 +42,21 @@ export function hostCurrency() {
     }
 }
 
+/**
+ * The pack's money scale (MODULES §F104: Story Block's `inventory.economy` → { scale }) when the host
+ * is up and answers it, else 1. `query`: a query function to ask instead of the host's.
+ */
+export function hostEconomyScale(query = null) {
+    try {
+        const ask = typeof query === 'function' ? query : globalThis.StoryBlock?.sdk?.query;
+        const found = typeof ask === 'function' ? ask('inventory.economy') : null;
+        const scale = Number(found?.scale);
+        return Number.isFinite(scale) && scale > 0 ? scale : 1;
+    } catch {
+        return 1;
+    }
+}
+
 export const inventoryOf = state => state?.domains?.inventory ?? { defs: {}, stacks: {}, wallets: {}, aliases: {} };
 export const partyOf = state => state?.domains?.party ?? { pc: null, order: [], actors: {} };
 
