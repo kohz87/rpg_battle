@@ -309,17 +309,16 @@ test('status card: level-ups and skills are named; "only what changed" hides the
     assert.equal(drawn.el.querySelector('.changes'), null);
 });
 
-test('status card: the reply\'s checks with code\'s result and the mismatch flag; only on that reply', { skip }, () => {
+test('status card: the reply\'s checks with the die, modifiers, total vs DC, code\'s result and the disagreement flag; only on that reply', { skip }, () => {
     const drawn = draw(statusCardScreen, makeState(), { changes: ['/domains/checks/log/ck_aaaaaaaa'], settings: { cardOnlyChanged: true } });
     assert.deepEqual(drawn.warnings, []);
     assert.equal(all(drawn.el, '.member').length, 0);
     const [check] = all(drawn.el, '.checks .check');
-    assert.equal(text(check.querySelector('.who')), 'Ren');
-    assert.equal(text(check.querySelector('.txt')), 'stealth (slipping past the guard): Roll 1 = 12 + 0 = 12 against 20 (hard)');
-    assert.equal(text(check.querySelector('.out')), 'fail');
+    // The skill and stat, the die (and which roll it was), the modifiers, the total against the DC, code's outcome.
+    assert.equal(text(check.querySelector('.txt')), 'Ren, Stealth (DEX) — slipping past the guard: d20 12 (Roll 1) + 0 DEX = 12 vs DC 20 (hard) → fail');
     assert.ok(!check.classList.contains('pass'));
     assert.ok(check.classList.contains('off'));
-    assert.equal(text(check.querySelector('.flag')), 'narrated as success, the dice say fail');
+    assert.equal(text(check.querySelector('.flag')), 'Story said success; dice said fail');
     assert.equal(drawn.el.querySelector('.calm'), null);
     // Another reply (that did not write these checks) does not show them.
     drawn.rerender(makeState(), ['/domains/party/actors/ac_lyra0001/mp']);

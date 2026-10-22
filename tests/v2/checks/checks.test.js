@@ -426,5 +426,5 @@ test('queries: checks.log, checks.rolls, checks.last and the whole table', () =>
     assert.deepEqual(table.map(row => [row.name, row.you, row.stats.DEX]), [['Ren', true, 2], ['Lyra', false, 4]]);
     assert.equal(part.queries['checks.modifiers'](state, { skill: 'x', actor: 'ac_nobody00' }, tools), null);
     assert.deepEqual(Object.keys(part.commands), ['checks.prepare'], 'no reader-rolled or modifier commands any more');
-    assert.deepEqual(Object.keys(part.queries).sort(), ['checks.last', 'checks.log', 'checks.modifiers', 'checks.rolls']);
+    assert.deepEqual(Object.keys(part.queries).sort(), ['checks.last', 'checks.log', 'checks.modifiers', 'checks.rolls', 'checks.view']);
 });

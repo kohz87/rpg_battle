@@ -97,7 +97,15 @@ each in full. Every one can be switched off in Story Suite settings → **Featur
 - **A finished fight settles by itself.** Once a fight is won, lost or fled, **Finish** on the board
   settles it; if you go on with the story instead, the next reply settles it first, as Finish would (HP,
   XP, skill uses, loot), and is told how it went. The board clears and the Fight screen shows it as the
-  last fight.
+  last fight, in full on that reply and the one that tells it. Before the reply after that it folds: the
+  Fight screen says *No fight on offer*, with **Last fight** closed under it to look back on.
+- **The dice of a check, on its reply.** A reply's `? check … | roll: 1 | result: …` names the roll handed
+  over (Roll 1, Roll 2), not the die. Each check is a line on the reply's **Changed this reply** card (and
+  on RPG Battle's status card): *Wessel, AGI — pursuing the wounded wolf: d20 4 (Roll 1) + 1 AGI = 5 vs DC
+  10 → fail*, its folded line *AGI 5 vs DC 10: fail (story said otherwise)*. When the reply wrote another
+  result than the dice gave, the card says so (*Story said success; dice said fail*); the dice's result is
+  the one kept. **Settings → Diagnostics** names the dice handed over for the latest reply and which a
+  check took (fresh dice are rolled when each reply, swipe or regenerate starts).
 - **Skill uses.** A skill grows from use in fights (v1's rule: 5 uses for level 2, 12 for 3, 22 for 4, 35
   for 5), counted when the fight is settled. The Party card's skill list says how far each is
   (`Lv 1 · 1/5 uses to Lv 2`); the skill tree's badge shows the level alone.

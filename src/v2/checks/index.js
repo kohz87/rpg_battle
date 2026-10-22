@@ -10,7 +10,10 @@
 // recomputes the total with code's modifiers against the DC; that result is recorded (checks
 // log, receipt, the reply's card), and a stated result that disagrees is flagged on the card.
 // Nobody adds or changes a modifier; a swipe or regenerate brings fresh rolls. The reply's status
-// card (screens part) shows the log entries that reply added; there is no check widget any more. The party part's
+// card (screens part) shows the log entries that reply added, and so does Story Block's "Changed this reply"
+// card through `hooks.replyCard` (card.js: the die, the modifiers, the total against the DC, code's outcome
+// and "Story said …; dice said …" when the written result disagrees). Settings → Diagnostics tells the dice
+// handed over for the latest reply (`hooks.diagnostics`). There is no check widget any more. The party part's
 // check.resolve stays for a direct roll. The coordinator's src/v2/module.js merges this part
 // with the others; its `check` kind takes over from the party part's.
 
@@ -19,6 +22,7 @@ import { preparedEntries } from './shared.js';
 import { promptRolls } from './dice.js';
 import { memberOf, rulesFor, tableLine } from './modifiers.js';
 import { queries } from './queries.js';
+import { diagnostics, replyCard } from './card.js';
 import { initialChecks, validateChecks } from './shared.js';
 
 // The instruction every reply carries (byte-identical: no names, no numbers that change). The
@@ -87,5 +91,5 @@ export const part = {
     queries,
     kinds,
     context: { static: () => STATIC_TEXT, tail, budget: BUDGET },
-    hooks: { beforeGenerate },
+    hooks: { beforeGenerate, replyCard, diagnostics: () => diagnostics() },
 };

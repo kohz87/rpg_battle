@@ -6,6 +6,7 @@
 import { memberOf, modifiersFor, rulesFor, statModifiers } from './modifiers.js';
 import { MAX_LOG, latestChecks, logEntries, preparedEntries } from './shared.js';
 import { OUTCOMES } from '../party/checks.js';
+import { viewAll } from './card.js';
 
 const copy = value => JSON.parse(JSON.stringify(value ?? null));
 const checksOf = state => state?.domains?.checks ?? { prepared: {}, log: {} };
@@ -79,6 +80,8 @@ export function modifiers(state, args = {}, tools = null) {
 
 export const queries = {
     'checks.log': log,
+    // { [check id]: { text, summary, flag, note, outcomeText, pass, … } }: each result as the reader sees it (card.js).
+    'checks.view': state => copy(viewAll(state)),
     'checks.rolls': rolls,
     'checks.last': last,
     'checks.modifiers': modifiers,

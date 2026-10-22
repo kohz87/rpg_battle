@@ -16,7 +16,7 @@ commands, and test every change with each other module absent. Work is on the `v
 - `src/v2/module.js`: merges the parts (`PARTS`, in order) into one definition; settings namespaced per part; terms.
 - `src/v2/party/`: `party` domain, pools (`lost` counters), growth, XP lines, story wounds, recovery.
 - `src/v2/creation/`: character creation (presets, persona, wizard, Create button).
-- `src/v2/checks/`: pending d20 checks (`? check`), modifiers, dice.
+- `src/v2/checks/`: d20 checks rolled before the reply (`? check`), modifiers, dice; `card.js`: how a check reads on its reply (Story Block's `hooks.replyCard`, Diagnostics).
 - `src/v2/items/`: item use, equip, item.define (story notes), carry limit (F39), gear wear/condition.
 - `src/v2/combat/`: encounters (`! encounter`), fight setup, power-based sizing, waves, quest-sized fights, results.
 - `src/v2/board/`: the Fight screen (battle board widget, its queries).

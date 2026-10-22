@@ -283,7 +283,10 @@ function prng(seed) {
     next.int = (lo, hi) => lo + Math.floor(next() * (hi - lo + 1));
     return next;
 }
-const dependent = why => /does not exist \(no "[a-z]{2}_[0-9a-z]{8}"\)/.test(why) || /^The change path "\/domains\/combat\/session\//.test(why);
+// A block that needs what a deleted reply made is skipped (SPEC §2.2). Loot stacked onto a stack only a
+// deleted reply had reads through the counters' merge ("filed under the wrong ID": only its qty is left).
+const dependent = why => /does not exist \(no "[a-z]{2}_[0-9a-z]{8}"\)/.test(why) || /^The change path "\/domains\/combat\/session\//.test(why)
+    || /^Taken onto the counts as they stand now, these changes no longer fit: Item stack it_[0-9a-z]{8} is filed under the wrong ID\./.test(why);
 
 for (const seed of [1, 2, 3]) {
     test(`recovery mix seed ${seed}: replay equals live through time moves, set backs, swipes and deletes`, { timeout: 120000 }, async t => {

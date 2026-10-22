@@ -5,7 +5,7 @@
 
 import { rng as makeRng } from '../vendor/src/v2/rng.js';
 import { withHero } from './harness.js';
-import { sessionOf } from '../../../../src/v2/combat/stored.js';
+import { lastOf, sessionOf } from '../../../../src/v2/combat/stored.js';
 
 const STATS = ['STR', 'VIT', 'AGI', 'DEX', 'INT', 'LUK', 'CHA', 'XYZ'];
 const ODD_NUMBERS = [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, '2', 1e9, null, undefined, 2 ** 53];
@@ -56,6 +56,9 @@ export function nextStep(h, p) {
         }
     }
     if (session && session.status !== 'active' && p.chance(0.5)) return ['combat.end', {}];
+    // The last fight folded before a later reply (beforeGenerate's system step), sometimes by a click (refused) or a stale rev.
+    const last = lastOf(h.state().domains.combat);
+    if (!session && last && p.chance(0.1)) return ['combat.fold', { rev: p.chance(0.85) ? last.rev : -3 }, p.chance(0.85) ? 'system' : 'ui'];
     const hurt = Object.values(h.state().domains.party.actors).some(actor => actor.hp.cur < actor.hp.max || actor.mp.cur < actor.mp.max);
     if (hurt && p.chance(0.15)) {
         const inv = h.state().domains.inventory;
@@ -126,12 +129,12 @@ export function runSequence(seed, steps, onStep, options = {}) {
         ['capture', { op: '+', kind: 'coin', name: '200', labels: {} }],
     ];
     const p = createPicker(seed * 7919 + 13);
-    const run = ([type, payload]) => (type === 'capture' ? h.capture(payload) : h.command(type, payload));
+    const run = ([type, payload, cause]) => (type === 'capture' ? h.capture(payload) : h.command(type, payload, cause ? { cause } : undefined));
     for (const step of setup) run(step);
     for (let n = 0; n < steps; n++) {
-        const [type, payload] = nextStep(h, p);
+        const [type, payload, cause] = nextStep(h, p);
         const before = h.state();
-        const result = run([type, payload]);
+        const result = run([type, payload, cause]);
         onStep({ type: type === 'capture' ? `capture.${payload.kind}` : type, payload, result, before, after: h.state(), h, n });
     }
     return h;

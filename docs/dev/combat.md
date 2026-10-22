@@ -26,6 +26,11 @@ time F17); this repo's README "A fight", "Fights from the story", "Monsters on t
   (`inventory.consume`); an item sold or dropped mid-fight is cut before the next action (`stock`).
 - A fight that is over and not finished on the board is settled before the next new reply (`settleBeforeReply`,
   the `combat.end` cue; not for a swipe, Continue, quiet or impersonate), so it never stays on.
+- **The last fight folds** once the story has moved on: `combat.last` keeps the reply it was settled on
+  (`reply`, from `ctx.reply`); the `combat.last` query answers `folded` and `fresh` (the head reply is the
+  settled one, from `tools.reply`). Before a new reply whose head is a later reply, `settleBeforeReply` cues
+  `combat.fold` (system only, a claim `combat:fold:r<rev>`); the Fight screen then shows
+  "No fight on offer" with "Last fight" in a closed `<details>`. Swipe, Continue, quiet, impersonate: no fold.
 - `combat.end` settles once: pools and conditions via `party.applyResult`, XP via `party.grantXp`, loot via
   `inventory.grant` (what cannot be carried is left and told, F39), coin via `wallet.receive`, foes beaten
   kept for Story Director (`combat.foesBeaten`), and the receipt summary the next reply narrates.
@@ -34,7 +39,7 @@ time F17); this repo's README "A fight", "Fights from the story", "Monsters on t
 
 ## Key files and functions
 
-- `src/v2/combat/index.js` (part, commands `combat.start|act|flee|end|dismiss`, queries), `encounter.js`
+- `src/v2/combat/index.js` (part, commands `combat.start|act|flee|end|dismiss|fold`, queries), `encounter.js`
   (`readEncounter`, `tierOf`, `rankFoe`, `foesCard`), `setup.js` (`buildSetup`, `fightNumbers`, `planWaves`,
   `fieldCap`, `moneyScale`, `COMBAT_DEFAULTS`, `COMBAT_LIMITS`), `power.js` (`creaturePower`, `powerScale`),
   `quest.js` (`questSized`, `questTargets`), `stored.js` (`sessionOf`, fight rules), `view.js`.
