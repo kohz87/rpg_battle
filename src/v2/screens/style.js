@@ -51,8 +51,8 @@ export const BASE_CSS = `
 /* one-line rows: the listcard's rows, with the buttons and pills that go in them */
 .rb .ss-listcard { gap: 0; }
 .rb .ss-listcard-item { flex-wrap: wrap; }
-.rb .ss-listcard-main { flex: 1 1 12em; }
-.rb .ss-listcard-item .acts { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--ss-space-1); margin-left: auto; }
+.rb .ss-listcard-main { flex: 1 1 6em; }
+.rb .ss-listcard-item .acts { display: flex; flex: 0 0 auto; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: var(--ss-space-1); margin-left: auto; }
 .rb .ss-listcard-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
 .rb .ss-listcard-title .qty { font-variant-numeric: tabular-nums; color: var(--ss-muted); }
 .rb .ss-listcard-sub { display: block; font-size: 13px; }

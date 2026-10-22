@@ -110,7 +110,7 @@ const template = `
 
 const css = sheet(`
 .rb-trade { gap: var(--ss-space-4); }
-.market { display: flex; align-items: center; gap: 10px; padding: var(--ss-space-3); }
+.market { display: flex; flex-direction: row; align-items: center; gap: 10px; padding: var(--ss-space-3); }
 .market .mark { font-size: 1.3em; color: var(--ss-accent); }
 .market.closed .mark { color: var(--ss-muted); }
 .market .main { display: grid; flex: 1 1 auto; min-width: 0; }

@@ -185,7 +185,7 @@ test('hud: the points-to-spend badge from party.toSpend, the effects beside the 
     const strip = drawn.el.querySelector('.rb-hud');
     assert.equal(text(strip.querySelector('.spend')), '5 to spend');
     assert.equal(strip.querySelector('.spend').getAttribute('aria-label'), 'Stat points to spend: Ren 3, Lyra 2');
-    assert.deepEqual(heroOf(strip).statuses.map(status => status.label), ['Poisoned', 'Bleeding']);
+    assert.deepEqual(widgetsIn(strip, 'ss.status').map(el => propsOf(el).value.label), ['Poisoned', 'Bleeding']);
     assert.deepEqual(all(strip, '.effect').map(el => el.getAttribute('title')), ['Blessed, 2 h left, from a shrine']);
     checkProps(drawn);
 });
@@ -196,7 +196,7 @@ test('hud: nobody with points and nothing on them: no badge and no badges row', 
     const drawn = draw(hudScreen, calm, { queries: { 'party.toSpend': () => ({ total: 0, people: [] }), 'party.effects': () => [] } });
     assert.deepEqual(drawn.warnings, []);
     assert.equal(drawn.el.querySelector('.spend') === null, true);
-    assert.deepEqual(heroOf(drawn.el.querySelector('.rb-hud')).statuses, []);
+    assert.equal(widgetsIn(drawn.el.querySelector('.rb-hud'), 'ss.status').length, 0);
     assert.equal(drawn.el.querySelector('.effects') === null, true);
     // Effects alone still show their row.
     const blessed = draw(hudScreen, calm, { queries: { 'party.effects': ({ actor }) => EFFECTS[actor] ?? [] } });

@@ -74,8 +74,10 @@ ${lastBody}
 
 const css = `.rb-fight { display: flex; flex-direction: column; gap: var(--ss-space-3); }
 .rb-fight-heading { margin: 0 0 var(--ss-space-1); font-size: 13px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; color: var(--ss-muted); }
-.rb-fight-old > summary { cursor: pointer; list-style: none; }
+.rb-fight-old > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: var(--ss-space-2); }
 .rb-fight-old > summary::-webkit-details-marker { display: none; }
+.rb-fight-old > summary::after { content: ""; margin-left: auto; width: 7px; height: 7px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg); transition: transform var(--ss-motion) ease; }
+.rb-fight-old[open] > summary::after { transform: rotate(-135deg); }
 .rb-fight-old[open] > summary { margin-bottom: var(--ss-space-2); }
 .rb-fight-offer-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 16em), 1fr)); gap: var(--ss-space-2); margin: 0; padding: 0; list-style: none; }
 .rb-fight-offer { display: flex; flex-direction: column; gap: 6px; padding: var(--ss-space-3); }

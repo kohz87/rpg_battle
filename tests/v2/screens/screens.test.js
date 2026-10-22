@@ -192,9 +192,9 @@ test('buttons run commands RPG Battle has; widgets are the standard ss.* set', (
     ]);
     assert.doesNotMatch(byId['rpg-battle/crafting'].template, /data-command|<button/);
     const widgets = new Set(screens.flatMap(screen => [...screen.template.matchAll(WIDGET_TAG)].map(match => match[1])));
-    for (const name of ['ss.hero', 'ss.tiers', 'ss.radar', 'ss.stepper']) assert.ok(widgets.has(name), `a screen uses ${name}`);
-    // Story Block's blocks replace the old widgets the screens used to draw (ss.meter, ss.portrait, ss.badge, ss.skill-tree).
-    for (const name of ['ss.meter', 'ss.portrait', 'ss.badge', 'ss.skill-tree']) assert.ok(!widgets.has(name), `no screen draws ${name} any more`);
+    for (const name of ['ss.hero', 'ss.tiers', 'ss.radar', 'ss.stepper', 'ss.bar', 'ss.status']) assert.ok(widgets.has(name), `a screen uses ${name}`);
+    // Story Block's blocks replace the old widgets the screens used to draw (ss.meter, ss.badge, ss.skill-tree).
+    for (const name of ['ss.meter', 'ss.badge', 'ss.skill-tree']) assert.ok(!widgets.has(name), `no screen draws ${name} any more`);
 });
 
 test('feature tags (MODULES §F100): the Crafting screen is the crafting feature\'s', () => {

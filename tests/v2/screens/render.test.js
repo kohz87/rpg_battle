@@ -239,14 +239,15 @@ test('hud: your HP and MP and condition badges; no checks wait (MODULES §F80)',
     const drawn = draw(hudScreen, makeState());
     assert.deepEqual(drawn.warnings, []);
     const strip = drawn.el.querySelector('.rb-hud');
-    assert.equal(heroOf(strip).name, 'Ren');
-    assert.equal(heroOf(strip).line, 'Lv 3 · Sellsword · You');
+    assert.equal(text(strip.querySelector('.nm')), 'Ren');
+    assert.equal(text(strip.querySelector('.lv')), 'Lv 3');
     // Without party.toSpend the badge is your own points.
     assert.equal(text(strip.querySelector('.spend')), '3 to spend');
     assert.equal(strip.querySelector('.spend').getAttribute('title'), 'Stat points to spend: Ren 3');
-    assert.deepEqual(heroOf(strip).bars.slice(0, 2).map(bar => [bar.label, bar.value, bar.max]), [['HP', 57, 82], ['MP', 30, 40]]);
-    assert.deepEqual(heroOf(strip).statuses.map(status => status.icon), ['fa-skull-crossbones', 'fa-droplet']);
-    assert.equal(propsOf(widgetsIn(strip, 'ss.hero')[0]).compact, true);
+    // The HUD's pieces are Story Block's: two bars (HP, MP) and a status badge per condition.
+    assert.deepEqual(widgetsIn(strip, 'ss.bar').map(el => [propsOf(el).label, Number(propsOf(el).value), Number(propsOf(el).max)]), [['HP', 57, 82], ['MP', 30, 40]]);
+    assert.deepEqual(widgetsIn(strip, 'ss.status').map(el => propsOf(el).value.icon), ['fa-skull-crossbones', 'fa-droplet']);
+    assert.equal(widgetsIn(strip, 'ss.hero').length, 0, 'the strip is not the compact hero (it would wrap out of 48px)');
     assert.equal(strip.querySelector('.checks'), null);
     assert.equal(drawn.el.querySelector('.none-yet'), null);
     checkProps(drawn);
