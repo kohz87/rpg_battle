@@ -6,7 +6,7 @@
 //   hands them to the model tied to attempts (index.js).
 // * The `check` kind: the reply already narrated the outcome and wrote
 //   `? check stealth — slipping past the guard | dc: hard | roll: 1 | result: success`. Code takes
-//   the roll of the line's place among the reply's checks (the first Roll 1, the second Roll 2,
+//   the roll of the line's place among the reply's checks and crafts (the first Roll 1, the second Roll 2,
 //   whatever the line names: a line naming the other roll is noted on the card), adds its own
 //   modifiers (modifiers.js), reads the total against the difficulty (a natural 20 always
 //   succeeds, a natural 1 always fails, F31) and records **that** result in the log and the
@@ -265,7 +265,10 @@ function applyCheck(ctx, line) {
     if (earlier.length >= MAX_PER_REPLY) {
         fail(ctx, 'REFUSED', `Only ${MAX_PER_REPLY} checks count in one reply: ${attemptText({ skill, stat, what })} was not rolled.`);
     }
-    const picked = pickRoll(prepared, labels.roll, earlier.map(entry => entry.roll).filter(Boolean), earlier.length + 1, () => d20(ctx));
+    // The reply's crafts (the craft part's, MODULES §F102) are uncertain attempts too: they count in the
+    // place and the rolls they took are used, so a check after a craft takes the next roll.
+    const crafted = (ask(ctx, 'craft.rollsUsed', { carrier: key }) ?? []).filter(roll => Number.isInteger(roll));
+    const picked = pickRoll(prepared, labels.roll, [...earlier.map(entry => entry.roll), ...crafted].filter(Boolean), earlier.length + crafted.length + 1, () => d20(ctx));
     const rules = rulesOf(ctx);
     let defs = {};
     try { defs = ctx.read('inventory')?.defs ?? {}; } catch { defs = {}; }

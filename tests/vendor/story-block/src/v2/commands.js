@@ -20,6 +20,10 @@
 //   have, `ctx.id(prefix)` a new `<prefix>_<8 base36>` drawn from the receipt's seed (so the same seed
 //   gives the same IDs, and ctx.rng() is not disturbed), and, for capture runs, `ctx.carrier`
 //   ({ index, swipe, key }) and `ctx.chat` ({ lastUser, reply }); both are null for other commands.
+//   `ctx.reply` ({ index, sid }) is the reply the command's changes are stored on, for every command:
+//   the capture's carrier, else the head carrier (the last reply, where store.append puts a click's
+//   ops, SPEC §2.2); null when the chat has no reply yet. Queries get the same as `tools.reply`, so
+//   per-reply bookkeeping (a budget tally under the reply's sid) can be read and kept for a click too.
 // * Internal commands (registry.isInternal: capture.*, module.init.*, events.fire) are refused with
 //   REFUSED when the cause is 'ui', whether named at the top or through ctx.call.
 // * A command under a feature the reader turned off (MODULES §F100, registry.commandFeature) is refused
@@ -58,6 +62,24 @@ function asCommandError(type, error) {
 
 function isRecord(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+// `{ index, sid }` frozen, or null without a usable sid.
+function replyOf(index, sid) {
+    return Number.isInteger(index) && index >= 0 && typeof sid === 'string' && sid ? Object.freeze({ index, sid }) : null;
+}
+
+/**
+ * The reply a command outside a capture is stored on (`ctx.reply`): the head carrier, store.append's,
+ * with the record ID its record has or will get (store.carrierSid). null for a store that cannot say.
+ */
+export function headReply(store) {
+    try {
+        const index = typeof store?.headIndex === 'function' ? store.headIndex() : -1;
+        return typeof store?.carrierSid === 'function' && Number.isInteger(index) && index >= 0 ? replyOf(index, store.carrierSid(index)) : null;
+    } catch {
+        return null;
+    }
 }
 
 /** `<prefix>_<8 base36>` from crypto (SPEC §2.1), for receipt IDs when no `id` option is given. */
@@ -153,6 +175,7 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
     // stored receipts in chat order.
     function queryTools(tx, state = currentState(tx)) {
         const tools = Object.freeze({
+            reply: tx.reply,
             query(name, args) {
                 const fn = findQuery(name);
                 if (!fn) fail('NOT_FOUND', `There is no query called "${name}".`);
@@ -185,6 +208,7 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
             rev: tx.rev,
             carrier: tx.carrier,
             chat: tx.chat,
+            reply: tx.reply,
             id(prefix) {
                 open();
                 if (typeof prefix !== 'string' || !ID_PREFIX.test(prefix)) fail('INVALID', `An id prefix is lowercase letters and digits (like "it"), not "${prefix}".`);
@@ -347,6 +371,7 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
                 rev: headRev + 1, carrier: carrierOf(carrier), chat: chatOf(chat),
                 drafts: new Map(), meta: null, failure: null, closed: false,
             };
+            tx.reply = tx.carrier ? replyOf(tx.carrier.index, tx.carrier.sid ?? tx.carrier.key) : headReply(store);
             const out = invoke(tx, type, target, payload, 0);
             if (tx.failure) throw tx.failure;
             const { summary, narrate, data, problem } = resultOf(type, out, cause);
