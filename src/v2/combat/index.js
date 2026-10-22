@@ -24,8 +24,9 @@ import { act, availableActions, summarize } from '../../combat.js';
 import { DEFAULT_BESTIARY } from '../../enemies.js';
 import { itemSlot, oneCurrency, parseEffect } from '../../items.js';
 import { combinedBestiary } from '../../templates.js';
-import { foesText, rankContext, readEncounter, STAKES, TIERS } from './encounter.js';
+import { foesCard, foesText, rankContext, readEncounter, STAKES, TIERS } from './encounter.js';
 import { questSized, questTargets } from './quest.js';
+import { rulesFrom } from '../party/sheets.js';
 import { buildSetup, COMBAT_DEFAULTS, COMBAT_LIMITS, fightNumbers, moneyScale, partyCombatants, scaledMoney } from './setup.js';
 import { beatenOf, bestiaryList, byRev, draftSession, dropSession, sessionOf, creatureSlug, fightRules, lastOf, latinSlug, offersOf, packCreature, packSetup, sessionStatus, unpackSetup, valuesOf } from './stored.js';
 export { beatenOf, lastOf, offersOf } from './stored.js';
@@ -651,6 +652,17 @@ function dismiss(ctx, payload) {
     return { summary: `The reader turns down the fight with ${foesText(offer.foes, { tiers: false })}.`, narrate: false, data: { offer: offer.id } };
 }
 
+/** What an offer's card reads its ranks with: { ladder (party.ranks), pcLevel, rules }; none when the queries are not there. */
+function cardContext(tools) {
+    const ask = (name, query) => {
+        try { return typeof tools?.query === 'function' ? tools.query(name, query) : null; } catch { return null; }
+    };
+    let rules;
+    try { rules = rulesFrom(tools?.settings ?? null); } catch { rules = undefined; }
+    const level = Number(ask('party.pc', {})?.level);
+    return { ladder: ask('party.ranks', {}), pcLevel: Number.isInteger(level) && level >= 1 ? level : 1, ...(rules ? { rules } : {}) };
+}
+
 // --- capture ----------------------------------------------------------------------------------
 
 /** `! encounter …`: an offer, or a plain reason it cannot be one. */
@@ -803,7 +815,12 @@ export const part = {
         'combat.dismiss': dismiss,
     },
     queries: {
-        'combat.offers': state => offersOf(combatOf(state)).map(offer => ({ ...structuredClone(offer), text: foesText(offer.foes) })),
+        // `card` (terms2): each foe's rank on the suite's ladder and the fight's tier, for the Fight screen.
+        'combat.offers': (state, args, tools) => {
+            const offers = offersOf(combatOf(state));
+            const card = offers.length ? cardContext(tools) : null;
+            return offers.map(offer => ({ ...structuredClone(offer), text: foesText(offer.foes), card: foesCard(offer.foes, card) }));
+        },
         // Never throws to the reader (a view that cannot be rebuilt reads as no fight).
         'combat.session': state => {
             try { return sessionView(sessionOf(combatOf(state))); } catch { return null; }

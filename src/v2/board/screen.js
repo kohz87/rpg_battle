@@ -11,7 +11,7 @@ const template = `<div class="rb-fight">
     <h3 class="rb-fight-heading">On offer</h3>
     <ul class="rb-fight-offer-list">
       <li class="rb-fight-offer" data-each="q.offers as o" data-class="deadly: o.stakes == 'death'">
-        <div class="rb-fight-offer-text">{{ o.text }}</div>
+        <div class="rb-fight-offer-text"><span data-if="o.card">{{ o.card }}</span><span data-if="!o.card">{{ o.text }}</span></div>
         <div class="rb-fight-offer-meta">
           <span class="rb-fight-stakes" data-if="o.stakes == 'death'">To the death</span>
           <span class="rb-fight-place" data-if="o.place != ''">{{ o.place }}</span>

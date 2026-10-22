@@ -554,3 +554,61 @@ export function rankAt(level, ladder) {
     for (const rank of ladder) if (rank.levels[1] < lv) best = rank;
     return best;
 }
+
+// ---------------------------------------------------------------------------------------
+// The reader's rank ladder lines (terms2, MODULES §F105)
+//
+// The ladder is RPG Battle's setting since terms2 (Character, group Terms: Rank ladder, `party.ranks`, one
+// `{ rank }` a line, "Name" or "Name: first level"; Levels per rank, `party.levelsPerRank`): a ladder bands
+// levels, so it lives with them. RPG Battle hands the lines to Story Block through the `ranks.reader` hook;
+// Story Block turns them into rank records and answers `packs.content({ kind: 'ranks' })` with them, which
+// is what every module reads (readerRanks above, Story Director's quest.ranks), so all use the same bands.
+
+export const MAX_LEVELS_PER_RANK = 999;
+
+/** The `ranks.reader` hook's answer from the module's settings: `{ lines, perRank }`, or null with no lines. */
+export function readerLadderLines(all) {
+    const rows = Array.isArray(all?.['party.ranks']) ? all['party.ranks'] : [];
+    const lines = rows.filter(row => isRecord(row) && typeof row.rank === 'string' && row.rank.trim()).map(row => ({ rank: row.rank }));
+    if (!lines.length) return null;
+    const per = Number(all?.['party.levelsPerRank']);
+    return { lines, perRank: Number.isInteger(per) && per >= 1 ? Math.min(MAX_LEVELS_PER_RANK, per) : 0 };
+}
+
+/**
+ * Moves a ladder stored in Story Block's Terms (SB #121: `extension_settings.storySuite.modules['story-block']
+ * .ranks`) to RPG Battle's `party.ranks`, once: only when RPG Battle has none stored. `storySuite` is the
+ * stored object itself. Story Block's old key is removed either way. Returns true when anything changed (the
+ * caller saves).
+ */
+export function migrateRankLadder(storySuite) {
+    const modules = isRecord(storySuite?.modules) ? storySuite.modules : null;
+    const old = modules?.['story-block']?.ranks;
+    if (!Array.isArray(old)) return false;
+    const rows = old.filter(row => isRecord(row) && typeof row.rank === 'string' && row.rank.trim()).map(row => ({ rank: row.rank }));
+    if (!isRecord(modules['rpg-battle'])) modules['rpg-battle'] = {};
+    const own = modules['rpg-battle'];
+    if (rows.length && !Object.hasOwn(own, 'party.ranks')) own['party.ranks'] = rows;
+    delete modules['story-block'].ranks;
+    return true;
+}
+
+const MAX_PREVIEW = 6;
+
+/**
+ * The read-only preview of a ladder (`party.ranks`): "Soul Class I: Lv 1–10 · II: 11–20 · III: 21–30 · …
+ * · IX: 81–90": the first rank's whole title, the rest without the words every title starts with, at most
+ * MAX_PREVIEW ranks (then the last one). '' for none.
+ */
+export function ladderPreview(ladder) {
+    const list = Array.isArray(ladder) ? ladder.filter(rank => isRecord(rank) && isPair(rank.levels)) : [];
+    if (!list.length) return '';
+    const titles = list.map(rank => String(rank.title || rank.id));
+    const words = titles.map(title => title.split(' '));
+    let shared = 0;
+    while (words.every(list => list.length > shared + 1 && list[shared] === words[0][shared])) shared += 1;
+    const range = ([lo, hi]) => (lo === hi ? `${lo}` : `${lo}–${hi}`);
+    const part = (rank, index) => `${index === 0 ? titles[0] : words[index].slice(shared).join(' ')}: ${index === 0 ? 'Lv ' : ''}${range(rank.levels)}`;
+    const shown = list.length > MAX_PREVIEW ? [...list.slice(0, MAX_PREVIEW - 1).map((rank, index) => part(rank, index)), '…', part(list.at(-1), list.length - 1)] : list.map(part);
+    return shown.join(' · ');
+}

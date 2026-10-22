@@ -27,6 +27,7 @@
 // Every text is set with textContent; nothing a module or a pack wrote becomes markup here. The texts are
 // in src/v2/strings.js.
 
+import { formatAmount } from './domains/money.js';
 import { PACKS_FOLD, createTabHost, openSettingsOverlay } from './host-ui.js';
 import { mountQuery } from './sdk.js';
 import { createMounts } from './view/mounts/index.js';
@@ -180,8 +181,9 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
             // fmt.time: the story clock on its calendar (Story Director's, else the pack's, else Gregorian).
             const calendar = storyCalendar((name, args) => (registry.query(name) ? sdk.query(name, args) : null));
             return {
-                // "1 mark", "44 marks": the currency's plural for any amount but one (MODULES §F1).
-                ...(currency?.name ? { money: n => (Number.isInteger(n) ? `${n} ${Math.abs(n) === 1 ? currency.name : currency.plural || currency.name}` : '') } : {}),
+                // "1 mark", "44 marks": the currency's plural for any amount but one (MODULES §F1); with coins
+                // the mixed coins, "3 silver 5 copper", or the smallest unit when the reader prefers (§F108).
+                ...(currency?.name ? { money: n => (!Number.isInteger(n) ? '' : n < 0 ? `-${formatAmount(-n, currency)}` : formatAmount(n, currency)) } : {}),
                 time: minutes => formatStoryTime(minutes, calendar),
             };
         },

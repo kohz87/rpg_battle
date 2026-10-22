@@ -29,7 +29,14 @@ export const SETTINGS_DEFAULTS = Object.freeze({
     // MODULES §F105: the world's words for XP and levels (blank: the pack's, else XP and Level).
     xpName: '',
     levelName: '',
+    // terms2: the world's rank ladder (one `{ rank }` a line) and how many levels a rank spans (0: spread
+    // to the level cap). Handed to Story Block by the `ranks.reader` hook (terms.js readerLadderLines).
+    ranks: Object.freeze([]),
+    levelsPerRank: 0,
 });
+
+// The Levels per rank help; the module adds the ladder's preview after it (module.js, terms.js ladderPreview).
+export const LEVELS_PER_RANK_HELP = 'How many levels one rank spans when a ladder line gives no first level: 10 makes Soul Class I levels 1-10 and II 11-20. A line\'s own first level wins.';
 
 export const SETTINGS_SCHEMA = Object.freeze({
     startPoints: { type: 'int', min: 0, max: 60, label: 'Points a new character spends' },
@@ -42,7 +49,13 @@ export const SETTINGS_SCHEMA = Object.freeze({
     maxCompanions: { type: 'int', min: 0, max: 12, label: 'Companions beside you at most' },
     // Folded into `terms` for every part (src/v2/module.js, terms.js foldReaderTerms).
     xpName: { type: 'text', group: 'Terms', max: 30, label: 'XP word (blank: the pack\'s, else XP)', help: 'What this world calls experience: "Soul Growth", "Power". Every screen, fight summary and note to the model uses it.' },
-    levelName: { type: 'text', group: 'Terms', max: 30, label: 'Level word (blank: the pack\'s, else Level)', help: 'What this world calls a level: "Soul Class", "Circle". The rank ladder is in Story Block\'s Terms.' },
+    levelName: { type: 'text', group: 'Terms', max: 30, label: 'Level word (blank: the pack\'s, else Level)', help: 'What this world calls a level: "Soul Class", "Circle".' },
+    ranks: {
+        type: 'list', group: 'Terms', label: 'Rank ladder (lowest first)', form: 'lines',
+        of: { rank: { type: 'text', label: 'Rank', max: 40 } },
+        help: 'The ranks of this world, one per line from lowest to highest: "Soul Class I" to "Soul Class IX", or F, E, D, C, B, A, S, SS, SSS. A line may give its first level ("Soul Class II: 11"). Quest ranks, foe ranks, the party\'s rank and a fight\'s tier all use it. Empty: the pack\'s ladder, else the built-in F to S.',
+    },
+    levelsPerRank: { type: 'int', group: 'Terms', min: 0, max: 999, label: 'Levels per rank (0: spread to the level cap)', help: LEVELS_PER_RANK_HELP },
 });
 
 const COMBAT_CONDITIONS = ['poison', 'burn', 'bleed', 'stun', 'slow', 'weaken', 'shield', 'regen', 'guard'];

@@ -13,7 +13,7 @@ import {
     featureOn, initialInventory, inventoryTail, validateInventory,
 } from './inventory.js';
 import { capturePlace, capturePresent, initialScene, sceneCommands, sceneQueries, sceneTail, validateScene } from './scene.js';
-import { DEFAULT_CURRENCY, currencyOf } from './money.js';
+import { DEFAULT_CURRENCY, MAX_COIN_VALUE, coinLine, currencyOf } from './money.js';
 import { renderInventoryTab } from '../ui/inventory-tab.js';
 import { renderSceneTab } from '../ui/scene-tab.js';
 import { FEATURE_TEXT, createAssistPart } from '../assist/index.js';
@@ -66,7 +66,7 @@ export const CORE_FEATURES = Object.freeze([
 // never a second one.
 export const CORE_SETTINGS = Object.freeze({
     section: 'Story Block',
-    defaults: Object.freeze({ currency: DEFAULT_CURRENCY.name, currencyPlural: '', currencyShort: '', storyCoinPerReply: 0, economyScale: '0', ranks: Object.freeze([]) }),
+    defaults: Object.freeze({ currency: DEFAULT_CURRENCY.name, currencyPlural: '', currencyShort: '', storyCoinPerReply: 0, economyScale: '0', coins: Object.freeze([]), coinDisplay: 'mixed' }),
     schema: Object.freeze({
         currency: Object.freeze({ type: 'text', label: 'Currency (one coin: mark, crown, gold)', max: 24 }),
         currencyPlural: Object.freeze({ type: 'text', label: 'Currency, plural (blank: the name with an s)', max: 24 }),
@@ -78,13 +78,21 @@ export const CORE_SETTINGS = Object.freeze({
         // A number from 0.001 to 1000, kept as text so it can hold a fraction (MODULES §F104).
         economyScale: Object.freeze({
             type: 'text', max: 12, label: 'Money scale (0: the pack\'s)',
-            help: 'How many of your coins one coin of the built-in defaults is worth, from 0.001 to 1000: 0.01 for a copper-coin world, 1 for gold. 0 or blank: the enabled pack\'s scale, else 1. Numbers a pack writes are never scaled.',
+            help: 'How many of your coins one coin of the built-in defaults is worth, from 0.001 to 1000: 100 for a copper-coin world (a hundred copper to a built-in gold), 1 for gold. 0 or blank: the enabled pack\'s scale, else 1. Numbers a pack writes are never scaled.',
         }),
-        // The world's rank ladder (packs/ranks.js): every module reads it through packs.content({ kind: 'ranks' }).
-        ranks: Object.freeze({
-            type: 'list', group: 'Terms', label: 'Rank ladder (lowest first)', form: 'lines',
-            of: Object.freeze({ rank: Object.freeze({ type: 'text', label: 'Rank', max: 40 }) }),
-            help: 'The ranks of this world, one per line from lowest to highest: "Soul Class I" to "Soul Class IX", or F, E, D, C, B, A, S, SS, SSS. Add the first level of each to set their levels ("Soul Class II: 11"). Quest ranks, foe ranks and the party\'s rank all use it. Empty: the enabled pack\'s ladder, else the built-in F to S.',
+        // The world's coins (money.js coinsOf, MODULES §F108): "copper: 1", "silver: 10", smallest first.
+        // The rank ladder moved to RPG Battle's Terms (MODULES §F105, `ranks.reader` hook below).
+        coins: Object.freeze({
+            type: 'list', label: 'Coins (smallest first)', form: 'lines',
+            of: Object.freeze({ name: Object.freeze({ type: 'text', label: 'Coin', max: 49 }), value: Object.freeze({ type: 'int', label: 'Worth', min: 1, max: MAX_COIN_VALUE }) }),
+            help: 'The coins of this world and what each is worth in the smallest one, one per line: "copper: 1", "silver: 10", "gold: 100" (a plural after a slash: "penny/pennies: 1"). The wallet counts the smallest coin; "+ coin 3 silver" is 30 copper. Empty: the enabled pack\'s coins, else the one currency above.',
+        }),
+        coinDisplay: Object.freeze({
+            type: 'choice', label: 'Coin display', options: Object.freeze([
+                Object.freeze({ value: 'mixed', label: 'Mixed coins (3 silver 5 copper)' }),
+                Object.freeze({ value: 'base', label: 'Smallest coin only (35 copper)' }),
+            ]),
+            help: 'How amounts are shown when the world has coins.',
         }),
     }),
 });
@@ -131,7 +139,8 @@ export function createCorePart({ hooks = () => [], settings = () => ({}), hookEn
             loot: { ...kind(CORE_KINDS.loot.grammar, (ctx, line) => captureLoot(ctx, line, env)), feature: FEATURE.loot },
         },
         context: {
-            static: () => CORE_STATIC,
+            // The coins' line (money.js coinLine) only when the world has coins: it changes with them only.
+            static: () => [CORE_STATIC, coinLine(currency())].filter(Boolean).join('\n'),
             // Half the budget for the lines that always go, half for the optional overflow.
             tail(view) {
                 const chars = CORE_BUDGET * 4;
@@ -224,6 +233,18 @@ export function mergeParts(parts) {
  * what the events part commits and asks through (default: the public sdk, looked up lazily);
  * `assist`: the assist part (pre-roll classifier, after-reply extractor; both off by default).
  */
+/** The first `ranks.reader` hook's ladder that has lines: { lines, perRank }, or null (a failing hook is skipped). */
+export function readerLadder(hooks) {
+    let fns = [];
+    try { fns = typeof hooks === 'function' ? hooks('ranks.reader') : []; } catch { fns = []; }
+    for (const fn of Array.isArray(fns) ? fns : []) {
+        let got = null;
+        try { got = typeof fn === 'function' ? fn() : null; } catch { got = null; }
+        if (got && Array.isArray(got.lines) && got.lines.length) return { lines: got.lines, perRank: Number.isInteger(got.perRank) && got.perRank > 0 ? got.perRank : 0 };
+    }
+    return null;
+}
+
 export function createCoreModule({ hooks = () => [], settings = () => ({}), version = '2.0.0-alpha.1', packs = livePacks, command, query, assist = null, hookEntries = null, problem = null } = {}) {
     const core = createCorePart({ hooks, settings, hookEntries, problem, economy: () => (typeof packs.economy === 'function' ? packs.economy() : null) });
     const events = createEventsPart({
@@ -231,17 +252,18 @@ export function createCoreModule({ hooks = () => [], settings = () => ({}), vers
         ...(query ? { query } : {}),
     });
     const merged = mergeParts([core, packs.part, events, assist ?? createAssistPart({ settings: () => settings() })]);
-    // The reader's rank ladder (Terms: Rank ladder, packs/ranks.js) answers packs.content's ranks in
-    // place of the packs', with the first pack's numbers at each place; a call for one pack's own ranks
-    // (`pack`) is the pack's as before.
+    // The reader's rank ladder answers packs.content's ranks in place of the packs', with the first pack's
+    // numbers at each place (packs/ranks.js); a call for one pack's own ranks (`pack`) is the pack's as
+    // before. The ladder is a module's setting (RPG Battle's Terms: Rank ladder and Levels per rank),
+    // given by its `ranks.reader()` hook → { lines, perRank } (the first that gives lines); without such
+    // a module there is no reader's ladder, and every module keeps its own or the pack's (MODULES §F105).
     const content = merged.queries['packs.content'];
     if (typeof content === 'function') {
         merged.queries['packs.content'] = (state, args = {}, tools) => {
             const answer = content(state, args, tools);
             if (args?.kind !== 'ranks' || args?.pack) return answer;
-            let rows = null;
-            try { rows = settings()?.ranks; } catch { rows = null; }
-            const own = readerRanks(rows, firstPackRanks(answer));
+            const given = readerLadder(hooks);
+            const own = given ? readerRanks(given.lines, firstPackRanks(answer), { perRank: given.perRank }) : [];
             return own.length ? own : answer;
         };
     }

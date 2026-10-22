@@ -31,8 +31,10 @@ import { createTurn, substituteNames } from './turn.js';
 export const VERSION = '2.0.0-alpha.2';
 
 /**
- * Settings where Story Block's `currency` (and `currencyShort`, `currencyPlural`) fall back to
- * `suggest()` → { name, short, plural? } | null when the reader has not set them. Same interface as createSettings().
+ * Settings where Story Block's `currency` (and `currencyShort`, `currencyPlural`, `coins`) fall back to
+ * `suggest()` → { name, short, plural?, coins? } | null when the reader has not set them: the reader's
+ * coins win, then the pack's (only with the pack's currency: a currency the reader named keeps no pack
+ * coins), then none. Same interface as createSettings().
  */
 export function withPackCurrency(base, suggest) {
     const settings = id => {
@@ -46,6 +48,8 @@ export function withPackCurrency(base, suggest) {
             values.currency = offer.name.trim();
             if (!Object.hasOwn(stored, 'currencyShort') || !String(stored.currencyShort ?? '').trim()) values.currencyShort = String(offer.short ?? '');
             if (!Object.hasOwn(stored, 'currencyPlural') || !String(stored.currencyPlural ?? '').trim()) values.currencyPlural = String(offer.plural ?? '');
+            const ownCoins = Array.isArray(stored.coins) && stored.coins.length > 0;
+            if (!ownCoins && Array.isArray(offer.coins) && offer.coins.length) values.coins = structuredClone(offer.coins);
         }
         return values;
     };

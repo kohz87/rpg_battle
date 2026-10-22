@@ -96,7 +96,7 @@ export const part = {
             carryItems: {
                 type: 'list', label: 'Items that add carry capacity', form: 'lines',
                 of: { item: { type: 'text', label: 'Item', max: 80 }, carry: { type: 'int', label: 'Carry', min: 1, max: 1000 } },
-                help: 'One per line, "Name: capacity" (Spatial Ring: 100, Saddlebags: 60, Cart: 200): while someone owns it (wears it, for gear) they carry that much more; in the shared bag the party does. What the story writes never adds capacity.',
+                help: 'One per line, "Name: capacity" (Spatial Ring: 100, Saddlebags: 60, Cart: 200): while someone owns it (wears it, for gear) they carry that much more; in the shared bag the party does. It goes by name, so a thing the story gave counts too ("Saddlebags: 60" for the story\'s Saddlebags); what the story writes never sets a capacity.',
             },
         },
     },
