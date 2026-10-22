@@ -77,7 +77,9 @@ export function stCapabilities() {
     const names = new Set();
     for (const module of sdk.modules() ?? []) {
         if (module?.id) names.add(String(module.id));
-        for (const domain of Object.keys(module?.domains ?? {})) names.add(domain);
+        // sdk.modules() lists domains as names; a definition's domains are an object keyed by name.
+        const domains = module?.domains ?? {};
+        for (const domain of Array.isArray(domains) ? domains : Object.keys(domains)) names.add(String(domain));
         for (const name of Array.isArray(module?.capabilities) ? module.capabilities : []) names.add(String(name));
     }
     return [...names];

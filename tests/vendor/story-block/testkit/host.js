@@ -41,9 +41,10 @@ export async function hostAvailable() {
  * (register Story Block's core module: scene, inventory, packs, events, assist), callModel?(prompt, opts)
  * (the assist helpers' model call), fakes?: false (use fakes.js), st?: options for
  * createFakeContext (plus onBlocked?), settings?: initial extension_settings.storySuite }.
- * Returns { st, ctx, registry, settings, store, bus, events, sdk, turn, packs, send(text, reply, { stopped }),
+ * Returns { st, ctx, registry, settings, features, store, bus, events, sdk, turn, packs, send(text, reply, { stopped }),
  * swipe(reply), regenerate(reply), cont(reply), quiet(), head(), close() }; `st` is the fake
- * SillyTavern (fake-st.js), with `st.notices` = [{ reason, moduleId }] for held-back generations. Throws when the runtime is missing and `fakes` is not set.
+ * SillyTavern (fake-st.js), with `st.notices` = [{ reason, moduleId }] for held-back generations; `features` is the
+ * reader's feature choices (createFeatureStore: `features.set('my-module.wear', false)`). Throws when the runtime is missing and `fakes` is not set.
  */
 export async function createHost(options = {}) {
     const { modules = [], core = true, fakes = false, st: stOptions = {}, settings: initialSettings = null, callModel = null } = options;
@@ -76,7 +77,7 @@ export async function createHost(options = {}) {
     markReady();
 
     return {
-        st, ctx, registry, settings, store, bus, events, sdk, turn, packs: runtime.packs,
+        st, ctx, registry, settings, features: runtime.features, store, bus, events, sdk, turn, packs: runtime.packs,
         send: (text, reply = '', { stopped = false } = {}) => st.send(text, { reply, stopped }),
         swipe: (reply = '') => st.generate('swipe', { reply }),
         regenerate: (reply = '') => st.generate('regenerate', { reply }),

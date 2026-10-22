@@ -39,13 +39,14 @@ export function problemReason(item) {
 
 /**
  * The change lines of reply `index` the code did not apply, from turn problems
- * (`{ index, line?, code, message }`): [{ line, reason }] in the order reported. A problem without a line
- * (a block that could not be read) is listed by its message.
+ * (`{ index, line?, code, message, quiet? }`): [{ line, reason }] in the order reported. A problem without a
+ * line (a block that could not be read) is listed by its message; a quiet one (FEATURE_OFF) is not listed.
  */
 export function refusedFrom(problems, index) {
     const out = [];
     for (const item of Array.isArray(problems) ? problems : []) {
-        if (!item || item.index !== index) continue;
+        // A quiet problem (a line of a feature the reader turned off) is not a refusal.
+        if (!item || item.index !== index || item.quiet === true) continue;
         if (typeof item.line === 'string' && item.line) out.push({ line: item.line, reason: problemReason(item) });
         else if (item.code === 'UNREADABLE' && item.message) out.push({ line: String(item.message), reason: '' });
     }

@@ -12,11 +12,13 @@
 // `capabilities` (the capability names this Story Block has, or null when unknown: then
 // requires.capabilities is checked for form only).
 
-import { CALENDAR_FIELDS, CALENDAR_LIMITS, CALENDAR_START_FIELDS, CHOICE_FIELDS, CONTENT_KINDS, COMMAND, DEF_ID, EVENT_FIELDS, EVENT_LIMITS, ITEM_FIELDS, ITEM_KINDS, LIMITS, MOUNTS, PACK_FIELDS, PACK_ID, PLACE_FIELDS, PRESET_FIELDS, RARITIES, ROUTE_FIELDS, SCREEN_FIELDS, SCREEN_ID, SEMVER, SKILL_FIELDS, SKILL_TARGETS, SKILL_TYPES, SLUG, START_FIELDS, STAT_NAME, RANK_FIELDS, RANK_ID, RANKS_LIMITS, TERM_SEPARATORS, TERMS_FIELDS, TERMS_LIMITS, TERMS_NUMERALS, TERMS_TIER_FIELDS } from './limits.js';
+import { CALENDAR_FIELDS, CALENDAR_LIMITS, CALENDAR_START_FIELDS, CHOICE_FIELDS, CONTENT_KINDS, COMMAND, CRAFT_FIELDS, ECONOMY_FIELDS, ECONOMY_LIMITS, CRAFTS_LIMITS, DEFAULT_CRAFTS, METER_FIELDS, METER_LIMITS, METER_PRESET_FIELDS, METER_RESERVED, METER_STAGE_FIELDS, RECIPE_LIMITS, STAT_SUM, DEF_ID, EVENT_FIELDS, EVENT_LIMITS, ITEM_FIELDS, ITEM_KINDS, LIMITS, MOUNTS, PACK_FIELDS, PACK_ID, PLACE_FIELDS, PRESET_FIELDS, RARITIES, ROUTE_FIELDS, SCREEN_FIELDS, SCREEN_ID, SEMVER, SKILL_FIELDS, SKILL_TARGETS, SKILL_TYPES, SLUG, START_FIELDS, STAT_NAME, RANK_FIELDS, RANK_ID, RANKS_LIMITS, TERM_SEPARATORS, TERMS_FIELDS, TERMS_LIMITS, TERMS_NUMERALS, TERMS_TIER_FIELDS } from './limits.js';
 import { byteLength, checkPlain } from './safety.js';
 import { parseRange, satisfies } from './version.js';
 import { foldKey, oneLine } from '../../text.js';
 import { MAX_DEPTH as MAX_TEMPLATE_DEPTH, tooDeep } from '../view/template/html.js';
+import { MAX_LOOP_DEPTH, templateShape } from '../view/template/index.js';
+import { MAX_JSON_DEPTH } from '../view/template/json.js';
 import { MAX_AT_DEPTH, cssDepth } from '../view/css.js';
 
 export const HOST_VERSION = '2.0.0';
@@ -78,6 +80,7 @@ function normalize(raw, { add, hostVersion, capabilities, limits }) {
     const requires = checkRequires(raw.requires, { add, hostVersion, capabilities });
     const currency = raw.currency === undefined ? null : checkCurrency(raw.currency, add);
     const calendar = raw.calendar === undefined ? null : checkCalendar(raw.calendar, add);
+    const economy = raw.economy === undefined ? null : checkEconomy(raw.economy, add);
 
     const content = {};
     if (raw.content !== undefined && !isObject(raw.content)) add('BAD_CONTENT', 'content', 'content must be an object of lists: { "items": [ … ], "events": [ … ] }.');
@@ -89,7 +92,10 @@ function normalize(raw, { add, hostVersion, capabilities, limits }) {
     const ref = itemRefs(items, packId);
     content.creatures = records(given.creatures, 'creatures', { add, packId, check: openRecord });
     content.shops = records(given.shops, 'shops', { add, packId, check: (record, path) => checkShop(record, path, add, ref) });
-    content.recipes = records(given.recipes, 'recipes', { add, packId, check: (record, path) => checkRecipe(record, path, add, ref) });
+    // Crafts before recipes: a recipe's `craft` is a default craft or one this pack declares.
+    const crafts = given.crafts === undefined ? null : checkCrafts(given.crafts, packId, add);
+    const craftIds = new Set([...DEFAULT_CRAFTS.map(craft => craft.craft), ...(crafts ?? []).map(craft => craft.slug)]);
+    content.recipes = records(given.recipes, 'recipes', { add, packId, check: (record, path) => checkRecipe(record, path, add, ref, craftIds) });
     content.events = records(given.events, 'events', { add, packId, check: (record, path) => checkEvent(record, path, add), slugField: 'id' });
     content.quests = records(given.quests, 'quests', { add, packId, check: openRecord });
     content.races = records(given.races, 'races', { add, packId, check: (record, path, label) => checkChoice(record, path, label, add), slugField: 'id', named: true });
@@ -111,6 +117,11 @@ function normalize(raw, { add, hostVersion, capabilities, limits }) {
         else content.terms = records(given.terms, 'terms', { add, packId, check: (record, path, label) => checkTerms(record, path, label, add), slugField: 'id', named: false, autoSlug: termsSlug() });
     }
     if (given.ranks !== undefined) content.ranks = checkRanks(given.ranks, packId, add);
+    if (crafts !== null) content.crafts = crafts;
+    if (given.meterPresets !== undefined) {
+        if (Array.isArray(given.meterPresets) && given.meterPresets.length > METER_LIMITS.presets) add('BAD_CONTENT', 'content.meterPresets', `content.meterPresets holds at most ${METER_LIMITS.presets} presets.`);
+        else content.meterPresets = records(given.meterPresets, 'meterPresets', { add, packId, check: (record, path) => checkMeterPreset(record, path, add), slugField: 'id', named: false });
+    }
 
     const start = raw.start === undefined ? null : checkStart(raw.start, add, ref);
     let layouts = [];
@@ -129,6 +140,7 @@ function normalize(raw, { add, hostVersion, capabilities, limits }) {
         description: String(raw.description ?? ''),
         requires,
         currency,
+        economy,
         calendar,
         content,
         start,
@@ -276,9 +288,11 @@ function checkShop(record, path, add, ref) {
     return ok ? { ...base, stock } : null;
 }
 
-function checkRecipe(record, path, add, ref) {
+function checkRecipe(record, path, add, ref, craftIds) {
     const base = openRecord(record);
     let ok = true;
+    const craft = checkRecipeCraft(record, path, add, craftIds);
+    if (!craft) ok = false;
     const makes = ref(record.makes);
     if (!makes) { ok = false; add('UNKNOWN_REF', `${path}.makes`, `"${record.name}" makes "${record.makes ?? ''}", which is not an item of this pack or a def ID.`); }
     if (record.qty !== undefined && !isInt(record.qty, 1)) { ok = false; add('BAD_RECORD', `${path}.qty`, `"${record.name}": qty must be a whole number of 1 or more.`); }
@@ -298,7 +312,175 @@ function checkRecipe(record, path, add, ref) {
             materials.push({ item: id, qty: entry.qty ?? 1 });
         });
     }
-    return ok ? { ...base, makes, qty: record.qty ?? 1, materials } : null;
+    return ok ? { ...base, makes, qty: record.qty ?? 1, materials, ...craft } : null;
+}
+
+// A recipe's crafting fields (MODULES §F102), each optional and kept only when given:
+// `craft` (a default craft or one of this pack's `crafts`), `dc` 5–40, `station` (a slug: forge,
+// alchemy-table, campfire, inn, workbench or the pack's own), `stat` ('STR+DEX', overriding the
+// craft's stats), `known` (true: every character knows it from the start) and `teaches` (who
+// teaches it, as text). Returns the normalized fields, or null after saying what is wrong.
+function checkRecipeCraft(record, path, add, craftIds) {
+    const label = `"${record.name}"`;
+    let ok = true;
+    const say = (field, message, code = 'BAD_RECORD') => { ok = false; add(code, `${path}.${field}`, `${label}: ${message}`); };
+    const out = {};
+    if (record.craft !== undefined) {
+        if (typeof record.craft !== 'string' || !SLUG.test(record.craft)) say('craft', 'craft must be a craft id like "alchemy" (lowercase letters, digits and dashes).');
+        else if (!craftIds.has(record.craft)) say('craft', `"${record.craft}" is not a craft: use ${DEFAULT_CRAFTS.map(entry => entry.craft).join(', ')}, or declare it in this pack's content.crafts.`, 'UNKNOWN_REF');
+        else out.craft = record.craft;
+    }
+    if (record.dc !== undefined) {
+        if (!Number.isInteger(record.dc) || record.dc < RECIPE_LIMITS.dcMin || record.dc > RECIPE_LIMITS.dcMax) say('dc', `dc must be a whole number from ${RECIPE_LIMITS.dcMin} to ${RECIPE_LIMITS.dcMax} (how hard the craft check is).`);
+        else out.dc = record.dc;
+    }
+    if (record.station !== undefined) {
+        if (typeof record.station !== 'string' || !SLUG.test(record.station)) say('station', 'station must be a station id like "forge", "alchemy-table", "campfire", "inn" or "workbench" (lowercase letters, digits and dashes).');
+        else out.station = record.station;
+    }
+    if (record.stat !== undefined) {
+        const stats = typeof record.stat === 'string' ? record.stat.split('+') : [];
+        if (typeof record.stat !== 'string' || !STAT_SUM.test(record.stat)) say('stat', `stat must be 1 to ${RECIPE_LIMITS.stats} stat names joined by + (like "STR+DEX" or "INT").`);
+        else if (new Set(stats).size !== stats.length) say('stat', `stat names "${record.stat}" with a stat twice.`);
+        else out.stat = record.stat;
+    }
+    if (record.known !== undefined) {
+        if (typeof record.known !== 'boolean') say('known', 'known must be true (every character knows it from the start) or false.');
+        else out.known = record.known;
+    }
+    if (record.teaches !== undefined) {
+        if (typeof record.teaches !== 'string' || !record.teaches.trim() || oneLine(record.teaches).length > RECIPE_LIMITS.teaches) say('teaches', `teaches must say who teaches it, 1 to ${RECIPE_LIMITS.teaches} characters (like "Hollis at the Gate Forge").`);
+        else out.teaches = oneLine(record.teaches);
+    }
+    return ok ? out : null;
+}
+
+const statList = (value, max) => Array.isArray(value) && value.length >= 1 && value.length <= max
+    && value.every(stat => typeof stat === 'string' && STAT_NAME.test(stat)) && new Set(value).size === value.length;
+
+// The crafts a pack declares or changes (MODULES §F102): `{ id, title, stats, stations?, note? }`. The id
+// is the craft as recipes write it ('alchemy'); one of the default crafts' ids replaces that craft.
+function checkCrafts(list, packId, add) {
+    if (Array.isArray(list) && list.length > CRAFTS_LIMITS.records) {
+        add('BAD_CONTENT', 'content.crafts', `content.crafts holds at most ${CRAFTS_LIMITS.records} crafts.`);
+        return [];
+    }
+    return records(list, 'crafts', { add, packId, slugField: 'id', named: false, check: (record, path) => {
+        const label = typeof record.id === 'string' ? `Craft "${record.id}"` : path;
+        let ok = true;
+        const say = (field, message, code = 'BAD_RECORD') => { ok = false; add(code, `${path}.${field}`, `${label}: ${message}`); };
+        for (const key of Object.keys(record)) if (!CRAFT_FIELDS.includes(key)) say(key, `"${key}" is not a craft field (expected ${CRAFT_FIELDS.join(', ')}).`, 'UNKNOWN_FIELD');
+        if (typeof record.title !== 'string' || !record.title.trim() || oneLine(record.title).length > CRAFTS_LIMITS.title) say('title', `title must be the craft's name, 1 to ${CRAFTS_LIMITS.title} characters (like "Alchemy").`);
+        else if (TERM_SEPARATORS.test(record.title)) say('title', 'title may not hold | : # < > or a line break.');
+        if (!statList(record.stats, CRAFTS_LIMITS.stats)) say('stats', `stats must list 1 to ${CRAFTS_LIMITS.stats} different stat names the check rolls with: ["INT", "DEX"].`);
+        const stations = record.stations ?? [];
+        if (!Array.isArray(stations) || stations.length > CRAFTS_LIMITS.stations || stations.some(station => typeof station !== 'string' || !SLUG.test(station)) || new Set(stations).size !== stations.length) {
+            say('stations', `stations must list at most ${CRAFTS_LIMITS.stations} different station ids ("forge", "alchemy-table" …); leave it out or [] for anywhere.`);
+        }
+        const note = record.note ?? '';
+        if (!isText(note, CRAFTS_LIMITS.note)) say('note', `note must be text of at most ${CRAFTS_LIMITS.note} characters.`);
+        if (!ok) return null;
+        return { title: oneLine(record.title), stats: [...record.stats], stations: [...stations], ...(note ? { note } : {}) };
+    } });
+}
+
+// One ready-made set of NPC meters for NPC State Delta (MODULES §F81, §F90). Each meter is a whole-number
+// range with a start; `bands` name stretches of it (a band reaches from its `at` to the next band's),
+// `drift` pulls it toward a value by `perDay` each story day. A stage is reached when every one of its
+// `needs` is: `at` 0 or more means the meter at or above it, a negative `at` at or below it (NPC State
+// Delta's own rule). Code moves meters and stages; the story only proposes.
+function checkMeterPreset(record, path, add) {
+    const label = typeof record.id === 'string' ? `Meter preset "${record.id}"` : path;
+    let ok = true;
+    const say = (field, message, code = 'BAD_RECORD') => { ok = false; add(code, `${path}.${field}`, `${label}: ${message}`); };
+    for (const key of Object.keys(record)) if (!METER_PRESET_FIELDS.includes(key)) say(key, `"${key}" is not a meter preset field (expected ${METER_PRESET_FIELDS.join(', ')}).`, 'UNKNOWN_FIELD');
+    const words = (field, value, max, what) => {
+        if (typeof value !== 'string' || !value.trim() || oneLine(value).length > max) { say(field, `${what} must be text of 1 to ${max} characters.`); return false; }
+        if (TERM_SEPARATORS.test(value)) { say(field, `${what} may not hold | : # < > or a line break (it is a label in the story's blocks).`); return false; }
+        return true;
+    };
+    words('title', record.title, METER_LIMITS.title, 'title');
+    const meters = [];
+    const byId = new Map();
+    if (!Array.isArray(record.meters) || !record.meters.length || record.meters.length > METER_LIMITS.meters) {
+        say('meters', `meters must be a list of 1 to ${METER_LIMITS.meters} meters: [{ "id": "regard", "name": "Regard", "min": -100, "max": 100, "start": 0 }].`);
+    } else record.meters.forEach((meter, index) => {
+        const at = `meters[${index}]`;
+        if (!isObject(meter)) return say(at, `${at} must be an object.`);
+        const before = ok;
+        ok = true;
+        for (const key of Object.keys(meter)) if (!METER_FIELDS.includes(key)) say(`${at}.${key}`, `"${key}" is not a meter field (expected ${METER_FIELDS.join(', ')}).`, 'UNKNOWN_FIELD');
+        if (typeof meter.id !== 'string' || !SLUG.test(meter.id) || meter.id.length > METER_LIMITS.id) say(`${at}.id`, `${at}.id must be lowercase letters, digits and dashes, at most ${METER_LIMITS.id} (like "regard").`);
+        else if (METER_RESERVED.includes(meter.id)) say(`${at}.id`, `"${meter.id}" is a word NPC State Delta keeps for itself; pick another meter id.`);
+        else if (byId.has(meter.id)) say(`${at}.id`, `two meters share the id "${meter.id}".`, 'DUPLICATE');
+        words(`${at}.name`, meter.name, METER_LIMITS.name, `${at}.name`);
+        const whole = value => Number.isInteger(value) && value >= METER_LIMITS.min && value <= METER_LIMITS.max;
+        const range = `whole numbers from ${METER_LIMITS.min} to ${METER_LIMITS.max}`;
+        let fits = () => false;
+        if (!whole(meter.min) || !whole(meter.max) || meter.min >= meter.max) say(`${at}.min`, `${at}: min and max must be ${range}, min below max.`);
+        else {
+            fits = value => Number.isInteger(value) && value >= meter.min && value <= meter.max;
+            if (!fits(meter.start)) say(`${at}.start`, `${at}.start must be a whole number from ${meter.min} to ${meter.max}.`);
+        }
+        if (meter.describe !== undefined && (typeof meter.describe !== 'string' || oneLine(meter.describe).length > METER_LIMITS.describe)) say(`${at}.describe`, `${at}.describe must be text of at most ${METER_LIMITS.describe} characters.`);
+        let bands = [];
+        if (meter.bands !== undefined) {
+            if (!Array.isArray(meter.bands) || !meter.bands.length || meter.bands.length > METER_LIMITS.bands) say(`${at}.bands`, `${at}.bands must be a list of 1 to ${METER_LIMITS.bands} { "at": …, "word": … }, lowest first.`);
+            else meter.bands.forEach((band, n) => {
+                const where = `${at}.bands[${n}]`;
+                if (!isObject(band) || Object.keys(band).some(key => key !== 'at' && key !== 'word')) return say(where, `${where} must be { "at": …, "word": … }.`);
+                if (!fits(band.at)) say(`${where}.at`, `${where}.at must be a whole number inside the meter's range.`);
+                else if (n > 0 && isObject(meter.bands[n - 1]) && Number.isInteger(meter.bands[n - 1].at) && band.at <= meter.bands[n - 1].at) say(`${where}.at`, `${where}.at must be above the band before it (bands go lowest first).`);
+                if (words(`${where}.word`, band.word, METER_LIMITS.word, `${where}.word`)) bands.push({ at: band.at, word: oneLine(band.word) });
+            });
+        }
+        let drift = null;
+        if (meter.drift !== undefined) {
+            const value = meter.drift;
+            if (!isObject(value) || Object.keys(value).some(key => key !== 'toward' && key !== 'perDay') || !fits(value.toward)
+                || !Number.isInteger(value.perDay) || value.perDay < 1 || value.perDay > meter.max - meter.min) {
+                say(`${at}.drift`, `${at}.drift must be { "toward": a value inside the meter's range, "perDay": a whole number of 1 or more }.`);
+            } else drift = { toward: value.toward, perDay: value.perDay };
+        }
+        if (ok) {
+            const out = { id: meter.id, name: oneLine(meter.name), min: meter.min, max: meter.max, start: meter.start };
+            if (meter.describe !== undefined && meter.describe.trim()) out.describe = oneLine(meter.describe);
+            if (meter.bands !== undefined) out.bands = bands;
+            if (drift) out.drift = drift;
+            meters.push(out);
+            byId.set(meter.id, out);
+        }
+        ok = before && ok;
+    });
+    const stages = [];
+    if (record.stages !== undefined) {
+        const seen = new Set();
+        if (!Array.isArray(record.stages) || record.stages.length > METER_LIMITS.stages) say('stages', `stages must be a list of at most ${METER_LIMITS.stages} { "id", "name", "needs": [{ "meter", "at" }] }.`);
+        else record.stages.forEach((stage, index) => {
+            const at = `stages[${index}]`;
+            if (!isObject(stage)) return say(at, `${at} must be an object.`);
+            for (const key of Object.keys(stage)) if (!METER_STAGE_FIELDS.includes(key)) say(`${at}.${key}`, `"${key}" is not a stage field (expected ${METER_STAGE_FIELDS.join(', ')}).`, 'UNKNOWN_FIELD');
+            if (typeof stage.id !== 'string' || !SLUG.test(stage.id)) say(`${at}.id`, `${at}.id must be lowercase letters, digits and dashes (like "trusted").`);
+            else if (seen.has(stage.id)) say(`${at}.id`, `two stages share the id "${stage.id}".`, 'DUPLICATE');
+            else seen.add(stage.id);
+            const named = words(`${at}.name`, stage.name, METER_LIMITS.name, `${at}.name`);
+            const needs = [];
+            if (!Array.isArray(stage.needs) || !stage.needs.length || stage.needs.length > METER_LIMITS.needs) say(`${at}.needs`, `${at}.needs must be a list of 1 to ${METER_LIMITS.needs} { "meter": …, "at": … }.`);
+            else stage.needs.forEach((need, n) => {
+                const where = `${at}.needs[${n}]`;
+                if (!isObject(need) || Object.keys(need).some(key => key !== 'meter' && key !== 'at')) return say(where, `${where} must be { "meter": …, "at": … }.`);
+                const meter = byId.get(need.meter);
+                if (!meter) return say(`${where}.meter`, `"${need.meter ?? ''}" is not a meter of this preset.`, 'UNKNOWN_REF');
+                if (needs.some(other => other.meter === need.meter)) return say(`${where}.meter`, `${at} names the meter "${need.meter}" twice.`, 'DUPLICATE');
+                if (!Number.isInteger(need.at) || need.at < meter.min || need.at > meter.max) return say(`${where}.at`, `${where}.at must be a whole number from ${meter.min} to ${meter.max} (0 or more: at or above it; below 0: at or below it).`);
+                needs.push({ meter: need.meter, at: need.at });
+            });
+            if (stage.milestone !== undefined && (typeof stage.milestone !== 'string' || !stage.milestone.trim() || oneLine(stage.milestone).length > METER_LIMITS.milestone)) say(`${at}.milestone`, `${at}.milestone must be text of 1 to ${METER_LIMITS.milestone} characters (what the story is told when the stage is first reached).`);
+            if (ok && named) stages.push({ id: stage.id, name: oneLine(stage.name), needs, ...(stage.milestone !== undefined ? { milestone: oneLine(stage.milestone) } : {}) });
+        });
+    }
+    if (!ok) return null;
+    return { title: oneLine(record.title), meters, ...(record.stages !== undefined ? { stages } : {}) };
 }
 
 // Commands the host makes for itself (registry.js CAPTURE_PREFIX, INIT_PREFIX; events/engine.js FIRE):
@@ -373,6 +555,23 @@ function checkCurrency(currency, add) {
         return null;
     }
     return { name: oneLine(currency.name), short: oneLine(short ?? ''), ...(plural === undefined ? {} : { plural: oneLine(plural) }) };
+}
+
+// A pack's money scale (MODULES §F104): `{ scale?, note? }`, `scale` a number from 0.001 to 1000
+// (default 1) that multiplies the built-in money defaults; `note` says what the scale is, for the reader.
+function checkEconomy(economy, add) {
+    let ok = true;
+    const say = (path, message, code = 'BAD_ECONOMY') => { ok = false; add(code, path, message); };
+    if (!isObject(economy)) {
+        say('economy', 'economy must be { "scale": 1, "note": "…" } (both optional).');
+        return null;
+    }
+    for (const key of Object.keys(economy)) if (!ECONOMY_FIELDS.includes(key)) say(`economy.${key}`, `"${key}" is not an economy field (expected ${ECONOMY_FIELDS.join(', ')}).`, 'UNKNOWN_FIELD');
+    const scale = economy.scale === undefined ? 1 : economy.scale;
+    if (!isNumber(scale) || scale < ECONOMY_LIMITS.min || scale > ECONOMY_LIMITS.max) say('economy.scale', `economy.scale must be a number from ${ECONOMY_LIMITS.min} to ${ECONOMY_LIMITS.max}: how many of this pack's coins the built-in defaults' one is worth (1 leaves them as they are, 0.01 for a world a hundred times poorer).`);
+    const note = economy.note ?? '';
+    if (!isText(note, ECONOMY_LIMITS.note)) say('economy.note', `economy.note must be text of at most ${ECONOMY_LIMITS.note} characters.`);
+    return ok ? { scale, note: note.trim() } : null;
 }
 
 // A race or talent for the character creation wizard: { id?, name, note?, stats?, tags? }.
@@ -532,6 +731,14 @@ function checkPlace(record, path, label, add) {
         // `secret` is another word for `hidden`; the map reads either.
         ...(record.hidden === true || record.secret === true ? { hidden: true } : {}),
     };
+}
+
+// What is wrong with a template's shape for a pack (B-b5b-robust-r2-2, r2-3), or ''.
+function shapeProblem(template) {
+    const shape = templateShape(template);
+    if (shape.loops > MAX_LOOP_DEPTH) return `nests loops (data-each) ${shape.loops} deep; at most ${MAX_LOOP_DEPTH} are allowed`;
+    if (shape.deepJson) return `has data-props or data-payload nested more than ${MAX_JSON_DEPTH} deep`;
+    return '';
 }
 
 // A route names two places of this pack by name, alias or slug; it is stored with their names.
@@ -818,6 +1025,10 @@ function checkScreens(list, packId, add) {
         if (screen.template === undefined && screen.layout === undefined) say('template', 'a screen needs a template or a layout.');
         if (screen.template !== undefined && typeof screen.template !== 'string') say('template', 'template must be text (an HTML template).');
         else if (typeof screen.template === 'string' && tooDeep(screen.template)) say('template', `the template nests elements more than ${MAX_TEMPLATE_DEPTH} deep.`);
+        else if (typeof screen.template === 'string') {
+            const why = shapeProblem(screen.template);
+            if (why) say('template', `the template ${why}.`);
+        }
         if (screen.layout !== undefined && !isObject(screen.layout)) say('layout', 'layout must be an object: { "root": … }.');
         if (screen.css !== undefined) {
             const why = typeof screen.css === 'string' ? unsafeCss(screen.css) : 'must be text';
@@ -826,6 +1037,10 @@ function checkScreens(list, packId, add) {
         if (screen.data !== undefined && !isObject(screen.data)) say('data', 'data must map names to queries: { "pc": { "query": "party.pc" } }.');
         if (screen.steps !== undefined && (!Array.isArray(screen.steps) || screen.steps.some(step => !isObject(step) || (step.template !== undefined && typeof step.template !== 'string')))) say('steps', 'steps must be a list of { "id", "title", "template" }.');
         else if (Array.isArray(screen.steps) && screen.steps.some(step => typeof step.template === 'string' && tooDeep(step.template))) say('steps', `a step's template nests elements more than ${MAX_TEMPLATE_DEPTH} deep.`);
+        else if (Array.isArray(screen.steps)) {
+            const why = screen.steps.map(step => (typeof step.template === 'string' ? shapeProblem(step.template) : '')).find(Boolean);
+            if (why) say('steps', `a step's template ${why}.`);
+        }
         const theme = screen.theme === undefined ? {} : checkTheme(screen.theme, add, `${path}.theme`);
         if (ok) out.push({ ...screen, theme, pack: packId });
     });

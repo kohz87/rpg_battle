@@ -5,7 +5,7 @@
 // a line nobody keeps lands in the Problems list. Never for quiet or impersonate generations, never
 // for a continue (its reply was read when it first arrived), once per carrier and swipe.
 
-import { OPS, extractBlock, parseChanges, stripBlock } from '../capture.js';
+import { OPS, extractBlock, parseChanges, stripBlock, withoutReasoning } from '../capture.js';
 import { BACKGROUND, SETTING, TIMEOUT_MS, clip, estimateTokens, normalizeType, withTimeout } from './common.js';
 
 export const REPLY_LIMIT = 6000;
@@ -91,7 +91,8 @@ export function createExtractor({ callModel, settings, grammar, capture, chatId,
             const mes = String(reply.mes ?? reply.text ?? '');
             const block = extractBlock(mes);
             if (block !== null && block.trim()) return null;
-            const story = stripBlock(mes).trim();
+            // The story as capture reads it: closed reasoning (<think>…</think>) is not story.
+            const story = stripBlock(withoutReasoning(mes)).trim();
             if (!story) return null;
             const key = `${chatId() ?? ''}|${index}|${swipe}`;
             if (done.has(key)) return null;

@@ -9,13 +9,17 @@
 // * the chat's one currency (MODULES §F1) is the reader's name for it, else the first enabled
 //   pack's suggestion, else the default (gold);
 // * the events part commits through this runtime's command bus (its cues are system steps) and asks
-//   through its sdk.
+//   through its sdk;
+// * the reader's features (MODULES §F100, features.js) under extension_settings.storySuite.features: the
+//   registry leaves out what is off, a change is the sdk's `feature` event, and the assist helpers get
+//   their two switches from Story Block's preroll and extractor features.
 
 import { createChatFile } from './chat-file.js';
 import { createCommandBus as realBus } from './commands.js';
 import { CORE_MODULE_ID, createCoreModule } from './domains/index.js';
 import { WALLET_KEY } from './domains/money.js';
-import { createAssistPart } from './assist/index.js';
+import { SETTING as ASSIST_SETTING, createAssistPart } from './assist/index.js';
+import { CORE_FEATURE, createFeatureStore } from './features.js';
 import { applyStart, createPacksPart } from './packs/index.js';
 import { carryRecord } from './persist.js';
 import { createRegistry } from './registry.js';
@@ -105,6 +109,7 @@ export function storeSaving({ ctx, live = () => ctx, fetch = null, onSaveError =
         chatId: () => (typeof ctx.getCurrentChatId === 'function' ? ctx.getCurrentChatId() : ctx.chatId),
         place: () => file.where(),
         save: (change, { keepalive = false } = {}) => {
+            markUsed(context().chatMetadata, ctx.chat);
             const place = file.where();
             if (!place) return ctx.saveChat();
             return file.write(place, ctx.chat, context().chatMetadata ?? {}, { keepalive });
@@ -113,7 +118,7 @@ export function storeSaving({ ctx, live = () => ctx, fetch = null, onSaveError =
             if (!entries.length) return;
             if (!change?.place) throw new Error('this page cannot write to that chat\'s file');
             const [header, ...messages] = await file.read(change.place);
-            if (!header || !messages.length) throw new Error('its chat file could not be read');
+            if (!header || !messages.length) throw new Error('its chat file is no longer on the server (deleted, or renamed elsewhere)');
             for (const { message, index } of entries) {
                 if (!carryRecord(message, messages[index])) throw new Error(`its chat file no longer holds message ${index} as it was`);
             }
@@ -121,6 +126,16 @@ export function storeSaving({ ctx, live = () => ctx, fetch = null, onSaveError =
         },
         onSaveError,
     };
+}
+
+/**
+ * Marks a chat holding story state as used (chat_metadata.tainted). SillyTavern treats an untainted chat
+ * holding only the greeting as pristine and replaces that greeting (and the record on it) when the
+ * character card is saved or the chat is renamed.
+ */
+export function markUsed(metadata, chat) {
+    if (!metadata || typeof metadata !== 'object' || metadata.tainted) return;
+    if ((chat ?? []).some(message => message?.extra?.storySuite)) metadata.tainted = true;
 }
 
 /** On a page: the unsaved story goes out when the page is closed (keepalive); see storeSaving. */
@@ -142,8 +157,8 @@ export function saveOnUnload(store, page) {
  * createRuntime({ ctx, packs?, core = true, modules = [], createStore?, createCommandBus?, notify?,
  * onBlocked?, onSaveError?, onRegister?(def), branch?(index) (src/v2/rewind.js stBranch), callModel? (assist),
  * live?() (SillyTavern's live getContext(); default: globalThis.SillyTavern's, else ctx), fetch?, page? (for
- * beforeunload; default: globalThis.window) }) → { registry, settings, store, bus, events, sdk, turn, markReady,
- * initial, packs }. `ctx` is SillyTavern's context (or the testkit's fake); `packs` a
+ * beforeunload; default: globalThis.window) }) → { registry, settings, features, store, bus, events, sdk, turn,
+ * markReady, initial, packs, setDialog }. `features` is createFeatureStore() (the reader's choices). `ctx` is SillyTavern's context (or the testkit's fake); `packs` a
  * createPacksPart() result (default: one over ctx.extensionSettings).
  */
 export function createRuntime({
@@ -151,13 +166,20 @@ export function createRuntime({
     notify, onBlocked = null, onSaveError = null, onRegister = null, branch = null, callModel = null,
     live = () => globalThis.SillyTavern?.getContext?.() ?? ctx, fetch = null, page = globalThis.window ?? null,
 } = {}) {
-    const registry = createRegistry({ hostVersion: VERSION });
+    let features = null;
+    let events = null;
+    const registry = createRegistry({ hostVersion: VERSION, featureValue: id => features?.stored(id) });
+    features = createFeatureStore({
+        root: () => ctx.extensionSettings,
+        registry,
+        save: () => ctx.saveSettingsDebounced?.(),
+        onChange: change => events?.emit('feature', change),
+    });
     const packPart = packs ?? packsFor(ctx);
     const base = createSettings({ root: () => ctx.extensionSettings, registry, save: () => ctx.saveSettingsDebounced?.() });
     const settings = withPackCurrency(base, () => packPart.startState().currency);
     let sdk = null;
     let bus = null;
-    let events = null;
     let turn = null;
     if (core) {
         registry.register(createCoreModule({
@@ -183,13 +205,20 @@ export function createRuntime({
                 if (!sdk) throw new Error('Story Block is not ready.');
                 return sdk.query(name, args);
             },
-            // The two optional helpers, off until the reader turns them on (Assist settings).
+            // The two optional helpers, off until the reader turns them on (Story Block's features).
             assist: createAssistPart({
-                settings: () => settings(CORE_MODULE_ID),
+                settings: () => ({
+                    ...settings(CORE_MODULE_ID),
+                    [ASSIST_SETTING.classifier]: registry.featureOn(CORE_FEATURE.preroll),
+                    [ASSIST_SETTING.extractor]: registry.featureOn(CORE_FEATURE.extractor),
+                }),
                 grammar: () => registry.contexts().flatMap(context => context.kinds.map(kind => kind.grammar)),
                 chat: () => ctx.chat,
                 chatId: () => ctx.getCurrentChatId?.() ?? ctx.chatId ?? '',
-                hasKind: kind => Boolean(registry.capture(kind)),
+                hasKind: kind => {
+                    const entry = registry.capture(kind);
+                    return Boolean(entry) && !entry.off;
+                },
                 ...(callModel ? { callModel } : {}),
             }),
         }));
@@ -221,5 +250,5 @@ export function createRuntime({
     turn = createTurn({ ctx, store, bus, registry, settings, events, onBlocked, initial, ...(notify ? { notify } : {}) });
     // The UI (ui-host.js) plugs its dialog mount in here, for sdk.dialog.open.
     const setDialog = fn => { dialogOpener = typeof fn === 'function' ? fn : null; };
-    return { registry, settings, store, bus, events, sdk, turn, markReady: made.markReady, initial, packs: packPart, setDialog };
+    return { registry, settings, features, store, bus, events, sdk, turn, markReady: made.markReady, initial, packs: packPart, setDialog };
 }

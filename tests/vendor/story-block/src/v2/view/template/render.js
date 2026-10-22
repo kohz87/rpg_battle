@@ -90,17 +90,41 @@ const PAINT_REFS = new Set(['fill', 'stroke', 'clip-path', 'mask', 'marker-start
 /** The id prefix for the screen a scope belongs to (`ss-t-` alone when no screen is named). */
 const idPrefixOf = screenId => (typeof screenId === 'string' && screenId ? templateIdPrefix(screenId) : 'ss-t-');
 
+// A screen is often drawn more than once at a time (a card under every reply, a tab and a hud), and
+// ids and control names must not be shared between the copies (B-b5b-robust-r2-1: a label would check
+// another copy's box, radios would be one group). The first copy of a screen on the page keeps the
+// screen's ids (`ss-t-<screen>-<id>`); each other copy drawn at the same time adds `--c<n>`. A screen's
+// CSS reaches every copy (css.js: `#id` is scoped to the screen's ids with or without the copy mark).
+const COPIES = new Map();   // id prefix → the copy numbers drawn now
+
+function takeCopy(prefix) {
+    const taken = COPIES.get(prefix) ?? new Set();
+    COPIES.set(prefix, taken);
+    let n = 1;
+    while (taken.has(n)) n += 1;
+    taken.add(n);
+    return n;
+}
+
+function freeCopy(prefix, n) {
+    const taken = COPIES.get(prefix);
+    taken?.delete(n);
+    if (taken && !taken.size) COPIES.delete(prefix);
+}
+
+// `id` as drawn in this view: the screen's prefix, and the copy's mark after the first copy.
+const pageId = (view, id) => `${view.idPrefix}${id}${view.copy > 1 ? `--c${view.copy}` : ''}`;
+
 /**
  * The value an attribute is set to in the page: ids and references to them get the screen's prefix, class
  * lists lose reserved classes, reserved control names go. `null` leaves the attribute out.
  */
 function pageValue(view, tag, name, value) {
     const lower = name.toLowerCase();
-    const prefix = view.idPrefix;
-    if (lower === 'id') return value.trim() ? `${prefix}${value.trim()}` : null;
-    if (ID_LISTS.has(lower)) return value.split(/\s+/).filter(Boolean).map(id => `${prefix}${id}`).join(' ');
-    if ((lower === 'href' || lower === 'xlink:href') && /^\s*#./.test(value)) return value.replace(/^\s*#/, `#${prefix}`);
-    if (PAINT_REFS.has(lower)) return value.replace(/url\(\s*(['"]?)\s*#/gi, (_, quote) => `url(${quote}#${prefix}`);
+    if (lower === 'id') return value.trim() ? pageId(view, value.trim()) : null;
+    if (ID_LISTS.has(lower)) return value.split(/\s+/).filter(Boolean).map(id => pageId(view, id)).join(' ');
+    if ((lower === 'href' || lower === 'xlink:href') && /^\s*#./.test(value)) return `#${pageId(view, value.replace(/^\s*#/, ''))}`;
+    if (PAINT_REFS.has(lower)) return value.replace(/url\(\s*(['"]?)\s*#([^)'"\s]*)/gi, (_, quote, id) => `url(${quote}#${pageId(view, id)}`);
     if (lower === 'class') {
         const classes = cleanClasses(value);
         if (classes.dropped.length) view.warn(`The class ${classes.dropped.join(', ')} was left off <${tag}>: SillyTavern acts on it.`);
@@ -111,12 +135,31 @@ function pageValue(view, tag, name, value) {
             view.warn(`name="${value.trim()}" was left off <${tag}>: SillyTavern reads controls by that name.`);
             return null;
         }
-        if (tag === 'form' || CONTROLS.has(tag)) return value.trim() ? `${prefix}${value.trim()}` : null;
+        if (tag === 'form' || CONTROLS.has(tag)) return value.trim() ? pageId(view, value.trim()) : null;
     }
     return value;
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+
+// The most elements one render draws through its loops (View.spend).
+export const MAX_ELEMENTS = 5000;
+const COSTS = new WeakMap();
+
+// The elements one item of a loop over `node` holds, not counting what inner loops draw.
+function elementCost(node) {
+    if (COSTS.has(node)) return COSTS.get(node);
+    let cost = 0;
+    const stack = [node];
+    while (stack.length) {
+        const next = stack.pop();
+        if (next.kind !== 'element') continue;
+        cost += 1;
+        for (const child of next.children ?? []) if (!child.each) stack.push(child);
+    }
+    COSTS.set(node, cost);
+    return cost;
+}
 const VIEWS = new WeakMap();
 const SKIP = Symbol('skip');
 
@@ -170,6 +213,21 @@ class View {
         this.base = null;
         this.blocks = null;
         this.idPrefix = null;
+        this.copy = 0;
+        this.spent = 0;
+    }
+
+    // Loop items a render may still draw (B-b5b-robust-r2-2): each costs the elements it holds outside
+    // its own inner loops (whose items pay for themselves), so loops nested in loops cannot multiply past
+    // MAX_ELEMENTS. False (and a warning) once the budget is spent.
+    spend(node) {
+        const cost = elementCost(node);
+        if (this.spent + cost > MAX_ELEMENTS) {
+            this.warn(`This screen would draw more than ${MAX_ELEMENTS} elements; the rest of a list was left out.`);
+            return false;
+        }
+        this.spent += cost;
+        return true;
     }
 
     warn(message) {
@@ -213,12 +271,17 @@ class View {
     update(scope) {
         if (this.destroyed) return;
         this.base = scope;
+        this.spent = 0;
         const current = this.scopeFor(scope);
         const prefix = idPrefixOf(this.options.screenId ?? scope?.screenId);
         if (this.blocks && prefix !== this.idPrefix) {
             // Drawn for another screen: its ids are another screen's, so build again.
             for (const block of this.blocks) block.destroy();
             this.blocks = null;
+        }
+        if (prefix !== this.idPrefix) {
+            if (this.copy) freeCopy(this.idPrefix, this.copy);
+            this.copy = takeCopy(prefix);
         }
         this.idPrefix = prefix;
         if (!this.blocks) {
@@ -263,6 +326,8 @@ class View {
         this.destroyed = true;
         for (const block of this.blocks ?? []) block.destroy();
         this.blocks = null;
+        if (this.copy) freeCopy(this.idPrefix, this.copy);
+        this.copy = 0;
         if (VIEWS.get(this.el) === this) VIEWS.delete(this.el);
     }
 }
@@ -348,6 +413,7 @@ class EachBlock {
         const next = new Map();
         const order = [];
         for (const [entryKey, item] of entries) {
+            if (!this.view.spend(this.node)) break;
             const id = item && typeof item === 'object' && (typeof item.id === 'string' || Number.isFinite(item.id)) ? `id:${item.id}` : `k:${entryKey}`;
             let key = id;
             for (let n = 2; next.has(key); n += 1) key = `${id}#${n}`;
@@ -667,7 +733,17 @@ class WidgetBlock extends ElementBlock {
         };
     }
 
+    // Anything that goes wrong drawing the widget (props too odd to copy or compare, say) shows as the
+    // widget's own "failed" note, never as an error out of renderTemplate (B-b5b-robust-r2-3).
     update(scope) {
+        try {
+            return this.draw(scope);
+        } catch (error) {
+            return this.fail(`The widget "${this.widgetNode.widget.name}" failed: ${error?.message ?? error}`);
+        }
+    }
+
+    draw(scope) {
         super.update(scope);
         const { view, el } = this;
         const { name, props: compiledProps } = this.widgetNode.widget;

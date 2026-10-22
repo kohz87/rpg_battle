@@ -6,6 +6,7 @@
 // screen's CSS can restyle any widget.
 
 import { widgetCss } from './styles.js';
+import { cutAt } from '../../../text.js';
 
 export const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -47,7 +48,7 @@ export function setTone(node, value) {
 
 /** A `data-*` value from data: a short plain string, or the attribute is removed. */
 export function setData(node, name, value) {
-    const text = value === undefined || value === null ? '' : String(value).slice(0, 64);
+    const text = value === undefined || value === null ? '' : cutAt(String(value), 64);
     if (text) node.setAttribute(`data-${name}`, text);
     else node.removeAttribute(`data-${name}`);
 }
@@ -63,9 +64,11 @@ export function num(value, fallback = 0) {
     return typeof n === 'number' && Number.isFinite(n) ? n : fallback;
 }
 
-/** A number for display or an SVG attribute: at most two decimals, no trailing zeros, no "-0". */
+/** A number for display or an SVG attribute: at most two decimals, no trailing zeros, no "-0", never "Infinity". */
 export function fmt(value) {
-    const rounded = Math.round(num(value) * 100) / 100;
+    const n = num(value);
+    // Two decimals only where n * 100 is still exact enough to round (and cannot overflow to Infinity).
+    const rounded = Math.abs(n) < 1e13 ? Math.round(n * 100) / 100 : Math.round(n);
     return String(Object.is(rounded, -0) ? 0 : rounded);
 }
 
