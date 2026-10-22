@@ -16,8 +16,16 @@
 //   whole load (everyone's things and the shared bag's) stays within the party's capacity. The
 //   shared bag counts against the party's capacity only. Handing something between members only
 //   checks the one who takes it. A party with no members yet has no limit.
+// * **Things that carry** (MODULES §F106): a pack item's `carry` (Story Block keeps it only on `pack.`
+//   defs; the story never sets it), or the reader's own list (`carryItems`: "Spatial Ring: 100", by the
+//   item's name), adds that capacity while the thing is owned: a member's to that member, the shared
+//   bag's (a cart, a barge's hold) to the party's; equipment only while it is worn. The bonus is not
+//   scaled by `carrySize`. Something taken on counts its own bonus (a mule carries itself). Losing it
+//   lowers the capacity; nothing is dropped, the party is encumbered.
 
-export const DEFAULTS = Object.freeze({ carryLimit: true, carrySize: 100 });
+export const DEFAULTS = Object.freeze({ carryLimit: true, carrySize: 100, carryItems: Object.freeze([]) });
+// The most one thing adds (as Story Block's def check holds it).
+export const CARRY_MAX = 1000;
 export const CAPACITY = Object.freeze({ base: 20, perStr: 4 });
 
 /** Default weights by kind, and equipment by slot. */
@@ -49,6 +57,49 @@ export function weightOf(def) {
     return Number.isInteger(WEIGHTS[kind]) ? WEIGHTS[kind] : WEIGHTS.goods;
 }
 
+const foldName = name => String(name ?? '').normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+
+/** The reader's carry items (`carryItems` rows `{ item, carry }`) by folded name → capacity. */
+export function carryList(settings = null) {
+    const rows = Array.isArray(settings?.carryItems) ? settings.carryItems : [];
+    const out = new Map();
+    for (const row of rows) {
+        const name = foldName(row?.item);
+        if (name && Number.isInteger(row?.carry) && row.carry >= 1 && !out.has(name)) out.set(name, Math.min(CARRY_MAX, row.carry));
+    }
+    return out;
+}
+
+/** The capacity one `def` adds (the reader's list by name first, else a pack def's own `carry`), or 0. */
+export function carryOf(def, settings = null, list = carryList(settings)) {
+    const named = list.get(foldName(def?.name));
+    if (named) return named;
+    const own = def?.carry;
+    return typeof def?.id === 'string' && def.id.startsWith('pack.') && Number.isInteger(own) && own >= 1 ? Math.min(CARRY_MAX, own) : 0;
+}
+
+/**
+ * What every owner's things add to carrying: { bonus: { [owner]: n }, bonuses: [{ stack, carry, owner,
+ * counts }] }: equipment counts only while worn (`counts: false` otherwise, for the screens to say so).
+ * A stack adds its bonus once, whatever its count (a stack of backpacks is one backpack's worth).
+ */
+export function carryBonuses(inventory, settings = null) {
+    const list = carryList(settings);
+    const bonus = {};
+    const bonuses = [];
+    for (const stack of Object.values(inventory?.stacks ?? {})) {
+        if (!isRecord(stack) || !(stack.qty > 0)) continue;
+        const def = inventory?.defs?.[stack.def];
+        const carry = carryOf(def, settings, list);
+        if (!carry) continue;
+        const counts = def?.kind !== 'equipment' || Boolean(stack.equipped);
+        bonuses.push({ stack: stack.id, carry, owner: stack.owner, counts });
+        if (counts) bonus[stack.owner] = (bonus[stack.owner] ?? 0) + carry;
+    }
+    bonuses.sort((a, b) => (a.stack < b.stack ? -1 : a.stack > b.stack ? 1 : 0));
+    return { bonus, bonuses };
+}
+
 /** A member's capacity: (20 + 4 × STR) × size ÷ 100, rounded down. */
 export function capacityOf(actor, settings = null) {
     const { size } = carrySettings(settings);
@@ -68,20 +119,25 @@ export function loads(inventory) {
 }
 
 /**
- * Where the party stands: { on, size, people: [{ id, name, load, capacity }], bag, load, capacity }.
- * `load` and `capacity` are the party's whole (everyone and the shared bag).
+ * Where the party stands: { on, size, people: [{ id, name, load, capacity, bonus }], bag, bagBonus,
+ * load, capacity, bonuses }. `load` and `capacity` are the party's whole (everyone and the shared bag);
+ * a member's `capacity` includes the `bonus` their things add, the party's the shared bag's `bagBonus`
+ * too; `bonuses` lists every stack that adds capacity (carryBonuses).
  */
 export function carryView(inventory, party, settings = null) {
     const { on, size } = carrySettings(settings);
     const held = loads(inventory);
+    const { bonus, bonuses } = carryBonuses(inventory, settings);
     const ids = [...(Array.isArray(party?.order) ? party.order : []), ...Object.keys(party?.actors ?? {}).sort()]
         .filter((id, index, all) => party?.actors?.[id] && all.indexOf(id) === index);
-    const people = ids.map(id => ({ id, name: String(party.actors[id].name ?? ''), load: held[id] ?? 0, capacity: capacityOf(party.actors[id], settings) }));
+    const people = ids.map(id => ({ id, name: String(party.actors[id].name ?? ''), load: held[id] ?? 0, capacity: capacityOf(party.actors[id], settings) + (bonus[id] ?? 0), bonus: bonus[id] ?? 0 }));
     const bag = held.party ?? 0;
+    const bagBonus = bonus.party ?? 0;
     return {
-        on: on && people.length > 0, size, people, bag,
+        on: on && people.length > 0, size, people, bag, bagBonus,
         load: bag + people.reduce((sum, person) => sum + person.load, 0),
-        capacity: people.reduce((sum, person) => sum + person.capacity, 0),
+        capacity: bagBonus + people.reduce((sum, person) => sum + person.capacity, 0),
+        bonuses,
     };
 }
 
@@ -95,6 +151,15 @@ const plural = (qty, name) => (qty === 1 ? `the ${name}` : `${qty} ${name}`);
 export function canCarry(inventory, party, { owner = 'party', add = [], move = false, settings = null } = {}) {
     const view = carryView(inventory, party, settings);
     const weight = (Array.isArray(add) ? add : []).reduce((sum, entry) => sum + weightOf(entry?.def) * Math.max(0, whole(entry?.qty, 1)), 0);
+    // A thing taken on that carries (not gear: that only counts once worn) adds its own room: a mule
+    // carries itself. A hand-over moves it from one owner to another, so the party's whole stays.
+    const list = carryList(settings);
+    const brings = (Array.isArray(add) ? add : []).reduce((sum, entry) => sum + (entry?.def?.kind === 'equipment' ? 0 : carryOf(entry?.def, settings, list)), 0);
+    if (brings) {
+        const person = owner === 'party' ? null : view.people.find(entry => entry.id === owner);
+        if (person) person.capacity += brings;
+        if (!move) view.capacity += brings;
+    }
     const person = owner === 'party' ? null : view.people.find(entry => entry.id === owner) ?? null;
     const base = {
         ok: true, on: view.on, weight, owner,

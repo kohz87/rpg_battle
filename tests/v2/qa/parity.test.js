@@ -139,8 +139,9 @@ each('a fight\'s blows and XP = v1 act/replay/summarize on the stored setup', ()
     }
 });
 
+// v1's prices by the words of a place's name: the reader's `guessPrices` (MODULES §F107; off by default).
 each('trade.sell price = v1 sellPrice at the place\'s prices', () => {
-    const { h } = withHero();
+    const { h } = withHero({ settings: { 'trade.guessPrices': true } });
     for (const name of ['Wolf Pelt', 'Minor Healing Draught', 'Iron Sword']) {
         const def = storyItem(h, name, 2, name === 'Iron Sword' ? 'ATK +2' : '');
         const row = stacksOf(h, def)[0];

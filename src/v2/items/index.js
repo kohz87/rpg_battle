@@ -92,6 +92,12 @@ export const part = {
         schema: {
             carryLimit: { type: 'bool', label: 'Carry limit', help: 'Each member carries up to (20 + 4 × STR) weight; things that would go over are refused, never lost.' },
             carrySize: { type: 'int', label: 'Carry limit size (%)', min: 10, max: 500 },
+            // MODULES §F106: things that add carry capacity by name, beside a pack item's own `carry`.
+            carryItems: {
+                type: 'list', label: 'Items that add carry capacity', form: 'lines',
+                of: { item: { type: 'text', label: 'Item', max: 80 }, carry: { type: 'int', label: 'Carry', min: 1, max: 1000 } },
+                help: 'One per line, "Name: capacity" (Spatial Ring: 100, Saddlebags: 60, Cart: 200): while someone owns it (wears it, for gear) they carry that much more; in the shared bag the party does. What the story writes never adds capacity.',
+            },
         },
     },
     tabs: [itemsTab],

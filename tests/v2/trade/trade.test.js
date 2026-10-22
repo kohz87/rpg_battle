@@ -27,7 +27,7 @@ test('part shape: domain, commands, queries, settings, tab', () => {
     assert.deepEqual(Object.keys(part.queries).sort(), ['trade.market', 'trade.orders', 'trade.quote', 'trade.shops', 'trade.stock']);
     assert.deepEqual(Object.keys(part.kinds), ['market', 'repair', 'refine']);
     assert.equal(part.settings.section, 'Trade');
-    assert.deepEqual(part.settings.defaults, { placePrices: [], shortagePrices: 150 });
+    assert.deepEqual(part.settings.defaults, { placePrices: [], shortagePrices: 150, guessPrices: false });
     assert.deepEqual(part.settings.schema.placePrices.of.level.options, ['cheap', 'fair', 'dear']);
     assert.equal(part.tabs[0].id, 'trade');
     assert.equal(typeof part.tabs[0].render, 'function');
@@ -101,9 +101,10 @@ test('the market opens by the place name, the scene kind, a trader present, or a
 // ---------------------------------------------------------------------------------------
 // Price levels
 
-test('price levels per place from the settings: cheap < fair < dear, other places by their name', () => {
+// v1's guess from a place's name is the reader's `guessPrices` (off by default, MODULES §F107): on here.
+test('price levels per place from the settings: cheap < fair < dear, other places by their name (guessPrices on)', () => {
     const quote = (settings, place = { name: 'Bluewatch Village', kind: 'settlement' }) => {
-        const host = createHost(part, { state: baseState({ place }), settings });
+        const host = createHost(part, { state: baseState({ place }), settings: { guessPrices: true, ...settings } });
         return { sell: host.query('trade.quote', { type: 'sell', stack: 'it_00000002', qty: 1 }).each, market: host.query('trade.market'), buy: host.query('trade.stock', { kind: 'general' }).items.find(item => item.def.id === 'trade/rope')?.price };
     };
     const at = level => quote({ placePrices: [{ place: 'Bluewatch Village', level }] });
@@ -215,7 +216,8 @@ test('craft.commission: materials and fee taken now, the order ready by the craf
     assert.equal(order.fee, quote.fee);
     assert.equal(order.crafter, 'Hesk the bone-carver');
     assert.equal(order.place, 'Bluewatch Village');
-    const hours = commissionHours({ rarity: 'rare', slot: 'accessory' }, { crafter: 'crafter', tier: 'village', seed: `bluewatch village|crafter|skull charm|10` });
+    // No market type known for Bluewatch Village here (MODULES §F107): a town's pace.
+    const hours = commissionHours({ rarity: 'rare', slot: 'accessory' }, { crafter: 'crafter', tier: 'town', seed: `bluewatch village|crafter|skull charm|10` });
     assert.equal(order.ready, readyAt(hours, NOW));
     assert.match(result.receipt.summary, /^Ren commissioned Skull Charm from Hesk the bone-carver, made from Brood-Mother Skull, 2 Wolf Fang, for .+; Hesk the bone-carver says /);
     assert.deepEqual(validateTrade(host.state.domains.trade), []);
@@ -226,8 +228,8 @@ test('craft.commission: a specialist is faster in their own line; no clock leave
     const smith = plan('smith');
     const crafter = plan('crafter');
     assert.equal(smith.piece.slot, 'weapon');
-    assert.equal(smith.hours, commissionHours(smith.piece, { crafter: 'smith', tier: 'village', seed: 'bluewatch village|smith|fang blade|10' }));
-    assert.equal(crafter.hours, commissionHours(crafter.piece, { crafter: 'crafter', tier: 'village', seed: 'bluewatch village|crafter|fang blade|10' }));
+    assert.equal(smith.hours, commissionHours(smith.piece, { crafter: 'smith', tier: 'town', seed: 'bluewatch village|smith|fang blade|10' }));
+    assert.equal(crafter.hours, commissionHours(crafter.piece, { crafter: 'crafter', tier: 'town', seed: 'bluewatch village|crafter|fang blade|10' }));
     // The same draw, in and out of their line: specialist ×0.75, outside ×1.25.
     const same = { tier: 'village', seed: 'x' };
     assert.ok(commissionHours(smith.piece, { ...same, crafter: 'smith' }) < commissionHours(smith.piece, { ...same, crafter: 'crafter' }));
@@ -340,7 +342,11 @@ test('tail: many ready orders stay within the budget', () => {
 
 test('queries: trade.market and trade.orders read the state as it is; a bad quote type says so', () => {
     const host = createHost(part, { state: baseState() });
-    assert.deepEqual(host.query('trade.market'), { open: true, by: 'place', place: 'Bluewatch Village', tier: 'village', buy: 0.9, sell: 0.85, level: null, day: null, shortage: null });
+    // No market type known for the place (MODULES §F107): the usual prices.
+    assert.deepEqual(host.query('trade.market'), {
+        open: true, by: 'place', place: 'Bluewatch Village', tier: 'town', buy: 1, sell: 1, level: null, day: null, shortage: null,
+        type: null, tags: [], from: null, factors: {}, why: 'Usual prices (no market type known here)', scale: 1,
+    });
     assert.deepEqual(host.query('trade.orders'), []);
     assert.equal(host.query('trade.quote', { type: 'steal' }).ok, false);
     assert.equal(host.query('trade.quote', { type: 'sell', stack: 'it_00000001', qty: 9 }).code, 'NOT_ENOUGH');

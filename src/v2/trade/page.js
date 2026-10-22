@@ -68,7 +68,8 @@ export function renderTradePage(pane, view = {}, api = {}) {
     const market = marketOf(world);
     const root = node('div', null, 'rpg-trade-page');
     const where = market.place || 'Somewhere';
-    root.append(node('p', market.open ? `${where} · ${market.level ? `${market.level} prices` : `${market.tier} prices`}` : `No market here (${where}). Trade in a settlement, or with a trader on the road.`, 'rpg-trade-place'));
+    const why = [market.why || `${market.tier} prices`, market.level ? `${market.level} prices` : ''].filter(Boolean).join(' · ');
+    root.append(node('p', market.open ? `${where} · ${why}` : `No market here (${where}). Trade in a settlement, or with a trader on the road.`, 'rpg-trade-place'));
     root.append(node('p', '', 'rpg-trade-problem'));
     const short = amount => formatMoneyShort(amount, world.currency);
 

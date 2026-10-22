@@ -51,8 +51,11 @@ export function termsOf(rules = DEFAULT_RULES) {
     }
     const levelName = cleanTerm(t.levelName, DEFAULT_TERMS.levelName);
     const xpName = cleanTerm(t.xpName, DEFAULT_TERMS.xpName);
-    const custom = levelName !== DEFAULT_TERMS.levelName || xpName !== DEFAULT_TERMS.xpName || Boolean(tiers) || cap !== fallbackCap;
-    return { levelName, xpName, tiers, cap, custom };
+    // The reader's own rank ladder (`terms.ranks`: Story Block's Rank ladder setting, or a rules file's):
+    // a level is then shown as its rank's title ("Soul Class III (Lv 24)", "D (Lv 24)").
+    const named = cleanRanks(t.ranks).length > 0;
+    const custom = levelName !== DEFAULT_TERMS.levelName || xpName !== DEFAULT_TERMS.xpName || Boolean(tiers) || named || cap !== fallbackCap;
+    return { levelName, xpName, tiers, cap, custom, named };
 }
 
 /** The highest level a sheet can reach (the terms' cap, else rules.character.maxLevel). */
@@ -123,10 +126,11 @@ export function tierStart(tier, rules = DEFAULT_RULES) {
 // ---------------------------------------------------------------------------------------
 // Labels
 
-/** 'Level 4', 'Soul Power 4', or with tiers 'Soul Class III'. */
+/** 'Level 4', 'Soul Power 4', with tiers 'Soul Class III', with the reader's ladder its rank's title ('SS'). */
 export function levelLabel(level, rules = DEFAULT_RULES) {
     const terms = termsOf(rules);
     const lv = shownLevel(num(level) ?? 1);
+    if (terms.named) return rankAt(lv, rankLadder(rules))?.title ?? `${terms.levelName} ${lv}`;
     if (!terms.tiers) return `${terms.levelName} ${lv}`;
     return `${terms.levelName} ${numeral(Math.ceil(lv / terms.tiers.size), terms.tiers.numerals)}`;
 }
@@ -135,7 +139,7 @@ export function levelLabel(level, rules = DEFAULT_RULES) {
 export function levelText(level, rules = DEFAULT_RULES) {
     const terms = termsOf(rules);
     const lv = shownLevel(num(level) ?? 1);
-    return terms.tiers ? `${levelLabel(lv, rules)} (Lv ${lv})` : levelLabel(lv, rules);
+    return terms.tiers || terms.named ? `${levelLabel(lv, rules)} (Lv ${lv})` : levelLabel(lv, rules);
 }
 
 /**
@@ -159,6 +163,7 @@ export function xpLabel(rules = DEFAULT_RULES) {
 export function powerOptions(rules = DEFAULT_RULES) {
     const terms = termsOf(rules);
     const options = [];
+    if (terms.named) return rankLadder(rules).map(rank => ({ level: rank.levels[0], label: rank.title }));
     if (terms.tiers) {
         for (let tier = 1; (tier - 1) * terms.tiers.size + 1 <= terms.cap; tier++) {
             const level = tierStart(tier, rules);
@@ -230,6 +235,13 @@ export function parseLevelLabel(text, rules = DEFAULT_RULES, { strict = false } 
     // The exact level first: "(Lv 24)" is what the blocks write next to a tier.
     const exact = source.match(/\b(?:lv|lvl)\.?\s*:?\s*(\d+)\b/i);
     if (exact) return clampLevel(Number(exact[1]), terms);
+    // The reader's ladder: a rank's whole title or id ("Soul Class III", "SS") is its first level.
+    if (terms.named) {
+        const ladder = rankLadder(rules);
+        const whole = rankWords(source).join(' ');
+        const rank = ladder.find(entry => rankWords(entry.title).join(' ') === whole || rankWords(entry.id).join(' ') === whole);
+        if (rank) return clampLevel(rank.levels[0], terms);
+    }
     const named = source.match(new RegExp(`(?:^|[^\\p{L}])${escapeRegExp(terms.levelName)}\\s*:?\\s*([\\p{L}\\d]+)`, 'iu'));
     // "Level 25" is always a level, whatever the world calls it.
     const plainLevel = source.match(/\blevel\s*:?\s*(\d+)\b/i);
@@ -317,11 +329,50 @@ export function mergeTerms(reader, pack) {
     return out;
 }
 
-/** A part's settings with the pack's terms under the reader's (unchanged when no pack suggests any). */
+/**
+ * The reader's rank ladder as Story Block gives it (its Rank ladder setting: `packs.content({ kind:
+ * 'ranks' })` records with `reader: true`), or null. Read defensively, like packTerms.
+ */
+export function readerRanks(query) {
+    if (typeof query !== 'function') return null;
+    let list;
+    try {
+        list = query('packs.content', { kind: 'ranks' });
+    } catch {
+        return null;
+    }
+    const own = Array.isArray(list) ? list.filter(record => isRecord(record) && record.reader === true) : [];
+    return cleanRanks(own).length ? own.map(record => structuredClone(record)) : null;
+}
+
+/**
+ * A part's settings with the pack's terms under the reader's (unchanged when no pack suggests any), and
+ * the reader's rank ladder from Story Block (readerRanks) as `terms.ranks` when the terms name none.
+ */
 export function withTerms(settings, query) {
     const pack = packTerms(query);
-    if (!pack) return settings;
-    return { ...settings, terms: mergeTerms(settings?.terms, pack) };
+    const ladder = readerRanks(query);
+    if (!pack && !ladder) return settings;
+    let terms = pack ? mergeTerms(settings?.terms, pack) : settings?.terms;
+    if (ladder && !(isRecord(terms) && cleanRanks(terms.ranks).length)) terms = { ...(isRecord(terms) ? terms : {}), ranks: ladder };
+    return { ...settings, terms };
+}
+
+/**
+ * The module's settings with the reader's own words (the Character part's **XP word** and **Level word**,
+ * `party.xpName` and `party.levelName`, MODULES §F105) folded into `terms`, over a rules file's `terms`;
+ * blank ones leave it as it was.
+ */
+export function foldReaderTerms(all) {
+    if (!isRecord(all)) return all;
+    const words = {};
+    for (const field of ['levelName', 'xpName']) {
+        const word = cleanWord(all[`party.${field}`]);
+        if (word) words[field] = cleanTerm(word, '');
+    }
+    for (const field of Object.keys(words)) if (!words[field]) delete words[field];
+    if (!Object.keys(words).length) return all;
+    return { ...all, terms: { ...(isRecord(all.terms) ? all.terms : {}), ...words } };
 }
 
 // ---------------------------------------------------------------------------------------
@@ -329,7 +380,10 @@ export function withTerms(settings, query) {
 //
 // There is one ladder in the suite and it is these terms: a rank is a band of levels,
 // `{ id, title, levels: [lo, hi] }`, lowest first. Where it comes from, first that has any:
-// 1. the reader's own named list (`terms.ranks`, the same fields a pack's ranks have);
+// 1. the reader's own named list (`terms.ranks`, the same fields a pack's ranks have: a rules file's, or
+//    Story Block's Rank ladder setting, MODULES §F105); a list with no levels at all is spread over the
+//    levels (bands of the tier size, else evenly up to the cap) and its rewards are the ones Story Block
+//    kept from the pack at each place, else by place times the money scale;
 // 2. the first enabled pack's `ranks` content (Story Block's `packs.content({ kind: 'ranks' })`),
 //    a named list whose bands may be uneven and may overlap;
 // 3. uniform tiers (`terms.tiers`: size and numerals), one rank per tier ("Soul Class II",
@@ -386,18 +440,23 @@ function cleanRanks(list) {
     return out;
 }
 
-/** Bands filled in (the built-in band at a place, else the next band as wide as the last) and held to the cap. */
-function settle(list, cap, { extendLast = false, scale = 1, ownRewards = false } = {}) {
+/**
+ * Bands filled in (the built-in band at a place, else the next band as wide as the last; with `band`, a
+ * band of that many levels at each place) and held to the cap. A rank's own reward is kept when
+ * `ownRewards`, else (and where it has none) by place times `scale` (`packScale` for a pack's ladder: 1).
+ */
+function settle(list, cap, { extendLast = false, scale = 1, ownRewards = false, packScale = 1, band = null } = {}) {
     const out = [];
     for (const [index, rank] of list.entries()) {
         let levels = rank.levels;
         if (!levels) {
             const before = out.at(-1)?.levels;
-            levels = DEFAULT_RANK_BANDS[index] ? [...DEFAULT_RANK_BANDS[index].levels]
-                : before ? [before[1] + 1, before[1] + 1 + (before[1] - before[0])] : [1, 1];
+            levels = band ? [index * band + 1, (index + 1) * band]
+                : DEFAULT_RANK_BANDS[index] ? [...DEFAULT_RANK_BANDS[index].levels]
+                    : before ? [before[1] + 1, before[1] + 1 + (before[1] - before[0])] : [1, 1];
         }
         if (levels[0] > cap && out.length) break;
-        const reward = ownRewards && rank.reward ? [...rank.reward] : rankReward(out.length, ownRewards ? 1 : scale);
+        const reward = ownRewards && rank.reward ? [...rank.reward] : rankReward(out.length, ownRewards ? packScale : scale);
         out.push({ id: rank.id, title: rank.title || rank.id, levels: [Math.min(levels[0], cap), Math.min(levels[1], cap)], reward });
     }
     if (extendLast && out.length) out.at(-1).levels[1] = Math.max(out.at(-1).levels[1], cap);
@@ -410,8 +469,15 @@ function settle(list, cap, { extendLast = false, scale = 1, ownRewards = false }
  */
 export function rankLadder(rules = DEFAULT_RULES, { pack = null, scale = 1 } = {}) {
     const terms = termsOf(rules);
+    // The reader's own ladder: its rewards are the pack's at each place when Story Block kept them, else by
+    // place times the money scale; ranks with no levels are banded by the tiers when there are tiers.
     const own = cleanRanks(rules?.terms?.ranks);
-    if (own.length) return settle(own, terms.cap, { scale });
+    if (own.length) {
+        // A list that gives no levels at all is spread over the levels (by the tiers, else evenly up to the
+        // cap); one that gives some takes the built-in band where a rank has none, as before.
+        const bare = own.every(rank => !rank.levels);
+        return settle(own, terms.cap, { scale, ownRewards: true, packScale: scale, band: bare ? terms.tiers?.size ?? Math.max(1, Math.ceil(terms.cap / own.length)) : null, extendLast: bare });
+    }
     const packed = cleanRanks(pack);
     if (packed.length) return settle(packed, terms.cap, { ownRewards: true });
     if (terms.tiers) {

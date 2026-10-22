@@ -157,7 +157,8 @@ const PACK_SHOPS = [
 const withPacks = { ...part, queries: { ...part.queries, 'packs.content': (state, args) => structuredClone(args?.kind === 'shops' ? PACK_SHOPS : args?.kind === 'items' ? PACK_ITEMS : []) } };
 
 test('a pack\'s shops for the place stand in for the generic traders, each line priced by the pack or by value', () => {
-    const host = createHost(withPacks, { state: baseState({ coin: 20000 }) });
+    // The scene calls Bluewatch a village: its settlement type (MODULES §F107).
+    const host = createHost(withPacks, { state: baseState({ coin: 20000, place: { name: 'Bluewatch Village', kind: 'village' } }) });
     assert.deepEqual(host.query('trade.shops'), [
         { slug: 'watch-stores', name: 'Watch Stores', kind: 'general' },
         { slug: 'salt-and-ash-dispensary', name: 'Salt-and-Ash Dispensary', kind: 'apothecary' },
@@ -208,6 +209,7 @@ test('selling starts from the item\'s own value (a pack\'s numbers), then v1\'s 
     state.domains.inventory.defs['pack.e/minor-healing-draught'] = def('pack.e/minor-healing-draught', 'Minor Healing Draught', { kind: 'consumable', value: 2000, effect: { heal: 20 } });
     state.domains.inventory.stacks.it_00000009 = stack('it_00000009', 'pack.e/cane-blade', 1);
     state.domains.inventory.stacks.it_00000010 = stack('it_00000010', 'pack.e/minor-healing-draught', 1);
+    state.domains.scene.place = { name: 'Bluewatch Village', kind: 'village' };
     const host = createHost(part, { state });
     // 600 × 0.5 (v1 sell rate) × 1 (general store, gear) × 0.85 (a village pays less) = 255.
     assert.equal(host.query('trade.quote', { type: 'sell', stack: 'it_00000009', qty: 1 }).each, 255);

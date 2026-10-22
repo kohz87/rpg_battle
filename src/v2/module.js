@@ -19,10 +19,13 @@
 //   (`ctx.settings().hitBase`), with the module's un-namespaced keys (a rules file's `rules`,
 //   `xpRate`, `terms`, `gear`) under them. A few keys are handed on to a part that needs another's
 //   (SHARED_SETTINGS: creation reads the Character points budget as `party.startPoints`).
-// - terms (MODULES §F25): what a pack suggests for the level and XP names and the tier titles
+// - terms (MODULES §F25, §F105): what a pack suggests for the level and XP names and the tier titles
 //   (Story Block's `packs.content({ kind: 'terms' })`) goes under the reader's own `terms`, field
 //   by field, wherever a part reads its settings through a ctx, a view or a query's tools; the
-//   reader's own words always win.
+//   reader's own words always win: the Character part's XP word and Level word (`party.xpName`,
+//   `party.levelName`, group Terms) are folded into `terms` for every part, and Story Block's Rank
+//   ladder (its `packs.content` ranks with `reader: true`) is `terms.ranks`. The static part reads the
+//   same words (the module's settings and, through `query`, the packs), so it changes only with them.
 // - screens (SPEC §13.1) and widgets (names `rpg-battle.<name>`, §F9): every part's put together, a
 //   name two parts claim refused. tabs: every part's, in part order, except a hand-built tab a
 //   screen now covers (a screen `rpg-battle/<tab id>` with a tab mount): the screen is that tab.
@@ -42,9 +45,9 @@ import { part as returnPart } from './return/index.js';
 import { part as trade } from './trade/index.js';
 import { part as craft } from './craft/index.js';
 import { part as screens } from './screens/index.js';
-import { withTerms } from '../terms.js';
+import { foldReaderTerms, withTerms } from '../terms.js';
 
-export { TERM_FIELDS, mergeTerms, packTerms, withTerms } from '../terms.js';
+export { TERM_FIELDS, foldReaderTerms, mergeTerms, packTerms, readerRanks, withTerms } from '../terms.js';
 
 export const MODULE_ID = 'rpg-battle';
 export const MODULE_NAME = 'RPG Battle';
@@ -108,7 +111,7 @@ function claim(table, name, partId, what) {
  * Block keeps them (`sdk.settings('rpg-battle')`); without it, the host's when it is up, else the
  * defaults. Used where no ctx or view carries them (queries, the item.define hook).
  */
-export function createModule({ settings = null } = {}) {
+export function createModule({ settings = null, query = null } = {}) {
     const defaults = {};
     const schema = {};
     for (const [id, part] of PARTS) {
@@ -118,7 +121,9 @@ export function createModule({ settings = null } = {}) {
         for (const [key, value] of Object.entries(own.defaults ?? {})) defaults[settingKey(id, key)] = structuredClone(value);
         for (const [key, field] of Object.entries(own.schema ?? {})) {
             const long = typeof field === 'string' ? { type: field } : Array.isArray(field) ? { type: 'choice', options: field } : field;
-            schema[settingKey(id, key)] = { ...long, label: `${title}: ${long.label ?? key}` };
+            // A field with a group of its own (Terms) is drawn in that group, without the part's title.
+            const grouped = typeof long.group === 'string' && long.group.trim();
+            schema[settingKey(id, key)] = { ...long, label: grouped ? long.label ?? key : `${title}: ${long.label ?? key}` };
         }
     }
 
@@ -129,16 +134,22 @@ export function createModule({ settings = null } = {}) {
         } catch {
             value = null;
         }
-        return { ...defaults, ...(isObject(value) ? value : {}) };
+        return foldReaderTerms({ ...defaults, ...(isObject(value) ? value : {}) });
+    };
+    // The packs' words for the static part (no view there): the host's query, when it is up.
+    const staticQuery = (name, args) => {
+        const ask = typeof query === 'function' ? query : globalThis.StoryBlock?.sdk?.query;
+        if (typeof ask !== 'function') throw new Error('no query');
+        return ask(name, args);
     };
     // A view (tails, tabs, view hooks) whose settings are the part's.
     const viewFor = (view, partId) => {
         const raw = () => {
             const source = view?.settings;
             if (typeof source === 'function') {
-                try { return { ...defaults, ...(source(MODULE_ID) ?? {}) }; } catch { return moduleSettings(); }
+                try { return foldReaderTerms({ ...defaults, ...(source(MODULE_ID) ?? {}) }); } catch { return moduleSettings(); }
             }
-            return isObject(source) ? { ...defaults, ...source } : moduleSettings();
+            return isObject(source) ? foldReaderTerms({ ...defaults, ...source }) : moduleSettings();
         };
         const query = typeof view?.query === 'function' ? (name, args) => view.query(name, args) : null;
         return Object.freeze({ ...(view ?? {}), settings: () => withTerms(partSettings(raw(), partId), query) });
@@ -148,7 +159,7 @@ export function createModule({ settings = null } = {}) {
         const out = { ...ctx };
         const query = typeof ctx.query === 'function' ? (name, args) => ctx.query(name, args) : null;
         out.settings = id => (id === undefined || id === null || id === MODULE_ID
-            ? withTerms(partSettings({ ...defaults, ...(ctx.settings() ?? {}) }, partId), query)
+            ? withTerms(partSettings(foldReaderTerms({ ...defaults, ...(ctx.settings() ?? {}) }), partId), query)
             : ctx.settings(id));
         if (!Number.isInteger(ctx.rev)) {
             let rev;
@@ -202,9 +213,8 @@ export function createModule({ settings = null } = {}) {
         }
         for (const [name, fn] of Object.entries(part.queries ?? {})) {
             claim(owners.query, name, id, 'query');
-            queries[name] = withFeature((state, args, tools) => fn(state, args, tools
-                ? Object.freeze({ ...tools, settings: withTerms(partSettings(moduleSettings(), id), typeof tools.query === 'function' ? tools.query : null) })
-                : localTools(state, id)), fn);
+            // The settings (with the terms, which ask the packs) are worked out only when the query reads them.
+            queries[name] = withFeature((state, args, tools) => fn(state, args, tools ? lazySettings(tools, () => withTerms(partSettings(moduleSettings(), id), typeof tools.query === 'function' ? tools.query : null)) : localTools(state, id)), fn);
         }
         for (const [kind, spec] of Object.entries(part.kinds ?? {})) {
             if (KIND_OVERRIDES[kind] && Object.hasOwn(owners.kind, kind) && KIND_OVERRIDES[kind] === id) delete owners.kind[kind];
@@ -232,7 +242,7 @@ export function createModule({ settings = null } = {}) {
             claim(owners.feature ??= {}, feature?.id, id, 'feature');
             features.push({ ...feature });
         }
-        if (typeof part.context?.static === 'function') statics.push(part.context.static);
+        if (typeof part.context?.static === 'function') statics.push({ part: id, fn: part.context.static });
         if (typeof part.context?.tail === 'function') tails.push({ part: id, tail: part.context.tail });
         // Context parts under a feature (MODULES §F100): Story Block leaves one out while its feature is off.
         for (const piece of Array.isArray(part.context?.parts) ? part.context.parts : []) contextParts.push({ part: id, piece });
@@ -270,8 +280,10 @@ export function createModule({ settings = null } = {}) {
             },
         },
         context: {
-            // Fixed text from every part, joined in part order: byte-identical every reply.
-            static: () => statics.map(fn => String(fn() ?? '').trim()).filter(Boolean).join('\n'),
+            // Fixed text from every part, joined in part order: byte-identical every reply. A part's static
+            // gets `{ settings }` (its settings with the terms), so it can name the world's words (§F105):
+            // it changes only when a setting or a pack's terms do.
+            static: () => statics.map(({ part, fn }) => String(fn({ settings: withTerms(partSettings(moduleSettings(), part), staticQuery) }) ?? '').trim()).filter(Boolean).join('\n'),
             tail(view) {
                 const lines = [];
                 const optional = [];
@@ -304,6 +316,24 @@ export function createModule({ settings = null } = {}) {
         widgets,
         screens,
     };
+}
+
+/** `tools` with a `settings` worked out by `make()` the first time it is read (then kept), frozen. */
+function lazySettings(tools, make) {
+    const out = { ...tools };
+    let value;
+    let made = false;
+    Object.defineProperty(out, 'settings', {
+        enumerable: true,
+        get() {
+            if (!made) {
+                value = make();
+                made = true;
+            }
+            return value;
+        },
+    });
+    return Object.freeze(out);
 }
 
 // Hand-built tabs no longer shown (MODULES §F99: Story Block's Inventory is the one bag).

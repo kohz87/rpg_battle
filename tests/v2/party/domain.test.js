@@ -136,7 +136,7 @@ test('settings: the Character section with v1\'s defaults and a schema for each'
         startPoints: DEFAULT_RULES.character.startPoints, statCap: DEFAULT_RULES.character.statCap,
         pointsPerLevel: DEFAULT_RULES.character.pointsPerLevel, xpBase: DEFAULT_RULES.character.xpBase,
         maxLevel: DEFAULT_RULES.character.maxLevel, activeSkills: DEFAULT_RULES.character.activeSkills, autoSpend: true,
-        maxCompanions: 3,
+        maxCompanions: 3, xpName: '', levelName: '',
     });
     for (const key of Object.keys(defaults)) assert.ok(schema[key], key);
     const tuned = run(makeState(), 'party.create', { name: 'Ren', points: { STR: 15 } }, { settings: { startPoints: 15 } });

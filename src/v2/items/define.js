@@ -154,6 +154,7 @@ export function defineItem(def, { note, owner = null, settings, currency, level 
     }
 
     const priced = { name, rarity, kind, slot: out.slot, stats: out.stats, note: out.note, effect: kind === 'consumable' ? out.effect : null };
-    const value = whole(def?.value) > 0 ? whole(def.value) : itemWorth(priced, { level: Math.max(1, whole(level) || 1), rules });
+    // v1's built-in worth is gold-scale: the money scale brings it to the chat's coin (MODULES §F104); a def's own value (a pack's) stays.
+    const value = whole(def?.value) > 0 ? whole(def.value) : scaledCoin(itemWorth(priced, { level: Math.max(1, whole(level) || 1), rules }), scale === undefined ? hostEconomyScale() : scale);
     return { ...base, ...out, kind, rarity, value };
 }

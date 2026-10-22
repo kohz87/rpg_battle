@@ -614,7 +614,7 @@ function render(el, input, api) {
         if (defeated.length) box.append(h(doc, 'p', 'rpg-bb-hint rpg-bb-defeated', `Defeated: ${defeated.join(', ')}`));
         if (canCommand()) {
             box.append(
-                h(doc, 'p', 'rpg-bb-hint', 'Finish settles it: the party’s HP, XP and the loot, and the next reply tells the fight.'),
+                h(doc, 'p', 'rpg-bb-hint', `Finish settles it: the party’s HP, ${xpWord(p.terms)} and the loot, and the next reply tells the fight.`),
                 button('rpg-bb-finish', 'Finish', { key: 'finish', iconName: 'fa-flag-checkered', onClick: () => send('combat.end', typeof p.id === 'string' && p.id ? { session: p.id } : {}) }),
             );
         }

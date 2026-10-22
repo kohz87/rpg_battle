@@ -9,7 +9,8 @@ async function started(t) {
     t.after(() => host.close());
     const made = await host.cmd('party.create', { name: 'Ren', preset: 'fighter' });
     assert.equal(made.ok, true, made.message);
-    await host.send('We walk into the village.', host.reply('Bluewatch Village.', ['~ place Bluewatch Village | kind: settlement']));
+    // A village (its settlement type sets its prices, MODULES §F107).
+    await host.send('We walk into the village.', host.reply('Bluewatch Village.', ['~ place Bluewatch Village | kind: village']));
     return host;
 }
 const coin = host => host.q('inventory.wallet', { owner: 'party' }).coin ?? 0;

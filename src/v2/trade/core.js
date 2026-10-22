@@ -12,12 +12,13 @@ import { makeRules } from '../../rules.js';
 import { formatMoney, nameKey, oneCurrency, slotFromWord } from '../../items.js';
 import {
     COMMISSIONERS, buyerKind, commissionHours, craftFee, craftSpan, isMaterial, itemWorth, kindOf, marketHere, placePrices,
-    pricedLevel, readyAt, readyWords, sellPrice, shopStock, tradeLine,
+    pricedLevel, readyAt, readyWords, shopStock, tradeLine,
 } from '../../trade.js';
 import { DEFAULT_RULES } from '../../rules.js';
 import { craftPiece } from './craft-plan.js';
 import { pcOf, sceneOf } from './calls.js';
 import { gearFeatures, pieceOf, resaleOf } from '../items/condition.js';
+import { goodsFactor, marketAt, marketWhy } from './markets.js';
 
 export const DAY = 24 * 60;
 /** The trader kinds the page offers (v1 0.5.38). */
@@ -188,18 +189,30 @@ export function makeWorld({ scene, inventory, trade, party, settings = {}, now =
     const placeText = [place.name, place.kind].filter(Boolean).join(' | ');
     // (v1 0.5.46) The reader's word for this place (cheap, fair, dear), from the settings only.
     const level = pricedLevel(place.name, settings.placePrices);
-    const base = placePrices(placeText, { level, rules });
+    // (MODULES §F107) What kind of market this is: its settlement type and environment tags, from the
+    // lorebook, the pack or the scene's kind (markets.js); v1's guess from the words of its name only with
+    // the reader's `guessPrices` on and nothing else naming it. Unknown: every factor 1.
+    const local = marketAt({ ...place, tags: Array.isArray(scene?.place?.tags) ? scene.place.tags : [] }, { markets: packs?.markets ?? null, places: packs?.places ?? null });
+    const guessed = !local.type && settings.guessPrices === true;
+    const by = placePrices('', { level, rules });
+    const base = guessed ? placePrices(placeText, { level, rules }) : { tier: local.tier, buy: local.buy * by.buy, sell: local.sell * by.sell, level: by.level };
+    // (MODULES §F104) The built-in prices and worths are gold-scale: `scale` brings them to the chat's coin.
+    const scale = typeof packs?.scale === 'number' && Number.isFinite(packs.scale) && packs.scale > 0 ? packs.scale : 1;
     // (MODULES §F36) A shortage here: restock paused and buying dearer until the story lifts it.
     const shortages = currentShortages(trade?.shortages);
     const shortage = shortageAt(shortages, place.name);
     const rate = shortageRate(settings);
     const prices = shortage ? { ...base, buy: base.buy * rate / 100, shortage: rate } : base;
     let market = marketHere(placeText, present, { rules, priced: Boolean(level) });
-    if (!market.open && MARKET_KINDS.includes(place.kind.toLowerCase())) market = { open: true, by: 'place' };
+    if (!market.open && (MARKET_KINDS.includes(place.kind.toLowerCase()) || local.type)) market = { open: true, by: 'place' };
     const clock = typeof now === 'number' && Number.isFinite(now) ? Math.floor(now) : null;
     const pc = pcOf(party);
     return {
         place, present, placeText, level, prices, market, rules,
+        // The place's market (markets.js marketAt) and why its prices are what they are.
+        local: guessed ? { ...local, factors: {}, from: 'guess', tier: base.tier } : local,
+        why: guessed ? `${base.tier.charAt(0).toUpperCase()}${base.tier.slice(1)} prices (guessed from the place's name)` : marketWhy(local),
+        scale,
         plevel: pc.level, pcName: pc.name,
         now: clock, day: clock === null ? null : Math.floor(clock / DAY),
         shortage,
@@ -229,21 +242,36 @@ export function makeWorld({ scene, inventory, trade, party, settings = {}, now =
 // unsaid); what was bought that day is counted off. Its trader kind (what it pays for the party's
 // things) comes from its `kind` words ("general goods" → the general store, "apothecary").
 
-const DEF_FIELDS = ['id', 'name', 'kind', 'rarity', 'value', 'stack', 'slot', 'stats', 'effect', 'tags', 'note'];
+// `carry`: the capacity a pack item adds (MODULES §F106); Story Block keeps it only on a pack's def.
+const DEF_FIELDS = ['id', 'name', 'kind', 'rarity', 'value', 'stack', 'slot', 'stats', 'effect', 'tags', 'note', 'carry'];
 
-/** `packs.content` through a query function: { shops, items } (empty without packs). */
+/**
+ * What the packs give trade, through a query function: `{ shops, items, places }` (`packs.content`),
+ * `markets` (Story Block's `packs.markets`: settlement types, environment tags, places' markets from
+ * the packs and the lorebook, MODULES §F107; null on an older Story Block) and `scale` (the money
+ * scale, `inventory.economy`, F104; 1 without it). Empty without packs.
+ */
 export function packsFrom(query) {
-    const ask = kind => {
-        if (typeof query !== 'function') return [];
+    const raw = (name, args) => {
+        if (typeof query !== 'function') return undefined;
         try {
-            const list = query('packs.content', { kind });
-            return Array.isArray(list) ? list : [];
+            return query(name, args);
         } catch {
-            return [];
+            return undefined;
         }
     };
+    const ask = kind => {
+        const list = raw('packs.content', { kind });
+        return Array.isArray(list) ? list : [];
+    };
     const shops = ask('shops');
-    return { shops, items: shops.length ? ask('items') : [], places: ask('places') };
+    const markets = raw('packs.markets');
+    const scale = Number(raw('inventory.economy')?.scale);
+    return {
+        shops, items: shops.length ? ask('items') : [], places: ask('places'),
+        markets: markets && typeof markets === 'object' ? markets : null,
+        scale: Number.isFinite(scale) && scale > 0 ? scale : 1,
+    };
 }
 
 /**
@@ -288,11 +316,23 @@ export function packShopFor(world, kind) {
         ?? null;
 }
 
-/** What a thing is worth (smallest unit): its def's own `value` when it has one, else v1's itemWorth. */
+/**
+ * What a thing is worth (smallest unit): its def's own `value` when it has one, else v1's itemWorth
+ * times the money scale (`world.scale`, F104; a world without one: 1).
+ */
 export function worthOf(def, world) {
     if (Number.isInteger(def?.value) && def.value > 0) return def.value;
-    return itemWorth(legacyItem(def), { level: world.plevel, rules: world.rules });
+    return scaled(itemWorth(legacyItem(def), { level: world.plevel, rules: world.rules }), world);
 }
+
+/** A built-in (gold-scale) amount in the chat's coin: × `world.scale`, rounded, at least 1. */
+export const scaled = (amount, world) => {
+    const k = typeof world?.scale === 'number' && Number.isFinite(world.scale) && world.scale > 0 ? world.scale : 1;
+    return k === 1 ? amount : Math.max(1, Math.round(amount * k));
+};
+
+/** The place's environment factor for `def` (markets.js goodsFactor; 1 for a world without a market). */
+export const goodsAt = (def, world) => (world?.local ? goodsFactor(def, world.local) : 1);
 
 /**
  * Whether code made `def` worth nothing: a crafted or commissioned thing (`craft/…`) whose value is 0
@@ -302,13 +342,16 @@ export function worthOf(def, world) {
  */
 export const worthNothing = def => def?.value === 0 && typeof def?.id === 'string' && def.id.startsWith('craft/');
 
-/** What `buyer` pays for one `def` here: its worth × v1's sell rate × the buyer's taste × the place's sell prices (0 for a thing worth nothing). */
+/**
+ * What `buyer` pays for one `def` here: its worth (worthOf: a built-in one times the money scale) × v1's
+ * sell rate × the buyer's taste × the place's sell prices × its environment factor for that kind of thing
+ * (0 for a thing worth nothing).
+ */
 export function sellEach(def, buyer, world) {
     if (worthNothing(def)) return 0;
-    if (!(Number.isInteger(def?.value) && def.value > 0)) return sellPrice(legacyItem(def), { buyer, prices: world.prices, level: world.plevel, rules: world.rules });
     const t = { ...DEFAULT_RULES.trade, ...(world.rules?.trade ?? {}) };
     const pays = t.buyers?.[buyer]?.[kindOf(legacyItem(def))] ?? 1;
-    return Math.max(1, Math.round(def.value * t.sellRate * pays * (world.prices.sell ?? 1)));
+    return Math.max(1, Math.round(worthOf(def, world) * t.sellRate * pays * (world.prices.sell ?? 1) * goodsAt(def, world)));
 }
 
 // The world as a query or a page sees it: a state, with the settings and query tools the host
@@ -383,7 +426,12 @@ function noMarket(world) {
 /** The market here: { open, by, place, tier, buy, sell, level, day, shortage: { place, reason, until, prices } | null }. */
 export function marketOf(world) {
     const shortage = world.shortage ? { place: world.shortage.place, reason: world.shortage.reason, until: world.shortage.until, prices: world.prices.shortage ?? SHORTAGE_PRICES } : null;
-    return { open: world.market.open, by: world.market.by, place: world.place.name, tier: world.prices.tier, buy: world.prices.buy, sell: world.prices.sell, level: world.level, day: world.day, shortage };
+    const local = world.local ?? {};
+    return {
+        open: world.market.open, by: world.market.by, place: world.place.name, tier: world.prices.tier, buy: world.prices.buy, sell: world.prices.sell, level: world.level, day: world.day, shortage,
+        // MODULES §F107: the settlement type, environment tags, where they came from and why prices are what they are.
+        type: local.type ?? null, tags: [...(local.tags ?? [])], from: local.from ?? null, factors: { ...(local.factors ?? {}) }, why: world.why ?? '', scale: world.scale ?? 1,
+    };
 }
 
 // A stock item (v1 shopStock's) as the inventory def it is bought as. Gear's stats are sized
@@ -391,7 +439,7 @@ export function marketOf(world) {
 function stockDef(item, world) {
     const gear = item.kind === 'equipment';
     const id = gear ? `trade/${slug(item.name)}-${item.rarity}-l${world.plevel}` : `trade/${slug(item.name)}`;
-    const value = itemWorth({ ...item }, { level: world.plevel, rules: world.rules });
+    const value = scaled(itemWorth({ ...item }, { level: world.plevel, rules: world.rules }), world);
     return {
         id, name: item.name, kind: item.kind, rarity: item.rarity, value, stack: !gear, slot: item.slot ?? null,
         stats: { ...(item.stats ?? {}) }, effect: item.effect ? { ...item.effect } : {}, tags: [...(item.tags ?? [])], note: item.note ?? '',
@@ -411,10 +459,13 @@ export function stockOf(world, kind) {
     if (packed) return packStock(world, packed, day);
     const k = traderKind(kind, world.rules);
     const shop = shopKey(k, world.shopPlace ?? world.place.name);
-    const all = shopStock({ kind: k, prices: world.prices, seed: `${shop}|${day ?? ''}`, seen: [], level: world.plevel, rules: world.rules });
+    const all = shopStock({ kind: k, prices: world.prices, seed: `${shop}|${day ?? ''}`, seen: [], level: world.plevel, rules: world.rules, size: world.local?.stock ?? null });
     const kept = Object.hasOwn(world.trade.shops ?? {}, shop) ? world.trade.shops[shop] : null;
     const bought = kept && kept.day === day ? kept.bought ?? [] : [];
-    const items = all.map(item => ({ def: stockDef(item, world), price: item.price, note: item.note })).filter(entry => !bought.includes(entry.def.id));
+    // Priced here: the thing's worth (times the money scale) × the place's buy prices × its environment
+    // factor for that kind of thing (a fence a little under), as v1's shopStock priced it without them.
+    const priced = def => Math.max(1, Math.round(def.value * (world.prices.buy ?? 1) * goodsAt(def, world) * (k === 'fence' ? 0.8 : 1)));
+    const items = all.map(item => stockDef(item, world)).map((def, index) => ({ def, price: priced(def), note: all[index].note })).filter(entry => !bought.includes(entry.def.id));
     return { shop, kind: k, day, open: world.market.open, shortage: Boolean(world.shortage), items };
 }
 
@@ -426,7 +477,7 @@ function packStock(world, packed, day) {
     const rate = world.prices.shortage ? world.prices.shortage / 100 : 1;
     const items = packed.stock.map(line => {
         const left = line.qty - bought.filter(id => id === line.def.id).length;
-        const price = line.price !== null ? Math.round(line.price * rate) : Math.round(worthOf(line.def, world) * (world.prices.buy ?? 1));
+        const price = line.price !== null ? Math.round(line.price * rate) : Math.round(worthOf(line.def, world) * (world.prices.buy ?? 1) * goodsAt(line.def, world));
         return { def: line.def, price: Math.max(line.price === 0 ? 0 : 1, price), note: line.def.note ?? '', left };
     }).filter(entry => entry.left > 0);
     return { shop, kind: traderKind(packed.kindWords || packed.name, world.rules), name: packed.name, keeper: packed.keeper, pack: true, day, open: world.market.open, shortage: Boolean(world.shortage), items };
@@ -522,7 +573,7 @@ export function planCommission(world, { piece, materials, crafter } = {}) {
         parts.push({ stack, def, qty, key: isKeyItem(row) });
     }
     const made = craftPiece({ name, slot, parts }, { level: world.plevel, rules: world.rules });
-    const fee = craftFee(made, { prices: world.prices, level: world.plevel, rules: world.rules });
+    const fee = scaled(craftFee(made, { prices: world.prices, level: world.plevel, rules: world.rules }), world);
     const hours = commissionHours(made, { crafter: kind, tier: world.prices.tier, seed: `${placeKey(world.place.name)}|${kind}|${nameKey(name)}|${world.day ?? ''}`, rules: world.rules });
     const ready = readyAt(hours, world.now);
     const span = craftSpan(hours);

@@ -45,7 +45,7 @@ export function makeState() {
         v: 2,
         meta: { rev: 12, claims: {} },
         domains: {
-            scene: { place: { name: 'Bluewatch Village', kind: 'settlement', region: 'Weirlands' }, present: ['Hesk'] },
+            scene: { place: { name: 'Bluewatch Village', kind: 'village', region: 'Weirlands' }, present: ['Hesk'] },
             director: { time: { minutes: 3 * 1440 + 600 } },
             inventory: {
                 defs: Object.fromEntries(DEFS.map(entry => [entry.id, entry])),

@@ -396,15 +396,15 @@ test('a repair never costs more than 90% of the piece new here; what it adds to 
             const quote = host.q('trade.quote', { type: 'repair', stack });
             assert.equal(quote.fee, Math.max(1, Math.ceil(0.9 * worth - 1e-9)), 'held to 90% of its price new, not its whole worth');
             // Repair in a cheap village, sell to a smith in the capital: never more than selling it broken there plus the fee.
-            await story(host, '~ place Little Ford Village | kind: settlement');
+            await story(host, '~ place Little Ford Village | kind: village');
             const cheap = host.q('trade.quote', { type: 'repair', stack });
             assert.ok(cheap.fee < quote.fee, 'village prices are lower');
-            await story(host, '~ place Royal Capital | kind: settlement');
+            await story(host, '~ place Royal Capital | kind: capital');
             const broken = host.q('trade.quote', { type: 'sell', stack, qty: 1, kind: 'smith' }).total;
-            await story(host, '~ place Little Ford Village | kind: settlement');
+            await story(host, '~ place Little Ford Village | kind: village');
             const start = host.coin();
             assert.equal((await host.cmd('trade.repair', { stack })).ok, true);
-            await story(host, '~ place Royal Capital | kind: settlement');
+            await story(host, '~ place Royal Capital | kind: capital');
             assert.equal((await host.cmd('trade.sell', { stack, qty: 1, kind: 'smith' })).ok, true);
             assert.ok(host.coin() - start <= broken, `repair + sale ${host.coin() - start} ≤ the sale as it was ${broken}`);
         } finally {

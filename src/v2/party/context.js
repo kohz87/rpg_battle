@@ -2,7 +2,7 @@
 // every reply) and a compact tail line per member, code's numbers only: level, HP/MP/SP and
 // conditions. Waiting offers are optional lines (dropped first when the budget is tight). Pure.
 
-import { levelTag } from '../../terms.js';
+import { DEFAULT_TERMS, levelTag, termsOf } from '../../terms.js';
 import { rulesFrom } from './sheets.js';
 import { actorsInOrder, waitingOffers } from './util.js';
 import { clockOf, fitParty } from './pools.js';
@@ -33,6 +33,18 @@ export function effectsLine(view, party) {
 }
 
 export const STATIC = 'Party numbers (HP, MP, SP, XP, levels) are set by code: never write them; write a wound, rest or check line instead, and tell what the [Happened] lines say.';
+
+/**
+ * The static line in the world's words (MODULES §F105): `settings` is the part's, with the terms
+ * (src/v2/module.js). The plain words give STATIC exactly, so it is byte-identical every reply until
+ * the reader (or a pack) names other words.
+ */
+export function staticText(settings = null) {
+    const { levelName, xpName } = termsOf(rulesFrom(settings));
+    const level = levelName === DEFAULT_TERMS.levelName ? 'levels' : levelName;
+    const xp = xpName === DEFAULT_TERMS.xpName ? 'XP' : xpName;
+    return STATIC.replace('(HP, MP, SP, XP, levels)', `(HP, MP, SP, ${xp}, ${level})`);
+}
 
 // 250 for the members and offers, and room for the effects line (MODULES §F91 wave).
 export const BUDGET = 320;
@@ -71,4 +83,4 @@ export function tail(view) {
     return { lines, optional };
 }
 
-export const context = { static: () => STATIC, tail, budget: BUDGET };
+export const context = { static: env => staticText(env?.settings ?? null), tail, budget: BUDGET };
