@@ -21,6 +21,7 @@ import { OUTCOMES, dcOf, outcomeOf, statForCheck } from '../party/checks.js';
 import { drawFrom, promptRolls, rollDice } from './dice.js';
 import { memberOf, modifiersFor, rulesFor } from './modifiers.js';
 import { capOf, outsideModifiers, targetOf } from './outside.js';
+import { DICE_PER_ACTOR, MAX_TABLE_ACTORS, diceOf } from './table.js';
 import { clipped } from '../lines.js';
 import {
     MAX_LOG, MAX_PER_REPLY, MAX_PREPARED, ROLLS_PER_REPLY,
@@ -156,8 +157,11 @@ function prepare(ctx, payload = {}) {
     if (at !== null && at !== undefined && !(Number.isInteger(at) && at >= 0)) fail(ctx, 'INVALID', 'The reply index must be a whole number.');
     const index = Number.isInteger(at) ? at : null;
     const checks = draftChecks(ctx);
-    const rolls = rollDice(ROLLS_PER_REPLY, 20, drawFrom(() => ctx.rng()));
-    const entry = { for: index, rolls, rev: revOf(ctx) };
+    // The check table (table.js): two dice for each member, your character first; before a character,
+    // the two of old.
+    const actors = (ask(ctx, 'party.actors', {}) ?? []).map(actor => actor?.id).filter(id => typeof id === 'string').slice(0, MAX_TABLE_ACTORS);
+    const rolls = rollDice(actors.length ? actors.length * DICE_PER_ACTOR : ROLLS_PER_REPLY, 20, drawFrom(() => ctx.rng()));
+    const entry = { for: index, rolls, rev: revOf(ctx), ...(actors.length ? { actors } : {}) };
     const key = carrierKey(ctx);
     checks.prepared[key] = entry;
     prune(checks.prepared, MAX_PREPARED, key);
@@ -262,20 +266,30 @@ function applyCheck(ctx, line) {
     const checks = draftChecks(ctx);
     const prepared = preparedFor(checks, ctx?.carrier?.index);
     const key = replyKey(ctx, prepared);
-    const earlier = logEntries(checks).filter(entry => entry.carrier === key);
+    // This reply's checks so far (made after its dice were rolled), and a check Story Block's pre-roll made
+    // for the reader's message before it (on the reply before, assist.precheck): it took the 1st column.
+    const since = entry => !prepared || (entry.rev ?? 0) > (prepared.rev ?? 0);
+    const earlier = logEntries(checks).filter(entry => entry.carrier === key && since(entry));
+    const preUsed = ctx?.cause === 'system' ? 0 : logEntries(checks).filter(entry => entry.pre && entry.carrier !== key && since(entry) && prepared).length;
     const what = clip(line?.text ?? '', 120);
-    if (earlier.length >= MAX_PER_REPLY) {
+    if (earlier.length + preUsed >= MAX_PER_REPLY) {
         fail(ctx, 'REFUSED', `Only ${MAX_PER_REPLY} checks count in one reply: ${attemptText({ skill, stat, what })} was not rolled.`);
     }
     // The reply's crafts (the craft part's, MODULES §F102) are uncertain attempts too: they count in the
     // place and the rolls they took are used, so a check after a craft takes the next roll.
     const crafted = (ask(ctx, 'craft.rollsUsed', { carrier: key }) ?? []).filter(roll => Number.isInteger(roll));
-    const picked = pickRoll(prepared, labels.roll, [...earlier.map(entry => entry.roll), ...crafted].filter(Boolean), earlier.length + crafted.length + 1, () => d20(ctx));
+    const place = earlier.length + crafted.length + preUsed + 1;
+    // With the table: the actor's own die for this place (1st, 2nd); without it (an older chat's rolls), the
+    // reply's Roll by place (F80). A member who joined after the dice were rolled gets code's die.
+    const own = diceOf(prepared, actor.id);
+    const picked = !Array.isArray(prepared?.actors) ? pickRoll(prepared, labels.roll, [...earlier.map(entry => entry.roll), ...crafted].filter(Boolean), place, () => d20(ctx))
+        : own && place <= DICE_PER_ACTOR ? { roll: prepared.actors.indexOf(actor.id) * DICE_PER_ACTOR + place, die: own[place - 1], note: '', place }
+            : { roll: 0, die: d20(ctx), note: own ? 'every roll handed over was used: code rolled' : `${clip(actor.name, 40)} was not in the table: code rolled`, place: 0 };
     const rules = rulesOf(ctx);
     let defs = {};
     try { defs = ctx.read('inventory')?.defs ?? {}; } catch { defs = {}; }
     const member = memberOf((name, args) => ask(ctx, name, args), actor, defs);
-    // Other modules' say (Story Block MODULES §F124, outside.js): asked on this reply's state, bounded.
+    // Other modules' say (Story Block MODULES §F126, outside.js): asked on this reply's state, bounded.
     let present = [];
     try { present = ctx.read('scene')?.present ?? []; } catch { present = []; }
     const against = targetOf(labels, line?.text ?? '', present, actor.name);
@@ -293,6 +307,7 @@ function applyCheck(ctx, line) {
         carrier: key, roll: picked.roll, die: picked.die, modifiers, mod, total: picked.die + mod, outcome, outcomeText: OUTCOMES[outcome],
         said, mismatch, note: clip(picked.note, 160),
         ...(against ? { target: clip(against, 60) } : {}),
+        ...(Number.isInteger(picked.place) && picked.place > 0 ? { place: picked.place } : {}),
         // Made by Story Block's pre-roll (assist.precheck, a system step before the reply): the narrator was told it.
         ...(ctx?.cause === 'system' ? { pre: true } : {}),
     };
@@ -320,7 +335,7 @@ export const commands = {
     'checks.prepare': prepare,
 };
 
-export const GRAMMAR = '? check <skill or stat> — what is attempted | dc: easy|normal|hard|<number> | roll: <1 or 2> | result: success|fail | who: Name';
+export const GRAMMAR = '? check <the table\'s row: a stat or skill> — what is attempted | dc: easy|normal|hard|very hard | result: success|cost|fail | who: Name | vs: Name';
 
 export const kinds = {
     check: { grammar: GRAMMAR, apply: clipped(applyCheck) },

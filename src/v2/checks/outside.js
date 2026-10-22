@@ -1,12 +1,12 @@
-// Other modules' modifiers on a check (Story Block MODULES §F124). Before a check is resolved, the checks
+// Other modules' modifiers on a check (Story Block MODULES §F126). Before a check is resolved, the checks
 // part asks:
 //
 // * every other module's hook `checkModifiers({ state, query }, { actor: { id, name }, skill, stat, target, dc })`
 //   through Story Block's `ctx.gather` → `[{ mod, text }]` (or one `{ mod, text }`), on the state the check's
 //   reply has (a Re-read or a swipe asks the same state, so they agree);
-// * NPC State Delta's query `npc.socialModifier({ name, skill })` → `{ mod, reasons: [{ text, value }] } | null`
-//   (its feature `npc-state-delta.social`) for a social skill (persuade, charm or seduce, intimidate,
-//   deceive) against someone, when Delta is there. A missing module, a query not registered, a feature off
+// * NPC State Delta's query `npc.socialModifier({ name, skill })` → `{ mod, name, skill, reasons: [{ text, value }] }
+//   | null` (NSD #207; its feature `npc-state-delta.social`) for a social skill (persuade, charm or seduce,
+//   intimidate, deceive, else the generic `social`) against someone, when Delta is there. A missing module, a query not registered, a feature off
 //   or a throw is no modifier.
 //
 // The target: the check's `vs:` or `target:` label, else the first person here (scene.present) whose name
@@ -16,6 +16,8 @@
 // 40 characters, and the sum held to ±cap (the setting `outsideCap`, default 5, 0 turns them off); when the
 // sum is held, one more entry says so ("held to ±5"), so the line still adds up. Each entry is a modifier
 // with source `module` and a reason naming its module: "Elula is wary (Delta)". Pure apart from ctx.
+
+import { TOPICS } from './modifiers.js';
 
 export const DEFAULT_CAP = 5;
 export const MAX_CAP = 10;
@@ -39,10 +41,10 @@ const SHORT = Object.freeze({ 'npc-state-delta': 'Delta', 'story-director': 'Dir
 const flat = (value, max) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 const nameKey = value => flat(value, 80).normalize('NFKC').toLowerCase();
 
-/** The social word for Delta ('persuade' | 'charm' | 'intimidate' | 'deceive'), or null. */
+/** The social word for Delta ('persuade' | 'charm' | 'intimidate' | 'deceive', else 'social' for another social skill), or null. */
 export function socialSkill(skill) {
     const text = ` ${String(skill ?? '').toLowerCase()} `;
-    return SOCIAL.find(([, pattern]) => pattern.test(text))?.[0] ?? null;
+    return SOCIAL.find(([, pattern]) => pattern.test(text))?.[0] ?? (TOPICS.social.test(text) || /\bcha\b/.test(text) ? 'social' : null);
 }
 
 /** The cap from the part's settings: a whole number 0…MAX_CAP, else DEFAULT_CAP. */

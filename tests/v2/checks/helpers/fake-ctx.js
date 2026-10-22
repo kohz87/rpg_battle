@@ -177,10 +177,14 @@ export function capture(state, raw, options = {}) {
 }
 
 /** Commits `checks.prepare { for }` as beforeGenerate would (cause system); `rolls` forces the dice. */
-export function prepared(state, index = 4, { rolls = null, seed = 3 } = {}) {
+// `table: false` (the default here) makes it an older chat's prepare (no table members: the reply's Roll 1 and
+// Roll 2 by place, F80), which these tests were written for; `table: true` keeps the check table's members.
+export function prepared(state, index = 4, { rolls = null, seed = 3, table = false } = {}) {
     const out = run(state, 'checks.prepare', { for: index }, { seed, cause: 'system' });
     if (!out.ok) throw new Error(out.message);
-    if (rolls) preparedEntries(out.state.domains.checks).at(-1).rolls = [...rolls];
+    const entry = preparedEntries(out.state.domains.checks).at(-1);
+    if (!table) delete entry.actors;
+    if (rolls) entry.rolls = [...rolls];
     return out.state;
 }
 

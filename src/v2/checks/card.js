@@ -12,7 +12,7 @@
 // fail). Nothing else reads a check's outcome, so a disagreement changes no number; it is told on the
 // card, not listed as a Problem (the line was used).
 //
-// `replyCard` is Story Block's `hooks.replyCard` (MODULES §F123): the checks that reply's ops added, as lines
+// `replyCard` is Story Block's `hooks.replyCard` (MODULES §F125): the checks that reply's ops added, as lines
 // on its "Changed this reply" card. `diagnostics` is this part's section of Settings → Diagnostics: the dice
 // handed over for the latest reply and which a check took (behind a click, never in the prompt's view).
 // Pure apart from `diagnostics`' default sdk.
@@ -38,9 +38,11 @@ export function skillLabel(entry) {
     return stat ? `${title(skill)} (${stat})` : title(skill);
 }
 
-/** "d20 8 (Roll 1) + 2 AGI + 1 Keen Eyes = 11 vs DC 10 (normal)" */
+/** "d20 8 (1st) + 2 AGI + 1 Keen Eyes = 11 vs DC 10 (normal)" */
 export function diceText(entry) {
-    const die = `d20 ${entry.die}${entry.roll ? ` (Roll ${entry.roll})` : entry.roll === 0 ? ' (rolled by code)' : ''}`;
+    // The table's die (the actor's 1st or 2nd), an older chat's Roll n, or code's own.
+    const which = entry.place === 1 ? ' (1st)' : entry.place === 2 ? ' (2nd)' : entry.roll ? ` (Roll ${entry.roll})` : entry.roll === 0 ? ' (rolled by code)' : '';
+    const die = `d20 ${entry.die}${which}`;
     const list = Array.isArray(entry.modifiers) ? entry.modifiers : [];
     const mods = list.length
         ? list.map(mod => ` ${mod.amount < 0 ? '−' : '+'} ${Math.abs(mod.amount)} ${flat(mod.reason, 40)}`).join('')
@@ -96,7 +98,7 @@ export function viewAll(state) {
 }
 
 /**
- * Story Block's `hooks.replyCard({ state, changes })` (MODULES §F123): the checks this reply's ops added
+ * Story Block's `hooks.replyCard({ state, changes })` (MODULES §F125): the checks this reply's ops added
  * (a log key its ops touched, still in its state), oldest first, as lines for "Changed this reply".
  */
 export function replyCard({ state = null, changes = [] } = {}) {

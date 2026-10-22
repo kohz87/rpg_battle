@@ -6,7 +6,8 @@
 //
 // The `checks` domain:
 //   checks = {
-//     prepared: { [key]: { for: reply index | null, rolls: [d20, …], rev } },   // key: the carrier the prepare
+//     prepared: { [key]: { for: reply index | null, rolls: [d20, …], rev, actors?: [actor id] } },   // actors: the
+//                  check table's members, two dice each in that order (table.js)   // key: the carrier the prepare
 //                  landed on (`s:<sid>`, else its "index:swipe", else `rev<n>`)
 //     log:      { [check id]: { id, actor, name, skill, stat, dc, word, what, rev, carrier, roll, die,
 //                  modifiers, mod, total, outcome, outcomeText, text, said, mismatch, note } },
@@ -33,7 +34,7 @@ export const slack = most => most * 4;
 /** Up to 2 checks per reply (MODULES §F32); a reply gets as many rolls. */
 export const MAX_PER_REPLY = 2;
 export const ROLLS_PER_REPLY = MAX_PER_REPLY;
-// `module`: another module's say (outside.js, Story Block MODULES §F124).
+// `module`: another module's say (outside.js, Story Block MODULES §F126).
 export const SOURCES = Object.freeze(['stat', 'skill', 'talent', 'item', 'ability', 'custom', 'effect', 'module']);
 export const OUTCOME_KEYS = Object.freeze(Object.keys(OUTCOMES));
 
@@ -156,6 +157,7 @@ function checkResult(entry, where, errors) {
     if (entry?.note !== undefined && !str(entry.note, 160)) errors.push(`${where}: the note is too long.`);
     if (entry?.target !== undefined && !str(entry.target, 60)) errors.push(`${where}: the target is too long.`);
     if (entry?.pre !== undefined && entry.pre !== true) errors.push(`${where}: pre is true or absent.`);
+    if (entry?.place !== undefined && !int(entry.place, 1, MAX_PER_REPLY)) errors.push(`${where}: the place is the reply's 1st or 2nd attempt.`);
 }
 
 function checkShown(entry, where, errors) {
@@ -203,6 +205,7 @@ export function validateChecks(slice) {
         indexes.add(entry.for);
         if (!Array.isArray(entry.rolls) || entry.rolls.length > MAX_ROLLS || !entry.rolls.every(die => int(die, 1, 20))) errors.push(`${where}: the rolls must be up to ${MAX_ROLLS} d20s.`);
         if (!int(entry.rev, 0, Number.MAX_SAFE_INTEGER)) errors.push(`${where}: the rev must be a whole number.`);
+        if (entry.actors !== undefined && (!Array.isArray(entry.actors) || entry.actors.length * 2 > MAX_ROLLS || !entry.actors.every(id => ACTOR_ID.test(String(id))))) errors.push(`${where}: the table's members must be a short list of actor ids.`);
     });
     const ids = new Set();
     log.forEach((item, index) => {

@@ -59,10 +59,15 @@ time F17); this repo's README "A fight", "Fights from the story", "Monsters on t
 - Re-run the balance tests and say in the PR how the tier hit rates moved; one tier change shifts all presets.
 - New combat command or kind: add it to `tests/v2/qa/helpers/fuzz.js` and prove replay == live.
 
-## Checks: other modules' modifiers and the dice told back
+## Checks: the table, other modules' modifiers and the dice told back
+
+- **The check table** (`checks/table.js`, default): `checks.prepare` rolls 2 d20s per member (`prepared.actors`,
+  PC first, ≤ 4); the tail line per member groups every stat / topic / `vs Name` row by its cell for the 1st
+  and 2nd die. Capture: the actor's die at the reply's place (`place` 1/2; crafts and a `pre` check count),
+  the same `modifiersFor`, so the table and the record agree. No `actors` (an older chat): Roll by place.
 
 - Before a check is resolved (`checks/commands.js` applyCheck), `checks/outside.js` asks Story Block's
-  `ctx.gather('checkModifiers', { actor, skill, stat, target, dc })` (every other module's hook, MODULES §F124)
+  `ctx.gather('checkModifiers', { actor, skill, stat, target, dc })` (every other module's hook, MODULES §F126)
   and, for a social skill against someone, NSD's `npc.socialModifier({ name, skill })` (feature
   `npc-state-delta.social`; absent, off or throwing → nothing). Target: `vs:` / `target:`, else the first
   `scene.present` name the line's text has (`who:` stays the member making it). Each entry ±5, at most 4,

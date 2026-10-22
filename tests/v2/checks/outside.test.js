@@ -1,4 +1,4 @@
-// Other modules' modifiers on a check (Story Block MODULES §F124, src/v2/checks/outside.js) and the dice told
+// Other modules' modifiers on a check (Story Block MODULES §F126, src/v2/checks/outside.js) and the dice told
 // back to the next reply when a check line wrote another result (card.js toldBack), on the real testkit host.
 // NPC State Delta is a stub here: its `npc.socialModifier({ name, skill })` → { mod, reasons } | null.
 import test from 'node:test';
@@ -38,6 +38,8 @@ test('outside.js: social words, the target from vs:/target: or someone here name
     assert.equal(socialSkill('seduce'), 'charm');
     assert.equal(socialSkill('Intimidation'), 'intimidate');
     assert.equal(socialSkill('bluff'), 'deceive');
+    assert.equal(socialSkill('haggle'), 'social');
+    assert.equal(socialSkill('CHA'), 'social');
     assert.equal(socialSkill('stealth'), null);
     assert.equal(targetOf({ vs: 'Elula' }, 'anything', []), 'Elula');
     assert.equal(targetOf({ target: 'the Guard' }, '', []), 'the Guard');
@@ -70,7 +72,7 @@ test('Delta\'s social modifier and another module\'s hook on the check line, wit
             const index = lastIndex(host);
             const [entry] = entriesAt(host, index);
             assert.equal(entry.target, 'Elula');
-            assert.deepEqual(asked.at(-1), { name: 'Elula', skill: 'persuade' });
+            assert.deepEqual(asked.filter(entry => entry.skill !== 'social').at(-1), { name: 'Elula', skill: 'persuade' });
             const outside = entry.modifiers.filter(mod => mod.source === 'module');
             assert.deepEqual(outside.map(mod => [mod.amount, mod.reason]), [[-3, 'bad omen for Wessel (omen-test)'], [-2, 'Elula is wary (Delta)'], [1, 'likes flattery (Delta)']]);
             assert.equal(entry.mod, entry.modifiers.reduce((n, mod) => n + mod.amount, 0));
@@ -82,10 +84,12 @@ test('Delta\'s social modifier and another module\'s hook on the check line, wit
             assert.equal((await host.sdk.reread(index)).ok, true);
             assert.equal(JSON.stringify(entriesAt(host, index).map(e => [e.modifiers, e.total, e.outcome])), before);
             // A swipe on a stealth check: no social word, so Delta is not asked; the omen still counts.
-            const n = asked.length;
+            // (The tail's social rows ask Delta with skill `social` before each reply; the capture asks with the check's.)
+            const capturedAsks = () => asked.filter(entry => entry.skill !== 'social').length;
+            const n = capturedAsks();
             await host.swipe(host.reply('Wessel slips by.', ['? check stealth — past Elula | dc: 12 | roll: 1 | result: success']));
             const [sneak] = entriesAt(host, index);
-            assert.equal(asked.length, n, 'Delta is asked only for social skills');
+            assert.equal(capturedAsks(), n, 'Delta is asked only for social skills');
             assert.deepEqual(sneak.modifiers.filter(mod => mod.source === 'module').map(mod => mod.amount), [-3]);
             const live = JSON.stringify(host.head());
             host.store.rebuild();

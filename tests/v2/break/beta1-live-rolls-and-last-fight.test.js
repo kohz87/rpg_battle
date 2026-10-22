@@ -4,7 +4,7 @@
 //    dc: 10 | roll: 1 | result: success` (and a second check also naming `roll: 1`); `roll: 1` is "Roll 1",
 //    the first die handed over, and the dice were shown only on RPG Battle's own status card, which is off by
 //    default. Fixed: each check is a line on the reply's "Changed this reply" card (Story Block's
-//    hooks.replyCard, MODULES §F123; checks/card.js): skill and stat, the d20 and which roll it was, the
+//    hooks.replyCard, MODULES §F125; checks/card.js): skill and stat, the d20 and which roll it was, the
 //    modifiers, the total against the DC, code's outcome, and "Story said …; dice said …" when the written
 //    result disagrees. Code's outcome is the one kept. The dice handed over are in Settings → Diagnostics.
 // 2. "it still shows the last battle result after 2 more messages". Fixed: the Fight screen shows the last
@@ -49,12 +49,12 @@ test('the reply\'s checks on "Changed this reply": the die, which roll, modifier
             assert.ok(lines.every(line => line.module === 'rpg-battle' && line.icon === 'fa-dice-d20'));
             entries.forEach((entry, n) => {
                 const line = lines[n];
-                // Roll 1 for the first check, Roll 2 for the second, whatever the line named (B-b4-2).
+                // The member's 1st die for the first check, the 2nd for the second, whatever the line named.
                 assert.equal(entry.roll, n + 1);
                 assert.equal(entry.die, handed[n]);
                 const mods = entry.modifiers.map(mod => ` ${mod.amount < 0 ? '−' : '+'} ${Math.abs(mod.amount)} ${mod.reason}`).join('');
                 assert.ok(line.text.startsWith('Wessel, '), line.text);
-                assert.ok(line.text.includes(`: d20 ${entry.die} (Roll ${n + 1})${mods} = ${entry.total} vs DC ${entry.dc} → ${WORDS[entry.outcome]}`), line.text);
+                assert.ok(line.text.includes(`: d20 ${entry.die} (${n ? '2nd' : '1st'})${mods} = ${entry.total} vs DC ${entry.dc} → ${WORDS[entry.outcome]}`), line.text);
                 assert.equal(entry.total, entry.die + entry.mod);
                 assert.ok(line.summary.endsWith(`${entry.total} vs DC ${entry.dc}: ${WORDS[entry.outcome]}${line.flag ? ' (story said otherwise)' : ''}`), line.summary);
                 // The written result is only compared: code's outcome is kept, a disagreement told.
@@ -63,7 +63,7 @@ test('the reply\'s checks on "Changed this reply": the die, which roll, modifier
             });
             assert.match(lines[0].text, /AGI — pursuing the wounded wolf/);
             assert.match(lines[1].text, /Perception \(\w+\) — spotting where it went to ground/);
-            assert.match(lines[1].note, /named Roll 1, but this is the reply's second check: Roll 2 taken/);
+            assert.equal(lines[1].note, '', 'with the table the roll is the member\'s 2nd die; `roll:` is not read');
             // DC 40 cannot be reached but by a natural 20: the story's "success" is flagged otherwise.
             if (entries[1].die !== 20) assert.match(lines[1].flag, /^Story said success; dice said (fail|critical fail)$/);
             // The folded header tells them after the rest.
@@ -90,7 +90,7 @@ test('the reply\'s checks on "Changed this reply": the die, which roll, modifier
             assert.equal(swiped.length, 1);
             const [entry] = entriesAt(host, next);
             assert.equal(entry.die, host.q('checks.rolls').rolls[0]);
-            assert.match(swiped[0].text, /^Wessel, Athletics \(STR\) — up the ledge: d20 \d+ \(Roll 1\)/);
+            assert.match(swiped[0].text, /^Wessel, Athletics \(STR\) — up the ledge: d20 \d+ \(1st\)/);
             assert.equal(swiped[0].flag, KIND[entry.outcome] === 'fail' ? '' : `Story said fail; dice said ${WORDS[entry.outcome]}`);
             assert.equal(JSON.stringify(cardLines(host, index)), before, 'the earlier reply still shows its own');
 

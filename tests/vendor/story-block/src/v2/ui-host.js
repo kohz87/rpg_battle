@@ -301,11 +301,18 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
         return out;
     }
     // A card's scope also gets `refused`: that reply's change lines the code did not apply; the "Changed this
-    // reply" card also `moduleLines`: the modules' own lines for that reply (hooks.replyCard, MODULES §F123).
+    // reply" card also `moduleLines`: the modules' own lines for that reply (hooks.replyCard, MODULES §F125).
     const cardLines = (index, state, changes) => replyCardLines(registry.hookEntries?.('replyCard') ?? [], { index, state, changes });
     const drawScreen = renderer.render;
+    // …and `assisted`: the lines the Assist safety net applied on it (its receipts marked `assist`).
+    const assistedAt = index => {
+        try {
+            return (readRecord(ctx.chat?.[index])?.receipts ?? []).filter(receipt => receipt?.assist === 'now' || receipt?.assist === 'late')
+                .map(receipt => ({ line: String(receipt.assistLine ?? receipt.summary ?? ''), late: receipt.assist === 'late' }));
+        } catch { return []; }
+    };
     renderer.render = (el, screen, scope) => drawScreen(el, screen, scope?.mount === 'card'
-        ? { ...scope, refused: notes.refusedAt(scope.index), ...(screen?.id === CHANGES_CARD_SCREEN_ID ? { moduleLines: cardLines(scope.index, scope.state, scope.changes) } : {}) }
+        ? { ...scope, refused: notes.refusedAt(scope.index), assisted: assistedAt(scope.index), ...(screen?.id === CHANGES_CARD_SCREEN_ID ? { moduleLines: cardLines(scope.index, scope.state, scope.changes) } : {}) }
         : scope);
     const mounts = createMounts({
         screens,
@@ -456,6 +463,7 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
             promptParts,
             problems: () => runtime.turn?.problems?.() ?? [],
             save: () => ({ failing: store.failing?.(), dirty: store.dirty?.(), suspect: typeof store.suspect === 'function' ? store.suspect() : undefined }),
+            calls: () => runtime.callQueue?.stats?.() ?? null,
             caught: caughtSoFar,
             chat: () => liveCtx()?.chat ?? [],
             chatOpen: () => Boolean(liveCtx()?.getCurrentChatId?.() ?? liveCtx()?.chatId),

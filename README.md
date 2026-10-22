@@ -99,9 +99,20 @@ each in full. Every one can be switched off in Story Suite settings → **Featur
   XP, skill uses, loot), and is told how it went. The board clears and the Fight screen shows it as the
   last fight, in full on that reply and the one that tells it. Before the reply after that it folds: the
   Fight screen says *No fight on offer*, with **Last fight** closed under it to look back on.
-- **The dice of a check, on its reply.** A reply's `? check … | roll: 1 | result: …` names the roll handed
-  over (Roll 1, Roll 2), not the die. Each check is a line on the reply's **Changed this reply** card (and
-  on RPG Battle's status card): *Wessel, AGI — pursuing the wounded wolf: d20 4 (Roll 1) + 1 AGI = 5 vs DC
+- **The check table (the default).** Before each reply (and each swipe or regenerate) code rolls two
+  d20s for each party member and works the results out in advance with code's bonuses: one line per
+  member, *Checks — Wessel (you) 1st: STR AGI N~H · DEX VIT E · INT CHA LUK ✗ | 2nd: …* (E easy 10, N
+  normal 15, H hard 20, V very hard 25; N~H: normal succeeds, hard at a cost; ✗ fails; ★ a natural 20;
+  ✗! a natural 1). Rows: every stat, each skill your party has a bonus for, and *vs Name* for someone
+  here NPC State Delta has an opinion on. The story picks the row and the difficulty, reads the 1st
+  column for the reply's first uncertain attempt and the 2nd for the next (at most two), narrates it and
+  writes `? check <row> — … | dc: … | result: …`; code works it out again from the same die and bonuses.
+  Your character's line is always sent, the companions' as room allows. **Strict mode:** with Story
+  Block's Assist pre-roll on, the reader's message is turned into a check before the reply (one cheap
+  call) and the notes give its fixed result; that check takes the 1st column.
+- **The dice of a check, on its reply.** An older chat's `? check … | roll: 1 | result: …` names the roll
+  handed over (Roll 1, Roll 2), not the die. Each check is a line on the reply's **Changed this reply** card (and
+  on RPG Battle's status card): *Wessel, AGI — pursuing the wounded wolf: d20 4 (1st) + 1 AGI = 5 vs DC
   10 → fail*, its folded line *AGI 5 vs DC 10: fail (story said otherwise)*. When the reply wrote another
   result than the dice gave, the card says so (*Story said success; dice said fail*); the dice's result is
   the one kept. **Settings → Diagnostics** names the dice handed over for the latest reply and which a

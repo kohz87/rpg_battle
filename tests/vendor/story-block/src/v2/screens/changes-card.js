@@ -9,7 +9,7 @@
 // "+1 Moonveil Trout, −1 Rope · +30 gold · to Bluewatch Village · Fenna arrived". A stack used up
 // completely is gone from the reply's state, so only the header (which sees the state before) names it.
 //
-// Modules add their own lines (MODULES §F123): a module's `hooks.replyCard({ index, state, before, changes })`
+// Modules add their own lines (MODULES §F125): a module's `hooks.replyCard({ index, state, before, changes })`
 // answers [{ text, summary?, flag?, note?, icon? }] for that reply (RPG Battle: the checks it rolled, the die,
 // the modifiers and the total against the difficulty). `replyCardLines` cleans them (one line each, cut by
 // code points, at most REPLY_LINES_MAX per module, a Font Awesome icon name or a default); the host puts them in
@@ -27,6 +27,8 @@ export const CHANGES_CARD_SCREEN_ID = 'story-block/changes-card';
 const C = STRINGS.card;
 const T = STRINGS.summary;
 
+// `assisted` (MODULES §F123): the lines the Assist safety net applied on this reply ([{ line, late }],
+// from its receipts), each shown with "(assist)" or "(assist, from the previous reply)".
 // `refused` is not a state path: the host puts the reply's refused change lines in the card's scope
 // (ui-host.js, from the turn's problems for that reply: [{ line, reason }]). A screen drawn without it
 // (another host, a test) simply has none.
@@ -81,6 +83,12 @@ const TEMPLATE = `
       <span><span class="label">${html(C.notApplied)}</span> <span class="raw">{{ r.line }}</span><span class="why" data-if="r.reason"> — {{ r.reason }}</span></span>
     </li>
   </ul>
+  <ul class="assisted" data-if="len(assisted) > 0" title="${html(C.assistTitle)}">
+    <li class="line" data-each="assisted as a">
+      <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
+      <span><span class="raw">{{ a.line }}</span> <span class="muted" data-if="!a.late">${html(C.assist)}</span><span class="muted" data-if="a.late">${html(C.assistLate)}</span></span>
+    </li>
+  </ul>
 </div>`;
 
 const CSS = `${BASE_CSS}
@@ -109,6 +117,10 @@ const CSS = `${BASE_CSS}
 .refused .line { flex-wrap: nowrap; }
 .refused .line > i { color: var(--sb-em); }
 .refused .line > span { flex: 1 1 0; min-width: 0; }
+.assisted { display: grid; gap: 2px; margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--sb-border); }
+.assisted .line { flex-wrap: nowrap; }
+.assisted .line > span { flex: 1 1 0; min-width: 0; }
+.assisted .raw { font-family: var(--monoFontFamily, monospace); font-size: 0.95em; overflow-wrap: anywhere; }
 .refused .raw { font-family: var(--monoFontFamily, monospace); font-size: 0.95em; overflow-wrap: anywhere; }
 `;
 
@@ -134,7 +146,7 @@ const PLACE = /^\/domains\/scene\/place(\/|$)|^\/domains\/scene$/;
 const PRESENT = /^\/domains\/scene\/present(\/|$)|^\/domains\/scene$/;
 const LOOT = /^\/domains\/inventory\/loot(?:\/([^/]+))?$/;
 const MAX_ITEMS = 3;
-/** The most lines one module adds to a reply's card (MODULES §F123). */
+/** The most lines one module adds to a reply's card (MODULES §F125). */
 export const REPLY_LINES_MAX = 6;
 const ICON = /^fa-[a-z0-9-]{1,40}$/;
 
@@ -234,7 +246,7 @@ export function changesDigest({ state = null, before = null, changes = [] } = {}
 }
 
 /**
- * The modules' own lines for one reply's card (MODULES §F123). `entries`: [{ moduleId, fn }] (the registry's
+ * The modules' own lines for one reply's card (MODULES §F125). `entries`: [{ moduleId, fn }] (the registry's
  * `hookEntries('replyCard')`); `info`: { index, state, before, changes } of that reply. Each hook is called
  * with a copy of `info`; one that throws or answers anything but a list (a promise too) adds nothing.
  * → [{ module, icon, text, summary, flag, note }], each field one line: text ≤ 200, summary ≤ 80, flag and

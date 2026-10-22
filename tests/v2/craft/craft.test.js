@@ -163,7 +163,7 @@ test('a check after a craft in the same reply takes the next roll: one positiona
         const check = host.q('checks.log').at(-1);
         assert.equal(check.roll, 2, 'the check is the second uncertain attempt');
         assert.equal(check.die, rolls[1]);
-        assert.match(check.note, /Roll 2 taken/);
+        assert.equal(check.note, '', 'the table: the member\'s 2nd die, no roll named needed');
         // Two crafts and two checks: Rolls 1 and 2 by place, the rest rolled by code.
         await replyWhen(host, 'Busy.', () => true, () => [
             '! craft Grilled Fish | roll: 1',

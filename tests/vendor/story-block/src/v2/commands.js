@@ -307,7 +307,7 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
             feature(id) {
                 return featureOn(id) || (tx.again === true && Boolean(registry.feature?.(id)));
             },
-            // Every other module's answer to hook `name` on the state this command sees (MODULES §F124): each
+            // Every other module's answer to hook `name` on the state this command sees (MODULES §F126): each
             // module's `hooks[name]({ state, query }, args)`, synchronous. An answer that is null, a promise,
             // or a throw is left out, so asking is always safe: [{ module, answer }] in module order, frozen
             // copies. RPG Battle asks `checkModifiers` before a check is resolved.
