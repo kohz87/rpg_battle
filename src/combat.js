@@ -73,6 +73,25 @@ const allies = (f, c) => f.combatants.filter(o => o.side === c.side && isActive(
 const has = (c, name) => c.conditions.some(cond => cond.name === name);
 // The points a dazed actor's rolls lose this action (0 when not dazed; only the stun rule dazes).
 const dazed = c => (has(c, 'daze') ? DAZE_POINTS : 0);
+
+// (v2) The relative hit rule (`setup.hitRule: 'relative'`, RPG Battle v2's fights only): DEX against
+// AGI counts as a share of the two, not as raw points. Each point of difference is worth
+// RELATIVE_BASE ÷ (their mean) points, so at the start stats (a mean of RELATIVE_BASE or less) a hit
+// rolls as before, and at level 60, 60 DEX against 90 AGI is 4 points short, not 30 (a hit 63 % of
+// the time, not 5 %). A fight without the rule (every v1 fight, v2 fights stored before it) rolls
+// as before.
+export const RELATIVE_BASE = 10;
+/** The DEX a hit rolls with against `agi`: as it is, or, by the relative rule, the difference scaled to RELATIVE_BASE. */
+export function relativeDex(dex, agi, relative = false) {
+    const d = Number(dex) || 0;
+    const a = Number(agi) || 0;
+    if (!relative) return d;
+    const scale = RELATIVE_BASE / Math.max(RELATIVE_BASE, (Math.max(0, d) + Math.max(0, a)) / 2);
+    return a + (d - a) * scale;
+}
+/** An actor's chance to hit `target` in fight `f`: v1's hitChance, by the relative rule when the fight has it, dazed points off. */
+const spellIn = (f, actor, target, rules) => hitChance(relativeDex(actor.stats.INT, target.stats.AGI, f?.hitRule === 'relative') - dazed(actor), target.stats.AGI, rules);
+const hitIn = (f, actor, target, rules) => hitChance(relativeDex(actor.stats.DEX, target.stats.AGI, f?.hitRule === 'relative') - dazed(actor), target.stats.AGI, rules);
 const cap = text => text.charAt(0).toUpperCase() + text.slice(1);
 const norm = name => String(name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 const average = list => (list.length ? list.reduce((sum, value) => sum + value, 0) / list.length : 0);
@@ -252,7 +271,8 @@ function strike(f, actor, target, skill, rng, rules) {
     const a = rules.attack;
     const physical = !skill || skill.type === 'physical';
     const what = skill ? `${label(actor)}'s ${skill.name}` : label(actor);
-    if (physical && !rng.chance(hitChance(actor.stats.DEX - dazed(actor), target.stats.AGI, rules))) {
+    // (v2) With the spell rule a spell rolls too: INT against AGI, as a blow rolls DEX (spellIn).
+    if ((physical ? !rng.chance(hitIn(f, actor, target, rules)) : f.spellRule === 'roll' && !rng.chance(spellIn(f, actor, target, rules)))) {
         log(f, actor, `${what} misses ${label(target)}.`, 'miss');
         return false;
     }
@@ -576,7 +596,19 @@ function useSkill(f, actor, skill, targets, rng, rules) {
     if (actor.side === 'party') bump(f.stats.uses, actor.memberId, skill.name);
     const verb = skill.type === 'magic' || (skill.type !== 'physical' && skill.stat === 'INT') ? 'casts' : 'uses';
     if (skill.type === 'physical' || skill.type === 'magic') {
-        for (const target of targets) if (isActive(target)) strike(f, actor, target, skill, rng, rules);
+        // Each target rolls on its own (a spell too, by the spell rule): an area skill can miss some
+        // and hit the rest, and only the ones hit take its damage and effects.
+        const missed = [];
+        let hit = 0;
+        for (const target of targets) {
+            if (!isActive(target)) continue;
+            if (strike(f, actor, target, skill, rng, rules)) hit += 1;
+            else missed.push(target);
+        }
+        // (v2) Who an area skill missed, as a key moment (the per-target lines say it too).
+        if (f.spellRule === 'roll' && targets.length > 1 && missed.length) {
+            log(f, actor, `${label(actor)}'s ${skill.name} ${hit ? 'misses' : 'misses everyone:'} ${missed.map(label).join(', ').replace(/, ([^,]*)$/, ' and $1')}${hit ? ` and hits ${hit === 1 ? 'one' : hit}` : ''}.`, 'miss', true);
+        }
         return;
     }
     if (skill.type === 'heal') {
@@ -603,7 +635,7 @@ function useSkill(f, actor, skill, targets, rng, rules) {
     // Debuff: a curse can be shrugged off (the same roll as a hit), and may also hurt.
     for (const target of targets) {
         if (!isActive(target)) continue;
-        if (!rng.chance(hitChance(actor.stats.DEX - dazed(actor), target.stats.AGI, rules))) {
+        if (!rng.chance(hitIn(f, actor, target, rules))) {
             log(f, actor, `${label(actor)} ${verb} ${skill.name} on ${label(target)} — miss.`, 'miss');
             continue;
         }
@@ -853,8 +885,10 @@ export function startFight({ rules = DEFAULT_RULES, ...setup } = {}) {
         // (0.5.14) 'timeline' only when the setup asks for it: a fight saved before keeps rounds.
         turns: setup.turns === 'timeline' ? 'timeline' : 'rounds',
         speedOffset: Number.isFinite(Number(setup.speedOffset)) ? Math.max(0, Number(setup.speedOffset)) : rules.turns.speedOffset,
-        // (v2) The stun rule, only when the setup asks for it (DAZE_POINTS).
+        // (v2) The stun rule and the relative hit rule, only when the setup asks for them.
         ...(setup.stunRule === 'daze' ? { stunRule: 'daze' } : {}),
+        ...(setup.hitRule === 'relative' ? { hitRule: 'relative' } : {}),
+        ...(setup.spellRule === 'roll' ? { spellRule: 'roll' } : {}),
         time: 0,
         order: [],
         turn: 0,
@@ -899,8 +933,8 @@ export function availableActions(fight, rules = DEFAULT_RULES) {
         fleeChance: partyFleeChance(fight, rules),
         // (0.5.15) For aiming: per enemy, what Attack and each damaging skill would do.
         previews: {
-            attack: Object.fromEntries(foes.map(c => [c.id, previewStrike(actor, c, null, rules)])),
-            skills: Object.fromEntries(actor.skills.filter(s => s.type === 'physical' || s.type === 'magic').map(s => [s.name, Object.fromEntries(foes.map(c => [c.id, previewStrike(actor, c, s, rules)]))])),
+            attack: Object.fromEntries(foes.map(c => [c.id, previewStrike(actor, c, null, rules, { relative: fight.hitRule === 'relative', spells: fight.spellRule === 'roll' })])),
+            skills: Object.fromEntries(actor.skills.filter(s => s.type === 'physical' || s.type === 'magic').map(s => [s.name, Object.fromEntries(foes.map(c => [c.id, previewStrike(actor, c, s, rules, { relative: fight.hitRule === 'relative', spells: fight.spellRule === 'roll' })]))])),
         },
     };
 }
@@ -945,7 +979,7 @@ export function actInPlace(f, action, rules = DEFAULT_RULES) {
  * Physical attacks roll to hit; spells never miss (hit 100). A guarding target takes half. Null
  * for a skill that does no damage (heal, buff, debuff).
  */
-export function previewStrike(actor, target, skill = null, rules = DEFAULT_RULES) {
+export function previewStrike(actor, target, skill = null, rules = DEFAULT_RULES, { relative = false, spells = false } = {}) {
     if (!actor || !target) return null;
     if (skill && skill.type !== 'physical' && skill.type !== 'magic') return null;
     if (skill && !(Number(skill.power) > 0)) return null;
@@ -956,7 +990,8 @@ export function previewStrike(actor, target, skill = null, rules = DEFAULT_RULES
     let damage = mitigate(raw, physical ? target.pdef : target.mdef);
     if (has(target, 'guard')) damage *= a.defendTaken;
     return {
-        hit: physical ? hitChance((Number(actor.stats?.DEX) || 0) - (actor.conditions ? dazed(actor) : 0), target.stats?.AGI, rules) : 100,
+        // A spell by the spell rule rolls INT on the same curve as a blow's DEX (spellIn, hitIn).
+        hit: physical || spells ? hitChance(relativeDex(Number(actor.stats?.[physical ? 'DEX' : 'INT']) || 0, target.stats?.AGI, relative) - (actor.conditions ? dazed(actor) : 0), target.stats?.AGI, rules) : 100,
         low: Math.max(1, Math.round(damage * a.varianceLow)),
         high: Math.max(1, Math.round(damage * a.varianceHigh)),
         crit: Number(actor.crit) || 0,

@@ -46,7 +46,7 @@ test('settings: each part\'s keys under its part id, labelled with its section; 
     assert.equal(module.settings.schema['party.startPoints'].label, 'Character: Points a new character spends');
     assert.equal(module.settings.schema['trade.placePrices'].label, 'Trade: Prices by place');
     const all = { ...module.settings.defaults, 'combat.hitBase': 60, rules: { gear: {} }, xpRate: 2 };
-    assert.deepEqual(partSettings(all, 'combat'), { rules: { gear: {} }, xpRate: 2, turnOrder: 'timeline', speedOffset: 10, hitBase: 60, hitPerPoint: 3 });
+    assert.deepEqual(partSettings(all, 'combat'), { rules: { gear: {} }, xpRate: 2, turnOrder: 'timeline', speedOffset: 10, hitBase: 60, hitPerPoint: 3, fieldPerMember: 4, fieldMax: 9 });
     assert.equal(partSettings(all, 'party').hitBase, undefined);
     assert.equal(partSettings(all, 'party').xpRate, 2);
 });

@@ -246,7 +246,8 @@ test('a refused skill shows why; disabled buttons send nothing', () => {
 });
 
 test('the result: outcome, XP, loot, then Finish runs combat.end', () => {
-    const world = liveFight();
+    // Plain attacks only: a weak fight, so the click-through ends in a win (wave C made even fights even).
+    const world = liveFight('3 Cellar Rats', { tier: 'weak' });
     const { el, sent } = mount(world);
     for (let n = 0; n < 200 && sessionOf(world.state.domains.combat).status === 'active'; n++) {
         const attack = byAct(el, 'attack');

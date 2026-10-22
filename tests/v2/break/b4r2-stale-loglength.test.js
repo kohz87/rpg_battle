@@ -13,28 +13,33 @@ import { offerAndStart, seeded, started } from './helpers.js';
 const moment = view => JSON.stringify({ log: view.log.slice(-5).map(entry => entry.text), hp: view.combatants.map(c => c.hp) });
 
 test('B4r2-2: a click chosen before a swipe is refused at another moment with the same log length', async () => {
-    await seeded(5, async () => {
-        const host = await started();
-        try {
-            await offerAndStart(host, '! encounter 3 Bandit | tier: weak');
-            await host.send('Fight on.', 'Steel rings.');
-            for (let n = 0; n < 2; n += 1) assert.equal((await host.cmd('combat.act', { action: { type: 'defend' } })).ok, true);
-            const before = host.q('combat.session');
-            assert.equal(before.status, 'active');
-            await host.swipe('Steel rings again.');
-            let now = host.q('combat.session');
-            for (let n = 0; n < 6 && now.logLength < before.logLength; n += 1) {
-                const target = now.actions.targets?.enemies?.[0];
-                await host.cmd('combat.act', { action: target ? { type: 'attack', target } : { type: 'defend' } });
-                now = host.q('combat.session');
+    // The first seed whose fight comes back to the same log length after the swipe (seed 5 before wave C).
+    let checked = 0;
+    for (let seed = 1; seed <= 40 && !checked; seed += 1) {
+        await seeded(seed, async () => {
+            const host = await started();
+            try {
+                await offerAndStart(host, '! encounter 3 Bandit | tier: weak');
+                await host.send('Fight on.', 'Steel rings.');
+                for (let n = 0; n < 2; n += 1) if (!(await host.cmd('combat.act', { action: { type: 'defend' } })).ok) return;
+                const before = host.q('combat.session');
+                if (before.status !== 'active') return;
+                await host.swipe('Steel rings again.');
+                let now = host.q('combat.session');
+                for (let n = 0; n < 6 && now.status === 'active' && now.logLength < before.logLength; n += 1) {
+                    const target = now.actions.targets?.enemies?.[0];
+                    await host.cmd('combat.act', { action: target ? { type: 'attack', target } : { type: 'defend' } });
+                    now = host.q('combat.session');
+                }
+                if (now.status !== 'active' || now.logLength !== before.logLength || moment(now) === moment(before)) return;
+                const stale = await host.cmd('combat.act', { action: { type: 'flee' }, session: before.id, board: before.board, logLength: before.logLength });
+                assert.equal(typeof before.board, 'string', 'the view says which moment it shows');
+                assert.equal(stale.ok, false, `seed ${seed}: the click from the board before the swipe was played`);
+                checked = seed;
+            } finally {
+                host.close();
             }
-            assert.equal(now.logLength, before.logLength, 'seed 5 reaches the same log length');
-            assert.notEqual(moment(now), moment(before), 'at another moment of the fight');
-            const stale = await host.cmd('combat.act', { action: { type: 'flee' }, session: before.id, board: before.board, logLength: before.logLength });
-            assert.equal(typeof before.board, 'string', 'the view says which moment it shows');
-            assert.equal(stale.ok, false, 'the click from the board before the swipe was played');
-        } finally {
-            host.close();
-        }
-    });
+        });
+    }
+    assert.ok(checked, 'a seed reaches the same log length at another moment');
 });

@@ -21,8 +21,9 @@ import { fightRules, foeId } from './stored.js';
 import { powerScale } from './power.js';
 
 // The combat settings and their bounds (v1's Combat fold, ui/settings.js COMBAT_LIMITS).
-export const COMBAT_DEFAULTS = Object.freeze({ turnOrder: 'timeline', speedOffset: 10, hitBase: 75, hitPerPoint: 3 });
-const LIMITS = { speedOffset: [0, 50], hitBase: [5, 95], hitPerPoint: [0, 10] };
+export const COMBAT_DEFAULTS = Object.freeze({ turnOrder: 'timeline', speedOffset: 10, hitBase: 75, hitPerPoint: 3, fieldPerMember: 4, fieldMax: 9 });
+export const COMBAT_LIMITS = Object.freeze({ speedOffset: [0, 50], hitBase: [5, 95], hitPerPoint: [0, 10], fieldPerMember: [1, 12], fieldMax: [1, 24] });
+const LIMITS = COMBAT_LIMITS;
 
 const bounded = (value, [min, max], fallback) => (Number.isFinite(Number(value)) ? Math.min(max, Math.max(min, Math.round(Number(value)))) : fallback);
 
@@ -34,6 +35,8 @@ export function fightNumbers(settings = {}) {
         turns: s.turnOrder === 'rounds' ? 'rounds' : 'timeline',
         speedOffset: bounded(s.speedOffset, LIMITS.speedOffset, COMBAT_DEFAULTS.speedOffset),
         hit: { base: bounded(s.hitBase, LIMITS.hitBase, COMBAT_DEFAULTS.hitBase), perPoint: bounded(s.hitPerPoint, LIMITS.hitPerPoint, COMBAT_DEFAULTS.hitPerPoint) },
+        // Foes on the field at once (the reader's setting): per member who can fight, and in all.
+        field: { perMember: bounded(s.fieldPerMember, LIMITS.fieldPerMember, COMBAT_DEFAULTS.fieldPerMember), max: bounded(s.fieldMax, LIMITS.fieldMax, COMBAT_DEFAULTS.fieldMax) },
         ...(Number.isFinite(xpRate) && xpRate > 0 ? { xpRate } : {}),
     };
 }
@@ -212,7 +215,8 @@ export function partyCombatants(ctx, { rules = DEFAULT_RULES } = {}) {
 //    make it stronger at the cap (levelScale: a lone foe against a level-60 character needs that).
 // 2. Its creature's power (power.js): HP and damage each × powerScale, so a level-9 troll is as
 //    dangerous as a level-9 wolf.
-// 3. Its count: MAX_FIELDED and MAX_STUNNERS hold the rest back.
+// 3. Its waves: the reader's field setting (foes on the field at once, planWaves) sends the rest in
+//    later waves, nobody held back; the budget reads the whole encounter (effectiveHeadcount).
 //
 // A boss keeps its tier's level for a lone foe whatever comes with it (no headcount shift), at least
 // level 1 and never made smaller (no below-level-1 shrink, no power scale under 1). A foe of a
@@ -225,9 +229,10 @@ export function partyCombatants(ctx, { rules = DEFAULT_RULES } = {}) {
 // trivial won ≥ 98 %, weak ≥ 90 %, even 50–75 %, strong 20–50 %, deadly < 20 % (the search's aims:
 // the cells' 10th percentile at 99 % and 93 %, their median at 62.5 % and 35 %, their 90th
 // percentile at 13 %), then trivial and weak made 0.75 of a level easier for room, and each tier
-// kept at least a level below the next. Even, strong and deadly field four foes a member at most,
-// so their 6 and 9 columns are their 4's. Between the band levels the shift is read along a
-// straight line (past 60, as at 60), and between headcounts too.
+// kept at least a level below the next; even and strong then searched for the most cells on target.
+// The columns are foes at once (the 6 and 9 calibrated with the field set to hold them); waves read
+// them through effectiveHeadcount. Between the band levels the shift is read along a straight line
+// (past 60, as at 60), and between headcounts too (past 9, the line from 6 to 9 goes on).
 export const BAND_LEVELS = Object.freeze([1, 5, 10, 20, 40, 60]);
 export const HEADCOUNTS = Object.freeze([1, 2, 3, 4, 6, 9]);
 const shifts = rows => Object.freeze(rows.map(row => Object.freeze(row)));
@@ -250,40 +255,36 @@ export const LEVEL_SHIFT = Object.freeze({
         [9.25, -1, -10.75, -13.75, -19.75, -25.75],
     ]),
     even: shifts([
-        [6.25, 1.75, 0, -1.75, -1.25, -1.25],
-        [10, 4, 0, -2, -1.75, -1.75],
-        [14.5, 6, 1.25, -1, -0.5, -0.5],
-        [23.25, 11, 2.5, -1.25, -1.25, -1.25],
-        [40, 15.25, 3.5, -1.25, -1.25, -1.25],
-        [76.25, 25, 6.75, -2, -2, -2],
+        [7, 2, 0.5, 0, -2, -2.75],
+        [10.5, 3.75, 1.75, 0.25, -2.25, -3],
+        [17.75, 6, 3.5, 2, -1.5, -3.5],
+        [30.75, 12.25, 7, 3.5, -3, -4],
+        [54, 23.5, 15, 8.25, -1.5, -7],
+        [104.75, 33, 21, 10.5, -1.25, -10.5],
     ]),
     strong: shifts([
-        [3.25, -1, -3, -4.75, -4.75, -4.75],
-        [7.75, 1, -3, -5, -5, -5],
-        [13, 3.75, -1.75, -4, -4, -4],
-        [21.25, 8.75, -0.25, -3.5, -3.5, -3.5],
-        [40, 13.75, 2, -4, -4, -4],
-        [84, 28.75, 4, -3, -3, -3],
+        [4.5, -1, -3.25, -3.75, -4.5, -5.75],
+        [9.5, 2.5, -1.75, -2.5, -5.5, -6.25],
+        [16.5, 5, 0.5, -1.75, -5, -6.5],
+        [32, 11.5, 5.5, 0.5, -4.25, -7],
+        [62.5, 25, 12.5, 6, -4.5, -9.5],
+        [128.5, 39.25, 19.5, 9, -3, -11.75],
     ]),
     deadly: shifts([
-        [3.25, -2.25, -6, -7.25, -7.25, -7.25],
-        [11, 0.75, -3.5, -6, -6, -6],
-        [18.25, 6, -1, -4, -4, -4],
-        [30.75, 14.75, 5, 0.25, 0.25, 0.25],
-        [74.5, 34.5, 17, 12, 12, 12],
-        [208.25, 73, 28, 20, 20, 20],
+        [6, -0.75, -4.25, -5.25, -6.25, -7.25],
+        [15, 6, -0.75, -3, -4.25, -6.5],
+        [28, 12, 4.25, -0.25, -3, -3.25],
+        [49.75, 22, 11.75, 4.75, 1, -1.25],
+        [124.5, 40.75, 23, 19, 9.25, 3],
+        [271.25, 101.75, 35, 24.25, 13.75, 6],
     ]),
 });
 export const GROUP_MIN_SCALE = 0.15;
-// The most foes one offer fields; more hang back (an offer row holds 9 at most, rows add up).
-export const MAX_HEADCOUNT = 9;
-// The most foes of these tiers one member meets (trim the count): past four, a group of even,
-// strong or deadly foes small enough for the budget is one that a sweep across all foes wins and a
-// single blade loses (the fighter against nine strong wolves 100 %, the skirmisher 5 %).
-export const MAX_FIELDED = Object.freeze({ even: 4, strong: 4, deadly: 4 });
-// The most foes that can stun a fight of a "you win" tier fields per member (trim the count): even
-// with the stun rule (a second stun in a row only dazes, combat.js), three or four swift stunners
-// keep a lone character from fighting back on half its turns. Other tiers field them all.
+// The most foes a tier's budget reads (effectiveHeadcount, per member): past it, as at it.
+export const MAX_EFFECTIVE = 24;
+// The most foes that can stun in one wave of a "you win" tier, per member: even with the stun rule (a
+// second stun in a row only dazes, combat.js), three or four swift stunners keep a lone character from
+// fighting back on half its turns; the rest come in a wave of their own. Other tiers field them all.
 export const MAX_STUNNERS = Object.freeze({ trivial: 2, weak: 3 });
 
 // Linear between the points of `xs` (held past both ends).
@@ -303,9 +304,11 @@ function along(xs, ys, x) {
 export function levelShift(tier, pcLevel, headcount = 1, shifts = LEVEL_SHIFT) {
     const table = (shifts ?? LEVEL_SHIFT)[tier];
     if (!table) return 0;
-    const count = Math.min(MAX_HEADCOUNT, Math.max(1, Math.round(Number(headcount) || 1)));
+    // A headcount may be a fraction (effectiveHeadcount); past the table's last (9) the line from 6 to 9 goes on.
+    const count = Math.min(MAX_EFFECTIVE, Math.max(1, Number(headcount) || 1));
     const level = Math.max(1, Number(pcLevel) || 1);
-    const byBand = table.map(row => along(HEADCOUNTS, row, count));
+    const past = (row, n) => row.at(-1) + (row.at(-1) - row.at(-2)) / (HEADCOUNTS.at(-1) - HEADCOUNTS.at(-2)) * (n - HEADCOUNTS.at(-1));
+    const byBand = table.map(row => (count > HEADCOUNTS.at(-1) ? past(row, count) : along(HEADCOUNTS, row, count)));
     return Math.round(along(BAND_LEVELS, byBand, level) * 100) / 100;
 }
 
@@ -362,33 +365,60 @@ export function tierPower(tier, pcLevel, headcount = 1, { boss = false, rules = 
 }
 
 /**
- * The offer's rows with no more foes in all than it fields: MAX_HEADCOUNT, or the least
- * MAX_FIELDED of its tiers for each member who can fight (the last rows give way first).
+ * The offer's rows in waves: no more foes on the field at once than the reader's setting allows
+ * (`field`: perMember for each member who can fight, at most `max` in all). Every foe the story
+ * wrote is fought; the ones past the field come as later waves, each entering when the one before
+ * it is down (the engine's back-to-back engagements). The story's own waves (`then:`) keep their
+ * order, each split the same way; within one, bosses take their places first, then the rest in
+ * the order written. → rows with `count` and `wave` (0: the first engagement).
  */
-function fielded(rows, partySize = 1) {
-    let room = Math.min(MAX_HEADCOUNT, ...rows.map(row => (MAX_FIELDED[row.threat] ?? MAX_HEADCOUNT) * partySize));
-    return rows.map(row => {
-        const count = Math.max(0, Math.min(Math.max(1, Math.round(Number(row.count) || 1)), room));
-        room -= count;
-        return { ...row, count };
-    }).filter(row => row.count > 0);
+export function planWaves(rows, members = 1, field = { perMember: COMBAT_DEFAULTS.fieldPerMember, max: COMBAT_DEFAULTS.fieldMax }) {
+    const cap = Math.max(1, Math.min(Number(field?.max) || COMBAT_DEFAULTS.fieldMax, (Number(field?.perMember) || COMBAT_DEFAULTS.fieldPerMember) * Math.max(1, members)));
+    const waveOf = row => Math.max(0, Math.round(Number(row.wave) || 0));
+    const out = [];
+    let wave = 0;
+    for (const written of [...new Set(rows.map(waveOf))].sort((x, y) => x - y)) {
+        const these = rows.map((row, index) => ({ row, index })).filter(({ row }) => waveOf(row) === written);
+        const queue = [...these.filter(({ row }) => row.boss), ...these.filter(({ row }) => !row.boss)]
+            .flatMap(({ row, index }) => Array(Math.max(1, Math.round(Number(row.count) || 1))).fill(index));
+        for (let start = 0; start < queue.length; start += cap) {
+            const chunk = queue.slice(start, start + cap);
+            for (const index of [...new Set(chunk)].sort((x, y) => x - y)) {
+                const { wave: _written, ...rest } = rows[index];
+                out.push({ ...rest, count: chunk.filter(entry => entry === index).length, ...(wave ? { wave } : {}) });
+            }
+            wave += 1;
+        }
+    }
+    return out;
+}
+
+/**
+ * The headcount a tier's budget reads (foes per member), for foes fought in waves: √(Σ wave²) of the
+ * tier's foes in each wave, per member (Lanchester's square law: two waves of four are as dangerous
+ * as about 5.7 foes at once, nine at once as nine). All at once it is the plain count.
+ */
+export function effectiveHeadcount(waveCounts, members = 1) {
+    const sum = (waveCounts ?? []).reduce((total, n) => total + Math.max(0, Number(n) || 0) ** 2, 0);
+    return Math.max(1, Math.sqrt(sum) / Math.max(1, members));
 }
 
 const stuns = enemy => (enemy.skills ?? []).some(skill => Number(skill?.effect?.stun) > 0);
 
-/** The foes with no more stunners than the tier allows each member (MAX_STUNNERS): the last ones hang back. */
-function lessStunners(enemies, partySize = 1) {
-    const kept = [];
+/**
+ * The foes with no more stunners in one wave than the tier allows each member (MAX_STUNNERS): the
+ * rest come in a wave of their own after the last one (every foe the story wrote is fought).
+ */
+function spreadStunners(enemies, partySize = 1) {
     const used = {};
-    for (const enemy of enemies) {
+    const last = Math.max(0, ...enemies.map(enemy => Number(enemy.wave) || 0));
+    return enemies.map(enemy => {
         const most = MAX_STUNNERS[enemy.threat] === undefined ? undefined : MAX_STUNNERS[enemy.threat] * partySize;
-        if (most !== undefined && stuns(enemy)) {
-            used[enemy.threat] = (used[enemy.threat] ?? 0) + 1;
-            if (used[enemy.threat] > most) continue;
-        }
-        kept.push(enemy);
-    }
-    return kept;
+        if (most === undefined || !stuns(enemy)) return enemy;
+        const key = `${Number(enemy.wave) || 0}:${enemy.threat}`;
+        used[key] = (used[key] ?? 0) + 1;
+        return used[key] > most ? { ...enemy, wave: last + 1 } : enemy;
+    });
 }
 
 /**
@@ -396,7 +426,7 @@ function lessStunners(enemies, partySize = 1) {
  * the character's (tierPower); a row without one keeps a creature's own power, else the fair rank.
  * `makeAt` is the level a creature made up for the row is made at.
  */
-export function offerRows(offer, { pcLevel = 1, bestiary, rules = DEFAULT_RULES, partySize = 1, shifts = LEVEL_SHIFT } = {}) {
+export function offerRows(offer, { pcLevel = 1, bestiary, rules = DEFAULT_RULES, partySize = 1, shifts = LEVEL_SHIFT, field: fieldCap } = {}) {
     const rows = (offer?.foes ?? []).map(foe => ({
         name: foe.name, count: foe.count, rank: null, role: null, boss: Boolean(foe.boss),
         ...(foe.tier ? { threat: foe.tier } : {}),
@@ -406,14 +436,19 @@ export function offerRows(offer, { pcLevel = 1, bestiary, rules = DEFAULT_RULES,
     }));
     const fair = suggestRank(pcLevel, rules);
     const members = Math.max(1, Math.round(Number(partySize) || 1));
-    const field = fielded(rows, members);
+    const field = planWaves(rows, members, fieldCap);
     // Each tier is a budget of its own (B4r2-3): a row moves by the headcount of its tier's rows
     // only, so trivial fodder beside a deadly foe never makes the deadly one small. The budget is
-    // the party's: foes per member who can fight (two against four is two each). A boss counts in
-    // its tier's headcount (so the foes with it are smaller) but keeps its own level.
-    const counts = {};
-    for (const row of field) if (row.threat) counts[row.threat] = (counts[row.threat] ?? 0) + row.count;
-    const headcount = row => Math.ceil((counts[row.threat] ?? row.count) / members);
+    // the party's: foes per member who can fight (two against four is two each), and the whole
+    // encounter's, waves and all (effectiveHeadcount). A boss counts in its tier's headcount (so
+    // the foes with it are smaller) but keeps its own level.
+    const perWave = {};
+    for (const row of field) {
+        if (!row.threat) continue;
+        const waves = (perWave[row.threat] ??= {});
+        waves[row.wave ?? 0] = (waves[row.wave ?? 0] ?? 0) + row.count;
+    }
+    const headcount = row => effectiveHeadcount(Object.values(perWave[row.threat] ?? { 0: row.count }), members);
     return field.map(row => {
         if (!row.threat || row.rank || Number(row.level) >= 1) return row;
         const power = tierPower(row.threat, pcLevel, headcount(row), { boss: row.boss, rules, shifts });
@@ -440,11 +475,12 @@ export function tierXpLevel(tier, pcLevel, rules = DEFAULT_RULES) {
 
 /**
  * A projected foe of a tier row made as dangerous as its tier means: HP and attack × its creature's
- * powerScale (at least 1 for a boss) × the row's `levelScale`. Other foes as they are.
+ * powerScale for a character of `pcLevel` meeting it at the row's level (at least 1 for a boss) ×
+ * the row's `levelScale`. Other foes as they are.
  */
-export function normalizedFoe(enemy, row, entry, rules = DEFAULT_RULES) {
+export function normalizedFoe(enemy, row, entry, rules = DEFAULT_RULES, pcLevel = 1) {
     if (!row?.threat) return enemy;
-    const power = powerScale(entry, rules);
+    const power = powerScale(entry, pcLevel, Number(row.level) >= 1 ? Number(row.level) : pcLevel, rules);
     const factor = (row.boss ? Math.max(1, power) : power) * (Number(row.levelScale) > 0 ? Number(row.levelScale) : 1);
     if (factor === 1) return enemy;
     const hp = Math.max(1, Math.round(enemy.hp.max * factor));
@@ -464,7 +500,7 @@ export function buildSetup({ id, seed, offer, party, chatBestiary = [], numbers,
     const pcLevel = party[0].level;
     const lookup = combinedBestiary(chatBestiary, DEFAULT_BESTIARY);
     const partySize = party.filter(c => c.hp.cur > 0).length;
-    const ranked = offerRows(offer, { pcLevel, bestiary: lookup, rules, partySize, shifts });
+    const ranked = offerRows(offer, { pcLevel, bestiary: lookup, rules, partySize, shifts, field: numbers.field });
     const made = creaturesToMake(ranked.map(row => ({ ...row, level: row.makeAt })), { chatBestiary, defaults: DEFAULT_BESTIARY, rules, seed: String(seed) })
         .map(entry => cleanCreature(entry, rules)).filter(Boolean);
     const bestiary = combinedBestiary([...chatBestiary, ...made], DEFAULT_BESTIARY);
@@ -473,10 +509,19 @@ export function buildSetup({ id, seed, offer, party, chatBestiary = [], numbers,
     // its tier means (normalizedFoe: its creature's power, a fraction of a level or levels past the cap).
     const rng = makeRng(`${seed}:enemies`);
     const projected = ranked.flatMap(row => enemiesFromRows([row], { bestiary, library: DEFAULT_SKILLS, rules, rng })
-        .map(enemy => normalizedFoe(enemy, row, findCreature(bestiary, row.name), rules))
+        .map(enemy => normalizedFoe(enemy, row, findCreature(bestiary, row.name), rules, pcLevel))
         // A tier foe's XP counts from its tier (tierXpLevel); a ranked foe's from its level.
         .map(enemy => (row.threat && !row.ladder ? { ...enemy, xpLevel: tierXpLevel(row.threat, pcLevel, rules) } : enemy)));
-    const all = lessStunners(projected, partySize)
+    // One name per foe across waves: "Wolf A" … "Wolf F", however the rows were split.
+    const total = {};
+    for (const enemy of projected) total[enemy.questName] = (total[enemy.questName] ?? 0) + 1;
+    const seen = {};
+    const letter = n => (n < 26 ? String.fromCharCode(65 + n) : `${String.fromCharCode(65 + (n % 26))}${Math.floor(n / 26) + 1}`);
+    const named = projected.map(enemy => {
+        const n = (seen[enemy.questName] = (seen[enemy.questName] ?? 0) + 1) - 1;
+        return { ...enemy, name: total[enemy.questName] > 1 ? `${enemy.questName} ${letter(n)}` : enemy.questName };
+    });
+    const all = spreadStunners(named, partySize)
         .map((enemy, index) => ({
             ...enemy,
             id: foeId(index + 1),
@@ -490,16 +535,21 @@ export function buildSetup({ id, seed, offer, party, chatBestiary = [], numbers,
         ...(waves.length ? { waves } : {}),
         stakes: offer.stakes === 'death' ? 'death' : 'normal',
         turns: numbers.turns,
-        speedOffset: numbers.speedOffset,
+        // The speed offset grows with the character's level: AGI's share of speed (and so how many
+        // more turns the swift get) stays about what it is at level 1 (setting + level).
+        speedOffset: numbers.speedOffset + pcLevel,
         hit: { ...numbers.hit },
         // Nobody is stunned two turns in a row: a second stun dazes (combat.js DAZE_POINTS).
         stunRule: 'daze',
+        // DEX against AGI as a share of the two (combat.js relativeDex): a hit at level 60 is not a 5 % roll;
+        // a spell rolls too, INT against AGI (spellRule), so a caster's spells are not sure hits.
+        hitRule: 'relative',
+        spellRule: 'roll',
         ...(numbers.xpRate ? { xpRate: numbers.xpRate } : {}),
         ...(offer.place ? { place: offer.place } : {}),
         // The pack's money scale as the fight began (moneyScale, F104): its loot coin is paid by it.
         ...(Number(money) > 0 && Number(money) !== 1 ? { moneyScale: Number(money) } : {}),
     };
-    // The foes the offer named that hang back (past MAX_HEADCOUNT, or stunners past MAX_STUNNERS).
-    const named = (offer?.foes ?? []).reduce((sum, foe) => sum + Math.max(1, Math.round(Number(foe.count) || 1)), 0);
-    return { setup, made, rules, heldBack: Math.max(0, named - all.length) };
+    // Every foe the story wrote is fought (planWaves): none hang back.
+    return { setup, made, rules };
 }
