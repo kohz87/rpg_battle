@@ -94,10 +94,20 @@ export function createStore({
     let writes = 0;
     const unsaved = new Map(); // message → { index, chatId, n }: records written since their chat was saved
     const reserved = new WeakMap();   // message → { swipe, sid }: a record ID handed out before the record
+    // Memos of what a reply reads over the whole chat (docs/v2/PERFORMANCE.md, "Long chats"): the stored
+    // receipts and the untold ones, each kept until a record is written or the store rebuilds (`epoch`) or
+    // the chat's last carrier, length or array changes (headKey); the state at an earlier carrier, kept
+    // while the messages it was replayed from are the same objects with the same records and text.
+    let epoch = 0;
+    let lineMemo = null;       // { epoch, key, receipts?, untold? }
+    let atMemo = new Map();    // index → { arr, epoch, from, refs: [message, record, swipe, mes][], state }
+    const AT_MEMO_MAX = 64;
+    const counts = { replays: 0, recordsRead: 0, lineScans: 0 };
 
     // Every record goes through here, so a save can be checked against the last one written, and a change
     // left in a chat that is no longer open can be found again (rescue).
     function write(message, record) {
+        epoch++;
         if (holding) held.add(message);
         const keep = keeps(message);
         const stored = writeRecord(message, record, { mirror: !holding && keep });
@@ -133,6 +143,7 @@ export function createStore({
                     unsaved.delete(message);
                     unsaved.set(arr[entry.index], { ...entry, n: ++writes });
                     cache = null;
+                    forgetMemos();
                     left = true;
                 }
             }
@@ -306,6 +317,7 @@ export function createStore({
     // of ops that no longer applies (a hand-edited chat, a middle reply deleted) is skipped and reported
     // on its own, so a bad change cannot take the rest of its carrier, or anything later, with it.
     function replay(arr, upTo) {
+        counts.replays++;
         const { from } = chain(arr, upTo);
         // A damaged record (B-b2-timeline-7) is skipped, and said so.
         const problems = [];
@@ -321,9 +333,10 @@ export function createStore({
         for (let i = from; i <= upTo && i < arr.length; i++) {
             const record = readRecord(arr[i]);
             if (!record) continue;
+            counts.recordsRead++;
             state = replayRecord(state, record, i, problems);
         }
-        return { state, problems };
+        return { state, problems, from };
     }
 
     // One carrier's ops, block by block. `skip` (a Set of "index:block") names blocks to pass over
@@ -401,6 +414,54 @@ export function createStore({
         }
         if (!isCarrier(arr[index])) throw new RangeError(`Message ${index} is the user's; it holds no story state.`);
         return arr[index];
+    }
+
+    // The state after carrier `index` (not the head), replayed once and then kept (atMemo) while every
+    // message it was replayed from (its checkpoint's carrier through `index`) is the same object at the same
+    // place with the same record, swipe and text. A card drawn again, or a card under each of several replies
+    // on screen, then costs a look at those messages, not a replay with every domain's validator.
+    function memoAt(arr, index) {
+        const hit = atMemo.get(index);
+        if (hit && hit.arr === arr && hit.refs.every(([message, record, swipe, mes], at) => {
+            const now = arr[hit.from + at];
+            return now === message && now?.extra?.[KEY] === record && now?.swipe_id === swipe && now?.mes === mes;
+        })) {
+            atMemo.delete(index);
+            atMemo.set(index, hit);
+            return hit.state;
+        }
+        const { state, from = -1 } = replay(arr, index);
+        if (from >= 0) {
+            const refs = [];
+            for (let i = from; i <= index; i++) refs.push([arr[i], arr[i]?.extra?.[KEY], arr[i]?.swipe_id, arr[i]?.mes]);
+            atMemo.delete(index);
+            atMemo.set(index, { arr, from, refs, state });
+            while (atMemo.size > AT_MEMO_MAX) atMemo.delete(atMemo.keys().next().value);
+        }
+        return state;
+    }
+
+    // A record's receipts as frozen copies, made once per record (a record is never changed in place: each
+    // write puts a new one), so a pass over the chat copies only the receipts it has not seen yet.
+    const receiptCopies = new WeakMap();
+    function frozenReceipts(record) {
+        let list = receiptCopies.get(record);
+        if (!list) receiptCopies.set(record, list = deepFreeze(structuredClone(record.receipts.filter(isObject))));
+        return list;
+    }
+
+    // Forgets the memos (a rebuild, or a write that is not on the head carrier alone).
+    function forgetMemos() {
+        epoch++;
+        lineMemo = null;
+        atMemo = new Map();
+    }
+
+    // The memo of the whole line of history (receipts, untold) for the chat as it is now.
+    function lineOf(arr) {
+        const key = headKey(arr);
+        if (!lineMemo || lineMemo.epoch !== epoch || !sameKey(lineMemo.key, key)) lineMemo = { epoch, key };
+        return lineMemo;
     }
 
     function stateBefore(arr, index) {
@@ -530,7 +591,7 @@ export function createStore({
             }
             const head = current();
             if (index >= head.key.index) return head.state;
-            return replay(arr, index).state;
+            return memoAt(arr, index);
         },
 
         headIndex() {
@@ -589,6 +650,7 @@ export function createStore({
             write(message, record);
             saver.touch();
             cache = null;
+            forgetMemos();
             return notes;
         },
 
@@ -749,6 +811,7 @@ export function createStore({
             }
             for (const [target, next] of writes) write(target, next);
             saver.touch();
+            forgetMemos();
             cache = null;   // rebuilt on the next read, with the blocks that stay skipped reported
         },
 
@@ -770,15 +833,19 @@ export function createStore({
         // (the carriers the head is built from; frozen copies).
         receipts() {
             const arr = list();
+            const memo = lineOf(arr);
+            if (memo.receipts) return memo.receipts;
+            counts.lineScans++;
             const out = [];
             let started = false;
             for (const i of carrierIndexes(arr)) {
                 const record = readRecord(arr[i]);
                 if (record?.checkpoint) started = true;
                 if (!started || !record) continue;
-                for (const receipt of record.receipts) if (isObject(receipt)) out.push({ index: i, receipt });
+                for (const receipt of frozenReceipts(record)) out.push(Object.freeze({ index: i, receipt }));
             }
-            return deepFreeze(structuredClone(out));
+            memo.receipts = Object.freeze(out);
+            return memo.receipts;
         },
 
         // Return in time (MODULES §F17): drops the head carrier's receipts with rev >= beforeRev and
@@ -836,6 +903,9 @@ export function createStore({
 
         untold() {
             const arr = list();
+            const memo = lineOf(arr);
+            if (memo.untold) return memo.untold;
+            counts.lineScans++;
             const records = [];
             for (const i of carrierIndexes(arr)) {
                 const record = readRecord(arr[i]);
@@ -850,12 +920,23 @@ export function createStore({
                     if (receipts[k]?.narrate === true && !told.has(receipts[k].id)) out.push(receipts[k]);
                 }
             }
-            return deepFreeze(structuredClone(out.reverse()));
+            memo.untold = deepFreeze(structuredClone(out.reverse()));
+            return memo.untold;
+        },
+
+        /**
+         * How much replay work the store has done (for tests that count work rather than time): `replays`
+         * (state rebuilt from a checkpoint), `recordsRead` (carriers replayed), `lineScans` (whole-chat
+         * passes for receipts or untold). A copy.
+         */
+        work() {
+            return { ...counts };
         },
 
         rebuild() {
             frozenCheckpoints = new WeakMap();
             cache = null;
+            forgetMemos();
             // The record copies and old receipts are settled over the whole chat, and a record whose
             // swipe moved is stamped again (settleAll).
             if (settleAll(list())) saver.touch();
@@ -910,7 +991,25 @@ export function createStore({
          * are saved with the reply's own save, one write of the chat file instead of two. The change stays
          * dirty; the caller saves it (or schedules it again) when the reply comes or the generation ends.
          */
-        deferSave() { saver.cancel(); },
+        deferSave() { saver.defer(); },
+        /**
+         * The turn's save (docs/v2/PERFORMANCE.md, "Long chats"): the reply's capture and the reader's actions
+         * after it are written once, a moment after the last of them (persist.js IDLE_MS, at most IDLE_MAX_MS
+         * after the first). Only where a change left behind by a chat switch can still be put into its own
+         * chat's file (a chat file and `rescue`): then → true. Elsewhere (no chat file this page can write,
+         * e.g. a temporary chat) → false, and the caller saves at once as before.
+         */
+        saveIdle(wait, max) {
+            let where = null;
+            try { where = typeof rescue === 'function' ? place() : null; } catch { where = null; }
+            if (!where) return false;
+            saver.idle(wait, max);
+            return true;
+        },
+        /** True when changes are saved by the turn's idle save here (see saveIdle). */
+        idleSaves() {
+            try { return typeof rescue === 'function' && !!place(); } catch { return false; }
+        },
         /** Saves now (a reader's action is saved at once); → Promise<true | false>, never throws: a failure is told and tried again. */
         saveSoon(options) { return saver.saveSoon(options); },
         /** The page is closing: the newest state goes out at once, even past a save still on its way. */
