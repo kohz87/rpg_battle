@@ -25,6 +25,7 @@ import { DEFAULT_BESTIARY } from '../../enemies.js';
 import { itemSlot, oneCurrency, parseEffect } from '../../items.js';
 import { combinedBestiary } from '../../templates.js';
 import { foesText, rankContext, readEncounter, STAKES, TIERS } from './encounter.js';
+import { questSized, questTargets } from './quest.js';
 import { buildSetup, COMBAT_DEFAULTS, COMBAT_LIMITS, fightNumbers, moneyScale, partyCombatants, scaledMoney } from './setup.js';
 import { beatenOf, bestiaryList, byRev, draftSession, dropSession, sessionOf, creatureSlug, fightRules, lastOf, latinSlug, offersOf, packCreature, packSetup, sessionStatus, unpackSetup, valuesOf } from './stored.js';
 export { beatenOf, lastOf, offersOf } from './stored.js';
@@ -658,19 +659,21 @@ function captureEncounter(ctx, line) {
     // A `rank:` is read on the suite's ladder for the character's level now (MODULES §F91).
     const read = readEncounter(line, { bestiary, ...rankContext(ctx) });
     if (!read.ok) ctx.fail('INVALID', read.message);
+    // A fight against the foes an active quest is about is sized for real progress (combat/quest.js).
+    const quest = questSized(read.foes, questTargets(ctx), bestiary);
     let place = read.place;
     if (!place) {
         try { place = String(ctx.read('scene')?.place?.name ?? '').trim().slice(0, 60); } catch { place = ''; }
     }
     const id = newId(ctx, 'en');
-    const offer = { id, foes: read.foes, stakes: read.stakes, place, rev: nextRev(ctx), ...(read.note ? { note: read.note } : {}) };
+    const offer = { id, foes: quest.foes, stakes: read.stakes, place, rev: nextRev(ctx), ...(read.note ? { note: read.note } : {}) };
     const draft = ctx.draft('combat');
     const offers = recordOf(draft, 'offers');
     // Under its own id (B-b1r2-13); the oldest go past MAX_OFFERS.
     offers[id] = offer;
     prune(offers, MAX_OFFERS, id);
     return {
-        summary: `A fight is offered: ${foesText(offer.foes)}${offer.stakes === 'death' ? ', to the death' : ''}.`,
+        summary: `A fight is offered: ${foesText(offer.foes)}${offer.stakes === 'death' ? ', to the death' : ''}.${quest.sized.length ? ` Sized for the quest: ${quest.sized.map(entry => `${entry.name} ${entry.from} → ${entry.to}`).join(', ')} (in waves past the field).` : ''}`,
         narrate: false,
         data: { offer: id },
     };

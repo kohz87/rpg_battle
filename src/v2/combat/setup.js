@@ -12,13 +12,14 @@
 import { DEFAULT_RULES, suggestRank, threatStep } from '../../rules.js';
 import { maxLevel } from '../../terms.js';
 import { DEFAULT_SKILLS } from '../../skills.js';
-import { DEFAULT_BESTIARY, findCreature, rankRowForLevel } from '../../enemies.js';
+import { DEFAULT_BESTIARY, LOOT_TABLES, findCreature, rankRowForLevel } from '../../enemies.js';
 import { cleanCreature, combinedBestiary, creaturesToMake } from '../../templates.js';
 import { combatantFromSheet, enemiesFromRows, engagements } from '../../party.js';
 import { fightCondition } from '../../combat.js';
 import { makeRng } from '../../rng.js';
 import { fightRules, foeId } from './stored.js';
 import { powerScale } from './power.js';
+import { nounNames } from './quest.js';
 
 // The combat settings and their bounds (v1's Combat fold, ui/settings.js COMBAT_LIMITS).
 export const COMBAT_DEFAULTS = Object.freeze({ turnOrder: 'timeline', speedOffset: 10, hitBase: 75, hitPerPoint: 3, fieldPerMember: 4, fieldMax: 9 });
@@ -230,6 +231,8 @@ export function partyCombatants(ctx, { rules = DEFAULT_RULES } = {}) {
 // the cells' 10th percentile at 99 % and 93 %, their median at 62.5 % and 35 %, their 90th
 // percentile at 13 %), then trivial and weak made 0.75 of a level easier for room, and each tier
 // kept at least a level below the next; even and strong then searched for the most cells on target.
+// Even was searched again with the presets' final builds (AIM=band): the presets' band, each one's
+// median over the creatures, centred on 62.5 %, so the low preset sits as near the target as the high one allows.
 // The columns are foes at once (the 6 and 9 calibrated with the field set to hold them); waves read
 // them through effectiveHeadcount. Between the band levels the shift is read along a straight line
 // (past 60, as at 60), and between headcounts too (past 9, the line from 6 to 9 goes on).
@@ -255,12 +258,12 @@ export const LEVEL_SHIFT = Object.freeze({
         [9.25, -1, -10.75, -13.75, -19.75, -25.75],
     ]),
     even: shifts([
-        [7, 2, 0.5, 0, -2, -2.75],
-        [10.5, 3.75, 1.75, 0.25, -2.25, -3],
-        [17.75, 6, 3.5, 2, -1.5, -3.5],
-        [30.75, 12.25, 7, 3.5, -3, -4],
-        [54, 23.5, 15, 8.25, -1.5, -7],
-        [104.75, 33, 21, 10.5, -1.25, -10.5],
+        [6, 2, 0.75, 0, -3.25, -6.75],
+        [11, 4.75, 1, 0, -2.25, -4.25],
+        [17.25, 7.5, 2.5, 1, -1.75, -4],
+        [27, 14, 5, 3, -1, -5],
+        [48.5, 21, 10.5, 5, -1.75, -7],
+        [91.25, 30, 16.25, 8, -2, -12],
     ]),
     strong: shifts([
         [4.5, -1, -3.25, -3.75, -4.5, -5.75],
@@ -431,6 +434,8 @@ export function offerRows(offer, { pcLevel = 1, bestiary, rules = DEFAULT_RULES,
         name: foe.name, count: foe.count, rank: null, role: null, boss: Boolean(foe.boss),
         ...(foe.tier ? { threat: foe.tier } : {}),
         ...(foe.wave ? { wave: foe.wave } : {}),
+        // A quest's item drops from each of these foes (combat/quest.js, reliableLoot).
+        ...(typeof foe.questItem === 'string' && foe.questItem ? { questItem: foe.questItem } : {}),
         // A foe of a written rank comes at the rank's level (encounter.rankFoe), its tier for the card.
         ...(Number.isInteger(foe.level) && foe.level >= 1 && foe.rank ? { level: foe.level, ladder: foe.rank } : {}),
     }));
@@ -474,6 +479,23 @@ export function tierXpLevel(tier, pcLevel, rules = DEFAULT_RULES) {
 }
 
 /**
+ * A foe's loot with a quest's item sure to drop (chance 100, at least one): the matching row of its
+ * own list or of the table its id names, or the item itself added as a material when none matches.
+ */
+export function reliableLoot(loot, item) {
+    const rows = structuredClone(Array.isArray(loot) ? loot : LOOT_TABLES[loot] ?? LOOT_TABLES['rank-F']);
+    const at = rows.findIndex(row => nounNames(item, row.name) || nounNames(row.name, item));
+    if (at >= 0) {
+        const [lo, hi] = Array.isArray(rows[at].qty) ? rows[at].qty : [1, 1];
+        rows[at] = { ...rows[at], chance: 100, qty: [Math.max(1, lo), Math.max(1, hi)] };
+    } else {
+        const name = String(item).replace(/\b\p{L}/gu, letter => letter.toUpperCase());
+        rows.unshift({ name, chance: 100, qty: [1, 1], kind: 'material' });
+    }
+    return rows;
+}
+
+/**
  * A projected foe of a tier row made as dangerous as its tier means: HP and attack × its creature's
  * powerScale for a character of `pcLevel` meeting it at the row's level (at least 1 for a boss) ×
  * the row's `levelScale`. Other foes as they are.
@@ -510,6 +532,7 @@ export function buildSetup({ id, seed, offer, party, chatBestiary = [], numbers,
     const rng = makeRng(`${seed}:enemies`);
     const projected = ranked.flatMap(row => enemiesFromRows([row], { bestiary, library: DEFAULT_SKILLS, rules, rng })
         .map(enemy => normalizedFoe(enemy, row, findCreature(bestiary, row.name), rules, pcLevel))
+        .map(enemy => (row.questItem ? { ...enemy, loot: reliableLoot(enemy.loot, row.questItem) } : enemy))
         // A tier foe's XP counts from its tier (tierXpLevel); a ranked foe's from its level.
         .map(enemy => (row.threat && !row.ladder ? { ...enemy, xpLevel: tierXpLevel(row.threat, pcLevel, rules) } : enemy)));
     // One name per foe across waves: "Wolf A" … "Wolf F", however the rows were split.
