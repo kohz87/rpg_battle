@@ -371,6 +371,14 @@
     min-width: min-content;
 }
 
+/* The HUD strip on a phone, under Glass: the tint layered over itself, so the story behind does not read through the name and
+   the level (the full-screen window's rule, for the strip). Solid and Follow SillyTavern leave the token unset: no layers. */
+@media (max-width: 759.98px) {
+    .ss-hud {
+        background-image: var(--ss-sheet-hud-layers, none);
+    }
+}
+
 /* ---- Dialogs: a sheet from the bottom on narrow widths, centred on wide ones ---- */
 
 .ss-dialog-backdrop {

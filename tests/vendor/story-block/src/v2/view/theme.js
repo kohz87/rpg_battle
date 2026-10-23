@@ -110,6 +110,8 @@ const SHEET_TOKENS = Object.freeze([
     ['--ss-sheet-bg', 'var(--ss-glass-strong)'], ['--ss-sheet-blur', 'var(--ss-blur)'], ['--ss-sheet-layers', 'none'],
     ['--ss-sheet-radius', 'var(--ss-radius-l)'], ['--ss-sheet-radius-top', 'var(--ss-radius-l) var(--ss-radius-l) 0 0'],
     ['--ss-sheet-edge', '1px solid var(--ss-border)'], ['--ss-sheet-shadow', 'var(--ss-shadow)'],
+    // the HUD strip on a phone: the Glass tint three times over (the same compounding as the full-screen window), Glass only
+    ['--ss-sheet-hud-layers', 'linear-gradient(var(--ss-sheet-bg), var(--ss-sheet-bg)), linear-gradient(var(--ss-sheet-bg), var(--ss-sheet-bg)), linear-gradient(var(--ss-sheet-bg), var(--ss-sheet-bg))'],
 ]);
 const SHEET_RESET = Object.freeze(SHEET_TOKENS.map(([name]) => [name, 'initial']));
 
