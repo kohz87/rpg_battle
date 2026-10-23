@@ -63,11 +63,10 @@ const css = sheet(`
 .mats { list-style: none; margin: 0 0 4px; padding: 0 6px; display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
 .mat { display: inline-flex; align-items: baseline; gap: 4px; max-width: 100%; font-size: 12px; }
 .mat-nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mat b { font-variant-numeric: tabular-nums; }
-.mat.have { border-color: var(--ss-good); }
-.mat.have b { color: var(--ss-good); }
-.mat.lack { border-color: var(--ss-bad); }
-.mat.lack b { color: var(--ss-bad); }
+.mat b { font-variant-numeric: tabular-nums; color: var(--ss-text); }
+/* what the party has is in the border (green) and what is missing in the border (red): the text stays in the text colour, for contrast */
+.mat.have { border-color: var(--ss-good); border-width: 2px; }
+.mat.lack { border-color: var(--ss-bad); border-width: 2px; }
 .odds { display: grid; gap: 3px; padding: 0 6px 4px; min-width: 0; }
 .odds-bar { display: flex; height: 7px; border-radius: var(--ss-radius-pill); overflow: hidden; background: var(--ss-track); }
 .odds-bar > span { flex: 0 0 calc(var(--ss-fill, 0) * 100%); background: var(--ss-muted); }
