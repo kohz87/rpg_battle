@@ -147,8 +147,8 @@ const YOU = `
 </form>`;
 
 const CSS = `
-.cc-one { container: cc / inline-size; font-family: var(--ss-font); color: var(--ss-text); }
-.cc-step { display: grid; gap: var(--ss-space-3); min-width: 0; }
+.cc-one { font-family: var(--ss-font); color: var(--ss-text); }
+.cc-step { display: grid; gap: var(--ss-space-3); min-width: 0; container: cc / inline-size; }
 .cc-layout { display: grid; gap: var(--ss-space-3); min-width: 0; }
 .cc-main, .cc-register { display: grid; gap: var(--ss-space-2); align-content: start; min-width: 0; }
 .cc-lead, .cc-none, .cc-hint { margin: 0; }
@@ -214,7 +214,6 @@ const CSS = `
 .rpg-roll-result[data-problem], .rpg-import-note[data-problem] { color: var(--ss-warn); }
 .rpg-import { display: grid; gap: 4px; justify-items: start; }
 .rpg-import-go { position: relative; cursor: pointer; }
-.rpg-import-go:focus-within { outline: 2px solid var(--ss-accent); outline-offset: 2px; }
 .rpg-import-file { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; clip-path: inset(50%); }
 .rpg-presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 15em), 1fr)); gap: var(--ss-space-2); min-width: 0; }
 .rpg-preset { display: grid; gap: 4px; padding: var(--ss-space-2); border-radius: var(--ss-radius-m); background: var(--ss-tile); border: 1px solid var(--ss-border); min-width: 0; overflow-wrap: anywhere; color: var(--ss-text); }

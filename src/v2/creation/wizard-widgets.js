@@ -199,15 +199,16 @@ export async function importFile(file, api, doc = null) {
 export function renderImportPick(el, props = {}, api = {}) {
     const doc = el.ownerDocument;
     const root = make(doc, 'div', 'ss-w rpg-import');
-    const label = make(doc, 'label', 'ss-button rpg-import-go');
+    // A button (Story Block's glass button is a button element); it opens the file picker, which stays hidden.
+    const go = button(doc, 'rpg-import-go', 'Import character');
     const input = make(doc, 'input', 'rpg-import-file');
     input.type = 'file';
     input.setAttribute('accept', '.json,application/json');
     input.setAttribute('aria-label', 'Import character: choose a character file');
-    label.append(input, make(doc, 'span', '', 'Import character'));
+    go.addEventListener('click', () => { try { input.click(); } catch { /* the picker is the browser's */ } });
     const note = make(doc, 'p', 'rpg-import-note');
     note.setAttribute('role', 'status');
-    root.append(label, note);
+    root.append(go, input, note);
     el.append(root);
     let busy = false;
 
