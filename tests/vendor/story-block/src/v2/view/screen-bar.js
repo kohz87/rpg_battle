@@ -24,6 +24,7 @@
 
 import { h, iconNode, str } from './widgets/dom.js';
 import { focusNode, revealIn } from './scroll.js';
+import { stackOf } from './modal-stack.js';
 import { hasIcon } from './icons/index.js';
 import { STRINGS, fill } from '../strings.js';
 
@@ -44,9 +45,23 @@ export function barItems(list) {
         if (!id || seen.has(id)) continue;
         seen.add(id);
         const label = str(raw.label).replace(/\s+/g, ' ').trim().slice(0, LABEL_MAX) || id;
-        out.push({ id, label, icon: typeof raw.icon === 'string' ? raw.icon : '' });
+        // `alert`: the tab is active with something to show (a red dot); see pinAlerts.
+        out.push({ id, label, icon: typeof raw.icon === 'string' ? raw.icon : '', alert: raw.alert === true });
     }
     return out;
+}
+
+/**
+ * An active tab with an alert takes the last pinned slot while it has something to show, and the item that held that slot goes to
+ * More (the rest keep their order). The first alert only. Items without one are returned as they are.
+ */
+export function pinAlerts(items, pinned = PINNED) {
+    const list = Array.isArray(items) ? items : [];
+    const at = list.findIndex(item => item.alert === true);
+    if (at < 0 || at < pinned - 1) return list;
+    const alert = list[at];
+    const rest = list.filter((_, i) => i !== at);
+    return [...rest.slice(0, pinned - 1), alert, ...rest.slice(pinned - 1)];
 }
 
 /** The reader's order split into the slots (the first `pinned`) and what More holds (the rest). */
@@ -119,12 +134,19 @@ export function createScreenBar(doc, host, options = {}) {
     let current = null;
     let row = false;
     let open = false;
+    let layer = null;         // the sheet's entry in the shared stack (modal-stack.js) while it is open
     const slots = new Map();   // id → the slot button (kept across draws, so a focused slot keeps its focus)
     const tiles = new Map();   // id → the sheet's tile
 
     // The slot's content: the icon, the label, the dot (the dot is what marks the current one, besides the colour).
     function paint(node, item, isCurrent) {
         node.replaceChildren(glyph(doc, item.icon, 'ss-screenbar-icon', isCurrent), labelNode(doc, item.label), dotNode(doc));
+        if (item.alert) {
+            // The alert: a small red dot at the icon's top-right (Cards.dc.html), the tab's label says it too.
+            const alert = h(doc, 'span', 'ss-screenbar-alert');
+            alert.setAttribute('aria-hidden', 'true');
+            node.appendChild(alert);
+        }
         node.setAttribute('data-id', item.id);
         node.setAttribute('title', item.label);
         if (isCurrent) {
@@ -257,40 +279,14 @@ export function createScreenBar(doc, host, options = {}) {
         return [...grid.children].filter(node => node.getAttribute?.('data-id') && !node.hidden);
     }
 
-    function onKey(event) {
-        if (!open) return;
-        if (event.key === 'Escape') {
-            event.preventDefault?.();
-            event.stopPropagation?.();
-            closeMore({ focus: true });
-            return;
-        }
-        if (event.key !== 'Tab') return;
-        const nodes = tileNodes();
-        if (!nodes.length) {
-            event.preventDefault?.();
-            focusNode(sheet);
-            return;
-        }
-        // Tab stays inside the sheet: it wraps from the last tile to the first and back.
-        const at = nodes.indexOf(doc.activeElement);
-        let next = null;
-        if (event.shiftKey) next = at <= 0 ? nodes.at(-1) : null;
-        else next = at === -1 || at === nodes.length - 1 ? nodes[0] : null;
-        if (next) {
-            event.preventDefault?.();
-            focusNode(next);
-            revealIn(sheet, next, 'nearest');
-        }
-    }
-
     function openMore() {
         if (open || row) return false;
         open = true;
         more.setAttribute('aria-expanded', 'true');
         scrim.hidden = false;
         sheet.hidden = false;
-        doc.addEventListener?.('keydown', onKey, true);
+        // A layer of the shared stack: Escape closes the sheet first, Tab stays in it (modal-stack.js).
+        layer = stackOf(doc).push({ name: 'more', root: sheet, onEscape: () => { closeMore({ focus: true }); return true; }, reveal: node => revealIn(sheet, node, 'nearest') });
         const target = tileNodes().find(node => node.getAttribute('aria-current') === 'page') ?? tileNodes()[0] ?? sheet;
         focusNode(target);
         if (target !== sheet) revealIn(sheet, target, 'nearest');
@@ -303,7 +299,8 @@ export function createScreenBar(doc, host, options = {}) {
         more.setAttribute('aria-expanded', 'false');
         scrim.hidden = true;
         sheet.hidden = true;
-        doc.removeEventListener?.('keydown', onKey, true);
+        stackOf(doc).pop(layer, { focus: false });
+        layer = null;
         if (focus) focusNode(more);
         return true;
     }
