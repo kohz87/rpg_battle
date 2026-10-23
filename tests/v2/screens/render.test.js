@@ -249,7 +249,7 @@ test('hud: your HP and MP and condition badges; no checks wait (MODULES §F80)',
     // The HUD's pieces are Story Block's: two bars (HP, MP) and a status badge per condition.
     assert.deepEqual(widgetsIn(strip, 'ss.bar').map(el => [propsOf(el).label, Number(propsOf(el).value), Number(propsOf(el).max)]), [['HP', 57, 82], ['MP', 30, 40]]);
     assert.deepEqual(widgetsIn(strip, 'ss.status').map(el => propsOf(el).value.icon), ['fa-skull-crossbones', 'fa-droplet']);
-    assert.equal(widgetsIn(strip, 'ss.hero').length, 0, 'the strip is not the compact hero (it would wrap out of 48px)');
+    assert.equal(widgetsIn(strip, 'ss.hero').length, 0, 'the strip is not the compact hero (it would wrap out of the strip)');
     assert.equal(strip.querySelector('.checks'), null);
     assert.equal(drawn.el.querySelector('.none-yet'), null);
     checkProps(drawn);

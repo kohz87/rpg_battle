@@ -6,7 +6,7 @@
 //
 // SillyTavern: the persona name is getContext().name1; the description is power_user's
 // persona_description (getContext().powerUserSettings, else the global power_user); the avatar file
-// is user_avatar, shown through /thumbnail?type=persona&file=….
+// is user_avatar (else the default persona of the settings), shown through /thumbnail?type=persona&file=….
 
 export const BACKGROUND_LIMIT = 2000;
 
@@ -37,7 +37,9 @@ export function readPersona(st = null) {
     const g = globalThis;
     const context = st ? st.context ?? null : safe(() => g.SillyTavern?.getContext?.()) ?? safe(() => g.getContext?.());
     const powerUser = (st ? st.powerUser : null) ?? context?.powerUserSettings ?? (st ? null : g.power_user) ?? null;
-    const file = (st ? st.userAvatar : null) ?? context?.user_avatar ?? context?.userAvatar ?? (st ? null : g.user_avatar) ?? '';
+    // The avatar file as Story Block's readHeroContext finds it: the context's, else SillyTavern's global user_avatar, else the
+    // default persona of the settings (power_user's default_persona: the file a new chat uses). The context may carry neither.
+    const file = (st ? st.userAvatar : null) ?? context?.user_avatar ?? context?.userAvatar ?? (st ? null : g.user_avatar) ?? powerUser?.default_persona ?? '';
     return {
         name: textOf(context?.name1).slice(0, 40),
         background: textOf(powerUser?.persona_description).slice(0, BACKGROUND_LIMIT),
