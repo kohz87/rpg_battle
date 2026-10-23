@@ -7,9 +7,9 @@
 // button (widget `rpg-battle.create-character`, which opens the creation wizard; creation is mandatory,
 // MODULES §F12). Checks are rolled in the reply that writes them (MODULES §F80): nothing waits here.
 //
-// The strip item is at most 48px high (Story Block's HUD strip), so the pieces are one row of a portrait, two
-// stacked lines (name and level; the two bars) and the pills, not Story Block's compact hero (which needs a
-// wider box than a phone's strip gives it, and its bars wrap out of the 48px). The strip lays its items out
+// The strip item is capped at 64px high (Story Block's HUD strip, `.ss-hud-item` max-height), and a full item is about
+// 44px, so the pieces are one row of a portrait, two stacked lines (name and level; the two bars) and the pills, not
+// Story Block's compact hero (which needs a wider box than a phone's strip gives it, and its bars wrap out of the strip). The strip lays its items out
 // side by side, each as wide as what it holds, so this screen's root is not a size container (an inline-size
 // container takes no width from its content and would shrink to nothing there); the narrow layout follows the
 // viewport instead.
@@ -38,11 +38,12 @@ const css = sheet(`
 .rb-hud { display: flex; flex-wrap: nowrap; align-items: center; gap: var(--ss-space-2); min-width: 0; font-size: 12px; }
 .rb-hud.down .face { filter: grayscale(0.7); }
 .face { flex: 0 0 auto; }
-.id { display: grid; gap: 3px; min-width: 0; }
+.id { display: grid; gap: 4px; min-width: 0; }
 .top { display: flex; align-items: baseline; gap: 6px; min-width: 0; line-height: 1.15; }
 .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 8em; font-weight: 700; font-size: 13px; }
 .rb-hud .lv { flex: none; white-space: nowrap; color: var(--ss-text); font-size: 12px; opacity: 1; }
-.bars { display: grid; grid-template-columns: repeat(2, minmax(6em, 1fr)); gap: 8px; min-width: 14em; }
+/* min-width: 0 so the two columns can shrink with a squeezed item (a 14em floor ran past it) */
+.bars { display: grid; grid-template-columns: repeat(2, minmax(6em, 1fr)); gap: 8px; min-width: 0; }
 .bars .ss-bar-head { font-size: 11px; }
 .spend, .burden { flex: 0 0 auto; white-space: nowrap; }
 .spend i { color: var(--ss-good); margin-right: 4px; }

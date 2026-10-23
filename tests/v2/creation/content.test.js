@@ -53,6 +53,27 @@ test('the built-ins pass Story Block\'s pack validator', { skip: PACKS ? false :
     assert.equal(out.ok, true, JSON.stringify(out.problems ?? out.errors ?? out));
 });
 
+test('persona avatar: the context\'s file, else the global user_avatar, else the default persona (Story Block\'s readHeroContext order)', () => {
+    // The context carries neither user_avatar nor userAvatar: the settings' default persona is the file.
+    assert.equal(readPersona({ context: { name1: 'Ren', powerUserSettings: { default_persona: 'def.png' } } }).avatar, '/thumbnail?type=persona&file=def.png');
+    assert.equal(readPersona({ context: { name1: 'Ren' }, powerUser: { default_persona: 'pow.png' } }).avatar, '/thumbnail?type=persona&file=pow.png');
+    // The context\'s own file wins over the default.
+    assert.equal(readPersona({ context: { user_avatar: 'ctx.png', powerUserSettings: { default_persona: 'def.png' } } }).avatar, '/thumbnail?type=persona&file=ctx.png');
+    // The live read: SillyTavern without the file on its context, then the global user_avatar.
+    globalThis.SillyTavern = { getContext: () => ({ name1: 'Ren' }) };
+    globalThis.user_avatar = 'glob.png';
+    try {
+        assert.equal(readPersona().avatar, '/thumbnail?type=persona&file=glob.png');
+        globalThis.user_avatar = undefined;
+        globalThis.power_user = { default_persona: 'global-default.png' };
+        assert.equal(readPersona().avatar, '/thumbnail?type=persona&file=global-default.png');
+    } finally {
+        delete globalThis.SillyTavern;
+        delete globalThis.user_avatar;
+        delete globalThis.power_user;
+    }
+});
+
 test('persona: name, description and avatar from SillyTavern, empty when missing', () => {
     const st = { context: { name1: '  Ren Avel ', powerUserSettings: { persona_description: ' Raised on the river. ' }, user_avatar: 'ren 1.png' } };
     assert.deepEqual(readPersona(st), { name: 'Ren Avel', background: 'Raised on the river.', avatar: '/thumbnail?type=persona&file=ren%201.png' });
