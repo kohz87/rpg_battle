@@ -1,3 +1,4 @@
+import { SKILL_TREE_WIDGET, skillTree } from './skill-tree.js';
 // RPG Battle v2, part **screens**: the widgets the default screens and Story Block's Inventory place
 // (SPEC §13.5, WIDGETS.md contract: render(el, props, api) → { update, destroy }).
 //
@@ -243,4 +244,5 @@ export const characterFileWidget = Object.freeze({
 export const screenWidgets = Object.freeze({
     [ITEM_DETAIL_WIDGET]: itemDetailWidget,
     [CHARACTER_FILE_WIDGET]: characterFileWidget,
+    [SKILL_TREE_WIDGET]: skillTree,
 });

@@ -91,6 +91,8 @@ export function renderChoicePick(el, props = {}, api = {}) {
         root.textContent = '';
         const many = Boolean(current.many);
         root.setAttribute('aria-label', str(current.label, 80) || (many ? 'Talents' : 'Race'));
+        // Talents are rows (a listcard's look); races are tiles (a box, a label, the bonus under it).
+        root.classList.toggle('rpg-choices-rows', many);
         const list = (Array.isArray(current.value) ? current.value : []).filter(record => isRecord(record) && typeof record.id === 'string' && !record.rolled);
         const picked = new Set(pickedIds(current, api, many));
         const left = asNumber(current.left);
@@ -98,7 +100,7 @@ export function renderChoicePick(el, props = {}, api = {}) {
         const full = many && max !== null && picked.size >= max;
         for (const choice of list) {
             const on = picked.has(choice.id);
-            const card = make(doc, 'button', `cc-card${on ? ' cc-picked' : ''}`);
+            const card = make(doc, 'button', `cc-card ${many ? 'cc-row' : 'cc-tile'}${on ? ' cc-picked' : ''}`);
             card.type = 'button';
             card.setAttribute('aria-pressed', on ? 'true' : 'false');
             card.setAttribute('data-choice', str(choice.id, 120));
@@ -110,22 +112,28 @@ export function renderChoicePick(el, props = {}, api = {}) {
                 card.title = full ? `You have the most talents a new character can take (${max}).` : `Not enough points left (${cost} needed).`;
             }
             const image = cardImage(choice.image);
-            if (image) {
-                const img = make(doc, 'img', 'cc-card-img');
-                img.setAttribute('alt', '');
-                img.setAttribute('loading', 'lazy');
-                img.setAttribute('referrerpolicy', 'no-referrer');
-                img.addEventListener('error', () => img.remove());
-                img.setAttribute('src', image);
-                card.append(img);
+            if (!many) {
+                // The box: the picture when there is one (it loads, or the box is the initial), else the first letter.
+                const box = make(doc, 'span', 'cc-card-box');
+                box.setAttribute('aria-hidden', 'true');
+                if (image) {
+                    const img = make(doc, 'img', 'cc-card-img');
+                    img.setAttribute('alt', '');
+                    img.setAttribute('loading', 'lazy');
+                    img.setAttribute('referrerpolicy', 'no-referrer');
+                    img.addEventListener('error', () => img.remove());
+                    img.setAttribute('src', image);
+                    box.append(img);
+                } else box.textContent = Array.from(str(choice.name, 80))[0] ?? '';
+                card.append(box);
             }
-            const head = make(doc, 'span', 'cc-card-head');
-            head.append(make(doc, 'span', 'cc-card-name', str(choice.name, 80)));
-            if (cost !== null) head.append(make(doc, 'span', 'cc-card-cost', `${cost} pt`));
-            if (on) head.append(make(doc, 'span', 'cc-card-tick', many ? 'Taken' : 'Chosen'));
-            card.append(head);
-            if (str(choice.bonus, 120)) card.append(make(doc, 'span', 'cc-card-bonus', str(choice.bonus, 120)));
-            if (str(choice.note)) card.append(make(doc, 'span', 'cc-card-note', str(choice.note)));
+            const main = many ? make(doc, 'span', 'cc-row-main') : card;
+            main.append(make(doc, 'span', 'cc-card-name', str(choice.name, 80)));
+            if (str(choice.bonus, 120)) main.append(make(doc, 'span', 'cc-card-bonus', str(choice.bonus, 120)));
+            if (str(choice.note)) main.append(make(doc, 'span', 'cc-card-note', str(choice.note)));
+            if (many) card.append(main);
+            if (cost !== null) card.append(make(doc, 'span', 'cc-card-cost', `${cost} pt`));
+            if (on) card.append(make(doc, 'span', 'cc-card-tick', many ? 'Taken' : 'Chosen'));
             card.addEventListener('click', () => write(choice.id));
             root.append(card);
         }

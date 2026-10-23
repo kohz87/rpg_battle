@@ -123,7 +123,7 @@ test('race step: one button per race; a click picks it, a second click on it cle
     const cards = () => el.querySelectorAll('button.cc-card');
     assert.equal(cards().length, 6);
     assert.equal(el.querySelectorAll('input').length, 0, 'no radios: SillyTavern\'s sanitiser drops their type');
-    assert.equal(el.querySelectorAll('img').length, 0, 'no picture box for a race without a real image');
+    assert.equal(el.querySelectorAll('.cc-card img').length, 0, 'no picture box for a race without a real image (the registration card\'s portrait is the persona\'s)');
     assert.equal(el.querySelectorAll('.cc-card-name').map(node => node.textContent).join(','), 'Human,Elf,Dwarf,Hearthling,Tuskborn,Starborn');
     assert.ok(cards().every(card => card.getAttribute('aria-pressed') === 'false'));
     cards()[1].click();
@@ -185,7 +185,7 @@ test('stats step: a stepper per stat under the live budget, and the radar of the
     assert.deepEqual(steppers.map(p => p.budget), [7, 7, 7, 7, 7, 7, 7]);
     assert.equal(steppers[0].value, 2);
     assert.equal(steppers[0].max, 94);
-    assert.deepEqual(props['ss.radar'][0].axes.map(axis => axis.value), [7, 7, 4, 5, 7, 5, 5]);
+    assert.deepEqual(props['rpg-battle.stat-radar'][0].axes.map(axis => axis.value), [7, 7, 4, 5, 7, 5, 5]);
     // A stepper moving fills the draft; the budget everyone sees follows.
     el.querySelectorAll('.ss-w-stepper button').find(button => /Increase Vitality/.test(button.getAttribute('aria-label') ?? '')).click();
     assert.equal(view.draft().points.VIT, 1);

@@ -3,7 +3,7 @@
 // A template has no arithmetic and no way to filter or group a list (TEMPLATES.md §1.2), so what a
 // screen shows that is not a plain field of the state is worked out here, once per drawing: an
 // actor's EXP to the next level, their condition badges and active effects, what they wear with its
-// condition, skills as ss.tiers tiles grouped by tier, each member as ss.hero props, stats as radar axes, the Trade page's rows with
+// condition, skills as the skill-tree widget's nodes (tiers, states, uses), each member as ss.hero props, stats as radar axes, the Trade page's rows with
 // their short prices, the Crafting page's recipes, and one thing's details for Story Block's Inventory
 // rows. Packs and cards that restyle a screen can bind the same queries. Other parts' queries are read
 // with `tryQuery`: one this build lacks (or whose feature is off) leaves its section out.
@@ -200,6 +200,7 @@ function skillsOf(actor, party, rules) {
             // The uses toward the next level (beta.1 live test: "skill xp didn't increase"; a fight's
             // uses count when it is settled): "2/5 uses to Lv 2", "top level" at the most.
             progress: skillProgress(skill, rules),
+            uses: int(skill?.uses),
             active: skill?.active !== false,
             tier: int(found?.tier, 0),
             type,
@@ -210,39 +211,36 @@ function skillsOf(actor, party, rules) {
     }).filter(skill => skill.name);
 }
 
-// Story Block's ss.tiers keeps 12 tiers of 24 tiles and cuts a hint at 60 characters (view/widgets/tiers.js).
-export const SKILL_TIERS_MAX = 12;
-export const SKILL_TILES_MAX = 24;
-const cutTo = (text, max) => Array.from(String(text ?? '')).slice(0, max).join('');
-
 /**
- * Skills as ss.tiers props: tier 1 to 3 (then the story-taught without one), those in use first. A tile is
- * a skill: its icon, its name, the level as the count ("Lv 2"), a tick when it is in use, and its uses
- * toward the next level as the spoken hint ("Lv 2 · 2/5 uses to Lv 3"). The uses are also on the Party
- * card's list, where Use and Set aside are.
+ * Skills as the skill-tree widget's node list (src/v2/screens/skill-tree.js, the node shape there): one node per
+ * skill, its tier as the library gives it, the level as the badge, and the state: `maxed` at the cap,
+ * `available` with no uses yet, `learned` otherwise (today's skills have no requirements, so no lines are drawn).
+ * Those in use come first; the widget groups them by tier.
  */
-export function skillTiers(skills) {
-    const tiers = [...new Set(skills.map(skill => skill.tier))].sort((a, b) => (a || 99) - (b || 99)).slice(0, SKILL_TIERS_MAX);
-    return {
-        tiers: tiers.map(tier => ({
-            title: tier ? `Tier ${tier}` : 'Taught by the story',
-            tiles: skills
-                .filter(skill => skill.tier === tier)
-                .sort((a, b) => Number(b.active) - Number(a.active))
-                .slice(0, SKILL_TILES_MAX)
-                .map(skill => ({
-                    id: skill.name,
-                    label: skill.name,
-                    icon: skill.icon,
-                    // The badge is about 30px: the digit only ("Lv 2" overflows it); the hint says "Lv 2".
-                    count: String(skill.level),
-                    state: skill.active ? 'ready' : 'none',
-                    hint: cutTo(`Lv ${skill.level}${skill.progress ? ` · ${skill.progress}` : ''}`, 60),
-                    kind: skill.type,
-                })),
-        })),
-    };
+export function skillNodes(skills) {
+    return [...skills].sort((a, b) => Number(b.active) - Number(a.active)).map(skill => {
+        const state = skill.level >= skill.max ? 'maxed' : skill.uses === 0 ? 'available' : 'learned';
+        return {
+            id: skill.name,
+            name: skill.name,
+            icon: skill.icon,
+            tier: skill.tier,
+            level: skill.level,
+            max: skill.max,
+            uses: skill.uses,
+            state,
+            requires: [],
+            // The badge is about 30px: the digit only; the hint says "Lv 2 · 2/5 uses to Lv 3" (cut at 60 characters).
+            hint: cutTo(`Lv ${skill.level}${skill.progress ? ` · ${skill.progress}` : ''}`, 60),
+            inUse: skill.active,
+            kind: skill.type,
+            note: skill.note,
+            facts: [skill.cost ? `Costs ${skill.cost}` : ''].filter(Boolean),
+        };
+    });
 }
+
+const cutTo = (text, max) => Array.from(String(text ?? '')).slice(0, max).join('');
 
 function pool(value) {
     const max = Math.max(0, int(value?.max));
@@ -302,7 +300,7 @@ export function actorCard(actor, party, { rules = DEFAULT_RULES, portrait = null
         statAxes: stats.map(stat => ({ label: stat.key, value: stat.value, max: axisMax })),
         statuses: (Array.isArray(actor.conditions) ? actor.conditions : []).map((entry, index) => conditionStatus(entry, index, minutes)),
         skills,
-        tiers: skillTiers(skills),
+        skillNodes: skillNodes(skills),
         activeCount: skills.filter(skill => skill.active).length,
         activeCap: int(rules.character.activeSkills, 6),
     };

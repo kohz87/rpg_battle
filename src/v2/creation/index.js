@@ -34,6 +34,7 @@ import { PRESET_WIDGET, presetPick } from './preset-pick.js';
 import { wizardWidgets } from './wizard-widgets.js';
 import { CREATE_BUTTON_WIDGET, createButton } from './create-button.js';
 import { CHOICE_WIDGET, choicePick } from './choice-pick.js';
+import { STAT_RADAR_WIDGET, statRadar } from './radar.js';
 
 /**
  * onBlocked(reason, moduleId) (Story Block's turn calls the blocking module's hook): when the
@@ -59,7 +60,7 @@ export const part = {
     hooks: { onBlocked },
     settings: { section: 'Character creation', defaults: { ...SETTINGS_DEFAULTS }, schema: SETTINGS_SCHEMA },
     tabs: [],
-    widgets: { [PRESET_WIDGET]: presetPick, [CHOICE_WIDGET]: choicePick, ...wizardWidgets, [CREATE_BUTTON_WIDGET]: createButton },
+    widgets: { [PRESET_WIDGET]: presetPick, [CHOICE_WIDGET]: choicePick, [STAT_RADAR_WIDGET]: statRadar, ...wizardWidgets, [CREATE_BUTTON_WIDGET]: createButton },
     screens: [createScreen],
 };
 
@@ -70,7 +71,8 @@ export { createdNotice, openCreation, startDraft } from './open.js';
 export { CHOICE_WIDGET, cardImage, choicePick, renderChoicePick, toggled } from './choice-pick.js';
 export { CREATE_BUTTON_WIDGET, CREATE_LABEL, createButton, creationApi, renderCreateButton } from './create-button.js';
 export { BACKGROUND_LIMIT, avatarUrl, personaFor, readPersona } from './persona.js';
-export { CREATE_SCREEN_ID, CREATE_STEPS, createScreen } from './screen.js';
+export { CREATE_SCREEN_ID, CREATE_STEPS, PORTRAIT_URL_MAX, TALENT_LIST_MAX, createScreen } from './screen.js';
+export { STAT_RADAR_WIDGET, radarAxes, radarPoint, radarScale, renderStatRadar, statRadar } from './radar.js';
 export { PRESET_WIDGET, presetDraft, presetPick, renderPresetPick } from './preset-pick.js';
 export {
     CREATED_EVENT, FILE_LIMIT, IMPORT_PICK_WIDGET, TALENT_ROLL_WIDGET, characterFrom, importFile, importPick, renderImportPick, renderTalentRoll, talentRoll, wizardWidgets,

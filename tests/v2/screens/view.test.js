@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { BANDS, actorCard, cards, carry, conditionBadge, conditionStatus, conditionView, crafting, effectBadge, heroOf, heroes, hud, itemDetail, skillTiers, trade, tryQuery } from '../../../src/v2/screens/index.js';
+import { BANDS, actorCard, cards, carry, conditionBadge, conditionStatus, conditionView, crafting, effectBadge, heroOf, heroes, hud, itemDetail, skillNodes, trade, tryQuery } from '../../../src/v2/screens/index.js';
 import { validateChecks } from '../../../src/v2/checks/shared.js';
 import { LYRA, PC, QUERIES, emptyState, makeState, toolsFor } from './helpers/state.js';
 
@@ -67,30 +67,32 @@ test('cards: conditions are status badges (ss.status) with an icon, a tone and t
     assert.equal(conditionBadge({}).label, 'Unwell');
 });
 
-test('cards: skills are tiles (ss.tiers) grouped by tier, those in use first, story-taught last', () => {
+test('cards: skills are the skill tree\'s nodes, in use first, each with its state, level and hint', () => {
     const [ren, lyra] = ask(cards, makeState());
-    assert.deepEqual(ren.tiers.tiers.map(tier => tier.title), ['Tier 1', 'Tier 2', 'Taught by the story']);
-    assert.deepEqual(ren.tiers.tiers[0].tiles.map(tile => [tile.label, tile.state]), [['Power Strike', 'ready'], ['Quick Stab', 'ready'], ['Firebolt', 'none']]);
-    // The count is the level; the hint says the uses toward the next one.
-    assert.equal(ren.tiers.tiers[0].tiles[0].count, '2');
-    assert.equal(ren.tiers.tiers[0].tiles[0].icon, 'fa-hand-fist');
-    assert.match(ren.tiers.tiers[0].tiles[0].hint, /^Lv 2 · \d+\/\d+ uses to Lv 3$/);
-    assert.equal(ren.tiers.tiers[2].tiles[0].label, 'Shadow Cut');
+    assert.deepEqual(ren.skillNodes.map(node => node.name), ['Power Strike', 'Quick Stab', 'Rending Strike', 'Shadow Cut', 'Firebolt']);
+    const node = name => ren.skillNodes.find(entry => entry.name === name);
+    // The state: maxed at the cap, available with no uses yet, learned with some uses.
+    assert.deepEqual([node('Power Strike').state, node('Quick Stab').state, node('Rending Strike').state, node('Firebolt').state], ['learned', 'available', 'learned', 'available']);
+    assert.deepEqual(ren.skillNodes.map(entry => entry.tier), [1, 1, 2, 0, 1]);
+    assert.equal(node('Power Strike').level, 2);
+    assert.equal(node('Power Strike').max, 5);
+    assert.equal(node('Power Strike').icon, 'fa-hand-fist');
+    assert.match(node('Power Strike').hint, /^Lv 2 · \d+\/\d+ uses to Lv 3$/);
+    assert.equal(node('Firebolt').inUse, false, 'a skill set aside');
+    assert.deepEqual(node('Firebolt').requires, [], 'today: no requirements, so no lines');
     assert.equal(ren.activeCount, 4);
     assert.equal(ren.activeCap, 6);
     assert.equal(ren.skills.find(skill => skill.name === 'Firebolt').cost, '5 MP');
     assert.equal(ren.skills.find(skill => skill.name === 'Power Strike').cost, '4 SP');
-    assert.deepEqual(lyra.tiers, { tiers: [] });
-    assert.deepEqual(skillTiers([]), { tiers: [] });
+    assert.deepEqual(lyra.skillNodes, []);
+    assert.deepEqual(skillNodes([]), []);
 });
 
-test('skills as tiles stay within ss.tiers\' limits: 12 tiers of 24 tiles', () => {
-    const skill = (name, tier) => ({ name, level: 1, progress: '', active: true, tier, icon: 'fa-star', type: '' });
-    const many = Array.from({ length: 30 }, (_, i) => skill(`S${i}`, 1));
-    const tiers = Array.from({ length: 14 }, (_, i) => skill(`T${i}`, i + 1));
-    assert.equal(skillTiers(many).tiers[0].tiles.length, 24);
-    assert.equal(skillTiers(tiers).tiers.length, 12);
-    assert.equal(skillTiers(tiers).tiers[0].tiles[0].hint, 'Lv 1');
+test('the states of the view: maxed at the cap, available with no uses, learned otherwise', () => {
+    const skill = (name, level, uses, max = 5) => ({ name, level, uses, max, progress: '', active: true, tier: 1, icon: 'fa-star', type: '' });
+    const [top, fresh, used] = skillNodes([skill('Top', 5, 0), skill('Fresh', 1, 0), skill('Used', 1, 2)]);
+    assert.deepEqual([top.state, fresh.state, used.state], ['maxed', 'available', 'learned']);
+    assert.equal(skillNodes([skill('Plain', 1, 0)])[0].hint, 'Lv 1');
 });
 
 test('heroOf: the bars and status badges within ss.hero\'s limits, the EXP bar under the Terms\' word', () => {
