@@ -58,10 +58,12 @@ test('party: a card per member with portrait, pools, EXP, badges, skills and sta
     assert.deepEqual(heroOf(lyra).statuses, []);
     assert.equal(lyra.querySelector('.badges'), null);
 
-    const tiers = propsOf(widgetsIn(ren, 'ss.tiers')[0]);
-    assert.deepEqual(tiers.value.tiers.map(tier => tier.title), ['Tier 1', 'Tier 2', 'Taught by the story']);
-    assert.equal(tiers.label, 'Skills of Ren');
-    assert.equal(widgetsIn(lyra, 'ss.tiers').length, 0);
+    // The skill tree is RPG Battle's own widget (drawn for real): its tiers in tier order, the story-taught last.
+    const tree = widgetsIn(ren, 'rpg-battle.skill-tree')[0];
+    assert.equal(tree.querySelector('.rpg-tree').getAttribute('aria-label'), 'Skills of Ren');
+    assert.deepEqual(all(tree, '.rpg-tree-tile').map(node => node.getAttribute('data-id')), ['Power Strike', 'Quick Stab', 'Firebolt', 'Rending Strike', 'Shadow Cut']);
+    assert.equal(text(tree.querySelector('.rpg-tree-go')), 'Set aside', 'the chosen skill (Power Strike, in use) has its Set aside');
+    assert.equal(widgetsIn(lyra, 'rpg-battle.skill-tree').length, 0);
     assert.equal(text(lyra.querySelector('.skills .none')), 'No skills yet.');
     assert.match(text(ren.querySelector('.skills .ss-label')), /4 \/ 6 in use/);
 
@@ -389,9 +391,10 @@ test('every screen draws with Story Block\'s real standard widgets, none missing
     const ren = party.el.querySelectorAll('article.actor')[0];
     assert.equal(text(ren.querySelector('.ss-hero-name')), 'Ren');
     assert.ok(ren.querySelector('.ss-hero .ss-bar-hp'), 'the HP bar is Story Block\'s bar');
-    // Skills are tiles: the four in use are ready (a tick), the set-aside one is not.
-    assert.equal(ren.querySelectorAll('.ss-tile').length, 5);
-    assert.equal(ren.querySelectorAll('.ss-tile-ready').length, 4);
+    // Skills are the skill tree's tiles: five, the set-aside one marked as such (no tick: the state is learned or available).
+    assert.equal(ren.querySelectorAll('.rpg-tree-tile').length, 5);
+    assert.equal(ren.querySelectorAll('.rpg-tree-aside').length, 1);
+    assert.equal(ren.querySelectorAll('.rpg-tree-tile.rpg-tree-learned').length, 2);
     // The badge shows the level's digit (what the player sees), not "Lv 2" in a 30px box.
     assert.equal(ren.querySelectorAll('.ss-tile-count').length, 5);
     assert.ok([...ren.querySelectorAll('.ss-tile-count')].every(node => /^\d+$/.test(text(node))), 'every skill badge is a digit');

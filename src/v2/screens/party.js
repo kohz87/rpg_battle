@@ -21,6 +21,7 @@
 // refuses a total above the points with a plain sentence.
 
 import { sheet } from './style.js';
+import { SKILL_TREE_CSS } from './skill-tree.js';
 
 const RARITY = "r-uncommon: g.rarity == 'uncommon'; r-rare: g.rarity == 'rare'; r-epic: g.rarity == 'epic'; r-legendary: g.rarity == 'legendary'";
 // A worn piece's condition band as a listcard tag tone: good is the accent-free ring, worn amber, tattered and broken red.
@@ -90,7 +91,7 @@ const template = `
 
       <section class="block skills">
         <p class="ss-label"><i class="fa-solid fa-diagram-project"></i>Skills <small>{{ a.activeCount }} / {{ a.activeCap }} in use</small></p>
-        <ss-widget data-if="len(a.skills) > 0" name="ss.tiers" data-props='{"bind":"a.tiers","label":"Skills of {{ a.name }}","columns":3}'></ss-widget>
+        <ss-widget data-if="len(a.skills) > 0" name="rpg-battle.skill-tree" data-props='{"bind":"a.skillNodes","label":"Skills of {{ a.name }}","columns":3,"actor":"{{ a.id }}","setCommand":"party.setSkillActive"}'></ss-widget>
         <p class="none" data-if="len(a.skills) == 0">No skills yet.</p>
         <details class="manage" data-if="len(a.skills) > 0">
           <summary>Use or set aside</summary>
@@ -140,7 +141,7 @@ const template = `
 </div>
 `;
 
-const css = sheet(`
+const css = sheet(`${SKILL_TREE_CSS}
 .empty.start { display: grid; gap: 10px; justify-items: center; text-align: center; }
 .empty.start p { margin: 0; }
 .cards { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); }
