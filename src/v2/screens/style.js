@@ -15,10 +15,13 @@ export const BASE_CSS = `
 .rb *, .rb *::before, .rb *::after { box-sizing: border-box; }
 .rb ss-widget { display: block; min-width: 0; }
 .rb h3, .rb h4, .rb p { margin: 0; }
-.rb small { color: var(--ss-muted); font-weight: normal; }
+/* SillyTavern's own small text is 70% opaque; the screens' small text is full opacity, in the muted token (measured live) */
+.rb small { color: var(--ss-muted); font-weight: normal; opacity: 1; }
 .rb .ss-label { display: flex; align-items: center; flex-wrap: wrap; gap: var(--ss-space-2); }
 .rb .ss-label > i { color: var(--ss-accent); }
 .rb .ss-label > small { margin-left: auto; letter-spacing: 0; text-transform: none; }
+/* small labels read in the full text colour: the muted token falls below 4.5:1 on the busy page behind the glass (measured, live) */
+.rb .ss-bar-label { color: var(--ss-text); }
 .none, .empty { color: var(--ss-muted); font-style: italic; }
 
 /* the standard widgets (WIDGETS.md "Styling") take the glass tokens */

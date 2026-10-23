@@ -71,7 +71,8 @@ const css = sheet(`
 .odds { display: grid; gap: 3px; padding: 0 6px 4px; min-width: 0; }
 .odds-bar { display: flex; height: 7px; border-radius: var(--ss-radius-pill); overflow: hidden; background: var(--ss-track); }
 .odds-bar > span { flex: 0 0 calc(var(--ss-fill, 0) * 100%); background: var(--ss-muted); }
-.odds-key { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 12px; color: var(--ss-muted); }
+.odds-key li { opacity: 1; }
+.odds-key { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 12px; color: var(--ss-text); }
 .odds-key i { display: inline-block; width: 8px; height: 8px; margin-right: 4px; border-radius: 2px; background: var(--ss-muted); }
 .odds-bar > .t-bad, .odds-key .t-bad i { background: var(--ss-bad); }
 .odds-bar > .t-good, .odds-key .t-good i { background: var(--ss-good); }

@@ -41,7 +41,7 @@ const css = sheet(`
 .id { display: grid; gap: 3px; min-width: 0; }
 .top { display: flex; align-items: baseline; gap: 6px; min-width: 0; line-height: 1.15; }
 .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 8em; font-weight: 700; font-size: 13px; }
-.lv { flex: none; white-space: nowrap; color: var(--ss-muted); }
+.rb-hud .lv { flex: none; white-space: nowrap; color: var(--ss-text); font-size: 12px; opacity: 1; }
 .bars { display: grid; grid-template-columns: repeat(2, minmax(6em, 1fr)); gap: 8px; min-width: 14em; }
 .bars .ss-bar-head { font-size: 11px; }
 .spend, .burden { flex: 0 0 auto; white-space: nowrap; }
