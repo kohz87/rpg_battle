@@ -17,6 +17,7 @@
 import { capItem, formatStats, gearLimits } from '../../items.js';
 import { useItemOutside } from '../../recovery.js';
 import { canCarry } from './carry.js';
+import { canWear } from './queries.js';
 import { MAX_DOSES, planStoryUse, stackNamed } from './story-use.js';
 import { repairOf, useKit } from './wear.js';
 import { fitParty } from '../party/pools.js';
@@ -278,22 +279,43 @@ export const USE_GRAMMAR = '! use <item> | on: Name | by: Name | qty: 1 (someone
  * `data.removed` (stack ids) and `data.removedNames`. No off-hand with a
  * two-handed weapon (the weapon puts the off-hand away; an off-hand is refused while one is held).
  * What the piece gives is capped by its rarity at the wearer's level (v1 capItem), and the
- * summary says so.
+ * summary says so. `to` (UI 8f) names who wears it: any party member, the piece moved to them first when
+ * they do not hold it (canWear, the carry limit); without it, the stack's own wearer, as before.
  */
 export function itemEquip(ctx, payload) {
     const { stack, def, party, inventory } = stackFor(ctx, payload);
     const slot = def.slot;
     if (def.kind !== 'equipment' || !slot) ctx.fail('REFUSED', `The ${def.name} is not something to wear or wield.`);
     if (!(stack.qty > 0)) ctx.fail('NOT_ENOUGH', `There is no ${def.name} left.`);
-    const wearerId = wearerOf(stack, party);
+    // `to` (UI 8f): any party member may wear a piece of the bag. It is checked (canWear, the carry limit),
+    // moved to them through the inventory's transfer when they do not hold it, then worn as below.
+    const to = text(payload?.to);
+    let moved = null;
+    if (to) {
+        const taker = party.actors?.[to] ?? null;
+        if (!taker) ctx.fail('NOT_FOUND', 'That companion is not in the party.');
+        if (stack.equipped) ctx.fail('REFUSED', `${actorFor(ctx, party, wearerOf(stack, party)).name} already has the ${def.name} on.`);
+        const can = canWear(stateOf(ctx), { actor: to, stack: stack.id, settings: ctx.settings() });
+        if (!can.ok) ctx.fail('REFUSED', can.why);
+        if (wearerOf(stack, party) !== to) {
+            const fits = canCarry(inventoryOf(stateOf(ctx)), party, { owner: to, add: [{ def, qty: 1 }], move: true, settings: ctx.settings() });
+            if (!fits.ok) ctx.fail('REFUSED', fits.message);
+            // The main character's bag is the party's: a piece the party holds is theirs without a move.
+            if (!(stack.owner === 'party' && to === party.pc)) {
+                ctx.call('inventory.transfer', { stack: stack.id, to, qty: 1 });
+                moved = { from: stack.owner, to };
+            }
+        }
+    }
+    const wearerId = to || wearerOf(stack, party);
     const actor = actorFor(ctx, party, wearerId);
-    const asked = text(payload?.actor);
+    const asked = to ? '' : text(payload?.actor);
     if (asked && asked !== wearerId) {
         const other = party.actors?.[asked];
         if (!other) ctx.fail('NOT_FOUND', 'That companion is not in the party.');
         ctx.fail('REFUSED', `${actor.name} carries the ${def.name}: give it to ${other.name} first.`);
     }
-    if (stack.equipped) ctx.fail('REFUSED', `${actor.name} already has the ${def.name} on.`);
+    if (!to && stack.equipped) ctx.fail('REFUSED', `${actor.name} already has the ${def.name} on.`);
 
     const rules = rulesFrom(ctx.settings());
     const worn = wornBy(inventory, party, wearerId);
@@ -333,7 +355,7 @@ export function itemEquip(ctx, payload) {
     return {
         summary: `${actor.name} equips the ${def.name}${gives ? ` (${gives}${capped})` : ''}${swapped}.`,
         narrate: false,
-        data: { actor: wearerId, stack: stack.id, slot, key, stats: result.stats, capped: result.capped, removed: removed.map(entry => entry.stack.id), removedNames: removed.map(entry => entry.def?.name ?? '') },
+        data: { actor: wearerId, stack: stack.id, slot, key, stats: result.stats, capped: result.capped, removed: removed.map(entry => entry.stack.id), removedNames: removed.map(entry => entry.def?.name ?? ''), ...(moved ? { moved } : {}) },
     };
 }
 

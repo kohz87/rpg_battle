@@ -185,6 +185,7 @@ export function createModule({ settings = null, query = null } = {}) {
     const owners = { domain: {}, command: {}, query: {}, kind: {}, tab: {}, widget: {}, screen: {}, feature: {} };
     const hooks = {};
     const tabs = [];
+    const cards = {};
     const widgets = {};
     const screens = [];
     const features = [];
@@ -229,6 +230,11 @@ export function createModule({ settings = null, query = null } = {}) {
         for (const tab of part.tabs ?? []) {
             claim(owners.tab, tab.id, id, 'tab');
             tabs.push({ ...tab, render: (el, view, api) => tab.render(el, viewFor(view, id), api) });
+        }
+        // Cards under replies (Story Block's `cards` socket): { <id>: { for(state, message, ctx) } }, one id one part.
+        for (const [name, card] of Object.entries(part.cards ?? {})) {
+            claim(owners.card ??= {}, name, id, 'card');
+            cards[name] = card;
         }
         for (const [name, widget] of Object.entries(part.widgets ?? {})) {
             claim(owners.widget, name, id, 'widget');
@@ -344,6 +350,7 @@ export function createModule({ settings = null, query = null } = {}) {
         ...(features.length ? { features } : {}),
         settings: { defaults, schema },
         tabs: shownTabs,
+        ...(Object.keys(cards).length ? { cards } : {}),
         widgets,
         screens,
     };

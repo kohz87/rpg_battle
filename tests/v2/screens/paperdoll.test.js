@@ -1,64 +1,83 @@
-// The party card's EQUIPMENT (UI 8h): one card per member; the tiles the item rules define (weapon, off-hand,
-// armour, the worn piece, two accessories) and anything worn that does not count; a filled tile's actions (Take
-// off, Give…, Drop) and an empty tile's Equip… chooser, with the commands the items part keeps; several members; the
-// phone and tap-target rules in the CSS. The builder is pure; the rendering needs Story Block's template renderer
-// (helpers/runtime.js) and is skipped with the reason otherwise.
+// The party card's EQUIPMENT (UI 8h, 8f): the tiles the item rules define (Main hand, Off hand, Body, Worn, Accessory 1
+// and 2, counted by items.slots) and anything worn that does not count, each tile with only its slot, item, stats and
+// condition; the card with a member's compact card (the hero) and a fold button; the rest folds away. The builder is
+// pure; the card needs Story Block's template renderer (helpers/runtime.js) and is skipped with the reason otherwise.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { partyScreen } from '../../../src/v2/screens/index.js';
+import { EQUIPMENT_WIDGET, MEMBER_TOGGLE_WIDGET } from '../../../src/v2/screens/equipment.js';
 import { SLOT_GROUPS, SLOT_LABEL, keyNumber, paperdollOf } from '../../../src/v2/screens/paperdoll.js';
 import { renderer, rendererMissing } from './helpers/runtime.js';
 import { LYRA, PC, makeState } from './helpers/state.js';
 
 const skip = renderer ? false : rendererMissing;
 const helpers = renderer ? await import('./helpers/render.js') : null;
-const { all, click, draw, propsOf, text } = helpers ?? {};
+const { all, draw, propsOf, text } = helpers ?? {};
 
-const CHARM = 'Silver Charm of the Northern Winds, Blessed by the Old Watch of Bluewatch Village';
 const piece = (stack, slot, extra = {}) => ({ stack, name: `${stack} name`, slot, slotLabel: SLOT_LABEL[slot], rarity: 'common', stats: '', counted: true, why: '', condition: null, refine: null, ...extra });
 
 // ---------------------------------------------------------------------------------------------------
 // The builder (pure)
 
-test('paperdoll: with nothing worn the tiles are the rules\' slots, in order, all empty (weapon, off-hand, armour, worn, two accessories)', () => {
-    const card = paperdollOf({ actorId: PC, limits: { worn: 1, accessory: 2 } });
+test('paperdoll: with nothing worn the tiles are the rules\' slots, in order, named as the card names them, all empty', () => {
+    const card = paperdollOf({ limits: { worn: 1, accessory: 2 } });
     assert.deepEqual(card.tiles.map(tile => tile.key), ['weapon', 'offhand', 'armour', 'worn-1', 'accessory-1', 'accessory-2']);
-    assert.deepEqual(card.tiles.map(tile => tile.label), ['Weapon', 'Off-hand', 'Armour', 'Worn', 'Accessory', 'Accessory']);
+    assert.deepEqual(card.tiles.map(tile => tile.label), ['Main hand', 'Off hand', 'Body', 'Worn', 'Accessory 1', 'Accessory 2']);
     assert.equal(card.filled, 0);
     assert.equal(card.empty, 6);
     assert.deepEqual(SLOT_GROUPS, ['weapon', 'offhand', 'armour', 'worn', 'accessory'], 'the groups the rules define, and no tool');
 });
 
-test('paperdoll: a filled tile carries its piece, its quantity and the other members to give it to; an empty one the bag\'s pieces for it', () => {
-    const members = [{ id: PC, name: 'Ren' }, { id: LYRA, name: 'Lyra' }];
-    const card = paperdollOf({
-        actorId: PC, members, limits: { worn: 1, accessory: 2 }, qtys: { s1: 3 },
-        pieces: [piece('s1', 'weapon', { name: 'Iron Dagger' })], keys: { s1: 'weapon' },
-        bag: { accessory: [{ id: 's9', name: CHARM }] },
-    });
-    const [weapon, offhand, , , accessory1] = card.tiles;
-    assert.equal(weapon.filled, true);
-    assert.equal(weapon.name, 'Iron Dagger');
-    assert.equal(weapon.qty, 3);
-    assert.deepEqual(weapon.givers, [{ id: LYRA, name: 'Lyra' }], 'not to the wearer');
-    assert.equal(offhand.empty, true);
-    assert.deepEqual(offhand.equip, [], 'nothing in the bag for an off-hand');
-    assert.deepEqual(accessory1.equip, [{ id: 's9', name: CHARM }]);
+test('paperdoll: the tiles follow items.slots, so a rules split adds tiles without a change here', () => {
+    const card = paperdollOf({ limits: { worn: 2, accessory: 3 } });
+    assert.equal(card.tiles.filter(tile => tile.group === 'worn').length, 2);
+    assert.equal(card.tiles.filter(tile => tile.group === 'accessory').length, 3);
+    assert.deepEqual(card.tiles.filter(tile => tile.group === 'accessory').map(tile => tile.label), ['Accessory 1', 'Accessory 2', 'Accessory 3']);
 });
 
-test('paperdoll: an off-hand beside a two-handed weapon is not a slot to fill; the card says why', () => {
-    const card = paperdollOf({ actorId: PC, limits: { worn: 1, accessory: 2 }, twoHanded: true, pieces: [piece('s1', 'weapon')], keys: { s1: 'weapon' }, bag: { offhand: [{ id: 's2', name: 'Buckler' }] } });
+test('paperdoll: a filled tile carries its item, its stats and its condition; a refined piece shows its level in the name', () => {
+    const card = paperdollOf({
+        limits: { worn: 1, accessory: 2 },
+        pieces: [piece('s1', 'weapon', { name: 'Iron Dagger', stats: 'ATK +3', refine: { label: '+2' }, condition: { band: 'worn', label: 'Worn', cur: 52, max: 100 } })],
+        keys: { s1: 'weapon' },
+    });
+    const weapon = card.tiles[0];
+    assert.equal(weapon.filled, true);
+    assert.equal(weapon.name, 'Iron Dagger +2');
+    assert.equal(weapon.stats, 'ATK +3');
+    assert.equal(weapon.stack, 's1');
+    assert.equal(weapon.cond, 'Worn 52/100');
+    assert.equal(weapon.condTone, 'warn');
+    assert.deepEqual([weapon.meter, weapon.cur, weapon.max], [true, 52, 100]);
+    assert.equal(card.filled, 1);
+    assert.equal(card.tiles[1].empty, true);
+    assert.equal(card.tiles[1].name, '', 'an empty tile has no item');
+});
+
+test('paperdoll: a broken piece is red and says so; a piece without wear has no condition', () => {
+    const card = paperdollOf({
+        limits: { worn: 1, accessory: 2 },
+        pieces: [piece('a1', 'accessory', { condition: { band: 'broken', label: 'Broken', cur: 0, max: 100 } }), piece('b1', 'armour')],
+        keys: { a1: 'accessory-1', b1: 'armour' },
+    });
+    const accessory = card.tiles.find(tile => tile.key === 'accessory-1');
+    assert.equal(accessory.condTone, 'bad');
+    assert.equal(accessory.condBroken, true);
+    assert.equal(card.tiles.find(tile => tile.key === 'armour').meter, false);
+});
+
+test('paperdoll: an off-hand beside a two-handed weapon reads Two-handed; no item to fill it', () => {
+    const card = paperdollOf({ limits: { worn: 1, accessory: 2 }, twoHanded: true, pieces: [piece('s1', 'weapon')], keys: { s1: 'weapon' } });
     const offhand = card.tiles.find(tile => tile.key === 'offhand');
     assert.equal(offhand.empty, true);
-    assert.equal(offhand.note, 'Two-handed weapon');
-    assert.deepEqual(offhand.equip, [], 'no chooser');
+    assert.equal(offhand.note, 'Two-handed');
 });
 
 test('paperdoll: the worn pieces and the accessories fill their numbered tiles in key order', () => {
     const card = paperdollOf({
-        actorId: PC, limits: { worn: 1, accessory: 2 },
+        limits: { worn: 1, accessory: 2 },
         pieces: [piece('a2', 'accessory'), piece('a1', 'accessory'), piece('w1', 'worn')],
         keys: { a2: 'accessory-2', a1: 'accessory-1', w1: 'worn-1' },
     });
@@ -70,7 +89,7 @@ test('paperdoll: the worn pieces and the accessories fill their numbered tiles i
 
 test('paperdoll: a worn piece the rules do not count is shown after the slots, dashed, with why it does not count', () => {
     const card = paperdollOf({
-        actorId: PC, limits: { worn: 0, accessory: 2 },
+        limits: { worn: 0, accessory: 2 },
         pieces: [piece('h1', 'worn', { counted: false, why: 'no worn pieces count', slotLabel: 'Worn' })],
         keys: { h1: 'worn' },
     });
@@ -81,131 +100,58 @@ test('paperdoll: a worn piece the rules do not count is shown after the slots, d
     assert.equal(extra.why, 'no worn pieces count');
 });
 
-test('paperdoll: with several members each card has its own tiles (the members are the others, for Give…)', () => {
-    const members = [{ id: PC, name: 'Ren' }, { id: LYRA, name: 'Lyra' }];
-    const ren = paperdollOf({ actorId: PC, members, limits: { worn: 1, accessory: 2 }, pieces: [piece('s1', 'weapon')], keys: { s1: 'weapon' } });
-    const lyra = paperdollOf({ actorId: LYRA, members, limits: { worn: 1, accessory: 2 }, pieces: [piece('s2', 'weapon')], keys: { s2: 'weapon' } });
-    assert.equal(ren.filled, 1);
-    assert.equal(lyra.filled, 1);
-    assert.deepEqual(lyra.tiles[0].givers, [{ id: PC, name: 'Ren' }], 'a filled tile gives to the others');
-    assert.deepEqual(ren.tiles[0].givers, [{ id: LYRA, name: 'Lyra' }]);
-    assert.deepEqual(ren.tiles[1].givers, [], 'an empty tile has nobody to give to');
-});
-
 // ---------------------------------------------------------------------------------------------------
-// The rendered cards
+// The rendered card: the compact card, the fold, the EQUIPMENT tiles
 
-// A member's card: the one whose hero (ss.hero) is named so.
 const heroName = card => propsOf(all(card, 'ss-widget').find(widget => widget.getAttribute('name') === 'ss.hero'))?.value?.name ?? '';
 const cardOf = (root, name) => all(root, 'article.actor').find(card => heroName(card).startsWith(name));
-const dollOf = card => all(card, '.doll')[0];
-const buttonsIn = (root, command) => all(root, 'button').filter(button => button.getAttribute('data-command') === command);
+const widgetOf = (root, name) => all(root, 'ss-widget').find(widget => widget.getAttribute('name') === name) ?? null;
+// The two RPG Battle widgets draw for real (screens/widgets.js), so the tests read what they draw.
+const toggleOf = card => all(card, '.rpg-toggle')[0] ?? null;
+const tilesOf = card => all(widgetOf(card, EQUIPMENT_WIDGET) ?? card, '.rpg-eq-tile').map(node => ({
+    label: text(node.querySelector('.rpg-eq-slot')), filled: node.classList.contains('filled'), empty: node.classList.contains('empty'),
+}));
 
-/** Ren's state with a charm in the party's bag that fits the empty accessory slot (its name is 70+ characters). */
-function withCharm() {
-    const state = makeState();
-    const inventory = state.domains.inventory;
-    inventory.defs['story/silver-charm'] = { ...inventory.defs['story/steel-blade'], id: 'story/silver-charm', name: CHARM, slot: 'accessory', tags: [] };
-    inventory.stacks.it_charm001 = { id: 'it_charm001', def: 'story/silver-charm', qty: 1, owner: 'party', equipped: null, note: '', from: 'rc_seed0001' };
-    return state;
-}
-
-test('party card: EQUIPMENT is a section per member: the portrait and name, then a tile per slot the rules define', { skip }, () => {
+test('party card: the member header has the fold button (the lead open, the others folded); the hero is the compact card', { skip }, () => {
     const drawn = draw(partyScreen, makeState());
     assert.deepEqual(drawn.warnings, []);
-    const cards = all(drawn.el, 'article.actor');
-    assert.equal(cards.length, 2, 'one card per party member');
-    for (const card of cards) {
+    const [ren, lyra] = all(drawn.el, 'article.actor');
+    assert.ok(widgetOf(ren.querySelector('.member-head'), MEMBER_TOGGLE_WIDGET), 'the fold button is in the header');
+    assert.equal(toggleOf(ren).getAttribute('aria-expanded'), 'true');
+    assert.equal(toggleOf(ren).getAttribute('aria-label'), 'Hide Ren');
+    assert.equal(ren.getAttribute('data-open'), 'true', 'the lead opens');
+    assert.equal(toggleOf(lyra).getAttribute('aria-expanded'), 'false');
+    assert.equal(toggleOf(lyra).getAttribute('aria-label'), 'Show Lyra');
+    assert.equal(lyra.getAttribute('data-open'), 'false', 'the others fold');
+    // The hero stands outside the folding part: it stays when the card folds.
+    assert.equal(widgetOf(ren, 'ss.hero').parentNode.classList.contains('rest'), false);
+    assert.equal(all(ren.querySelector('.rest'), 'ss-widget[name="ss.hero"]').length, 0);
+    assert.equal(all(ren, '.member-head ss-widget[name="ss.hero"]').length, 0);
+});
+
+test('party card: EQUIPMENT is the heading and the tiles, all inside the part that folds; no portrait or name block', { skip }, () => {
+    const drawn = draw(partyScreen, makeState());
+    for (const card of all(drawn.el, 'article.actor')) {
         const heading = all(card, '.doll-block h4.ss-section-label');
         assert.equal(heading.length, 1);
         assert.equal(text(heading[0]), 'Equipment');
-        assert.equal(all(card, '.doll .slot').length, 6, 'weapon, off-hand, armour, worn, two accessories');
-        assert.equal(all(card, '.doll .figure ss-widget[name="ss.portrait"]').length, 1, 'the portrait (initials when there is none)');
+        assert.equal(card.querySelector('.rest').contains(widgetOf(card, EQUIPMENT_WIDGET)), true, 'folded with the rest');
+        assert.equal(all(card, '.doll-name').length, 0, 'the character is on the card above, not here');
+        assert.equal(all(card, 'ss-widget[name="ss.hero"]').length, 1, 'the compact card (the hero) once');
     }
-    const [ren, lyra] = cards;
-    assert.equal(text(all(ren, '.doll .doll-name')[0]), 'Ren');
-    assert.equal(text(all(lyra, '.doll .doll-name')[0]), 'Lyra');
-    assert.equal(all(ren, '.doll .tile.filled').length, 1, 'Ren has one piece on');
-    assert.equal(all(lyra, '.doll .tile.filled').length, 0, 'Lyra wears nothing');
-    assert.equal(all(lyra, '.doll .tile.empty').length, 6);
-    // The old list of worn pieces and its labels are gone.
+    const [ren, lyra] = all(drawn.el, 'article.actor');
+    assert.equal(tilesOf(ren).length, 6, 'Main hand, Off hand, Body, Worn, Accessory 1, Accessory 2');
+    assert.deepEqual(tilesOf(ren).map(tile => tile.label), ['Main hand', 'Off hand', 'Body', 'Worn', 'Accessory 1', 'Accessory 2']);
+    assert.equal(tilesOf(ren).filter(tile => tile.filled).length, 1, 'Ren has one piece on');
+    assert.equal(tilesOf(lyra).filter(tile => tile.filled).length, 0, 'Lyra wears nothing');
     assert.equal(all(drawn.el, '.gear').length, 0);
     assert.equal(all(drawn.el, '.piece').length, 0);
 });
 
-test('party card: an empty slot reads Empty (muted) and is inert when the bag has nothing for it', { skip }, () => {
+test('party card: the tiles hold no commands: the unequip is the widget\'s own, on a second tap', { skip }, () => {
     const drawn = draw(partyScreen, makeState());
-    const empty = all(cardOf(drawn.el, 'Ren'), '.doll .tile.empty');
-    assert.equal(empty.length, 5);
-    for (const tile of empty) {
-        assert.equal(text(tile.querySelector('.item-name')), 'Empty');
-        assert.equal(tile.querySelector('details.equip'), null, 'no chooser without a piece for it');
+    for (const command of ['item.unequip', 'item.equip', 'item.give', 'inventory.drop']) {
+        assert.equal(all(drawn.el, 'button').filter(button => button.getAttribute('data-command') === command).length, 0, command);
     }
-});
-
-test('party card: a filled slot is a disclosure whose actions send item.unequip, item.give and inventory.drop with their payloads', { skip }, async () => {
-    const drawn = draw(partyScreen, makeState());
-    assert.deepEqual(drawn.warnings, []);
-    const tile = all(cardOf(drawn.el, 'Ren'), '.doll .tile.filled')[0];
-    assert.equal(text(tile.querySelector('.item-name')).includes('Iron Dagger'), true);
-    assert.equal(tile.tagName, 'DETAILS');
-    assert.equal(tile.querySelector('summary').classList.contains('tile-face'), true);
-    // Take off
-    const takeOff = buttonsIn(tile, 'item.unequip');
-    assert.equal(takeOff.length, 1);
-    assert.equal(text(takeOff[0]).trim(), 'Take off');
-    await click(takeOff[0]);
-    assert.deepEqual(drawn.commands.pop(), { type: 'item.unequip', payload: { stack: 'it_dagger01' } });
-    // Give… to the other member
-    const give = all(tile, 'details.give');
-    assert.equal(give.length, 1);
-    const toLyra = buttonsIn(give[0], 'item.give');
-    assert.deepEqual(toLyra.map(text), ['Lyra']);
-    await click(toLyra[0]);
-    assert.deepEqual(drawn.commands.pop(), { type: 'item.give', payload: { stack: 'it_dagger01', to: LYRA } });
-    // Drop: the whole stack, after the confirm
-    const drop = buttonsIn(tile, 'inventory.drop');
-    assert.equal(drop.length, 1);
-    await click(drop[0]);
-    assert.deepEqual(drawn.commands.pop(), { type: 'inventory.drop', payload: { stack: 'it_dagger01', qty: 1 } });
-});
-
-test('party card: an empty slot with a piece for it offers Equip… (item.equip { stack }); the name is the whole 70+ characters', { skip }, async () => {
-    const drawn = draw(partyScreen, withCharm());
-    assert.deepEqual(drawn.warnings, []);
-    assert.ok(CHARM.length >= 70, 'the fixture name is 70+ characters');
-    const accessories = all(cardOf(drawn.el, 'Ren'), '.doll .tile.empty').filter(tile => tile.querySelector('details.equip'));
-    assert.equal(accessories.length, 2, 'both accessory slots are empty, and the charm fits either');
-    const equip = buttonsIn(accessories[1], 'item.equip');
-    assert.deepEqual(equip.map(text), [CHARM]);
-    await click(equip[0]);
-    assert.deepEqual(drawn.commands.pop(), { type: 'item.equip', payload: { stack: 'it_charm001' } });
-    assert.equal(all(cardOf(drawn.el, 'Lyra'), 'details.equip').length, 0, 'the bag\'s pieces go to the main character, so Lyra has no chooser');
-});
-
-test('party card: the tiles and their actions read the same after a redraw (the same payloads)', { skip }, async () => {
-    const drawn = draw(partyScreen, makeState());
-    const before = all(cardOf(drawn.el, 'Ren'), '.doll .slot').map(slot => slot.getAttribute('data-class') ?? slot.className);
-    drawn.rerender(makeState());
-    const after = all(cardOf(drawn.el, 'Ren'), '.doll .slot').map(slot => slot.getAttribute('data-class') ?? slot.className);
-    assert.deepEqual(after, before);
-    assert.equal(all(cardOf(drawn.el, 'Ren'), '.doll .tile.filled').length, 1);
-});
-
-// ---------------------------------------------------------------------------------------------------
-// The CSS: the phone stacks the portrait over the grid, the tiles and the actions are 44px tall at least
-
-test('party card CSS: under 420px of card the portrait sits on top of the grid; from 420px it is the left block (3 to 7), taller than wide', () => {
-    const css = partyScreen.css;
-    assert.match(css, /\.doll \{ display: grid; gap: 10px; grid-template-columns: minmax\(0, 1fr\);/, 'a phone: one column');
-    assert.match(css, /@container rb-doll \(min-width: 420px\) \{\s*\.doll \{ grid-template-columns: minmax\(0, 3fr\) minmax\(0, 7fr\); \}\s*\.figure \{ aspect-ratio: 3 \/ 4;/);
-    assert.match(css, /\.slots \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/, 'two columns on every width');
-});
-
-test('party card CSS: every tap target (a tile, its disclosure, an action) is at least 44px tall', () => {
-    const css = partyScreen.css;
-    assert.match(css, /\.tile-face \{[^}]*min-height: 44px;/);
-    assert.match(css, /\.tile\.empty \{[^}]*min-height: 44px;/);
-    assert.match(css, /\.doll \.acts > \.ss-button, \.doll \.pick > summary \{ min-height: 44px; \}/);
-    assert.match(css, /\.doll \.pick \.choices \.ss-button \{ min-height: 44px;/);
+    assert.deepEqual(drawn.commands, []);
 });

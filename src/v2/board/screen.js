@@ -11,6 +11,21 @@
 
 export const FIGHT_SCREEN_ID = 'rpg-battle/fight';
 
+/**
+ * Shown on the bar (and the More sheet) only while there is something to act on: a fight on, or an offer waiting. The red
+ * dot (`alert`) marks a move the reader must make now, or an offer. Off, the screen still opens by id (a battle card's Fight).
+ */
+export function fightActive(state, ctx) {
+    let session = null;
+    let offers = [];
+    try { session = ctx?.query?.('combat.session', {}) ?? null; } catch { session = null; }
+    try { offers = ctx?.query?.('combat.offers', {}) ?? []; } catch { offers = []; }
+    const fighting = Boolean(session && session.status === 'active');
+    const waiting = Array.isArray(offers) && offers.length > 0;
+    const alert = (fighting && Boolean(session.actions?.actor)) || waiting;
+    return alert ? { on: true, badge: 'alert' } : { on: fighting || waiting };
+}
+
 const lastBody = `    <div class="rb-last" data-if="q.last.parts != null" data-class="won: q.last.parts.outcome == 'victory'; lost: q.last.parts.outcome == 'defeat'">
       <p class="rb-last-result">{{ q.last.parts.result }}</p>
       <ul class="rb-last-party" aria-label="The party after the fight">
@@ -114,6 +129,7 @@ export const fightScreen = Object.freeze({
     title: 'Fight',
     icon: 'fa-khanda',
     mounts: Object.freeze(['tab', 'screen']),
+    active: fightActive,
     template,
     css,
     data: Object.freeze({

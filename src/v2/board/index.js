@@ -13,6 +13,7 @@
 import { battleBoard, WIDGET_NAME } from './widget.js';
 import { boardView } from './query.js';
 import { fightScreen } from './screen.js';
+import { battleCard, BATTLE_CARD_ID } from './cards.js';
 
 export { battleBoard, WIDGET_NAME, OUTCOME_TITLES, LOG_LINES } from './widget.js';
 export { CONDITION_LABELS, boardView, resultOf } from './query.js';
@@ -27,6 +28,8 @@ export const part = {
     kinds: {},
     hooks: {},
     tabs: [],
+    // The battle card under the reply that started a fight (UI 8f); the Fight screen's `active` shows its tab while one is on.
+    cards: { [BATTLE_CARD_ID]: battleCard },
     widgets: { [WIDGET_NAME]: battleBoard },
     screens: [fightScreen],
 };

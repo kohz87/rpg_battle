@@ -72,7 +72,8 @@ export const initialCreation = () => ({ rolled: [] });
 export function validateCreation(slice) {
     if (!isRecord(slice)) return ['creation is not a record.'];
     const errors = [];
-    for (const key of Object.keys(slice)) if (key !== 'rolled') errors.push(`creation.${key} is not a field (only rolled).`);
+    for (const key of Object.keys(slice)) if (key !== 'rolled' && key !== 'skipped') errors.push(`creation.${key} is not a field (only rolled and skipped).`);
+    if (slice.skipped !== undefined && typeof slice.skipped !== 'boolean') errors.push('creation.skipped must be true or false.');
     if (!Array.isArray(slice.rolled)) errors.push('creation.rolled must be a list.');
     else {
         if (slice.rolled.some(id => typeof id !== 'string' || !id.trim() || id.length > 120)) errors.push('creation.rolled must list talent ids.');
@@ -283,6 +284,17 @@ function rollTalent(ctx, payload = {}) {
     };
 }
 
+/**
+ * creation.skipStart(): the reader sets the start card aside (its Skip). The card then stays away until a character is made;
+ * the wizard is still open from the Party screen. A game-state flag, so a swipe or a rollback undoes it with its reply.
+ */
+function skipStart(ctx) {
+    if (hasPc(readParty(ctx))) fail(ctx, 'REFUSED', 'You already have a character.');
+    const slice = ctx.draft('creation');
+    slice.skipped = true;
+    return { summary: 'Skipped making a character for now.', data: {}, narrate: false };
+}
+
 // ---------------------------------------------------------------------------------------
 // A character from another story (MODULES §F66)
 
@@ -401,6 +413,7 @@ export const commands = {
     'creation.finish': finish,
     'creation.rollTalent': rollTalent,
     'creation.import': importCharacter,
+    'creation.skipStart': skipStart,
 };
 
 export const queries = {

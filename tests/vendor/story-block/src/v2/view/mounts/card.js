@@ -26,6 +26,7 @@
 //   opsAt           (index) → the carrier's own ops (optional; cards get them as `replyOps`)
 //   IntersectionObserver  the class to use (default globalThis.IntersectionObserver; null turns it off)
 //   eventSource, eventTypes   SillyTavern's, to follow swipes, edits, deletes and renders (optional)
+//   replyCards      (index) → the reply cards a module put under that message, drawn after the changes card (optional; reply-cards.js)
 //   cacheLimit      how many drawn cards to keep (default 200)
 //   recent          how many of the last carriers a `head` pass goes over besides those on screen (default RECENT)
 //
@@ -83,6 +84,8 @@ export function createCardMount(deps) {
         try { return deps.stateAt(prev); } catch { return null; }
     };
     const cacheLimit = deps.cacheLimit ?? 200;
+    // Reply cards are looked for only when a module declares some (`hasReplyCards`); without one nothing is looked up for them.
+    const repliesOn = () => Boolean(deps.replyCards && (typeof deps.hasReplyCards !== 'function' || deps.hasReplyCards()));
     const Observer = deps.IntersectionObserver === undefined ? globalThis.IntersectionObserver : deps.IntersectionObserver;
 
     const cache = new Map();            // key → { node, index }, oldest first
@@ -185,7 +188,7 @@ export function createCardMount(deps) {
         let box = boxOf(message);
         const isCarrier = carriers ? carriers.has(index) : deps.carriers().includes(index);
         const entries = isCarrier && hasCard(index) ? on ?? screensFor(deps, 'card') : [];
-        if (!entries.length) {
+        if (!entries.length && !repliesOn()) {
             box?.remove();
             return;
         }
@@ -195,6 +198,13 @@ export function createCardMount(deps) {
                 observer.observe(message);
             }
             if (!visible.has(index)) return;
+        }
+        // The cards a module put under this reply (reply-cards.js): drawn after the changes card, in the same strip. They are not
+        // gated on the reply's own record: the first assistant message (the greeting too) can carry one.
+        const replies = isCarrier && repliesOn() ? deps.replyCards(index) : [];
+        if (!entries.length && !replies.length) {
+            box?.remove();
+            return;
         }
         const state = deps.stateAt(index);
         const rev = Number.isInteger(state?.meta?.rev) ? state.meta.rev : 0;
@@ -214,6 +224,7 @@ export function createCardMount(deps) {
         }
         box.setAttribute('data-ss-index', String(index));
         const current = Array.from(box.children);
+        nodes.push(...replies);
         if (current.length !== nodes.length || current.some((node, i) => node !== nodes[i])) box.replaceChildren(...nodes);
     }
 
@@ -224,7 +235,7 @@ export function createCardMount(deps) {
      */
     function attachAll({ recent = false } = {}) {
         const entries = screensFor(deps, 'card');
-        if (!entries.length) {
+        if (!entries.length && !repliesOn()) {
             // No card screen is on: nothing to draw anywhere; a box left from before goes.
             for (const box of Array.from(doc.querySelectorAll?.('.ss-cards') ?? [])) box.remove();
             return;
@@ -250,10 +261,16 @@ export function createCardMount(deps) {
         attachAll();
     }
 
-    // A change to the story only changes the head carrier's own state and ops.
+    // A change to the story only changes the head carrier's own state and ops. A reply card another message carries can end or move
+    // with it, so the messages on screen are looked at again when the module's cards are on (`replyCards`).
     function onCommitted() {
         const index = typeof deps.headIndex === 'function' ? deps.headIndex() : null;
         if (Number.isInteger(index) && index >= 0) refresh(index);
+        if (repliesOn()) refreshDrawnMessages();
+    }
+    function refreshDrawnMessages() {
+        const drawn = drawnMessages();
+        if (drawn) for (const [index, element] of drawn) refresh(index, { element });
     }
 
     /** Opens or closes one card (the header button does this). */
@@ -285,7 +302,7 @@ export function createCardMount(deps) {
 
     const offs = [];
     if (typeof deps.on === 'function') {
-        for (const [event, fn] of [['head', () => attachAll({ recent: true })], ['committed', onCommitted]]) {
+        for (const [event, fn] of [['head', () => { attachAll({ recent: true }); if (repliesOn()) refreshDrawnMessages(); }], ['committed', onCommitted]]) {
             const off = deps.on(event, fn);
             if (typeof off === 'function') offs.push(off);
         }

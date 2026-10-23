@@ -17,6 +17,10 @@ const skip = renderer ? false : rendererMissing;
 const helpers = renderer ? await import('./helpers/render.js') : null;
 const { all, click, draw, propsOf, text } = helpers ?? {};
 
+// The EQUIPMENT tiles: RPG Battle's rpg-battle.equipment widget (drawn for real), one tile per slot the rules count.
+const equipmentOf = card => all(card, 'ss-widget').find(el => el.getAttribute('name') === 'rpg-battle.equipment') ?? null;
+const tilesIn = card => all(equipmentOf(card), '.rpg-eq-tile');
+const filledIn = card => tilesIn(card).filter(tile => tile.classList.contains('filled'));
 const buttons = (root, command) => all(root, 'button').filter(button => button.getAttribute('data-command') === command);
 const widgetsIn = (root, name) => all(root, 'ss-widget').filter(el => el.getAttribute('name') === name);
 // A member's hero props (ss.hero, bound as `value`), and the card of the member by name.
@@ -75,24 +79,22 @@ test('party: worn gear with its condition band and refinement, active effects, t
     const drawn = draw(partyScreen, makeState(), { queries: SIBLINGS });
     assert.deepEqual(drawn.warnings, []);
     const ren = cardOf(drawn.el, 'Ren');
-    // The EQUIPMENT card: one tile per slot the rules define (weapon, off-hand, armour, worn, two accessories),
+    // The EQUIPMENT tiles: one per slot the rules define (Main hand, Off hand, Body, Worn, Accessory 1 and 2),
     // Ren's dagger filled, the rest empty (UI 8h).
-    assert.equal(all(ren, '.doll .slot').length, 6);
-    const [piece] = all(ren, '.doll .tile.filled');
-    assert.equal(all(ren, '.doll .tile.filled').length, 1);
-    assert.equal(text(piece.querySelector('.item-name')), '+2Iron Dagger');
-    assert.equal(text(piece.querySelector('.refine')), '+2');
-    assert.equal(piece.querySelector('.tile-face').getAttribute('title'), 'Weapon · ATK +3');
-    const band = piece.querySelector('.cond');
+    assert.deepEqual(tilesIn(ren).map(tile => text(tile.querySelector('.rpg-eq-slot'))), ['Main hand', 'Off hand', 'Body', 'Worn', 'Accessory 1', 'Accessory 2']);
+    const [piece] = filledIn(ren);
+    assert.equal(filledIn(ren).length, 1);
+    assert.equal(text(piece.querySelector('.rpg-eq-name')), 'Iron Dagger +2');
+    assert.equal(text(piece.querySelector('.rpg-eq-sub')), 'ATK +3');
+    const band = piece.querySelector('.rpg-eq-cond');
     assert.ok(band.classList.contains('ss-tone-warn'));
-    // The durability is on screen (the tile's number and bar), not only in the title.
-    assert.equal(text(band), 'Worn 52/100');
-    assert.equal(band.getAttribute('title'), 'Condition: Worn · 52/100');
-    assert.equal(band.querySelector('.bar').styleProps['--ss-fill'], '0.52');
+    // The durability is on the tile as a bar, and its number is in the title.
+    assert.equal(band.getAttribute('title'), 'Worn 52/100');
+    assert.equal(band.querySelector('.rpg-eq-bar').getAttribute('style'), '--rpg-ratio: 0.52');
     // Lyra wears nothing: a card with her slots, all empty.
     const lyraCard = cardOf(drawn.el, 'Lyra');
-    assert.equal(all(lyraCard, '.doll .tile.filled').length, 0, 'Lyra wears nothing');
-    assert.equal(all(lyraCard, '.doll .tile.empty').length, 6);
+    assert.equal(filledIn(lyraCard).length, 0, 'Lyra wears nothing');
+    assert.equal(tilesIn(lyraCard).filter(tile => tile.classList.contains('empty')).length, 6);
     assert.deepEqual(all(ren.querySelector('.effects'), '.effect').map(el => [text(el), el.getAttribute('title')]), [['Blessed · 2 h', 'Blessed, 2 h left, from a shrine']]);
     // A good effect reads as good (the tone from party.effects): its pill carries the good ring.
     assert.ok(all(ren.querySelector('.effects'), '.effect')[0].classList.contains('ss-tone-good'));
@@ -105,9 +107,9 @@ test('party: with wear, refinement and effects off (their queries give nothing) 
     const drawn = draw(partyScreen, makeState(), { queries: { 'items.condition': () => null, 'party.effects': () => [], 'party.encumbered': () => null } });
     assert.deepEqual(drawn.warnings, []);
     const ren = cardOf(drawn.el, 'Ren');
-    assert.equal(all(ren, '.doll .tile.filled').length, 1);
-    assert.equal(ren.querySelector('.cond') === null, true, 'no band');
-    assert.equal(ren.querySelector('.refine') === null, true, 'no refinement');
+    assert.equal(filledIn(ren).length, 1);
+    assert.equal(equipmentOf(ren).querySelector('.rpg-eq-cond') === null, true, 'no band');
+    assert.doesNotMatch(text(filledIn(ren)[0].querySelector('.rpg-eq-name')), /\+2/, 'no refinement');
     assert.equal(ren.querySelector('.effects') === null, true, 'no effects');
     assert.equal(ren.querySelector('.burden') === null, true, 'not encumbered');
 });
@@ -130,10 +132,10 @@ test('party: every wear band gets its class; a broken piece its own icon', { ski
     for (const band of Object.keys(tone)) {
         const drawn = draw(partyScreen, makeState(), { queries: { 'items.condition': () => ({ band, cur: band === 'broken' ? 0 : 50, max: 100, refine: 0 }) } });
         assert.deepEqual(drawn.warnings, [], band);
-        const chip = cardOf(drawn.el, 'Ren').querySelector('.cond');
+        const chip = filledIn(cardOf(drawn.el, 'Ren'))[0].querySelector('.rpg-eq-cond');
         assert.ok(chip.classList.contains(tone[band]), band);
-        assert.equal(chip.querySelectorAll('.fa-heart-crack').length, band === 'broken' ? 1 : 0, band);
-        assert.equal(cardOf(drawn.el, 'Ren').querySelector('.refine') === null, true);
+        assert.equal(chip.classList.contains('broken'), band === 'broken', band);
+        assert.doesNotMatch(text(filledIn(cardOf(drawn.el, 'Ren'))[0].querySelector('.rpg-eq-name')), /\+\d/, band);
     }
 });
 
