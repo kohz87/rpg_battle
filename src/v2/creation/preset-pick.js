@@ -91,7 +91,7 @@ export function renderPresetPick(el, props = {}, api = {}) {
             if (parts) card.append(make(doc, 'div', 'rpg-preset-origin', parts));
             if (str(preset.skillNames, 300)) card.append(make(doc, 'div', 'rpg-preset-skills', `Skills: ${str(preset.skillNames, 300)}`));
             if (str(preset.note)) card.append(make(doc, 'div', 'rpg-preset-note', str(preset.note)));
-            const go = make(doc, 'button', 'menu_button rpg-preset-go', chosen === preset.id ? 'Chosen (click to clear)' : 'Start from this');
+            const go = make(doc, 'button', chosen === preset.id ? 'ss-button ss-button-primary rpg-preset-go' : 'ss-button rpg-preset-go', chosen === preset.id ? 'Chosen (click to clear)' : 'Start from this');
             go.type = 'button';
             go.setAttribute('aria-pressed', chosen === preset.id ? 'true' : 'false');
             // The chosen one clicked again is put back: as "My own", nothing picked.
@@ -99,7 +99,7 @@ export function renderPresetPick(el, props = {}, api = {}) {
             card.append(go);
             root.append(card);
         }
-        const own = make(doc, 'button', 'menu_button rpg-preset-own', 'My own');
+        const own = make(doc, 'button', 'ss-button rpg-preset-own', 'My own');
         own.type = 'button';
         own.setAttribute('aria-pressed', chosen ? 'false' : 'true');
         own.addEventListener('click', () => pick(MY_OWN()));

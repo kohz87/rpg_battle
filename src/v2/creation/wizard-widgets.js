@@ -37,7 +37,7 @@ function make(doc, tag, className = '', text = '') {
 }
 
 function button(doc, className, label) {
-    const node = make(doc, 'button', `menu_button ${className}`, label);
+    const node = make(doc, 'button', `ss-button ${className}`, label);
     node.type = 'button';
     return node;
 }
@@ -199,7 +199,7 @@ export async function importFile(file, api, doc = null) {
 export function renderImportPick(el, props = {}, api = {}) {
     const doc = el.ownerDocument;
     const root = make(doc, 'div', 'ss-w rpg-import');
-    const label = make(doc, 'label', 'menu_button rpg-import-go');
+    const label = make(doc, 'label', 'ss-button rpg-import-go');
     const input = make(doc, 'input', 'rpg-import-file');
     input.type = 'file';
     input.setAttribute('accept', '.json,application/json');

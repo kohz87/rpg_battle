@@ -35,7 +35,7 @@ test('the part exports the five default screens under the new `screens` key, its
     assert.equal(byId['rpg-battle/items'], undefined);
     assert.equal(part.screens, screens);
     assert.deepEqual(Object.keys(part.queries).sort(), ['rpg-battle.cards', 'rpg-battle.carry', 'rpg-battle.crafting', 'rpg-battle.heroes', 'rpg-battle.hud', 'rpg-battle.itemDetail', 'rpg-battle.trade']);
-    assert.deepEqual(Object.keys(part.widgets).sort(), ['rpg-battle.character-file', 'rpg-battle.item-detail']);
+    assert.deepEqual(Object.keys(part.widgets).sort(), ['rpg-battle.character-file', 'rpg-battle.item-detail', 'rpg-battle.skill-tree']);
     for (const widget of Object.values(part.widgets)) {
         assert.equal(typeof widget.render, 'function');
         assert.deepEqual(widget.validate({}), []);
@@ -192,7 +192,8 @@ test('buttons run commands RPG Battle has; widgets are the standard ss.* set', (
     ]);
     assert.doesNotMatch(byId['rpg-battle/crafting'].template, /data-command|<button/);
     const widgets = new Set(screens.flatMap(screen => [...screen.template.matchAll(WIDGET_TAG)].map(match => match[1])));
-    for (const name of ['ss.hero', 'ss.tiers', 'ss.radar', 'ss.stepper', 'ss.bar', 'ss.status']) assert.ok(widgets.has(name), `a screen uses ${name}`);
+    for (const name of ['ss.hero', 'ss.radar', 'ss.stepper', 'ss.bar', 'ss.status']) assert.ok(widgets.has(name), `a screen uses ${name}`);
+    assert.ok(widgets.has('rpg-battle.skill-tree'), 'the Party card\'s skills are the skill tree (tiers and branches drawn by RPG Battle)');
     // Story Block's blocks replace the old widgets the screens used to draw (ss.meter, ss.badge, ss.skill-tree).
     for (const name of ['ss.meter', 'ss.badge', 'ss.skill-tree']) assert.ok(!widgets.has(name), `no screen draws ${name} any more`);
 });
