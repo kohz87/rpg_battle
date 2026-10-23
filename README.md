@@ -111,7 +111,7 @@ groups. The ones that matter:
   fights land on their target in about 30-36% of test cases. Tuning per build comes after the beta.
 - Conditions and recovery by time need Story Director's clock; RPG Battle alone has no story time.
 - Quest-sized fights (enough foes for a quest's real progress) need Story Director; without it a fight is as the story wrote it.
-- The look of some cards and of the settings screen is still to be redesigned.
+- The look of the settings screen is still to be redesigned.
 
 The full list is in Story Block's [RELEASES](https://github.com/kohz87/Story_block/blob/v2/docs/v2/RELEASES.md).
 
