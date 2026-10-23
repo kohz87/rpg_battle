@@ -72,7 +72,7 @@ test('cards: skills are tiles (ss.tiers) grouped by tier, those in use first, st
     assert.deepEqual(ren.tiers.tiers.map(tier => tier.title), ['Tier 1', 'Tier 2', 'Taught by the story']);
     assert.deepEqual(ren.tiers.tiers[0].tiles.map(tile => [tile.label, tile.state]), [['Power Strike', 'ready'], ['Quick Stab', 'ready'], ['Firebolt', 'none']]);
     // The count is the level; the hint says the uses toward the next one.
-    assert.equal(ren.tiers.tiers[0].tiles[0].count, 'Lv 2');
+    assert.equal(ren.tiers.tiers[0].tiles[0].count, '2');
     assert.equal(ren.tiers.tiers[0].tiles[0].icon, 'fa-hand-fist');
     assert.match(ren.tiers.tiers[0].tiles[0].hint, /^Lv 2 · \d+\/\d+ uses to Lv 3$/);
     assert.equal(ren.tiers.tiers[2].tiles[0].label, 'Shadow Cut');

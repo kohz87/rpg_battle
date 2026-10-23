@@ -82,10 +82,14 @@ test('party: worn gear with its condition band and refinement, active effects, t
     assert.equal(text(piece.querySelector('.ss-listcard-sub')), 'Weapon · ATK +3');
     const band = piece.querySelector('.ss-listcard-tag');
     assert.ok(band.classList.contains('ss-tone-warn'));
-    assert.equal(text(band), 'Worn');
+    // The durability is on screen (the tag's number and bar), not only in the title.
+    assert.equal(text(band), 'Worn 52/100');
     assert.equal(band.getAttribute('title'), 'Condition: Worn · 52/100');
+    assert.equal(band.querySelector('.gear-track').styleProps['--ss-fill'], '0.52');
     assert.equal(cardOf(drawn.el, 'Lyra').querySelector('.gear') === null, true, 'Lyra wears nothing');
     assert.deepEqual(all(ren.querySelector('.effects'), '.effect').map(el => [text(el), el.getAttribute('title')]), [['Blessed · 2 h', 'Blessed, 2 h left, from a shrine']]);
+    // A good effect reads as good (the tone from party.effects): its pill carries the good ring.
+    assert.ok(all(ren.querySelector('.effects'), '.effect')[0].classList.contains('ss-tone-good'));
     assert.equal(cardOf(drawn.el, 'Lyra').querySelector('.effects') === null, true);
     assert.match(text(drawn.el.querySelector('.carry')), /^Carrying \d+ of \d+/);
     checkProps(drawn);

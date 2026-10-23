@@ -23,8 +23,8 @@ import { clockOf, fitParty, minutesLeft } from '../party/pools.js';
 
 export const MODULE_ID = 'rpg-battle';
 
-// The rows of a list a screen draws as ss.listcard rows: at most 100 (Story Block's ROW_MAX, view/widgets/listcard.js).
-export const LIST_ROWS_MAX = 100;
+// The Crafting screen's recipes per character (the template's rows, not ss.listcard): at most 200, as before.
+export const RECIPES_MAX = 200;
 
 const copy = value => JSON.parse(JSON.stringify(value ?? null));
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -234,7 +234,8 @@ export function skillTiers(skills) {
                     id: skill.name,
                     label: skill.name,
                     icon: skill.icon,
-                    count: `Lv ${skill.level}`,
+                    // The badge is about 30px: the digit only ("Lv 2" overflows it); the hint says "Lv 2".
+                    count: String(skill.level),
                     state: skill.active ? 'ready' : 'none',
                     hint: cutTo(`Lv ${skill.level}${skill.progress ? ` · ${skill.progress}` : ''}`, 60),
                     kind: skill.type,
@@ -638,7 +639,6 @@ export function trade(state, args = {}, tools = null) {
             const def = defs[stack.def];
             const quote = tryQuery(tools, 'trade.quote', { type: 'sell', stack: stack.id, qty: 1 });
             const each = quote?.ok ? int(quote.each ?? quote.total) : null;
-            if (out.sell.length >= LIST_ROWS_MAX) break;
             out.sell.push({
                 stack: stack.id, name: String(def.name ?? ''), qty: stack.qty, note: stack.qty > 1 ? '' : String(def.note ?? ''),
                 each, price: each === null ? '—' : shortPrice(each, currency),
@@ -650,7 +650,7 @@ export function trade(state, args = {}, tools = null) {
         const shops = Array.isArray(packed) && packed.length ? packed.map(shop => ({ kind: shop.slug, label: shop.name })) : TRADERS;
         shops.forEach((trader, index) => {
             const stock = tryQuery(tools, 'trade.stock', { kind: trader.kind });
-            const rows = (Array.isArray(stock?.items) ? stock.items : []).slice(0, LIST_ROWS_MAX).map(item => ({
+            const rows = (Array.isArray(stock?.items) ? stock.items : []).map(item => ({
                 def: String(item?.def?.id ?? ''), name: String(item?.def?.name ?? ''), note: String(item?.note ?? item?.def?.note ?? ''),
                 rarity: String(item?.def?.rarity ?? 'common'), cost: int(item?.price), price: shortPrice(item?.price, currency),
                 title: `Buy ${item?.def?.name ?? 'it'} for ${longPrice(item?.price, currency)}`,
@@ -689,7 +689,7 @@ export function crafting(state, args = {}, tools = null) {
     const found = tryQuery(tools, 'craft.view', {});
     if (!isRecord(found)) return { on: false, empty: true, people: [] };
     const people = (Array.isArray(found.people) ? found.people : []).filter(isRecord).slice(0, 12).map(person => {
-        const recipes = (Array.isArray(person.recipes) ? person.recipes : []).filter(isRecord).slice(0, LIST_ROWS_MAX).map(recipe => {
+        const recipes = (Array.isArray(person.recipes) ? person.recipes : []).filter(isRecord).slice(0, RECIPES_MAX).map(recipe => {
             const materials = (Array.isArray(recipe.materials) ? recipe.materials : []).filter(isRecord).slice(0, 24).map(entry => {
                 const need = Math.max(1, int(entry.need, 1));
                 const have = Math.max(0, int(entry.have));

@@ -55,10 +55,11 @@ const template = `
   </section>
   <div class="cards">
     <article class="ss-glass actor" data-each="q.cards as a" data-class="you: a.you; low: a.low; down: a.down; can-spend: a.spend">
+      <p class="card-head" data-if="a.spend"><span class="ss-pill ss-pill-soft points-head" title="Stat points to spend">{{ a.points }} to spend</span></p>
       <ss-widget class="hero" name="ss.hero" data-props='{"bind":"a.hero"}'></ss-widget>
 
       <div class="effects" data-if="len(a.effects) > 0" role="group" aria-label="Active effects">
-        <span class="ss-pill ss-pill-outline effect" data-each="a.effects as e" title="{{ e.label }}">{{ e.text }}</span>
+        <span class="ss-pill ss-pill-outline effect" data-each="a.effects as e" data-class="ss-tone-good: e.tone == 'good'; ss-tone-bad: e.tone == 'bad'" title="{{ e.label }}">{{ e.text }}</span>
       </div>
       <p class="burden" data-if="a.encumbered"><i class="fa-solid fa-weight-hanging"></i>{{ a.encumbered.text }}</p>
 
@@ -72,7 +73,7 @@ const template = `
                 <span class="ss-listcard-title"><b class="refine" data-if="g.refine" title="{{ g.refine.text }}">{{ g.refine.label }}</b>{{ g.name }}</span>
                 <span class="ss-listcard-sub">{{ g.slotLabel }}<span data-if="g.stats != ''"> · {{ g.stats }}</span><span data-if="!g.counted"> · {{ g.why }}</span></span>
               </span>
-              <span class="ss-listcard-tag" data-if="g.condition" data-class="${BAND}" title="Condition: {{ g.condition.text }}"><i class="fa-solid fa-heart-crack" data-if="g.condition.band == 'broken'"></i><i class="fa-solid fa-shield-halved" data-if="g.condition.band != 'broken'"></i> {{ g.condition.label }}</span>
+              <span class="ss-listcard-tag" data-if="g.condition" data-class="${BAND}" title="Condition: {{ g.condition.text }}"><i class="fa-solid fa-heart-crack" data-if="g.condition.band == 'broken'"></i><i class="fa-solid fa-shield-halved" data-if="g.condition.band != 'broken'"></i> {{ g.condition.label }}<span class="gear-count" data-if="g.condition.max > 0"> {{ g.condition.cur }}/{{ g.condition.max }}</span><span class="ss-bar-track gear-track" data-if="g.condition.max > 0" data-bind-var="--ss-fill: ratio(g.condition.cur, g.condition.max)"><span class="ss-bar-fill"></span></span></span>
             </div>
           </li>
         </ul>
@@ -155,6 +156,7 @@ const css = sheet(`
 .effect { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .effect.ss-tone-bad { border-color: var(--ss-bad); }
 .effect.ss-tone-good { border-color: var(--ss-good); }
+.card-head { display: flex; justify-content: flex-end; margin: 0; }
 .burden { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--ss-warn); }
 
 .block { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--ss-border); min-width: 0; }
@@ -186,6 +188,9 @@ const css = sheet(`
 .carry.over { color: var(--ss-bad); }
 
 .piece.aside .ss-listcard-title { color: var(--ss-muted); font-weight: 500; }
+/* the wear as a thin bar and the number, in the tag (the player sees the durability on a phone) */
+.gear-track { display: block; width: 3.2em; height: 4px; margin-top: 3px; }
+.gear-count { font-variant-numeric: tabular-nums; }
 .piece .refine { margin-right: 4px; padding: 0 6px; border-radius: var(--ss-radius-pill); font-size: 12px; color: var(--ss-accent); background: var(--ss-accent-soft); }
 .piece.r-uncommon .ss-listcard-icon, .piece.r-rare .ss-listcard-icon, .piece.r-epic .ss-listcard-icon, .piece.r-legendary .ss-listcard-icon { box-shadow: inset 0 0 0 2px var(--ss-ring); }
 .piece.r-uncommon .ss-listcard-title { color: var(--ss-uncommon); }

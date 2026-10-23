@@ -275,9 +275,9 @@ test('status card: HP and MP of each member from that reply, and what this reply
     // The hero is marked when its HP changed (the reply's own change), not for the others.
     assert.ok(ren.querySelector('.hero').classList.contains('hit'));
     assert.ok(!lyra.querySelector('.hero').classList.contains('hit'));
-    const conditions = all(ren, '.cond');
-    assert.deepEqual(conditions.map(text), ['poisoned3', 'bleeding']);
-    assert.deepEqual(conditions.map(node => node.classList.contains('new')), [true, false]);
+    // The conditions once: the hero's status badges (no second set of pills under them).
+    assert.deepEqual(heroOf(ren).statuses.map(status => status.label), ['Poisoned', 'Bleeding']);
+    assert.equal(all(drawn.el, '.cond').length, 0);
     assert.deepEqual(all(drawn.el, '.changes .chg').map(text), ['Items', 'Coin']);
     assert.equal(drawn.el.querySelector('.calm'), null);
     checkProps(drawn);
@@ -309,6 +309,14 @@ test('status card: level-ups and skills are named; "only what changed" hides the
     assert.deepEqual(all(members[0], '.chg').map(text), ['Lv 2', 'Skills']);
     assert.ok(drawn.el.querySelector('.rb-status').classList.contains('quiet'));
     assert.equal(drawn.el.querySelector('.changes'), null);
+});
+
+test('status card: an MP change marks the hero as HP does (the same highlight); nothing else is marked', { skip }, () => {
+    const drawn = draw(statusCardScreen, makeState(), { changes: ['/domains/party/actors/ac_ren00001/mp'] });
+    assert.deepEqual(drawn.warnings, []);
+    const [ren] = all(drawn.el, '.member');
+    assert.ok(ren.querySelector('.hero').classList.contains('hit-mp'), 'MP changed: the hero is marked');
+    assert.ok(!ren.querySelector('.hero').classList.contains('hit'), 'HP did not change');
 });
 
 test('status card: the reply\'s checks with the die, modifiers, total vs DC, code\'s result and the disagreement flag; only on that reply', { skip }, () => {
@@ -384,6 +392,9 @@ test('every screen draws with Story Block\'s real standard widgets, none missing
     // Skills are tiles: the four in use are ready (a tick), the set-aside one is not.
     assert.equal(ren.querySelectorAll('.ss-tile').length, 5);
     assert.equal(ren.querySelectorAll('.ss-tile-ready').length, 4);
+    // The badge shows the level's digit (what the player sees), not "Lv 2" in a 30px box.
+    assert.equal(ren.querySelectorAll('.ss-tile-count').length, 5);
+    assert.ok([...ren.querySelectorAll('.ss-tile-count')].every(node => /^\d+$/.test(text(node))), 'every skill badge is a digit');
     assert.equal(ren.querySelectorAll('.ss-w-stepper').length, 7);
     assert.equal(ren.querySelectorAll('.ss-status').length, 2);
 });

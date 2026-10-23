@@ -35,12 +35,11 @@ const template = `
   <div class="ss-glass member" data-each="state.party.order as id"
        data-if="${all} || changed(${actor})"
        data-class="moved: changed(${actor}); you: id == state.party.pc; down: q.pools[id].down">
-    <ss-widget class="hero" data-class="hit: changed(${actor}.hp)" name="ss.hero" data-props='{"bind":"q.heroes[id]","compact":true}'></ss-widget>
+    <ss-widget class="hero" data-class="hit: changed(${actor}.hp); hit-mp: changed(${actor}.mp)" name="ss.hero" data-props='{"bind":"q.heroes[id]","compact":true}'></ss-widget>
     <span class="tags">
       <span class="ss-pill ss-pill-soft chg up" data-if="changed(${actor}.level)"><i class="fa-solid fa-arrow-up"></i>${levelWord} {{ ${actor}.level }}</span>
       <span class="ss-pill ss-pill-soft chg" data-if="changed(${actor}.xp) && !changed(${actor}.level)"><i class="fa-solid fa-star"></i>${xpWord}</span>
       <span class="ss-pill ss-pill-soft chg" data-if="changed(${actor}.skills)"><i class="fa-solid fa-diagram-project"></i>Skills</span>
-      <span class="ss-pill ss-pill-outline cond" data-each="${actor}.conditions as c" data-if="!contains(q.pools[id].lapsed, c.kind)" data-class="new: changed(c)">{{ c.kind }}<b data-if="q.pools[id].turns[c.kind] > 1">{{ q.pools[id].turns[c.kind] }}</b></span>
     </span>
   </div>
   <div class="checks" data-if="changed('state.checks.log')">
@@ -66,16 +65,13 @@ const css = sheet(`
 .member { display: grid; gap: 6px; padding: var(--ss-space-2) var(--ss-space-3); min-width: 0; }
 .member.moved { border-color: var(--ss-accent); }
 .member.down { opacity: 0.65; }
-.member .hero.hit { box-shadow: inset 0 0 0 1px var(--ss-accent); border-radius: var(--ss-radius-m); }
+.member .hero.hit, .member .hero.hit-mp { box-shadow: inset 0 0 0 1px var(--ss-accent); border-radius: var(--ss-radius-m); }
 .member .tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .member .tags:empty { display: none; }
 .member .hero { min-width: 0; }
-.chg, .cond { font-size: 12px; }
+.chg { font-size: 12px; }
 .chg i { color: var(--ss-accent); margin-right: 4px; }
 .chg.up i { color: var(--ss-good); }
-.cond { text-transform: capitalize; }
-.cond b { margin-left: 4px; font-variant-numeric: tabular-nums; color: var(--ss-muted); }
-.cond.new { border-color: var(--ss-bad); }
 .checks { display: grid; gap: 3px; padding-top: 4px; border-top: 1px dashed var(--ss-border); }
 .check { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
 .check > i { color: var(--ss-accent); }
@@ -84,7 +80,7 @@ const css = sheet(`
 .check .note { flex-basis: 100%; color: var(--ss-muted); }
 .changes { display: flex; flex-wrap: wrap; gap: 4px; padding-top: 4px; border-top: 1px dashed var(--ss-border); }
 .calm { font-size: 13px; color: var(--ss-muted); }
-@container rb-screen (max-width: 360px) { .member { padding: var(--ss-space-1) var(--ss-space-2); } .chg, .cond { font-size: 11px; } }
+@container rb-screen (max-width: 360px) { .member { padding: var(--ss-space-1) var(--ss-space-2); } .chg { font-size: 11px; } }
 `);
 
 export const statusCardScreen = Object.freeze({

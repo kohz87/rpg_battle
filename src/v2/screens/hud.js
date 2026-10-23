@@ -29,7 +29,7 @@ const template = `
   <span class="ss-pill ss-pill-soft spend" data-if="q.hud.toSpend.on" title="{{ q.hud.toSpend.title }}" aria-label="{{ q.hud.toSpend.title }}"><i class="fa-solid fa-circle-up"></i><b>{{ q.hud.toSpend.total }}</b><span class="spend-word"> to spend</span></span>
   <span class="ss-pill ss-pill-outline burden" data-if="q.hud.pc.encumbered" title="{{ q.hud.pc.encumbered.text }}" aria-label="{{ q.hud.pc.encumbered.text }}"><i class="fa-solid fa-weight-hanging"></i></span>
   <span class="statuses" data-if="len(q.hud.pc.statuses) > 0"><ss-widget data-each="q.hud.pc.statuses as s" name="ss.status" data-props='{"bind":"s"}'></ss-widget></span>
-  <span class="effects" data-if="len(q.hud.pc.effects) > 0" role="group" aria-label="Active effects"><span class="ss-pill ss-pill-outline effect" data-each="q.hud.pc.effects as e" title="{{ e.label }}">{{ e.text }}</span></span>
+  <span class="effects" data-if="len(q.hud.pc.effects) > 0" role="group" aria-label="Active effects"><span class="ss-pill ss-pill-outline effect" data-each="q.hud.pc.effects as e" data-class="ss-tone-good: e.tone == 'good'; ss-tone-bad: e.tone == 'bad'" title="{{ e.label }}">{{ e.text }}</span></span>
 </div>
 <div class="rb rb-hud none-yet" data-if="!q.hud.ready"><span class="msg"><i class="fa-solid fa-user-plus"></i>Create your character to begin the story.</span><ss-widget class="create" name="rpg-battle.create-character" data-props='{"label":"Create","compact":true}'></ss-widget></div>
 `;
@@ -53,6 +53,11 @@ const css = sheet(`
 .statuses .ss-status-left { font-size: 10px; }
 .effects { display: flex; flex-wrap: nowrap; gap: var(--ss-space-1); min-width: 0; overflow: hidden; }
 .effect { max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.effect.ss-tone-good { border-color: var(--ss-good); }
+.effect.ss-tone-bad { border-color: var(--ss-bad); }
+/* low HP pulses; the .rb reduced-motion rule (style.js) stops it under prefers-reduced-motion */
+@keyframes rb-pulse { 50% { opacity: 0.55; } }
+.rb-hud.low .pool.hp .ss-bar-fill { animation: rb-pulse 1.2s ease-in-out infinite; }
 .none-yet { justify-content: center; color: var(--ss-muted); }
 .none-yet .msg { font-style: italic; min-width: 0; }
 .none-yet .msg i { margin-right: 6px; color: var(--ss-accent); font-style: normal; }
