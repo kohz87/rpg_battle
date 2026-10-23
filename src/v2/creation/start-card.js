@@ -27,5 +27,9 @@ export function startCardFor(state) {
     };
 }
 
-/** The `cards` entry of the creation part: `for(state, message, ctx)`. */
-export const startCard = Object.freeze({ for: state => startCardFor(state) });
+/**
+ * The `cards` entry of the creation part: `for(state, message, ctx)`. Never on the greeting (message 0): Story Block draws
+ * cards only under replies after the reader's first message (ui-host.js hasReplyRecord), and a card its scan gives the
+ * greeting is never drawn, so the card would be lost. The first reply carries it instead.
+ */
+export const startCard = Object.freeze({ for: (state, message, ctx) => (ctx?.index === 0 ? null : startCardFor(state)) });

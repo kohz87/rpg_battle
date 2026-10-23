@@ -22,7 +22,13 @@ export function battleCardFor(state, message, ctx) {
     const session = liveFight(ctx);
     if (!session) return null;
     const foes = (session.combatants ?? []).filter(c => c.side === 'enemy' && !c.gone);
-    const names = foes.map(foe => foe.name).filter(Boolean);
+    // The foes of one kind as one name: "Cellar Rat A", "Cellar Rat B" are "Cellar Rat ×2" (a letter tells them apart on the board).
+    const kinds = new Map();
+    for (const foe of foes) {
+        const base = String(foe.name ?? '').replace(/\s+[A-Z]$/, '').trim();
+        if (base) kinds.set(base, (kinds.get(base) ?? 0) + 1);
+    }
+    const names = [...kinds].map(([base, count]) => (count > 1 ? `${base} ×${count}` : base));
     let title = names.length ? `Fight: ${names.join(', ')}` : 'Fight';
     if (title.length > TITLE_MAX) title = `${title.slice(0, TITLE_MAX - 3)}...`;
     const rows = foes.slice(0, 3).map(foe => ({

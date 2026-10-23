@@ -34,8 +34,10 @@ test('start card: under the greeting until a character exists; Create opens the 
     assert.equal(read.actions[1].command, 'creation.skipStart');
 });
 
-test('start card: gone once a character exists', () => {
+test('start card: never on the greeting (message 0), under the first reply; gone once a character exists', () => {
     const host = makeHost();
+    assert.equal(creationPart.cards.start.for(host.state, null, { index: 0 }), null, 'Story Block draws no card under the greeting');
+    assert.equal(creationPart.cards.start.for(host.state, null, { index: 2 })?.title, 'Make your character');
     assert.equal(host.command('creation.finish', elf).ok, true);
     assert.equal(startCardFor(host.state), null);
 });
@@ -89,6 +91,10 @@ test('battle card: gone when the fight is settled; a long foe list is cut to the
     assert.equal(battleCardFor({}, null, fake({ 'combat.session': { status: 'won', combatants: [] } })), null);
     assert.equal(battleCardFor({}, null, fake({ 'combat.session': { status: 'lost', combatants: [] } })), null);
     assert.equal(battleCardFor({}, null, fake({ 'combat.session': { status: 'fled', combatants: [] } })), null);
+    const kinds = battleCardFor({}, null, fake({ 'combat.session': { id: 's2', status: 'active', round: 1, combatants: [
+        { side: 'enemy', name: 'Cellar Rat A' }, { side: 'enemy', name: 'Cellar Rat B' }, { side: 'enemy', name: 'Cellar Rat C' }, { side: 'enemy', name: 'Bat' },
+    ], actions: { actor: null } } }));
+    assert.equal(kinds.title, 'Fight: Cellar Rat ×3, Bat', 'the foes of one kind as one name');
     const long = 'A very long monster name that goes on and on and on'.repeat(3);
     const card = battleCardFor({}, null, fake({ 'combat.session': { id: 's1', status: 'active', round: 2, combatants: [{ side: 'enemy', name: long, hp: { cur: 3, max: 9 } }], actions: { actor: 'ac_1', canFlee: true }, turn: { name: 'Ren' } } }));
     assert.ok(card.title.length <= 60, card.title);
