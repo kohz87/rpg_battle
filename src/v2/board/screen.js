@@ -103,7 +103,9 @@ const css = `.rb-fight { display: flex; flex-direction: column; gap: var(--ss-sp
 .rb-last-block ul { margin: 0; padding-left: 1.2em; }
 .rb-last-foes, .rb-last-note, .rb-last-none { font-size: 13px; color: var(--ss-muted); }
 .rb-last-growth { font-weight: 700; color: var(--ss-accent); }
-/* The Fight buttons (Fight, Not now) take Story Block's glass button states (view/glass.css). */
+/* The Fight buttons (Fight, Not now) take Story Block's glass button states (view/glass.css); the primary's hover is the
+   stronger accent tint (Story Block's primary hover is its rest). */
+.rb-fight .ss-button.ss-button-primary:hover:not(:disabled) { border-color: var(--ss-accent); background: linear-gradient(color-mix(in srgb, var(--ss-accent) 34%, transparent), color-mix(in srgb, var(--ss-accent) 34%, transparent)), var(--ss-glass-strong); }
 `;
 
 /** The screen definition (SPEC §13.1) the module registers as its default for `rpg-battle/fight`. */

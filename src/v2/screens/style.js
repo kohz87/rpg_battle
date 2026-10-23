@@ -31,8 +31,10 @@ export const BASE_CSS = `
   --ss-w-bad: var(--ss-bad); --ss-w-info: var(--ss-info);
 }
 
-/* glass buttons: Story Block's ss-button draws the rest, the hover, the press and the disabled look (view/glass.css), so
-   the screens add no state rules of their own. */
+/* glass buttons: Story Block's ss-button draws the rest, the hover, the press and the disabled look (view/glass.css).
+   One exception, until Story Block's primary hover differs from its rest (it sets the same accent gradient): the primary
+   button's hover is a stronger accent tint. */
+.rb .ss-button.ss-button-primary:hover:not(:disabled) { border-color: var(--ss-accent); background: linear-gradient(color-mix(in srgb, var(--ss-accent) 34%, transparent), color-mix(in srgb, var(--ss-accent) 34%, transparent)), var(--ss-glass-strong); }
 
 /* Create your character (creation's button, widget rpg-battle.create-character; creation's own markup) */
 .rpg-create { display: inline-grid; gap: 4px; justify-items: center; min-width: 0; font-style: normal; }
