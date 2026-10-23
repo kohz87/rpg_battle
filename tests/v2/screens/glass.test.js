@@ -5,6 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import { screens, tradeScreen } from '../../../src/v2/screens/index.js';
 import { TRADERS } from '../../../src/v2/screens/view.js';
@@ -16,13 +17,15 @@ const skip = renderer ? false : rendererMissing;
 const helpers = renderer ? await import('./helpers/render.js') : null;
 const { all, draw } = helpers ?? {};
 
-test('glass buttons: every button a screen draws has its hover, press and disabled states in the sheet; no old btn class', () => {
+test('glass buttons: the hover, press and disabled states are Story Block\'s (its sheet); no screen copies them', () => {
+    // Story Block's glass.css (the vendored copy) draws the states of button.ss-button, at 0,5,0 (as SillyTavern's menu button's).
+    const block = readFileSync(new URL('../../vendor/story-block/src/v2/view/glass.css', import.meta.url), 'utf8');
+    assert.match(block, /button\.ss-button:not\(:disabled\)[^{]*:hover\s*[,{]/, 'Story Block draws the hover');
+    assert.match(block, /button\.ss-button:not\(:disabled\)[^{]*:active\s*[,{]/, 'Story Block draws the press');
+    assert.match(block, /button\.ss-button:disabled/, 'Story Block draws the disabled look');
     for (const screen of [...screens, fightScreen]) {
         assert.doesNotMatch(screen.template, /class="[^"]*\bbtn\b/, `${screen.id} still draws the old btn class`);
-        if (!/ss-button/.test(screen.template)) continue;
-        assert.match(screen.css, /\.ss-button:hover/, `${screen.id}: hover`);
-        assert.match(screen.css, /\.ss-button:active/, `${screen.id}: press`);
-        assert.match(screen.css, /\.ss-button:disabled/, `${screen.id}: disabled`);
+        assert.doesNotMatch(screen.css, /ss-button:(hover|active|disabled)/, `${screen.id} copies a button state (Story Block's now)`);
     }
 });
 

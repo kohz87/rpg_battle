@@ -103,15 +103,8 @@ const css = `.rb-fight { display: flex; flex-direction: column; gap: var(--ss-sp
 .rb-last-block ul { margin: 0; padding-left: 1.2em; }
 .rb-last-foes, .rb-last-note, .rb-last-none { font-size: 13px; color: var(--ss-muted); }
 .rb-last-growth { font-weight: 700; color: var(--ss-accent); }
-/* The Fight buttons' states (Fight, Not now): Story Block's glass button draws the rest and the focus ring; these are
-   the hover, the press and the tones, one level above the block (the module's own copy; Story Block's ss-button states
-   come in its own release, then these can go). */
-.rb-fight .ss-button { transition: background-color var(--ss-motion) ease, transform var(--ss-motion) ease; }
-.rb-fight .ss-button:hover:not(:disabled) { background: color-mix(in srgb, var(--ss-text) 16%, transparent); }
-.rb-fight .ss-button:active:not(:disabled) { transform: translateY(1px); }
-.rb-fight .ss-button.ss-button-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--ss-accent) 34%, transparent); }
-.rb-fight .ss-button.ss-button-quiet:hover:not(:disabled) { background: var(--ss-tile); }
-.rb-fight .ss-button:disabled { cursor: default; opacity: 0.45; }`;
+/* The Fight buttons (Fight, Not now) take Story Block's glass button states (view/glass.css). */
+`;
 
 /** The screen definition (SPEC §13.1) the module registers as its default for `rpg-battle/fight`. */
 export const fightScreen = Object.freeze({

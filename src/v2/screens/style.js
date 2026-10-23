@@ -31,17 +31,8 @@ export const BASE_CSS = `
   --ss-w-bad: var(--ss-bad); --ss-w-info: var(--ss-info);
 }
 
-/* glass buttons: Story Block's ss-button draws the rest and the focus ring; these are its hover and press, and
-   the danger and primary tones, each from the tokens. A button is never a colour of its own. */
-.rb .ss-button { transition: background-color var(--ss-motion) ease, border-color var(--ss-motion) ease, transform var(--ss-motion) ease; }
-.rb .ss-button:not(:disabled) { cursor: pointer; }
-.rb .ss-button:hover:not(:disabled) { background: color-mix(in srgb, var(--ss-text) 16%, transparent); }
-.rb .ss-button:active:not(:disabled) { transform: translateY(1px); }
-.rb .ss-button.ss-button-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--ss-accent) 34%, transparent); }
-.rb .ss-button.ss-button-quiet:hover:not(:disabled) { background: var(--ss-tile); }
-.rb .ss-button.ss-button-quiet:not(:disabled) { border-color: var(--ss-border); }
-.rb .ss-button.ss-button-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--ss-bad) 30%, transparent); }
-.rb .ss-button:disabled { cursor: default; opacity: 0.45; }
+/* glass buttons: Story Block's ss-button draws the rest, the hover, the press and the disabled look (view/glass.css), so
+   the screens add no state rules of their own. */
 
 /* Create your character (creation's button, widget rpg-battle.create-character; creation's own markup) */
 .rpg-create { display: inline-grid; gap: 4px; justify-items: center; min-width: 0; font-style: normal; }

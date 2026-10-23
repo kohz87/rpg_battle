@@ -22,10 +22,6 @@ export const boardCss = `
 :where(.rpg-bb h3) { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ss-muted); display: flex; align-items: center; gap: var(--ss-space-2); }
 :where(.rpg-bb-empty, .rpg-bb-hint) { margin: 0; color: var(--ss-muted); font-style: italic; }
 
-/* glass buttons: the block draws the rest, the focus ring and the disabled look; the hover and the press are here */
-:where(.rpg-bb .ss-button:hover:not(:disabled)) { background: color-mix(in srgb, var(--ss-text) 16%, transparent); }
-:where(.rpg-bb .ss-button:active:not(:disabled)) { transform: translateY(1px); }
-:where(.rpg-bb .ss-button) { transition: background-color var(--ss-motion) ease, transform var(--ss-motion) ease; }
 
 /* head and turn order (the timeline: one pill a unit, the current one ringed) */
 :where(.rpg-bb-head) { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--ss-space-2); }
