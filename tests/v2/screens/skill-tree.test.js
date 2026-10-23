@@ -5,7 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    NODE_STATES, SKILL_TREE_CSS, TREE_GRID_LEAVES_MAX, normalizeNodes, nodeHint, nodeLabel, renderSkillTree, skillTree, tierGroups, treeLayout, treeLinks,
+    NODE_NAME_MAX, NODE_STATES, SKILL_TREE_CSS, TREE_GRID_LEAVES_MAX, normalizeNodes, nodeHint, nodeLabel, renderSkillTree, skillTree, tierGroups, treeLayout, treeLinks,
 } from '../../../src/v2/screens/skill-tree.js';
 import { installDom } from './helpers/dom.js';
 
@@ -214,4 +214,24 @@ test('the stylesheet marks each state with a class under the screen root (two cl
     assert.match(SKILL_TREE_CSS, /@container rb-screen \(max-width: 479\.98px\)/);
     const literal = SKILL_TREE_CSS.match(/#[0-9a-f]{3,8}\b|rgba?\(/gi);
     assert.equal(literal, null, 'every colour comes from a token');
+});
+
+test('a 96-character skill name is cut at NODE_NAME_MAX in the tile, its label and the list; the tile\'s label wraps in the sheet', () => {
+    const long = 'Supercalifragilisticexpialidocious'.repeat(3);
+    const [node] = normalizeNodes([{ id: 'long', name: long, tier: 1, level: 1, max: 5, state: 'learned' }]);
+    assert.equal(node.name.length, NODE_NAME_MAX);
+    const { root } = mount({ value: [{ id: 'long', name: long, tier: 1, level: 1, max: 5, state: 'learned' }] });
+    assert.equal(all(root, '.ss-tile-label')[0].textContent, long.slice(0, NODE_NAME_MAX));
+    assert.equal(all(root, '.rpg-tree-line-name')[0].textContent, long.slice(0, NODE_NAME_MAX));
+    assert.match(SKILL_TREE_CSS, /\.rpg-tree-tile \.ss-tile-label \{[^}]*overflow-wrap: anywhere;/);
+    assert.match(SKILL_TREE_CSS, /\.rpg-tree-line-name \{ font-weight: 700; overflow-wrap: anywhere; \}/);
+});
+
+test('the tree\'s limits: 12 tiers of 24 tiles at most, the story-taught last', () => {
+    const many = Array.from({ length: 30 }, (_, i) => ({ id: `s${i}`, tier: 1, state: 'learned' }));
+    const tiers = Array.from({ length: 14 }, (_, i) => ({ id: `t${i}`, tier: i + 1, state: 'learned' }));
+    assert.equal(tierGroups(normalizeNodes(many))[0].nodes.length, 24);
+    assert.equal(tierGroups(normalizeNodes(tiers)).length, 12);
+    assert.equal(tierGroups(normalizeNodes([{ id: 'a', tier: 0 }, { id: 'b', tier: 2 }])).at(-1).title, 'Taught by the story');
+    assert.equal(tierGroups(normalizeNodes([{ id: 'a', tier: 1 }]))[0].title, 'Tier 1');
 });

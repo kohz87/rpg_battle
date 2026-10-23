@@ -46,7 +46,7 @@ Today's skills map to tier-1 (or tier-0) nodes with no `requires`, so no lines a
 The wizard's steps keep their ids, commands, payloads and rules. Each step is a main column (its choices) and a
 registration card (name, portrait, race and talents; on Stats, the steppers, the points-left pill and the radar). On a
 phone the steps stack one per screen with the dialog's own step list as the indicator; a dialog 560 px or wider (a
-container query on `.cc-one`) puts the card beside the choices.
+container query on each `.cc-step`) puts the card beside the choices.
 
 - Races are tiles (`button.cc-card`, `aria-pressed`); talents are rows (`.cc-row`). Both come from `rpg-battle.choice-pick`.
 - The radar is `rpg-battle.stat-radar` (`creation/radar.js`): SVG made with `createElementNS`, one axis per stat, colours
