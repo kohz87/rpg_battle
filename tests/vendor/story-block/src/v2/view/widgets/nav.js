@@ -131,7 +131,7 @@ function renderNav(kind, { max = NAV_MAX_ITEMS, labelMax = LABEL_MAX, idMax = ID
                 const back = focusId === null ? null : buttons.find(button => button.getAttribute('data-id') === focusId);
                 if (back) {
                     setStop(back);
-                    back.focus?.();
+                    back.focus?.({ preventScroll: true });
                 }
             }
             listen(list, 'click', event => {
@@ -154,7 +154,7 @@ function renderNav(kind, { max = NAV_MAX_ITEMS, labelMax = LABEL_MAX, idMax = ID
                 }
                 event.preventDefault?.();
                 setStop(next);
-                next.focus?.();
+                next.focus?.({ preventScroll: true });
                 revealItem(list, next, true);
             });
             // A focus that lands on an item by Tab or a click makes it the stop.

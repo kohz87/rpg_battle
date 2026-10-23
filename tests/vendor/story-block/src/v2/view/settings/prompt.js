@@ -18,6 +18,7 @@ import { fill } from '../../strings.js';
 import { renderSettingsForm } from '../form/form.js';
 import { sectionBlock } from '../form/fields.js';
 import { matchesSearch } from '../form/schema.js';
+import { focusNode, revealIn, showAndFocus } from '../scroll.js';
 
 /** The fold key of the whole card (the Story Suite fold's old size block), and the host settings it draws. */
 export const PROMPT_FOLD = 'story-suite::size';
@@ -322,16 +323,14 @@ export function renderPromptCard(parent, { doc, settings, reader, openState = ne
         focus() {
             const first = form.keys()[0];
             const input = first ? form.field(first).row.querySelector('input, select, button') : null;
-            input?.scrollIntoView?.({ block: 'center' });
-            input?.focus?.();
-            return Boolean(input);
+            return showAndFocus(input, 'center');
         },
         openSent() {
             const details = block.querySelector('details.story-suite-sent');
             if (!details) return false;
             details.ssOpen();
-            details.scrollIntoView?.({ block: 'start' });
-            details.querySelector('summary')?.focus?.();
+            revealIn(null, details, 'start');
+            focusNode(details.querySelector('summary'));
             return true;
         },
     };

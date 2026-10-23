@@ -18,6 +18,7 @@
     min-width: 0;
     min-height: 0;
     overflow: hidden;
+    overflow: clip;
     padding-top: env(safe-area-inset-top, 0px);
     background: var(--ss-glass);
     -webkit-backdrop-filter: var(--ss-blur);
@@ -38,6 +39,15 @@
         border: 1px solid var(--ss-border);
         border-radius: var(--ss-radius-xxl);
         box-shadow: var(--ss-shadow);
+    }
+}
+
+/* A phone, full screen: the story behind must not read through the glass (it competes with the settings' own text). The tint is
+   layered over itself, which makes the glass about as dense as Solid whatever the Glass strength is (a browser with blur switched off shows the page through it as it is); from 760px the window floats over
+   the page and keeps the reader's strength. */
+@media (max-width: 759.98px) {
+    :where(.story-suite-overlay, .story-suite-sheet, .ss-gameview, .ss-dialog, .ss-cards, .ss-card, .ss-hud, [data-ss-screen], .story-suite-bar, .story-suite-extras, .story-suite-reply-note) .ss-settings {
+        background-image: linear-gradient(var(--ss-glass-strong), var(--ss-glass-strong)), linear-gradient(var(--ss-glass-strong), var(--ss-glass-strong)), linear-gradient(var(--ss-glass-strong), var(--ss-glass-strong)), linear-gradient(var(--ss-glass-strong), var(--ss-glass-strong));
     }
 }
 

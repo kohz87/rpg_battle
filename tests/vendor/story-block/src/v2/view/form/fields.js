@@ -363,11 +363,11 @@ export function chipsField(ctx) {
         const option = options[at];
         if (many) value = options.map(o => o.value).filter(v => (v === option.value ? !value.includes(v) : value.includes(v)));
         else if (option.value === value) {
-            if (fromKey) chips[at].focus?.();
+            if (fromKey) chips[at].focus?.({ preventScroll: true });
             return;
         } else value = option.value;
         paint();
-        if (fromKey) chips[at].focus?.();
+        if (fromKey) chips[at].focus?.({ preventScroll: true });
         ctx.onChange(many ? [...value] : value, { typed: many ? [...value] : value });
     }
     chips.forEach((chip, at) => chip.addEventListener('click', () => choose(at)));
@@ -456,7 +456,7 @@ export function linesField(ctx) {
         asText = next;
         ctx.memo?.set(formKey, asText);
         draw();
-        root.querySelector('.ss-lines-toggle')?.focus?.();
+        root.querySelector('.ss-lines-toggle')?.focus?.({ preventScroll: true });
     }
     function drawText() {
         const area = h(doc, 'textarea', 'ss-input ss-lines-text');
@@ -497,7 +497,7 @@ export function linesField(ctx) {
         const toggle = toggleButton();
         toggle.disabled = off;
         // Back to rows only when the text reads (else the error says which line, and the text stays).
-        toggle.addEventListener('click', () => { if (locked || read()) switchForm(false); else area.focus?.(); });
+        toggle.addEventListener('click', () => { if (locked || read()) switchForm(false); else area.focus?.({ preventScroll: true }); });
         foot.appendChild(toggle);
         root.append(area, help, error, foot);
         cells = [];
@@ -556,7 +556,7 @@ export function linesField(ctx) {
             list = [...list, Object.fromEntries(subs.map(([key, sub]) => [key, emptyValue(sub)]))];
             emit();
             draw();
-            [...root.querySelectorAll('.ss-lines-row')].at(-1)?.querySelector('input, select, textarea, button')?.focus?.();
+            [...root.querySelectorAll('.ss-lines-row')].at(-1)?.querySelector('input, select, textarea, button')?.focus?.({ preventScroll: true });
         });
         const foot = h(doc, 'div', 'ss-lines-foot');
         foot.appendChild(add);
@@ -567,7 +567,7 @@ export function linesField(ctx) {
             foot.appendChild(toggle);
         }
         root.appendChild(foot);
-        if (focusAt !== null) (removes[focusAt] ?? add).focus?.();
+        if (focusAt !== null) (removes[focusAt] ?? add).focus?.({ preventScroll: true });
     }
     function draw(focusAt = null) {
         root.replaceChildren();
@@ -637,7 +637,7 @@ export function searchField(doc, { label = FORM_TEXT.searchLabel, placeholder = 
     });
     clear.addEventListener('click', () => {
         handle.clear();
-        input.focus?.();
+        input.focus?.({ preventScroll: true });
     });
     return handle;
 }

@@ -18,17 +18,13 @@ import { fill } from '../../strings.js';
 import { newId, sectionBlock } from '../form/fields.js';
 import { matchesSearch } from '../form/schema.js';
 import { createModuleCard } from './modules.js';
+import { showAndFocus } from '../scroll.js';
 
 const h = (doc, tag, className = '', text = '') => {
     const node = doc.createElement(tag);
     if (className) node.className = className;
     if (text !== '' && text !== null && text !== undefined) node.textContent = String(text);
     return node;
-};
-const focusNode = node => {
-    node?.scrollIntoView?.({ block: 'start' });
-    node?.focus?.();
-    return Boolean(node);
 };
 
 /** The Diagnostics body: `(pane, ctx) → { filter, refresh, show, destroy, has, open }` (bodies.js). */
@@ -207,14 +203,14 @@ export function diagnosticsBody(pane, ctx) {
         open(key) {
             if (key === DIAGNOSTICS_FOLD) {
                 report?.build?.();
-                return focusNode(report?.card.title);
+                return showAndFocus(report?.card.title);
             }
             const fold = placedFolds.find(item => item.key === key);
             if (fold) {
                 fold.card.el.open = true;
                 fold.card.el.classList.add('ss-section-fold-open');
                 ctx.openState?.set(key, true);
-                return focusNode(fold.card.el.querySelector('summary'));
+                return showAndFocus(fold.card.el.querySelector('summary'));
             }
             const entry = placedModules.find(item => item.has(key));
             return entry ? entry.open(key) : false;

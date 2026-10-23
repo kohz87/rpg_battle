@@ -26,6 +26,7 @@ import { createFooter } from './footer.js';
 import { PROMPT_FOLD, createPromptReader } from './prompt.js';
 import { FORM_TEXT } from '../form/schema.js';
 import { searchField } from '../form/fields.js';
+import { followViewport, holdPage, revealIn } from '../scroll.js';
 import { tabs as tabsBlock } from '../widgets/nav.js';
 import { SECTION_BODIES, createLegacySettings } from './bodies.js';
 import { DEFAULT_SECTION, SECTION_IDS, SETTINGS_SECTIONS, WINDOW_TEXT } from './sections.js';
@@ -97,6 +98,16 @@ export function openSettingsWindow({ registry, settings, doc = globalThis.docume
     layer.appendChild(win);
     doc.body.appendChild(layer);
     doc.body.classList.add(OPEN_CLASS);
+    // Nothing behind or around the page may scroll (a phone's browser scrolls the fixed layer, the document and its visual viewport to
+    // show a focused box): the document is held, a script's scroll on the layer or window is undone, and on a phone the layer follows
+    // the visible area (the on-screen keyboard shrinks it). Only the page scroller moves (scroll.js).
+    const releasePage = holdPage(doc);
+    const stopViewport = followViewport(doc, layer);
+    const pin = node => () => { if (node.scrollTop) node.scrollTop = 0; if (node.scrollLeft) node.scrollLeft = 0; };
+    const pinLayer = pin(layer);
+    const pinWindow = pin(win);
+    layer.addEventListener('scroll', pinLayer);
+    win.addEventListener('scroll', pinWindow);
 
     // ---- the pages: a heading, then the body's pane
     const pages = new Map();
@@ -184,7 +195,7 @@ export function openSettingsWindow({ registry, settings, doc = globalThis.docume
     // ---- keeping the focus inside, Escape, Close
     let open = true;
     const onFocus = event => {
-        if (open && event?.target && !win.contains(event.target)) (focusablesIn(win)[0] ?? win).focus?.();
+        if (open && event?.target && !win.contains(event.target)) (focusablesIn(win)[0] ?? win).focus?.({ preventScroll: true });
     };
     const onKey = event => {
         if (event?.key === 'Escape') {
@@ -203,7 +214,7 @@ export function openSettingsWindow({ registry, settings, doc = globalThis.docume
         const next = event.shiftKey ? (at <= 0 ? nodes.at(-1) : null) : (at === -1 || at === nodes.length - 1 ? nodes[0] : null);
         if (next) {
             event.preventDefault?.();
-            next.focus?.();
+            next.focus?.({ preventScroll: true });
         }
     };
     layer.addEventListener('keydown', onKey);
@@ -247,13 +258,17 @@ export function openSettingsWindow({ registry, settings, doc = globalThis.docume
             if (current === api) current = null;
             doc.removeEventListener?.('focusin', onFocus, true);
             doc.removeEventListener?.('keydown', onPageKey);
+            releasePage();
+            stopViewport();
+            layer.removeEventListener('scroll', pinLayer);
+            win.removeEventListener('scroll', pinWindow);
             for (const entry of pages.values()) { try { entry.body?.destroy?.(); } catch { /* closed either way */ } }
             railBlock.destroy();
             footer.destroy();
             layer.remove();
             doc.body.classList.remove(OPEN_CLASS);
             try { onClose?.(); } catch { /* the window is closed either way */ }
-            if (before && before !== doc.body && before.isConnected !== false) before.focus?.();
+            if (before && before !== doc.body && before.isConnected !== false) before.focus?.({ preventScroll: true });
         },
     };
     current = api;
@@ -281,8 +296,8 @@ export function openSettingsWindow({ registry, settings, doc = globalThis.docume
         const owner = node ? [...pages.values()].find(entry => entry.pane.contains(node)) : null;
         if (!node || !owner) return false;
         select(owner.section.id);
-        node.scrollIntoView?.({ block: 'start' });
-        node.querySelector('summary')?.focus?.();
+        revealIn(content, node, 'start');
+        node.querySelector('summary')?.focus?.({ preventScroll: true });
         return true;
     }
     legacy.start(content, {
@@ -291,6 +306,6 @@ export function openSettingsWindow({ registry, settings, doc = globalThis.docume
         afterRefresh: () => { if (searchText !== '') applySearch(searchText); },
     });
     select(DEFAULT_SECTION);
-    if (!(wanted && openFold(wanted))) (rail.querySelector('[aria-current="page"]') ?? focusablesIn(win)[0])?.focus?.();
+    if (!(wanted && openFold(wanted))) (rail.querySelector('[aria-current="page"]') ?? focusablesIn(win)[0])?.focus?.({ preventScroll: true });
     return api;
 }

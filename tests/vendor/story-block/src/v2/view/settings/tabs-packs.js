@@ -17,6 +17,7 @@ import { newId, sectionBlock } from '../form/fields.js';
 import { matchesSearch } from '../form/schema.js';
 import { PROMPT_FOLD, createPromptReader, renderPromptCard } from './prompt.js';
 import { renderTabsCard } from './tabs-list.js';
+import { showAndFocus } from '../scroll.js';
 
 /** Story Block's module id and its Packs fold. */
 const CORE_ID = 'story-block';
@@ -104,9 +105,7 @@ export function tabsPacksBody(pane, ctx) {
         open(key) {
             if (key === PACKS_FOLD) {
                 const input = importButton();
-                input?.scrollIntoView?.({ block: 'center' });
-                input?.focus?.();
-                return Boolean(input);
+                return showAndFocus(input, 'center');
             }
             // With no chat open there is nothing to show: the card's first budget takes the focus instead.
             if (key === SENT_FOLD) return prompt.openSent() || prompt.focus();

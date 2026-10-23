@@ -15,6 +15,7 @@ import { MAX_COINS, MAX_COIN_VALUE, baseUnit, coinsOf, currencyOf } from '../../
 import { cutAt } from '../../../text.js';
 import { renderSettingsForm } from '../form/form.js';
 import { SETTINGS_TEXT, groupFields } from '../form/schema.js';
+import { showAndFocus } from '../scroll.js';
 
 /** Story Block's module id and the fold key of its General group, which `openSettings({ fold })` has always taken for the money settings. */
 export const MONEY_MODULE = 'story-block';
@@ -116,9 +117,7 @@ export function moneyBody(pane, ctx) {
         open() {
             const first = form.keys()[0];
             const input = first ? form.field(first).row.querySelector('input, select, textarea, button') : null;
-            input?.scrollIntoView?.({ block: 'center' });
-            input?.focus?.();
-            return Boolean(input);
+            return showAndFocus(input, 'center');
         },
     };
 }

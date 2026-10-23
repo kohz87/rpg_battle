@@ -1908,6 +1908,19 @@
     font-weight: 700;
 }
 
+/* Folds a finger can hit (phone hotfix): the Features page's module groups and the Modules page's cards fold, so their summary is a whole row */
+:where(.story-suite-overlay, .story-suite-sheet, .ss-gameview, .ss-dialog, .ss-cards, .ss-card, .ss-hud, [data-ss-screen], .story-suite-bar, .story-suite-extras, .story-suite-reply-note) .ss-features .ss-section-fold > .ss-section-head,
+:where(.story-suite-overlay, .story-suite-sheet, .ss-gameview, .ss-dialog, .ss-cards, .ss-card, .ss-hud, [data-ss-screen], .story-suite-bar, .story-suite-extras, .story-suite-reply-note) .ss-module-card.ss-section-fold > .ss-section-head {
+    align-items: center;
+    min-height: 44px;
+}
+:where(.story-suite-overlay, .story-suite-sheet, .ss-gameview, .ss-dialog, .ss-cards, .ss-card, .ss-hud, [data-ss-screen], .story-suite-bar, .story-suite-extras, .story-suite-reply-note) .ss-features .ss-section-fold > .ss-section-head {
+    padding: 0 var(--ss-space-1);
+    border-bottom: 1px solid color-mix(in srgb, var(--ss-muted) 28%, transparent);
+}
+:where(.story-suite-overlay, .story-suite-sheet, .ss-gameview, .ss-dialog, .ss-cards, .ss-card, .ss-hud, [data-ss-screen], .story-suite-bar, .story-suite-extras, .story-suite-reply-note) .ss-features .ss-section-fold-open > .ss-section-head {
+    margin-bottom: var(--ss-space-1);
+}
 /* helpers of the UI sample's demo form */
 :where(.story-suite-overlay, .story-suite-sheet, .ss-gameview, .ss-dialog, .ss-cards, .ss-card, .ss-hud, [data-ss-screen], .story-suite-bar, .story-suite-extras, .story-suite-reply-note) .ss-sample-form {
     display: flex;

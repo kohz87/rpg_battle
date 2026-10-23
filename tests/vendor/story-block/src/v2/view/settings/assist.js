@@ -26,6 +26,7 @@ import { HOST_SETTINGS_SCHEMA } from '../../sdk.js';
 import { renderSettingsForm } from '../form/form.js';
 import { matchesSearch } from '../form/schema.js';
 import { sectionBlock } from '../form/fields.js';
+import { showAndFocus } from '../scroll.js';
 
 /** Story Block's module id, and the fold key of its Assist group, which `openSettings({ fold })` has always taken for these settings. */
 export const ASSIST_MODULE = 'story-block';
@@ -156,9 +157,7 @@ export function assistBody(pane, ctx) {
         has: key => key === ASSIST_FOLD,
         open() {
             const input = first();
-            input?.scrollIntoView?.({ block: 'center' });
-            input?.focus?.();
-            return Boolean(input);
+            return showAndFocus(input, 'center');
         },
     };
 }

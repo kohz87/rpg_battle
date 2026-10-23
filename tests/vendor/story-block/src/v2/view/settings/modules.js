@@ -25,6 +25,7 @@ import { newId, sectionBlock } from '../form/fields.js';
 import { renderModuleForm } from '../form/form.js';
 import { matchesSearch } from '../form/schema.js';
 import { routeOf } from './sections.js';
+import { showAndFocus } from '../scroll.js';
 
 /** A module with more settings than this and more than one group folds its groups. */
 export const FOLD_ABOVE = 6;
@@ -70,11 +71,6 @@ export function moduleSchema(moduleId, schema) {
     return { schema: out, count, groups };
 }
 
-const focusNode = node => {
-    node?.scrollIntoView?.({ block: 'start' });
-    node?.focus?.();
-    return Boolean(node);
-};
 const parseGroup = key => {
     const at = typeof key === 'string' ? key.indexOf(`${SUB_FOLD}group:`) : -1;
     return at > 0 ? { id: key.slice(0, at), group: key.slice(at + `${SUB_FOLD}group:`.length) } : null;
@@ -97,6 +93,7 @@ export function createModuleCard(env, mod, sdef = null, { placed = null, collaps
     const here = Boolean(sdef) && (placed === 'diagnostics' ? sdef.place === 'diagnostics' : sdef.place !== 'diagnostics');
     const title = clip(mod.name, CUT.name) || clip(mod.id, CUT.name);
     const hint = clip(mod.version, CUT.version) ? `v${clip(mod.version, CUT.version)}` : '';
+    let searching = false;
     const wasOpen = collapsible && openState instanceof Map ? openState.get(mod.id) === true : false;
     const card = sectionBlock(doc, { title, hint, id: newId(`module-${mod.id}`), collapsible, open: wasOpen });
     card.el.classList.add('ss-module-card');
@@ -110,7 +107,8 @@ export function createModuleCard(env, mod, sdef = null, { placed = null, collaps
         card.el.classList.toggle('ss-section-fold-open', wasOpen);
         card.el.addEventListener('toggle', () => {
             card.el.classList.toggle('ss-section-fold-open', card.el.open === true);
-            if (openState instanceof Map) openState.set(mod.id, card.el.open === true);
+            // A search opens the cards with a match: that is not the reader's choice, which comes back when the search ends.
+            if (!searching && openState instanceof Map) openState.set(mod.id, card.el.open === true);
         });
     }
     const entry = { id: mod.id, mod, panelTitle: '', card, form: null, panel: null, panelBox: null, link: null, folds: [], groups: [], description: clip(mod.description || KNOWN_DESCRIPTIONS[mod.id], CUT.description) };
@@ -189,6 +187,7 @@ export function createModuleCard(env, mod, sdef = null, { placed = null, collaps
         /** Shows what matches `text` (the module's own name shows everything of it); returns how many matches it shows, 0 hides the card. */
         filter(text) {
             const query = String(text ?? '').trim();
+            searching = Boolean(query);
             if (!query) {
                 entry.form?.filter('');
                 card.setHidden(false);
@@ -230,11 +229,11 @@ export function createModuleCard(env, mod, sdef = null, { placed = null, collaps
             if (group) {
                 const el = entry.form?.openGroup(group.group) ?? null;
                 if (!el) return false;
-                return focusNode(el.querySelector('summary') ?? el.querySelector('.ss-section-title, input, select, textarea, button'));
+                return showAndFocus(el.querySelector('summary') ?? el.querySelector('.ss-section-title, input, select, textarea, button'));
             }
             const own = entry.folds.find(item => item.key === key);
-            if (own) return focusNode(own.sub.title);
-            return key === mod.id ? focusNode(heading) : false;
+            if (own) return showAndFocus(own.sub.title);
+            return key === mod.id ? showAndFocus(heading) : false;
         },
     });
     if (collapsible) {
@@ -256,7 +255,7 @@ export function modulesBody(pane, ctx) {
     const cards = [];
     const mods = typeof registry.modules === 'function' ? registry.modules() : [];
     for (const mod of mods) {
-        const entry = createModuleCard(env, mod, settingsOf.get(mod.id) ?? null);
+        const entry = createModuleCard(env, mod, settingsOf.get(mod.id) ?? null, { collapsible: true });
         cards.push(entry);
         root.appendChild(entry.el);
     }
@@ -288,7 +287,10 @@ export function modulesBody(pane, ctx) {
         filter(text) {
             const query = String(text ?? '').trim();
             let shown = 0;
-            for (const entry of cards) shown += entry.filter(text);
+            for (const entry of cards) {
+                shown += entry.filter(text);
+                if (!query) entry.restore?.();
+            }
             const versionsHit = matchesSearch('versions', { label: MODULES_TEXT.versionsTitle, help: '' }, 'Modules', text);
             versions.setHidden(Boolean(query) && !versionsHit);
             return shown + (query && versionsHit ? 1 : 0);
@@ -308,7 +310,7 @@ export function modulesBody(pane, ctx) {
             return Boolean(id) && cards.some(entry => entry.id === id && mine(id) && entry.has(key));
         },
         open(key) {
-            if (key === VERSIONS_FOLD) return focusNode(versions.title);
+            if (key === VERSIONS_FOLD) return showAndFocus(versions.title);
             const entry = cards.find(item => item.has(key));
             return entry ? entry.open(key) : false;
         },

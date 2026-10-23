@@ -55,6 +55,14 @@
     }
 }
 
+/* A phone, full screen: the story behind must not read through the glass. The dense tint is layered over itself (Solid and Follow
+   SillyTavern are opaque or untouched already). */
+@media (max-width: 759.98px) {
+    .ss-gameview {
+        background-image: linear-gradient(var(--ss-sheet-bg, var(--ss-surface)), var(--ss-sheet-bg, var(--ss-surface))), linear-gradient(var(--ss-sheet-bg, var(--ss-surface)), var(--ss-sheet-bg, var(--ss-surface))), linear-gradient(var(--ss-sheet-bg, var(--ss-surface)), var(--ss-sheet-bg, var(--ss-surface)));
+    }
+}
+
 .ss-gameview-main {
     flex: 1;
     display: flex;

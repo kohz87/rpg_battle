@@ -86,7 +86,8 @@ const moduleOf = key => (typeof key === 'string' && key.startsWith(`${FEATURES_F
  * on it (a module's settings that belong to a feature, the prompt size, the line to a module's features).
  */
 function featuresBody(pane, ctx) {
-    const form = renderFeaturesForm(pane, { features: ctx.options.features, doc: ctx.doc, onChange: () => ctx.changed?.() });
+    // Each module's group is a fold, closed until the reader (or a fold id, or a search) opens it; its state is the window's own.
+    const form = renderFeaturesForm(pane, { features: ctx.options.features, doc: ctx.doc, fold: { state: ctx.openState }, onChange: () => ctx.changed?.() });
     return {
         filter: text => form.filter(text),
         refresh: () => form.refresh(),

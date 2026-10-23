@@ -16,11 +16,17 @@
 // count beside it); its `data-fold` is `story-suite-features::<module id>`, the key `openSettings({ fold })` has always
 // used for a module's features, and its heading takes the focus (`focusGroup`). Built with createElement and
 // textContent only: module and feature names come from modules, never from markup.
+//
+// With the `fold` option ({ state: Map }) each group is a fold (a `details` with a chevron, the module's name and "6 of 11 on" in its
+// summary), closed until opened: its open state is kept in `fold.state` under the group's `data-fold` key (the same map the window
+// keeps for its other folds, so a redraw or another page does not lose it), a search opens the groups that have a match and gives the
+// reader's choice back when it ends, and `focusGroup` opens the group it takes the focus to.
 
 import { FORM_TEXT, SETTINGS_TEXT, fill, matchesSearch } from './schema.js';
 import { newId, sectionBlock, switchField } from './fields.js';
 import { PROMPT_HINT } from '../../features.js';
 import { featuresFoldOf } from '../../host-ui.js';
+import { focusNode, showAndFocus } from '../scroll.js';
 
 const h = (doc, tag, className = '', text) => {
     const node = doc.createElement(tag);
@@ -47,7 +53,7 @@ export const countText = own => fill(SETTINGS_TEXT.featuresOn, { on: own.filter(
 /**
  * Draws the features into `parent`. Options: `features` (the feature store: `list()` → [{ id, moduleId, moduleName, label,
  * describe, prompt, available, why, on }], `set(id, on)`; none: an empty form), `doc`, `onChange({ id, on })` (after a
- * switch was stored), `disabled`. → { el, filter(text), refresh(), field(id), group(moduleId), focusGroup(moduleId),
+ * switch was stored), `disabled`, `fold` ({ state: Map }: each group a fold). → { el, filter(text), refresh(), field(id), group(moduleId), focusGroup(moduleId),
  * setDisabled(on), keys(), destroy() }.
  */
 export function renderFeaturesForm(parent, options) {
@@ -61,6 +67,8 @@ export function renderFeaturesForm(parent, options) {
     let groups = new Map();          // module id → { section, hint, own, ids }
     let signature = null;
     let filterText = '';
+    const fold = options?.fold && typeof options.fold === 'object' ? options.fold : null;
+    const foldState = fold?.state instanceof Map ? fold.state : new Map();
 
     const listNow = () => {
         try { return typeof features?.list === 'function' ? features.list() : []; } catch { return []; }
@@ -113,11 +121,23 @@ export function renderFeaturesForm(parent, options) {
         groups = new Map();
         for (const group of featureGroups(list)) {
             const key = featuresFoldOf(group.moduleId);
-            const section = sectionBlock(doc, { title: group.name, hint: countText(group.own), id: newId(`features-${group.moduleId}`), level: 4 });
+            const wasOpen = fold ? foldState.get(key) === true : true;
+            const section = sectionBlock(doc, { title: group.name, hint: countText(group.own), id: newId(`features-${group.moduleId}`), level: 4, collapsible: Boolean(fold), open: wasOpen });
             section.el.classList.add('ss-features-group');
             section.el.setAttribute('data-fold', key);
             section.el.setAttribute('data-module', group.moduleId);
-            section.title.setAttribute('tabindex', '-1');
+            // A fold's heading is its summary (it takes the focus); a plain group's is its title.
+            section.heading = fold ? section.el.querySelector('summary') : section.title;
+            if (!fold) section.title.setAttribute('tabindex', '-1');
+            else {
+                section.el.classList.add('ss-section-fold');
+                section.el.classList.toggle('ss-section-fold-open', wasOpen);
+                section.el.addEventListener('toggle', () => {
+                    if (filterText.trim() !== '') return;
+                    section.el.classList.toggle('ss-section-fold-open', section.el.open === true);
+                    foldState.set(key, section.el.open === true);
+                });
+            }
             const grid = h(doc, 'div', 'ss-features-grid');
             section.body.appendChild(grid);
             const hint = section.el.querySelector('.ss-section-hint');
@@ -128,10 +148,10 @@ export function renderFeaturesForm(parent, options) {
                 ids.push(feature.id);
                 grid.appendChild(entry.tile);
             }
-            groups.set(group.moduleId, { section, hint, own: group.own, ids, name: group.name });
+            groups.set(group.moduleId, { section, hint, own: group.own, ids, name: group.name, key });
             root.appendChild(section.el);
         }
-        if (focusId) tiles.get(focusId)?.handle.input.focus?.();
+        if (focusId) focusNode(tiles.get(focusId)?.handle.input);
     }
     const signatureOf = list => list.map(feature => `${feature.id}|${feature.moduleId}|${feature.moduleName ?? ''}|${feature.label}|${feature.describe ?? ''}|${feature.available === false ? 'x' : ''}|${feature.why ?? ''}|${feature.prompt ? 'p' : ''}`).join('\n');
 
@@ -169,6 +189,11 @@ export function renderFeaturesForm(parent, options) {
             }
             group.section.setHidden(here === 0);
             shown += here;
+            // A group with a match is open while the search is on; the reader's own choice comes back after it.
+            if (fold) {
+                group.section.el.open = filterText.trim() !== '' ? here > 0 : foldState.get(group.key) === true;
+                group.section.el.classList.toggle('ss-section-fold-open', group.section.el.open === true);
+            }
         }
         const searching = filterText.trim() !== '';
         const message = searching && shown === 0 ? fill(FORM_TEXT.none, { text: filterText.trim() }) : !searching && groups.size === 0 ? FORM_TEXT.noRows : '';
@@ -194,9 +219,12 @@ export function renderFeaturesForm(parent, options) {
             const group = groups.get(moduleId);
             if (!group) return false;
             if (group.section.el.hidden) return false;
-            group.section.el.scrollIntoView?.({ block: 'start' });
-            group.section.title.focus?.();
-            return true;
+            if (fold) {
+                group.section.el.open = true;
+                group.section.el.classList.add('ss-section-fold-open');
+                foldState.set(group.key, true);
+            }
+            return showAndFocus(group.section.heading);
         },
         setDisabled(on) {
             disabled = Boolean(on);

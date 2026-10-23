@@ -37,6 +37,7 @@ import { DEFAULT_TAIL_BUDGET, contextNotice, estimateTokens } from './prompt.js'
 import { STRINGS, fill } from './strings.js';
 import { cutAt } from '../text.js';
 import { profileNote, profileSelect } from './profile-field.js';
+import { focusNode, revealIn } from './view/scroll.js';
 
 const S = STRINGS;
 /** The story panel's tab strip (createTabHost): a longer list than the block's default, and its labels in full. */
@@ -881,8 +882,8 @@ export function renderSettingsHost(root, { registry, settings, doc = globalThis.
             node.open = true;
             if (!node.dataset.filtered) openState.set(node.dataset.fold, true);
         }
-        sub.scrollIntoView?.({ block: 'start' });
-        sub.querySelector('summary')?.focus?.();
+        revealIn(null, sub, 'start');
+        focusNode(sub.querySelector('summary'));
     }
     function featureLink(def, own) {
         const on = own.filter(feature => feature.on === true && feature.available !== false).length;

@@ -14,6 +14,7 @@
 import { TABS_FOLD, TABS_TEXT } from '../../host-ui.js';
 import { fill } from '../../strings.js';
 import { newId, sectionBlock, switchField } from '../form/fields.js';
+import { revealIn, showAndFocus } from '../scroll.js';
 
 const h = (doc, tag, className = '', text = '') => {
     const node = doc.createElement(tag);
@@ -75,7 +76,7 @@ export function renderTabsCard(parent, { doc, tabs, onChange = null }) {
         status.textContent = '';
         refusal.textContent = text;
         refusal.hidden = false;
-        refusal.scrollIntoView?.({ block: 'nearest' });
+        revealIn(null, refusal, 'nearest');
     };
     const rowNode = id => [...list.querySelectorAll('.ss-tabrow')].find(node => node.dataset.tabId === id);
     const after = (id, control) => {
@@ -83,7 +84,7 @@ export function renderTabsCard(parent, { doc, tabs, onChange = null }) {
         const row = rowNode(id);
         const wanted = row?.querySelector(`.ss-tabrow-${control}`);
         const other = row?.querySelector(`.ss-tabrow-${control === 'up' ? 'down' : 'up'}`);
-        (wanted && !wanted.disabled ? wanted : other && !other.disabled ? other : wanted)?.focus?.();
+        (wanted && !wanted.disabled ? wanted : other && !other.disabled ? other : wanted)?.focus?.({ preventScroll: true });
     };
     let shownRows = [];
     function draw() {
@@ -127,7 +128,7 @@ export function renderTabsCard(parent, { doc, tabs, onChange = null }) {
                     say(on ? T.nowShown : T.nowHidden, row.title);
                     onChange?.();
                     draw();
-                    rowNode(row.id)?.querySelector('[role="switch"]')?.focus?.();
+                    rowNode(row.id)?.querySelector('[role="switch"]')?.focus?.({ preventScroll: true });
                 },
             });
             toggle.el.title = row.fixed ? T.homeTitle : fill(T.shownTitle, { name: row.title });
@@ -143,7 +144,7 @@ export function renderTabsCard(parent, { doc, tabs, onChange = null }) {
         say(T.wasReset);
         onChange?.();
         draw();
-        reset.focus?.();
+        reset.focus?.({ preventScroll: true });
     });
     draw();
     return {
@@ -178,9 +179,7 @@ export function renderTabsCard(parent, { doc, tabs, onChange = null }) {
         },
         focus() {
             const first = list.querySelector('[role="switch"]') ?? [...list.querySelectorAll('button')].find(node => !node.disabled) ?? null;
-            first?.scrollIntoView?.({ block: 'center' });
-            first?.focus?.();
-            return Boolean(first);
+            return showAndFocus(first, 'center');
         },
         count: () => shownRows.length,
     };
