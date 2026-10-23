@@ -23,6 +23,8 @@ const OWN_WIDGETS = [...Object.keys(screenWidgets), 'rpg-battle.create-character
 
 const byId = Object.fromEntries(screens.map(screen => [screen.id, screen]));
 const COMMANDS = new Set([...Object.keys(partyPart.commands), ...Object.keys(itemsPart.commands), ...Object.keys(tradePart.commands)]);
+// Story Block's core commands a screen may send (MODULES §F5): the party card's Drop is `inventory.drop { stack, qty }`, as its Inventory's.
+const HOST_COMMANDS = new Set(['inventory.drop']);
 // Story Block's registry rules (src/v2/registry.js): screen ids lowercase, query names words joined by dots.
 // An <ss-widget …> tag's name (attribute values may hold ">", as in data-if="len(x) > 0").
 const WIDGET_TAG = /<ss-widget\b(?:[^>"']|"[^"]*"|'[^']*')*?\sname="([^"]+)"/g;
@@ -178,16 +180,16 @@ test('buttons run commands RPG Battle has; widgets are the standard ss.* set', (
     const used = new Set();
     for (const screen of screens) {
         for (const [, type] of screen.template.matchAll(/data-command="([^"]+)"/g)) {
-            assert.ok(COMMANDS.has(type), `${screen.id}: ${type} is not one of RPG Battle's commands`);
+            assert.ok(COMMANDS.has(type) || HOST_COMMANDS.has(type), `${screen.id}: ${type} is not one of RPG Battle's or Story Block's commands`);
             used.add(type);
         }
         for (const [, name] of screen.template.matchAll(WIDGET_TAG)) assert.ok(WIDGET_NAMES.includes(name) || OWN_WIDGETS.includes(name), `${screen.id}: ${name}`);
         // Every widget tag is closed (TEMPLATES.md §2).
         assert.equal((screen.template.match(/<ss-widget/g) ?? []).length, (screen.template.match(/<\/ss-widget>/g) ?? []).length, screen.id);
     }
-    // Equip, Take off and Give are Story Block's Inventory's now (MODULES §F99); crafting has no buttons.
+    // The party card's EQUIPMENT (UI 8h) sends the items part's Equip, Take off and Give and Story Block's Drop; crafting has no buttons.
     assert.deepEqual([...used].sort(), [
-        'craft.collect', 'craft.commission',
+        'craft.collect', 'craft.commission', 'inventory.drop', 'item.equip', 'item.give', 'item.unequip',
         'party.acceptOffer', 'party.dismissOffer', 'party.edit', 'party.setSkillActive', 'party.spend', 'trade.buy', 'trade.sell',
     ]);
     assert.doesNotMatch(byId['rpg-battle/crafting'].template, /data-command|<button/);
