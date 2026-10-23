@@ -1,11 +1,12 @@
 # Changelog
 
-## Unreleased (`v2-ui` branch, UI step 4c)
+## Unreleased
 
-- **Screens on the glass design.** Party, Party status (under each reply), Hero (the HUD strip), Trade, Crafting and the Fight screen are drawn with Story Block's glass blocks: each party member is a hero card (HP, MP, SP and the EXP bar under the Terms' word; conditions as status badges), skills are tiles, trade and crafting rows are list rows with price pills and glass buttons, and the fight board's cards, bars, turn order, actions and "Last fight" fold are glass. No colours of RPG Battle's own: every colour is a Story Block token, so Glass, Solid and Follow SillyTavern all apply. The buttons, commands and ids are the same.
-- Trade and craft lists stop at 100 rows, and a hero shows at most 6 bars and 12 status badges (Story Block's limits).
+- **Screens on the glass design.** Party, Party status (under each reply), Hero (the HUD strip), Trade, Crafting, the Fight screen and the return card are drawn with Story Block's glass blocks: each party member is a hero card (HP, MP, SP and the EXP bar under the Terms' word; conditions as status badges), skills are tiles, trade and crafting rows are list rows with price pills and glass buttons, and the fight board's cards, bars, turn order, actions and "Last fight" fold are glass. The board's markers (whose turn, targets, the current turn, harmful and helpful conditions, boss and death tags) are drawn above the glass blocks' own rules. No colours of RPG Battle's own: every colour is a Story Block token, so Glass, Solid and Follow SillyTavern all apply. The buttons, commands and ids are the same.
+- Gear shows its durability as a number and a thin bar in its tag; the status card marks an MP change as it marks HP.
+- Trade and craft lists have no row cap of their own. Story Block's template draws at most 5000 elements a screen; a long stock list can reach that. Crafting keeps its limit of 200 recipes per character.
 - Item detail under each Inventory row uses the glass tokens.
-- Tests follow the new markup; a new test checks every glass button's hover, press and disabled states in the sheet.
+- Tests follow the new markup; new tests check the markers' and buttons' states in the sheets and what the player sees (the skill badge's digit, the gear durability, the status card's marks).
 
 ## 2.0.0-beta.1 (`v2` branch)
 
