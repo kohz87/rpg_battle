@@ -46,6 +46,8 @@ export const SKILL_TILES_MAX = 24;
 export const TREE_COLUMNS_MAX = 6;
 /** The most leaves the fanned-out grid draws; more than this is the indented list (a tile is about 100 px). */
 export const TREE_GRID_LEAVES_MAX = 6;
+/** The most levels the list indents (a deeper line keeps the indent of this level; its "step" says the real depth). */
+export const LIST_INDENT_MAX = 4;
 export const NODE_ID_MAX = 120;
 export const NODE_NAME_MAX = 80;
 export const NODE_HINT_MAX = 60;
@@ -119,9 +121,47 @@ export function tierGroups(nodes) {
     }));
 }
 
-/** The parent a node grows from: its first required node that is in the list (the layout's and "from"'s parent). */
-export function parentOf(node, byId) {
-    return node.requires.find(id => byId.has(id)) ?? null;
+/**
+ * The lines the tree draws: one from each required node to the node that requires it, except a line that would close a
+ * cycle (the node already leads to that parent): those are dropped, so the drawn lines form a forest. In list order. Pure.
+ */
+export function treeEdges(nodes) {
+    const byId = new Map(nodes.map(node => [node.id, node]));
+    const below = new Map(nodes.map(node => [node.id, []]));
+    const reaches = (from, goal) => {
+        const stack = [from];
+        const seen = new Set();
+        while (stack.length) {
+            const id = stack.pop();
+            if (id === goal) return true;
+            if (seen.has(id)) continue;
+            seen.add(id);
+            stack.push(...below.get(id));
+        }
+        return false;
+    };
+    const edges = [];
+    for (const node of nodes) {
+        for (const parent of node.requires) {
+            if (!byId.has(parent) || parent === node.id) continue;
+            if (reaches(node.id, parent)) continue;
+            below.get(parent).push(node.id);
+            edges.push({ from: parent, to: node.id });
+        }
+    }
+    return edges;
+}
+
+/** Each node's parent in the drawn lines: its first kept line from above (null for a root). Pure. */
+export function parentMap(nodes) {
+    const parent = new Map(nodes.map(node => [node.id, null]));
+    for (const edge of treeEdges(nodes)) if (parent.get(edge.to) === null) parent.set(edge.to, edge.from);
+    return parent;
+}
+
+/** The nodes the tree draws (the grid and the list alike): the tiers and tiles the limits keep. Pure. */
+export function shownNodes(nodes) {
+    return tierGroups(nodes).flatMap(group => group.nodes);
 }
 
 /**
@@ -130,13 +170,13 @@ export function parentOf(node, byId) {
  * their children; `leaves`: how many leaves there are. A cycle in the data is cut where it closes (no node is lost).
  */
 export function treeLayout(nodes) {
-    const byId = new Map(nodes.map(node => [node.id, node]));
+    const parents = parentMap(nodes);
     const children = new Map(nodes.map(node => [node.id, []]));
     for (const node of nodes) {
-        const parent = parentOf(node, byId);
+        const parent = parents.get(node.id);
         if (parent) children.get(parent).push(node.id);
     }
-    const roots = nodes.filter(node => !parentOf(node, byId)).map(node => node.id);
+    const roots = nodes.filter(node => !parents.get(node.id)).map(node => node.id);
 
     const order = [];
     const seen = new Set();
@@ -211,11 +251,7 @@ export function nodeLabel(node, byId = new Map()) {
 /** The lines the tree draws: one from each required node to the node that requires it, with that node's state. */
 export function treeLinks(nodes) {
     const byId = new Map(nodes.map(node => [node.id, node]));
-    const links = [];
-    for (const node of nodes) {
-        for (const from of node.requires) if (byId.has(from)) links.push({ from, to: node.id, state: node.state });
-    }
-    return links;
+    return treeEdges(nodes).map(edge => ({ from: edge.from, to: edge.to, state: byId.get(edge.to).state }));
 }
 
 function make(doc, tag, className = '', text = '') {
@@ -247,6 +283,8 @@ export function renderSkillTree(el, props = {}, api = {}) {
     let nodes = [];
     let selected = '';
     let controls = new Map();
+    let parents = new Map();   // each drawn node's parent (its first kept line from above)
+    let shown = [];            // the nodes the grid and the list draw (the tree's limits)
     let pending = null;
 
     const listNodes = () => normalizeNodes(Array.isArray(current.value) ? current.value : Array.isArray(current.nodes) ? current.nodes : []);
@@ -264,10 +302,11 @@ export function renderSkillTree(el, props = {}, api = {}) {
     }
 
     function chooseDefault() {
-        if (nodes.some(node => node.id === selected)) return;
-        const first = tierGroups(nodes)[0]?.nodes[0]?.id ?? '';
+        shown = shownNodes(nodes);
+        if (shown.some(node => node.id === selected)) return;
+        const first = shown[0]?.id ?? '';
         const remembered = CHOSEN.get(chosenKey());
-        const wanted = [current.selected, remembered].find(id => typeof id === 'string' && id && nodes.some(node => node.id === id));
+        const wanted = [current.selected, remembered].find(id => typeof id === 'string' && id && shown.some(node => node.id === id));
         selected = wanted ?? first;
     }
 
@@ -319,14 +358,14 @@ export function renderSkillTree(el, props = {}, api = {}) {
     /** The indented list's line for a node: depth as indentation, "from <parent>" under it. */
     function itemOf(node, byId, depth, parent) {
         const item = make(doc, 'li', `rpg-tree-item rpg-tree-${node.state}`);
-        item.style.setProperty('--rpg-depth', String(depth));
+        item.style.setProperty('--rpg-depth', String(Math.min(depth, LIST_INDENT_MAX)));
         const row = controlOf(node, byId, 'rpg-tree-line');
         row.append(make(doc, 'span', 'rpg-tree-line-name', node.name));
         const status = node.state === 'closed' ? STATE_WORDS.closed : node.state === 'locked' ? STATE_WORDS.locked : node.level > 0 ? `Lv ${node.level} of ${node.max} · ${STATE_WORDS[node.state]}` : STATE_WORDS[node.state];
         row.append(make(doc, 'span', 'rpg-tree-line-state', status));
         const hint = nodeHint(node, byId);
         if (hint) row.append(make(doc, 'span', 'rpg-tree-line-hint', hint));
-        if (parent && byId.has(parent)) row.append(make(doc, 'span', 'rpg-tree-line-from', `from ${byId.get(parent).name}`));
+        if (parent && byId.has(parent)) row.append(make(doc, 'span', 'rpg-tree-line-from', `from ${byId.get(parent).name} · step ${depth}`));
         item.append(row);
         return item;
     }
@@ -344,7 +383,7 @@ export function renderSkillTree(el, props = {}, api = {}) {
         const hint = nodeHint(node, byId);
         if (hint) card.append(make(doc, 'p', 'rpg-tree-detail-hint', hint));
         if (node.note) card.append(make(doc, 'p', 'rpg-tree-detail-note', node.note));
-        const parent = parentOf(node, byId);
+        const parent = parents.get(node.id) ?? null;
         const facts = [node.kind, ...node.facts, node.tier ? `Tier ${node.tier}` : '', parent ? `From ${byId.get(parent).name}` : ''].filter(Boolean);
         if (facts.length) {
             const list = make(doc, 'ul', 'rpg-tree-facts');
@@ -398,15 +437,18 @@ export function renderSkillTree(el, props = {}, api = {}) {
         root.textContent = '';
         controls = new Map();
         const byId = new Map(nodes.map(node => [node.id, node]));
+        // The grid, the list, the lines and the count all use the same nodes: the ones the tree's limits keep.
+        shown = shownNodes(nodes);
+        parents = parentMap(shown);
         root.setAttribute('role', 'group');
         root.setAttribute('aria-label', cut(current.label, 80) || 'Skills');
         if (!nodes.length) return;
-        const layout = treeLayout(nodes);
+        const layout = treeLayout(shown);
         root.setAttribute('data-grid', layout.leaves <= TREE_GRID_LEAVES_MAX ? 'yes' : 'no');
         root.setAttribute('data-leaves', String(layout.leaves));
 
         const grid = make(doc, 'div', 'rpg-tree-grid');
-        const links = treeLinks(nodes);
+        const links = treeLinks(shown);
         if (links.length) {
             const svg = doc.createElementNS(SVG_NS, 'svg');
             svg.setAttribute('class', 'rpg-tree-links');
@@ -422,7 +464,7 @@ export function renderSkillTree(el, props = {}, api = {}) {
             }
             grid.append(svg);
         }
-        for (const group of tierGroups(nodes)) {
+        for (const group of tierGroups(shown)) {
             const section = make(doc, 'section', 'rpg-tree-tier');
             section.setAttribute('data-tier', String(group.tier));
             section.append(make(doc, 'h4', 'ss-section-label rpg-tree-tier-label', group.title));
@@ -443,10 +485,13 @@ export function renderSkillTree(el, props = {}, api = {}) {
         for (const entry of layout.order) {
             const node = byId.get(entry.id);
             if (!node) continue;
-            const item = itemOf(node, byId, entry.depth, entry.parent);
-            list.append(item);
+            list.append(itemOf(node, byId, entry.depth, entry.parent));
         }
         root.append(list);
+
+        // Said, not hidden: the limits keep 12 tiers of 24 skills; anything past them is named here.
+        const hidden = nodes.length - shown.length;
+        if (hidden > 0) root.append(make(doc, 'p', 'rpg-tree-more', `+${hidden} more not shown (a tree shows ${SKILL_TIERS_MAX} tiers of ${SKILL_TILES_MAX} skills at most).`));
 
         const chosen = byId.get(selected);
         if (chosen) root.append(detailOf(chosen, byId));
@@ -501,7 +546,7 @@ export const skillTree = Object.freeze({
  * hatched box, a ban and a struck-through name; available an accent ring; learned a hairline; maxed a green ring and a star.
  */
 export const SKILL_TREE_CSS = `
-.rb .rpg-tree { display: grid; gap: var(--ss-space-3); min-width: 0; }
+.rb .rpg-tree { display: grid; gap: var(--ss-space-3); min-width: 0; container: rpg-tree / inline-size; }
 .rb .rpg-tree-tier { display: grid; gap: var(--ss-space-2); min-width: 0; }
 /* the tier heading is Story Block's ss-section-label (its hairline); its muted colour is too faint, so the text token */
 .rb .rpg-tree-tier-label { color: var(--ss-text); }
@@ -535,6 +580,7 @@ export const SKILL_TREE_CSS = `
 .rb button.rpg-tree-tile:focus-visible { outline: 2px solid var(--ss-accent); outline-offset: 3px; border-radius: var(--ss-radius-m); }
 .rb .rpg-tree-list { display: none; margin: 0; padding: 0; list-style: none; gap: var(--ss-space-2); }
 .rb .rpg-tree-item { padding-left: calc(var(--rpg-depth, 0) * 16px); min-width: 0; }
+.rb .rpg-tree-more { margin: 0; font-size: 13px; color: var(--ss-text); }
 .rb .rpg-tree-line { appearance: none; width: 100%; margin: 0; font: inherit; color: var(--ss-text); background: var(--ss-tile); border: 1px solid var(--ss-border); border-radius: var(--ss-radius-m); padding: 6px 10px; text-align: start; display: grid; gap: 2px; min-width: 0; cursor: pointer; }
 .rb .rpg-tree-line[role="group"] { cursor: default; border-style: dashed; }
 .rb .rpg-tree-line-name { font-weight: 700; overflow-wrap: anywhere; }
@@ -546,7 +592,7 @@ export const SKILL_TREE_CSS = `
 .rb .rpg-tree-item.rpg-tree-closed .rpg-tree-line { background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--ss-muted) 22%, transparent) 6px 7px), var(--ss-tile); }
 .rb .rpg-tree-line:focus-visible { outline: 2px solid var(--ss-accent); outline-offset: 2px; }
 .rb .rpg-tree-item .rpg-tree-line.rpg-tree-selected { outline: 2px solid var(--ss-accent); outline-offset: 2px; }
-@container rb-screen (max-width: 479.98px) {
+@container rpg-tree (max-width: 479.98px) {
   .rb .rpg-tree[data-grid] .rpg-tree-grid { display: none; }
   .rb .rpg-tree[data-grid] .rpg-tree-list { display: grid; }
 }

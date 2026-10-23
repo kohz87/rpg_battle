@@ -5,7 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    NODE_NAME_MAX, NODE_STATES, SKILL_TREE_CSS, TREE_GRID_LEAVES_MAX, normalizeNodes, nodeHint, nodeLabel, renderSkillTree, skillTree, tierGroups, treeLayout, treeLinks,
+    LIST_INDENT_MAX, NODE_NAME_MAX, NODE_STATES, SKILL_TREE_CSS, TREE_GRID_LEAVES_MAX, normalizeNodes, nodeHint, nodeLabel, renderSkillTree, skillTree, tierGroups, treeLayout, treeLinks,
 } from '../../../src/v2/screens/skill-tree.js';
 import { installDom } from './helpers/dom.js';
 
@@ -77,12 +77,42 @@ test('treeLayout: a 1 → 3 → 2-each tree has six leaves, each parent sits ove
     assert.deepEqual(layout.order.map(entry => [entry.id, entry.depth]), [['a', 0], ['b', 1], ['e', 2], ['f', 2], ['c', 1], ['g', 2], ['h', 2], ['d', 1], ['i', 2], ['j', 2]]);
 });
 
-test('treeLayout and treeLinks: a cycle in the data is cut, no node is lost, and a flat list has no lines', () => {
-    const cycle = normalizeNodes([{ id: 'p', tier: 1, requires: ['q'] }, { id: 'q', tier: 2, requires: ['p'] }]);
-    const layout = treeLayout(cycle);
-    assert.equal(layout.order.length, 2);
-    assert.ok(layout.leaves >= 1);
+test('a cycle in the data draws no line that closes it: a and b that require each other draw one line, and the DOM draws that one', () => {
+    const raw = [
+        { id: 'a', name: 'A', tier: 1, level: 1, max: 5, uses: 1, state: 'learned', requires: ['b'] },
+        { id: 'b', name: 'B', tier: 2, level: 1, max: 5, uses: 1, state: 'learned', requires: ['a'] },
+    ];
+    const cycle = normalizeNodes(raw);
+    assert.equal(treeLayout(cycle).order.length, 2, 'no node is lost');
+    assert.deepEqual(treeLinks(cycle).map(link => [link.from, link.to]), [['b', 'a']], 'the line from b to a; a to b would close the cycle');
+    const { root } = mount({ value: raw });
+    assert.deepEqual(all(root, 'path.rpg-tree-link').map(path => [path.getAttribute('data-from'), path.getAttribute('data-to')]), [['b', 'a']], 'the drawn SVG has the same single line');
     assert.deepEqual(treeLinks(normalizeNodes([{ id: 'x', tier: 1 }, { id: 'y', tier: 1 }])), []);
+});
+
+test('a 13-tier chain: the grid and the list draw the same 12 tiers, no line goes to a hidden node, and the count says one more', () => {
+    const chain = Array.from({ length: 13 }, (_, i) => ({ id: `c${i}`, name: `C${i}`, tier: i + 1, level: 1, max: 5, uses: 1, state: 'learned', requires: i ? [`c${i - 1}`] : [] }));
+    const { root } = mount({ value: chain });
+    const tiles = all(root, '.rpg-tree-grid .rpg-tree-tile').map(tile => tile.getAttribute('data-id'));
+    assert.equal(tiles.length, 12);
+    assert.equal(all(root, '.rpg-tree-list .rpg-tree-item').length, 12, 'the list shows the same 12');
+    assert.ok(!tiles.includes('c12'), 'the 13th is not drawn');
+    const paths = all(root, 'path.rpg-tree-link').map(path => [path.getAttribute('data-from'), path.getAttribute('data-to')]);
+    assert.equal(paths.length, 11, 'eleven lines between the twelve drawn tiles');
+    for (const [from, to] of paths) assert.ok(tiles.includes(from) && tiles.includes(to), `${from} -> ${to} joins two drawn tiles`);
+    assert.equal(text(root.querySelector('.rpg-tree-more')), '+1 more not shown (a tree shows 12 tiers of 24 skills at most).');
+});
+
+test('a 30-node chain at a phone: the list\'s indent stops at LIST_INDENT_MAX levels, the step text gives the real depth, and the count says what is not drawn', () => {
+    const chain = Array.from({ length: 30 }, (_, i) => ({ id: `k${i}`, name: `K${i}`, tier: 1, level: 1, max: 5, uses: 1, state: 'learned', requires: i ? [`k${i - 1}`] : [] }));
+    const { root } = mount({ value: chain });
+    const items = all(root, '.rpg-tree-list .rpg-tree-item');
+    assert.equal(items.length, 24, 'one tier holds 24 skills at most');
+    const depths = items.map(item => Number(item.style.getPropertyValue('--rpg-depth')));
+    assert.ok(Math.max(...depths) <= LIST_INDENT_MAX, 'the visual indent is capped');
+    assert.equal(Math.max(...depths), LIST_INDENT_MAX);
+    assert.equal(text(items[23].querySelector('.rpg-tree-line-from')), 'from K22 · step 23', 'the text carries the real step');
+    assert.equal(text(root.querySelector('.rpg-tree-more')), '+6 more not shown (a tree shows 12 tiers of 24 skills at most).');
 });
 
 test('the fan-out is drawn: one line from each parent to each child, with the child\'s state; the states are visibly named', () => {
@@ -126,7 +156,7 @@ test('the locked hint and the closed hint are in the list line and in the detail
     const line = id => all(root, '.rpg-tree-list .rpg-tree-line').find(node => node.getAttribute('data-id') === id);
     assert.equal(text(line('inferno').querySelector('.rpg-tree-line-hint')), 'Unlocks when Fire reaches its cap');
     assert.equal(text(line('ice-lance').querySelector('.rpg-tree-line-hint')), 'Fire path chosen');
-    assert.equal(text(line('inferno').querySelector('.rpg-tree-line-from')), 'from Fire');
+    assert.equal(text(line('inferno').querySelector('.rpg-tree-line-from')), 'from Fire · step 2');
     all(root, '.rpg-tree-grid [data-id]').find(node => node.getAttribute('data-id') === 'ice').click();
     assert.equal(text(root.querySelector('.rpg-tree-detail-name')), 'Ice');
     assert.equal(text(root.querySelector('.rpg-tree-detail-hint')), 'Fire path chosen');
@@ -157,7 +187,7 @@ test('a phone gets the indented list with "from <parent>" and depth; the same no
     assert.deepEqual(items.map(item => item.querySelector('.rpg-tree-line-name').textContent), ['Focus', 'Fire', 'Inferno', 'Pyre', 'Ice', 'Ice Lance', 'Frost Nova', 'Wind', 'Gale', 'Storm']);
     assert.deepEqual(items.map(item => item.style.getPropertyValue('--rpg-depth')), ['0', '1', '2', '2', '1', '2', '2', '1', '2', '2']);
     assert.equal(items[0].querySelector('.rpg-tree-line-from'), null, 'the root has no parent line');
-    assert.equal(text(items[7].querySelector('.rpg-tree-line-from')), 'from Focus');
+    assert.equal(text(items[7].querySelector('.rpg-tree-line-from')), 'from Focus · step 1');
 });
 
 test('a tree wider than the grid (more leaves than TREE_GRID_LEAVES_MAX) is the list only', () => {
@@ -211,7 +241,7 @@ test('the tiers are the bound list\'s, tier 1 up and the story-taught last, and 
 test('the stylesheet marks each state with a class under the screen root (two classes of weight), and no colour is a literal', () => {
     for (const state of ['available', 'learned', 'maxed', 'locked', 'closed']) assert.ok(SKILL_TREE_CSS.includes(`.rb .rpg-tree-${state}`), state);
     assert.match(SKILL_TREE_CSS, /\.rb \.rpg-tree-closed \.ss-tile-label \{ text-decoration: line-through; \}/);
-    assert.match(SKILL_TREE_CSS, /@container rb-screen \(max-width: 479\.98px\)/);
+    assert.match(SKILL_TREE_CSS, /@container rpg-tree \(max-width: 479\.98px\)/, 'the switch reads the tree\'s own width');
     const literal = SKILL_TREE_CSS.match(/#[0-9a-f]{3,8}\b|rgba?\(/gi);
     assert.equal(literal, null, 'every colour comes from a token');
 });
