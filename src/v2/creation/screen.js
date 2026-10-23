@@ -206,7 +206,8 @@ const CSS = `
 .cc-field input:focus-visible { outline: 2px solid var(--ss-accent); outline-offset: 2px; }
 .cc-background { display: grid; gap: 4px; padding: var(--ss-space-2); border-radius: var(--ss-radius-m); background: var(--ss-tile); border: 1px solid var(--ss-border); }
 .cc-background-text { margin: 0; white-space: pre-wrap; max-height: 10em; overflow: auto; overflow-wrap: anywhere; font-size: 0.9em; color: var(--ss-text); }
-.cc-problem { margin: 0; min-height: 1.2em; color: var(--ss-warn); font-size: 0.9em; overflow-wrap: anywhere; }
+/* a rule the draft breaks: the text token (the warn colour is too faint on light glass), marked by a warn rule */
+.cc-problem { margin: 0; min-height: 1.2em; padding-left: 8px; border-left: 3px solid var(--ss-warn); color: var(--ss-text); font-size: 0.9em; overflow-wrap: anywhere; }
 .cc-actions { display: flex; justify-content: flex-end; }
 /* the widgets' own buttons and cards, in the glass look */
 .rpg-roll { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ss-space-1); }
