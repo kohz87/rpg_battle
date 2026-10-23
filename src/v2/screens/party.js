@@ -213,15 +213,16 @@ const css = sheet(`${SKILL_TREE_CSS}
 .carry.over { color: var(--ss-bad); }
 
 
-/* EQUIPMENT (UI 8h): the portrait and name on the left (taller than wide from 380px), the slots in two columns on the
+/* EQUIPMENT (UI 8h): the portrait and name on the left (taller than wide from a 380px card), the slots in two columns on the
    right; a phone stacks them. Each slot is a glass tile; a filled one is a disclosure whose face is the tile (44px) and
    whose actions are Story Block's buttons. */
-.doll-block { container: rb-doll / inline-size; }
+
 .doll { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); align-items: start; min-width: 0; }
 .figure { margin: 0; display: grid; gap: 6px; justify-items: center; align-content: start; min-width: 0; }
 .figure .doll-name { font-weight: 600; text-align: center; overflow-wrap: anywhere; }
 .slots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; min-width: 0; }
-@container rb-doll (min-width: 380px) {
+/* a container query measures the card's content box: 354px of it is a 380px card (its padding is 26px) */
+@container rb-card (min-width: 354px) {
     .doll { grid-template-columns: minmax(0, 3fr) minmax(0, 7fr); }
     .figure { aspect-ratio: 3 / 4; align-content: center; }
 }

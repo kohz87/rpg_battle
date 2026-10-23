@@ -195,10 +195,10 @@ test('party card: the tiles and their actions read the same after a redraw (the 
 // ---------------------------------------------------------------------------------------------------
 // The CSS: the phone stacks the portrait over the grid, the tiles and the actions are 44px tall at least
 
-test('party card CSS: under 380px of card the portrait sits on top of the grid; from 380px it is the left block (3 to 7), taller than wide', () => {
+test('party card CSS: under 380px of card the portrait sits on top of the grid; from a 380px card (354px of content) it is the left block (3 to 7), taller than wide', () => {
     const css = partyScreen.css;
     assert.match(css, /\.doll \{ display: grid; gap: 10px; grid-template-columns: minmax\(0, 1fr\);/, 'a phone: one column');
-    assert.match(css, /@container rb-doll \(min-width: 380px\) \{\s*\.doll \{ grid-template-columns: minmax\(0, 3fr\) minmax\(0, 7fr\); \}\s*\.figure \{ aspect-ratio: 3 \/ 4;/);
+    assert.match(css, /@container rb-card \(min-width: 354px\) \{\s*\.doll \{ grid-template-columns: minmax\(0, 3fr\) minmax\(0, 7fr\); \}\s*\.figure \{ aspect-ratio: 3 \/ 4;/);
     assert.match(css, /\.slots \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/, 'two columns on every width');
 });
 
