@@ -35,6 +35,7 @@ import { wizardWidgets } from './wizard-widgets.js';
 import { CREATE_BUTTON_WIDGET, createButton } from './create-button.js';
 import { CHOICE_WIDGET, choicePick } from './choice-pick.js';
 import { STAT_RADAR_WIDGET, statRadar } from './radar.js';
+import { START_CARD_ID, startCard } from './start-card.js';
 
 /**
  * onBlocked(reason, moduleId) (Story Block's turn calls the blocking module's hook): when the
@@ -60,6 +61,8 @@ export const part = {
     hooks: { onBlocked },
     settings: { section: 'Character creation', defaults: { ...SETTINGS_DEFAULTS }, schema: SETTINGS_SCHEMA },
     tabs: [],
+    // The start card under the greeting until a character exists (UI 8f).
+    cards: { [START_CARD_ID]: startCard },
     widgets: { [PRESET_WIDGET]: presetPick, [CHOICE_WIDGET]: choicePick, [STAT_RADAR_WIDGET]: statRadar, ...wizardWidgets, [CREATE_BUTTON_WIDGET]: createButton },
     screens: [createScreen],
 };
