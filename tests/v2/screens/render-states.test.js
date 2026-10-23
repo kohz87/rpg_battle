@@ -75,18 +75,24 @@ test('party: worn gear with its condition band and refinement, active effects, t
     const drawn = draw(partyScreen, makeState(), { queries: SIBLINGS });
     assert.deepEqual(drawn.warnings, []);
     const ren = cardOf(drawn.el, 'Ren');
-    const [piece, ...more] = all(ren, '.gear li.piece');
-    assert.equal(more.length, 0);
-    assert.equal(text(piece.querySelector('.ss-listcard-title')), '+2Iron Dagger');
-    assert.equal(piece.querySelector('.refine').getAttribute('title'), 'Refined +2');
-    assert.equal(text(piece.querySelector('.ss-listcard-sub')), 'Weapon · ATK +3');
-    const band = piece.querySelector('.ss-listcard-tag');
+    // The EQUIPMENT card: one tile per slot the rules define (weapon, off-hand, armour, worn, two accessories),
+    // Ren's dagger filled, the rest empty (UI 8h).
+    assert.equal(all(ren, '.doll .slot').length, 6);
+    const [piece] = all(ren, '.doll .tile.filled');
+    assert.equal(all(ren, '.doll .tile.filled').length, 1);
+    assert.equal(text(piece.querySelector('.item-name')), '+2Iron Dagger');
+    assert.equal(text(piece.querySelector('.refine')), '+2');
+    assert.equal(piece.querySelector('.tile-face').getAttribute('title'), 'Weapon · ATK +3');
+    const band = piece.querySelector('.cond');
     assert.ok(band.classList.contains('ss-tone-warn'));
-    // The durability is on screen (the tag's number and bar), not only in the title.
+    // The durability is on screen (the tile's number and bar), not only in the title.
     assert.equal(text(band), 'Worn 52/100');
     assert.equal(band.getAttribute('title'), 'Condition: Worn · 52/100');
-    assert.equal(band.querySelector('.gear-track').styleProps['--ss-fill'], '0.52');
-    assert.equal(cardOf(drawn.el, 'Lyra').querySelector('.gear') === null, true, 'Lyra wears nothing');
+    assert.equal(band.querySelector('.bar').styleProps['--ss-fill'], '0.52');
+    // Lyra wears nothing: a card with her slots, all empty.
+    const lyraCard = cardOf(drawn.el, 'Lyra');
+    assert.equal(all(lyraCard, '.doll .tile.filled').length, 0, 'Lyra wears nothing');
+    assert.equal(all(lyraCard, '.doll .tile.empty').length, 6);
     assert.deepEqual(all(ren.querySelector('.effects'), '.effect').map(el => [text(el), el.getAttribute('title')]), [['Blessed · 2 h', 'Blessed, 2 h left, from a shrine']]);
     // A good effect reads as good (the tone from party.effects): its pill carries the good ring.
     assert.ok(all(ren.querySelector('.effects'), '.effect')[0].classList.contains('ss-tone-good'));
@@ -99,8 +105,8 @@ test('party: with wear, refinement and effects off (their queries give nothing) 
     const drawn = draw(partyScreen, makeState(), { queries: { 'items.condition': () => null, 'party.effects': () => [], 'party.encumbered': () => null } });
     assert.deepEqual(drawn.warnings, []);
     const ren = cardOf(drawn.el, 'Ren');
-    assert.equal(all(ren, '.gear li.piece').length, 1);
-    assert.equal(ren.querySelector('.ss-listcard-tag') === null, true, 'no band');
+    assert.equal(all(ren, '.doll .tile.filled').length, 1);
+    assert.equal(ren.querySelector('.cond') === null, true, 'no band');
     assert.equal(ren.querySelector('.refine') === null, true, 'no refinement');
     assert.equal(ren.querySelector('.effects') === null, true, 'no effects');
     assert.equal(ren.querySelector('.burden') === null, true, 'not encumbered');
@@ -124,7 +130,7 @@ test('party: every wear band gets its class; a broken piece its own icon', { ski
     for (const band of Object.keys(tone)) {
         const drawn = draw(partyScreen, makeState(), { queries: { 'items.condition': () => ({ band, cur: band === 'broken' ? 0 : 50, max: 100, refine: 0 }) } });
         assert.deepEqual(drawn.warnings, [], band);
-        const chip = cardOf(drawn.el, 'Ren').querySelector('.ss-listcard-tag');
+        const chip = cardOf(drawn.el, 'Ren').querySelector('.cond');
         assert.ok(chip.classList.contains(tone[band]), band);
         assert.equal(chip.querySelectorAll('.fa-heart-crack').length, band === 'broken' ? 1 : 0, band);
         assert.equal(cardOf(drawn.el, 'Ren').querySelector('.refine') === null, true);

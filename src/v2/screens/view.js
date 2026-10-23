@@ -20,6 +20,8 @@ import { levelTag, maxLevel, xpLabel } from '../../terms.js';
 import { isMaterial } from '../../trade.js';
 import { growthOf } from '../party/sheets.js';
 import { clockOf, fitParty, minutesLeft } from '../party/pools.js';
+import { gearLimits } from '../../items.js';
+import { paperdollOf } from './paperdoll.js';
 
 export const MODULE_ID = 'rpg-battle';
 
@@ -357,17 +359,60 @@ function burdenOf(tools, actorId) {
  */
 export function cards(state, args = {}, tools = null) {
     const party = partyOf(state);
+    const inventory = inventoryOf(state);
     const rules = rulesFor(settingsFor(args, tools));
     // party.actors gives each member's portrait (the persona's, or NSD's for an NPC companion).
     const listed = tryQuery(tools, 'party.actors', {});
     const portraits = new Map((Array.isArray(listed) ? listed : []).map(entry => [entry?.id, entry?.portrait ?? null]));
-    return copy(peopleOf(party).map(id => ({
-        ...actorCard(party.actors[id], party, { rules, portrait: portraits.get(id), minutes: clockOf(state) }),
-        gear: gearOf(tools, id),
-        effects: effectsOf(tools, id),
-        encumbered: burdenOf(tools, id),
-    })));
+    const limits = slotLimits(tools);
+    const members = peopleOf(party).map(id => ({ id, name: String(party.actors[id]?.name ?? id) }));
+    return copy(peopleOf(party).map(id => {
+        const pieces = gearOf(tools, id);
+        return {
+            ...actorCard(party.actors[id], party, { rules, portrait: portraits.get(id), minutes: clockOf(state) }),
+            gear: pieces,
+            paperdoll: paperdollOf({
+                actorId: id, pieces, limits, members,
+                keys: Object.fromEntries(pieces.map(piece => [piece.stack, inventory.stacks?.[piece.stack]?.equipped ?? ''])),
+                qtys: Object.fromEntries(pieces.map(piece => [piece.stack, inventory.stacks?.[piece.stack]?.qty ?? 1])),
+                twoHanded: pieces.some(piece => piece.counted && piece.slot === 'weapon' && inventory.defs?.[inventory.stacks?.[piece.stack]?.def]?.tags?.includes('two-handed')),
+                bag: bagOf(state, tools, id),
+            }),
+            effects: effectsOf(tools, id),
+            encumbered: burdenOf(tools, id),
+        };
+    }));
 }
+
+/** How many worn pieces and accessories count in the rules in force (items.slots; the rules' default without it). */
+function slotLimits(tools) {
+    const found = tryQuery(tools, 'items.slots', {});
+    if (isRecord(found) && Number.isFinite(found.worn) && Number.isFinite(found.accessory)) return { worn: found.worn, accessory: found.accessory };
+    return gearLimits(DEFAULT_RULES);
+}
+
+/**
+ * The bag's pieces that `actorId` could put on, by the slot they fill: { [group]: [{ id, name }] }. A piece
+ * the party carries goes to the main character (items.canWear decides the rest, the same rule item.equip keeps).
+ */
+function bagOf(state, tools, actorId) {
+    const inventory = inventoryOf(state);
+    const party = partyOf(state);
+    const out = {};
+    for (const id of Object.keys(inventory.stacks ?? {}).sort()) {
+        const stack = inventory.stacks[id];
+        const def = inventory.defs?.[stack?.def];
+        if (!stack || !(stack.qty > 0) || stack.equipped || def?.kind !== 'equipment' || !PAPERDOLL_GROUPS.includes(def.slot)) continue;
+        const wearer = stack.owner === 'party' ? party.pc : stack.owner;
+        if (wearer !== actorId) continue;
+        const check = tryQuery(tools, 'items.canWear', { actor: actorId, stack: id });
+        if (!check || check.ok !== true) continue;
+        (out[def.slot] ??= []).push({ id, name: String(def.name ?? id) });
+    }
+    return out;
+}
+
+const PAPERDOLL_GROUPS = Object.freeze(['weapon', 'offhand', 'armour', 'worn', 'accessory']);
 
 /**
  * `rpg-battle.heroes({ settings? })`: every member as ss.hero props at this reply's pools (`party.pools`,
