@@ -152,9 +152,9 @@ const CSS = `
 .cc-layout { display: grid; gap: var(--ss-space-3); min-width: 0; }
 .cc-main, .cc-register { display: grid; gap: var(--ss-space-2); align-content: start; min-width: 0; }
 .cc-lead, .cc-none, .cc-hint { margin: 0; }
-.cc-none, .cc-hint { color: var(--ss-muted); font-size: 0.9em; }
+.cc-none, .cc-hint { color: var(--ss-text); font-size: 0.9em; }
 .cc-left { justify-self: start; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.cc-left b { color: var(--ss-accent); font-weight: 800; }
+.cc-left b { color: inherit; font-weight: 800; }
 .cc-register { padding: var(--ss-space-3); border-radius: var(--ss-radius-l); background: var(--ss-glass); border: 1px solid var(--ss-border); box-shadow: var(--ss-shadow); backdrop-filter: var(--ss-blur); -webkit-backdrop-filter: var(--ss-blur); }
 .cc-register-optional { display: none; }
 .cc-register-head { display: flex; gap: var(--ss-space-2); align-items: center; min-width: 0; }
@@ -181,7 +181,7 @@ const CSS = `
 .cc-card-name { font-weight: 700; overflow-wrap: anywhere; line-height: 1.2; color: var(--ss-text); }
 .cc-card-cost { font-size: 13px; font-variant-numeric: tabular-nums; color: var(--ss-text); }
 .cc-card-tick { font-size: 12px; font-weight: 700; padding: 0 8px; border-radius: var(--ss-radius-pill); background: var(--ss-accent); color: var(--ss-on-ring); }
-.cc-card-bonus { font-size: 13px; color: var(--ss-accent); overflow-wrap: anywhere; }
+.cc-card-bonus { font-size: 13px; font-weight: 700; color: var(--ss-text); overflow-wrap: anywhere; }
 .cc-card-note { font-size: 13px; color: var(--ss-text); overflow-wrap: anywhere; }
 .cc-row { text-align: start; grid-template-columns: minmax(0, 1fr) auto; justify-items: start; align-items: center; column-gap: var(--ss-space-2); }
 .cc-row-main { display: grid; gap: 2px; min-width: 0; }
@@ -189,7 +189,7 @@ const CSS = `
 .cc-row .cc-card-cost { grid-column: 2; grid-row: 2; justify-self: end; }
 /* the review and the summary lists */
 .cc-review-list { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; }
-.cc-review-list dt { color: var(--ss-muted); font-size: 13px; }
+.cc-review-list dt { color: var(--ss-text); font-size: 13px; font-weight: 600; }
 .cc-review-list dd { margin: 0; overflow-wrap: anywhere; color: var(--ss-text); }
 .cc-review-stats { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 0; padding: 0; list-style: none; }
 .cc-rolled { margin: 0; padding-left: 1.2em; color: var(--ss-text); }
@@ -199,7 +199,7 @@ const CSS = `
 .cc-you-row { display: flex; gap: var(--ss-space-2); align-items: center; min-width: 0; }
 .cc-you-fields { flex: 1; display: grid; gap: var(--ss-space-2); min-width: 0; }
 .cc-name { margin: 0; overflow-wrap: anywhere; }
-.cc-from, .cc-field small { color: var(--ss-muted); font-size: 0.8em; }
+.cc-from, .cc-field small { color: var(--ss-text); font-size: 0.8em; }
 .cc-field { display: grid; gap: 2px; font-size: 0.9em; }
 .cc-field input { min-width: 0; width: 100%; font: inherit; color: var(--ss-text); background: var(--ss-field); border: 1px solid var(--ss-border); border-radius: var(--ss-radius-s); padding: 6px 10px; }
 .cc-field input:focus-visible { outline: 2px solid var(--ss-accent); outline-offset: 2px; }
@@ -220,7 +220,7 @@ const CSS = `
 .rpg-preset-chosen { border-color: var(--ss-accent); box-shadow: inset 0 0 0 2px var(--ss-accent); }
 .rpg-preset-name { font-weight: 800; }
 .rpg-preset-img { width: 100%; max-height: 6em; object-fit: cover; border-radius: var(--ss-radius-s); }
-.rpg-preset-origin, .rpg-preset-skills { font-size: 13px; color: var(--ss-accent); }
+.rpg-preset-origin, .rpg-preset-skills { font-size: 13px; font-weight: 700; color: var(--ss-text); }
 .rpg-preset-note { font-size: 13px; color: var(--ss-text); }
 .rpg-preset-go, .rpg-preset-own { justify-self: start; }
 /* the stat radar (widget rpg-battle.stat-radar, creation/radar.js): SVG drawn with DOM calls, coloured from the tokens */
@@ -230,7 +230,7 @@ const CSS = `
 .rpg-radar-spoke { stroke: var(--ss-border); stroke-width: 1; }
 .rpg-radar-shape { fill: color-mix(in srgb, var(--ss-accent) 28%, transparent); stroke: var(--ss-accent); stroke-width: 2; stroke-linejoin: round; }
 .rpg-radar-label { fill: var(--ss-text); font-size: 11px; font-weight: 700; font-family: var(--ss-font); text-anchor: middle; dominant-baseline: middle; }
-.rpg-radar-value { fill: var(--ss-muted); font-size: 10px; font-family: var(--ss-font); text-anchor: middle; dominant-baseline: middle; }
+.rpg-radar-value { fill: var(--ss-text); font-size: 10px; font-family: var(--ss-font); text-anchor: middle; dominant-baseline: middle; }
 .cc-sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
 /* the dialog's own step list is the phone indicator; on a wide dialog the card sits beside the choices */
 @container cc (min-width: 560px) {
