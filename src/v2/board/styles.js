@@ -108,4 +108,32 @@ export const boardCss = `
 :where(.rpg-bb-loot) { display: flex; flex-wrap: wrap; gap: var(--ss-space-1); margin: 0; padding: 0; list-style: none; }
 :where(.rpg-bb-loot-item) { display: inline-flex; gap: 4px; align-items: baseline; font-size: 13px; }
 :where(.rpg-bb-finish) { align-self: flex-start; font-weight: 700; }
+
+/* The state markers, one level above the block classes they sit on (ss-glass, ss-pill, ss-button are 0,1,0; the
+   :where() rules above are 0,0,0 and lose to them). Each is a .rpg-bb-prefixed rule: 0,2,0 and up, tokens only. */
+.rpg-bb .rpg-bb-card.rpg-bb-turn { border-color: var(--ss-accent); box-shadow: inset 0 0 0 1px var(--ss-accent), var(--ss-shadow); }
+.rpg-bb .rpg-bb-card.rpg-bb-gone { opacity: 0.5; filter: grayscale(0.8); }
+.rpg-bb .rpg-bb-card.rpg-bb-pickable { cursor: pointer; border-style: dashed; border-color: var(--ss-accent); }
+.rpg-bb .rpg-bb-card.rpg-bb-pickable:hover { background: var(--ss-accent-soft); }
+.rpg-bb .rpg-bb-order-item.rpg-bb-current { border-color: var(--ss-accent); background: var(--ss-accent-soft); font-weight: 700; }
+.rpg-bb .rpg-bb-order-item[data-side="enemy"] { color: var(--ss-bad); }
+.rpg-bb .rpg-bb-order-item.rpg-bb-done, .rpg-bb .rpg-bb-order-item.rpg-bb-gone { opacity: 0.5; }
+.rpg-bb .rpg-bb-order-item.rpg-bb-gone { text-decoration: line-through; }
+.rpg-bb .rpg-bb-cond { color: var(--ss-text); border-color: var(--ss-bad); }
+.rpg-bb .rpg-bb-cond.rpg-bb-helpful { border-color: var(--ss-good); }
+.rpg-bb .rpg-bb-tag.rpg-bb-death, .rpg-bb .rpg-bb-tag.rpg-bb-boss { color: var(--ss-bad); border-color: var(--ss-bad); }
+.rpg-bb .rpg-bb-act[aria-expanded="true"] { border-color: var(--ss-accent); background: var(--ss-accent-soft); }
+.rpg-bb .rpg-bb-act:hover:not(:disabled), .rpg-bb .rpg-bb-cancel:hover:not(:disabled), .rpg-bb .rpg-bb-finish:hover:not(:disabled), .rpg-bb .rpg-bb-entry:hover:not(:disabled) { background: color-mix(in srgb, var(--ss-text) 16%, transparent); }
+.rpg-bb .rpg-bb-act:active:not(:disabled), .rpg-bb .rpg-bb-entry:active:not(:disabled) { transform: translateY(1px); }
+.rpg-bb .rpg-bb-entry { flex-direction: column; align-items: flex-start; text-align: start; }
+.rpg-bb .rpg-bb-entry:not(:disabled):hover { border-color: var(--ss-accent); }
+.rpg-bb .rpg-bb-entry.rpg-bb-unusable { opacity: 0.5; }
+.rpg-bb .rpg-bb-actions { position: sticky; bottom: 0; z-index: 1; display: flex; flex-direction: column; align-items: stretch; width: 100%; gap: var(--ss-space-2); padding: var(--ss-space-2) var(--ss-space-3); }
+.rpg-bb .rpg-bb-picking, .rpg-bb .rpg-bb-menu { width: 100%; }
+.rpg-bb .rpg-bb-result[data-outcome="won"] .rpg-bb-outcome { color: var(--ss-good); }
+.rpg-bb .rpg-bb-result[data-outcome="lost"] .rpg-bb-outcome { color: var(--ss-bad); }
+.rpg-bb .rpg-bb-result[data-outcome="fled"] .rpg-bb-outcome { color: var(--ss-warn); }
+.rpg-bb .rpg-bb-meter.rpg-bb-low .rpg-bb-meter-fill { background: var(--ss-bad); }
+.rpg-bb .rpg-bb-meter[data-pool="mp"] .rpg-bb-meter-fill { background: var(--ss-mp); }
+.rpg-bb .rpg-bb-meter[data-pool="sp"] .rpg-bb-meter-fill { background: var(--ss-sp); }
 `;
