@@ -182,6 +182,16 @@ test('today\'s skills (flat tiers, no requires) draw tier rows with no lines and
     assert.equal(all(root, '.rpg-tree-link').length, 0);
 });
 
+test('a redraw of the same actor\'s tree (the screen draws it again after a command) keeps the chosen skill', () => {
+    const props = { value: branchingTree(), actor: 'ac_keep_choice', label: 'Skills of Keep', setCommand: 'party.setSkillActive' };
+    const first = mount(props);
+    all(first.root, '.rpg-tree-grid [data-id]').find(node => node.getAttribute('data-id') === 'fire').click();
+    const again = mount(props);
+    assert.equal(text(again.root.querySelector('.rpg-tree-detail-name')), 'Fire', 'the new widget starts on the skill chosen before');
+    const other = mount({ ...props, actor: 'ac_other_actor' });
+    assert.equal(text(other.root.querySelector('.rpg-tree-detail-name')), 'Focus', 'another actor starts on its first skill');
+});
+
 test('an update keeps the chosen node when it is still there, and the list follows it', () => {
     const { root, handle } = mount({ value: branchingTree() });
     all(root, '.rpg-tree-grid [data-id]').find(node => node.getAttribute('data-id') === 'wind').click();

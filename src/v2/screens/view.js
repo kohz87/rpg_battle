@@ -235,7 +235,7 @@ export function skillNodes(skills) {
             inUse: skill.active,
             kind: skill.type,
             note: skill.note,
-            facts: [skill.cost ? `Costs ${skill.cost}` : '', skill.progress].filter(Boolean),
+            facts: [skill.cost ? `Costs ${skill.cost}` : ''].filter(Boolean),
         };
     });
 }

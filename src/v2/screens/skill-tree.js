@@ -57,6 +57,8 @@ export const UNTIERED_TITLE = 'Taught by the story';
 export const CLOSED_FALLBACK = 'Another path was chosen';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+/** The skill last chosen, per actor and label: the screen redraws the widget on every change, and the choice should stay (screen UI state, never story state). */
+const CHOSEN = new Map();
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const cut = (value, max) => Array.from(typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '').slice(0, max).join('');
 const whole = (value, fallback = 0) => (Number.isInteger(value) ? value : Number.isFinite(value) ? Math.trunc(value) : fallback);
@@ -250,8 +252,11 @@ export function renderSkillTree(el, props = {}, api = {}) {
     const listNodes = () => normalizeNodes(Array.isArray(current.value) ? current.value : Array.isArray(current.nodes) ? current.nodes : []);
 
     /** Chooses a node and keeps the keyboard where it was: the same control (the tree or the list) is focused again. */
+    const chosenKey = () => `${String(current.actor ?? '')}|${String(current.label ?? '')}`;
+
     function select(id, clicked) {
         selected = id;
+        CHOSEN.set(chosenKey(), id);
         const inTree = Boolean(clicked?.closest?.(".rpg-tree-grid"));
         draw();
         const again = [...root.querySelectorAll("[data-id]")].find(node => node.getAttribute("data-id") === id && Boolean(node.closest(".rpg-tree-grid")) === inTree);
@@ -261,7 +266,9 @@ export function renderSkillTree(el, props = {}, api = {}) {
     function chooseDefault() {
         if (nodes.some(node => node.id === selected)) return;
         const first = tierGroups(nodes)[0]?.nodes[0]?.id ?? '';
-        selected = typeof current.selected === 'string' && nodes.some(node => node.id === current.selected) ? current.selected : first;
+        const remembered = CHOSEN.get(chosenKey());
+        const wanted = [current.selected, remembered].find(id => typeof id === 'string' && id && nodes.some(node => node.id === id));
+        selected = wanted ?? first;
     }
 
     /** A node's control: a button (its detail on a click) unless it is locked, which is a named group. */
