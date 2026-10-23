@@ -167,7 +167,7 @@ test('trade: the market line, then Sell / Buy / On order rows with short prices 
 
     const sells = buttons(drawn.el, 'trade.sell');
     const draught = sells.filter(button => button.closest('li') && text(button.closest('li').querySelector('.ss-listcard-title')).startsWith('Minor Healing Draught'));
-    // The price is a pill beside the Sell button; the buttons are Sell and All.
+    // The price is a pill beside the name; the buttons are Sell and All (tests/v2/screens/trade-layout.test.js).
     assert.deepEqual(draught.map(text), ['Sell', 'All']);
     assert.equal(text(draught[0].closest('li').querySelector('.price')), '4 g');
     assert.equal(draught[0].getAttribute('title'), 'Sell one Minor Healing Draught for 4 gold');
