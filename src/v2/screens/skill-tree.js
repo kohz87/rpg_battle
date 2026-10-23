@@ -425,7 +425,7 @@ export function renderSkillTree(el, props = {}, api = {}) {
         for (const group of tierGroups(nodes)) {
             const section = make(doc, 'section', 'rpg-tree-tier');
             section.setAttribute('data-tier', String(group.tier));
-            section.append(make(doc, 'p', 'rpg-tree-tier-label', group.title));
+            section.append(make(doc, 'h4', 'ss-section-label rpg-tree-tier-label', group.title));
             const row = make(doc, 'div', 'rpg-tree-row');
             row.style.setProperty('--rpg-cols', String(Math.min(TREE_COLUMNS_MAX, Math.max(1, whole(current.columns, 3)))));
             for (const node of group.nodes) {
@@ -503,8 +503,8 @@ export const skillTree = Object.freeze({
 export const SKILL_TREE_CSS = `
 .rb .rpg-tree { display: grid; gap: var(--ss-space-3); min-width: 0; }
 .rb .rpg-tree-tier { display: grid; gap: var(--ss-space-2); min-width: 0; }
-.rb .rpg-tree-tier-label { display: flex; align-items: center; gap: var(--ss-space-2); margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ss-text); }
-.rb .rpg-tree-tier-label::after { content: ""; flex: 1 1 auto; min-width: var(--ss-space-3); height: 1px; background: var(--ss-border); }
+/* the tier heading is Story Block's ss-section-label (its hairline); its muted colour is too faint, so the text token */
+.rb .rpg-tree-tier-label { color: var(--ss-text); }
 .rb .rpg-tree-grid { position: relative; display: grid; gap: var(--ss-space-3); min-width: 0; }
 .rb .rpg-tree-links { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 0; }
 .rb .rpg-tree-link { fill: none; stroke: var(--ss-border); stroke-width: 2; }

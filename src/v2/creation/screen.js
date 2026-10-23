@@ -126,7 +126,7 @@ const YOU = `
         </div>
       </div>
       <div class="cc-background" data-if="draft.background">
-        <span class="cc-label">Background</span>
+        <h4 class="ss-section-label">Background</h4>
         <p class="cc-background-text" data-bind="draft.background"></p>
       </div>
       <p class="cc-problem" role="status">{{ ${LIVE}.message }}</p>
@@ -135,7 +135,7 @@ const YOU = `
       </div>
     </div>
     <section class="cc-register cc-review" aria-label="Your character">
-      <span class="cc-label">Your character</span>
+      <h4 class="ss-section-label">Your character</h4>
       <dl class="cc-review-list">
         <dt>Name</dt><dd class="cc-review-name">{{ draft.name }}</dd>
         <dt>Race</dt><dd class="cc-review-race"><span data-if="draft.race">{{ ${LIVE}.raceName }}</span><span data-if="!draft.race">None</span></dd>
@@ -152,6 +152,8 @@ const CSS = `
 .cc-layout { display: grid; gap: var(--ss-space-3); min-width: 0; }
 .cc-main, .cc-register { display: grid; gap: var(--ss-space-2); align-content: start; min-width: 0; }
 .cc-lead, .cc-none, .cc-hint { margin: 0; }
+/* the section headers are Story Block's ss-section-label (its muted colour is too faint on the glass: the text token instead) */
+.ss-section-label { color: var(--ss-text); }
 .cc-none, .cc-hint { color: var(--ss-text); font-size: 0.9em; }
 .cc-left { justify-self: start; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .cc-left b { color: inherit; font-weight: 800; }
@@ -166,7 +168,6 @@ const CSS = `
 .cc-stat { min-width: 0; }
 .cc-stat .ss-w-stepper-budget { display: none; }
 .cc-preview { display: flex; justify-content: center; min-width: 0; }
-.cc-label { font-size: 13px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ss-text); }
 /* the choices: race tiles and talent rows (widget rpg-battle.choice-pick, buttons with aria-pressed) */
 .rpg-choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 7.5em), 1fr)); gap: var(--ss-space-2); min-width: 0; }
 .rpg-choices-rows { display: grid; gap: var(--ss-space-2); grid-template-columns: minmax(0, 1fr); }
