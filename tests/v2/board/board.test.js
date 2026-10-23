@@ -145,6 +145,13 @@ test('action buttons send combat.act with the combat part\'s payloads', () => {
     byAct(el, 'attack').click();
     assert.equal(sent.length, 0, 'aiming sends nothing yet');
     assert.equal(el.querySelector('.rpg-bb-picking-text').textContent, 'Attack: tap an enemy.');
+    // What the player gets while picking: the targets are the pickable cards, the action panel holds the picking row,
+    // and the board, its enemy side and the panel are the full-width column the CSS keys on (picking mode's markers).
+    assert.equal(enemyCards(el).length, 3);
+    assert.equal(el.querySelectorAll('.rpg-bb-card.rpg-bb-pickable').length, 3, 'every living foe is a target');
+    assert.ok(el.querySelector('.rpg-bb').classList.contains('rpg-bb-picking'), 'the board is in picking mode');
+    assert.ok(el.querySelector('.rpg-bb-side.rpg-bb-picking'), 'the enemy side is marked too');
+    assert.ok(el.querySelector('.rpg-bb-actions .rpg-bb-picking .rpg-bb-picking-text'), 'the picking row sits in the action panel');
     const target = enemyCards(el)[1];
     assert.equal(target.getAttribute('role'), 'button');
     assert.equal(target.getAttribute('aria-label'), 'Target Cellar Rat B');

@@ -125,7 +125,13 @@ export const boardCss = `
 .rpg-bb .rpg-bb-entry:not(:disabled):hover { border-color: var(--ss-accent); }
 .rpg-bb .rpg-bb-entry.rpg-bb-unusable { opacity: 0.5; }
 .rpg-bb .rpg-bb-actions { position: sticky; bottom: 0; z-index: 1; display: flex; flex-direction: column; align-items: stretch; width: 100%; gap: var(--ss-space-2); padding: var(--ss-space-2) var(--ss-space-3); }
-.rpg-bb .rpg-bb-picking, .rpg-bb .rpg-bb-menu { width: 100%; }
+.rpg-bb .rpg-bb-panel { width: 100%; min-width: 0; }
+.rpg-bb .rpg-bb-picking { width: 100%; }
+/* In picking mode rpg-bb-picking marks the board root and the enemy side too, not only the picking row: both stay
+   full-width columns (the picking row's flex rule above would centre them). */
+.rpg-bb.rpg-bb-picking { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; width: 100%; }
+.rpg-bb .rpg-bb-side.rpg-bb-picking { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; width: 100%; }
+.rpg-bb .rpg-bb-menu { width: 100%; }
 .rpg-bb .rpg-bb-result[data-outcome="won"] .rpg-bb-outcome { color: var(--ss-good); }
 .rpg-bb .rpg-bb-result[data-outcome="lost"] .rpg-bb-outcome { color: var(--ss-bad); }
 .rpg-bb .rpg-bb-result[data-outcome="fled"] .rpg-bb-outcome { color: var(--ss-warn); }
