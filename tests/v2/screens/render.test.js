@@ -384,8 +384,8 @@ test('every screen draws with Story Block\'s real standard widgets, none missing
         assert.deepEqual(drawn.warnings, [], screen.id);
         assert.equal(drawn.el.querySelectorAll('.ss-widget-missing').length, 0, screen.id);
         const hosts = drawn.el.querySelectorAll('ss-widget');
-        // RPG Battle's own return card draws its own root (hidden while your character lives).
-        for (const host of hosts) assert.ok(host.querySelector('.ss-w') ?? host.querySelector('.rpg-return-card'), `${screen.id}: ${host.getAttribute('name')} drew`);
+        // RPG Battle's own widgets draw their own roots (the return card, the EQUIPMENT tiles, the member's fold button).
+        for (const host of hosts) assert.ok(host.querySelector('.ss-w') ?? host.querySelector('.rpg-return-card, .rpg-eq, .rpg-toggle'), `${screen.id}: ${host.getAttribute('name')} drew`);
     }
     const party = draw(partyScreen, makeState(), { real: true });
     const ren = party.el.querySelectorAll('article.actor')[0];

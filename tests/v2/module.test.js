@@ -20,7 +20,7 @@ test('the merged module is a valid Story Block module with every part\'s pieces'
         for (const screen of part.screens ?? []) assert.ok(module.screens.includes(screen), screen.id);
     }
     assert.deepEqual(Object.keys(module.capture.kinds).sort(), ['check', 'craft', 'effect', 'encounter', 'join', 'leave', 'market', 'recipe', 'refine', 'repair', 'rest', 'skill', 'use', 'wound', 'xp']);
-    assert.deepEqual(Object.keys(module.widgets).sort(), ['rpg-battle.battle-board', 'rpg-battle.character-file', 'rpg-battle.choice-pick', 'rpg-battle.create-character', 'rpg-battle.import-pick', 'rpg-battle.item-detail', 'rpg-battle.preset-pick', 'rpg-battle.return-card', 'rpg-battle.skill-tree', 'rpg-battle.stat-radar', 'rpg-battle.talent-roll']);
+    assert.deepEqual(Object.keys(module.widgets).sort(), ['rpg-battle.battle-board', 'rpg-battle.character-file', 'rpg-battle.choice-pick', 'rpg-battle.create-character', 'rpg-battle.equipment', 'rpg-battle.import-pick', 'rpg-battle.item-detail', 'rpg-battle.member-toggle', 'rpg-battle.preset-pick', 'rpg-battle.return-card', 'rpg-battle.skill-tree', 'rpg-battle.stat-radar', 'rpg-battle.talent-roll']);
     assert.deepEqual(module.screens.map(screen => screen.id), ['rpg-battle/create', 'rpg-battle/fight', 'rpg-battle/party', 'rpg-battle/trade', 'rpg-battle/crafting', 'rpg-battle/hud', 'rpg-battle/status-card']);
     assert.equal(typeof module.queries[REV_QUERY], 'function');
     // Party keeps check.resolve; the check line is the checks part's.

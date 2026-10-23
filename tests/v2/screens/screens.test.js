@@ -23,8 +23,6 @@ const OWN_WIDGETS = [...Object.keys(screenWidgets), 'rpg-battle.create-character
 
 const byId = Object.fromEntries(screens.map(screen => [screen.id, screen]));
 const COMMANDS = new Set([...Object.keys(partyPart.commands), ...Object.keys(itemsPart.commands), ...Object.keys(tradePart.commands)]);
-// Story Block's core commands a screen may send (MODULES §F5): the party card's Drop is `inventory.drop { stack, qty }`, as its Inventory's.
-const HOST_COMMANDS = new Set(['inventory.drop']);
 // Story Block's registry rules (src/v2/registry.js): screen ids lowercase, query names words joined by dots.
 // An <ss-widget …> tag's name (attribute values may hold ">", as in data-if="len(x) > 0").
 const WIDGET_TAG = /<ss-widget\b(?:[^>"']|"[^"]*"|'[^']*')*?\sname="([^"]+)"/g;
@@ -37,7 +35,7 @@ test('the part exports the five default screens under the new `screens` key, its
     assert.equal(byId['rpg-battle/items'], undefined);
     assert.equal(part.screens, screens);
     assert.deepEqual(Object.keys(part.queries).sort(), ['rpg-battle.cards', 'rpg-battle.carry', 'rpg-battle.crafting', 'rpg-battle.heroes', 'rpg-battle.hud', 'rpg-battle.itemDetail', 'rpg-battle.trade']);
-    assert.deepEqual(Object.keys(part.widgets).sort(), ['rpg-battle.character-file', 'rpg-battle.item-detail', 'rpg-battle.skill-tree']);
+    assert.deepEqual(Object.keys(part.widgets).sort(), ['rpg-battle.character-file', 'rpg-battle.equipment', 'rpg-battle.item-detail', 'rpg-battle.member-toggle', 'rpg-battle.skill-tree']);
     for (const widget of Object.values(part.widgets)) {
         assert.equal(typeof widget.render, 'function');
         assert.deepEqual(widget.validate({}), []);
@@ -180,16 +178,16 @@ test('buttons run commands RPG Battle has; widgets are the standard ss.* set', (
     const used = new Set();
     for (const screen of screens) {
         for (const [, type] of screen.template.matchAll(/data-command="([^"]+)"/g)) {
-            assert.ok(COMMANDS.has(type) || HOST_COMMANDS.has(type), `${screen.id}: ${type} is not one of RPG Battle's or Story Block's commands`);
+            assert.ok(COMMANDS.has(type), `${screen.id}: ${type} is not one of RPG Battle's commands`);
             used.add(type);
         }
         for (const [, name] of screen.template.matchAll(WIDGET_TAG)) assert.ok(WIDGET_NAMES.includes(name) || OWN_WIDGETS.includes(name), `${screen.id}: ${name}`);
         // Every widget tag is closed (TEMPLATES.md §2).
         assert.equal((screen.template.match(/<ss-widget/g) ?? []).length, (screen.template.match(/<\/ss-widget>/g) ?? []).length, screen.id);
     }
-    // The party card's EQUIPMENT (UI 8h) sends the items part's Equip, Take off and Give and Story Block's Drop; crafting has no buttons.
+    // The party card's EQUIPMENT tiles send no commands (the unequip is the widget's own tap, UI 8f); crafting has no buttons.
     assert.deepEqual([...used].sort(), [
-        'craft.collect', 'craft.commission', 'inventory.drop', 'item.equip', 'item.give', 'item.unequip',
+        'craft.collect', 'craft.commission',
         'party.acceptOffer', 'party.dismissOffer', 'party.edit', 'party.setSkillActive', 'party.spend', 'trade.buy', 'trade.sell',
     ]);
     assert.doesNotMatch(byId['rpg-battle/crafting'].template, /data-command|<button/);

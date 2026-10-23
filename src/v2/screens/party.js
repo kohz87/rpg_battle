@@ -2,17 +2,21 @@
 // member, your character first, under the carry line (MODULES §F39) and the offers waiting for the reader (a
 // join, a skill, a companion leaving: party.offers' sentence) with Accept and Dismiss. Before a character
 // exists, the empty state has "Create your character" (widget `rpg-battle.create-character`, which opens the
-// creation wizard). Each card is Story Block's hero (`ss.hero`: portrait, name, the level and class pill, HP /
-// MP / SP bars and the EXP bar under the Terms' word, the conditions as status badges), then the effects as
-// pills, what they wear as the EQUIPMENT paper-doll (the portrait and name, then a tile per slot the rules define with each piece's
-// condition and refinement; features `rpg-battle.wear`, `rpg-battle.refine`), a line when they carry too much (`party.encumbered`), the skills as tiles (`ss.tiers`)
-// with Use / Set aside in a fold, the stats as a radar with their check modifiers, and, while the member has
-// points to spend, a stepper per stat and Spend (`party.spend { actor, points }`). A companion's card has two
+// creation wizard). Each card's header has the member's fold button (rpg-battle.member-toggle: the lead's card opens,
+// the others fold to the compact card; the choice is the viewer's, kept per chat and member). The compact card is
+// Story Block's hero (`ss.hero`: portrait, level and class pill, name, conditions, HP / MP / SP bars and the EXP
+// bar under the Terms' word). The rest of the card: the effects as pills, a line when they carry too much
+// (`party.encumbered`), EQUIPMENT (rpg-battle.equipment, UI 8f: one tile per slot the item rules count, drawn from
+// items.slots, with its item, stats and condition bar; features `rpg-battle.wear`, `rpg-battle.refine`), the skills
+// as tiles (`ss.tiers`) with Use / Set aside in a fold, the stats as a radar with their check modifiers, and, while
+// the member has points to spend, a stepper per stat and Spend (`party.spend { actor, points }`). A companion's card has two
 // switches (`party.edit`, MODULES §F29, §F49): who gives orders in fights (on their own / you lead) and who
 // spends their stat points (by build / by hand). Your own card has "Save character file" (widget
-// rpg-battle.character-file, `party.export`, MODULES §F66). Equip, Take off, Give and Drop are on the EQUIPMENT
-// card (UI 8h, `paperdoll.js`: the items part's `item.equip`, `item.unequip`, `item.give` and Story Block's `inventory.drop`). While your character is dead (a fight to the death lost), the return card (widget
-// `rpg-battle.return-card`, the return part: what happened and Return) leads the screen; it draws nothing
+// rpg-battle.character-file, `party.export`, MODULES §F66). The EQUIPMENT tiles send no buttons: a filled tile is
+// marked by a tap and a second tap takes the piece off (`item.unequip { stack }`, equipment.js); equipping happens
+// from Inventory (`item.equip { stack, to }`, Story Block's bag, which names the wearer). While your character is
+// dead (a fight to the death lost), the return card (widget `rpg-battle.return-card`, the return part: what happened
+// and Return) leads the screen; it draws nothing
 // while they live.
 //
 // The steppers fill the screen's draft under `spend.<spendKey>.<STAT>`; `spendKey` changes when the level or
@@ -22,8 +26,8 @@
 
 import { sheet } from './style.js';
 import { SKILL_TREE_CSS } from './skill-tree.js';
+import { EQUIPMENT_CSS } from './equipment.js';
 
-const TILE_RARITY = "r-uncommon: t.rarity == 'uncommon'; r-rare: t.rarity == 'rare'; r-epic: t.rarity == 'epic'; r-legendary: t.rarity == 'legendary'";
 
 // One switch of two choices: the chosen one is a plain pill, the other a glass button that sends it.
 const choice = (field, value, label) => `
@@ -54,9 +58,13 @@ const template = `
   </section>
   <div class="cards">
     <article class="ss-glass actor" data-each="q.cards as a" data-class="you: a.you; low: a.low; down: a.down; can-spend: a.spend">
-      <p class="card-head" data-if="a.spend"><span class="ss-pill ss-pill-soft points-head" title="Stat points to spend">{{ a.points }} to spend</span></p>
+      <header class="member-head">
+        <p class="card-head" data-if="a.spend"><span class="ss-pill ss-pill-soft points-head" title="Stat points to spend">{{ a.points }} to spend</span></p>
+        <ss-widget class="toggle" name="rpg-battle.member-toggle" data-props='{"actor":"{{ a.id }}","name":"{{ a.name }}","open":{{ a.you }}}'></ss-widget>
+      </header>
       <ss-widget class="hero" name="ss.hero" data-props='{"bind":"a.hero"}'></ss-widget>
 
+      <div class="rest">
       <div class="effects" data-if="len(a.effects) > 0" role="group" aria-label="Active effects">
         <span class="ss-pill ss-pill-outline effect" data-each="a.effects as e" data-class="ss-tone-good: e.tone == 'good'; ss-tone-bad: e.tone == 'bad'" title="{{ e.label }}">{{ e.text }}</span>
       </div>
@@ -64,44 +72,7 @@ const template = `
 
       <section class="block doll-block">
         <h4 class="ss-section-label"><i class="fa-solid fa-shield-halved"></i>Equipment</h4>
-        <div class="doll">
-          <figure class="figure">
-            <ss-widget class="portrait" name="ss.portrait" data-props='{"src":"{{ a.portrait }}","name":"{{ a.name }}","frame":"rounded","size":"md","tone":"accent"}'></ss-widget>
-            <figcaption class="doll-name">{{ a.name }}</figcaption>
-          </figure>
-          <ul class="slots">
-            <li class="slot" data-each="a.paperdoll.tiles as t" data-class="${TILE_RARITY}">
-              <details class="tile filled" data-if="t.filled" data-class="extra: t.extra">
-                <summary class="tile-face" data-bind-attr="title: t.stats">
-                  <span class="slot-name">{{ t.label }}</span>
-                  <span class="item-name"><b class="refine" data-if="t.refine != ''">{{ t.refine }}</b>{{ t.name }}</span>
-                  <span class="cond" data-if="t.cond != ''" data-class="ss-tone-good: t.condTone == 'good'; ss-tone-warn: t.condTone == 'warn'; ss-tone-bad: t.condTone == 'bad'" title="{{ t.condTitle }}"><i class="fa-solid fa-heart-crack" data-if="t.condBroken"></i>{{ t.cond }}<span class="bar" data-if="t.meter" data-bind-var="--ss-fill: ratio(t.cur, t.max)"><span class="bar-fill"></span></span></span>
-                  <span class="why" data-if="t.why != ''">{{ t.why }}</span>
-                </summary>
-                <div class="acts">
-                  <button class="ss-button" data-command="item.unequip" data-payload='{"stack":"{{ t.stack }}"}'><i class="fa-solid fa-hand" aria-hidden="true"></i> Take off</button>
-                  <details class="pick give" data-if="len(t.givers) > 0">
-                    <summary class="ss-button"><i class="fa-solid fa-hand-holding" aria-hidden="true"></i> Give…</summary>
-                    <span class="choices"><button class="ss-button" data-each="t.givers as to" data-command="item.give" data-payload='{"stack":"{{ t.stack }}","to":"{{ to.id }}"}'>{{ to.name }}</button></span>
-                  </details>
-                  <details class="pick drop">
-                    <summary class="ss-button ss-button-danger"><i class="fa-solid fa-trash-can" aria-hidden="true"></i> Drop</summary>
-                    <span class="choices"><button class="ss-button ss-button-danger" data-command="inventory.drop" data-payload='{"stack":"{{ t.stack }}","qty":{{ t.qty }}}'>Drop it</button></span>
-                  </details>
-                </div>
-              </details>
-              <div class="tile empty" data-if="t.empty">
-                <span class="slot-name">{{ t.label }}</span>
-                <span class="item-name" data-if="t.note == ''">Empty</span>
-                <span class="item-name" data-if="t.note != ''">{{ t.note }}</span>
-                <details class="pick equip" data-if="len(t.equip) > 0">
-                  <summary class="ss-button"><i class="fa-solid fa-hand-fist" aria-hidden="true"></i> Equip…</summary>
-                  <span class="choices"><button class="ss-button" data-each="t.equip as e" data-command="item.equip" data-payload='{"stack":"{{ e.id }}"}'>{{ e.name }}</button></span>
-                </details>
-              </div>
-            </li>
-          </ul>
-        </div>
+        <ss-widget class="equipment" name="rpg-battle.equipment" data-props='{"bind":"a.paperdoll.tiles","actor":"{{ a.id }}","label":"Equipment of {{ a.name }}"}'></ss-widget>
       </section>
 
       <section class="block switches" data-if="a.companion">
@@ -160,12 +131,14 @@ const template = `
       <footer class="block file" data-if="a.you">
         <ss-widget name="rpg-battle.character-file" data-props='{}'></ss-widget>
       </footer>
+      </div>
     </article>
   </div>
 </div>
 `;
 
 const css = sheet(`${SKILL_TREE_CSS}
+${EQUIPMENT_CSS}
 .empty.start { display: grid; gap: 10px; justify-items: center; text-align: center; }
 .empty.start p { margin: 0; }
 .cards { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); }
@@ -213,44 +186,13 @@ const css = sheet(`${SKILL_TREE_CSS}
 .carry.over { color: var(--ss-bad); }
 
 
-/* EQUIPMENT (UI 8h): the portrait and name on the left (taller than wide from a 380px card), the slots in two columns on the
-   right; a phone stacks them. Each slot is a glass tile; a filled one is a disclosure whose face is the tile (44px) and
-   whose actions are Story Block's buttons. */
-
-.doll { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); align-items: start; min-width: 0; }
-.figure { margin: 0; display: grid; gap: 6px; justify-items: center; align-content: start; min-width: 0; }
-.figure .doll-name { font-weight: 600; text-align: center; overflow-wrap: anywhere; }
-.slots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; min-width: 0; }
-/* a container query measures the card's content box: 354px of it is a 380px card (its padding is 26px) */
-@container rb-card (min-width: 354px) {
-    .doll { grid-template-columns: minmax(0, 3fr) minmax(0, 7fr); }
-    .figure { aspect-ratio: 3 / 4; align-content: center; }
-}
-.slot { min-width: 0; }
-.tile { display: block; min-width: 0; border-radius: var(--ss-radius-s); background: var(--ss-tile); border: 1px solid var(--ss-border); }
-.tile.extra { border-style: dashed; }
-.slot.r-uncommon .tile, .slot.r-rare .tile, .slot.r-epic .tile, .slot.r-legendary .tile { box-shadow: inset 3px 0 0 var(--ss-ring); }
-.tile-face { display: grid; gap: 2px; min-height: 44px; padding: 6px 8px; list-style: none; cursor: pointer; border-radius: var(--ss-radius-s); }
-.tile-face::-webkit-details-marker { display: none; }
-.tile-face:focus-visible { outline: 2px solid var(--ss-accent); outline-offset: -2px; }
-.tile.empty { display: grid; gap: 2px; min-height: 44px; padding: 6px 8px; border: 1px dashed var(--ss-border); border-radius: var(--ss-radius-s); background: none; }
-.slot-name { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ss-text); }
-.item-name { font-weight: 600; font-size: 13px; line-height: 1.25; min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
-.tile.empty .item-name { font-weight: 500; color: var(--ss-muted); }
-.tile .refine { margin-right: 4px; padding: 0 6px; border-radius: var(--ss-radius-pill); font-size: 12px; color: var(--ss-accent); background: var(--ss-accent-soft); }
-.cond { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 12px; font-variant-numeric: tabular-nums; }
-.cond.ss-tone-warn { color: var(--ss-warn); }
-.cond.ss-tone-bad { color: var(--ss-bad); }
-.cond .bar { display: block; width: 3.2em; height: 4px; }
-.cond .bar-fill { display: block; height: 100%; width: calc(var(--ss-fill, 0) * 100%); border-radius: 2px; background: currentColor; }
-.why { font-size: 11px; color: var(--ss-text); }
-.doll .acts { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 8px 8px; }
-.doll .acts > .ss-button, .doll .pick > summary { min-height: 44px; }
-.doll .pick > summary { list-style: none; }
-.doll .pick > summary::-webkit-details-marker { display: none; }
-.doll .pick .choices { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin-top: 6px; }
-.doll .pick .choices .ss-button { min-height: 44px; white-space: normal; text-align: left; overflow-wrap: anywhere; }
-.doll .drop .choices { display: flex; }
+/* The member's header (its points pill and the fold button), and the rest of the card, which the fold hides: the
+   compact card is the hero alone (UI 8f: the viewer's own open and closed state, the member's card as its data-open). */
+.member-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.member-head .card-head { margin: 0; }
+.rest { display: grid; gap: 10px; min-width: 0; }
+.actor[data-open="false"] > .rest { display: none; }
+.doll-block { min-width: 0; }
 .switches { display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .switch { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
 .switch .lbl { font-size: 12px; color: var(--ss-muted); margin-right: 2px; }
