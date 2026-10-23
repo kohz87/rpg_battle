@@ -14,12 +14,12 @@ export const FIGHT_SCREEN_ID = 'rpg-battle/fight';
 const lastBody = `    <div class="rb-last" data-if="q.last.parts != null" data-class="won: q.last.parts.outcome == 'victory'; lost: q.last.parts.outcome == 'defeat'">
       <p class="rb-last-result">{{ q.last.parts.result }}</p>
       <ul class="rb-last-party" aria-label="The party after the fight">
-        <li class="rb-last-member" data-each="q.last.parts.party as m" data-class="down: m.down">
+        <li class="rb-last-member ss-glass" data-each="q.last.parts.party as m" data-class="down: m.down">
           <div class="rb-last-who"><b class="rb-last-name">{{ m.name }}</b> <span class="rb-last-state">{{ m.state }}</span></div>
           <div class="rb-last-pools" data-if="!m.down">
-            <ss-widget name="ss.meter" data-props='{"bind":"m.hp","label":"HP","tone":"good"}'></ss-widget>
-            <ss-widget name="ss.meter" data-if="m.mp.max > 0" data-props='{"bind":"m.mp","label":"MP","tone":"info"}'></ss-widget>
-            <ss-widget name="ss.meter" data-if="m.sp != null" data-props='{"bind":"m.sp","label":"SP","tone":"warn"}'></ss-widget>
+            <ss-widget name="ss.bar" data-props='{"label":"HP","kind":"hp","value":"{{ m.hp.cur }}","max":"{{ m.hp.max }}"}'></ss-widget>
+            <ss-widget name="ss.bar" data-if="m.mp.max > 0" data-props='{"label":"MP","kind":"mp","value":"{{ m.mp.cur }}","max":"{{ m.mp.max }}"}'></ss-widget>
+            <ss-widget name="ss.bar" data-if="m.sp != null" data-props='{"label":"SP","kind":"sp","value":"{{ m.sp.cur }}","max":"{{ m.sp.max }}"}'></ss-widget>
           </div>
         </li>
       </ul>
@@ -45,7 +45,7 @@ const template = `<div class="rb-fight">
   <section class="rb-fight-offers" data-if="len(q.offers) > 0">
     <h3 class="rb-fight-heading">On offer</h3>
     <ul class="rb-fight-offer-list">
-      <li class="rb-fight-offer" data-each="q.offers as o" data-class="deadly: o.stakes == 'death'">
+      <li class="rb-fight-offer ss-glass" data-each="q.offers as o" data-class="deadly: o.stakes == 'death'">
         <div class="rb-fight-offer-text"><span data-if="o.card">{{ o.card }}</span><span data-if="!o.card">{{ o.text }}</span></div>
         <div class="rb-fight-offer-meta">
           <span class="rb-fight-stakes" data-if="o.stakes == 'death'">To the death</span>
@@ -53,55 +53,60 @@ const template = `<div class="rb-fight">
         </div>
         <p class="rb-fight-note" data-if="o.note != null">{{ o.note }}</p>
         <div class="rb-fight-offer-actions">
-          <button class="menu_button rb-fight-go" data-if="q.fight == null"
+          <button class="ss-button ss-button-primary rb-fight-go" data-if="q.fight == null"
                   data-command="combat.start" data-payload='{"offer":"{{ o.id }}"}'>Fight</button>
-          <button class="menu_button rb-fight-not-now"
+          <button class="ss-button ss-button-quiet rb-fight-not-now"
                   data-command="combat.dismiss" data-payload='{"offer":"{{ o.id }}"}'>Not now</button>
         </div>
       </li>
     </ul>
   </section>
-  <section class="rb-fight-last" data-if="q.fight == null && q.last != null && !q.last.folded">
+  <section class="rb-fight-last ss-glass" data-if="q.fight == null && q.last != null && !q.last.folded">
     <h3 class="rb-fight-heading">Last fight</h3>
 ${lastBody}
   </section>
   <p class="rb-fight-empty" data-if="q.fight == null && len(q.offers) == 0 && (q.last == null || q.last.folded)">No fight on offer. When the story starts one, it shows here.</p>
-  <details class="rb-fight-last rb-fight-old" data-if="q.fight == null && q.last != null && q.last.folded">
+  <details class="rb-fight-last rb-fight-old ss-glass" data-if="q.fight == null && q.last != null && q.last.folded">
     <summary class="rb-fight-heading">Last fight</summary>
 ${lastBody}
   </details>
 </div>`;
 
-const css = `.rb-fight { display: flex; flex-direction: column; gap: 0.8em; }
-.rb-fight-heading { margin: 0 0 0.4em; font-size: 0.95em; }
-.rb-fight-old > summary { cursor: pointer; font-weight: 600; opacity: 0.8; }
-.rb-fight-offer-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 16em), 1fr)); gap: 0.5em; margin: 0; padding: 0; list-style: none; }
-.rb-fight-offer { display: flex; flex-direction: column; gap: 0.35em; padding: 0.6em; border-radius: 6px;
-  border: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.2));
-  background: color-mix(in srgb, var(--SmartThemeBlurTintColor, #171717) 85%, transparent); }
-.rb-fight-offer.deadly { border-color: var(--rb-fight-deadly, #d0504a); }
+const css = `.rb-fight { display: flex; flex-direction: column; gap: var(--ss-space-3); }
+.rb-fight-heading { margin: 0 0 var(--ss-space-1); font-size: 13px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; color: var(--ss-muted); }
+.rb-fight-old > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: var(--ss-space-2); }
+.rb-fight-old > summary::-webkit-details-marker { display: none; }
+.rb-fight-old > summary::after { content: ""; margin-left: auto; width: 7px; height: 7px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg); transition: transform var(--ss-motion) ease; }
+.rb-fight-old[open] > summary::after { transform: rotate(-135deg); }
+.rb-fight-old[open] > summary { margin-bottom: var(--ss-space-2); }
+.rb-fight-offer-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 16em), 1fr)); gap: var(--ss-space-2); margin: 0; padding: 0; list-style: none; }
+.rb-fight-offer { display: flex; flex-direction: column; gap: 6px; padding: var(--ss-space-3); }
+.rb-fight-offer.deadly { border-color: var(--ss-bad); }
 .rb-fight-offer-text { font-weight: 600; }
-.rb-fight-offer-meta { display: flex; flex-wrap: wrap; gap: 0.5em; font-size: 0.85em; opacity: 0.8; }
-.rb-fight-stakes { color: var(--rb-fight-deadly, #d0504a); }
-.rb-fight-note, .rb-fight-empty { margin: 0; font-style: italic; opacity: 0.8; }
-.rb-fight-offer-actions { display: flex; flex-wrap: wrap; gap: 0.4em; }
+.rb-fight-offer-meta { display: flex; flex-wrap: wrap; gap: 6px; font-size: 13px; color: var(--ss-muted); }
+.rb-fight-stakes { color: var(--ss-bad); font-weight: 700; }
+.rb-fight-note, .rb-fight-empty { margin: 0; font-style: italic; color: var(--ss-muted); }
+.rb-fight-offer-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .rb-fight-summary { margin: 0; }
-.rb-last { display: grid; gap: 0.5em; }
+.rb-last { display: grid; gap: var(--ss-space-2); }
 .rb-last p { margin: 0; }
-.rb-last-result { font-weight: 600; }
-.rb-last.won .rb-last-result { color: var(--rb-fight-won, #6fd68b); }
-.rb-last.lost .rb-last-result { color: var(--rb-fight-deadly, #d0504a); }
-.rb-last-party { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 14em), 1fr)); gap: 0.5em; margin: 0; padding: 0; list-style: none; }
-.rb-last-member { display: grid; gap: 0.3em; padding: 0.5em 0.6em; border-radius: 6px;
-  border: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.2)); }
+.rb-last-result { font-weight: 700; }
+.rb-last.won .rb-last-result { color: var(--ss-good); }
+.rb-last.lost .rb-last-result { color: var(--ss-bad); }
+.rb-last-party { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 14em), 1fr)); gap: var(--ss-space-2); margin: 0; padding: 0; list-style: none; }
+.rb-last-member { display: grid; gap: 6px; padding: var(--ss-space-2) var(--ss-space-3); }
 .rb-last-member.down { opacity: 0.75; }
-.rb-last-who { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4em; }
-.rb-last-state { font-size: 0.85em; opacity: 0.8; }
-.rb-last-pools { display: grid; gap: 0.2em; font-size: 0.85em; }
-.rb-last-label { margin: 0 0 0.2em; font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.75; }
+.rb-last-who { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.rb-last-state { font-size: 13px; color: var(--ss-muted); }
+.rb-last-pools { display: grid; gap: 6px; font-size: 13px; }
+.rb-last-label { margin: 0 0 4px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: var(--ss-muted); }
 .rb-last-block ul { margin: 0; padding-left: 1.2em; }
-.rb-last-foes, .rb-last-note, .rb-last-none { font-size: 0.9em; opacity: 0.85; }
-.rb-last-growth { font-weight: 600; color: var(--ss-accent, var(--SmartThemeQuoteColor, #e0b44c)); }`;
+.rb-last-foes, .rb-last-note, .rb-last-none { font-size: 13px; color: var(--ss-muted); }
+.rb-last-growth { font-weight: 700; color: var(--ss-accent); }
+/* The Fight buttons (Fight, Not now) take Story Block's glass button states (view/glass.css); the primary's hover is the
+   stronger accent tint (Story Block's primary hover is its rest). */
+.rb-fight .ss-button.ss-button-primary:hover:not(:disabled) { border-color: var(--ss-accent); background: linear-gradient(color-mix(in srgb, var(--ss-accent) 34%, transparent), color-mix(in srgb, var(--ss-accent) 34%, transparent)), var(--ss-glass-strong); }
+`;
 
 /** The screen definition (SPEC §13.1) the module registers as its default for `rpg-battle/fight`. */
 export const fightScreen = Object.freeze({

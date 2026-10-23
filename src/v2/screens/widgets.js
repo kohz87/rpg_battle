@@ -15,7 +15,7 @@
 // Built with createElement and textContent only: nothing from data is read as markup, and classes come
 // from fixed lists (a band name picks one of four). The base look is one <style data-rpg-screens>
 // added to the document by the first widget drawn, every rule inside :where() so a screen's own CSS
-// overrides it, coloured from Story Block's widget tokens and SillyTavern's theme.
+// overrides it, coloured from Story Block's glass tokens (--ss-*), which the Story Suite root the widget sits in sets.
 
 export const ITEM_DETAIL_WIDGET = 'rpg-battle.item-detail';
 export const CHARACTER_FILE_WIDGET = 'rpg-battle.character-file';
@@ -25,21 +25,20 @@ const str = (value, max = 300) => (typeof value === 'string' ? Array.from(value)
 const BAND_NAMES = Object.freeze(['good', 'worn', 'tattered', 'broken']);
 
 export const WIDGET_CSS = `
-:where(.rpg-id) { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; font-size: 0.82em;
-  color: var(--ss-w-muted, color-mix(in srgb, var(--SmartThemeBodyColor, #ddd) 65%, transparent)); }
+:where(.rpg-id) { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; font-size: 13px; color: var(--ss-muted); }
 :where(.rpg-id-line) { min-width: 0; overflow-wrap: anywhere; }
-:where(.rpg-id-chip) { display: inline-flex; align-items: center; gap: 4px; padding: 0 7px; border-radius: 999px; white-space: nowrap;
-  font-weight: 600; color: var(--ss-w-fg, var(--SmartThemeBodyColor, #ddd)); --rpg-tone: var(--ss-w-good, #3fb27f);
-  background: color-mix(in srgb, var(--rpg-tone) 18%, transparent); border: 1px solid color-mix(in srgb, var(--rpg-tone) 45%, transparent); }
-:where(.rpg-id-chip[data-band="worn"]) { --rpg-tone: var(--ss-w-warn, #e2a336); }
-:where(.rpg-id-chip[data-band="tattered"]), :where(.rpg-id-chip[data-band="broken"]) { --rpg-tone: var(--ss-w-bad, #e5534b); }
-:where(.rpg-id-chip.rpg-id-refine) { --rpg-tone: var(--ss-w-accent, var(--ss-accent, var(--SmartThemeQuoteColor, #8b7cf6))); }
-:where(.rpg-id-bar) { display: inline-block; width: 3.2em; height: 4px; border-radius: 2px; overflow: hidden;
-  background: color-mix(in srgb, var(--SmartThemeBodyColor, #ddd) 15%, transparent); }
-:where(.rpg-id-bar > span) { display: block; height: 100%; width: calc(var(--rpg-ratio, 0) * 100%); background: var(--rpg-tone); }
+:where(.rpg-id-chip) { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border-radius: var(--ss-radius-pill); white-space: nowrap;
+  font-weight: 600; color: var(--ss-text); border: 1px solid var(--ss-good); background: color-mix(in srgb, var(--ss-good) 16%, transparent); }
+:where(.rpg-id-chip[data-band="worn"]) { border-color: var(--ss-warn); background: color-mix(in srgb, var(--ss-warn) 16%, transparent); }
+:where(.rpg-id-chip[data-band="tattered"]), :where(.rpg-id-chip[data-band="broken"]) { border-color: var(--ss-bad); background: color-mix(in srgb, var(--ss-bad) 16%, transparent); }
+:where(.rpg-id-chip.rpg-id-refine) { border-color: var(--ss-accent); background: var(--ss-accent-soft); }
+:where(.rpg-id-bar) { display: inline-block; width: 3.2em; height: 4px; border-radius: var(--ss-radius-pill); overflow: hidden; background: var(--ss-track); }
+:where(.rpg-id-bar > span) { display: block; height: 100%; width: calc(var(--rpg-ratio, 0) * 100%); background: var(--ss-good); }
+:where(.rpg-id-chip[data-band="worn"] .rpg-id-bar > span) { background: var(--ss-warn); }
+:where(.rpg-id-chip[data-band="tattered"] .rpg-id-bar > span), :where(.rpg-id-chip[data-band="broken"] .rpg-id-bar > span) { background: var(--ss-bad); }
 :where(.rpg-file) { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
-:where(.rpg-file-note) { font-size: 0.82em; color: var(--ss-w-muted, inherit); overflow-wrap: anywhere; }
-:where(.rpg-file-note[data-tone="bad"]) { color: var(--ss-w-bad, #e5534b); }
+:where(.rpg-file-note) { font-size: 13px; color: var(--ss-muted); overflow-wrap: anywhere; }
+:where(.rpg-file-note[data-tone="bad"]) { color: var(--ss-bad); }
 `;
 
 /** Adds the widgets' base look to `doc` once. */
@@ -187,7 +186,7 @@ export function renderCharacterFile(el, props = {}, api = {}) {
     const doc = el.ownerDocument;
     ensureWidgetCss(doc);
     const root = make(doc, 'div', 'ss-w rpg-file');
-    const button = make(doc, 'button', 'btn ghost rpg-file-go');
+    const button = make(doc, 'button', 'ss-button ss-button-quiet rpg-file-go');
     button.type = 'button';
     const label = make(doc, 'span', '', str(props.label, 60) || 'Save character file');
     button.append(icon(doc, 'fa-file-export'), label);

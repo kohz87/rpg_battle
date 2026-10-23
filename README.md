@@ -53,7 +53,7 @@ Switches are in **Settings → Features** (the **Find a feature** box helps). "N
 - **Conditions by story time** (Party card; `rpg-battle.effects` *Timed buffs and debuffs*, on): blessings, curses
   and what a fight left on you count down by the story clock, 10 story minutes a round. Needs Story Director's
   clock; without one they wait.
-- **Skill uses** (Party card): shows the uses toward the next level, "Lv 1 · 1/5 uses to Lv 2".
+- **Skills** (Party card): each skill is a tile with its level; its hint and its line under *Use or set aside* show the uses toward the next level, "Lv 1 · 2/5 uses to Lv 2".
 - **HP and MP come back with story time** (`rpg-battle.recovery`, on; needs Story Director's clock) and **story
   XP awards** (`+ xp minor|major|milestone`, no switch; code sets the amount).
 - **Trade** (Trade tab, no switch): prices by place, shortages, commissions. **Gear wear and repair**

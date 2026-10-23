@@ -42,7 +42,7 @@ function hasCharacter(api) {
 export function renderCreateButton(el, props = {}, api = {}) {
     const doc = el.ownerDocument;
     const root = make(doc, 'div', 'ss-w rpg-create');
-    const go = make(doc, 'button', 'btn primary rpg-create-go');
+    const go = make(doc, 'button', 'ss-button ss-button-primary rpg-create-go');
     go.type = 'button';
     go.setAttribute('type', 'button');
     const glyph = make(doc, 'i', 'fa-solid fa-user-plus');

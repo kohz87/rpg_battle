@@ -11,7 +11,7 @@ import { screenWidgets } from '../../../../src/v2/screens/widgets.js';
 import { CREATE_BUTTON_WIDGET, createButton } from '../../../../src/v2/creation/create-button.js';
 import { part as returnPart, WIDGET as RETURN_WIDGET } from '../../../../src/v2/return/index.js';
 
-export const WIDGET_NAMES = ['ss.meter', 'ss.radar', 'ss.map', 'ss.skill-tree', 'ss.portrait', 'ss.badge', 'ss.timeline', 'ss.stepper'];
+export const WIDGET_NAMES = ['ss.meter', 'ss.radar', 'ss.map', 'ss.skill-tree', 'ss.portrait', 'ss.badge', 'ss.timeline', 'ss.stepper', 'ss.hero', 'ss.tiers', 'ss.bar', 'ss.status'];
 
 const kept = new WeakMap();
 /** The props the widget in `el` (an <ss-widget>) was last drawn with. */

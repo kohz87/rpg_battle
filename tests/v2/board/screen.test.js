@@ -51,8 +51,9 @@ async function show(world, { widgets = { ...part.widgets, ...returnPart.widgets 
     const warnings = [];
     let view;
     const draw = () => { view = r.renderTemplate(el, compiled, r.makeScope({ state: world.state, q: screenData(world) }), options); };
+    // Story Block's standard widgets too: the last fight's pools are ss.bar (the Fight screen's own look).
     const options = {
-        widgets,
+        widgets: { ...r.standardWidgets, ...widgets },
         api,
         evaluate: r.evaluate,
         onWarn: message => warnings.push(message),
@@ -101,7 +102,9 @@ test('the screen: offer cards with Fight and Not now; Fight starts it and the bo
     assert.deepEqual(texts(again.el, '.rb-fight-stakes'), ['To the death']);
     assert.deepEqual(texts(again.el, '.rb-fight-note'), ['boiling out of the bins'], 'an offer without a note shows none');
     assert.deepEqual(texts(again.el, '.rb-fight-place'), ['Bluewatch Village', 'Bluewatch Village']);
-    assert.deepEqual(again.el.querySelectorAll('.rb-fight-offer').map(node => node.className), ['rb-fight-offer deadly', 'rb-fight-offer']);
+    // The offers are glass cards (ss-glass); a deadly one is marked.
+    assert.deepEqual(again.el.querySelectorAll('.rb-fight-offer').map(node => node.className.split(' ').filter(name => name !== 'ss-glass')), [['rb-fight-offer', 'deadly'], ['rb-fight-offer']]);
+    assert.ok([...again.el.querySelectorAll('.rb-fight-offer')].every(node => node.classList.contains('ss-glass')));
     assert.deepEqual(texts(again.el, '.rb-fight-offer button'), ['Fight', 'Not now', 'Fight', 'Not now']);
     assert.equal(again.el.querySelector('.rpg-bb'), null, 'no board before a fight');
     assert.equal(again.el.querySelectorAll('.rb-fight-empty').length, 0);

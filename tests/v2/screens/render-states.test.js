@@ -19,7 +19,9 @@ const { all, click, draw, propsOf, text } = helpers ?? {};
 
 const buttons = (root, command) => all(root, 'button').filter(button => button.getAttribute('data-command') === command);
 const widgetsIn = (root, name) => all(root, 'ss-widget').filter(el => el.getAttribute('name') === name);
-const cardOf = (root, name) => all(root, 'article.actor').find(card => text(card.querySelector('.name')).startsWith(name));
+// A member's hero props (ss.hero, bound as `value`), and the card of the member by name.
+const heroOf = el => propsOf(widgetsIn(el, 'ss.hero')[0])?.value ?? null;
+const cardOf = (root, name) => all(root, 'article.actor').find(card => heroOf(card)?.name.startsWith(name));
 
 function checkProps(drawn) {
     if (!standard) return;
@@ -52,7 +54,7 @@ test('party: a companion has the fight and stat-point switches, sending party.ed
     const groups = all(lyra, '.switch');
     assert.deepEqual(groups.map(group => group.getAttribute('aria-label')), ['Who gives Lyra orders in fights', 'Who spends the stat points of Lyra']);
     // The chosen side is a label, not a button (party.edit refuses "Nothing to change").
-    assert.deepEqual(all(lyra, '.switch .on').map(text), ['On their own', 'By build']);
+    assert.deepEqual(all(lyra, '.switch [aria-current="true"]').map(text), ['On their own', 'By build']);
     assert.deepEqual(buttons(lyra, 'party.edit').map(text), ['You lead', 'By hand']);
     await click(buttons(lyra, 'party.edit')[0]);
     assert.deepEqual(drawn.commands.pop(), { type: 'party.edit', payload: { actor: LYRA, control: 'player' } });
@@ -63,7 +65,7 @@ test('party: a companion has the fight and stat-point switches, sending party.ed
     after.domains.party.actors[LYRA].control = 'player';
     drawn.rerender(after);
     const led = cardOf(drawn.el, 'Lyra');
-    assert.deepEqual(all(led, '.switch .on').map(text), ['You lead', 'By hand']);
+    assert.deepEqual(all(led, '.switch [aria-current="true"]').map(text), ['You lead', 'By hand']);
     for (const button of buttons(led, 'party.edit')) await click(button);
     assert.deepEqual(drawn.commands.splice(0), [{ type: 'party.edit', payload: { actor: LYRA, control: 'auto' } }, { type: 'party.edit', payload: { actor: LYRA, growth: 'auto' } }]);
     assert.deepEqual(drawn.warnings, []);
@@ -75,16 +77,19 @@ test('party: worn gear with its condition band and refinement, active effects, t
     const ren = cardOf(drawn.el, 'Ren');
     const [piece, ...more] = all(ren, '.gear li.piece');
     assert.equal(more.length, 0);
-    assert.equal(text(piece.querySelector('.nm')), '+2Iron Dagger');
+    assert.equal(text(piece.querySelector('.ss-listcard-title')), '+2Iron Dagger');
     assert.equal(piece.querySelector('.refine').getAttribute('title'), 'Refined +2');
-    assert.equal(text(piece.querySelector('.sub')), 'Weapon · ATK +3');
-    const band = piece.querySelector('.band');
-    assert.ok(band.classList.contains('b-worn'));
-    assert.equal(text(band), 'Worn');
+    assert.equal(text(piece.querySelector('.ss-listcard-sub')), 'Weapon · ATK +3');
+    const band = piece.querySelector('.ss-listcard-tag');
+    assert.ok(band.classList.contains('ss-tone-warn'));
+    // The durability is on screen (the tag's number and bar), not only in the title.
+    assert.equal(text(band), 'Worn 52/100');
     assert.equal(band.getAttribute('title'), 'Condition: Worn · 52/100');
-    assert.equal(band.querySelector('.bar').styleProps['--rb-ratio'], '0.52');
+    assert.equal(band.querySelector('.gear-track').styleProps['--ss-fill'], '0.52');
     assert.equal(cardOf(drawn.el, 'Lyra').querySelector('.gear') === null, true, 'Lyra wears nothing');
-    assert.deepEqual(widgetsIn(ren.querySelector('.effects'), 'ss.badge').map(el => propsOf(el).value.label), ['Blessed, 2 h left, from a shrine']);
+    assert.deepEqual(all(ren.querySelector('.effects'), '.effect').map(el => [text(el), el.getAttribute('title')]), [['Blessed · 2 h', 'Blessed, 2 h left, from a shrine']]);
+    // A good effect reads as good (the tone from party.effects): its pill carries the good ring.
+    assert.ok(all(ren.querySelector('.effects'), '.effect')[0].classList.contains('ss-tone-good'));
     assert.equal(cardOf(drawn.el, 'Lyra').querySelector('.effects') === null, true);
     assert.match(text(drawn.el.querySelector('.carry')), /^Carrying \d+ of \d+/);
     checkProps(drawn);
@@ -95,7 +100,7 @@ test('party: with wear, refinement and effects off (their queries give nothing) 
     assert.deepEqual(drawn.warnings, []);
     const ren = cardOf(drawn.el, 'Ren');
     assert.equal(all(ren, '.gear li.piece').length, 1);
-    assert.equal(ren.querySelector('.band') === null, true, 'no band');
+    assert.equal(ren.querySelector('.ss-listcard-tag') === null, true, 'no band');
     assert.equal(ren.querySelector('.refine') === null, true, 'no refinement');
     assert.equal(ren.querySelector('.effects') === null, true, 'no effects');
     assert.equal(ren.querySelector('.burden') === null, true, 'not encumbered');
@@ -115,11 +120,12 @@ test('party and hud: a member carrying too much says so (party.encumbered)', { s
 });
 
 test('party: every wear band gets its class; a broken piece its own icon', { skip }, () => {
-    for (const band of ['good', 'worn', 'tattered', 'broken']) {
+    const tone = { good: 'ss-tone-good', worn: 'ss-tone-warn', tattered: 'ss-tone-bad', broken: 'ss-tone-bad' };
+    for (const band of Object.keys(tone)) {
         const drawn = draw(partyScreen, makeState(), { queries: { 'items.condition': () => ({ band, cur: band === 'broken' ? 0 : 50, max: 100, refine: 0 }) } });
         assert.deepEqual(drawn.warnings, [], band);
-        const chip = cardOf(drawn.el, 'Ren').querySelector('.band');
-        assert.ok(chip.classList.contains(`b-${band}`), band);
+        const chip = cardOf(drawn.el, 'Ren').querySelector('.ss-listcard-tag');
+        assert.ok(chip.classList.contains(tone[band]), band);
         assert.equal(chip.querySelectorAll('.fa-heart-crack').length, band === 'broken' ? 1 : 0, band);
         assert.equal(cardOf(drawn.el, 'Ren').querySelector('.refine') === null, true);
     }
@@ -168,7 +174,7 @@ test('party: the switches and the file button are reachable by keyboard: real bu
         assert.ok(group.getAttribute('aria-label'));
     }
     // The chosen side says so to a screen reader.
-    for (const chosen of all(lyra, '.switch .on')) assert.equal(chosen.getAttribute('aria-current'), 'true');
+    for (const chosen of all(lyra, '.switch [aria-current="true"]')) assert.equal(chosen.getAttribute('aria-current'), 'true');
     const file = cardOf(drawn.el, 'Ren').querySelector('.rpg-file-go');
     assert.equal(file.tagName, 'BUTTON');
     assert.equal(file.type, 'button');
@@ -183,9 +189,8 @@ test('hud: the points-to-spend badge from party.toSpend, the effects beside the 
     const strip = drawn.el.querySelector('.rb-hud');
     assert.equal(text(strip.querySelector('.spend')), '5 to spend');
     assert.equal(strip.querySelector('.spend').getAttribute('aria-label'), 'Stat points to spend: Ren 3, Lyra 2');
-    assert.deepEqual(widgetsIn(strip, 'ss.badge').map(el => [propsOf(el).value.label, propsOf(el).showLabel ?? propsOf(el).value.showLabel]), [
-        ['Poisoned', true], ['Bleeding', true], ['Blessed, 2 h left, from a shrine', false],
-    ]);
+    assert.deepEqual(widgetsIn(strip, 'ss.status').map(el => propsOf(el).value.label), ['Poisoned', 'Bleeding']);
+    assert.deepEqual(all(strip, '.effect').map(el => el.getAttribute('title')), ['Blessed, 2 h left, from a shrine']);
     checkProps(drawn);
 });
 
@@ -195,10 +200,11 @@ test('hud: nobody with points and nothing on them: no badge and no badges row', 
     const drawn = draw(hudScreen, calm, { queries: { 'party.toSpend': () => ({ total: 0, people: [] }), 'party.effects': () => [] } });
     assert.deepEqual(drawn.warnings, []);
     assert.equal(drawn.el.querySelector('.spend') === null, true);
-    assert.equal(drawn.el.querySelector('.badges') === null, true);
-    // Effects alone still show the row.
+    assert.equal(widgetsIn(drawn.el.querySelector('.rb-hud'), 'ss.status').length, 0);
+    assert.equal(drawn.el.querySelector('.effects') === null, true);
+    // Effects alone still show their row.
     const blessed = draw(hudScreen, calm, { queries: { 'party.effects': ({ actor }) => EFFECTS[actor] ?? [] } });
-    assert.equal(widgetsIn(blessed.el.querySelector('.badges'), 'ss.badge').length, 1);
+    assert.equal(all(blessed.el.querySelector('.effects'), '.effect').length, 1);
 });
 
 test('hud: the root is no size container, so the strip item keeps its width (the cause of the collapse)', () => {
@@ -236,16 +242,16 @@ test('crafting: per character, the recipes with materials had and missing, stati
     const drawn = draw(craftingScreen, makeState(), { queries: { 'craft.view': () => CRAFT } });
     assert.deepEqual(drawn.warnings, []);
     const crafters = all(drawn.el, 'section.crafter');
-    assert.deepEqual(crafters.map(section => text(section.querySelector('h4'))), ['Ren Alchemy 2 · 2 known'], 'Lyra knows none: no section');
+    assert.deepEqual(crafters.map(section => text(section.querySelector('.ss-label'))), ['Ren Alchemy 2 · 2 known'], 'Lyra knows none: no section');
     const [draught, torch] = all(crafters[0], 'li.recipe');
     assert.ok(draught.classList.contains('blocked'));
     assert.ok(torch.classList.contains('ready'));
-    assert.equal(text(draught.querySelector('.sub')), 'Alchemy · Needs an alchemy bench · DC 12');
-    assert.ok(draught.querySelector('.sub .away'));
+    assert.equal(text(draught.querySelector('.ss-listcard-sub')), 'Alchemy · Needs an alchemy bench · DC 12');
+    assert.ok(draught.querySelector('.ss-listcard-sub .away'));
     assert.equal(text(draught.querySelector('.why')), 'Needs an alchemy bench.');
     assert.deepEqual(all(draught, '.mat').map(mat => [text(mat), mat.classList.contains('lack')]), [['Moonleaf 3/2', false], ['Clean Water 0/1', true]]);
     assert.deepEqual(all(draught, '.odds-key li').map(text), ['Fail 35%', 'Normal 45%', 'Fine 15%', 'Masterwork 5%']);
-    assert.deepEqual(all(draught, '.odds-bar > span').map(bar => bar.styleProps['--rb-share']), ['0.35', '0.45', '0.15', '0.05']);
+    assert.deepEqual(all(draught, '.odds-bar > span').map(bar => bar.styleProps['--ss-fill']), ['0.35', '0.45', '0.15', '0.05']);
     assert.deepEqual(all(torch, '.odds-key li').map(text), ['Normal 80%', 'Fine 20%']);
     assert.equal(torch.querySelector('.why') === null, true);
     assert.deepEqual(all(drawn.el, 'button'), []);

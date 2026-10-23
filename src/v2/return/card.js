@@ -49,9 +49,30 @@ function hostFor(api, host) {
     };
 }
 
+// The card's look (Story Block's glass design): the glass card is `ss-glass`, its button `ss-button`; the rest is
+// layout and type in the tokens. Added once per document, under :where() like the other widgets' sheets.
+const RETURN_CSS = `
+:where(.rpg-return-card) { display: grid; gap: 8px; min-width: 0; font-family: var(--ss-font); color: var(--ss-text); }
+:where(.rpg-return-card[hidden]) { display: none !important; }
+:where(.rpg-return-title) { font-size: 16px; font-weight: 800; color: var(--ss-bad); }
+:where(.rpg-return-what) { font-size: 14px; overflow-wrap: anywhere; }
+:where(.rpg-return-where), :where(.rpg-return-status) { font-size: 13px; color: var(--ss-muted); overflow-wrap: anywhere; }
+:where(.rpg-return-go) { justify-self: start; }
+`;
+
+function ensureReturnCss(doc) {
+    const head = doc?.head ?? doc?.body;
+    if (!head || head.querySelector?.('style[data-rpg-return]')) return;
+    const style = doc.createElement('style');
+    style.setAttribute('data-rpg-return', '');
+    style.textContent = RETURN_CSS;
+    head.appendChild(style);
+}
+
 export function renderReturnCard(el, props, api, { host = null, returnInTime } = {}) {
     const doc = el.ownerDocument;
-    const root = make(doc, 'div', { className: 'rpg-return-card' });
+    ensureReturnCss(doc);
+    const root = make(doc, 'div', { className: 'rpg-return-card ss-glass' });
     el.append(root);
     let busy = false;
 
@@ -79,7 +100,7 @@ export function renderReturnCard(el, props, api, { host = null, returnInTime } =
             className: 'rpg-return-where',
             text: `Return goes back to message #${point.index}, the moment before the fight began, as a new branch. The old timeline is kept.`,
         }));
-        const go = make(doc, 'button', { className: 'rpg-return-go', text: 'Return', attrs: { type: 'button' } });
+        const go = make(doc, 'button', { className: 'rpg-return-go ss-button ss-button-primary', text: 'Return', attrs: { type: 'button' } });
         go.addEventListener('click', async () => {
             if (busy || typeof returnInTime !== 'function') return;
             busy = true;

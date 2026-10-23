@@ -3,7 +3,7 @@
 // A template has no arithmetic and no way to filter or group a list (TEMPLATES.md §1.2), so what a
 // screen shows that is not a plain field of the state is worked out here, once per drawing: an
 // actor's EXP to the next level, their condition badges and active effects, what they wear with its
-// condition, skills grouped by tier for ss.skill-tree, stats as radar axes, the Trade page's rows with
+// condition, skills as ss.tiers tiles grouped by tier, each member as ss.hero props, stats as radar axes, the Trade page's rows with
 // their short prices, the Crafting page's recipes, and one thing's details for Story Block's Inventory
 // rows. Packs and cards that restyle a screen can bind the same queries. Other parts' queries are read
 // with `tryQuery`: one this build lacks (or whose feature is off) leaves its section out.
@@ -22,6 +22,9 @@ import { growthOf } from '../party/sheets.js';
 import { clockOf, fitParty, minutesLeft } from '../party/pools.js';
 
 export const MODULE_ID = 'rpg-battle';
+
+// The Crafting screen's recipes per character (the template's rows, not ss.listcard): at most 200, as before.
+export const RECIPES_MAX = 200;
 
 const copy = value => JSON.parse(JSON.stringify(value ?? null));
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -135,6 +138,43 @@ export function conditionBadge(condition, index = 0, minutes = null) {
     return { id: `${kind}-${index}`, kind, label: capital(kind), showLabel: true, icon, tone, counter: stacks > 1 ? stacks : null, unit: stacks > 1 ? 'turns left' : '' };
 }
 
+/**
+ * A condition as ss.status props (WIDGETS.md): the same icon and tone, its turns left (or story minutes
+ * left, `unit` 'minutes'); with no end it has no counter, which the badge shows as "∞".
+ */
+export function conditionStatus(condition, index = 0, minutes = null) {
+    const badge = conditionBadge(condition, index, minutes);
+    return { id: badge.id, kind: badge.kind, label: badge.label, icon: badge.icon, tone: badge.tone, left: badge.counter, unit: badge.unit === 'min left' ? 'minutes' : 'turns' };
+}
+
+// Story Block's ss.hero keeps at most 6 bars and 12 status badges (view/widgets/hero.js BAR_MAX, STATUS_MAX);
+// the lists are cut here, where they are made, so the screen says what it shows.
+export const HERO_BARS_MAX = 6;
+export const HERO_STATUS_MAX = 12;
+
+/**
+ * A member as ss.hero props (WIDGETS.md): name, portrait and the line on the pill; the HP bar, then MP and
+ * SP when the member has them, then the EXP bar labelled with the Terms' word; and the conditions as status
+ * badges. `pools` are { hp, mp, sp: { cur, max } }.
+ */
+export function heroOf({ name, portrait = '', line = '', pools = {}, xp = null, xpName = 'EXP', xpText = '', statuses = [] }) {
+    const bars = [];
+    const add = (kind, label, pool) => {
+        if (pool && pool.max > 0) bars.push({ kind, label, value: pool.cur, max: pool.max });
+    };
+    add('hp', 'HP', pools.hp);
+    add('mp', 'MP', pools.mp);
+    add('sp', 'SP', pools.sp);
+    if (xp) bars.push({ kind: 'exp', label: xpName, value: xp.cur, max: xp.max, text: xpText });
+    return {
+        name: String(name ?? ''),
+        portrait: String(portrait ?? ''),
+        line: String(line ?? ''),
+        bars: bars.slice(0, HERO_BARS_MAX),
+        statuses: (Array.isArray(statuses) ? statuses : []).slice(0, HERO_STATUS_MAX),
+    };
+}
+
 const SKILL_ICONS = Object.freeze({ physical: 'fa-hand-fist', magic: 'fa-wand-sparkles', heal: 'fa-kit-medical', buff: 'fa-shield-halved', debuff: 'fa-skull' });
 
 /** A skill's uses toward its next level (v1 skillText: rules.masteryUses), in plain words. */
@@ -170,18 +210,36 @@ function skillsOf(actor, party, rules) {
     }).filter(skill => skill.name);
 }
 
-/** Skills as ss.skill-tree tiers: tier 1 to 3 (then the story-taught without one), those in use first. */
-export function skillTree(skills) {
-    const tiers = [...new Set(skills.map(skill => skill.tier))].sort((a, b) => (a || 99) - (b || 99));
+// Story Block's ss.tiers keeps 12 tiers of 24 tiles and cuts a hint at 60 characters (view/widgets/tiers.js).
+export const SKILL_TIERS_MAX = 12;
+export const SKILL_TILES_MAX = 24;
+const cutTo = (text, max) => Array.from(String(text ?? '')).slice(0, max).join('');
+
+/**
+ * Skills as ss.tiers props: tier 1 to 3 (then the story-taught without one), those in use first. A tile is
+ * a skill: its icon, its name, the level as the count ("Lv 2"), a tick when it is in use, and its uses
+ * toward the next level as the spoken hint ("Lv 2 · 2/5 uses to Lv 3"). The uses are also on the Party
+ * card's list, where Use and Set aside are.
+ */
+export function skillTiers(skills) {
+    const tiers = [...new Set(skills.map(skill => skill.tier))].sort((a, b) => (a || 99) - (b || 99)).slice(0, SKILL_TIERS_MAX);
     return {
         tiers: tiers.map(tier => ({
             title: tier ? `Tier ${tier}` : 'Taught by the story',
-            skills: skills
+            tiles: skills
                 .filter(skill => skill.tier === tier)
                 .sort((a, b) => Number(b.active) - Number(a.active))
-                                // The level alone on the badge: "1/5" (level of the most) read as uses toward the next
-                // level (beta.1 live test); the uses are the Skills list's `progress`.
-                .map(skill => ({ id: skill.name, name: skill.name, icon: skill.icon, level: skill.level, active: skill.active })),
+                .slice(0, SKILL_TILES_MAX)
+                .map(skill => ({
+                    id: skill.name,
+                    label: skill.name,
+                    icon: skill.icon,
+                    // The badge is about 30px: the digit only ("Lv 2" overflows it); the hint says "Lv 2".
+                    count: String(skill.level),
+                    state: skill.active ? 'ready' : 'none',
+                    hint: cutTo(`Lv ${skill.level}${skill.progress ? ` · ${skill.progress}` : ''}`, 60),
+                    kind: skill.type,
+                })),
         })),
     };
 }
@@ -213,7 +271,7 @@ export function actorCard(actor, party, { rules = DEFAULT_RULES, portrait = null
     const you = actor.id === party.pc;
     const role = capital(actor.role);
     const who = you ? 'You' : actor.control === 'player' ? 'Companion · you lead' : 'Companion';
-    return {
+    const card = {
         id: actor.id,
         name: String(actor.name ?? ''),
         you,
@@ -242,12 +300,23 @@ export function actorCard(actor, party, { rules = DEFAULT_RULES, portrait = null
         spendKey: `${actor.id}_l${level}_p${points}`.replace(/\W/g, '_'),
         stats,
         statAxes: stats.map(stat => ({ label: stat.key, value: stat.value, max: axisMax })),
-        badges: (Array.isArray(actor.conditions) ? actor.conditions : []).map((entry, index) => conditionBadge(entry, index, minutes)),
+        statuses: (Array.isArray(actor.conditions) ? actor.conditions : []).map((entry, index) => conditionStatus(entry, index, minutes)),
         skills,
-        tree: skillTree(skills),
+        tiers: skillTiers(skills),
         activeCount: skills.filter(skill => skill.active).length,
         activeCap: int(rules.character.activeSkills, 6),
     };
+    card.hero = heroOf({
+        name: card.name,
+        portrait: card.portrait,
+        line: card.line,
+        pools: { hp: card.hp, mp: card.mp, sp: card.sp },
+        xp: card.xp,
+        xpName: card.xpName,
+        xpText: card.xpText,
+        statuses: card.statuses,
+    });
+    return card;
 }
 
 /**
@@ -300,6 +369,27 @@ export function cards(state, args = {}, tools = null) {
         effects: effectsOf(tools, id),
         encumbered: burdenOf(tools, id),
     })));
+}
+
+/**
+ * `rpg-battle.heroes({ settings? })`: every member as ss.hero props at this reply's pools (`party.pools`,
+ * which the status card under each reply reads), by id. A condition the pools say has worn off is left out.
+ */
+export function heroes(state, args = {}, tools = null) {
+    const pools = tryQuery(tools, 'party.pools', {});
+    const out = {};
+    for (const card of cards(state, args, tools)) {
+        const pool = isRecord(pools?.[card.id]) ? pools[card.id] : {};
+        const worn = new Set(Array.isArray(pool.lapsed) ? pool.lapsed : []);
+        out[card.id] = heroOf({
+            name: card.name,
+            portrait: card.portrait,
+            line: card.line,
+            pools: { hp: pool.hp ?? card.hp, mp: pool.mp ?? card.mp, sp: pool.sp ?? card.sp },
+            statuses: card.statuses.filter(status => !worn.has(status.kind)),
+        });
+    }
+    return copy(out);
 }
 
 /**
@@ -551,7 +641,7 @@ export function trade(state, args = {}, tools = null) {
             const each = quote?.ok ? int(quote.each ?? quote.total) : null;
             out.sell.push({
                 stack: stack.id, name: String(def.name ?? ''), qty: stack.qty, note: stack.qty > 1 ? '' : String(def.note ?? ''),
-                each, price: each === null ? 'Sell' : shortPrice(each, currency),
+                each, price: each === null ? '—' : shortPrice(each, currency),
                 title: each === null ? `Sell one ${def.name}` : `Sell one ${def.name} for ${longPrice(each, currency)}`,
             });
         }
@@ -599,7 +689,7 @@ export function crafting(state, args = {}, tools = null) {
     const found = tryQuery(tools, 'craft.view', {});
     if (!isRecord(found)) return { on: false, empty: true, people: [] };
     const people = (Array.isArray(found.people) ? found.people : []).filter(isRecord).slice(0, 12).map(person => {
-        const recipes = (Array.isArray(person.recipes) ? person.recipes : []).filter(isRecord).slice(0, 200).map(recipe => {
+        const recipes = (Array.isArray(person.recipes) ? person.recipes : []).filter(isRecord).slice(0, RECIPES_MAX).map(recipe => {
             const materials = (Array.isArray(recipe.materials) ? recipe.materials : []).filter(isRecord).slice(0, 24).map(entry => {
                 const need = Math.max(1, int(entry.need, 1));
                 const have = Math.max(0, int(entry.have));
@@ -627,6 +717,7 @@ export function crafting(state, args = {}, tools = null) {
 /** The view queries, by name (merged into the module's queries by the coordinator). */
 export const viewQueries = Object.freeze({
     'rpg-battle.cards': cards,
+    'rpg-battle.heroes': heroes,
     'rpg-battle.hud': hud,
     'rpg-battle.itemDetail': itemDetail,
     'rpg-battle.carry': carry,
