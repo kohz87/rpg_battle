@@ -41,8 +41,8 @@ import {
     KEY, RECEIPT_KEEP, carrierIndexes, carryRecord, createSaver, dropCopy, isCarrier, keepsCopy, lastCarrier,
     newRecordId, payloadText, readRecord, recordFault, restamp, restoreCopy, swipeOf, trimReceipts, writeRecord,
 } from './persist.js';
-import { claimKeys, deriveId, hashJson, isMetaSpan, isRecordId, spanProblem } from './replay.js';
-import { evidenceDigest, evidenceProblem, merged, pinOps, recordEntries, touchesProof } from './evidence.js';
+import { claimKeys, deriveId, hashJson, isMetaSpan, isRecordId, replayInputsOf, spanProblem } from './replay.js';
+import { evidenceDigest, evidenceProblem, merged, opShapeProblem, operationKey, pinOps, recordEntries, touchesProof } from './evidence.js';
 
 export const CHECKPOINT_EVERY = 100;
 export const CHECKPOINT_BYTES = 128 * 1024;
@@ -132,7 +132,7 @@ export function createStore({
     let applying = null;       // while the head is replayed: { list, index }, where the proof of each block that applies is put
     let walkProofs = null;     // while a Re-read or a reconcile plans blocks: Map id → { proof, block } of what it has planned
     let lastMark = '';
-    let replanFrom = Infinity; // the first carrier seen holding a guarded step with a replan (none: nothing to reconcile)
+    let replanFrom = Infinity; // the first carrier seen holding a guarded step with a replan, or revs to number on (none: nothing to reconcile)
     // A first record that is a future version's or damaged is never written over (REPLAY.md "Preserved
     // records"): while the chat has no other state, the head is this empty state, read-only.
     let fallback = null;       // the initial state ensureInitial was given, frozen
@@ -428,9 +428,11 @@ export function createStore({
     // `receipts`: one receipt or all those the block stands for (a block whose span is gone may stand for several: every one counts).
     const isGuardedBlock = (span, receipts) => isMetaSpan(span) || [receipts].flat().some(receipt => receipt?.guarded === true);
 
-    // A guarded receipt that names none of its record's changes (an older build renumbered the changes apart from it): what it
-    // guarded cannot be told, so the record's plain blocks are not taken for legacy ones either (both are inactive).
-    const orphanGuard = record => {
+    // QUARANTINE, decided once per record, here, before anything runs: a guarded receipt that names none of its record's
+    // changes (an older build renumbered the changes apart from it) means what it guarded cannot be told, so the record
+    // applies nothing at all (every block, whether its span survived or not, stays stored and inactive), is never planned
+    // again and is never cut down by a rewind. Replay, Re-read, reconcile and truncate (so rewind) all ask this.
+    const quarantined = record => {
         const revs = new Set(record.ops.filter(op => op?.path === '/meta/rev').map(op => op.value));
         return record.receipts.some(receipt => receipt?.guarded === true && !revs.has(receipt.rev));
     };
@@ -485,6 +487,40 @@ export function createStore({
             const out = hashJson({ p: hash, d: bodyDigest(record), t: text });
             links.set(record, { prev: hash, text, out });
             hash = out;
+        }
+        return hash;
+    }
+
+    // The exact prefix a checkpoint was made over (the gate of trust, REPLAY.md "Checkpoints and covers"): a hash chained over
+    // every record before it as it is shown now, from the first: all of replay.js replayInputsOf (everything replay reads
+    // from a record), the text of records that hold guarded blocks, and the first record's own starting point. Each link is kept per record while its input stays, so a read costs a lookup
+    // per record and a change costs the records from it on.
+    const spineDigests = new WeakMap();
+    function spineDigest(record) {
+        let digest = spineDigests.get(record);
+        if (!digest) spineDigests.set(record, digest = hashJson(replayInputsOf(record)));
+        return digest;
+    }
+    const spineLinks = new WeakMap();
+    function spineStep(prev, record, message, first) {
+        const text = hasMeta(record) ? payloadHashOf(message) : null;
+        const hit = spineLinks.get(record);
+        if (hit && hit.prev === prev && hit.text === text && hit.first === first) return hit.out;
+        const out = hashJson({ p: prev, d: spineDigest(record), t: text, c: first ? hashJson(record.checkpoint ?? null) : null });
+        spineLinks.set(record, { prev, text, first, out });
+        return out;
+    }
+    // The prefix hash in front of carrier `upTo`; `at(i)` gives the record to use for carrier i (a Re-read passes the ones it is
+    // about to write).
+    function spineBefore(arr, upTo, at = i => readRecord(arr[i])) {
+        let hash = '';
+        let first = true;
+        for (let i = 0; i < upTo && i < arr.length; i++) {
+            if (!isCarrier(arr[i])) continue;
+            const record = at(i);
+            if (!record) continue;
+            hash = spineStep(hash, record, arr[i], first);
+            first = false;
         }
         return hash;
     }
@@ -549,14 +585,27 @@ export function createStore({
     // A block with no metadata (a legacy block) never pins proof: only a guarded or proof block that holds the proof it
     // pins does (replayGuarded), so a hand-edited record cannot publish a proof by writing its pin on another block.
     function replayLegacy(state, ops) {
-        if (ops.some(touchesProof)) throw prerequisite('it changes the record of proof pins (or the state around it), and a block with no proof of its own cannot');
+        if (ops.some(op => op && typeof op === 'object' && touchesProof(op))) throw prerequisite('it changes the record of proof pins (or the state around it), and a block with no proof of its own cannot');
         return step(state, ops, { replayed: true });
+    }
+
+    // A guarded block is stored only if its guard holds on the state before it when replayed (the context a replay asks in:
+    // the state and what it recorded). What a replay would refuse is refused here, so a state that was built live and one that
+    // is built again by replay cannot disagree about it. Nothing is asked of a store with no guard check attached.
+    const arr0 = index => list()[index];
+    function guardHolds(state, span, message) {
+        if (typeof guardCheck !== 'function' || !isMetaSpan(span) || !span.guard) return;
+        const answer = askGuard(state, span, message);
+        if (!answer.ok) throw new Error(`Its guard would not hold when this is replayed, so it is not stored: ${answer.reason}`);
     }
 
     // A guarded block on replay (and in a Re-read's kept blocks): its record must be whole, from this
     // carrier, make the claims it lists, and pass its owner's guard on `state`; then its ops (claims among
     // them) are applied together. Throws a REPLAY_PREREQUISITE error otherwise, with nothing applied.
-    function replayGuarded(state, record, ops, span, message = null, receipt = null) {
+    // What a guarded block must be on its own, whatever the state: its record whole, the guard its receipt kept the one it holds, the
+    // reply and swipe it was recorded for, the claims its ops make. Throws a REPLAY_PREREQUISITE otherwise. A block that is not
+    // intact is not planned again either: planning would bring back what replay keeps off.
+    function blockIntact(record, ops, span, receipt) {
         const bad = spanProblem(span);
         if (bad) throw prerequisite(`its saved guard record is damaged: ${bad}`);
         // A guard the receipt kept (data.v2, set by the host) must be the one the span holds.
@@ -573,6 +622,13 @@ export function createStore({
         }
         const proof = evidenceProblem(span, ops);
         if (proof) throw prerequisite(`the proof it saved is not the proof its changes pin: ${proof}`);
+    }
+    const intactReason = (record, ops, span, receipt) => {
+        try { blockIntact(record, ops, span, receipt); return null; } catch (error) { return error.message; }
+    };
+
+    function replayGuarded(state, record, ops, span, message = null, receipt = null) {
+        blockIntact(record, ops, span, receipt);
         // A proof id belongs to the block that applied with it first: a later block that gives the same id collides and does not apply.
         const owned = state?.meta?.proofs;
         const collides = isObject(owned) ? span.evidence.find(each => Object.hasOwn(owned, each.id)) : undefined;
@@ -598,6 +654,36 @@ export function createStore({
     // after the blocks `earlier` ([{ ops, span }]) and `offset` ops: the host stamps the id (kept when the
     // block is planned again), the source, the claims its ops make and the boundary it starts at. `block` is
     // what the bus handed over: { module, source, guard, operation, recorded, result, id? }.
+    // The proof of a block that has applied, for the guards asked on the rest of a Re-read or a reconcile (walkProofs). Called only
+    // after the block applied: a block that was refused or collided publishes nothing.
+    // The first of `evidence`'s proofs whose id a block that has applied already owns in `state`, else undefined. A block planned again that
+    // would give such an id is refused before it applies and before it publishes: replacing a block's own ids never exempts another owner.
+    function ownedAlready(state, evidence) {
+        const pins = state?.meta?.proofs;
+        return isObject(pins) && Array.isArray(evidence) ? evidence.find(proof => Object.hasOwn(pins, proof?.id)) : undefined;
+    }
+
+    function publish(span, at = applying?.index) {
+        if (walkProofs && isMetaSpan(span) && Array.isArray(span.evidence)) for (const proof of span.evidence) walkProofs.set(proof.id, Object.freeze({ proof, block: span.id, index: at }));
+    }
+
+    // How many of the blocks `parts` did what `operation` does (its command and line): the rank a new block of that operation has among them.
+    const operationKeys = new WeakMap();     // span → its operation's key (a span is never changed in place)
+    function keyOfSpan(span) {
+        let key = operationKeys.get(span);
+        if (key === undefined) {
+            try { key = operationKey(span.operation.type, span.operation.payload); } catch { key = null; }
+            operationKeys.set(span, key);
+        }
+        return key;
+    }
+    const sameOperation = (part, key) => isMetaSpan(part.span) && isObject(part.span.operation) && keyOfSpan(part.span) === key;
+    const rankIn = (parts, operation) => {
+        let key = null;
+        try { key = operationKey(operation?.type, operation?.payload); } catch { return 0; }
+        return parts.filter(part => sameOperation(part, key)).length;
+    };
+
     function stamp(arr, index, record, block, ops, receipt, earlier, offset, free = null) {
         const entry = record.source;
         const planned = block.source;
@@ -634,7 +720,6 @@ export function createStore({
         };
         const bad = spanProblem(span) || evidenceProblem(span, ops);
         if (bad) throw new Error(`The guarded block cannot be stored: ${bad}.`);
-        if (walkProofs) for (const proof of span.evidence) walkProofs.set(proof.id, Object.freeze({ proof, block: id }));
         if (span.guard) seeGuards();
         if (span.guard && span.replan) replanFrom = Math.min(replanFrom, index);
         return span;
@@ -652,16 +737,25 @@ export function createStore({
     // already skipped on the chat as it stands stay skipped (a guarded one is asked again). Guarded system
     // blocks with a `replan` are planned again when `rerun` is given. → { state, writes: [[message, record]],
     // planned } (`writes`: the checkpoints made true again and the records that were planned again).
-    function walkSuffix(arr, state, first, { rerun = null, overlay }) {
-        const broken = new Set(replay(arr, lastCarrier(arr)).problems
+    function walkSuffix(arr, state, first, { rerun = null, overlay, prior = null }) {
+        const known = replay(arr, lastCarrier(arr)).problems;
+        const broken = new Set(known
             .filter(problem => problem.code !== 'REPLAY_PREREQUISITE').map(problem => `${problem.index}:${problem.block}`));
+        // The Problems so far, for the checkpoints rewritten on the way (`carried`): those before the walk, then each record's.
+        const acc = prior ?? known.filter(problem => problem.index < first);
+        const sidAtNow = i => (overlay.get(i) ?? readRecord(arr[i]) ?? arr[i]?.extra?.[KEY])?.sid;
         const writes = [];
         const counted = { planned: 0, removed: 0 };
         let planned = false;
         staged = overlay;
         const outerApplying = applying;
         const head = current();
-        applying = head.state && !head.readOnly ? { list: [...appliedOf(arr, head).filter(entry => entry.index < first)], index: first, from: head.from ?? -1 } : null;
+        // Seeded from the walk's own base: the blocks before `first` that replay applied, counted once. A walk that starts before the
+        // checkpoint the head replays from lists the records before `first` as could-apply, and every record from `first` on is the walk's.
+        const rooted = first <= (head.from ?? -1);
+        applying = head.state && !head.readOnly
+            ? { list: rooted ? [] : [...appliedOf(arr, head).filter(entry => entry.index < first)], index: first, from: rooted ? first : head.from }
+            : null;
         try {
             let running = revOf(state);      // the rev the replies before ended on (a Re-read's new lines, a step planned again): the revs after are numbered on from it
             let history = false;     // guarded blocks before here: a checkpoint written here depends on their owners
@@ -672,6 +766,7 @@ export function createStore({
                 const guardedBefore = history;
                 history ||= hasMeta(later);
                 const checkpoint = later.checkpoint ? structuredClone(state) : undefined;
+                const owners = checkpoint && applying ? packOwners(listProofs(false), sidAtNow) : null;     // (the blocks that applied before this record)
                 const failed = [];
                 if (applying) applying.index = i;
                 const out = replayBlocks(state, later, i, failed, { skip: broken, rerun, message: arr[i], running });
@@ -679,6 +774,10 @@ export function createStore({
                 running = out.running;
                 const refusing = failed.filter(problem => problem.code !== 'REPLAY_PREREQUISITE');
                 if (refusing.length) throw new Error(`A later change (message ${i}) depends on this reply's old story changes: ${refusing[0].why}`);
+                const snapshot = packProblems(acc, sidAtNow);      // (before this record: what a checkpoint here carries)
+                // A block that stays skipped is passed over without a try: its Problem is the one it had.
+                for (const old of known) if (old.index === i && broken.has(`${old.index}:${old.block}`) && !failed.some(problem => problem.block === old.block)) failed.push(old);
+                acc.push(...failed);
                 const { planned: made = 0, removed: gone = 0, ...fields } = out.fields ?? {};
                 if (out.fields) {
                     planned = true;
@@ -690,6 +789,10 @@ export function createStore({
                 if (checkpoint) {
                     if (guardedBefore) next.guardEnv = markNow();
                     else delete next.guardEnv;
+                    if (snapshot.length) next.carried = snapshot;
+                    else delete next.carried;
+                    if (owners) next.owned = owners;
+                    else delete next.owned;
                 }
                 overlay.set(i, next);
                 writes.push([arr[i], next]);
@@ -702,8 +805,11 @@ export function createStore({
         // the records from the checkpoint before it (itself included) up to the carrier before this one. A window left as it
         // was could line up again after a later delete and make a state that includes a record trusted without it.
         for (const [target, next] of writes) {
-            if (!next.checkpoint || !Array.isArray(next.covers)) continue;
+            if (!next.checkpoint) continue;
             const at = arr.indexOf(target);
+            // (whatever it was before, a rewritten checkpoint is the state over the records as they are now: its prefix says so)
+            next.prefix = spineBefore(arr, at, i => overlay.get(i) ?? readRecord(arr[i]));
+            if (!Array.isArray(next.covers)) continue;
             const members = [];
             for (let i = at - 1; i >= 0; i--) {
                 const record = isCarrier(arr[i]) ? overlay.get(i) ?? readRecord(arr[i]) : null;
@@ -779,6 +885,9 @@ export function createStore({
     // so a chat stored before a validator grew stricter still replays.
     function step(state, ops, { replayed = false, strict = false } = {}) {
         if (!ops.length) return state;
+        // Every change is looked at before any is rebased or passed over: a block with a change that is not one applies nothing.
+        const shape = opShapeProblem(ops);
+        if (shape) throw new Error(shape);
         const { ops: rebased, rebased: moved } = rebaseOps(state, ops, { scratch, replayed });
         const next = deepFreeze(apply(state, structuredClone(rebased)));
         if (typeof validate !== 'function') return next;
@@ -801,17 +910,14 @@ export function createStore({
         return next;
     }
 
-    // The checkpoint to replay from for carrier `upTo` and the records after it (B2-4). Each checkpoint
-    // lists the records it was made over (`covers`: the record IDs from the checkpoint before it up to
-    // itself), so one made before a reply was deleted, or another swipe was shown, is passed over: the
-    // replay starts from an earlier one that still holds. When the window held guarded blocks the
-    // checkpoint also carries `coverHash` (their swipe keys, block contents and text), so a reply edited
-    // since is told too. The first window that fails is a gap: a checkpoint with no `covers` after it
-    // cannot be checked against anything and is not trusted either, and when no checkpoint holds there is
-    // no state to start from (the chat starts again from the state ensureInitial gives it) rather than the
-    // latest one being taken unchecked. A checkpoint made after the gap, over the records as they stand
-    // now, holds again. A checkpoint without `covers` before any gap (older records, the first one) is
-    // trusted.
+    // The checkpoint to replay from for carrier `upTo` and the records after it (B2-4). A checkpoint is trusted only
+    // when the prefix it was made over is exactly the prefix in front of it now (`prefix`, see spineStep): every record
+    // before it as it is shown, so one made before a reply was deleted, edited, Re-read or another swipe was shown, and
+    // a hidden swipe's, fails and the replay starts from an earlier one that still holds. One that stored no prefix
+    // (older records) is trusted only as the first record there is. It must also hold under the owners it was made with
+    // (`guardEnv`) and, when it has them, `covers` and `coverHash` (the records it covers and, for guarded blocks, their swipe
+    // keys, contents and text). When no checkpoint holds there is no state to start from (the chat starts again from the
+    // state ensureInitial gives it) rather than the latest one being taken unchecked.
     // → { from: index | -1, since: the record IDs from `from` through `upTo`, members: their indexes }.
     function chain(arr, upTo) {
         let from = -1;
@@ -819,7 +925,8 @@ export function createStore({
         let members = [];
         let guarded = false;     // a record in the window holds guarded blocks
         let history = false;     // a record before this point (anywhere) holds guarded blocks: a checkpoint here depends on its owners
-        let gap = false;
+        let running = '';        // the prefix hash in front of this record (spineStep)
+        let seen = 0;            // records before this one
         const last = Math.min(upTo, arr.length - 1);
         for (let i = 0; i <= last; i++) {
             if (!isCarrier(arr[i])) continue;
@@ -830,17 +937,21 @@ export function createStore({
                 // Over guarded blocks a checkpoint holds only under the owners it was made with (guardEnv): its state
                 // carries what their guards allowed, and replay does not ask them again from here on.
                 const under = !history ? true : record.guardEnv !== undefined && record.guardEnv === markNow();
-                const holds = under && (covers
-                    ? from >= 0 && covers.length === since.length && covers.every((sid, at) => sid === since[at])
-                        && (record.coverHash === undefined ? !guarded : record.coverHash === windowHash(arr, members))
-                    : !gap);
+                // The gate: the prefix it was made over is exactly the prefix in front of it now. One that stored none (older
+                // records, a hidden swipe's) is trusted only as the first record there is.
+                const exact = record.prefix !== undefined ? record.prefix === running : seen === 0;
+                // (covers and coverHash are further checks when it has them)
+                const holds = under && exact && (!covers || (from >= 0 && covers.length === since.length && covers.every((sid, at) => sid === since[at])
+                    && (record.coverHash === undefined ? !guarded : record.coverHash === windowHash(arr, members))));
                 if (holds) {
                     from = i;
                     since = [];
                     members = [];
                     guarded = false;
-                } else gap = true;
+                }
             }
+            running = spineStep(running, record, arr[i], seen === 0);
+            seen += 1;
             since.push(record.sid);
             members.push(i);
             if (hasMeta(record)) {
@@ -854,6 +965,39 @@ export function createStore({
         return { from, since, members, history };
     }
 
+    // The Problems of blocks before a checkpoint ride with it (`carried`), so a replay that starts from the checkpoint still
+    // reports a block that is off in front of it: by the sid of the record it was on (a message index moves when a user
+    // message is deleted), the block's position, why and its code.
+    const problemText = (index, why, code) => (code === 'DAMAGED'
+        ? `The story record on message ${index} is damaged and was skipped: ${why}.`
+        : `Some changes stored on message ${index} no longer apply and were skipped: ${why}`);
+    const rawSidAt = (arr, i) => (readRecord(arr[i]) ?? arr[i]?.extra?.[KEY])?.sid;
+    function packProblems(problems, sidAt) {
+        const out = [];
+        for (const problem of problems) {
+            const sid = sidAt(problem.index);
+            if (typeof sid !== 'string') continue;
+            out.push({ sid, block: problem.block ?? null, receipts: [...(problem.receipts ?? [])], why: String(problem.why), ...(problem.code ? { code: problem.code } : {}) });
+        }
+        return out;
+    }
+    function unpackProblems(arr, before, carried) {
+        if (!Array.isArray(carried) || !carried.length) return [];
+        const at = new Map();
+        for (let i = 0; i < before && i < arr.length; i++) {
+            const sid = rawSidAt(arr, i);
+            if (typeof sid === 'string' && isCarrier(arr[i])) at.set(sid, i);
+        }
+        const out = [];
+        for (const each of carried) {
+            if (!isObject(each) || !at.has(each.sid)) continue;
+            const index = at.get(each.sid);
+            out.push({ index, block: each.block ?? null, receipts: Array.isArray(each.receipts) ? [...each.receipts] : [], why: String(each.why),
+                message: problemText(index, each.why, each.code), ...(each.code ? { code: each.code } : {}) });
+        }
+        return out;
+    }
+
     // State after the last carrier at or before `upTo`, or null when no checkpoint precedes it. A block
     // of ops that no longer applies (a hand-edited chat, a middle reply deleted) is skipped and reported
     // on its own, so a bad change cannot take the rest of its carrier, or anything later, with it.
@@ -861,12 +1005,11 @@ export function createStore({
         counts.replays++;
         const { from } = chain(arr, upTo);
         // A damaged record (B-b2-timeline-7) is skipped, and said so.
-        const problems = [];
+        const problems = from >= 0 ? unpackProblems(arr, from, readRecord(arr[from]).carried) : [];
         for (let i = Math.max(from, 0); i <= upTo && i < arr.length; i++) {
             const fault = recordFault(arr[i]);
             if (fault) {
-                problems.push({ index: i, block: null, receipts: [], why: fault, code: 'DAMAGED',
-                    message: `The story record on message ${i} is damaged and was skipped: ${fault}.` });
+                problems.push({ index: i, block: null, receipts: [], why: fault, code: 'DAMAGED', message: problemText(i, fault, 'DAMAGED') });
             }
         }
         if (from < 0) return { state: null, problems };
@@ -918,9 +1061,26 @@ export function createStore({
         const rewrites = plans || running !== null;
         const out = rewrites ? { parts: [], gone: new Map(), changed: false, running, planned: 0, removed: 0 } : null;
         const anyGuardedReceipt = record.receipts.some(each => each?.guarded === true);
-        const orphan = anyGuardedReceipt && orphanGuard(record);
+        const orphan = anyGuardedReceipt && quarantined(record);
+        // Quarantine is decided on the record as it is stored, before any rebase, renumbering or filtering below can touch it:
+        // it applies nothing and is never rewritten (so nothing renumbered can reattach the receipt that is detached).
+        if (orphan) {
+            parts.forEach(({ ops }, block) => {
+                problems.push({
+                    index, block, receipts: receiptsOf(record, ops), why: ORPHAN,
+                    message: `Some changes stored on message ${index} no longer apply and were skipped: ${ORPHAN}`,
+                    code: 'REPLAY_PREREQUISITE',
+                });
+                state = skipped(state, ops);
+            });
+            return { state, fields: null, running };
+        }
         parts.forEach(({ ops, span: stored }, block) => {
             let span = stored;
+            // A block numbered at or below the rev the story is at (a swipe made before an earlier reply was read again, shown
+            // now): a reconcile from here numbers it on (walkSuffix), so revs stay strictly increasing along the chat.
+            const firstRev = ops.find(op => op?.path === '/meta/rev' && Number.isInteger(op.value))?.value;
+            if (firstRev !== undefined && firstRev <= revOf(state)) replanFrom = Math.min(replanFrom, index);
             const receipt = rewrites || anyGuardedReceipt ? record.receipts.find(each => each?.rev === revOfOps(ops)) ?? null : null;
             let blockOps = ops;
             const stands = rewrites || anyGuardedReceipt ? receiptsFor(record, ops) : [];     // every receipt this block's ops are
@@ -954,7 +1114,7 @@ export function createStore({
                 keep();
                 return;
             }
-            const guarded = orphan || isGuardedBlock(span, anyGuardedReceipt ? stands : null);
+            const guarded = isGuardedBlock(span, anyGuardedReceipt ? stands : null);
             if (plans && isMetaSpan(span) && span.guard && span.replan && receipt) {
                 const done = replanned(state, record, index, span, receipt, blockOps, out, rerun);
                 if (!done.kept) {
@@ -973,7 +1133,6 @@ export function createStore({
                 // It could not be asked: the block stays as it was, replayed as any block is (its guard decides).
             }
             try {
-                if (orphan && !isMetaSpan(span)) throw prerequisite(ORPHAN);
                 state = guarded ? replayGuarded(state, record, blockOps, span, message, receipt) : replayLegacy(state, blockOps);
                 keep();
             } catch (error) {
@@ -1004,10 +1163,12 @@ export function createStore({
     // be asked (the old block stays exactly as it was, and is replayed as it was: its guard decides). A new block that does not apply, or cannot be stored, throws:
     // nothing is changed.
     function replanned(state, record, index, span, receipt, blockOps, out, rerun) {
+        const broken = intactReason(record, blockOps, span, receipt);
+        if (broken) return { kept: true, why: broken };
         let planned = null;
         let failure = '';
         try {
-            planned = rerun(deepFreeze(structuredClone(state)), receipt, { index, span, replan: span.replan });
+            planned = rerun(deepFreeze(structuredClone(state)), receipt, { index, span, replan: span.replan, nth: rankIn(out.parts, span.operation) });
         } catch (error) {
             failure = `it threw (${error?.message ?? error})`;
         }
@@ -1021,6 +1182,8 @@ export function createStore({
             const why = failure || `it was not asked (${planned?.code ?? 'no answer'}: ${planned?.message ?? 'nothing came back'})`;
             return { kept: true, why };
         }
+        const clash = ownedAlready(state, planned.block?.evidence);
+        if (clash) return { kept: true, why: `it would give proof ${clash.id}, which a block that applied already owns` };
         const fresh = asOps(planned.ops);
         let next;
         try {
@@ -1037,6 +1200,12 @@ export function createStore({
             const holder = withSource(arr[index], record);
             newSpan = { ...newSpan, ...stamp(arr, index, holder, { ...planned.block, id: span.id, source: { ...planned.block.source, ordinal: span.source.ordinal } }, fresh, newReceipt, out.parts, out.parts.reduce((sum, part) => sum + part.ops.length, 0)) };
         }
+        // A block that would not hold on replay is not stored: the old block stays as it is, its own guard decides.
+        if (newSpan.guard) {
+            try { guardHolds(state, newSpan, arr0(index)); } catch (error) { return { kept: true, why: error.message }; }
+        }
+        // Its proof is the guards' to see only now: it applied and it is stored. A refusal above leaves no trace of it.
+        publish(newSpan, index);
         // Planned to what it was: the old block stays as it is.
         const sameness = value => hashJson({ ops: value.ops, guard: value.span.guard ?? null, claims: value.span.claims ?? null, recorded: value.span.recorded ?? null,
             result: value.span.result ?? null, operation: value.span.operation ?? null, replan: value.span.replan ?? null, evidence: evidenceDigest(value.span.evidence) });
@@ -1077,6 +1246,67 @@ export function createStore({
         if (message !== old.message || message?.swipe_id !== old.swipe || message?.extra !== old.extra || message?.extra?.[KEY] !== old.record) return false;
         for (let i = old.index + 1; i < arr.length; i++) if (arr[i]?.extra?.[KEY] !== undefined) return false;
         return true;
+    }
+
+    // The proof of the blocks before the one replay starts from. When the checkpoint there says which blocks applied before it (`owned`: the
+    // record's sid and the block's id), those and no others; else (an older checkpoint) every block that could apply (replay did not look
+    // at them), and of two that give one id the first listed keeps it.
+    function proofsBefore(arr, from) {
+        const memo = lineOf(arr);
+        const kept = memo.proofsBefore?.get(from);
+        if (kept) return kept;
+        const owned = from >= 0 ? readRecord(arr[from])?.owned : undefined;
+        const on = Array.isArray(owned) ? new Set(owned.map(each => (Array.isArray(each) ? `${each[0]}\u0000${each[1]}` : ''))) : null;
+        const out = [];
+        for (const i of carrierIndexes(arr)) {
+            if (i >= from) break;
+            const record = readRecord(arr[i]);
+            if (record && hasMeta(record)) for (const entry of recordEntries(record, blockParts(record))) if (!on || on.has(`${record.sid}\u0000${entry.block}`)) out.push(Object.freeze({ ...entry, index: i }));
+        }
+        const seen = new Set();
+        const once = out.filter(entry => !seen.has(entry.proof.id) && seen.add(entry.proof.id));
+        (memo.proofsBefore ??= new Map()).set(from, once);
+        return once;
+    }
+
+    // The blocks that applied, as a checkpoint carries them (`owned`): [record sid, block id], each once.
+    function packOwners(entries, sidAt) {
+        const seen = new Set();
+        const out = [];
+        for (const entry of entries) {
+            const sid = Number.isInteger(entry.index) ? sidAt(entry.index) : undefined;
+            if (typeof sid !== 'string' || typeof entry.block !== 'string' || seen.has(`${sid}\u0000${entry.block}`)) continue;
+            seen.add(`${sid}\u0000${entry.block}`);
+            out.push([sid, entry.block]);
+        }
+        return out;
+    }
+
+    // store.proofs (see there).
+    function listProofs(all) {
+        const arr = list();
+        const memo = lineOf(arr);
+        const laid = base => (walkProofs?.size ? Object.freeze(merged(base, [...walkProofs.values()])) : base);
+        // A replay or a walk is going on (a guard asks): the blocks that have applied so far, in the order they did.
+        if (applying && !all) return laid(Object.freeze([...proofsBefore(arr, applying.from), ...applying.list]));
+        const slot = all ? 'proofsAll' : 'proofsApplied';
+        if (!memo[slot]) {
+            let out = [];
+            if (all) {
+                for (const i of carrierIndexes(arr)) {
+                    const record = readRecord(arr[i]);
+                    if (record && hasMeta(record)) for (const entry of recordEntries(record, blockParts(record))) out.push(Object.freeze({ ...entry, index: i }));
+                }
+            } else {
+                const head = current();
+                if (head.state && !head.readOnly) {
+                    appliedOf(arr, head);
+                    out = [...proofsBefore(arr, head.from), ...head.applied];
+                }
+            }
+            memo[slot] = Object.freeze(out);
+        }
+        return laid(memo[slot]);
     }
 
     // The head's applied proof, worked out again when a write left it unknown (a truncate).
@@ -1238,6 +1468,15 @@ export function createStore({
             if (base) {
                 const { since, members, history } = chain(arr, index - 1);
                 record.checkpoint = structuredClone(base);
+                record.prefix = spineBefore(arr, index);
+                const prior = index === lastCarrier(arr) ? current().problems : replay(arr, index - 1).problems;
+                const carried = packProblems(prior.filter(problem => problem.index < index), i => rawSidAt(arr, i));
+                if (carried.length) record.carried = carried;
+                // The blocks before it that applied (the proof of an id belongs to the one that applied with it).
+                const head = index === lastCarrier(arr) ? current() : replay(arr, index - 1);
+                if (head.state && !head.readOnly) {
+                    record.owned = packOwners([...proofsBefore(arr, head.from), ...appliedOf(arr, head)].filter(entry => entry.index < index), i => rawSidAt(arr, i));
+                }
                 record.covers = since;
                 if (history) record.guardEnv = markNow();
                 const hash = windowHash(arr, members);
@@ -1396,13 +1635,13 @@ export function createStore({
                 if (i === first) continue;
                 const record = readRecord(arr[i]);
                 if (!record?.checkpoint) continue;
-                const { checkpoint: gone, covers, coverHash, guardEnv, ...rest } = record;
-                void gone; void covers; void coverHash; void guardEnv;
+                const { checkpoint: gone, covers, coverHash, guardEnv, prefix, carried, owned, ...rest } = record;
+                void gone; void covers; void coverHash; void guardEnv; void prefix; void carried; void owned;
                 write(arr[i], rest);
             }
             const own = readRecord(message);
-            const { covers, coverHash, guardEnv, ...rest } = own ?? {};
-            void covers; void coverHash; void guardEnv;
+            const { covers, coverHash, guardEnv, prefix, carried, owned, ...rest } = own ?? {};
+            void covers; void coverHash; void guardEnv; void prefix; void carried; void owned;
             write(message, own
                 ? { ...rest, checkpoint, rev: revOf(checkpoint) }
                 : { v: 2, sid: sidFor(message), checkpoint, ops: [], receipts: [], narrated: [], spans: [], rev: revOf(checkpoint) });
@@ -1416,8 +1655,8 @@ export function createStore({
             if (kept?.kind !== 'unresolved') throw new Error('There is no unresolved start to keep a saved point of.');
             if (confirmed !== true) throw new Error('Keeping the earliest saved point needs the reader\'s confirmation.');
             const arr = list();
-            const { covers, coverHash, ...rest } = readRecord(arr[kept.index]);
-            void covers; void coverHash;
+            const { covers, coverHash, prefix, carried, owned, ...rest } = readRecord(arr[kept.index]);
+            void covers; void coverHash; void prefix; void carried; void owned;     // (the first record there is: trusted as the start, whatever was in front of it)
             write(arr[kept.index], rest);
             saver.touch();
             cache = null;
@@ -1459,8 +1698,8 @@ export function createStore({
             if (!carried && carrierIndexes(arr).some(i => readRecord(arr[i])?.checkpoint)) return keepAside();
             const checkpoint = carried ?? structuredClone(initialState);
             const own = readRecord(message);
-            const { covers, coverHash, ...base } = own ?? {};
-            void covers; void coverHash;
+            const { covers, coverHash, prefix, carried: droppedProblems, owned: droppedOwners, ...base } = own ?? {};
+            void covers; void coverHash; void prefix; void droppedProblems; void droppedOwners;
             const record = own
                 ? { ...base, sid: typeof own.sid === 'string' ? own.sid : sidFor(message), checkpoint,
                     rev: Number.isInteger(own.rev) ? own.rev : revOf(checkpoint) }
@@ -1501,6 +1740,13 @@ export function createStore({
             return sourceOf(index, options);
         },
 
+        /** How many blocks of carrier `index`'s record did what `key` is (operationKey): the rank a new block of that has among them. */
+        occurrences(index, key) {
+            const arr = list();
+            const record = isCarrier(arr[index]) ? readRecord(arr[index]) : null;
+            return record && hasMeta(record) ? blockParts(record).filter(part => sameOperation(part, key)).length : 0;
+        },
+
         /**
          * The proof of the chat's blocks, in apply order: [{ proof, block, index }] (frozen). Only the blocks that applied
          * (replay's own account of them: a block that was skipped, is off, collided on a proof id or is damaged gives none;
@@ -1509,50 +1755,11 @@ export function createStore({
          * `story.evidence` query). `{ all: true }`: the proof of every block that could apply, whether it did or not (what
          * a new proof must not take an id from).
          */
-        proofs({ all = false } = {}) {
-            const arr = list();
-            const memo = lineOf(arr);
-            // The proof of the blocks before the one replay starts from: those that could apply (replay did not look at them).
-            const before = from => {
-                const kept = memo.proofsBefore?.get(from);
-                if (kept) return kept;
-                const out = [];
-                for (const i of carrierIndexes(arr)) {
-                    if (i >= from) break;
-                    const record = readRecord(arr[i]);
-                    if (record && hasMeta(record)) for (const entry of recordEntries(record, blockParts(record))) out.push(Object.freeze({ ...entry, index: i }));
-                }
-                // Replay did not look at these blocks, so it cannot say which of two that give one id applied first: the first listed
-                // keeps it (the pin is the state's, and shows only bytes that match it).
-                const seen = new Set();
-                const once = out.filter(entry => !seen.has(entry.proof.id) && seen.add(entry.proof.id));
-                (memo.proofsBefore ??= new Map()).set(from, once);
-                return once;
-            };
-            const laid = base => (walkProofs?.size ? Object.freeze(merged(base, [...walkProofs.values()])) : base);
-            // A replay or a walk is going on (a guard asks): the blocks that have applied so far, in the order they did.
-            if (applying && !all) return laid(Object.freeze([...before(applying.from), ...applying.list]));
-            const slot = all ? 'proofsAll' : 'proofsApplied';
-            if (!memo[slot]) {
-                let out = [];
-                if (all) {
-                    for (const i of carrierIndexes(arr)) {
-                        const record = readRecord(arr[i]);
-                        if (record && hasMeta(record)) for (const entry of recordEntries(record, blockParts(record))) out.push(Object.freeze({ ...entry, index: i }));
-                    }
-                } else {
-                    const head = current();
-                    if (head.state && !head.readOnly) {
-                        appliedOf(arr, head);
-                        out = [...before(head.from), ...head.applied];
-                    }
-                }
-                memo[slot] = Object.freeze(out);
-            }
-            return laid(memo[slot]);
+        proofs(options = {}) {
+            return listProofs(options?.all === true);
         },
 
-        /** The first carrier seen holding a guarded step with a `replan` (the turn reconciles from it), else null. */
+        /** The first carrier seen holding a guarded step with a `replan`, or blocks numbered at or below the rev before them (the turn reconciles from it), else null. */
         replansFrom() {
             return Number.isFinite(replanFrom) ? replanFrom : null;
         },
@@ -1631,6 +1838,8 @@ export function createStore({
             if (!added.length && !receipt) return;
             const next = step(base, added);       // throws on a bad op: nothing is written
             const taken = take(arr, index, base);
+            // (what a quarantined record would hold is never applied: a change put on it would be lost on the next replay)
+            if (!taken.fresh && quarantined(taken.record)) throw new Error(`This reply's story record is kept as it is and nothing is added to it: ${ORPHAN}.`);
             const { message } = taken;
             const record = withSource(message, taken.record);
             if (typeof receipt?.id === 'string' && record.receipts.some(known => known?.id === receipt.id)) {
@@ -1641,6 +1850,7 @@ export function createStore({
             const span = block
                 ? stamp(arr, index, record, block, added, receipt, blockParts({ ...record, spans, ops: record.ops }), record.ops.length)
                 : null;
+            if (span) guardHolds(base, span, message);
             write(message, {
                 ...record,
                 ops: [...record.ops, ...added],
@@ -1704,6 +1914,9 @@ export function createStore({
                 at += span.n;
             }
             let keptReceipts = record.receipts.filter(receipt => receipt?.cause !== 'story').map(receipt => structuredClone(receipt));
+            // A quarantined record applies nothing and is not rewritten: decided on the record as stored, before the story
+            // receipts are filtered out or anything is renumbered.
+            if (quarantined(record)) throw new Error(`This reply's story record is kept as it is and not read again: ${ORPHAN}.`);
             const paired = keptReceipts.length === blocks.length;
             // The old afterCapture steps go when the Re-read ran them again (only told apart one to one).
             const resettle = Array.isArray(settled) && paired;
@@ -1734,15 +1947,18 @@ export function createStore({
                 && lines.reduce((sum, piece) => sum + piece.n, 0) === fresh.length && lines.some(piece => piece.block) ? lines : null;
             if (pieces) {
                 let offset = 0;
+                let upTo = base;         // the state before the piece
                 for (const piece of pieces) {
                     const own = fresh.slice(offset, offset + piece.n);
                     if (piece.block) {
                         let span;
                         try {
                             span = { n: piece.n, story: true, ...stamp(arr, index, record, piece.block, own, piece.receipt, nextParts, offset, replacedIds) };
+                            guardHolds(upTo, span, message);
                         } catch (error) {
                             throw fail(error);
                         }
+                        publish(span, index);     // the lines applied to the state before this point
                         storySpans.push(span);
                         nextParts.push({ ops: own, span });
                     } else if (storySpans.length && !isMetaSpan(storySpans.at(-1))) {
@@ -1753,6 +1969,7 @@ export function createStore({
                         storySpans.push(span);
                         nextParts.push({ ops: own, span });
                     }
+                    upTo = step(upTo, own);
                     offset += piece.n;
                 }
             } else {
@@ -1761,11 +1978,12 @@ export function createStore({
                 nextParts.push({ ops: fresh, span });
             }
             const keptSpans = [];
+            const keptProblems = [];       // this reply's blocks that stay off (the checkpoints after it carry them)
             const moved = new Map();
-            const orphan = orphanGuard(record);
             // The afterCapture steps run again, right after the new story ops (their revs follow them).
             for (const ran of resettle ? settled : []) {
                 const blockOps = asOps(ran.ops);
+                const before = state;
                 try {
                     state = step(state, blockOps);
                 } catch (error) {
@@ -1777,6 +1995,8 @@ export function createStore({
                 if (ran.block) {
                     try {
                         span = { ...span, ...stamp(arr, index, record, ran.block, blockOps, ran.receipt, nextParts, nextOps.length) };
+                        guardHolds(before, span, message);
+                        publish(span, index);     // applied (step above)
                     } catch (error) {
                         throw fail(error);
                     }
@@ -1791,15 +2011,17 @@ export function createStore({
                 let blockOps;
                 let kept = receipt;
                 let again = null;      // the block as planned again, when it was
-                const asks = typeof rerun === 'function' && ((isMetaSpan(was) && was.guard && was.replan && receipt) || (receipt?.replan && !isGuardedBlock(was, paired ? receipt : receiptsFor({ receipts: keptReceipts }, block))));
+                const asks = typeof rerun === 'function' && !(isMetaSpan(was) && intactReason(record, block, was, receipt)) && ((isMetaSpan(was) && was.guard && was.replan && receipt) || (receipt?.replan && !isGuardedBlock(was, paired ? receipt : receiptsFor({ receipts: keptReceipts }, block))));
                 if (asks) {
                     let out = null;
-                    try { out = rerun(deepFreeze(structuredClone(state)), receipt, { index, span: was, replan: was.replan ?? null }); } catch { out = null; }
+                    try { out = rerun(deepFreeze(structuredClone(state)), receipt, { index, span: was, replan: was.replan ?? null, nth: isMetaSpan(was) ? rankIn(nextParts, was.operation) : undefined }); } catch { out = null; }
                     // A guarded step goes only when its owner says it is no longer done; when it cannot be asked it stays.
                     if (!out?.ok && isMetaSpan(was) && !(out?.ok === false && out.code === NO_LONGER_DONE)) {
                         // (it could not be asked: the block stays exactly as it was, replayed below as any kept block is)
                     } else if (!out?.ok) continue;
-                    else {
+                    else if (ownedAlready(state, out.block?.evidence)) {
+                        // (it would give a proof id a block that applied already owns: refused; the block stays as it was, replayed below)
+                    } else {
                         again = out;
                         blockOps = asOps(out.ops);
                         kept = { ...structuredClone(out.receipt), id: receipt.id };
@@ -1822,25 +2044,38 @@ export function createStore({
                 // A kept guarded block is asked again here (its guard may not hold on the new story): then
                 // it stays stored and inactive. A block planned again is applied as a live command is.
                 const meta = isMetaSpan(was);
-                const guarded = orphan || isGuardedBlock(was, paired ? receipt : receiptsFor({ receipts: keptReceipts }, block));       // (the one classifier: a stripped span is still a guarded block)
+                const heldBy = state;     // the state before this block
+                const guarded = isGuardedBlock(was, paired ? receipt : receiptsFor({ receipts: keptReceipts }, block));       // (the one classifier: a stripped span is still a guarded block)
+                let applied = true;      // the block applied: only then is its proof the guards' to see
                 try {
                     state = again ? step(state, blockOps) : guarded ? replayGuarded(state, record, blockOps, was, message, receipt) : replayLegacy(state, blockOps);
                 } catch (error) {
                     if (!guarded || again) throw fail(error);
+                    applied = false;
                     state = skipped(state, blockOps);
+                    keptProblems.push({ index, block: storySpans.filter(each => each.n).length + keptSpans.filter(each => each.n).length, receipts: receiptsOf({ receipts: keptReceipts }, block), why: String(error?.message ?? error), code: 'REPLAY_PREREQUISITE' });
                 }
                 let span = { n: blockOps.length, story: false };
                 try {
                     if (again?.block) {
                         span = { ...span, ...stamp(arr, index, record, { ...again.block, ...(meta ? { id: was.id, source: { ...again.block.source, ordinal: was.source.ordinal } } : {}) }, blockOps, kept, nextParts, nextOps.length) };
-                    } else if (meta && !again && !spanProblem(was)) {
-                        // Kept as it was; its boundary is where it stands now.
-                        span = { ...span, ...stamp(arr, index, record, { module: was.module, source: was.source, guard: was.guard, operation: was.operation, recorded: was.recorded, result: was.result, evidence: was.evidence, id: was.id }, blockOps, kept, nextParts, nextOps.length) };
+                        guardHolds(heldBy, span, message);
+                    } else if (meta && !again) {
+                        if (intactReason(record, block, was, receipt)) {
+                            // Not intact (damaged, another reply's, claims that are not its changes'): it stays exactly as stored, inactive.
+                            span = { ...was, n: blockOps.length };
+                        } else {
+                            // A Re-read moves a kept block's position and nothing else: its cursor and prefix hash follow where it stands now,
+                            // but its payload hash, evidence, claims, guard, source and results are the ones it was stored with.
+                            const placed = stamp(arr, index, record, { module: was.module, source: was.source, guard: was.guard, operation: was.operation, recorded: was.recorded, result: was.result, evidence: was.evidence, id: was.id }, blockOps, kept, nextParts, nextOps.length);
+                            span = { ...was, n: blockOps.length, story: false,
+                                boundaries: was.boundaries.map((boundary, at) => (at === 0 ? { ...boundary, cursor: placed.boundaries[0].cursor, prefixHash: placed.boundaries[0].prefixHash } : boundary)) };
+                        }
                     }
                 } catch (error) {
                     throw fail(error);
                 }
-                if (meta && !again && spanProblem(was)) span = { ...was, n: blockOps.length };   // damaged: kept as it is, inactive
+                if (applied) publish(span, index);
                 nextOps.push(...blockOps);
                 keptSpans.push(span);
                 nextParts.push({ ops: blockOps, span });
@@ -1861,7 +2096,8 @@ export function createStore({
             const writes = [[message, rewritten]];
             // Later blocks that were already skipped stay skipped (a guarded block that is inactive is asked again);
             // one that applied before must still apply.
-            const walked = walkSuffix(arr, state, index + 1, { rerun, overlay: new Map([[index, rewritten]]) });
+            const prior = [...replay(arr, index - 1).problems.filter(problem => problem.index < index), ...keptProblems];
+            const walked = walkSuffix(arr, state, index + 1, { rerun, overlay: new Map([[index, rewritten]]), prior });
             writes.push(...walked.writes);
             for (const [target, next] of writes) write(target, next);
             saver.touch();
@@ -1939,6 +2175,7 @@ export function createStore({
             const message = carrierAt(arr, index);
             const record = readRecord(message);
             if (!record) return { dropped: [], rev: revOf(arr === list() ? current().state : stateBefore(arr, index + 1)) };
+            if (quarantined(record)) throw new Error(`This reply's story record cannot be cut down: ${ORPHAN}.`);
             const chunks = [];
             let start = 0;
             record.ops.forEach((op, at) => {
@@ -1974,6 +2211,7 @@ export function createStore({
             // replay rules: a remove of what a deleted reply added is passed over), so a chat that
             // replays fine is not refused. A kept block that still does not apply refuses the rewind.
             const problems = [];
+            const earlier = (dryRun ? [] : current().problems).filter(problem => problem.index < index);     // (read before anything is written)
             const state = replayRecord(base, { ...record, ops, spans, receipts }, index, problems, null, message);
             // (a guarded block whose guard no longer holds stays stored and inactive; it does not refuse)
             const refusing = problems.filter(problem => problem.code !== 'REPLAY_PREREQUISITE');
@@ -1988,8 +2226,8 @@ export function createStore({
                 rev: revOf(state),
             });
             saver.touch();
-            // Only this carrier was rewritten (and its kept changes all applied): earlier problems stay.
-            retain(arr, state, (cache?.problems ?? []).filter(problem => problem.index < index), null);
+            // Only this carrier was rewritten: earlier problems stay, and so do those of its kept blocks that are off.
+            retain(arr, state, [...earlier, ...problems], null);
             return { dropped, rev: revOf(state) };
         },
 
