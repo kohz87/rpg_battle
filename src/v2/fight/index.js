@@ -14,9 +14,10 @@
 
 import './interpret.js';
 import { indexOfCtx } from '../rules/graph.js';
-import { areaNow, plainRule, registrable } from '../rules/items.js';
+import { areaNow, areaPolicyNow, plainRule, registrable } from '../rules/items.js';
 import { defineItem } from '../items/define.js';
 import { formSkill } from './forms.js';
+import { foeToEngine } from './foes.js';
 import { attachGuard } from '../progress/guard.js';
 import { recordCombatUses } from '../progress/record.js';
 import { buildAct, buildEnd, buildStart, fightForms } from './guards.js';
@@ -97,7 +98,34 @@ export function restoreStrengths(ctx, combatant, rules = DEFAULT_RULES) {
  */
 export function pinnedSetup(ctx, setup) {
     const ix = pinnedOf(ctx);
-    return ix ? { ...setup, ruleset: ix.rulesHash, draws: 'action', xpBase: ix.constants.xpPerLevel } : setup;
+    if (!ix) return setup;
+    const pinned = { ...setup, ruleset: ix.rulesHash, draws: 'action', xpBase: ix.constants.xpPerLevel };
+    return packFoes(ctx, ix, pinned);
+}
+
+/**
+ * A foe the offer names that the ruleset's pack wrote up is fought as the pack wrote it (fight/foes.js), as far as the place allows:
+ * only where Story Director gives the place a tier (`world.areaTier`), and only a foe the area's level ceiling and allowlists let in. Any other
+ * foe (no tier, not allowed, not in the pack) stays what the v1 projection made of it, so a fight never fails to start for want of one.
+ * The foe keeps its id, its letter ("Wolf A"), its wave and its row's threat word.
+ */
+function packFoes(ctx, ix, setup) {
+    const area = areaPolicyNow((name, args) => ctx.query(name, args));
+    if (area.tier === null) return setup;
+    const rules = fightRules(setup);
+    const swap = enemy => {
+        const foe = ix.foeNamed(enemy.questName ?? enemy.name);
+        const ordinal = Number(String(enemy.id).slice(3));
+        if (!foe || !Number.isInteger(ordinal)) return enemy;
+        const made = foeToEngine(foe, { rules, forms: ix, items: ref => ix.itemDef(ref), area, ordinal });
+        if (!made.ok) return enemy;
+        return { ...made.enemy, id: enemy.id, name: enemy.name, ...(enemy.questName ? { questName: enemy.questName } : {}), ...(enemy.wave ? { wave: enemy.wave } : {}), ...(enemy.threat ? { threat: enemy.threat } : {}) };
+    };
+    return {
+        ...setup,
+        enemies: setup.enemies.map(swap),
+        ...(setup.waves ? { waves: setup.waves.map(wave => ({ ...wave, enemies: wave.enemies.map(swap) })) } : {}),
+    };
 }
 
 /** Whether a stored fight is one on a pinned ruleset: the fight decides, not the chat's pin of the moment (a session begun before the pin is v1's). */
