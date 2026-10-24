@@ -1,7 +1,7 @@
 // Retained quest projections, from the one SD thread. Legacy quests are readable history only.
 import { objectiveProgress, planQuestSettlement } from './planner.js';
 import { ranksOf } from './ranks.js';
-import { ask, copy, pinned, questInputs, threadOf } from './seams.js';
+import { ask, copy, pinned, questInputs, replayInputs, threadOf } from './seams.js';
 
 const historyText = 'From an earlier version (read only).';
 const queryOf = tools => tools?.query ?? (typeof tools === 'function' ? tools : () => null);
@@ -64,6 +64,7 @@ export function createQueries(policy = {}) {
         return { active, finished: finished.slice(0, 20), finishedCount: finished.length, hasActive: active.length > 0, hasFinished: finished.length > 0 };
     }
     return {
+        'quest.replayInputs': replayInputs,
         'quest.progress': progress, 'quest.details': details, 'quest.ranks': (state, _args, tools) => pinned(state?.domains?.rules) ? ranksOf(queryOf(tools)) : [],
         'quest.owed': (_state, _args, tools) => all(queryOf(tools)).map(owedOf).filter(Boolean),
         'quest.owedCredits': () => [], 'quest.repeatedCoin': () => ({ amount: 0 }), 'quest.autoTurnIns': () => [],

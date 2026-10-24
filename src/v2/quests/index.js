@@ -12,7 +12,7 @@ export { offeredQuest, terminalQuest, nextOffers } from './outcomes.js';
 
 export function createQuestPart(policy = {}) {
     policy = { ...policy, ...createSettlement(policy) };
-    return { domains: {}, commands: createCommands(policy), queries: createQueries(policy),
+    return { replayQueries: ['quest.replayInputs'], domains: {}, commands: createCommands(policy), queries: createQueries(policy),
         kinds: { quest: { grammar: QUEST_GRAMMAR, apply: createCapture(policy) } },
         settings: { defaults: { followLadder: true }, schema: { followLadder: { type: 'bool', label: 'Quest ranks follow the rank ladder' } } },
         ...(policy.replayGuard ? { hooks: { replayGuard: policy.replayGuard } } : {}) };

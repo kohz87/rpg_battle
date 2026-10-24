@@ -4,7 +4,7 @@
 import { planQuestSettlement, settlementKey, acceptanceOf } from './planner.js';
 import { nextOffers, terminalQuest } from './outcomes.js';
 import { offerQuest } from './commands.js';
-import { boundary, call, copy, fail, pinned, questInputs, templateOf, templates, threadOf, writeId } from './seams.js';
+import { boundary, call, copy, fail, pinned, guardQuestInputs, stateEpoch, templateOf, templates, threadOf, writeId } from './seams.js';
 
 const progress = await import('../progress/index.js').catch(() => null);
 const zero = () => ({ coin: 0, xp: 0, items: [] });
@@ -23,23 +23,22 @@ function terminalPlan(thread, inputs, outcome, policy) {
 
 /** Owner inputs are retained on the root, including the exact proof bytes and nested writer hash. */
 function assess(query, pin, thread, outcome, policy) {
-    const inputs = questInputs(query);
+    const inputs = guardQuestInputs(query);
     const plan = terminalPlan(thread, inputs, outcome, policy);
     if (!plan.ok) return plan;
     if (thread.rpg.repeat && !Number.isSafeInteger(inputs.clock?.minutes)) return { ok: false, code: 'CLOCK_UNSET', message: 'A repeat cooldown needs the story clock.' };
     const follow = nextOffers(thread.rpg, plan.outcome, inputs.clock?.minutes, templates(pin));
     if (follow.some(row => row.instance > 1000000 || row.nextOfferAt !== null && !Number.isSafeInteger(row.nextOfferAt))) return { ok: false, code: 'LIMITED', message: 'The repeat instance or cooldown limit was reached.' };
-    return { ok: true, plan, follow, inputs: { thread: copy(thread), threadHash: query('threads.hash', { thread: thread.id }),
-        clock: inputs.clock, place: inputs.place, party: inputs.party, items: inputs.items,
+    return { ok: true, plan, follow, inputs: { thread: copy(thread), clock: inputs.clock, place: inputs.place, party: inputs.party, items: inputs.items,
         proofs: inputs.proofs.filter(proof => plan.proofs.some(pin => pin.id === proof.id)), plan, follow } };
 }
 
-function takeInputs(thread, inputs, pin, query) {
+function takeInputs(thread, inputs, pin) {
     const template = templateOf(pin, thread.rpg?.template ?? thread.key);
     const previous = template?.chain?.previous;
     return { thread: copy(thread), clock: inputs.clock,
         acceptance: thread.acceptance ? inputs.proofs?.filter(proof => proof.id === thread.acceptance.proof) ?? [] : [],
-        previous: previous ? query('director.threads', {}).filter(t => t.rpg?.template === previous && t.rpg.state === 'done' && t.rpg.settlement) : [],
+        previous: previous ? inputs.threads.filter(t => t.rpg?.template === previous && t.rpg.state === 'done' && t.rpg.settlement) : [],
         prerequisites: template?.requirements?.length ? inputs : null };
 }
 
@@ -83,6 +82,7 @@ export function createSettlement(policy = {}) {
         const key = settlementKey(epoch, thread.rpg);
         if (thread.rpg.settlement) return ctx.fail('CLAIMED', 'This quest settlement is already complete.');
         const checked = assess(ctx.query, pin, thread, outcome, policy);
+        const threadHash = ctx.query('threads.hash', { thread: thread.id });
         if (!checked.ok) return fail(ctx, checked);
         const progressView = ctx.query('quest.progress', { id: thread.id });
         const operation = { thread: thread.id, outcome, reason: payload.reason ?? outcome };
@@ -93,7 +93,7 @@ export function createSettlement(policy = {}) {
             minute: checked.inputs.clock?.minutes, payout: checked.plan.payout });
         if (!terminal.ok) return fail(ctx, terminal);
         call(ctx, 'threads.questWrite', { write: writeId(ctx, `settle:${thread.id}`), thread: thread.id,
-            expectedHash: checked.inputs.threadHash, quest: terminal.quest });
+            expectedHash: threadHash, quest: terminal.quest });
         // close acquires the root settlement claim. Every later failure rolls it back with the journal.
         call(ctx, 'threads.close', { write: writeId(ctx, `close:${thread.id}`), thread: thread.id,
             expectedHash: ctx.query('threads.hash', { thread: thread.id }), instance: thread.rpg.instance,
@@ -122,16 +122,17 @@ export function createSettlement(policy = {}) {
         if (typeof buildGuard !== 'function') return ctx.fail('DEPENDENCY_UNAVAILABLE', 'The shared B5 guard builder is unavailable.');
         const progressView = ctx.query('quest.progress', { id: thread.id });
         const operation = { thread: thread.id };
-        const facts = takeInputs(thread, inputs, pin, ctx.query);
+        const facts = takeInputs(thread, guardQuestInputs(ctx.query), pin);
         ctx.replayGuard(buildGuard({ hash: ctx.hash, owner: 'rpg-battle', epoch, source, rulesHash: pin.hash,
             kind: 'quest.take', payload: operation, inputs: guardInputs(facts) }), { inputs: facts });
     }
     function replayGuard({ state, query, hash }, info) {
         if (info.guard?.predicate?.kind === 'quest.take') {
             const pin = pinned(state?.domains?.rules);
-            const thread = threadOf(query, { id: info.guard.predicate.payload?.thread });
-            if (!pin || pin.hash !== info.guard.rulesHash || !thread || !buildGuard) return { ok: false, reason: 'The accepted quest offer or rules changed.' };
-            const inputs = takeInputs(thread, questInputs(query), pin, query);
+            const facts = guardQuestInputs(query);
+            const thread = facts.threads.find(t => t.id === info.guard.predicate.payload?.thread);
+            if (!pin || pin.hash !== info.guard.rulesHash || info.guard.version !== 2 || info.guard.epoch !== stateEpoch(state) || !thread || !buildGuard) return { ok: false, reason: 'The accepted quest offer or rules changed.' };
+            const inputs = takeInputs(thread, facts, pin);
             const expected = buildGuard({ hash, owner: 'rpg-battle', epoch: info.guard.epoch, source: info.source,
                 rulesHash: pin.hash, kind: 'quest.take', payload: info.guard.predicate.payload, inputs: guardInputs(inputs) });
             return expected.inputHash === info.guard.inputHash ? { ok: true } : { ok: false, reason: 'The accepted quest offer or requirements changed.' };
@@ -140,9 +141,9 @@ export function createSettlement(policy = {}) {
         const off = () => ({ ok: false, reason: 'The quest acceptance, objectives or settlement inputs changed.' });
         if (typeof buildGuard !== 'function') return off();
         const pin = pinned(state?.domains?.rules);
-        if (!pin || pin.hash !== info.guard.rulesHash || info.guard.version !== 2) return off();
+        if (!pin || pin.hash !== info.guard.rulesHash || info.guard.version !== 2 || info.guard.epoch !== stateEpoch(state)) return off();
         const payload = info.guard.predicate.payload;
-        const thread = threadOf(query, { id: payload?.thread });
+        const thread = query('quest.replayInputs', {}).threads.find(t => t.id === payload?.thread);
         if (!thread?.rpg) return off();
         const checked = assess(query, pin, thread, payload.outcome, policy);
         if (!checked.ok) return off();

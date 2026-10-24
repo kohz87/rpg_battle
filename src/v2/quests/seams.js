@@ -54,3 +54,28 @@ export function questInputs(query) {
     return { party, items, proofs, clock, place,
         activeActors: Array.isArray(party?.active) ? party.active.filter(a => ['pc', 'companion'].includes(a.kind)).map(a => a.id) : null };
 }
+
+/** E1 guard projection. Reads prefix state only; never settings, receipts or another query.
+ * Raw cross-owner reads are confined to this replay seam (the E1 exception).
+ * Canonical place/giver and requirements await B3's state projections.
+ */
+export function replayInputs(state) {
+    const domains = state?.domains ?? {};
+    const threads = Object.values(domains.director?.threads ?? {}).map(({ track: _track, ...thread }) => copy(thread));
+    const party = domains.party ?? null;
+    const active = party?.active ?? party?.order ?? [];
+    const activeActors = active.filter(id => ['pc', 'companion'].includes(party?.actors?.[id]?.kind));
+    const items = Object.values(domains.inventory?.stacks ?? {})
+        .filter(stack => domains.inventory?.defs?.[stack.def])
+        .map(stack => ({ stack: stack.id, def: stack.def, qty: stack.qty, owner: stack.owner }));
+    return { threads, party: copy(party), activeActors, items,
+        clock: { minutes: domains.director?.time?.minutes ?? null }, place: null };
+}
+
+export function guardQuestInputs(query) {
+    const inputs = query('quest.replayInputs', {});
+    return { ...inputs, proofs: query('story.evidence', {}) };
+}
+
+// B's epochOf uses this genesis epoch until the host savepoints domain is installed.
+export const stateEpoch = state => state?.domains?.savepoints?.epoch ?? 'ep_00000000';
