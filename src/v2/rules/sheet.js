@@ -7,7 +7,9 @@
 import { deriveActor, choicesOf, skillViews } from '../progress/derive.js';
 import { isObject } from './ids.js';
 
-export const SLOTS = Object.freeze(['weapon', 'offhand', 'head', 'body', 'legs', 'feet', 'accessory-1', 'accessory-2']);
+import { SLOTS } from './bounds.js';
+
+export { SLOTS };
 const CONDITIONS = new Set(['poison', 'burn', 'bleed', 'stun', 'daze', 'slow', 'weaken', 'shield', 'regen', 'guard', 'injury', 'stat-shift']);
 export const ACTIVE_LIMIT = 3;
 

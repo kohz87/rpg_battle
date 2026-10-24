@@ -11,6 +11,8 @@ import { planSession } from '../training/step.js';
 import { expectedSessionId, waitingOf } from '../training/session.js';
 import { isObject, isActorId } from '../rules/ids.js';
 import { ACTIVE_LIMIT, lifeOf } from '../rules/sheet.js';
+import { assessFlag } from '../rules/flags.js';
+import { assessItem } from '../rules/items.js';
 
 /** A party member through `query` ({ id, name, level, … }) or null: the party part is another part's, asked only by query. */
 export function memberOf(query, actor) {
@@ -130,6 +132,8 @@ export function assess(kind, env, payload, extra = {}) {
         return planSession(env, payload.session, extra.event ?? { die: 0, template: null }, extra.source, extra.hash);
     }
     if (kind === 'skill.train') return assessRequest(env, payload);
+    if (kind === 'rules.flagSet') return assessFlag(env, payload);
+    if (kind === 'rules.registerItem') return assessItem(env, payload);
     if (kind === 'rules.settle') {
         const plan = planSettlement(ix.constants, progress, readClock(query));
         return plan.length ? { ok: true, plan, inputs: { plan } } : { ok: false, code: 'NO_LONGER_DONE', why: 'There is nothing to settle here.' };

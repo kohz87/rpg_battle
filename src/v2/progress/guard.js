@@ -25,7 +25,7 @@ import { assess } from './assess.js';
 import { indexOfState } from '../rules/graph.js';
 import { epochOf } from '../rules/ids.js';
 
-export const GUARD_KINDS = Object.freeze(['class.choose', 'path.choose', 'rules.settle', 'party.setActive', 'summon.end', 'class.start', 'skill.use', 'skill.train']);
+export const GUARD_KINDS = Object.freeze(['class.choose', 'path.choose', 'rules.settle', 'party.setActive', 'summon.end', 'class.start', 'skill.use', 'skill.train', 'rules.flagSet', 'rules.registerItem']);
 /** What a block the guard turned off says (contract C14: REPLAY_PREREQUISITE, "The earlier prerequisite was removed."). */
 export const PREREQUISITE_REMOVED = 'The earlier prerequisite was removed.';
 
@@ -36,6 +36,12 @@ export function buildGuard({ hash, owner, source, rulesHash, kind, payload, inpu
     const epoch = epochOf();
     const inputHash = hash({ version: 2, operation: { type: kind, payload }, source: sourceOf(source), rulesHash, epoch, inputs, proofs: [] });
     return { owner, version: 2, epoch, rulesHash, inputHash, predicate: { kind, payload } };
+}
+
+/** Attaches the guard of a command's block to its transaction: `inputs` are the facts the block depended on. */
+export function attachGuard(ctx, ix, kind, payload, inputs, recorded) {
+    const source = ctx.source ?? ctx.fail('FAILED', 'There is no reply yet to hold this.');
+    ctx.replayGuard(buildGuard({ hash: value => ctx.hash(value), owner: ctx.module, source, rulesHash: ix.rulesHash, kind, payload, inputs }), recorded);
 }
 
 /**
@@ -54,7 +60,7 @@ export function replayGuard({ state, query, hash }, info) {
     if (!progress || typeof progress !== 'object') return off('');
     const payload = guard.predicate.payload;
     if (payload === null || typeof payload !== 'object') return off('');
-    const answer = assess(kind, { ix, progress, training: state?.domains?.training, query }, payload, { source: info.source, hash, event: info.recorded?.event });
+    const answer = assess(kind, { ix, progress, training: state?.domains?.training, rules: state?.domains?.rules, query }, payload, { source: info.source, hash, event: info.recorded?.event });
     if (!answer.ok) return off(answer.why);
     const expected = buildGuard({ hash, owner: guard.owner, source: info.source, rulesHash: ix.rulesHash, kind, payload, inputs: answer.inputs });
     return expected.inputHash === guard.inputHash ? { ok: true } : off('');
