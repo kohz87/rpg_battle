@@ -14,7 +14,7 @@
 // core module registers.
 
 import { isId } from './check.js';
-import { escapeKey } from './ops.js';
+import { escapeKey, parsePath } from './ops.js';
 import { canonicalJson, deriveId, hashJson, isRecordId, sha256, sourceProblem, spanProblem } from './replay.js';
 
 const isObject = value => !!value && typeof value === 'object' && !Array.isArray(value);
@@ -255,6 +255,52 @@ export function pinOps(state, ops) {
     return out;
 }
 
+// The keys of an op's path (or `from`) when it names the state's proof record or something that holds it: the document
+// root, `/meta`, `/meta/proofs` or anything under it. An unreadable path counts, since nothing can say it does not.
+function touchedKeys(path) {
+    if (path === undefined) return null;
+    let keys;
+    try { keys = parsePath(path); } catch { return []; }
+    return keys.length === 0 || (keys[0] === 'meta' && (keys.length === 1 || keys[1] === 'proofs')) ? keys : null;
+}
+
+/** True when `op` changes the record of proof pins, or something that holds it (the root, /meta, /meta/proofs, below it): any op, add, replace, remove, move or copy, whole or empty. */
+export const touchesProof = op => !isObject(op) || touchedKeys(op.path) !== null || touchedKeys(op.from) !== null;
+
+/**
+ * '' when the only changes `ops` make to the record of proof pins are the pins of `owned` (a Set of proof ids): a pin
+ * added (or replaced) under its own id, or the whole record written with just those. Anything else that touches it
+ * (an erase, a rewrite of /meta or of the root, a pin that is not its own, a move or a copy) is why not.
+ */
+export function proofWriteProblem(ops, owned) {
+    for (const op of Array.isArray(ops) ? ops : []) {
+        if (!touchesProof(op)) continue;
+        if (!isObject(op)) return 'a change of the block is not a change at all';
+        const keys = touchedKeys(op.path);
+        const writes = isObject(op) && (op.op === 'add' || op.op === 'replace') && op.from === undefined && keys !== null;
+        if (writes && keys.length === 3 && keys[1] === 'proofs' && owned.has(keys[2]) && typeof op.value === 'string') continue;
+        if (writes && keys.length === 2 && keys[1] === 'proofs' && isObject(op.value) && Object.keys(op.value).length > 0 && Object.entries(op.value).every(([id, pin]) => owned.has(id) && typeof pin === 'string')) continue;
+        return `it changes the record of proof pins in a way a block cannot (${isObject(op) ? `${op.op} ${op.path ?? ''}` : 'an unreadable change'})`;
+    }
+    return '';
+}
+
+const KNOWN_OPS = ['add', 'replace', 'remove'];
+
+/**
+ * '' when every change of `ops` is a change the state knows: an object with add, replace or remove, a path that reads, and
+ * a value where it adds or replaces. A block with a change that is not one is not applied and gives no proof.
+ */
+export function opShapeProblem(ops) {
+    if (!Array.isArray(ops)) return 'its changes are not a list';
+    for (const op of ops) {
+        if (!isObject(op) || !KNOWN_OPS.includes(op.op) || typeof op.path !== 'string') return 'a change of the block is not an add, replace or remove with a path';
+        try { parsePath(op.path); } catch { return 'a change of the block has a path that cannot be read'; }
+        if (op.op !== 'remove' && !Object.hasOwn(op, 'value')) return 'a change of the block adds or replaces with no value';
+    }
+    return '';
+}
+
 /**
  * '' when a block's span holds exactly the proof its ops pin (and each proof is whole, carries the span's
  * Source and is given once), else why not. Asked when the block is stored and again when it is replayed.
@@ -263,6 +309,10 @@ export function evidenceProblem(span, ops) {
     const list = Array.isArray(span?.evidence) ? span.evidence : [];
     const pins = proofPins(ops);
     const ids = new Set();
+    const writes = proofWriteProblem(ops, new Set(list.map(proof => proof?.id)));
+    if (writes) return writes;
+    const shape = opShapeProblem(ops);
+    if (shape) return shape;
     for (const proof of list) {
         const why = proofProblem(proof);
         if (why) return `a proof of the block is not whole: ${why}`;
@@ -432,12 +482,12 @@ export const newRoot = () => ({ byKey: new Map(), list: [] });
  * One `ctx.proof(spec)` (contract §6) for the module `who` in a command whose cause, chat, Source and state are
  * given (`state` is a function: the transaction's state as it is now, asked only when there are parents). The checks, in order: INVALID (the call's shape), REFUSED (owner or kind), INVALID (payload, parents),
  * REFUSED (reader intent the host did not see), CONFLICT (same key, other contents), NOT_FOUND (a parent), then
- * the stamped proof. `root` is the transaction's (newRoot), `stored()` the stored entries, `planned` the proofs a Re-read's earlier lines gave, `fail(code, message)`
+ * the stamped proof. `root` is the transaction's (newRoot), `stored()` the stored entries of the blocks that applied (`taken()`: of every block that could), `planned` the proofs a Re-read's earlier lines gave, `fail(code, message)`
  * throws the bus's error. `free` (a Set of proof ids): those of blocks the host is about to replace (a Re-read's
  * story lines and steps, a step planned again), so a line read again gets its own id back.
  * → { proof, pin, created }; `created: false` is an identical retry, which gives back the proof it made.
  */
-export function submitProof(spec, { who, cause, chat, source, state, stored, planned = [], root, fail, free = null }) {
+export function submitProof(spec, { who, cause, chat, source, state, stored, taken: everyStored = null, planned = [], root, fail, free = null }) {
     if (!isObject(spec) || Object.keys(spec).some(key => key !== 'kind' && key !== 'payload' && key !== 'parents')) {
         fail('INVALID', 'A proof is { kind, payload, parents? } and nothing else.');
     }
@@ -476,7 +526,8 @@ export function submitProof(spec, { who, cause, chat, source, state, stored, pla
     // Derived from the reply's evidence id and the key (so a new swipe has fresh ids, and a line read again has its
     // own back), then salted past an id that another block holds: the second proof with the same key on a reply is
     // the next occurrence. The ids of the blocks being replaced are not held.
-    const heldIds = indexOf(held).byId;
+    // The ids not to take: those of every stored block that could apply, applied or not (a block that is off may come back).
+    const heldIds = indexOf(everyStored ? everyStored() ?? [] : held).byId;
     const pendingIds = new Set(pending.map(entry => entry.proof.id));
     const taken = { has: id => (heldIds.has(id) && !free?.has(id)) || pendingIds.has(id) };
     const id = deriveId('pf', `${source.evidence}:${key}`, taken);

@@ -25,7 +25,7 @@ import { assistSections, continuation, cutLine, defangMarker, extractBlock, gram
 import { notWritten } from './assist/extractor.js';
 import { refusedWhy } from './assist/safety.js';
 import { displayLines, readDisplayLine } from './extras.js';
-import { hash, readRecord } from './persist.js';
+import { hash, readRecord, swipeLoading } from './persist.js';
 import { CAPTURE_PREFIX, HOST_MODULE } from './registry.js';
 import { STATIC_MARKER, assemble, contextNotice, estimateTokens } from './prompt.js';
 import { MAX_CHANGE_LINES, ensureModules, makeView } from './sdk.js';
@@ -1278,19 +1278,19 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
     }
 
     /**
-     * A deleted swipe. SillyTavern tells of the deletion of the swipe being shown before it shows the next one (its
-     * `extra` is still the deleted swipe's; MESSAGE_SWIPED follows): that load is the change to read, so the head is
-     * not reconciled or told of on this half-way state, only the store is rebuilt. Any other swipe deletion is a
+     * A deleted swipe. SillyTavern tells of the deletion of the swipe being shown before it shows the next one (`extra` is
+     * still the deleted swipe's; MESSAGE_SWIPED follows). The shown swipe is told by whose record it holds, not by its text
+     * (persist.js swipeLoading): while it is in flux nothing is rebuilt, restamped, reconciled or published, so no record is
+     * written and no head is told of; the swipe load that follows does all of it once. Any other swipe deletion is a
      * change on its own.
      */
     function onSwipeDeleted(detail) {
         const live = ctx?.chat ?? [];
         const at = Number.isInteger(detail) ? detail : detail?.messageId;
         const message = live[Number.isInteger(at) ? at : live.length - 1];
-        const loading = isCarrier(message) && Array.isArray(message.swipes) && Number.isInteger(message.swipe_id)
-            && message.swipes[message.swipe_id] !== message.mes;
-        if (!loading) return onTimelineChanged();
-        rebuild({ publish: false });
+        const deleted = Number.isInteger(detail?.swipeId) ? detail.swipeId : null;
+        if (swipeLoading(message, deleted)) return;
+        onTimelineChanged();
     }
 
     /** GENERATION_STOPPED: the reader stopped the reply being written (its last line may be unfinished). */

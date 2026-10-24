@@ -403,7 +403,7 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
                 open();
                 const made = submitProof(spec, {
                     who: moduleId, cause: tx.cause, chat: tx.chat, source: sourceOf(tx), state: () => currentState(tx),
-                    stored: () => store.proofs?.() ?? [], planned: tx.planned, root: tx.proofs, fail, free: tx.replacing,
+                    stored: () => store.proofs?.() ?? [], taken: () => store.proofs?.({ all: true }) ?? [], planned: tx.planned, root: tx.proofs, fail, free: tx.replacing,
                 });
                 if (made.created) {
                     const meta = metaOf(tx);
