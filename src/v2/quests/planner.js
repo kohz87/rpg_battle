@@ -5,7 +5,9 @@ const copy = value => structuredClone(value);
 const count = value => Number.isSafeInteger(value) && value >= 0;
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const refuse = (code, message) => ({ ok: false, code, message });
-const sameSource = (a, b) => a && b && a.sid === b.sid && a.swipeKey === b.swipeKey;
+const samePair = (a, b) => a && b && a.sid === b.sid && a.swipeKey === b.swipeKey;
+const sameSource = (a, b) => samePair(a, b) && a.evidence === b.evidence && a.ordinal === b.ordinal;
+const definitionId = value => typeof value === 'string' && /^[a-z0-9]+(?:[._-][a-z0-9]+)*\/[a-z0-9]+(?:[_-][a-z0-9]+)*$/.test(value);
 
 /** Select by the retained {id|key} payload, including SD-indexed aliases, without a second store. */
 export function findQuest(threads, payload = {}, resolve = null) {
@@ -26,7 +28,8 @@ function acceptanceOf(thread, proofs) {
     const proof = proofs.find(proof => proof.id === acceptance?.proof);
     if (!proof || proof.kind !== 'acceptance' || proof.owner !== 'story-director'
         || proof.payload?.thread !== thread.id || !sameSource(proof.source, acceptance.source)
-        || !sameSource(acceptance.cursor, quest.acceptedCursor)
+        || !samePair(acceptance.cursor, acceptance.source)
+        || !samePair(acceptance.cursor, quest.acceptedCursor)
         || acceptance.cursor?.block !== quest.acceptedCursor?.block
         || acceptance.cursor?.op !== quest.acceptedCursor?.op
         || acceptance.cursor?.rev !== quest.acceptedCursor?.rev
@@ -106,8 +109,12 @@ export function planSettlement(thread, inputs, { evaluateRequirements, validateP
     }
     const minute = inputs?.clock?.minutes;
     if (quest.deadline !== null && !Number.isSafeInteger(minute)) return refuse('CLOCK_UNSET', 'The quest deadline needs the story clock.');
+    if (!Array.isArray(inputs?.proofs)) return refuse('DEPENDENCY_UNAVAILABLE', 'Active acceptance evidence is unavailable.');
+    const acceptance = acceptanceOf(thread, inputs.proofs);
+    if (!acceptance) return refuse('REFUSED', 'The original reader acceptance proof is not active.');
     if (quest.deadline !== null && minute >= quest.deadline) {
-        return { ok: true, outcome: 'expired', consumed: [], payout: { coin: 0, xp: 0, items: [] }, proofs: [] };
+        return { ok: true, outcome: 'expired', consumed: [], payout: { coin: 0, xp: 0, items: [] },
+            proofs: [{ id: acceptance.id, payloadHash: acceptance.payloadHash }] };
     }
     const progress = objectiveProgress(thread, { ...inputs, validateProof });
     if (!progress.ok) return progress;
@@ -121,6 +128,8 @@ export function planSettlement(thread, inputs, { evaluateRequirements, validateP
     if (quest.giver !== null && inputs.giverPresent !== true) return refuse('REFUSED', 'The quest giver is not present.');
     const reward = quest.reward;
     if (!record(reward) || !count(reward.coin) || !count(reward.xp) || !Array.isArray(reward.items)
+        || reward.items.some(item => !record(item) || !definitionId(item.def) || !Number.isSafeInteger(item.qty) || item.qty < 1 || item.qty > 999
+            || Object.keys(item).some(key => !['def', 'qty'].includes(key)))
         || !count(quest.storyCredit?.coin) || !Array.isArray(quest.storyCredit?.claims)) return refuse('INVALID', 'The typed quest reward is invalid.');
     const payout = { coin: Math.max(0, reward.coin - quest.storyCredit.coin), xp: reward.xp, items: copy(reward.items) };
     if (payout.items.length) {
