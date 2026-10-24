@@ -1,7 +1,6 @@
 // Replay exercises persisted blocks on the real host and reopens the chat after every change.
-import test from 'node:test';
 import assert from 'node:assert/strict';
-import { questHost, offer, herb, template } from './helpers/host.js';
+import { test, questHost, offer, herb, template } from './helpers/host.js';
 
 const templates = [template({ objectives: [{ id: 'ob_00000001', kind: 'collect', def: herb.id, count: 2, consume: false }] })];
 

@@ -1,7 +1,6 @@
 // SB coin capture and the one RB settlement must not pay the same reward twice.
-import test from 'node:test';
 import assert from 'node:assert/strict';
-import { questHost, offer, herb } from './helpers/host.js';
+import { test, questHost, offer, herb } from './helpers/host.js';
 
 for (const order of ['turn-in first', 'coin first']) test(`story coin credits before payout (${order}), including Re-read and reload`, async t => {
     const h = await questHost();

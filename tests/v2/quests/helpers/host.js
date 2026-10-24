@@ -1,10 +1,16 @@
 // A real SB+SD+RB host. D1 and the frozen rule projections are explicit integration fixtures.
 import { createHost } from '../../../vendor/story-block/testkit/host.js';
 import { createModule } from '../../../../src/v2/module.js';
-import { createModule as director } from '../../../../../Story_director/src/v2/module.js';
+import nodeTest from 'node:test';
+import { existsSync } from 'node:fs';
+const directorPath = new URL('../../../../../Story_director/src/v2/module.js', import.meta.url);
+const director = existsSync(directorPath) ? (await import(directorPath.href)).createModule : null;
 import { createQuestPart } from '../../../../src/v2/quests/index.js';
-import { buildGuard } from './b5.js';
+import { buildGuard, b5Skip } from './b5.js';
 import { withD1 } from './d1.js';
+
+export const questSkip = !director ? 'Sibling Story Director checkout is absent.' : b5Skip;
+export const test = (name, fn) => nodeTest(name, { skip: questSkip }, fn);
 
 export const template = (more = {}) => ({ id: 'pack.fixture/job', name: 'Mill job', category: 'side', giver: null, turnInPlace: null,
     requirements: [], objectives: [{ id: 'ob_00000001', kind: 'collect', def: 'pack.fixture/herb', count: 2, consume: true }],

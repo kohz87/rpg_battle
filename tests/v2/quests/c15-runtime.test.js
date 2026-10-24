@@ -1,7 +1,6 @@
 // C15's real command paths: aliases, typed reader intent, fresh offers and atomic SD linking.
-import test from 'node:test';
 import assert from 'node:assert/strict';
-import { offer, questHost, template, herb } from './helpers/host.js';
+import { test, offer, questHost, template, herb } from './helpers/host.js';
 import { offeredQuest } from '../../../src/v2/quests/outcomes.js';
 
 async function supply(h) {

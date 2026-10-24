@@ -1,7 +1,6 @@
 // E1 asks guards before storing, under the same restrictions as replay.
-import test from 'node:test';
 import assert from 'node:assert/strict';
-import { offer, questHost, herb } from './helpers/host.js';
+import { test, offer, questHost, herb } from './helpers/host.js';
 import { createQuestPart } from '../../../src/v2/quests/index.js';
 import { buildGuard } from './helpers/b5.js';
 import { hashJson } from '../../vendor/story-block/src/v2/replay.js';

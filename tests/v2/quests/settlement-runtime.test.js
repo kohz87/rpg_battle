@@ -1,8 +1,7 @@
 // Real retained commands share one guarded SD/SB/RB settlement; missing prerequisites retract it.
-import test from 'node:test';
 import assert from 'node:assert/strict';
 import { run, withPc, pcOf } from '../party/helpers/fake-ctx.js';
-import { offer, questHost, template, herb } from './helpers/host.js';
+import { test, offer, questHost, template, herb } from './helpers/host.js';
 
 async function ready(t, options = {}) {
     const h = await questHost(options);

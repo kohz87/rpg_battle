@@ -1,7 +1,6 @@
 // Unrelated prefix changes must not become payout prerequisites.
-import test from 'node:test';
 import assert from 'node:assert/strict';
-import { questHost, offer, herb } from './helpers/host.js';
+import { test, questHost, offer, herb } from './helpers/host.js';
 
 for (const removed of ['unrelated', 'consumed item']) test(`delete ${removed} reply preserves only earned payout`, async t => {
     const h = await questHost();

@@ -1,7 +1,6 @@
 // Retained selectors run production commands against the SD-owned thread.
-import test from 'node:test';
 import assert from 'node:assert/strict';
-import { offer, questHost, template } from './helpers/host.js';
+import { test, offer, questHost, template } from './helpers/host.js';
 import { terminalQuest, nextOffers } from '../../../src/v2/quests/outcomes.js';
 
 for (const selector of ['id', 'key']) {
