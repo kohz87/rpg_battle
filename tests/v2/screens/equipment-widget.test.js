@@ -7,7 +7,7 @@ import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-    ARM_MS, EQUIPMENT_HELP, EQUIPMENT_WIDGET, MEMBER_TOGGLE_WIDGET, equipmentWidget, memberToggleWidget,
+    ARM_MS, EQUIPMENT_CSS, EQUIPMENT_HELP, EQUIPMENT_WIDGET, MEMBER_TOGGLE_WIDGET, equipmentWidget, memberToggleWidget,
     renderEquipment, renderMemberToggle,
 } from '../../../src/v2/screens/equipment.js';
 import { installDom } from './helpers/dom.js';
@@ -22,11 +22,11 @@ const empty = (label = 'Off hand', note = '') => ({
     name: '', stats: '', why: '', cond: '', condTone: '', condBroken: false, meter: false, cur: 0, max: 0, note,
 });
 
-function setup(tiles, props = {}) {
+function setup(tiles, props = {}, result = undefined) {
     const doc = installDom();
     const el = doc.createElement('ss-widget');
     doc.body.appendChild(el);
-    const api = { command: (type, payload) => { commands.push({ type, payload }); } };
+    const api = { command: (type, payload) => { commands.push({ type, payload }); return result; } };
     const commands = [];
     const instance = renderEquipment(el, { value: tiles, label: 'Equipment of Ren', ...props }, api);
     return { doc, el, root: el.querySelector('.rpg-eq'), instance, commands, api };
@@ -115,6 +115,127 @@ test('equipment: a second tap within the window takes the piece off with item.un
     assert.deepEqual(commands, [{ type: 'item.unequip', payload: { stack: 's1' } }]);
     assert.equal(node.classList.contains('armed'), false);
     assert.equal(live(el), '');
+});
+
+test('equipment: the live region says what was taken off, and says so when the take-off is refused', async () => {
+    const { el } = setup([filled()], {}, { ok: true });
+    const [node] = filledNodes(el);
+    node.dispatch('click');
+    assert.equal(live(el), 'Tap again to take Iron Dagger +2 off');
+    node.dispatch('click');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(live(el), 'Iron Dagger +2 taken off');
+    const refused = setup([filled()], {}, { ok: false, message: 'No.' });
+    refused.el.querySelector('button.rpg-eq-tile').dispatch('click');
+    refused.el.querySelector('button.rpg-eq-tile').dispatch('click');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(live(refused.el), 'Could not take Iron Dagger +2 off');
+});
+
+test('equipment: after a take-off from the keyboard the focus moves to the slot, now empty, not to the page', async () => {
+    const { doc, el, instance } = setup([filled(), empty('Off hand')], {}, { ok: true });
+    const [node] = filledNodes(el);
+    node.focus();
+    node.dispatch('click');
+    node.dispatch('click');
+    await new Promise(resolve => setImmediate(resolve));
+    instance.update({ value: [empty('Main hand'), empty('Off hand')].map((tile, index) => (index === 0 ? { ...tile, key: 'weapon', group: 'weapon' } : tile)) });
+    const focused = doc.activeElement;
+    assert.ok(focused && focused.classList.contains('empty'), 'the focus is on the emptied slot');
+    assert.equal(focused.getAttribute('tabindex'), '-1');
+    assert.equal(focused.querySelector('.rpg-eq-slot').textContent, 'Main hand');
+});
+
+test('equipment: Story Block draws the screen again after a take-off: the focus and the announcement go to the new tiles of the same member', async () => {
+    let answer;
+    const api = { command: () => new Promise(resolve => { answer = resolve; }) };
+    const doc = installDom();
+    const old = doc.createElement('ss-widget');
+    doc.body.appendChild(old);
+    const first = renderEquipment(old, { value: [filled()], actor: 'ac_ren' }, api);
+    const [node] = filledNodes(old);
+    node.focus();
+    node.dispatch('click');
+    node.dispatch('click');
+    // the state changed: the screen is drawn again from nothing, the old tiles are gone
+    first.destroy();
+    const fresh = doc.createElement('ss-widget');
+    doc.body.appendChild(fresh);
+    renderEquipment(fresh, { value: [{ ...empty('Main hand'), key: 'weapon', group: 'weapon' }], actor: 'ac_ren' }, api);
+    assert.equal(doc.activeElement, fresh.querySelector('.rpg-eq-tile'), 'the focus is on the emptied slot');
+    answer({ ok: true });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(live(fresh), 'Iron Dagger +2 taken off');
+});
+
+test('equipment: a take-off nobody held the focus for leaves the focus alone, and a held focus is dropped after a while', () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+        const doc = installDom();
+        const el = doc.createElement('ss-widget');
+        doc.body.appendChild(el);
+        const api = { command: () => new Promise(() => {}) };
+        const first = renderEquipment(el, { value: [filled()], actor: 'ac_lyra' }, api);
+        const [node] = filledNodes(el);
+        node.focus();
+        node.dispatch('click');
+        node.dispatch('click');
+        first.destroy();
+        mock.timers.tick(4001);
+        const fresh = doc.createElement('ss-widget');
+        doc.body.appendChild(fresh);
+        renderEquipment(fresh, { value: [{ ...empty('Main hand'), key: 'weapon', group: 'weapon' }], actor: 'ac_lyra' }, api);
+        assert.notEqual(doc.activeElement, fresh.querySelector('.rpg-eq-tile'), 'a much later drawing does not take the focus');
+    } finally {
+        mock.timers.reset();
+    }
+});
+
+test('equipment: taking off the first of two accessories gives the focus to that slot, where the next piece now sits', async () => {
+    const acc = (n, stack, name) => filled({ key: `accessory-${n}`, group: 'accessory', label: `Accessory ${n}`, stack, name });
+    const { doc, el, instance } = setup([acc(1, 'a1', 'Silver Ring'), acc(2, 'a2', 'Bone Charm')], {}, { ok: true });
+    const [ring] = filledNodes(el);
+    ring.focus();
+    ring.dispatch('click');
+    ring.dispatch('click');
+    await new Promise(resolve => setImmediate(resolve));
+    instance.update({ value: [acc(1, 'a2', 'Bone Charm'), { ...empty('Accessory 2'), key: 'accessory-2', group: 'accessory' }] });
+    assert.equal(doc.activeElement.querySelector('.rpg-eq-name').textContent, 'Bone Charm');
+    assert.equal(doc.activeElement.tagName, 'BUTTON', 'a piece that can be tapped keeps no tabindex trick');
+});
+
+test('equipment: a tile that is not tapped without focus does not pull the focus after a take-off', async () => {
+    const { doc, el, instance } = setup([filled()], {}, { ok: true });
+    const [node] = filledNodes(el);
+    node.dispatch('click');
+    node.dispatch('click');
+    await new Promise(resolve => setImmediate(resolve));
+    instance.update({ value: [{ ...empty('Main hand'), key: 'weapon', group: 'weapon' }] });
+    assert.equal(doc.activeElement, null, 'a mouse tap leaves the focus alone');
+});
+
+test('equipment: a tile is rebuilt only when it shows something new, so a press on one tile survives another one clearing its mark', () => {
+    const { el } = setup([filled(), filled({ key: 'armour', group: 'armour', label: 'Body', stack: 's2', name: 'Chain Shirt' })]);
+    const [first, second] = filledNodes(el);
+    first.dispatch('click');
+    const before = [...second.children];
+    // pressing the second tile moves the focus off the first (its mark clears: only the first tile changes)
+    first.dispatch('focusout', { relatedTarget: second });
+    assert.equal(first.classList.contains('armed'), false);
+    assert.deepEqual([...second.children], before, 'the second tile keeps the very same nodes');
+    second.dispatch('click');
+    assert.ok(second.classList.contains('armed'), 'and the click that follows marks it');
+});
+
+test('equipment: Escape with a mark only unmarks (the page does not also close); with no mark it goes on to the page', () => {
+    const { el } = setup([filled()]);
+    const [node] = filledNodes(el);
+    node.dispatch('click');
+    const first = node.dispatch('keydown', { key: 'Escape' });
+    assert.equal(first.stopped, true);
+    assert.equal(node.classList.contains('armed'), false);
+    const second = node.dispatch('keydown', { key: 'Escape' });
+    assert.equal(second.stopped, false, 'a second Escape reaches the page');
 });
 
 test('equipment: the mark lapses after ARM_MS, so a later tap is a first tap again', () => {
@@ -298,3 +419,13 @@ test('member toggle: update renames the button; the widget validates its open fl
     assert.equal(memberToggleWidget.validate({ open: 'yes' }).length, 1);
     assert.equal(MEMBER_TOGGLE_WIDGET, 'rpg-battle.member-toggle');
 }));
+
+test('equipment styles: the marked tile\'s words use the text token (the red is the border and tint), never the bar red (3.8:1 on dark glass)', () => {
+    const rule = /\.rpg-eq-tile\.armed \.rpg-eq-sub \{([^}]*)\}/.exec(EQUIPMENT_CSS);
+    assert.ok(rule, 'the armed sub line has a rule');
+    assert.match(rule[1], /color: var\(--ss-text\)/);
+    // every colour in the sheet is a Story Block token (no literal), and a use of --ss-bad falls back to the text red where a look has none
+    assert.deepEqual(EQUIPMENT_CSS.match(/#[0-9a-f]{3,8}\b|rgba?\(/gi) ?? [], []);
+    assert.equal((EQUIPMENT_CSS.match(/var\(--ss-bad\)/g) ?? []).length, 0, 'every use of --ss-bad carries the fallback');
+    assert.match(EQUIPMENT_CSS, /var\(--ss-bad, var\(--ss-bad-text\)\)/);
+});
