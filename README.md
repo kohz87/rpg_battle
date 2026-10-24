@@ -48,7 +48,8 @@ Switches are in **Settings → Features** (the **Find a feature** box helps). "N
   fight has the party (use it from the Fight screen).
 - **Fights** (Fight tab; an offer appears when the story starts one; no switch): you play Attack, Skill, Item,
   Defend, Parley or Flee on the battle board. Every foe the story writes is fought, in waves when there are many;
-  quest fights bring enough foes for real progress. A fight that is over **settles before the next reply** even if
+  quest fights bring enough foes for real progress. A fight that is over keeps the tab (with its dot) and shows a
+  "Fight won / lost / fled" card under the newest reply until it is settled; it **settles before the next reply** even if
   you never pressed Finish, and the last fight then folds under "Last fight".
 - **Conditions by story time** (Party card; `rpg-battle.effects` *Timed buffs and debuffs*, on): blessings, curses
   and what a fight left on you count down by the story clock, 10 story minutes a round. Needs Story Director's

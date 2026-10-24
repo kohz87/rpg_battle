@@ -176,7 +176,7 @@ test('screens and widgets: every part\'s registered with Story Block; no hand-bu
         const screens = host.registry.screens().filter(screen => screen.moduleId === MODULE_ID).map(screen => screen.id);
         assert.deepEqual(screens, ['rpg-battle/create', 'rpg-battle/fight', 'rpg-battle/party', 'rpg-battle/trade', 'rpg-battle/crafting', 'rpg-battle/hud', 'rpg-battle/status-card']);
         const widgets = host.registry.widgets().filter(widget => widget.moduleId === MODULE_ID).map(widget => widget.name);
-        assert.deepEqual(widgets, ['rpg-battle.battle-board', 'rpg-battle.character-file', 'rpg-battle.choice-pick', 'rpg-battle.create-character', 'rpg-battle.equipment', 'rpg-battle.import-pick', 'rpg-battle.item-detail', 'rpg-battle.member-toggle', 'rpg-battle.preset-pick', 'rpg-battle.return-card', 'rpg-battle.skill-tree', 'rpg-battle.stat-radar', 'rpg-battle.talent-roll']);
+        assert.deepEqual(widgets, ['rpg-battle.battle-board', 'rpg-battle.character-file', 'rpg-battle.choice-pick', 'rpg-battle.create-character', 'rpg-battle.draft-start', 'rpg-battle.equipment', 'rpg-battle.import-pick', 'rpg-battle.item-detail', 'rpg-battle.member-toggle', 'rpg-battle.preset-pick', 'rpg-battle.return-card', 'rpg-battle.skill-tree', 'rpg-battle.stat-radar', 'rpg-battle.talent-roll']);
         const def = host.registry.modules().find(entry => entry.id === MODULE_ID);
         assert.deepEqual(def.tabs, []);
         // Each screen's data queries are registered.
