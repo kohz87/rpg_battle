@@ -71,3 +71,55 @@ test('Re-read keeps one payment, then removing acceptance proof retracts it, wit
     assert.equal(h.sdk.query('story.evidence').some(p => p.payload.thread === id), false);
     assert.equal(!!h.head().meta.claims[`rb:ep_00000000:quest:${id}:1:settled`], false);
 });
+
+test('Re-reading away story-backed reader acceptance retracts the later payment on reload', async t => {
+    let h = await questHost({ templates });
+    t.after(() => h.close());
+    const thread = await offer(h);
+    await h.send('I will take the mill job.', '<Changes>\n+ quest Mill job\n</Changes>');
+    const acceptedAt = h.ctx.chat.length - 1;
+    assert.equal(h.sdk.query('director.thread', { id: thread.id }).rpg.state, 'active');
+    const proof = h.sdk.query('director.thread', { id: thread.id }).acceptance.proof;
+    await h.send('Gather the herbs.', 'We gather herbs.');
+    assert.equal(h.bus.command('inventory.grant', { def: herb, qty: 2, owner: 'party' }, { cause: 'system' }).ok, true);
+    await h.send('Return the herbs.', 'We return to the mill.');
+    assert.equal((await h.sdk.command('quest.finish', { id: thread.id })).ok, true);
+    h = await reload(h);
+    totals(h, thread.id, true);
+    await h.st.editMessage(acceptedAt, 'The miller explains the offer.');
+    assert.equal((await h.turn.reread(acceptedAt)).ok, true);
+    h = await reload(h);
+    assert.equal(h.sdk.query('story.evidence', { ids: [proof] }).length, 0);
+    assert.equal(h.sdk.query('inventory.wallet').coin ?? 0, 0);
+    assert.equal(h.sdk.query('party.pc').xp, 0);
+    assert.equal(h.sdk.query('director.thread', { id: thread.id }).rpg.state, 'offered');
+    assert.equal(h.sdk.query('chronicle.questLog', { id: thread.id }).some(row => row.text === 'Mill job: done.'), false);
+    assert.equal(!!h.head().meta.claims[`rb:ep_00000000:quest:${thread.id}:1:settled`], false);
+});
+
+test('unchanged reader acceptance Re-read keeps one earned settlement despite new transport stamps', async t => {
+    let h = await questHost({ templates });
+    t.after(() => h.close());
+    const thread = await offer(h);
+    await h.send('I will take the mill job.', '<Changes>\n+ quest Mill job\n</Changes>');
+    const acceptedAt = h.ctx.chat.length - 1;
+    const proof = h.sdk.query('director.thread', { id: thread.id }).acceptance.proof;
+    await h.send('Gather herbs.', 'Herbs found.');
+    assert.equal(h.bus.command('inventory.grant', { def: herb, qty: 2, owner: 'party' }, { cause: 'system' }).ok, true);
+    await h.send('Return herbs.', 'The miller checks them.');
+    assert.equal((await h.sdk.command('quest.finish', { id: thread.id })).ok, true);
+    for (let n = 0; n < 2; n++) {
+        assert.equal((await h.turn.reread(acceptedAt)).ok, true);
+        h = await reload(h);
+        assert.equal(h.sdk.query('director.thread', { id: thread.id }).acceptance.proof, proof);
+        totals(h, thread.id, true);
+    }
+    await h.st.editMessage(acceptedAt - 1, 'I accept the mill job.');
+    assert.equal((await h.turn.reread(acceptedAt)).ok, true);
+    h = await reload(h);
+    assert.equal(h.sdk.query('director.thread', { id: thread.id }).rpg.state, 'active');
+    assert.equal(h.sdk.query('inventory.wallet').coin ?? 0, 0);
+    assert.equal(h.sdk.query('party.pc').xp, 0);
+    assert.equal(!!h.head().meta.claims[`rb:ep_00000000:quest:${thread.id}:1:settled`], false);
+
+});

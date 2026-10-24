@@ -43,6 +43,36 @@ function takeInputs(thread, inputs, pin, query) {
         prerequisites: template?.requirements?.length ? inputs : null };
 }
 
+// Re-read can renumber transport ordinals/revisions without changing the accepted action.
+// Retain the exact SD writer hash and stamps in recorded inputs for audit; the B5 predicate
+// depends on the surviving proof identity/bytes and semantic thread, not those counters.
+function semanticThread(value) {
+    const thread = copy(value);
+    delete thread.rev;
+    if (thread.taken) delete thread.taken.rev;
+    if (thread.ended) delete thread.ended.rev;
+    if (thread.acceptance) {
+        delete thread.acceptance.source.ordinal;
+        thread.acceptance.cursor = { sid: thread.acceptance.cursor.sid, swipeKey: thread.acceptance.cursor.swipeKey };
+    }
+    if (thread.rpg?.acceptedCursor) {
+        const cursor = thread.rpg.acceptedCursor;
+        thread.rpg.acceptedCursor = { sid: cursor.sid, swipeKey: cursor.swipeKey };
+    }
+    if (thread.rpg?.settlement) delete thread.rpg.settlement.source.ordinal;
+    return thread;
+}
+function guardInputs(inputs) {
+    const normalized = copy(inputs);
+    if (normalized.thread) normalized.thread = semanticThread(normalized.thread);
+    delete normalized.threadHash;
+    for (const key of ['proofs', 'acceptance']) {
+        for (const proof of normalized[key] ?? []) if (proof.source) delete proof.source.ordinal;
+    }
+    if (normalized.previous) normalized.previous = normalized.previous.map(semanticThread);
+    return normalized;
+}
+
 export function createSettlement(policy = {}) {
     const buildGuard = policy.buildGuard ?? progress?.buildGuard;
     function settleQuest(ctx, thread, payload, outcome) {
@@ -57,7 +87,7 @@ export function createSettlement(policy = {}) {
         const progressView = ctx.query('quest.progress', { id: thread.id });
         const operation = { thread: thread.id, outcome, reason: payload.reason ?? outcome };
         const guard = buildGuard({ hash: ctx.hash, owner: 'rpg-battle', epoch, source, rulesHash: pin.hash,
-            kind: 'quest.settlement', payload: operation, inputs: checked.inputs });
+            kind: 'quest.settlement', payload: operation, inputs: guardInputs(checked.inputs) });
         ctx.replayGuard(guard, { inputs: checked.inputs });
         const terminal = terminalQuest(thread.rpg, { outcome: checked.plan.outcome, id: ctx.id('st'), source, epoch,
             minute: checked.inputs.clock?.minutes, payout: checked.plan.payout });
@@ -94,7 +124,7 @@ export function createSettlement(policy = {}) {
         const operation = { thread: thread.id };
         const facts = takeInputs(thread, inputs, pin, ctx.query);
         ctx.replayGuard(buildGuard({ hash: ctx.hash, owner: 'rpg-battle', epoch, source, rulesHash: pin.hash,
-            kind: 'quest.take', payload: operation, inputs: facts }), { inputs: facts });
+            kind: 'quest.take', payload: operation, inputs: guardInputs(facts) }), { inputs: facts });
     }
     function replayGuard({ state, query, hash }, info) {
         if (info.guard?.predicate?.kind === 'quest.take') {
@@ -103,7 +133,7 @@ export function createSettlement(policy = {}) {
             if (!pin || pin.hash !== info.guard.rulesHash || !thread || !buildGuard) return { ok: false, reason: 'The accepted quest offer or rules changed.' };
             const inputs = takeInputs(thread, questInputs(query), pin, query);
             const expected = buildGuard({ hash, owner: 'rpg-battle', epoch: info.guard.epoch, source: info.source,
-                rulesHash: pin.hash, kind: 'quest.take', payload: info.guard.predicate.payload, inputs });
+                rulesHash: pin.hash, kind: 'quest.take', payload: info.guard.predicate.payload, inputs: guardInputs(inputs) });
             return expected.inputHash === info.guard.inputHash ? { ok: true } : { ok: false, reason: 'The accepted quest offer or requirements changed.' };
         }
         if (info.guard?.predicate?.kind !== 'quest.settlement') return undefined;
@@ -117,8 +147,8 @@ export function createSettlement(policy = {}) {
         const checked = assess(query, pin, thread, payload.outcome, policy);
         if (!checked.ok) return off();
         const expected = buildGuard({ hash, owner: 'rpg-battle', epoch: info.guard.epoch, source: info.source,
-            rulesHash: pin.hash, kind: 'quest.settlement', payload, inputs: checked.inputs });
-        return expected.inputHash === info.guard.inputHash && hash(info.recorded?.inputs ?? null) === hash(checked.inputs)
+            rulesHash: pin.hash, kind: 'quest.settlement', payload, inputs: guardInputs(checked.inputs) });
+        return expected.inputHash === info.guard.inputHash && hash(guardInputs(info.recorded?.inputs ?? {})) === hash(guardInputs(checked.inputs))
             ? { ok: true } : off();
     }
     return { settleQuest, replayGuard, guardTake };
