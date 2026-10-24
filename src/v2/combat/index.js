@@ -34,6 +34,8 @@ import { clipped } from '../lines.js';
 import { lastParts, partsProblems } from '../board/parts.js';
 import { fitParty } from '../party/pools.js';
 import { foldStoryTime } from '../party/recovery.js';
+import { actionWithId, guardAction, pinnedOf, pinnedSetup, settleEnd } from '../fight/index.js';
+import { cleanFormFields } from '../fight/records.js';
 import { applyStock, beatenFoes, boardToken, endSummary, foeNames, foeRanks, partyNames, rebuild, sessionView, tailLines } from './view.js';
 
 export { MAX_BEATEN, MAX_OFFERS } from './stored.js';
@@ -98,8 +100,8 @@ function recordOf(draft, key, field = 'id') {
     return draft[key];
 }
 const STATUSES = ['active', 'won', 'lost', 'fled'];
-const ACTION_TYPES = ['attack', 'skill', 'item', 'defend', 'flee', 'parley', 'auto'];
-const ACTION_FIELDS = ['target', 'skill', 'item', 'actor'];
+const ACTION_TYPES = ['attack', 'skill', 'item', 'defend', 'flee', 'parley', 'auto', 'form'];
+const ACTION_FIELDS = ['target', 'skill', 'item', 'actor', 'form', 'id'];
 const MAX_SUMMARY = 400;
 
 // The instruction every reply carries (byte-identical: no names, no numbers). The line's own
@@ -148,6 +150,8 @@ function cleanAction(action) {
         if (typeof action[field] !== 'string' || !action[field].trim() || action[field].length > 80) return null;
         out[field] = action[field];
     }
+    // (rules v2) A form action's choices: effect -> targets, a closed shape (fight/records.js).
+    if (action.selections !== undefined && !cleanFormFields(action, out)) return null;
     return out;
 }
 
@@ -340,6 +344,7 @@ function playAction(ctx, action, payload = {}) {
             ctx.fail('REFUSED', `There is no ${item.name} left in the inventory.`);
         }
     }
+    action = actionWithId(ctx, session, action);
     let next;
     try {
         next = act(fight, action, rules);
@@ -349,6 +354,7 @@ function playAction(ctx, action, payload = {}) {
     const used = readInventory(ctx) ? consumeSpent(ctx, itemsSpent(fight, next)) : { taken: [], missing: [] };
     syncPools(ctx, next);
     // Under the fight's own key (stored.js): replayed without this fight's start, the block does not apply.
+    guardAction(ctx, session, stock.length ? { ...action, stock } : action);
     const stored = draftSession(ctx.draft('combat'), session.id);
     stored.actions.push(stock.length ? { ...action, stock } : action);
     stored.status = sessionStatus(next.status);
@@ -490,7 +496,8 @@ function start(ctx, payload) {
     } catch (error) {
         ctx.fail('REFUSED', error?.message || 'That fight cannot start.');
     }
-    const { setup, made } = built;
+    const { made } = built;
+    const setup = pinnedSetup(ctx, built.setup);
     // The foes past the field (the reader's setting, setup.planWaves) come in later waves.
     const later = (setup.waves ?? []).reduce((sum, wave) => sum + (wave.enemies?.length ?? 0), 0);
     // The party as it stands before the opening (the automatic turns before the first choice,
@@ -588,6 +595,8 @@ function end(ctx, payload) {
     const result = summarize(fight, rules);
     // The foes' coin is RPG Battle's default money (rules.moneyByRank): × the pack's scale the fight began with (F104).
     result.loot.money = scaledMoney(result.loot.money, setup.moneyScale ?? 1);
+    // (rules v2) The pinned fight's settlement, first, as the root's one guard: the paid uses and the sealed result of the fight as it ended.
+    const sealed = settleEnd(ctx, { session, fight, result });
     const rev = nextRev(ctx);
     const present = partyIds(ctx);
     const here = id => !present || present.has(id);
@@ -606,7 +615,8 @@ function end(ctx, payload) {
             ...(member.sp ? { sp: { cur: member.sp.cur } } : {}),
             down: member.down,
             conditions: member.conditions.map(cond => ({ kind: cond.name, rounds: cond.rounds })),
-            uses: { ...(result.uses?.[member.memberId] ?? {}) },
+            // (rules v2) A pinned chat's uses are paid by the settlement below (recordCombatUses), never by the v1 mastery path.
+            uses: pinnedOf(ctx) ? {} : { ...(result.uses?.[member.memberId] ?? {}) },
         })),
     });
 
@@ -616,7 +626,7 @@ function end(ctx, payload) {
     for (const member of setup.party) {
         if (gone.has(member.memberId) || !here(member.memberId)) continue;
         const xp = Math.max(0, Math.round(Number(result.xp?.[member.memberId]) || 0));
-        if (xp > 0) ctx.call('party.grantXp', { actor: member.memberId, amount: xp });
+        if (xp > 0) ctx.call('party.grantXp', { actor: member.memberId, amount: xp, ...(pinnedOf(ctx) ? { claim: `combat:${session.id}:${member.memberId}` } : {}) });
     }
 
     // Gear wears once a fight (the items part, TRS idea 1): armour by the blows its wearer took, a weapon by the fight.
@@ -664,7 +674,7 @@ function end(ctx, payload) {
     // `reply`: the reply the settle is stored on (ctx.reply, SPEC §4.2), so the Fight screen can fold the
     // result once a later reply has been written (lastFresh, combat.fold).
     const settledOn = replyOf(ctx);
-    combat.last = [{ summary, moments: [...result.keyMoments], outcome: session.status, rev, parts, ...(settledOn ? { reply: settledOn } : {}) }];
+    combat.last = [{ summary, moments: [...result.keyMoments], outcome: session.status, rev, parts, ...(settledOn ? { reply: settledOn } : {}), ...(sealed ? { batch: sealed.batch } : {}) }];
     dropSession(combat, session.id);
     return {
         summary,
@@ -676,6 +686,7 @@ function end(ctx, payload) {
             died: died.map(entry => ({ ...entry })),
             ...(wear?.data?.changes?.length ? { wear: wear.data.changes.map(change => ({ stack: change.stack, name: change.name, cond: change.to, band: change.band })) } : {}),
             foes,
+            ...(sealed ? { batch: sealed.batch } : {}),
             xp: { ...result.xp },
             loot: {
                 money: result.loot.money,

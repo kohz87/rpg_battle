@@ -11,10 +11,22 @@
 //
 // The pack's skill keeps its stable ids through renames: nothing here reads a live pack, only the frozen form of the pin. Pure.
 
+import { SHIELD_ROUNDS } from './interpret.js';
+
 const clone = value => structuredClone(value);
 
 /** The v1 target word of a form: the first effect's. */
 const targetWord = form => form.effects[0]?.target ?? 'one';
+
+/** The v1 `effect` map of a form, for the automatic turns only: { condition kind: rounds, shield: rounds } or null. */
+function hintsOf(form) {
+    const hints = {};
+    for (const part of form.effects) {
+        if (part.op === 'condition' && !(part.kind in hints)) hints[part.kind] = part.rounds;
+        else if (part.op === 'shield' && !('shield' in hints)) hints.shield = SHIELD_ROUNDS;
+    }
+    return Object.keys(hints).length ? hints : null;
+}
 
 /** The engine skill of `form` (a resolved form of the pin) at `mastery` (0..5). */
 export function formSkill(form, mastery = 0) {
@@ -36,7 +48,9 @@ export function formSkill(form, mastery = 0) {
         costs: { mp: form.cost.mp, sp: form.cost.sp },
         cooldown: form.cost.cooldown,
         cooldownLeft: 0,
-        effect: null,
+        // What the automatic turns read to see whether a condition or a shield is worth casting (v1's AI, unchanged): the form's own
+        // conditions and shield. The interpreter never applies this map; it plays `parts`.
+        effect: hintsOf(form),
         parts: form.effects.map(clone),
     };
 }

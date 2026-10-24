@@ -15,7 +15,7 @@ const one = (n, over = {}) => ({ actor: ACTOR, skill: ref('s00'), form: ref('s00
 const credit = (n, award = 1, day = 3) => ({ award, reason: award ? null : 'skill-day', minute: day * DAY + 5, day, reply: SR(n) });
 
 function ledger(count, { waiting = [] } = {}) {
-    const progress = { schema: 2, choices: {}, attempts: {}, credits: {}, roster: { active: null }, temporary: {}, sealed: { forms: {}, days: {}, folded: 0 } };
+    const progress = { schema: 2, choices: {}, attempts: {}, credits: {}, roster: { active: null }, temporary: {}, sealed: { forms: {}, days: {}, folded: 0 }, batches: {} };
     for (let n = 1; n <= count; n += 1) {
         progress.attempts[AT(n)] = one(n, { form: ref(n % 2 ? 's00-base' : 's01-base'), skill: ref(n % 2 ? 's00' : 's01') });
         if (!waiting.includes(n)) progress.credits[AT(n)] = credit(n, n % 5 === 0 ? 0 : 1, 3 + (n % 3));

@@ -121,3 +121,27 @@ export const inputsPin = () => {
     const def = (slug, name, over = {}) => ({ id: `pack.fixture/${slug}`, name, kind: 'goods', rarity: 'common', value: 2, stack: true, slot: null, stats: {}, effect: {}, tags: [], note: '', ...over });
     return Object.freeze({ ...pin, defs: { 'pack.fixture/rope': def('rope', 'Rope'), 'pack.fixture/sword': def('sword', 'Iron Sword', { kind: 'equipment', rarity: 'uncommon', value: 30, stack: false, slot: 'weapon', stats: { ATK: 3 } }) } });
 };
+
+/**
+ * The golden pack with three fighting skills at the first tier: s00 hurts one foe and heals one ally (a mixed form), s01 strikes and
+ * may stun, s02 shields its user and raises STR for a few rounds. The other tiers stay as they are.
+ */
+export function fightPack() {
+    const pack = smallRulesPack();
+    const skills = pack.content.rules[0].skills;
+    const set = (slug, base) => { skills.find(skill => skill.slug === slug).base = base; };
+    set('s00', { type: 'magic', stat: 'INT', unit: null, cost: { mp: 4, sp: 0, cooldown: 1 }, effects: [
+        { op: 'damage', target: 'one', power: 60, element: 'fire', damageType: 'magic' },
+        { op: 'heal', target: 'ally', power: 50, element: 'none', damageType: null },
+    ] });
+    set('s01', { type: 'physical', stat: 'STR', unit: null, cost: { mp: 0, sp: 2, cooldown: 0 }, effects: [
+        { op: 'damage', target: 'one', power: 80, element: 'none', damageType: 'physical' },
+        { op: 'condition', target: 'one', kind: 'stun', chance: 100, rounds: 1 },
+    ] });
+    set('s02', { type: 'buff', stat: 'INT', unit: null, cost: { mp: 3, sp: 0, cooldown: 2 }, effects: [
+        { op: 'shield', target: 'self', power: 50, element: 'none', damageType: null },
+        { op: 'stat', target: 'self', stat: 'STR', amount: 1, rounds: 2 },
+    ] });
+    return pack;
+}
+export const fightPin = () => pinFor('fight', fightPack());

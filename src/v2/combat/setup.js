@@ -18,6 +18,7 @@ import { combatantFromSheet, enemiesFromRows, engagements } from '../../party.js
 import { fightCondition } from '../../combat.js';
 import { makeRng } from '../../rng.js';
 import { fightRules, foeId } from './stored.js';
+import { fightSkills, pinnedOf } from '../fight/index.js';
 import { powerScale } from './power.js';
 import { nounNames } from './quest.js';
 
@@ -164,6 +165,7 @@ export function partyCombatants(ctx, { rules = DEFAULT_RULES } = {}) {
     const party = tryRead(ctx, 'party');
     const library = [...DEFAULT_SKILLS, ...Object.values(party?.custom ?? {})];
     const defs = tryRead(ctx, 'inventory')?.defs ?? {};
+    const ix = pinnedOf(ctx);
     return actors.map(actor => {
         const own = inventoryRows(ctx, actor.id, defs);
         const shared = actor.kind === 'pc' ? inventoryRows(ctx, 'party', defs) : [];
@@ -189,6 +191,9 @@ export function partyCombatants(ctx, { rules = DEFAULT_RULES } = {}) {
         c.hp = pool(actor.hp, c.hp);
         c.mp = pool(actor.mp, c.mp);
         c.sp = pool(actor.sp, c.sp);
+        // (rules v2) On a pinned ruleset the fighter's skills are its class's three forms, not the v1 library's.
+        const held = ix ? fightSkills(ctx, ix, actor.id) : null;
+        if (held) c.skills = held;
         c.gone = c.hp.cur <= 0 ? 'down' : null;
         const numbers = tryQuery(ctx, 'party.combatNumbers', { id: actor.id }, null);
         if (numbers && typeof numbers === 'object') {
