@@ -61,7 +61,9 @@ total across more files and a replay still walks every shard.)
   so every number derived from the ledger reads the same before and after a fold.
 - **The fold** is part of `rules.settle` (no new command): when the ledger holds more than `FOLD_AT` (300) attempts, the
   settlement also folds every attempt that has a credit (existing or just planned) and whose boundary reply is not the one
-  settling now: the attempt and its credit rows go, the sealed counts grow. The ids folded are in the settlement's guard inputs.
+  settling now: the attempt and its credit rows go, the sealed counts grow. The fold writes new totals (base + n), so the guard inputs carry the ids, the counts **and the totals they were added to**
+  (`foldInputs`): a fold planned on other totals (an earlier fold was taken back) is off and planned again. (Chosen over one
+  record per settlement, which would grow with every settlement and need a sum on every read.)
   When a reply that held a folded attempt is deleted or re-read, the settlement's guard no longer matches and the host plans
   the step again in place (`replan`), now without that attempt, so the totals follow the surviving story exactly as the
   rows did. Audit of old zero-credit attempts is the price (they counted nothing).
@@ -79,7 +81,8 @@ total across more files and a replay still walks every shard.)
   milestone-0 class in the same transaction, a `class.start` guard. Nothing at all in a chat that pins no rules.
 - Narrative use: the capture `! skill-use <actor> | skill: <def> | form: <def>` (and the internal `skill.use`) pays the form's
   cost from the pool, gives a `use` proof and records the attempt, or cites one surviving `use` proof (`paid`), never both.
-- Combat end: `recordCombatUses(ctx, { fight, uses })`. Training completion: the host's step below.
+- Combat end: `recordCombatUses(ctx, { fight, uses })`: a no-op in a chat with no pin and a skipped row for anything that cannot be
+  an attempt, so a fight's end never fails on its ledger. Training completion: the host's step below.
 
 **Commands and queries** (payloads as the contract §3 and track C's fixtures): `rules.party`, `rules.flags`, `rules.item`,
 `rules.training`; `skill.train` (asks), `rules.settle { session }` (the host's step), `party.setActive`, `summon.end`,
@@ -95,7 +98,10 @@ form (a function of the chat, never allocated by a query; a stale one is `STALE`
 recorded), checks the trainer is here and the purse can pay, pays the fee (`wallet.pay`), moves the clock by exactly sixty
 minutes (`director.advance`, rejected whole if it moved otherwise), and either interrupts (the fee and the time are spent, no
 credit, no refund) or records two completion attempts that count on the day the session ended. A session the host cannot start
-is refused with its reason and costs nothing.
+is refused with its reason and costs nothing. A request the host cannot start (the clock never set) would hold that character's
+asks for good, so the player may withdraw it with `skill.cancelTrain { actor, session }` (**not in the contract's command list**:
+the lead adds it or names another way; it keeps the session as `refused`, moves no coin and no time, and is guarded like a
+request). A session keeps what it earned (`awarded`, `unearned`) so its view survives the fold.
 
 **Flags** (`rules/flags.js`): a flag is declared by the keys the pinned requirements name; it is false until an authorized event
 sets it. `rules.flagSet` takes a surviving Story Director `event` proof whose payload is exactly `{ flag, value }`, from Story
@@ -131,7 +137,12 @@ and in the creation wizard's budget. Hook lines outside this part: `party/sheets
 - No ceiling or floor for an item's `value`, and no per-template budget (P25 asks for template-derived ceilings; the pack schema
   has no template to derive from). The tier budget stands in for them.
 - In a chat with no ruleset, `rules.registerItem` passes Story Block's own grant through to `inventory.registerDefinition`
-  unchecked (a sub-command that fails would fail the whole grant, so there is no "not here" to answer).
+  unchecked (a sub-command that fails would fail the whole grant, so there is no "not here" to answer). Left as the lead decided,
+  with a TODO: once registration gating makes a handler `FEATURE_OFF` in a non-v2 chat this becomes a refusal.
+- Story equipment stays refused until a later slice imports track A's `slotsForLegacy` (`src/v2/items/slots.js`, #142): imported,
+  never copied. Flags and generation templates keep the interim rules above until D adds the schema; Story Director freezes `{ flag, value }`.
+- A character's pinned rules are read through one helper (`rulesSliceOf`) at every site (screens, party queries and recovery, combat cards,
+  creation); the item effect ceilings are held equal to the story's by a drift test (`tests/v2/rules/items.test.js`).
 - The full resolved pin rides in every checkpoint (583 KB for a big pack); B3/E6 will store `resolved` once, keyed by `rulesHash`.
 - Story Block must expose `resolved`, `rulesHash`, `packHash` and `RULES_V2_PROGRESSION` to the activation: `packs.rules` returns
   only the manifest today. That is an E/D task before activation.

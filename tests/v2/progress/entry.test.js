@@ -103,7 +103,7 @@ test('a skill used in the story pays its cost in the same transaction, gives a u
     assert.equal(attempt.actor, w.pc);
     const proofs = w.host.sdk.query('story.evidence', {});
     assert.deepEqual(proofs.map(proof => [proof.kind, proof.owner, proof.payload.actor, proof.payload.skill, proof.payload.form]), [['use', 'rpg-battle', w.pc, ref('s00'), ref('s00-base')]]);
-    assert.equal(attempt.cost, proofs[0].payload.use);
+    assert.equal(attempt.cost, proofs[0].id, 'the attempt is named by its own proof');
     assert.equal(w.slice('progress').credits[id].award, 1, 'the host settled it after the reply');
     assert.ok(w.head().meta.claims[`rb:ep_00000000:use:${id}`]);
     assert.equal(w.progress().checklist[0].mastery, 1);
@@ -143,9 +143,10 @@ test('a use that cannot be paid, is not the character\'s skill, or is of a downe
     assert.equal(w.host.bus.command('skill.use', { actor: w.pc, skill: ref('s00'), form: ref('s00-base') }, { cause: 'ui' }).code, 'REFUSED', 'a button is not a story use');
 });
 
-test('a use may cite one surviving paid use instead of paying: once, never with a new payment', async t => {
+test('a use may cite one surviving paid use that is not its own: once, never with a new payment; citing a use\'s own proof is the same use, not a second', async t => {
     const w = await trained(t);
-    await w.say('She swings.', [useLine(w)]);
+    const given = w.host.bus.command('test.useProof', { actor: w.pc, skill: ref('s00'), form: ref('s00-base'), use: 'elsewhere' }, { cause: 'ui' });
+    assert.equal(given.ok, true, given.message);
     const proof = w.host.sdk.query('story.evidence', {})[0];
     const sp = w.q('party.pc').sp.cur;
     const cite = (id = proof.id, over = {}) => w.internal('skill.use', { actor: w.pc, skill: ref('s00'), form: ref('s00-base'), paid: id, ...over });
@@ -158,6 +159,30 @@ test('a use may cite one surviving paid use instead of paying: once, never with 
     assert.equal((await cite('pf_zzzzzzzz')).code, 'NOT_FOUND');
     assert.equal((await cite(proof.id, { skill: ref('s01'), form: ref('s01-base') })).code, 'NOT_FOUND', 'another skill\'s proof');
     assert.equal((await cite(proof.id, { paid: 'x' })).code, 'INVALID');
+    // A use the story paid for, then a cite of its proof: one attempt, the cite refused.
+    await w.say('She swings again.', [useLine(w)]);
+    const own = w.host.sdk.query('story.evidence', {}).find(item => item.id !== proof.id);
+    const attempts = Object.keys(w.slice('progress').attempts).length;
+    assert.equal((await cite(own.id)).code, 'CLAIMED');
+    assert.equal(Object.keys(w.slice('progress').attempts).length, attempts, 'the cite recorded nothing');
+    assert.deepEqual(Object.values(w.slice('progress').attempts).filter(a => a.cost === own.id).length, 1);
+});
+
+test('a use is paid from the pool as it stands, not the raw stored one: after a delete moved what was lost, the charge is the form\'s cost', async t => {
+    const w = await trained(t);
+    await w.say('First.', [useLine(w)]);
+    const first = w.host.ctx.chat.length - 1;
+    await w.say('Second.', [useLine(w)]);
+    const max = w.q('party.pc').sp.max;
+    assert.equal(w.q('party.pc').sp.cur, max - 2);
+    // Take the first use back: the pool is refilled by its cost, and the next use costs 1 again, from where it stands.
+    await w.host.st.deleteMessage(first);
+    await w.host.st.deleteMessage(first - 1);
+    assert.equal(w.q('party.pc').sp.cur, max - 1);
+    await w.say('Third.', [useLine(w)]);
+    assert.equal(w.q('party.pc').sp.cur, max - 2, 'one point, not the difference of the raw numbers');
+    w.host.store.rebuild();
+    assert.equal(w.q('party.pc').sp.cur, max - 2);
 });
 
 test('a fight\'s paid uses are attempts named by the fight, the character, the skill and their number; the same end twice records nothing twice', async t => {
@@ -171,11 +196,63 @@ test('a fight\'s paid uses are attempts named by the fight, the character, the s
     assert.ok(Object.values(w.slice('progress').attempts).every(attempt => attempt.kind === 'combat' && attempt.cost === 'cf_00000001'));
     assert.equal(w.host.bus.command('test.combatEnd', { fight: 'cf_00000001', uses }, { cause: 'ui' }).receipt.data.created, 0);
     assert.equal(Object.keys(w.slice('progress').attempts).length, 3);
-    assert.equal(w.host.bus.command('test.combatEnd', { fight: 'cf_00000001', uses: [{ ...uses[0], count: 0 }] }, { cause: 'ui' }).code, 'INVALID');
-    assert.equal(w.host.bus.command('test.combatEnd', { fight: '', uses }, { cause: 'ui' }).code, 'INVALID');
+    // The end of a fight never fails on its ledger (N1): a bad row is skipped, a bad call records nothing.
+    const bad = [{ ...uses[0], count: 0 }, { ...uses[0], form: ref('s01-base') }, { actor: 'nobody', skill: ref('s00'), form: ref('s00-base'), count: 1 }, null, { ...uses[0], count: 1001 }];
+    const skipped = w.host.bus.command('test.combatEnd', { fight: 'cf_00000002', uses: bad }, { cause: 'ui' });
+    assert.equal(skipped.ok, true, skipped.message);
+    assert.deepEqual(skipped.receipt.data, { ids: [], created: 0 });
+    assert.equal(w.host.bus.command('test.combatEnd', { fight: '', uses }, { cause: 'ui' }).receipt.data.created, 0);
+    assert.equal(w.host.bus.command('test.combatEnd', { fight: 'cf_00000002' }, { cause: 'ui' }).ok, true);
+    assert.equal(Object.keys(w.slice('progress').attempts).length, 3);
     // Settled with the next reply's step: 2 credits for the first skill (the reply cap; its third use was not kept), 1 for the second.
     await w.say('Afterwards.', [useLine(w, 's02', 's02-base')]);
     const credits = Object.entries(w.slice('progress').credits).map(([id, credit]) => [w.slice('progress').attempts[id].skill, credit.award]);
     assert.equal(credits.filter(([skill, award]) => skill === ref('s00') && award === 1).length, 2);
     assert.equal(credits.filter(([skill, award]) => skill === ref('s00') && award === 0).length, 0);
+});
+
+test('N1: without a pin a fight\'s uses record nothing and the end does not fail', async t => {
+    const w = await realWorld(t, { pin: false, character: false });
+    const out = w.host.bus.command('test.combatEnd', { fight: 'cf_00000001', uses: [{ actor: 'ac_hero0001', skill: ref('s00'), form: ref('s00-base'), count: 2 }] }, { cause: 'ui' });
+    assert.equal(out.ok, true, out.message);
+    assert.deepEqual(out.receipt.data, { ids: [], created: 0 });
+    assert.deepEqual(w.slice('progress').attempts ?? {}, {});
+});
+
+const FILE = {
+    rpgBattleCharacter: 1, name: 'Wanderer', role: '', level: 1, xp: 0, points: 0,
+    stats: { STR: 5, VIT: 5, AGI: 5, DEX: 5, INT: 5, LUK: 5, CHA: 5 }, skills: [], custom: [], purse: 0,
+};
+const classlessLeft = w => Object.keys(w.slice('progress').choices).length;
+
+test('B7: in a rules chat every way to a new character takes a basic class and records it once: party.create, party.import, creation.import and creation.finish', async t => {
+    // party.create
+    const a = await realWorld(t, { character: false });
+    assert.equal(a.host.bus.command('party.create', { name: 'Ren', preset: 'fighter' }, { cause: 'ui' }).code, 'INVALID', 'no class, no character');
+    assert.equal(a.q('party.pc'), null, 'and nobody was made');
+    assert.equal(a.host.bus.command('party.create', { name: 'Ren', preset: 'fighter', class: ref('c1') }, { cause: 'ui' }).code, 'REFUSED', 'not a basic class');
+    assert.equal(a.q('party.pc'), null);
+    const made = a.host.bus.command('party.create', { name: 'Ren', preset: 'fighter', class: ref('c0') }, { cause: 'ui' });
+    assert.equal(made.ok, true, made.message);
+    assert.deepEqual(Object.keys(a.slice('progress').choices), [`${made.receipt.data.actor}|0`]);
+    assert.equal(rbClaims(a).filter(key => key.includes(':class:')).length, 1, 'once');
+    // party.import and creation.import
+    const b = await realWorld(t, { character: false });
+    assert.equal(b.host.bus.command('creation.import', { character: structuredClone(FILE) }, { cause: 'ui' }).code, 'INVALID');
+    assert.equal(b.q('party.pc'), null);
+    assert.equal(classlessLeft(b), 0);
+    const imported = b.host.bus.command('creation.import', { character: structuredClone(FILE), class: ref('c0') }, { cause: 'ui' });
+    assert.equal(imported.ok, true, imported.message);
+    assert.equal(classlessLeft(b), 1);
+    assert.equal(rbClaims(b).filter(key => key.includes(':class:')).length, 1);
+    // creation.finish passes its class down: still one record.
+    const c = await realWorld(t, { character: false });
+    const done = finish(c, { class: ref('c0') });
+    assert.equal(done.ok, true, done.message);
+    assert.equal(classlessLeft(c), 1);
+    assert.equal(rbClaims(c).filter(key => key.includes(':class:')).length, 1);
+    // A chat with no rules pack: none of this changes (a class in the payload is ignored).
+    const d = await realWorld(t, { character: false, pin: false });
+    assert.equal(d.host.bus.command('party.create', { name: 'Ren', preset: 'fighter' }, { cause: 'ui' }).ok, true);
+    assert.deepEqual(d.slice('progress').choices, {});
 });

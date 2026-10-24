@@ -6,8 +6,11 @@
 //   * the place's tier (0..9) comes from Story Director's `world.areaTier`, never from the caller; an unknown area refuses;
 //   * level ceiling   min(99, 10 * (tier + 1))              the level its stat budget is read at
 //   * rarity ceiling  tier 0-1 common, 2-3 uncommon, 4-6 rare, 7-9 epic;  a generated item is **never legendary**
-//   * stat budget     rarityBudget(rarity, level ceiling)   >=  the cost of its stats (statCost per point; a negative point
-//                     refunds negativeRefund of its cost, v1's rules unchanged), stats only on equipment, only the named stats
+//   * stat budget     rarityBudget(rarity, level ceiling)   >=  the cost of its **positive** stats (statCost per point; a negative stat
+//                     refunds nothing, so it cannot pay for an offence), and no stat beyond budget / its cost either way; stats only on
+//                     equipment, only the named stats
+//   * value           at most 4 x budget x gearPerPoint x the rarity's factor (v1's trade numbers: what a piece is worth, with room for a
+//                     dear market); a bound, not a price
 //   * effect          heal <= 250, mp <= 40, damage.amount <= 250, repair <= 50, cure up to 8 condition words; no other key, only
 //                     on a consumable (the numbers a story's words were already held to, items/define.js STORY_EFFECT_MAX)
 //   * rule            the ItemRule shape of the pack schema, and consistent with the def: a non-equipment item has no slots and
@@ -16,10 +19,11 @@
 //   * closure         a ruleset holds at most 1000 item rules, the packs' and the generated ones together
 //
 // The numbers below are v1's DEFAULT_RULES (src/rules.js), copied so that a later change of v1's tuning cannot move a running
-// timeline; tests/v2/rules/bounds.test.js holds them equal and fails when they drift. Not decided here (written down as gaps in
-// docs/dev/progress.md): a ceiling and floor for `value`, and a per-template budget (the pack schema has no generation template).
+// timeline; tests/v2/rules/items.test.js holds them equal and fails when they drift (so does the effect ceiling, against
+// items/define.js STORY_EFFECT_MAX and REPAIR_MAX). Not decided here (written down as gaps in docs/dev/progress.md): a per-template
+// budget (the pack schema has no generation template) and the pack's money scale on `value`.
 
-import { isDefId, isObject } from './ids.js';
+import { int, isDefId, isObject } from './ids.js';
 
 export const SLOTS = Object.freeze(['weapon', 'offhand', 'head', 'body', 'legs', 'feet', 'accessory-1', 'accessory-2']);
 export const STATS = Object.freeze(['STR', 'VIT', 'AGI', 'DEX', 'INT', 'LUK', 'CHA']);
@@ -38,9 +42,11 @@ export const RARITY_BUDGET = Object.freeze({
 export const STAT_COST = Object.freeze({ ATK: 1, MATK: 1, DEF: 1, MDEF: 1, HP: 0.2, MP: 0.25, STR: 2, VIT: 2, AGI: 2, DEX: 2, INT: 2, LUK: 2, CHA: 2, crit: 0.5 });
 export const NEGATIVE_REFUND = 0.5;
 export const EFFECT_MAX = Object.freeze({ heal: 250, mp: 40, damage: 250, repair: 50, cure: 8 });
+export const GEAR_PER_POINT = 10;
+export const RARITY_FACTOR = Object.freeze({ common: 1, uncommon: 1.5, rare: 2.5, epic: 4, legendary: 7 });
+export const VALUE_HEADROOM = 4;
 const TARGETS = ['one', 'all'];
 
-const int = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
 
 /** The level a generated item's budget is read at, from the place's tier. */
 export const levelCeiling = tier => Math.min(99, 10 * (tier + 1));
@@ -54,15 +60,18 @@ export function budgetOf(rarity, level) {
     return entry.base + entry.perLevel * Math.max(1, level);
 }
 
-/** What stats cost against the budget: positive points at their price, negative ones refund part of it. */
+/** What stats cost against the budget: the positive points at their price; a negative point refunds nothing. */
 export function spendOf(stats) {
     let cost = 0;
-    for (const [name, value] of Object.entries(stats ?? {})) {
-        const unit = STAT_COST[name] ?? 1;
-        cost += value > 0 ? value * unit : value * unit * NEGATIVE_REFUND;
-    }
+    for (const [name, value] of Object.entries(stats ?? {})) if (value > 0) cost += value * (STAT_COST[name] ?? 1);
     return cost;
 }
+
+/** The most one stat may be moved either way: the whole budget spent on it alone. */
+export const statCeiling = (name, budget) => Math.floor(budget / (STAT_COST[name] ?? 1));
+
+/** The most a generated item may be worth at a rarity and level (a bound, not a price). */
+export const valueCeiling = (rarity, level) => Math.round(VALUE_HEADROOM * budgetOf(rarity, level) * GEAR_PER_POINT * (RARITY_FACTOR[rarity] ?? 1));
 
 const PLAIN_KEYS = ['id', 'name', 'kind', 'rarity', 'value', 'stack', 'slot', 'stats', 'effect', 'tags', 'note', 'carry'];
 
@@ -135,23 +144,22 @@ function effectProblems(effect) {
 export function boundProblems(def, area) {
     const errors = [];
     if (!isObject(area)) return ['There is no place to bound the item by.'];
-    const budgeted = def.rarity !== 'common' || Object.keys(def.stats).length > 0 || Object.keys(def.effect).length > 0;
-    // A place with no tier (unknown to Story Director, or Story Director absent) can bound nothing: only an item with nothing to bound passes.
-    if (area.tier === null && !budgeted && def.rarity !== 'legendary') return errors;
+    // A place with no tier (unknown to Story Director, or Story Director absent) bounds nothing: generation is held (contract §5), whatever the item.
     if (!int(area.tier, 0, 9)) return ['The place has no tier, so nothing can be bounded.'];
     if (def.rarity === 'legendary') errors.push('A generated item is never legendary.');
     else if (RARITIES.indexOf(def.rarity) > RARITIES.indexOf(rarityCeiling(area.tier))) errors.push(`A tier ${area.tier} place yields at most ${rarityCeiling(area.tier)} items, not ${def.rarity}.`);
     const stats = Object.entries(def.stats);
     if (stats.length && def.kind !== 'equipment') errors.push('Only equipment has stats.');
+    const budget = budgetOf(def.rarity, levelCeiling(area.tier));
     for (const [name, value] of stats) {
         if (!Object.hasOwn(STAT_COST, name)) errors.push(`"${name}" is not a stat an item has.`);
-        else if (!Number.isInteger(value) || Math.abs(value) > 999) errors.push(`${name} is a whole number within 999.`);
+        else if (!Number.isInteger(value) || Math.abs(value) > statCeiling(name, budget)) errors.push(`${name} is a whole number within ${statCeiling(name, budget)} either way at this tier.`);
     }
     if (!errors.length && stats.length) {
-        const budget = budgetOf(def.rarity, levelCeiling(area.tier));
         const spend = spendOf(def.stats);
         if (spend > budget + 1e-9) errors.push(`The stats cost ${spend} and a ${def.rarity} item at tier ${area.tier} may cost ${budget}.`);
     }
+    if (def.value > valueCeiling(def.rarity, levelCeiling(area.tier))) errors.push(`A ${def.rarity} item at tier ${area.tier} is worth at most ${valueCeiling(def.rarity, levelCeiling(area.tier))}.`);
     if (Object.keys(def.effect).length && def.kind !== 'consumable') errors.push('Only a consumable has an effect.');
     errors.push(...effectProblems(def.effect));
     return errors;

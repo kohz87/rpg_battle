@@ -5,6 +5,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DAY, SD, realWorld } from '../progress/helpers/world.js';
 import { ref, trainersPin } from '../progress/helpers/fixture.js';
+import { sessionView } from '../../../src/v2/training/session.js';
+import { RULES_V2_CONSTANTS } from '../../vendor/story-block/src/v2/packs/rules-v2.js';
 
 const HAVEN = 'pack.fixture/haven';
 const START = 4 * DAY + 1410;
@@ -94,6 +96,10 @@ test('C06 training midnight: day 4 minute 1410, sixty minutes later it is day 5 
     const view = w.q('rules.training', { actor: w.pc });
     assert.equal(view.session.id, item.session);
     assert.deepEqual([view.session.status, view.session.startMinute, view.session.endMinute, view.session.fee, view.session.credits, view.session.creditsAwarded, view.session.reason, view.session.capDay], ['completed', START, START + 60, 20, 2, 1, 'actor-day', 5]);
+    // N8: the session keeps what it earned, so its view is the same once the ledger has folded its attempts away.
+    assert.deepEqual([session.awarded, session.unearned], [1, 'actor-day']);
+    const folded = sessionView(session, { constants: RULES_V2_CONSTANTS, trainer: null, progress: { attempts: {}, credits: {} } });
+    assert.deepEqual([folded.creditsAwarded, folded.reason], [1, 'actor-day']);
     const receipt = w.host.ctx.chat.at(-1).extra.storySuite.receipts.find(entry => entry.type === 'rules.settle' && entry.data?.v2?.result?.started?.length);
     assert.deepEqual([receipt.data.v2.result.started, receipt.data.v2.result.completed, receipt.data.v2.result.expired], [[item.session], [item.session], []]);
     assert.equal(receipt.data.v2.result.credited.length, 1);
@@ -109,4 +115,30 @@ test('a session in a day with room earns both credits; the next request is a new
     const view = w.q('rules.training', { actor: w.pc });
     assert.equal(view.session.creditsAwarded, 2);
     assert.equal(w.progress().checklist[0].mastery, 1, 'two credited uses are the first step');
+});
+
+test('N2: a request the host cannot start (no clock) waits and blocks the next ask; the player withdraws it, nothing moves, and the next ask is a new session', async t => {
+    const w = await realWorld(t, { given: trainersPin(), sd: true });
+    await w.say('No clock yet.', []);
+    const item = offer(w);
+    assert.equal(train(w, item).ok, true);
+    await w.say('Still no clock.', []);
+    assert.equal(sessions(w)[item.session].status, 'requested', 'the host waits for the clock');
+    assert.equal(train(w, offer(w, 'mentor', 's01')).code, 'REFUSED', 'a waiting request blocks the next');
+    const c0 = coin(w);
+    assert.equal(w.ui('skill.cancelTrain', { actor: w.pc, session: 'tr_00000000' }).code, 'NOT_FOUND');
+    assert.equal(w.ui('skill.cancelTrain', { actor: 'ac_other001', session: item.session }).code, 'NOT_FOUND');
+    assert.equal(w.host.bus.command('skill.cancelTrain', { actor: w.pc, session: item.session }, { cause: 'system' }).code, 'REFUSED', 'only the player withdraws');
+    const out = w.ui('skill.cancelTrain', { actor: w.pc, session: item.session });
+    assert.equal(out.ok, true, out.message);
+    assert.deepEqual([sessions(w)[item.session].status, sessions(w)[item.session].reason, sessions(w)[item.session].fee], ['refused', 'The player withdrew the request.', null]);
+    assert.equal(coin(w), c0);
+    assert.equal(w.ui('skill.cancelTrain', { actor: w.pc, session: item.session }).code, 'NO_LONGER_DONE');
+    assert.equal(w.q('rules.training', { actor: w.pc }).session.status, 'refused');
+    const again = offer(w);
+    assert.notEqual(again.session, item.session);
+    assert.equal(train(w, again).ok, true, 'the character may ask again');
+    // A rebuild from the log keeps it.
+    w.host.store.rebuild();
+    assert.equal(sessions(w)[item.session].status, 'refused');
 });

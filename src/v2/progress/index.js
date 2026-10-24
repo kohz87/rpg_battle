@@ -17,7 +17,7 @@ import { initialProgress, progressProblems } from './domain.js';
 import { replayGuard } from './guard.js';
 import { pendingOf } from './credit.js';
 import { pinOf } from '../rules/pin.js';
-import { placeOf, purseOf } from '../training/step.js';
+import { placeOf, purseOf } from './session-step.js';
 import { readClock } from '../training/clock.js';
 
 export { GUARD_KINDS, PREREQUISITE_REMOVED } from './guard.js';

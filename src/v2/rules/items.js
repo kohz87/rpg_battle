@@ -26,20 +26,12 @@
 
 import { boundProblems, defShapeProblems, GENERATED_PREFIXES, MAX_ITEM_RULES, ruleProblems } from './bounds.js';
 import { hashJson } from './hash.js';
-import { epochOf, isDefId, isHash, isObject, isRecordId } from './ids.js';
+import { TRUSTED, epochOf, isDefId, isHash, isObject, isRecordId } from './ids.js';
 import { indexOfState } from './graph.js';
+import { ask } from './ask.js';
 
-/** Who may register: Story Block's item grant (the story's items) and this module's own adapters. */
-export const TRUSTED = Object.freeze(['story-block', 'rpg-battle']);
 const FIELDS = ['write', 'def', 'rule', 'template', 'area', 'rulesHash'];
 
-const ask = (query, name, args) => {
-    try {
-        return typeof query === 'function' ? query(name, args) : null;
-    } catch {
-        return null;
-    }
-};
 
 /** The rule of an item: a pack's (the pin) or a generated one (the state), or null. */
 export function ruleOf(ix, slice, ref) {
@@ -112,13 +104,15 @@ export function registerItem(ctx, payload, attach) {
     if (!isObject(payload) || Object.keys(payload).some(key => !FIELDS.includes(key))) ctx.fail('INVALID', `rules.registerItem takes { ${FIELDS.join(', ')} } and nothing else.`);
     for (const key of ['write', 'def', 'rule', 'template', 'area', 'rulesHash']) if (!Object.hasOwn(payload, key)) ctx.fail('INVALID', `rules.registerItem needs ${key} (null where there is none).`);
     if (!isRecordId(payload.write)) ctx.fail('INVALID', 'A registration needs the id of the write that asks for it.');
-    if (!TRUSTED.includes(ctx.caller)) ctx.fail('REFUSED', 'Item definitions are registered by the item grant and the rules\' own steps, not from a button or the story\'s words.');
+    if (!TRUSTED.registerItem.includes(ctx.caller)) ctx.fail('REFUSED', 'Item definitions are registered by the item grant and the rules\' own steps, not from a button or the story\'s words.');
     if (!(payload.rulesHash === null || isHash(payload.rulesHash))) ctx.fail('INVALID', 'rulesHash is a hash or null.');
     if (!(payload.template === null || isDefId(payload.template))) ctx.fail('INVALID', 'The template is a pinned id or null.');
     if (!isObject(payload.def)) ctx.fail('INVALID', 'The definition is a record.');
     const slice = ctx.read('rules');
     const ix = indexOfState({ domains: { rules: slice } });
     if (!ix) {
+        // TODO(lead, registration gating): once this module's commands are registered only in a v2 chat, a handler in a chat with no
+        // ruleset answers FEATURE_OFF before this line, and this unchecked pass-through is replaced by that refusal (fail closed).
         // No ruleset in this chat. Story Block's own grant asked first; what it offered is registered as it is, as it would be with no
         // rules module (a sub-command that fails would fail the whole grant, so there is no "not here" to answer).
         if (ctx.caller !== 'story-block' || payload.rule !== null || payload.area !== null || payload.rulesHash !== null) ctx.fail('REFUSED', 'This chat does not run a rules pack, so rules.registerItem has no rules to register under.');

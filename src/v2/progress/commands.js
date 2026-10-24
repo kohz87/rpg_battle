@@ -24,7 +24,7 @@ import { applyFold } from './fold.js';
 import { indexOf } from '../rules/graph.js';
 import { pinOf } from '../rules/pin.js';
 import { fightOn } from '../party/commands.js';
-import { rollEvent } from '../training/step.js';
+import { rollEvent } from './session-step.js';
 import { epochOf, isActorId, isDefId, isHash, isObject, isRecordId } from '../rules/ids.js';
 
 const CLASS_FIELDS = ['actor', 'milestone', 'class', 'expectedClass', 'rulesHash'];
@@ -123,7 +123,7 @@ function pathChoose(ctx, payload) {
  * rules.settle { boundary?, session? }: the boundary is the reply the settlement stands on; when given it must name this
  * very reply (sid and swipeKey), and when left out it is this reply. The host's hook cannot know its reply's Source before
  * it runs, so it leaves the boundary out. Without `session` it credits what waits (credit.js); with one it starts and finishes
- * that training session (training/step.js) and credits as well. `started`, `completed`, `expired` and `credited` as in §3.
+ * that training session (progress/session-step.js) and credits as well. `started`, `completed`, `expired` and `credited` as in §3.
  */
 function settle(ctx, payload = {}) {
     if (ctx.cause !== 'system' || ctx.caller) ctx.fail('REFUSED', 'rules.settle is the host\'s own step: nobody else calls it.');
@@ -159,7 +159,8 @@ function settle(ctx, payload = {}) {
     const credits = progress.credits;
     const credited = [];
     for (const { id, award, reason, minute, day, reply } of answer.plan) {
-        claimOnce(ctx, `rb:${epochOf(ctx)}:credit:${id}`, 'That use was already credited.');
+        // A credit already claimed (its attempt was folded away, or settled on another line of this chat) is not given twice, and does not stop the rest.
+        if (!ctx.claim(`rb:${epochOf(ctx)}:credit:${id}`)) continue;
         credits[id] = { award, reason, minute, day, reply };
         if (award > 0) credited.push(id);
     }

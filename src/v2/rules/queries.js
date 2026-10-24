@@ -6,12 +6,14 @@
 //   rules.classes({ tier? })      → [{ id, name, tier, parent, skills: [Ref, Ref, Ref] }]   the pack's classes, in its order
 //   rules.names({ refs })         → { [Ref]: name }                      class, skill and form names; unknown refs left out
 //   rules.party({})               → PartyView | null                     active (PC + 2), reserve, temporary sheets (sheet.js)
-//   rules.training({ actor })     → see ../training/queries.js (the training section of a character's screen)
+//   rules.sheet({ actor? })       → SheetView | null                      the member with class, three skills, gear (sheet.js); your character by default
 
 import { indexOfState } from './graph.js';
 import { isObject } from './ids.js';
 import { pinOf } from './pin.js';
-import { partyView } from './sheet.js';
+import { ask } from './ask.js';
+import { gearOf, partyView, sheetView } from './sheet.js';
+import { isActorId } from './ids.js';
 
 const noArgs = args => args === undefined || args === null || (isObject(args) && Object.keys(args).length === 0);
 
@@ -47,4 +49,16 @@ export function rulesParty(state, args, tools) {
     return partyView(indexOfState(state), state, tools?.query);
 }
 
-export const queries = { 'rules.party': rulesParty, 'rules.identity': rulesIdentity, 'rules.classes': rulesClasses, 'rules.names': rulesNames };
+/** rules.sheet({ actor? }) -> SheetView | null (your character by default): the party member with its class, three skills and gear. */
+export function rulesSheet(state, args, tools) {
+    const ix = indexOfState(state);
+    if (!ix) return null;
+    if (args !== undefined && args !== null && (!isObject(args) || Object.keys(args).some(key => key !== 'actor') || (args.actor !== undefined && !isActorId(args.actor)))) return null;
+    const query = tools?.query;
+    const id = args?.actor ?? ask(query, 'party.pc', {})?.id ?? null;
+    const member = id ? ask(query, 'party.actor', { id }) : null;
+    if (!isObject(member)) return null;
+    return sheetView(ix, state.domains.progress ?? {}, member, gearOf(query, member.id));
+}
+
+export const queries = { 'rules.sheet': rulesSheet, 'rules.party': rulesParty, 'rules.identity': rulesIdentity, 'rules.classes': rulesClasses, 'rules.names': rulesNames };

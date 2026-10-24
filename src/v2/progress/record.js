@@ -69,6 +69,8 @@ export function recordAttempt(ctx, input) {
     }
     // A payer never fails on the ledger's size (fold.js): an attempt that cannot earn is not kept, and past the hard limit none is.
     if (cannotEarn(ix.constants, attempts, made.record) || Object.keys(attempts).length >= MAX_ATTEMPTS) return { id: made.id, created: false, dropped: true };
+    // The attempt's own claim outlives its row: one folded into the sealed counts (fold.js) is not recorded again under the same key.
+    if (!ctx.claim(`rb:${epochOf(ctx)}:attempt:${made.id}`)) return { id: made.id, created: false, folded: true };
     attempts[made.id] = made.record;
     return { id: made.id, created: true };
 }
@@ -116,12 +118,16 @@ export function attemptFor(input, source, hash, invalid) {
  * named by the fight, the character, the skill and its number, so settling the same end again records nothing twice.
  * The end settlement is the cap source (the default: this reply). → { ids: [attempt id], created: n }.
  */
-export function recordCombatUses(ctx, { fight, uses }) {
-    if (typeof fight !== 'string' || !fight || !Array.isArray(uses)) ctx.fail('INVALID', 'A fight\'s uses are { fight, uses: [{ actor, skill, form, count }] }.');
+export function recordCombatUses(ctx, { fight, uses } = {}) {
+    // The end of a fight never fails on its ledger: an unpinned chat has none (a no-op), and a row that cannot be an attempt is skipped.
     const ids = [];
     let created = 0;
+    if (typeof fight !== 'string' || !fight || !Array.isArray(uses) || !ctx.source) return { ids, created };
+    const ix = indexOf(pinOf({ domains: { rules: ctx.read('rules') } }));
+    if (!ix) return { ids, created };
     for (const item of uses) {
-        if (!isObject(item) || !Number.isSafeInteger(item.count) || item.count < 1 || item.count > 1000) ctx.fail('INVALID', 'Each use says how many times (1 to 1000).');
+        if (!isObject(item) || !Number.isSafeInteger(item.count) || item.count < 1 || item.count > 1000) continue;
+        if (!isActorId(item.actor) || ix.form(item.form)?.skill !== item.skill) continue;
         for (let n = 1; n <= item.count; n += 1) {
             const made = recordAttempt(ctx, { actor: item.actor, skill: item.skill, form: item.form, kind: 'combat', key: `${fight}:${item.actor}:${item.skill}:${n}`, cost: fight });
             ids.push(made.id);

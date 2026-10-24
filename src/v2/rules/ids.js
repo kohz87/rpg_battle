@@ -3,8 +3,11 @@
 // Story Block, so the contract's text is copied here and tests/v2/rules/ids.test.js holds it to the vendored
 // copy. Pure.
 
-/** The module id every rules-v2 guard names as its owner (the module whose handler attaches it). */
-export const OWNER = 'rpg-battle';
+/** Who may take the trusted steps (the caller of the nested command): rules.flagSet and rules.registerItem. */
+export const TRUSTED = Object.freeze({
+    flagSet: Object.freeze(['story-director', 'rpg-battle']),
+    registerItem: Object.freeze(['story-block', 'rpg-battle']),
+});
 
 /** `ac_xxxxxxxx`: a character (contract §4 ActorId). */
 export const ACTOR_ID = /^ac_[0-9a-z]{8}$/;

@@ -11,9 +11,12 @@
 import { createHost } from '../../../vendor/story-block/testkit/index.js';
 import { pinOf, pinRules, registerPackDefs, rulesParts } from '../../../../src/v2/rules/index.js';
 import { recordAttempt, recordBasicClass, recordCombatUses } from '../../../../src/v2/progress/index.js';
-import { part as trainingPart } from '../../../../src/v2/training/index.js';
 
-const [[, rulesPart], [, progressPart]] = rulesParts;
+// The module is built from `rulesParts` alone (every part of rules v2, as module.js will register them), plus the test-only pieces below.
+const PARTS_ = rulesParts.map(([, part]) => part);
+const merge = key => Object.assign({}, ...PARTS_.map(part => part[key] ?? {}));
+const rulesPart = { queries: merge('queries') };
+const progressPart = { kinds: merge('kinds'), hooks: merge('hooks') };
 import { levelFromEarned } from '../../../../src/v2/progress/level.js';
 import { storedPool } from '../../../../src/v2/party/pools.js';
 import { ACTOR, FRIEND, fixturePin, ref } from './fixture.js';
@@ -127,11 +130,9 @@ export const PARTY = {
 export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
     return {
         id, name: 'RPG Battle rules (test)', version: '2.0.0-test',
-        domains: { ...rulesPart.domains, ...progressPart.domains, ...trainingPart.domains },
+        domains: merge('domains'),
         commands: {
-            ...rulesPart.commands,
-            ...progressPart.commands,
-            ...trainingPart.commands,
+            ...merge('commands'),
             'test.pin'(ctx) {
                 const problem = pinRules(ctx.draft('rules'), given);
                 if (problem) ctx.fail('REFUSED', problem);
@@ -143,6 +144,8 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
             // Activation's half: the pack's frozen definitions registered with Story Block; and a registration that a later step undoes.
             'test.packDefs'(ctx) { return { summary: 'Registered.', narrate: false, data: { registered: registerPackDefs(ctx) } }; },
             'test.registerThenFail'(ctx, payload) { ctx.call('rules.registerItem', payload); return ctx.fail('REFUSED', 'The buy fell through.'); },
+            // A paid use some other step of this module gave proof of.
+            'test.useProof'(ctx, payload) { return { summary: 'Proof.', narrate: false, data: { proof: ctx.proof({ kind: 'use', payload }).id } }; },
             'test.start'(ctx, { actor, class: cls }) {
                 recordBasicClass(ctx, { actor, class: cls });
                 return { summary: 'Started.', narrate: false };

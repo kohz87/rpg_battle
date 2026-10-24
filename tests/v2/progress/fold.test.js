@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ACTOR, DAY, nextKey, ref, started } from './helpers/world.js';
-import { FOLD_AT, applyFold, planFold } from '../../../src/v2/progress/fold.js';
+import { FOLD_AT, applyFold, foldInputs, planFold } from '../../../src/v2/progress/fold.js';
 import { RULES_V2_CONSTANTS } from '../../vendor/story-block/src/v2/packs/rules-v2.js';
 import { decide, rowsOf, tallyOf, tallyOfProgress, usesOf } from '../../../src/v2/progress/credit.js';
 import { MAX_ATTEMPTS, progressProblems } from '../../../src/v2/progress/domain.js';
@@ -36,6 +36,22 @@ test('a small ledger is not folded; a large one folds the settled attempts of ot
     const credited = fold.ids.filter(id => big.credits[id].award === 1).length;
     assert.equal(Object.values(fold.forms).reduce((a, b) => a + b, 0), credited);
     assert.equal(Object.values(fold.days).reduce((a, b) => a + b, 0), credited);
+});
+
+test('N5: the fold writes totals (base + n), so the guard carries the totals it was planned on: other totals, other inputs', () => {
+    const big = ledger(FOLD_AT + 50);
+    const one1 = planFold(big, [], SR(FOLD_AT + 50));
+    assert.ok(Object.keys(one1.base.forms).length > 0 && Object.values(one1.base.forms).every(n => n === 0));
+    const other = structuredClone(big);
+    const key = Object.keys(one1.forms)[0];
+    other.sealed.forms[key] = 7;
+    const two = planFold(other, [], SR(FOLD_AT + 50));
+    assert.equal(two.base.forms[key], 7);
+    assert.notDeepEqual(foldInputs(one1), foldInputs(two));
+    const draft = structuredClone(other);
+    applyFold(draft, two);
+    assert.equal(draft.sealed.forms[key], 7 + two.forms[key]);
+    assert.equal(foldInputs(null), null);
 });
 
 test('a waiting attempt keeps its whole reply\'s rows: the reply caps are still counted from them', () => {
@@ -153,4 +169,24 @@ test('at the hard limit a payer still succeeds: nothing is kept and nothing fail
     assert.equal(out.ok, true, out.message);
     assert.equal(out.receipt.data.dropped, true);
     assert.equal(Object.keys(w.slice('progress').attempts).length, MAX_ATTEMPTS);
+});
+
+test('a key recorded again after its attempt was folded is the same attempt, not a new one, and no later settlement is wedged by it', async t => {
+    const w = await started(t);
+    const rec = key => w.host.bus.command('test.attempt', { actor: ACTOR, skill: ref('s00'), form: ref('s00-base'), kind: 'combat', key }, { cause: 'ui' });
+    await w.say('Clock.', [`~ time ${40 * DAY + 600}`]);
+    assert.equal(rec('x').receipt.data.created, true);
+    await w.say('x is credited.', [`! xp ${ACTOR} | n: 1`]);
+    assert.equal(Object.keys(w.slice('progress').credits).length, 1);
+    assert.equal(w.host.bus.command('test.seed', { uses: Object.fromEntries(TEN.map(form => [form, 35])) }, { cause: 'ui' }).ok, true);
+    assert.equal(rec('z').receipt.data.created, true);
+    await w.say('The fold.', [`! xp ${ACTOR} | n: 1`]);
+    assert.ok(w.slice('progress').sealed.folded >= 351, 'x was folded with the rest');
+    const again = rec('x');
+    assert.equal(again.ok, true, again.message);
+    assert.equal(again.receipt.data.created, false, 'a folded attempt is not recorded again under its key');
+    assert.equal(rec('w').receipt.data.created, true);
+    await w.say('w is credited.', [`! xp ${ACTOR} | n: 1`]);
+    assert.deepEqual(w.problems(), []);
+    assert.equal(Object.values(w.slice('progress').credits).length >= 1, true);
 });

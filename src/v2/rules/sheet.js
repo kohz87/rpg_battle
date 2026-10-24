@@ -8,18 +8,12 @@ import { deriveActor, choicesOf, skillViews } from '../progress/derive.js';
 import { isObject } from './ids.js';
 
 import { SLOTS } from './bounds.js';
+import { ask } from './ask.js';
 
 export { SLOTS };
 const CONDITIONS = new Set(['poison', 'burn', 'bleed', 'stun', 'daze', 'slow', 'weaken', 'shield', 'regen', 'guard', 'injury', 'stat-shift']);
 export const ACTIVE_LIMIT = 3;
 
-const ask = (query, name, args) => {
-    try {
-        return typeof query === 'function' ? query(name, args) : null;
-    } catch {
-        return null;
-    }
-};
 const count = value => (Number.isSafeInteger(value) && value >= 0 ? value : 0);
 const pool = entry => ({ cur: count(entry?.cur), max: count(entry?.max) });
 

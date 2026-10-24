@@ -16,13 +16,11 @@
 // transition"; Story Director has not frozen one (see docs/dev/progress.md, gaps).
 
 import { hashJson } from './hash.js';
-import { epochOf, isHash, isObject, isRecordId } from './ids.js';
+import { TRUSTED, epochOf, isHash, isObject, isRecordId } from './ids.js';
 import { indexOfState } from './graph.js';
 
 /** The evidence's owner and kind: Story Director's `event` proofs (contract §6). */
 export const EVENT_OWNER = 'story-director';
-/** Who may ask for a write: Story Director's event adapter, or this module's own rule steps. */
-export const TRUSTED = Object.freeze(['story-director', 'rpg-battle']);
 
 const KEY_MAX = 80;
 
@@ -82,7 +80,7 @@ const FIELDS = ['write', 'key', 'value', 'evidence', 'expectedHash'];
 export function flagSet(ctx, payload, attach) {
     if (!isObject(payload) || Object.keys(payload).some(key => !FIELDS.includes(key)) || FIELDS.some(key => !Object.hasOwn(payload, key))) ctx.fail('INVALID', `rules.flagSet takes { ${FIELDS.join(', ')} } and nothing else.`);
     if (!isRecordId(payload.write) || !validKey(payload.key) || typeof payload.value !== 'boolean' || !isRecordId(payload.evidence) || !isHash(payload.expectedHash)) ctx.fail('INVALID', 'A flag write names its write, a flag, a value, the event that allows it and the flags as read.');
-    if (!TRUSTED.includes(ctx.caller)) ctx.fail('REFUSED', 'A flag is set by an event of the story\'s own rules, never from a button or by the story\'s words.');
+    if (!TRUSTED.flagSet.includes(ctx.caller)) ctx.fail('REFUSED', 'A flag is set by an event of the story\'s own rules, never from a button or by the story\'s words.');
     const ix = indexOfState({ domains: { rules: ctx.read('rules') } });
     if (!ix) ctx.fail('REFUSED', 'This chat does not run a rules pack.');
     const slice = ctx.read('rules');

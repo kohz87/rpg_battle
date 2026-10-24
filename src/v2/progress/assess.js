@@ -6,9 +6,9 @@
 
 import { evaluateClass, evaluatePath, standing } from './offers.js';
 import { pendingOf, planSettlement } from './credit.js';
-import { planFold } from './fold.js';
+import { foldInputs, planFold } from './fold.js';
 import { readClock } from '../training/clock.js';
-import { planSession } from '../training/step.js';
+import { planSession } from './session-step.js';
 import { expectedSessionId, waitingOf } from '../training/session.js';
 import { isObject, isActorId } from '../rules/ids.js';
 import { ACTIVE_LIMIT, lifeOf } from '../rules/sheet.js';
@@ -83,6 +83,17 @@ function assessRequest(env, payload) {
     return { ok: true, member, trainer, inputs: { trainer: trainer.id, skill: payload.skill, form: payload.form, session: expected } };
 }
 
+/**
+ * skill.cancelTrain: the player withdraws a request the host has not started (a clock never set, a place never told would
+ * hold it for good, and a waiting request blocks every other ask of that character). It moves no coin and no time.
+ */
+function assessCancel(env, payload) {
+    const session = env.training?.sessions?.[payload.session];
+    if (!session || session.actor !== payload.actor) return { ok: false, code: 'NOT_FOUND', why: 'That character has no such training.' };
+    if (session.status !== 'requested') return { ok: false, code: 'NO_LONGER_DONE', why: 'That training is not waiting any more.' };
+    return { ok: true, session, inputs: { session: session.id, status: 'requested' } };
+}
+
 /** class.start: a basic class of the pinned ruleset (a root: tier 0, no parent). */
 function assessStart(env, payload) {
     const picked = env.ix.class(payload.class);
@@ -130,17 +141,18 @@ function assessUse(env, payload) {
 export function assess(kind, env, payload, extra = {}) {
     const { ix, progress, query } = env;
     if (kind === 'rules.settle' && typeof payload.session === 'string') {
-        // The host starts and finishes one training session (training/step.js); the event die is the one rolled, or the one recorded.
+        // The host starts and finishes one training session (progress/session-step.js); the event die is the one rolled, or the one recorded.
         return planSession(env, payload.session, extra.event ?? { die: 0, template: null }, extra.source, extra.hash);
     }
     if (kind === 'skill.train') return assessRequest(env, payload);
+    if (kind === 'skill.cancelTrain') return assessCancel(env, payload);
     if (kind === 'rules.flagSet') return assessFlag(env, payload, extra);
     if (kind === 'rules.registerItem') return assessItem(env, payload);
     if (kind === 'rules.settle') {
         const plan = planSettlement(ix.constants, progress, readClock(query));
         if (plan.length) {
             const fold = planFold(progress, plan, extra.source?.sid ?? null);
-            return { ok: true, plan, fold, inputs: { plan: plan.map(({ minute, ...row }) => row), fold: fold ? fold.ids : null } };
+            return { ok: true, plan, fold, inputs: { plan: plan.map(({ minute, ...row }) => row), fold: foldInputs(fold) } };
         }
         // Only held attempts left (no minute of their own, no clock): the contract's CLOCK_UNSET; nothing at all: nothing to do.
         return pendingOf(progress).length
