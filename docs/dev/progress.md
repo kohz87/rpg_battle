@@ -123,6 +123,69 @@ and in the creation wizard's budget. Hook lines outside this part: `party/sheets
 `rulesSliceOf`), `party/commands.js`, `party/capture.js`, `party/context.js`, `party/queries.js`, `creation/build.js`
 (`creationRules(settings, rules)`), `creation/commands.js` (three call sites).
 
+## Slice 3: combat on rules v2 (B4)
+
+**Rule: a chat that pins no ruleset fights the fight it always did.** Everything below runs only when `pinnedOf(ctx)` finds a pin
+(`src/v2/fight/index.js`); otherwise the engine, the setup, the stored actions, the end settlement and the v1 mastery path are v1's, byte for
+byte. `tests/v2/fight/golden.json` holds traces of fixed v1 fights (one rng stream, ids, summaries) from the engine as it was before
+this slice, and `engine-unchanged.test.js` plays them again; `pinned.test.js` plays an unpinned chat through the real combat part.
+
+- **Actions come from the pinned skills and forms** (`fight/forms.js`, `fight/interpret.js`): a fighter's three skills are those of its
+  class at their current forms (`derive` through `fightSkills`), with the mastery the credited uses give and the stat cap of the pin. An
+  action is `{ type: 'form', form, selections: [{ effect, targets }] }`; each effect has its own side and scope (hostile damage and
+  conditions, friendly heal, shield, regen and guard), a choice of one target must name a legal one, and every refusal comes before
+  anything is paid or rolled. The power is the pack's hundredths with the mastery factor `1 + 0.1 x mastery` applied once; the cost
+  (mp, sp) is paid once, the cooldown set once (in the actor's turns), the use counted once under the form's id. The automatic turns (foes,
+  companions on auto) use the engine's own AI on the same forms, one target standing for every effect that needs one.
+- **Draws belong to actions** (`setup.draws === 'action'`): each action's dice come from its own stream seeded `<seed>|<action id>`, so
+  taking back one action never changes the dice of the ones before it. Action ids (`ca_xxxxxxxx`) come from the receipt's seed, the same
+  on every replay. The fight is the replay of its stored actions (`combat/stored.js`), as before.
+- **Closed records** (`fight/records.js`): `ActionRecord` and `ConditionRecord { kind, stacks, rounds, strength, at, source }`. Durations are
+  the contract's units: rounds are actor turns inside the fight, ten story minutes each after it; a condition a fight leaves on a character
+  is dated by the fight's `endingMinute`, so a read at `endingMinute + 10` has one round less. Stat shifts are fight-only conditions
+  (`fight/shifts.js`); summoned units (`summon.begin`/`summon.settle`, `progress/roster.js`) join the party's side with the caster's shares,
+  act on auto, are never party members and never keep a wipe from counting.
+- **combat.act** carries a replay guard (`combat.act`, `fight/guards.js`): the prefix of actions it stands on. Take back an action and the
+  ones after it go off with it (`REPLAY_PREREQUISITE`), nothing is put in their place.
+- **combat.end** (`settleEnd`, first in the end settlement) carries the guard that binds the fight's terminal prefix, ends the fight's units,
+  pays the uses through `recordCombatUses` (attempts of kind `combat`, key `<fight>:<actor>:<skill>:<n>`, credited by the next
+  `rules.settle` under the shared caps), claims and pays XP through the single `party.grantXp { actor, amount, claim }` combat variant (claim
+  `xp:combat:<fight>:<member>`), and seals the result. The v1 mastery path is off for a pinned fight (`uses: {}`), and track A's quest hooks
+  are not touched here: a quest's own XP and coin are its own, and a fight's loot money and XP are paid once, here. (Track A retires the old
+  hooks; `src/v2/quests/` and `combat/quest.js` are not edited.)
+- **Sealed BatchResult** (`fight/batch.js`, `progress.batches[br_xxxxxxxx] = { hash, bytes, seq }`, the newest 8): plain JSON built only from
+  what the fight recorded, `hash = hashJson(bytes)` (the contract's Hash). `resolveBatch({ id, state }) -> { id, hash, bytes } | null` is the
+  function Story Block's `batchResults.resolve` calls; it returns null for a missing id or bytes that do not hash to their hash. Once
+  sealed under an id the bytes never change (a rebuild, a reload and a second fight leave them). The receipt and `combat.last` carry
+  `batch: { id, hash }`. Wiring `batchResults` on the module definition is lead-owned (`module.js`) and is not done here.
+- **Loot.** A drop whose new definition the pin cannot register (story equipment, a rarity over the place's ceiling, a place with no tier) is
+  left behind with the ones the party cannot carry (`lootHeld`), so a refused registration inside the grant never fails the fight's end. The
+  end's summary says "too heavy to carry" for those too (v1's words; unchanged on purpose).
+
+**Hook lines outside this part** (a pinned fight needs them; each is a one-liner or a guarded branch, all but the engine's behind `pinnedOf`):
+
+- `src/combat.js` (+40/-5): `formHooks` export (plan, perform, describe, shifts), `'stat-shift'` in `FIGHT_ONLY`, `skill.costs` in `blockReason`,
+  `formHooks.shifts` at the start and end of a turn, `type: 'form'` and skills with `parts` in `resolve`/`perform`, `form` in
+  `availableActions`, the per-action stream in `actInPlace` (`f.drawsBy === 'action'`), `drawsBy` in `startFight`, `joinFight` and `ENGINE`,
+  summoned units outside the wipe check and `summarize`.
+- `src/v2/combat/index.js` (+20/-7): imports; `form` action fields; `built`/`pinnedSetup` and `beginUnits` in `start`; `actionWithId`,
+  `guardAction` and `beginUnits` in the play path; `settleEnd` first in `end`; `uses: {}` and the XP `claim` for a pinned fight; `sealed.batch`
+  on the last result and the receipt; `lootHeld` in `grantLoot`; the pin's slice into `cardContext`.
+- `src/v2/combat/setup.js` (+6): the pinned skills and `restoreStrengths` in `partyCombatants`.
+- In the parts of this module: `progress/guard.js` (kinds `combat.act`, `combat.end`), `progress/assess.js` (dispatch), `progress/domain.js`
+  (`batches`, `unitProblem` exported), `progress/roster.js` (`summon.begin`, `summon.settle`), `rules/commands.js` (`attachIfFree`, because
+  the loot grant inside `combat.end` registers items under the end's own guard).
+
+**Gaps and differences (written down, not decided):**
+
+- Death, return and wipe batches (B6), Story Director checks, danger and NSD (slice 4) are not here. `BatchResult` v1 is the fight's own kind.
+- A carried condition's strength is known only from a sealed result; a character who keeps a regeneration from a fight whose result was
+  evicted (more than eight fights later) carries the condition without its recorded strength, and the engine's own default for it applies (`restoreStrengths`).
+- Foe adapters (`foeToEngine`) and element resistances are not in the engine; foes are v1's, scaled as before.
+- The value the `item.define` hook gives a loot item is checked at registration, not by `lootHeld`; a drop over the value ceiling can still
+  fail a grant. (The value ceiling is generous: four times the stat budget at the level ceiling, by rarity.)
+- `batchResults.resolve` is wired by the lead on the module definition; until then nothing in Story Block reads `progress.batches`.
+
 ## Differences from the contract and track C's fixtures, and gaps (written down, not decided)
 
 - `rules.item` answers an `ItemRule` (the contract); C's fixture adds `frozen: true`, which the screens do not need.
@@ -146,7 +209,7 @@ and in the creation wizard's budget. Hook lines outside this part: `party/sheets
 - The full resolved pin rides in every checkpoint (583 KB for a big pack); B3/E6 will store `resolved` once, keyed by `rulesHash`.
 - Story Block must expose `resolved`, `rulesHash`, `packHash` and `RULES_V2_PROGRESSION` to the activation: `packs.rules` returns
   only the manifest today. That is an E/D task before activation.
-- Slice 3 and later: combat actions, effects and conditions, death and return, Story Director checks, tiers and danger.
+- Slice 4 and later: death and return, Story Director checks, tiers and danger.
 
 ## Code that production does not reach yet
 

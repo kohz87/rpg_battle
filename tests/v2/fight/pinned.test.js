@@ -381,3 +381,30 @@ play('a drop the pin cannot register is left behind, never a failed end: a place
         for (const key of Object.keys(AREA_TIERS)) delete AREA_TIERS[key];
     }
 });
+
+play('C10 retained projections: the last result keeps its summary, parts and sealed result through the folding reply, a rebuild and a reload; the id resolves to the same bytes', async t => {
+    const w = await ready(t);
+    const v = await begin(w);
+    await finish(w);
+    const out = w.ui('combat.end', { session: v.id });
+    assert.equal(out.ok, true, out.message);
+    const { batch } = out.receipt.data;
+    const last = () => w.q('combat.last', {});
+    const mine = () => { const { fresh, folded, ...rest } = last(); return JSON.stringify(rest); };
+    const kept = mine();
+    assert.equal(last().batch.hash, batch.hash);
+    assert.ok(last().summary && last().parts, 'the Fight screen reads its summary and parts');
+    // The story moves on: the result folds on the screen, and is still the same record.
+    await w.say('Later.', ['~ here pack.fixture/haven']);
+    await w.say('Later still.', []);
+    assert.equal(last().folded, true);
+    assert.equal(mine(), kept);
+    w.host.store.rebuild();
+    assert.equal(mine(), kept);
+    await w.host.st.loadChat(JSON.parse(JSON.stringify(w.host.ctx.chat)));
+    assert.equal(mine(), kept);
+    const sealed = resolveBatch({ id: batch.id, state: w.head() });
+    assert.equal(sealed.hash, batch.hash);
+    assert.equal(hashJson(sealed.bytes), batch.hash);
+    assert.deepEqual(w.problems(), []);
+});
