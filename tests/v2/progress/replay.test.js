@@ -192,9 +192,10 @@ test('no clock holds the credits; the clock set earlier at the same place releas
     const w = await started(t);
     const key = nextKey();
     await w.say('Before the clock.', [`! attempt ${ACTOR} | skill: s00 | form: s00-base | key: ${key}`]);
-    const [held] = Object.values(w.slice('progress').credits);
-    assert.deepEqual(held, { award: 0, reason: 'clock', minute: null, day: null, reply: held.reply });
-    assert.equal(Object.keys(w.slice('progress').attempts).length, 1, 'the attempt is on the ledger');
+    assert.deepEqual(w.slice('progress').credits, {}, 'held, not zeroed: no row for it');
+    assert.equal(Object.keys(w.slice('progress').attempts).length, 1, 'the attempt is on the ledger, pending');
+    assert.deepEqual(rbClaims(w).filter(key => key.includes(':credit:')), [], 'and no claim');
+    assert.deepEqual(w.problems(), [], 'the host did not even ask for a settlement while the clock is unset');
     const index = at(w, 'Before the clock.');
     const message = w.host.ctx.chat[index];
     const edited = message.mes.replace('<Changes>\n', `<Changes>\n~ time ${3 * DAY + 5}\n`);
@@ -206,7 +207,9 @@ test('no clock holds the credits; the clock set earlier at the same place releas
     message.mes = message.mes.replace(`~ time ${3 * DAY + 5}\n`, '');
     message.swipes[message.swipe_id] = message.mes;
     assert.equal((await w.host.turn.reread(index)).ok, true);
-    assert.deepEqual(Object.values(w.slice('progress').credits).map(credit => [credit.award, credit.reason]), [[0, 'clock']]);
+    assert.deepEqual(w.slice('progress').credits, {}, 'held again');
+    assert.deepEqual(rbClaims(w).filter(key => key.includes(':credit:')), []);
+    assert.deepEqual(w.problems(), []);
     sameAfterRebuild(w, 'with the clock gone');
 });
 
@@ -224,7 +227,7 @@ test('the promotions after a promotion go when the first one does: 20 needs 10, 
     assert.deepEqual(choices(w), [`${ACTOR}|0`], 'neither is applied');
     assert.equal(w.progress().class, ref('c0'));
     assert.equal(w.problems().filter(problem => problem.code === 'REPLAY_PREREQUISITE').length >= 2, true);
-    assert.deepEqual(rbClaims(w).filter(key => key.includes(':class:')), [`rb:ep_00000001:class:${ACTOR}:0`]);
+    assert.deepEqual(rbClaims(w).filter(key => key.includes(':class:')), [`rb:ep_00000000:class:${ACTOR}:0`]);
     sameAfterRebuild(w, 'after the delete');
 });
 

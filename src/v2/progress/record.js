@@ -39,7 +39,7 @@ export function recordBasicClass(ctx, { actor, class: ref }) {
     const choices = ctx.draft('progress').choices;
     const key = choiceKey(actor, 0);
     if (Object.hasOwn(choices, key)) ctx.fail('REFUSED', 'That character already has a basic class.');
-    if (!ctx.claim(`rb:${epochOf()}:class:${actor}:0`)) ctx.fail('CLAIMED', 'That character\'s basic class was already chosen.');
+    if (!ctx.claim(`rb:${epochOf(ctx)}:class:${actor}:0`)) ctx.fail('CLAIMED', 'That character\'s basic class was already chosen.');
     const choice = { actor, milestone: 0, kind: 'class', previous: null, selected: ref, skills: [...picked.skills], rulesHash: ix.rulesHash };
     choices[key] = choice;
     return { choice };
@@ -69,7 +69,8 @@ export function recordAttempt(ctx, input) {
     if (!source) ctx.fail('FAILED', 'There is no reply yet to hold the attempt.');
     const capSource = input.capSource ?? source;
     if (!isObject(capSource) || !isRecordId(capSource.sid) || !isRecordId(capSource.swipeKey) || !isRecordId(capSource.evidence)) ctx.fail('INVALID', 'An attempt\'s boundary is a Source.');
-    ixOf(ctx);
+    const ix = ixOf(ctx);
+    if (ix.form(form)?.skill !== skill) ctx.fail('INVALID', 'That form does not belong to that skill.');
     const id = idFromHash('at', ctx.hash({ kind, key }));
     const attempt = { actor, skill, form, kind, source: whole(source), capSource: whole(capSource), cost, session, minute };
     const attempts = ctx.draft('progress').attempts;

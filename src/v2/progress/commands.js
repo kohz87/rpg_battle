@@ -48,7 +48,8 @@ function pinned(ctx, payload) {
 
 const queryOf = ctx => (name, args) => ctx.query(name, args);
 
-// "No choices during an active fight" (B3): asked of the combat part by its query, which may not be there.
+// "No choices during an active or unsettled fight" (B3): asked of the combat part by its query, which may not be there. Any session
+// it still holds (a won fight whose end has not been settled included) refuses; only a query that is absent, or throws, is no fight.
 function noFight(ctx) {
     let session = null;
     try {
@@ -56,7 +57,7 @@ function noFight(ctx) {
     } catch {
         return;
     }
-    if (isObject(session) && session.status === 'active') ctx.fail('REFUSED', 'Finish the fight before choosing.');
+    if (isObject(session)) ctx.fail('REFUSED', 'Finish the fight, and let it settle, before choosing.');
 }
 
 function claimOnce(ctx, key, message) {
@@ -64,7 +65,7 @@ function claimOnce(ctx, key, message) {
 }
 
 function guard(ctx, ix, kind, payload, inputs, recorded) {
-    ctx.replayGuard(buildGuard({ hash: value => ctx.hash(value), owner: ctx.module, source: ctx.source ?? ctx.fail('FAILED', 'There is no reply yet to hold the choice.'), rulesHash: ix.rulesHash, kind, payload, inputs }), recorded);
+    ctx.replayGuard(buildGuard({ hash: value => ctx.hash(value), owner: ctx.module, epoch: epochOf(ctx), source: ctx.source ?? ctx.fail('FAILED', 'There is no reply yet to hold the choice.'), rulesHash: ix.rulesHash, kind, payload, inputs }), recorded);
 }
 
 function classChoose(ctx, payload) {
@@ -78,7 +79,7 @@ function classChoose(ctx, payload) {
     const answer = assess('class.choose', { ix, progress: ctx.read('progress'), query: queryOf(ctx) }, payload);
     if (!answer.ok) ctx.fail(answer.code, answer.why);
     const { actor, milestone } = payload;
-    claimOnce(ctx, `rb:${epochOf()}:class:${actor}:${milestone}`, 'That promotion was already taken.');
+    claimOnce(ctx, `rb:${epochOf(ctx)}:class:${actor}:${milestone}`, 'That promotion was already taken.');
     ctx.draft('progress').choices[choiceKey(actor, milestone)] = {
         actor, milestone, kind: 'class', previous: payload.expectedClass, selected: payload.class, skills: [...answer.skills], rulesHash: ix.rulesHash,
     };
@@ -101,7 +102,7 @@ function pathChoose(ctx, payload) {
     const answer = assess('path.choose', { ix, progress: ctx.read('progress'), query: queryOf(ctx) }, payload);
     if (!answer.ok) ctx.fail(answer.code, answer.why);
     const { actor, milestone } = payload;
-    claimOnce(ctx, `rb:${epochOf()}:path:${actor}:${milestone}`, 'That step was already taken.');
+    claimOnce(ctx, `rb:${epochOf(ctx)}:path:${actor}:${milestone}`, 'That step was already taken.');
     ctx.draft('progress').choices[choiceKey(actor, milestone)] = {
         actor, milestone, kind: 'path', skill: payload.skill, fromForm: payload.fromForm, option: payload.option, step: answer.step, rulesHash: ix.rulesHash,
     };
@@ -131,7 +132,7 @@ function settle(ctx, payload = {}) {
     const credits = ctx.draft('progress').credits;
     const credited = [];
     for (const { id, award, reason, minute, day, reply } of answer.plan) {
-        claimOnce(ctx, `rb:${epochOf()}:credit:${id}`, 'That use was already credited.');
+        claimOnce(ctx, `rb:${epochOf(ctx)}:credit:${id}`, 'That use was already credited.');
         credits[id] = { award, reason, minute, day, reply };
         if (award > 0) credited.push(id);
     }

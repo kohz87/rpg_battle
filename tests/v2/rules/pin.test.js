@@ -107,3 +107,14 @@ test('a stored slice is held to the same shape', () => {
     assert.notEqual(rulesProblems(null).length, 0);
     assert.notEqual(rulesProblems({ ...slice, pin: { ...slice.pin, identity: { ...slice.pin.identity, engine: 'x' } } }).length, 0);
 });
+
+test('the rules and progress parts come as a pair: both ids, in order, each part complete only with the other', async () => {
+    const { rulesParts } = await import('../../../src/v2/rules/index.js');
+    assert.deepEqual(rulesParts.map(([id]) => id), ['rules', 'progress']);
+    const [[, rules], [, progress]] = rulesParts;
+    // rules.settle writes progress; the progress guards read the rules pin: each names a domain only the other owns.
+    assert.deepEqual(Object.keys(rules.domains), ['rules']);
+    assert.deepEqual(Object.keys(progress.domains), ['progress']);
+    assert.ok(rules.commands['rules.settle'] && progress.commands['class.choose'] && progress.hooks.replayGuard);
+    assert.throws(() => { rulesParts.push(['x', {}]); }, TypeError, 'the list is frozen');
+});

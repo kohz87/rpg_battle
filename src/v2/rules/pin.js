@@ -20,14 +20,13 @@
 // `progression` = RULES_V2_PROGRESSION. The validator below only holds the stored data to the shape this code
 // reads; it does not repeat the checker. Pure.
 
-import { isDefId, isHash, isObject } from './ids.js';
+import { int, isDefId, isHash, isObject } from './ids.js';
 
 export const RULES_VERSION = 2;
 export const ENGINE = 'rb-rules-2';
 /** The rules domain's schema number. */
 export const RULES_SCHEMA = 2;
 
-const int = (value, min = -Infinity, max = Infinity) => Number.isInteger(value) && value >= min && value <= max;
 const ascending = (list, min = 1) => Array.isArray(list) && list.length > 0 && list.every((n, i) => int(n, min) && (i === 0 || n > list[i - 1]));
 
 /** The rules slice of a fresh timeline: marked as rules v2, nothing pinned yet. */

@@ -14,7 +14,7 @@
 // earned is the replay guard's question (guard.js), not the validator's.
 
 import { KINDS, REASONS } from './credit.js';
-import { isActorId, isDefId, isHash, isObject } from '../rules/ids.js';
+import { int, isActorId, isDefId, isHash, isObject } from '../rules/ids.js';
 
 /** The most attempts the ledger keeps. Every paid attempt stays (caps and mastery are derived from them). */
 export const MAX_ATTEMPTS = 4000;
@@ -22,7 +22,6 @@ export const PROGRESS_SCHEMA = 2;
 
 export const initialProgress = () => ({ schema: PROGRESS_SCHEMA, choices: {}, attempts: {}, credits: {} });
 
-const int = (value, min = -Infinity, max = Infinity) => Number.isSafeInteger(value) && value >= min && value <= max;
 // The ledger holds thousands of records and its validator runs after every block a replay applies, so a record is checked
 // by shape (a prefix and a length), not by pattern; the writers (record.js, commands.js) make ids that match the patterns.
 const refLike = value => typeof value === 'string' && value.length > 3 && value.length < 161 && value.includes('/');
@@ -69,8 +68,7 @@ function creditProblem(id, credit, attempts) {
     if (!isObject(credit) || !isObject(attempts[id])) return `${where} has no attempt`;
     if (credit.award !== 0 && credit.award !== 1) return `${where}: a credit is 0 or 1`;
     if (credit.award === 1 ? credit.reason !== null : !REASONS.includes(credit.reason)) return `${where}: a credit of 0 says why, a credit of 1 does not`;
-    if (!(credit.minute === null || Number.isSafeInteger(credit.minute)) || !(credit.day === null || Number.isSafeInteger(credit.day))) return `${where}: its minute and day are whole numbers or null`;
-    if (credit.award === 1 && (credit.minute === null || credit.day === null)) return `${where}: a credit counts on a day`;
+    if (!Number.isSafeInteger(credit.minute) || !Number.isSafeInteger(credit.day)) return `${where}: a credit counts on a minute and a day`;
     if (!idLike(credit.reply, 'sr')) return `${where} names no reply`;
     return '';
 }

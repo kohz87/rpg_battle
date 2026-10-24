@@ -15,17 +15,22 @@ import { initialProgress, progressProblems } from './domain.js';
 import { replayGuard } from './guard.js';
 import { pendingOf } from './credit.js';
 import { pinOf } from '../rules/pin.js';
+import { readClock } from '../training/clock.js';
 
 export { GUARD_KINDS, PREREQUISITE_REMOVED } from './guard.js';
+export { buildGuard } from './guard.js';
 export { recordAttempt, recordBasicClass } from './record.js';
 
 /**
- * afterCapture(view): once a reply's lines have run, ask for the settlement of the attempts that wait for a
- * credit. Nothing in a chat that pins no rules (contract §9: a legacy chat is left alone) or has none waiting.
+ * afterCapture(view): once a reply's lines have run, ask for the settlement of the attempts that wait for a credit. Nothing in a
+ * chat that pins no rules (contract §9: a legacy chat is left alone), with none waiting, or with only attempts that wait for a clock
+ * (no minute of their own and no clock set: they are held until one is, contract §4 "unset time holds only dependent actions").
  */
 export function afterCapture(view) {
     if (!pinOf(view?.state)) return { commands: [] };
-    return { commands: pendingOf(view.state.domains?.progress).length ? [{ type: 'rules.settle', payload: {} }] : [] };
+    const waiting = pendingOf(view.state.domains?.progress);
+    const ready = waiting.some(item => Number.isSafeInteger(item.attempt.minute)) || (waiting.length > 0 && readClock(view.query) !== null);
+    return { commands: ready ? [{ type: 'rules.settle', payload: {} }] : [] };
 }
 
 export const part = {

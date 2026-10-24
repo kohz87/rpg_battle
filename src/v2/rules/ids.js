@@ -21,11 +21,21 @@ export const isRecordId = value => typeof value === 'string' && RECORD_ID.test(v
 export const isDefId = value => typeof value === 'string' && DEF_ID.test(value);
 export const isHash = value => typeof value === 'string' && HASH.test(value);
 
-/** Until Story Block's savepoint epoch exists (track E6) every claim and guard names this epoch. */
-export const EPOCH_FALLBACK = 'ep_00000001';
+/** A whole number in a range (safe integers only). */
+export const int = (value, min = -Infinity, max = Infinity) => Number.isSafeInteger(value) && value >= min && value <= max;
 
-/** The epoch a state is in (contract §6 claims `rb:<epoch>:…`). One place to change when E6 brings the real one. */
-export const epochOf = () => EPOCH_FALLBACK;
+/** Until Story Block's savepoint epoch exists (track E6) every claim and guard names the genesis epoch. */
+export const EPOCH_FALLBACK = 'ep_00000000';
+
+/**
+ * The epoch of a command context (`ctx.epoch`, which Story Block provides with E6) or of a state (its savepoints domain), else the
+ * genesis epoch (contract §6 claims `rb:<epoch>:…`, Guard.epoch). A guard names the epoch it was made in; the replay hook compares.
+ */
+export function epochOf(from) {
+    if (RECORD_ID.test(from?.epoch ?? '')) return from.epoch;
+    const saved = from?.domains?.savepoints?.epoch;
+    return RECORD_ID.test(saved ?? '') ? saved : EPOCH_FALLBACK;
+}
 
 const BASE36 = '0123456789abcdefghijklmnopqrstuvwxyz';
 

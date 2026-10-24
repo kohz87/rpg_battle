@@ -34,7 +34,7 @@ test('C01 fresh: the basic class is milestone 0; a second one, a non-root class 
     assert.deepEqual(w.slice('progress').choices[`${ACTOR}|0`], {
         actor: ACTOR, milestone: 0, kind: 'class', previous: null, selected: ref('c0'), skills: [ref('s00'), ref('s01'), ref('s02')], rulesHash: hashOf(w),
     });
-    assert.ok(w.head().meta.claims[`rb:ep_00000001:class:${ACTOR}:0`]);
+    assert.ok(w.head().meta.claims[`rb:ep_00000000:class:${ACTOR}:0`]);
     const p = w.progress();
     assert.equal(p.level, 1);
     assert.equal(p.checklist.length, 3);
@@ -76,7 +76,7 @@ test('C02 promotion: the last credit enables the child; one click swaps all thre
     assert.equal(receipt.data.v2.guard.owner, 'rpg-battle');
     assert.equal(receipt.data.v2.guard.predicate.kind, 'class.choose');
     assert.deepEqual(w.slice('progress').choices[`${ACTOR}|10`], { actor: ACTOR, milestone: 10, kind: 'class', previous: ref('c0'), selected: ref('c1'), skills: [ref('s10'), ref('s11'), ref('s12')], rulesHash: hashOf(w) });
-    assert.ok(w.head().meta.claims[`rb:ep_00000001:class:${ACTOR}:10`], 'the milestone is claimed');
+    assert.ok(w.head().meta.claims[`rb:ep_00000000:class:${ACTOR}:10`], 'the milestone is claimed');
     const after = w.progress();
     assert.equal(after.class, ref('c1'));
     assert.equal(after.checklist.length, 3, 'exactly three skills after the swap');
@@ -156,14 +156,26 @@ test('level: a character below the milestone is refused with the level it needs'
     assert.equal((await promote(w)).ok, true);
 });
 
-test('no choice while a fight is on', async t => {
-    const fight = { id: 'fake-fight', name: 'Fight', version: '0.0.0', queries: { 'combat.session': () => ({ status: 'active' }) } };
-    const w = await started(t, { modules: [fight] });
-    await w.say('Training.', [`! xp ${ACTOR} | n: 1000`]);
-    await grind(w, { forms: BASE });
-    const out = await promote(w);
-    assert.equal(out.code, 'REFUSED');
-    assert.match(out.message, /Finish the fight/);
+test('no choice while a fight is on, or over but not settled yet (any session the combat part still holds)', async t => {
+    for (const session of [{ status: 'active' }, { status: 'won' }, { status: 'lost' }, { status: 'fled' }, { status: 'ended' }]) {
+        const fight = { id: 'fake-fight', name: 'Fight', version: '0.0.0', queries: { 'combat.session': () => session } };
+        const w = await started(t, { modules: [fight] });
+        await w.say('Training.', [`! xp ${ACTOR} | n: 1000`]);
+        await grind(w, { forms: BASE });
+        const out = await promote(w);
+        assert.equal(out.code, 'REFUSED', session.status);
+        assert.match(out.message, /Finish the fight/);
+        assert.equal(w.progress().class, ref('c0'), 'nothing was chosen');
+    }
+});
+
+test('the check fails open only when the combat part is not there or cannot be asked: a missing session is no fight', async t => {
+    for (const queries of [{}, { 'combat.session': () => { throw new Error('down'); } }, { 'combat.session': () => null }]) {
+        const w = await started(t, { modules: [{ id: 'fake-fight', name: 'Fight', version: '0.0.0', queries }] });
+        await w.say('Training.', [`! xp ${ACTOR} | n: 1000`]);
+        await grind(w, { forms: BASE });
+        assert.equal((await promote(w)).ok, true);
+    }
 });
 
 test('C04 waiting: level 90 on a basic class; nothing is chosen, later milestones are refused, then promotions go in order', async t => {
@@ -198,7 +210,7 @@ test('C05 selected parent through the host: a step at 40 opens its own three opt
     assert.equal(first.receipt.narrate, true);
     assert.match(first.receipt.summary, /s30-base-a/);
     assert.deepEqual(w.slice('progress').choices[`${ACTOR}|40`], step(ACTOR, 40, 's30', 's30-base', 's30-base-a', 1));
-    assert.ok(w.head().meta.claims[`rb:ep_00000001:path:${ACTOR}:40`]);
+    assert.ok(w.head().meta.claims[`rb:ep_00000000:path:${ACTOR}:40`]);
     const view = w.progress();
     assert.equal(view.checklist[0].form, ref('s30-base-a'));
     assert.equal(view.checklist[0].mastery, 0, 'the new form starts at 0/5');
@@ -261,6 +273,6 @@ test('the guard on a choice names the rules, the epoch and a hash of the facts (
     assert.equal(span.guard.rulesHash, hashOf(w));
     assert.match(span.guard.inputHash, /^[0-9a-f]{64}$/);
     assert.deepEqual(span.guard.predicate, { kind: 'class.choose', payload: { actor: ACTOR, milestone: 10, class: ref('c1'), expectedClass: ref('c0'), rulesHash: hashOf(w) } });
-    assert.deepEqual(span.claims, [`rb:ep_00000001:class:${ACTOR}:10`]);
+    assert.deepEqual(span.claims, [`rb:ep_00000000:class:${ACTOR}:10`]);
     assert.deepEqual(span.recorded.facts.held.length, 3);
 });

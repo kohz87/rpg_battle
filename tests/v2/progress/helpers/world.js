@@ -9,8 +9,10 @@
 //   ! attempt <actor> | skill: s00 | form: s00-base | key: k1 [| kind: combat|narrative|training] [| minute: n]
 //   ~ time <minute>                              the clock
 import { createHost } from '../../../vendor/story-block/testkit/index.js';
-import { part as rulesPart, pinOf, pinRules } from '../../../../src/v2/rules/index.js';
-import { part as progressPart, recordAttempt, recordBasicClass } from '../../../../src/v2/progress/index.js';
+import { pinOf, pinRules, rulesParts } from '../../../../src/v2/rules/index.js';
+import { recordAttempt, recordBasicClass } from '../../../../src/v2/progress/index.js';
+
+const [[, rulesPart], [, progressPart]] = rulesParts;
 import { levelFromEarned } from '../../../../src/v2/progress/level.js';
 import { ACTOR, FRIEND, fixturePin, ref } from './fixture.js';
 
@@ -88,7 +90,7 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
                 const progress = ctx.draft('progress');
                 for (const choice of choices) {
                     progress.choices[`${choice.actor}|${choice.milestone}`] = choice;
-                    ctx.claim(`rb:ep_00000001:${choice.kind === 'class' ? 'class' : 'path'}:${choice.actor}:${choice.milestone}`);
+                    ctx.claim(`rb:ep_00000000:${choice.kind === 'class' ? 'class' : 'path'}:${choice.actor}:${choice.milestone}`);
                 }
                 let n = Object.keys(progress.attempts).length;
                 for (const [form, count] of Object.entries(uses)) {
@@ -99,7 +101,7 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
                         const source = { sid: ctx.source.sid, swipeKey: ctx.source.swipeKey, evidence: ctx.source.evidence };
                         progress.attempts[id] = { actor, skill: form.replace(/-base.*$/, ''), form, kind: 'narrative', source, capSource: { ...source, sid: reply }, cost: null, session: null, minute: null };
                         progress.credits[id] = { award: 1, reason: null, minute: (100000 + n) * DAY + 600, day: 100000 + n, reply };
-                        ctx.claim(`rb:ep_00000001:credit:${id}`);
+                        ctx.claim(`rb:ep_00000000:credit:${id}`);
                     }
                 }
                 return { summary: 'Seeded.', narrate: false };
