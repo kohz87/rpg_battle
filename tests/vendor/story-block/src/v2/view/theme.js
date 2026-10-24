@@ -270,6 +270,11 @@ export function schemeTokens(scheme, panel, { opaque = false, strength = DEFAULT
             ['--ss-warn-text', PALETTES[scheme]?.warnText ?? PALETTES.dark.warnText],
             ['--ss-help', PALETTES[scheme]?.help ?? PALETTES.dark.help],
             ['--ss-good', '#4caf6e'],
+            // the other tones (module borders, tints and tags use them): the scheme's fixed tones, each >= 4.5:1 as text on that scheme's
+            // surface; without them a `var(--ss-bad)` here would be invalid and the ring or tint would vanish
+            ['--ss-bad', PALETTES[scheme]?.bad ?? PALETTES.dark.bad],
+            ['--ss-warn', PALETTES[scheme]?.warn ?? PALETTES.dark.warn],
+            ['--ss-info', PALETTES[scheme]?.info ?? PALETTES.dark.info],
             ['--ss-chatter', 'var(--SmartThemeEmColor, #919191)'],
             ['--ss-blur', 'blur(var(--SmartThemeBlurStrength, 0px))'],
         ];

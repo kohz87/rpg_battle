@@ -61,7 +61,7 @@ export const part = {
     hooks: { onBlocked },
     settings: { section: 'Character creation', defaults: { ...SETTINGS_DEFAULTS }, schema: SETTINGS_SCHEMA },
     tabs: [],
-    // The start card under the greeting until a character exists (UI 8f).
+    // The start card under the newest reply until a character exists (UI 8f).
     cards: { [START_CARD_ID]: startCard },
     widgets: { [PRESET_WIDGET]: presetPick, [CHOICE_WIDGET]: choicePick, [STAT_RADAR_WIDGET]: statRadar, ...wizardWidgets, [CREATE_BUTTON_WIDGET]: createButton },
     screens: [createScreen],
@@ -70,7 +70,8 @@ export const part = {
 export { BUILT_IN_RACES, BUILT_IN_TALENTS, STAT_LABELS, bonusText, creationContent, statChanges, talentCost } from './content.js';
 export { buildCharacter, creationRules, SETTINGS_DEFAULTS, SETTINGS_SCHEMA } from './build.js';
 export { buildQuery, cleanPortrait, commands, contentQuery, initialCreation, queries, validateCreation } from './commands.js';
-export { createdNotice, openCreation, startDraft } from './open.js';
+export { openCreation, startDraft } from './open.js';
+export { createdNotice } from './notice.js';
 export { CHOICE_WIDGET, cardImage, choicePick, renderChoicePick, toggled } from './choice-pick.js';
 export { CREATE_BUTTON_WIDGET, CREATE_LABEL, createButton, creationApi, renderCreateButton } from './create-button.js';
 export { BACKGROUND_LIMIT, avatarUrl, personaFor, readPersona } from './persona.js';
@@ -78,5 +79,5 @@ export { CREATE_SCREEN_ID, CREATE_STEPS, PORTRAIT_URL_MAX, TALENT_LIST_MAX, crea
 export { STAT_RADAR_WIDGET, radarAxes, radarPoint, radarScale, renderStatRadar, statRadar } from './radar.js';
 export { PRESET_WIDGET, presetDraft, presetPick, renderPresetPick } from './preset-pick.js';
 export {
-    CREATED_EVENT, FILE_LIMIT, IMPORT_PICK_WIDGET, TALENT_ROLL_WIDGET, characterFrom, importFile, importPick, renderImportPick, renderTalentRoll, talentRoll, wizardWidgets,
+    CREATED_EVENT, DRAFT_START_WIDGET, FILE_LIMIT, IMPORT_PICK_WIDGET, TALENT_ROLL_WIDGET, characterFrom, draftStart, importFile, importPick, renderDraftStart, renderImportPick, renderTalentRoll, talentRoll, wizardWidgets,
 } from './wizard-widgets.js';

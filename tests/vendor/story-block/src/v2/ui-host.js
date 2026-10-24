@@ -339,41 +339,80 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
         if (!Number.isInteger(index) || index < 0) return `${index}`;
         return `${index}|${readRecord(ctx.chat?.[index])?.sid ?? ''}`;
     };
-    // ---- cards under replies (reply-cards.js): the module's cards, scanned once per story state and dropped when it changes ----
+    // ---- cards under replies (reply-cards.js): each card is asked once, on the head reply's state; the scan is kept per chat, head and rev ----
     const replyLater = laterStore();
-    let replyScan = null;
+    let replyScan = null;          // { key, map } for the chat, head and rev it was made on
+    let replyNodes = new Map();    // drawn card nodes by `${chat}|${index}|${card key}`, reused while the card is the same
+    const pageFolds = new Set();   // folds of a chat with no id: this page only, never saved
     const dropReplyScan = () => { replyScan = null; };
     const replyOffs = ['head', 'committed', 'turn', 'feature'].map(name => events.on(name, dropReplyScan));
     const replyChatTypes = ctx.eventTypes ?? ctx.event_types ?? {};
     if (typeof ctx.eventSource?.on === 'function' && replyChatTypes.CHAT_CHANGED) {
-        ctx.eventSource.on(replyChatTypes.CHAT_CHANGED, dropReplyScan);
-        replyOffs.push(() => (ctx.eventSource.removeListener ?? ctx.eventSource.off)?.call(ctx.eventSource, replyChatTypes.CHAT_CHANGED, dropReplyScan));
+        const chatLeft = () => { dropReplyScan(); pageFolds.clear(); replyNodes = new Map(); };
+        ctx.eventSource.on(replyChatTypes.CHAT_CHANGED, chatLeft);
+        replyOffs.push(() => (ctx.eventSource.removeListener ?? ctx.eventSource.off)?.call(ctx.eventSource, replyChatTypes.CHAT_CHANGED, chatLeft));
     }
     const chatKeyNow = () => String(ctx.getCurrentChatId?.() ?? ctx.chatId ?? '');
-    const replyCardsAt = index => {
-        if (!replyScan) {
-            const entries = registry.cardEntries?.() ?? [];
-            replyScan = entries.length ? scanReplyCards(entries, {
-                carriers: carriers(),
-                messageAt: i => ctx.chat?.[i] ?? null,
-                stateAt: i => (Number.isInteger(i) && i >= 0 && i < (ctx.chat?.length ?? 0) ? store.at(i) : null),
-                query: (name, args, state) => queryAt(name, args, state),
-                chatId: chatKeyNow(),
-            }) : new Map();
+    // The Later fold is kept per chat and card key (not per message: a new reply does not reset it); a chat with no id keeps it
+    // for this page only.
+    const foldKey = (chat, key) => (chat ? `${chat}|${key}` : '');
+    const foldedNow = (chat, key) => (chat ? replyLater.has(foldKey(chat, key)) : pageFolds.has(key));
+    const setFold = (chat, key, on) => {
+        if (chat) replyLater.set(foldKey(chat, key), on);
+        else if (on) pageFolds.add(key);
+        else pageFolds.delete(key);
+    };
+    const replyHead = () => {
+        const index = store.headIndex();
+        return Number.isInteger(index) && index >= 0 && index < (ctx.chat?.length ?? 0) ? index : -1;
+    };
+    const replyScanAt = (head, chat) => {
+        const stored = head >= 0 ? store.at(head) : null;
+        const key = `${chat}|${head}|${stored?.meta?.rev ?? ''}`;
+        if (replyScan?.key === key) return replyScan.map;
+        const entries = registry.cardEntries?.() ?? [];
+        // A brand-new chat holds only the greeting and no story record yet (nothing has been read or written): the head has no state, so
+        // the cards are asked on the initial one, and a start card shows before the first reply.
+        let state = stored;
+        if (!state && head >= 0 && entries.length) {
+            try { state = runtime.initial?.() ?? null; } catch { state = null; }
         }
-        const items = replyScan.get(index) ?? [];
-        if (!items.length) return [];
-        const head = index === store.headIndex();
+        const map = entries.length && state ? scanReplyCards(entries, {
+            head,
+            messageAt: i => ctx.chat?.[i] ?? null,
+            stateAt: () => state,
+            query: (name, args, at) => queryAt(name, args, at),
+            chatId: chat,
+            // A card that stops being drawn drops its fold: a later card of the same id starts unfolded.
+            onEnded: id => { if (foldedNow(chat, id)) setFold(chat, id, false); },
+        }) : new Map();
+        replyScan = { key, map };
+        return map;
+    };
+    const replyCardsAt = index => {
+        // Cards follow the head: only the head reply carries them (the greeting when it is the only reply).
+        const head = replyHead();
+        if (index !== head) return [];
         const chat = chatKeyNow();
-        return items.map(item => {
-            const key = `${chat}|${index}|${item.key}`;
-            return drawReplyCard(doc, item, {
-                head,
-                folded: replyLater.has(key),
-                onFold: on => { replyLater.set(key, on); mounts?.card?.refresh?.(index, { force: false }); },
+        const items = replyScanAt(head, chat).get(head) ?? [];
+        const drawn = new Map();
+        const nodes = items.map(item => {
+            const folded = foldedNow(chat, item.key);
+            const nodeKey = `${chat}|${index}|${item.key}`;
+            let sign = null;
+            try { sign = JSON.stringify([item.card, folded]); } catch { sign = null; }
+            const kept = replyNodes.get(nodeKey);
+            const node = sign !== null && kept?.sign === sign ? kept.node : drawReplyCard(doc, item, {
+                head: true,
+                folded,
+                onFold: on => { setFold(chat, item.key, on); mounts?.card?.refresh?.(index, { force: false }); },
                 onAct: action => runReplyAction(action),
             });
+            drawn.set(nodeKey, { sign, node });
+            return node;
         });
+        replyNodes = drawn;
+        return nodes;
     };
     // A card's "open" names a screen: the game view when the screen has a screen mount, else its dialog (a wizard is dialog-only;
     // the action's `payload` is the dialog's starting draft), else nothing; that is said once per screen.
@@ -381,7 +420,11 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
     function openReplyScreen(id, payload) {
         const mountsOf = screens.resolve(id)?.screen?.mounts ?? [];
         if (mountsOf.includes('screen') && api.openScreen(id)) return;
-        if (mountsOf.includes('dialog') && api.dialog.open(id, { draft: JSON.parse(JSON.stringify(payload ?? {})) })) return;
+        if (mountsOf.includes('dialog')) {
+            let draft = {};
+            try { draft = JSON.parse(JSON.stringify(payload ?? {})); } catch { draft = {}; }
+            if (api.dialog.open(id, { draft })) return;
+        }
         if (unopened.has(id)) return;
         unopened.add(id);
         console.warn(`[Story Suite] a card asked to open "${id}", which has no screen or dialog to show.`);
@@ -453,7 +496,11 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
     const headStateNow = () => { const index = store.headIndex(); return Number.isInteger(index) && index >= 0 ? store.at(index) : null; };
     const activeTabs = () => panelTabs()
         .filter(tab => typeof tab.active !== 'function' || activeNow(tab, headStateNow(), queryAt).on)
-        .map(tab => (typeof tab.active === 'function' ? { ...tab, alert: activeNow(tab, headStateNow(), queryAt).alert } : tab));
+        .map(tab => {
+            if (typeof tab.active !== 'function') return tab;
+            const now = activeNow(tab, headStateNow(), queryAt);
+            return { ...tab, alert: now.alert, alertText: now.badge ?? '' };
+        });
     const tabSource = { tabs: () => visibleNav(activeTabs(), tabOrder.choice(), navKey, tab => tab.order, navPresent) };
 
     // Settings → Tabs & Packs → Tabs: every tab and screen once (by id), where it shows, in the reader's order.

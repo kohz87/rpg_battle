@@ -1,8 +1,9 @@
 // Story Suite v2: one card under a reply (fix 8e, reply-cards.js and Cards.dc.html): a glass card with a 1px ring in its tone, a 34px
 // tone icon tile, the title and the muted text, the rows, and a button row (44px buttons, the primary one in the accent, at most
 // three). Folded by Later it is one line: "<title> · <first row> · Open". Built with createElement and textContent only: a module's
-// words are never parsed. Only the newest reply's cards can act (the command and the screen go to the story's head); the others show
-// their buttons disabled, with the reason.
+// words are never parsed. A card is drawn under the head reply only, so its buttons are enabled; `head: false` (a caller that draws one
+// elsewhere) shows them disabled, with the reason. Controls carry `data-focus` (line, later, action:<id>) so the mount can give the
+// focus back to the same control when the card is drawn again.
 //
 // drawReplyCard(doc, { key, card }, { head, folded, onFold(on), onAct(action) }) → element.
 
@@ -20,6 +21,7 @@ export function drawReplyCard(doc, { key, card }, { head = true, folded = false,
     if (folded) {
         const line = h(doc, 'button', 'ss-rc-line');
         line.type = 'button';
+        line.setAttribute('data-focus', 'line');
         const first = card.rows[0]?.text || card.text || '';
         const label = [card.title, first, S.open].filter(Boolean).join(' · ');
         line.textContent = label;
@@ -55,6 +57,7 @@ export function drawReplyCard(doc, { key, card }, { head = true, folded = false,
         const node = h(doc, 'button', action.primary ? 'ss-rc-action ss-rc-primary' : 'ss-rc-action');
         node.type = 'button';
         node.setAttribute('data-action', action.id);
+        node.setAttribute('data-focus', `action:${action.id}`);
         const icon = iconNode(doc, action.icon, 'ss-rc-action-icon');
         if (icon) node.appendChild(icon);
         node.appendChild(h(doc, 'span', '', action.label));
@@ -68,6 +71,7 @@ export function drawReplyCard(doc, { key, card }, { head = true, folded = false,
     if (card.later) {
         const later = h(doc, 'button', 'ss-rc-action ss-rc-later', S.later);
         later.type = 'button';
+        later.setAttribute('data-focus', 'later');
         later.addEventListener('click', () => onFold(true));
         buttons.appendChild(later);
     }

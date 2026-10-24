@@ -361,6 +361,21 @@ test('trade: away from a market only the orders show, and nothing can be collect
     assert.deepEqual(view.orders.map(order => [order.collect, order.status]), [[false, 'ready: collect at a market'], [false, 'not ready yet']]);
 });
 
+test('cards: a broken two-handed weapon still blocks the off-hand tile (Two-handed), as item.equip refuses it', () => {
+    const state = makeState();
+    state.domains.inventory.defs.greatsword = { id: 'greatsword', name: 'Greatsword', kind: 'equipment', slot: 'weapon', rarity: 'common', stats: { ATK: 4 }, tags: ['two-handed'], value: 20, stack: false };
+    state.domains.inventory.stacks.it_2h000001 = { id: 'it_2h000001', def: 'greatsword', qty: 1, owner: 'party', equipped: 'weapon', note: '', from: '' };
+    const gear = (counted, why = '') => ({ 'items.gear': () => ({ actor: PC, level: 3, counted, unused: counted.length ? [] : [{ stack: 'it_2h000001', name: 'Greatsword', slot: 'weapon', rarity: 'common', why }], bonuses: {} }) });
+    const tiles = counted => ask((s, a) => cards(s, a, withQueries(state, gear(counted, 'broken'))), state).find(card => card.id === PC).paperdoll.tiles;
+    const offhandOf = list => list.find(tile => tile.key === 'offhand');
+    const good = tiles([{ stack: 'it_2h000001', name: 'Greatsword', slot: 'weapon', rarity: 'common', stats: { ATK: 4 } }]);
+    assert.equal(offhandOf(good).note, 'Two-handed', 'a sound one blocks it');
+    const broken = tiles([]);
+    assert.equal(broken.find(tile => tile.key === 'weapon').empty, true, 'a broken weapon gives nothing: its tile is not filled');
+    assert.equal(offhandOf(broken).note, 'Two-handed', 'but the off-hand is still blocked, not "Empty"');
+    assert.equal(offhandOf(broken).empty, true, 'nothing to fill it with');
+});
+
 test('trade: without the trade queries the page says so instead of failing', () => {
     const view = trade(makeState(), {}, null);
     assert.equal(view.available, false);

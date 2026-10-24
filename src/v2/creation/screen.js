@@ -42,6 +42,7 @@ const REGISTER = (body, { optional = false } = {}) => `
 
 const START = `
 <section class="cc-step cc-start">
+  <ss-widget class="cc-draft-start" name="rpg-battle.draft-start" data-props='{}'></ss-widget>
   <p class="cc-none" data-if="!q.c.hasPresets">This story has no ready-made characters. Go on to make your own.</p>
   <div data-if="q.c.hasPresets">
     <p class="cc-lead">Start from a ready-made character, or make your own. A ready-made one fills in race, talents and points (you can still change them) and brings its skills; your name and background stay your persona's.</p>
@@ -148,6 +149,7 @@ const YOU = `
 
 const CSS = `
 .cc-one { font-family: var(--ss-font); color: var(--ss-text); }
+.cc-draft-start { display: none; }
 .cc-step { display: grid; gap: var(--ss-space-3); min-width: 0; container: cc / inline-size; }
 .cc-layout { display: grid; gap: var(--ss-space-3); min-width: 0; }
 .cc-main, .cc-register { display: grid; gap: var(--ss-space-2); align-content: start; min-width: 0; }

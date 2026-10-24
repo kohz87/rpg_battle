@@ -373,7 +373,8 @@ export function cards(state, args = {}, tools = null) {
             paperdoll: paperdollOf({
                 actorId: id, pieces, limits,
                 keys: Object.fromEntries(pieces.map(piece => [piece.stack, inventory.stacks?.[piece.stack]?.equipped ?? ''])),
-                twoHanded: pieces.some(piece => piece.counted && piece.slot === 'weapon' && inventory.defs?.[inventory.stacks?.[piece.stack]?.def]?.tags?.includes('two-handed')),
+                // A broken two-handed weapon still blocks the off-hand (item.equip refuses it while the weapon is worn): counted or not.
+                twoHanded: pieces.some(piece => piece.slot === 'weapon' && inventory.defs?.[inventory.stacks?.[piece.stack]?.def]?.tags?.includes('two-handed')),
             }),
             effects: effectsOf(tools, id),
             encumbered: burdenOf(tools, id),

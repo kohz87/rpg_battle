@@ -13,58 +13,18 @@
 // background and default portrait are the SillyTavern persona's (persona.js). The dialog gets no
 // `random`: the Talents step has its own Random (widget rpg-battle.talent-roll, which previews
 // `creation.rollTalent` and commits that preview in place), so the footer shows Random nowhere. An
-// import from the Start step (widget rpg-battle.import-pick) makes the character itself; its
-// `rpg-battle:created` event closes the dialog.
+// import from the Start step (widget rpg-battle.import-pick) makes the character itself, closes its own dialog and
+// says "<Name> is ready" (so also when Story Block's start card opened the wizard, which does not come through here);
+// its `rpg-battle:created` event is what closes this dialog first.
 
-import { STATS } from '../../rules.js';
-import { personaFor } from './persona.js';
+import { startDraft } from './draft.js';
 import { CREATE_SCREEN_ID } from './screen.js';
 import { CREATED_EVENT } from './wizard-widgets.js';
+import { showCreated } from './notice.js';
 
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
-/**
- * The wizard's starting draft: the persona's name, background and avatar (MODULES §F22: never
- * typed in the wizard), no ready-made character, race or talents, every stat at 0 points.
- * `prefill` (a pack's ready-made character, or a draft being reopened) sets preset, race,
- * talents, points and portrait only.
- */
-export function startDraft(view = null, { prefill = null, persona = null } = {}) {
-    const who = persona ?? personaFor(view);
-    const given = isRecord(prefill) ? prefill : {};
-    const points = Object.fromEntries(STATS.map(stat => [stat, Number.isInteger(given.points?.[stat]) ? given.points[stat] : 0]));
-    return {
-        name: who.name,
-        background: who.background,
-        preset: typeof given.preset === 'string' ? given.preset : '',
-        race: typeof given.race === 'string' ? given.race : '',
-        talents: Array.isArray(given.talents) ? given.talents.filter(id => typeof id === 'string') : [],
-        points,
-        portrait: typeof given.portrait === 'string' && given.portrait.trim() ? given.portrait.trim() : who.avatar,
-    };
-}
-
-/**
- * The words said once a character is made: { title, text }. title is "<Name> is ready"; text is the
- * command's own summary (race, talents, skills; or where an imported one comes from) and where to see
- * them. Plain text: the toast shows it as text.
- */
-export function createdNotice(result, draft = {}) {
-    const flat = (value, max) => Array.from(String(value ?? '').replace(/\s+/g, ' ').trim()).slice(0, max).join('');
-    const name = flat(draft?.name, 80) || 'Your character';
-    const summary = flat(result?.receipt?.summary ?? result?.summary, 300);
-    return { title: `${name} is ready`, text: `${summary ? `${summary} ` : ''}See them on the Party screen.` };
-}
-
-// The toast: SillyTavern's toastr where there is one; a host or test may pass `notify(title, text)` instead.
-function showCreated(result, draft, notify) {
-    const { title, text } = createdNotice(result, draft);
-    try {
-        if (typeof notify === 'function') return notify(title, text);
-        globalThis.toastr?.success?.(text, title, { timeOut: 6000, escapeHtml: true });
-    } catch { /* a toast that fails changes nothing: the character is made */ }
-    return undefined;
-}
+export { startDraft };
 
 function dialogOf(api) {
     for (const [owner, fn] of [[api?.dialog, api?.dialog?.open], [api, api?.openDialog], [api?.mounts?.dialog, api?.mounts?.dialog?.open]]) {

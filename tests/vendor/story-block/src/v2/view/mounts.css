@@ -624,12 +624,14 @@
 .ss-rc-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .ss-rc-row-icon { flex: none; color: var(--ring); }
 .ss-rc-row-text { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; }
-.ss-rc-tag { flex: none; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; }
-.ss-rc-tag-good { color: var(--ss-good); }
-.ss-rc-tag-bad { color: var(--ss-bad); }
-.ss-rc-tag-warn { color: var(--ss-warn); }
-.ss-rc-tag-accent { color: var(--ss-accent); }
-.ss-rc-tag-info { color: var(--ss-info); }
+.ss-rc-tag { --tag-ring: currentColor; flex: none; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--tag-ring); color: var(--ss-text); }
+/* The tag is text: >= 4.5:1 on the glass in both schemes (the base tones are not: good 4.1 and info 3.9 on the light glass's darker backgrounds). The
+   tones that have a text token use it; good and info keep the tone as the ring only. */
+.ss-rc-tag-good { --tag-ring: var(--ss-good); }
+.ss-rc-tag-bad { color: var(--ss-bad-text, var(--ss-bad)); }
+.ss-rc-tag-warn { color: var(--ss-warn-text, var(--ss-warn)); }
+.ss-rc-tag-accent { color: var(--ss-accent-text, var(--ss-accent)); }
+.ss-rc-tag-info { --tag-ring: var(--ss-info); }
 .ss-rc-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .ss-rc-action { flex: 1 1 auto; min-height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--ss-border);
                 background: none; color: var(--ss-text); font: inherit; font-weight: 600; cursor: pointer;
@@ -642,6 +644,9 @@
               border-radius: 14px; border: 1px solid var(--ring); background: var(--ss-glass, var(--ss-tile)); color: var(--ss-text);
               font: inherit; font-weight: 600; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* An active tab's alert (view/screen-bar.js): a red dot at the top-right of the icon, with a ring in the bar's own colour. */
+/* An active tab's alert (view/screen-bar.js): a red dot at the top-right of the icon, with a ring in the bar's own colour. It is a dot, never
+   a number: the badge's words are the slot's name and tooltip. More gets one when an alerting tab sits under it; a sheet tile too. */
 .ss-screenbar-alert { position: absolute; top: 8px; right: calc(50% - 20px); width: 9px; height: 9px; border-radius: 50%;
                       background: var(--ss-bad); border: 2px solid var(--ss-badge, #1e2132); pointer-events: none; }
+.ss-screenbar-tile { position: relative; }
+.ss-screenbar-tile > .ss-screenbar-alert { top: 8px; right: 8px; }

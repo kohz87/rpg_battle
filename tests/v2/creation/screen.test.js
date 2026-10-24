@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
-    CREATED_EVENT, CREATE_SCREEN_ID, CREATE_STEPS, FILE_LIMIT, cardImage, characterFrom, createScreen, createdNotice, creationContent, onBlocked, openCreation, part, startDraft, toggled,
+    CREATED_EVENT, CREATE_SCREEN_ID, DRAFT_START_WIDGET, renderDraftStart, CREATE_STEPS, FILE_LIMIT, cardImage, characterFrom, createScreen, createdNotice, creationContent, onBlocked, openCreation, part, startDraft, toggled,
 } from '../../../src/v2/creation/index.js';
 import { makeHost, points } from './helpers/fake-host.js';
 import { installDom } from '../screens/helpers/dom.js';
@@ -52,7 +52,7 @@ async function renderer() {
 }
 
 /** Draws one step as the dialog would: q from the screen's data, the draft, the module's settings, and query. */
-async function draw(stepId, { draft, settings = {}, host = makeHost({ settings }), onSubmit, command = null } = {}) {
+async function draw(stepId, { draft, settings = {}, host = makeHost({ settings }), onSubmit, command = null, apiExtra = {} } = {}) {
     const r = await renderer();
     const doc = r.installFakeDom();
     doc.createElementNS ??= (_ns, tag) => doc.createElement(tag);   // the radar draws SVG
@@ -73,7 +73,7 @@ async function draw(stepId, { draft, settings = {}, host = makeHost({ settings }
     // The wizard's widgets get the dialog's api: preview and commit on the host, commands recorded
     // (or run by `command`), and the draft (the renderer adds it).
     const sent = [];
-    const api = { preview: (type, payload) => host.preview(type, payload), commit: token => host.commit(token) };
+    const api = { preview: (type, payload) => host.preview(type, payload), commit: token => host.commit(token), ...apiExtra };
     const run = (type, payload) => {
         sent.push({ type, payload });
         return command ? command(type, payload) : host.command(type, payload);
@@ -357,6 +357,80 @@ test('Points left is said once per step: the lead line; the stat steppers\' own 
     // The steppers still get the budget (it stops + when the points are spent).
     const { props } = await draw('stats', { draft: { ...startDraft(), points: points({ STR: 2 }) } });
     assert.ok(props['ss.stepper'].every(p => p.budget === 8));
+});
+
+test('start step: an empty draft is filled with the persona of the moment; a draft with anything in it is left alone', () => {
+    const persona = { name: 'Mara', background: 'A cartographer.', avatar: 'mara.png' };
+    const withDraft = draft => ({ draft: { value: () => draft }, view: () => ({ persona }) });
+    const empty = {};
+    const handle = renderDraftStart({}, {}, withDraft(empty));
+    assert.deepEqual(empty, startDraft(null, { persona: { name: 'Mara', background: 'A cartographer.', avatar: '/thumbnail?type=persona&file=mara.png' } }));
+    assert.equal(typeof handle.destroy, 'function');
+    const opened = { ...startDraft(null, { persona: { name: 'Ren' } }), race: 'rpg-battle/elf' };
+    const before = structuredClone(opened);
+    renderDraftStart({}, {}, withDraft(opened));
+    assert.deepEqual(opened, before, 'openCreation\'s draft is not touched');
+    assert.doesNotThrow(() => renderDraftStart({}, {}, {}), 'no draft api: nothing happens');
+    assert.doesNotThrow(() => renderDraftStart({}, {}, withDraft(Object.freeze({}))));
+    assert.ok(part.widgets[DRAFT_START_WIDGET], 'the creation part registers it');
+    assert.match(CREATE_STEPS.find(step => step.id === 'start').template, /<ss-widget[^>]*name="rpg-battle.draft-start"/, 'first on the Start step');
+});
+
+test('start step: an import closes the wizard and says "<Name> is ready" once, whether openCreation or the start card opened it', { skip: NO_RENDERER }, async () => {
+    const character = { v: 1, kind: 'rpg-battle/character', name: 'Ren of Elsewhere', level: 4 };
+    const file = { name: 'ren.json', size: 200, text: async () => JSON.stringify(character) };
+    // The widget on the Start step, with the dialog api it gets; `forward` carries its bubbling event to the handle's own root
+    // (the fake DOM's events lose `detail`, so the result is handed over as it is).
+    const pick = async ({ dialog, draft, forward = null }) => {
+        const result = { ok: true, receipt: { summary: 'Ren arrives from another story (Lv 4).' } };   // a result is told once: one per import
+        const { el } = await draw('start', { draft, command: () => result, apiExtra: { dialog } });
+        if (forward) el.addEventListener(CREATED_EVENT, () => forward.root.dispatch(CREATED_EVENT, { detail: { result } }));
+        const input = el.querySelector('input.rpg-import-file');
+        input.files = [file];
+        input.dispatch('change');
+        await new Promise(resolve => setTimeout(resolve, 0));
+        return result;
+    };
+    const savedToastr = globalThis.toastr;
+    try {
+        // Opened by openCreation (its notify): its listener on the event closes and tells; the widget adds no second toast.
+        const toasts = [];
+        globalThis.toastr = { success: (text, title) => toasts.push({ title, text }) };
+        const told = [];
+        const viaOpen = fakeDialogApi();
+        openCreation(viaOpen.api, { notify: (title, text) => told.push({ title, text }) });
+        const wizard = viaOpen.opened[0];
+        const result = await pick({ dialog: viaOpen.api.dialog, draft: wizard.draft, forward: wizard });
+        assert.equal(wizard.open, false, 'closed');
+        assert.equal(wizard.closedWith, result);
+        assert.deepEqual(told.map(note => note.title), ['Ren is ready'], 'told once, through notify');
+        assert.equal(toasts.length, 0, 'and not a second time through the toast');
+
+        // Opened by openCreation, but the widget's event never reaches its listener: the widget closes and tells itself.
+        const alone = fakeDialogApi();
+        openCreation(alone.api);
+        await pick({ dialog: alone.api.dialog, draft: alone.opened[0].draft });
+        assert.equal(alone.opened[0].open, false);
+        assert.deepEqual(toasts.map(toast => toast.title), ['Ren is ready']);
+
+        // Opened as Story Block's start card does (no openCreation, no onDone, no event listener): same result.
+        toasts.length = 0;
+        const viaCard = fakeDialogApi();
+        const handle = viaCard.api.dialog.open(CREATE_SCREEN_ID, { draft: startDraft(null, { persona: { name: 'Ren' } }) });
+        const carded = await pick({ dialog: viaCard.api.dialog, draft: handle.draft });
+        assert.equal(handle.open, false);
+        assert.equal(handle.closedWith, carded);
+        assert.deepEqual(toasts.map(toast => toast.title), ['Ren is ready']);
+
+        // A dialog of another screen is left alone.
+        const other = fakeDialogApi();
+        const unrelated = other.api.dialog.open('rpg-battle/other', { draft: {} });
+        await pick({ dialog: other.api.dialog, draft: startDraft(null, { persona: { name: 'Ren' } }) });
+        assert.equal(unrelated.open, true);
+    } finally {
+        if (savedToastr === undefined) delete globalThis.toastr;
+        else globalThis.toastr = savedToastr;
+    }
 });
 
 test('start step: Import character runs creation.import with the picked file and the persona\'s name, background and portrait', { skip: NO_RENDERER }, async () => {

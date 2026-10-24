@@ -38,30 +38,30 @@ const TEMPLATE = `
     <li class="tile line tone-good" data-each="state.inventory.stacks as s" data-if="changed(s)"
         data-class="eq: s.equipped != null">
       <span class="ico"><i class="fa-solid fa-box-open" aria-hidden="true"></i></span>
-      <span class="tx"><span class="main">{{ state.inventory.defs[s.def].name }}</span>
+      <span class="tx"><span class="main" title="{{ state.inventory.defs[s.def].name }}">{{ state.inventory.defs[s.def].name }}</span>
         <span class="sub">${html(C.itemNow, { qty: '{{ s.qty }}' })}</span>
-        <span class="sub" data-if="s.equipped">${html(C.equipped, { slot: '{{ s.equipped }}' })}</span></span>
+        <span class="sub" data-if="s.equipped" title="${html(C.equipped, { slot: '{{ s.equipped }}' })}">${html(C.equipped, { slot: '{{ s.equipped }}' })}</span></span>
     </li>
     <li class="tile line coin tone-warn" data-if="changed('state.inventory.wallets.party')">
       <span class="ico"><i class="fa-solid fa-coins" aria-hidden="true"></i></span>
       <span class="tx">
       <i class="fa-solid fa-coins" aria-hidden="true"></i>
       <span class="main" data-if="len(q.currency.coins) == 0">${html(C.wallet, { coin: '<b>{{ state.inventory.wallets.party.coin }}</b>', money: '<span data-if="state.inventory.wallets.party.coin == 1">{{ q.currency.name }}</span><span data-if="state.inventory.wallets.party.coin != 1">{{ q.currency.plural }}</span>' })}</span>
-      <span class="main" data-if="len(q.currency.coins) > 0">${html(C.wallet, { coin: '<b>{{ fmt.money(state.inventory.wallets.party.coin) }}</b>', money: '' })}</span></span>
+      <span class="main" data-if="len(q.currency.coins) > 0" title="{{ fmt.money(state.inventory.wallets.party.coin) }}">${html(C.wallet, { coin: '<b>{{ fmt.money(state.inventory.wallets.party.coin) }}</b>', money: '' })}</span></span>
     </li>
     <li class="tile line place tone-info" data-if="changed('state.scene.place')">
       <span class="ico"><i class="fa-solid fa-location-dot" aria-hidden="true"></i></span>
-      <span class="tx" data-if="state.scene.place.name"><span class="main">${html(C.movedTo)}</span> <span class="sub">{{ state.scene.place.name }}</span></span>
+      <span class="tx" data-if="state.scene.place.name"><span class="main">${html(C.movedTo)}</span> <span class="sub" title="{{ state.scene.place.name }}">{{ state.scene.place.name }}</span></span>
       <span class="tx" data-if="!state.scene.place.name"><span class="main">${html(C.placeCleared)}</span></span>
     </li>
     <li class="tile line present tone-accent" data-if="changed('state.scene.present')">
       <span class="ico"><i class="fa-solid fa-users" aria-hidden="true"></i></span>
-      <span class="tx" data-if="len(state.scene.present) > 0"><span class="main">{{ state.scene.present }}</span> <span class="sub">${html(C.hereLabel)}</span></span>
+      <span class="tx" data-if="len(state.scene.present) > 0"><span class="main" title="{{ state.scene.present }}">{{ state.scene.present }}</span> <span class="sub">${html(C.hereLabel)}</span></span>
       <span class="tx" data-if="len(state.scene.present) == 0"><span class="main">${html(C.nobodyNow)}</span></span>
     </li>
     <li class="tile line extra" data-each="moduleLines as x" data-if="x.kind != 'check'" data-class="tone-good: x.tone == 'good'; tone-bad: x.tone == 'bad'; tone-warn: x.tone == 'warn'; tone-info: x.tone == 'info'; tone-accent: x.tone == 'accent'">
       <span class="ico"><i class="fa-solid {{ x.icon }}" aria-hidden="true"></i></span>
-      <span class="tx"><span class="main">{{ x.text }}</span> <span class="sub flag" data-if="x.flag != ''">{{ x.flag }}</span> <span class="sub note" data-if="x.note != ''">{{ x.note }}</span></span>
+      <span class="tx"><span class="main" title="{{ x.text }}">{{ x.text }}</span> <span class="sub flag" data-if="x.flag != ''" title="{{ x.flag }}">{{ x.flag }}</span> <span class="sub note" data-if="x.note != ''" title="{{ x.note }}">{{ x.note }}</span></span>
     </li>
   </ul>
   <ul class="checks">
@@ -111,7 +111,8 @@ const CSS = `${BASE_CSS}
 .tile .ico { flex: none; width: 34px; height: 34px; border-radius: var(--ss-radius-s, 10px); background: var(--ss-tile); color: var(--ring);
              display: flex; align-items: center; justify-content: center; }
 .tile .tx { min-width: 0; display: grid; gap: 1px; }
-.tile .main, .tile .sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A long line wraps to two lines and is cut after that; the full text is the span's title. */
+.tile .main, .tile .sub { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .tile .main { font-weight: 700; }
 .tile .sub { font-size: 0.9em; color: var(--ss-muted); }
 .tile.tone-good { --ring: var(--ss-good); }
@@ -119,17 +120,18 @@ const CSS = `${BASE_CSS}
 .tile.tone-warn { --ring: var(--ss-warn); }
 .tile.tone-info { --ring: var(--ss-info); }
 .tile.tone-accent { --ring: var(--ss-accent); }
-/* The checks: a 34px tile with the d20, the line beside it (wraps under the tile's edge, never over it). */
+/* The checks: a 34px tile with the d20, the line beside it (wraps under the tile's edge, never over it). The ring is the row's border and
+   tint; the words are the theme's text colour (the tone colours are under 4.5:1 on the light glass). */
 .checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .check { --ring: var(--ss-border); display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 4px 10px; align-items: center; padding: 8px 12px;
-         border-radius: 12px; border: 1px solid var(--ring); background: color-mix(in srgb, var(--ring) 10%, transparent); }
+         border-radius: 12px; border: 1px solid var(--ring); background: color-mix(in srgb, var(--ring) 10%, transparent); color: var(--ss-text, var(--sb-fg)); }
 .check.good { --ring: var(--ss-good); }
 .check.bad { --ring: var(--ss-bad); }
 .check .dice { width: 34px; height: 34px; border-radius: 9px; background: var(--ss-tile); display: flex; align-items: center; justify-content: center;
                font-weight: 800; font-size: 1.15em; color: var(--ss-text); }
 .check .what { min-width: 0; overflow-wrap: anywhere; line-height: 1.35; }
-.check .res { color: var(--ring); }
-.check .story { grid-column: 2; justify-self: end; font-size: 0.85em; text-align: right; color: var(--ring); }
+.check .res { font-weight: 800; }
+.check .story { grid-column: 2; justify-self: end; font-size: 0.85em; text-align: right; }
 .none { margin: 0; }
 .loot { margin-top: 2px; padding-top: 10px; border-top: 1px solid var(--ss-border, var(--sb-border)); display: grid; gap: 6px; }
 .loot-head { margin: 0; }
