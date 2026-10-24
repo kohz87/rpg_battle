@@ -17,18 +17,27 @@ import { initialProgress, progressProblems } from './domain.js';
 import { replayGuard } from './guard.js';
 import { pendingOf } from './credit.js';
 import { pinOf } from '../rules/pin.js';
+import { placeOf, purseOf } from '../training/step.js';
+import { readClock } from '../training/clock.js';
 
 export { GUARD_KINDS, PREREQUISITE_REMOVED } from './guard.js';
 export { recordAttempt, recordBasicClass, recordCombatUses } from './record.js';
 export { startRulesClass } from './start.js';
 
 /**
- * afterCapture(view): once a reply's lines have run, ask for the settlement of the attempts that wait for a
- * credit. Nothing in a chat that pins no rules (contract §9: a legacy chat is left alone) or has none waiting.
+ * afterCapture(view): once a reply's lines have run, ask for the settlement of the attempts that wait for a credit, and for
+ * the start of each training session the player asked for (when the clock, the place and the purse can be read: otherwise it
+ * waits). Nothing in a chat that pins no rules (contract §9: a legacy chat is left alone) or has none waiting.
  */
 export function afterCapture(view) {
     if (!pinOf(view?.state)) return { commands: [] };
-    return { commands: pendingOf(view.state.domains?.progress).length ? [{ type: 'rules.settle', payload: {} }] : [] };
+    const commands = [];
+    if (pendingOf(view.state.domains?.progress).length) commands.push({ type: 'rules.settle', payload: {} });
+    const waiting = Object.values(view.state.domains?.training?.sessions ?? {}).filter(session => session.status === 'requested').map(session => session.id).sort();
+    if (waiting.length && readClock(view.query) !== null && placeOf(view.query) !== null && purseOf(view.query) !== null) {
+        for (const session of waiting) commands.push({ type: 'rules.settle', payload: { session } });
+    }
+    return { commands };
 }
 
 export const part = {

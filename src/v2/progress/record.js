@@ -54,35 +54,42 @@ export function recordBasicClass(ctx, { actor, class: ref }) {
  * CONFLICT. The credit is not decided here: rules.settle decides it.
  */
 export function recordAttempt(ctx, input) {
-    if (!isObject(input)) ctx.fail('INVALID', 'An attempt is { actor, skill, form, kind, key }.');
+    const source = ctx.source;
+    if (!source) ctx.fail('FAILED', 'There is no reply yet to hold the attempt.');
+    ixOf(ctx);
+    const made = attemptFor(input, source, value => ctx.hash(value), message => ctx.fail('INVALID', message));
+    const attempts = ctx.draft('progress').attempts;
+    const have = attempts[made.id];
+    if (have) {
+        // The same attempt again changes nothing; the Source it was first recorded on is the one that stays.
+        const same = ['actor', 'skill', 'form', 'kind', 'cost', 'session', 'minute'].every(field => have[field] === made.record[field]);
+        if (!same) ctx.fail('CONFLICT', 'That attempt was recorded with other contents.');
+        return { id: made.id, created: false };
+    }
+    if (Object.keys(attempts).length >= MAX_ATTEMPTS) ctx.fail('LIMITED', `This chat keeps at most ${MAX_ATTEMPTS} paid attempts.`);
+    attempts[made.id] = made.record;
+    return { id: made.id, created: true };
+}
+
+/**
+ * The attempt record and its id for `input` on `source` (pure; `hash` the contract's Hash, `invalid(message)` throws). Shared
+ * by recordAttempt and by whatever plans an attempt before it is written (the training step's replay guard).
+ */
+export function attemptFor(input, source, hash, invalid) {
+    if (!isObject(input)) invalid('An attempt is { actor, skill, form, kind, key }.');
     const { actor, skill, form, kind, key } = input;
     if (!isActorId(actor) || !isDefId(skill) || !isDefId(form) || !KINDS.includes(kind) || typeof key !== 'string' || !key || key.length > 120) {
-        ctx.fail('INVALID', 'An attempt names an actor, a skill, a form, its kind (combat, narrative or training) and a key.');
+        invalid('An attempt names an actor, a skill, a form, its kind (combat, narrative or training) and a key.');
     }
     const cost = input.cost ?? null;
     const session = input.session ?? null;
     const minute = input.minute ?? null;
     if (!(cost === null || (typeof cost === 'string' && cost && cost.length <= 120)) || !(session === null || (typeof session === 'string' && session && session.length <= 120)) || !(minute === null || Number.isSafeInteger(minute))) {
-        ctx.fail('INVALID', 'An attempt\'s cost and session are text, its minute a whole minute.');
+        invalid('An attempt\'s cost and session are text, its minute a whole minute.');
     }
-    const source = ctx.source;
-    if (!source) ctx.fail('FAILED', 'There is no reply yet to hold the attempt.');
     const capSource = input.capSource ?? source;
-    if (!isObject(capSource) || !isRecordId(capSource.sid) || !isRecordId(capSource.swipeKey) || !isRecordId(capSource.evidence)) ctx.fail('INVALID', 'An attempt\'s boundary is a Source.');
-    ixOf(ctx);
-    const id = idFromHash('at', ctx.hash({ kind, key }));
-    const attempt = { actor, skill, form, kind, source: whole(source), capSource: whole(capSource), cost, session, minute };
-    const attempts = ctx.draft('progress').attempts;
-    const have = attempts[id];
-    if (have) {
-        // The same attempt again changes nothing; the Source it was first recorded on is the one that stays.
-        const same = ['actor', 'skill', 'form', 'kind', 'cost', 'session', 'minute'].every(field => have[field] === attempt[field]);
-        if (!same) ctx.fail('CONFLICT', 'That attempt was recorded with other contents.');
-        return { id, created: false };
-    }
-    if (Object.keys(attempts).length >= MAX_ATTEMPTS) ctx.fail('LIMITED', `This chat keeps at most ${MAX_ATTEMPTS} paid attempts.`);
-    attempts[id] = attempt;
-    return { id, created: true };
+    if (!isObject(capSource) || !isRecordId(capSource.sid) || !isRecordId(capSource.swipeKey) || !isRecordId(capSource.evidence)) invalid('An attempt\'s boundary is a Source.');
+    return { id: idFromHash('at', hash({ kind, key })), record: { actor, skill, form, kind, source: whole(source), capSource: whole(capSource), cost, session, minute } };
 }
 
 /**

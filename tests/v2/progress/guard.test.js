@@ -34,7 +34,7 @@ test('a guard is the contract\'s: owner, version 2, epoch, rules hash, input has
     assert.match(guard.epoch, /^ep_/);
     assert.match(guard.inputHash, /^[0-9a-f]{64}$/);
     assert.deepEqual(guard.predicate, { kind: 'class.choose', payload });
-    assert.deepEqual(GUARD_KINDS, ['class.choose', 'path.choose', 'rules.settle']);
+    for (const kind of ['class.choose', 'path.choose', 'rules.settle', 'skill.train', 'skill.use', 'class.start', 'party.setActive', 'summon.end']) assert.ok(GUARD_KINDS.includes(kind), kind);
 });
 
 test('the hook holds on the state the guard was made on, whatever the level above the milestone, and never reads the ordinal', () => {

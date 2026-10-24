@@ -29,7 +29,34 @@ export function smallRulesPack() {
             items: [], creatures: [], shops: [], recipes: [], quests: [], places: [{ slug: 'haven', name: 'Haven', x: 0, y: 0 }, { slug: 'mill', name: 'Mill', x: 1, y: 0 }] } };
 }
 
+/** The golden pack with two trainers at Haven: Old Brann (s00, s01, 20 coin) and Gale (s02, 5 coin, one frozen event, a storm). */
+export function trainerPack() {
+    const pack = smallRulesPack();
+    pack.content.rules[0].trainers = [
+        { slug: 'mentor', name: 'Old Brann', place: 'pack.fixture/haven', skills: ['s00', 's01'], fee: 20, minutes: 60, eventTemplates: [] },
+        { slug: 'stormy', name: 'Gale', place: 'pack.fixture/haven', skills: ['s02'], fee: 5, minutes: 60, eventTemplates: ['storm'] },
+    ];
+    pack.content.events = [{ id: 'storm', when: 'gold > 5', cue: 'A storm breaks the lesson.' }];
+    return pack;
+}
+
 let cached = null;
+const variants = new Map();
+
+/** fixturePin for another pack (cached by its name). */
+export function pinFor(name, pack) {
+    if (!variants.has(name)) {
+        const checked = validateRulesPack(pack);
+        if (!checked.ok) throw new Error(`the ${name} pack does not check: ${JSON.stringify(checked.errors)}`);
+        variants.set(name, Object.freeze({
+            resolved: checked.resolved, rulesHash: checked.rulesHash, progression: RULES_V2_PROGRESSION,
+            packKey: 'fixture', packVersion: '2.0.0', packHash: checked.packHash,
+            constantsHash: sha256(JSON.stringify(canonicalizeJson(checked.resolved.constants))),
+        }));
+    }
+    return variants.get(name);
+}
+export const trainersPin = () => pinFor('trainers', trainerPack());
 
 /** What Story Block's checker gives for the golden pack, as pinRules takes it: { resolved, rulesHash, progression, … }. */
 export function fixturePin() {

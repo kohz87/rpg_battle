@@ -25,7 +25,7 @@ import { assess } from './assess.js';
 import { indexOfState } from '../rules/graph.js';
 import { epochOf } from '../rules/ids.js';
 
-export const GUARD_KINDS = Object.freeze(['class.choose', 'path.choose', 'rules.settle', 'party.setActive', 'summon.end', 'class.start', 'skill.use']);
+export const GUARD_KINDS = Object.freeze(['class.choose', 'path.choose', 'rules.settle', 'party.setActive', 'summon.end', 'class.start', 'skill.use', 'skill.train']);
 /** What a block the guard turned off says (contract C14: REPLAY_PREREQUISITE, "The earlier prerequisite was removed."). */
 export const PREREQUISITE_REMOVED = 'The earlier prerequisite was removed.';
 
@@ -54,7 +54,7 @@ export function replayGuard({ state, query, hash }, info) {
     if (!progress || typeof progress !== 'object') return off('');
     const payload = guard.predicate.payload;
     if (payload === null || typeof payload !== 'object') return off('');
-    const answer = assess(kind, { ix, progress, query }, payload);
+    const answer = assess(kind, { ix, progress, training: state?.domains?.training, query }, payload, { source: info.source, hash, event: info.recorded?.event });
     if (!answer.ok) return off(answer.why);
     const expected = buildGuard({ hash, owner: guard.owner, source: info.source, rulesHash: ix.rulesHash, kind, payload, inputs: answer.inputs });
     return expected.inputHash === guard.inputHash ? { ok: true } : off('');

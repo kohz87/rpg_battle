@@ -26,6 +26,7 @@ export function indexOf(pin) {
         if (!children.has(entry.parent)) children.set(entry.parent, []);
         children.get(entry.parent).push(entry);
     }
+    const trainers = new Map((resolved.manifest.trainers ?? []).map(entry => [entry.id, entry]));
     const maxTier = Math.max(...progression.tiers);
     // "Path option arrays are ordered [g,a,b]" (contract §3): the generated form first, then the written a and b.
     const order = { [progression.generatedChoice]: 0, [progression.writtenChoices[0]]: 1, [progression.writtenChoices[1]]: 2 };
@@ -39,6 +40,8 @@ export function indexOf(pin) {
         class: ref => classes.get(ref) ?? null,
         skill: ref => skills.get(ref) ?? null,
         form: ref => forms[ref] ?? null,
+        trainer: ref => trainers.get(ref) ?? null,
+        trainers: [...trainers.values()],
         /** The base form of a skill (step 0, no parent), or null. */
         baseForm: skill => bases.get(skill) ?? null,
         /** The classes directly under `ref`, one tier up, in the pack's order. */

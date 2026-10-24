@@ -7,6 +7,7 @@ import { initialRules, rulesProblems } from './pin.js';
 import { commands } from '../progress/commands.js';
 import { queries } from '../progress/queries.js';
 import { queries as lookups } from './queries.js';
+import { queries as trainingQueries } from '../training/queries.js';
 
 export { RULES_VERSION, ENGINE, pinRules, pinOf, initialRules, rulesProblems, xpPerLevelProblem } from './pin.js';
 export { indexOf, indexOfState } from './graph.js';
@@ -14,5 +15,5 @@ export { indexOf, indexOfState } from './graph.js';
 export const part = {
     domains: { rules: { initial: initialRules, validate: rulesProblems } },
     commands: { 'rules.settle': commands['rules.settle'] },
-    queries: { 'rules.progress': queries['rules.progress'], ...lookups },
+    queries: { 'rules.progress': queries['rules.progress'], ...lookups, ...trainingQueries },
 };

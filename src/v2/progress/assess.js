@@ -7,6 +7,8 @@
 import { evaluateClass, evaluatePath, standing } from './offers.js';
 import { planSettlement } from './credit.js';
 import { readClock } from '../training/clock.js';
+import { planSession } from '../training/step.js';
+import { expectedSessionId, waitingOf } from '../training/session.js';
 import { isObject, isActorId } from '../rules/ids.js';
 import { ACTIVE_LIMIT, lifeOf } from '../rules/sheet.js';
 
@@ -57,6 +59,27 @@ function assessUnit(env, payload) {
     return { ok: true, unit, inputs: { unit: unit.id, kind: unit.kind, ended: unit.ended?.reason ?? null } };
 }
 
+/**
+ * skill.train: the character is alive and holds the skill in that form, the trainer is the pack's and teaches it, no request of
+ * this character waits, and the session named is exactly the next one for this character, trainer, skill and form.
+ */
+function assessRequest(env, payload) {
+    const { ix, progress, training, query } = env;
+    const member = memberOf(query, payload.actor);
+    if (!member) return { ok: false, code: 'NOT_FOUND', why: 'That character is not in the party.' };
+    if (lifeOf(member) !== 'alive') return { ok: false, code: 'REFUSED', why: `${member.name} cannot train now.` };
+    const trainer = ix.trainer(payload.trainer);
+    if (!trainer) return { ok: false, code: 'NOT_FOUND', why: 'That is not a trainer of this world.' };
+    const view = standing(ix, progress, payload.actor).skills.find(item => item.skill === payload.skill);
+    if (!view || view.form !== payload.form) return { ok: false, code: 'REFUSED', why: 'That is not one of the character\'s skills in that form.' };
+    if (!trainer.skills.includes(payload.skill)) return { ok: false, code: 'REFUSED', why: `${trainer.name} does not teach that.` };
+    const waiting = waitingOf(training, payload.actor);
+    if (waiting) return { ok: false, code: 'REFUSED', why: 'A training is already waiting for the host to start it.' };
+    const expected = expectedSessionId(training?.sessions, { actor: payload.actor, trainer: payload.trainer, skill: payload.skill, form: payload.form }, ix.rulesHash);
+    if (payload.session !== expected) return { ok: false, code: 'STALE', why: 'That offer is out of date; read the trainers again.' };
+    return { ok: true, member, trainer, inputs: { trainer: trainer.id, skill: payload.skill, form: payload.form, session: expected } };
+}
+
 /** class.start: a basic class of the pinned ruleset (a root: tier 0, no parent). */
 function assessStart(env, payload) {
     const picked = env.ix.class(payload.class);
@@ -100,8 +123,13 @@ function assessUse(env, payload) {
  * 'rules.settle'. `env`: { ix, progress, query }. → { ok: true, inputs, … } | { ok: false, code, why }.
  * `inputs` is what the guard hashes; the extras (`member`, `skills`, `step`, `plan`) are for the command.
  */
-export function assess(kind, env, payload) {
+export function assess(kind, env, payload, extra = {}) {
     const { ix, progress, query } = env;
+    if (kind === 'rules.settle' && typeof payload.session === 'string') {
+        // The host starts and finishes one training session (training/step.js); the event die is the one rolled, or the one recorded.
+        return planSession(env, payload.session, extra.event ?? { die: 0, template: null }, extra.source, extra.hash);
+    }
+    if (kind === 'skill.train') return assessRequest(env, payload);
     if (kind === 'rules.settle') {
         const plan = planSettlement(ix.constants, progress, readClock(query));
         return plan.length ? { ok: true, plan, inputs: { plan } } : { ok: false, code: 'NO_LONGER_DONE', why: 'There is nothing to settle here.' };

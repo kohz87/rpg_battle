@@ -23,7 +23,8 @@ import { choiceKey } from './derive.js';
 import { indexOf } from '../rules/graph.js';
 import { pinOf } from '../rules/pin.js';
 import { fightOn } from '../party/commands.js';
-import { epochOf, isActorId, isDefId, isHash, isObject } from '../rules/ids.js';
+import { rollEvent } from '../training/step.js';
+import { epochOf, isActorId, isDefId, isHash, isObject, isRecordId } from '../rules/ids.js';
 
 const CLASS_FIELDS = ['actor', 'milestone', 'class', 'expectedClass', 'rulesHash'];
 const PATH_FIELDS = ['actor', 'milestone', 'skill', 'fromForm', 'option', 'rulesHash'];
@@ -117,33 +118,55 @@ function pathChoose(ctx, payload) {
 }
 
 /**
- * rules.settle { boundary? }: the boundary is the reply the settlement stands on; when given it must name this
- * very reply (sid and swipeKey), and when left out it is this reply. The host's hook cannot know its reply's
- * Source before it runs, so it leaves the boundary out.
+ * rules.settle { boundary?, session? }: the boundary is the reply the settlement stands on; when given it must name this
+ * very reply (sid and swipeKey), and when left out it is this reply. The host's hook cannot know its reply's Source before
+ * it runs, so it leaves the boundary out. Without `session` it credits what waits (credit.js); with one it starts and finishes
+ * that training session (training/step.js) and credits as well. `started`, `completed`, `expired` and `credited` as in §3.
  */
 function settle(ctx, payload = {}) {
     if (ctx.cause !== 'system' || ctx.caller) ctx.fail('REFUSED', 'rules.settle is the host\'s own step: nobody else calls it.');
-    if (!isObject(payload) || Object.keys(payload).some(key => key !== 'boundary')) ctx.fail('INVALID', 'rules.settle takes { boundary? } and nothing else.');
+    if (!isObject(payload) || Object.keys(payload).some(key => key !== 'boundary' && key !== 'session')) ctx.fail('INVALID', 'rules.settle takes { boundary?, session? } and nothing else.');
     const boundary = payload.boundary ?? null;
     if (boundary !== null) {
         if (!isObject(boundary) || !ctx.source || boundary.sid !== ctx.source.sid || boundary.swipeKey !== ctx.source.swipeKey) ctx.fail('REFUSED', 'The boundary is not the reply this step stands on.');
     }
+    if (payload.session !== undefined && !(isRecordId(payload.session) && payload.session.startsWith('tr_'))) ctx.fail('INVALID', 'A training session is a tr_ id.');
     const ix = pinned(ctx, null);
-    const answer = assess('rules.settle', { ix, progress: ctx.read('progress'), query: queryOf(ctx) }, {});
+    const env = { ix, progress: ctx.read('progress'), training: ctx.read('training'), query: queryOf(ctx) };
+    const source = ctx.source ?? ctx.fail('FAILED', 'There is no reply yet to hold the settlement.');
+    const session = payload.session;
+    const event = session ? rollEvent(ctx, ix, env.training?.sessions?.[session] ?? {}) : null;
+    const answer = assess('rules.settle', env, session ? { session } : {}, { event, source, hash: value => ctx.hash(value) });
     if (!answer.ok) ctx.fail(answer.code, answer.why);
-    const credits = ctx.draft('progress').credits;
+    const progress = ctx.draft('progress');
+    const started = [];
+    const completed = [];
+    if (session) {
+        claimOnce(ctx, `rb:${epochOf()}:train:${session}`, 'That training was already settled.');
+        const trainer = ix.trainer(env.training.sessions[session].trainer);
+        if (answer.outcome === 'ran') {
+            ctx.call('wallet.pay', { owner: 'party', amount: answer.fee, note: `${trainer.name} trains` });
+            const advanced = ctx.call('director.advance', { minutes: ix.constants.trainMinutes, cause: `train-${session}`, reason: `${trainer.name} trains` });
+            if (advanced?.data?.advanced !== ix.constants.trainMinutes) ctx.fail('REFUSED', 'The clock did not move by the session\'s whole time, so the session did not start.');
+            started.push(session);
+            if (answer.patch.status === 'completed') completed.push(session);
+            for (const item of answer.attempts) progress.attempts[item.id] = item.record;
+        }
+        Object.assign(ctx.draft('training').sessions[session], answer.patch);
+    }
+    const credits = progress.credits;
     const credited = [];
     for (const { id, award, reason, minute, day, reply } of answer.plan) {
         claimOnce(ctx, `rb:${epochOf()}:credit:${id}`, 'That use was already credited.');
         credits[id] = { award, reason, minute, day, reply };
         if (award > 0) credited.push(id);
     }
-    guard(ctx, ix, 'rules.settle', {}, answer.inputs, { plan: answer.plan });
+    guard(ctx, ix, 'rules.settle', session ? { session } : {}, answer.inputs, session ? { event } : { plan: answer.plan });
     return {
-        summary: credited.length ? `${credited.length} use${credited.length === 1 ? '' : 's'} credited.` : 'No use earned a credit.',
+        summary: session ? (started.length ? `The training ${completed.length ? 'is done' : 'was interrupted'}.` : 'The training could not start.') : (credited.length ? `${credited.length} use${credited.length === 1 ? '' : 's'} credited.` : 'No use earned a credit.'),
         narrate: false,
         replan: true,
-        data: { v2: { key: `settle:${ctx.source.sid}`, result: { started: [], completed: [], expired: [], credited } } },
+        data: { v2: { key: `settle:${ctx.source.sid}${session ? `:${session}` : ''}`, result: { started, completed, expired: [], credited } } },
     };
 }
 

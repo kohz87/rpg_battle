@@ -6,19 +6,10 @@
 //   rules.classes({ tier? })      → [{ id, name, tier, parent, skills: [Ref, Ref, Ref] }]   the pack's classes, in its order
 //   rules.names({ refs })         → { [Ref]: name }                      class, skill and form names; unknown refs left out
 //   rules.party({})               → PartyView | null                     active (PC + 2), reserve, temporary sheets (sheet.js)
-//   rules.training({ actor })     → { actor, session, caps, offers } | null   the training clock's side of the screen:
-//       session  null (no sessions exist before the training package),
-//       caps     { day (the story day now, null without a clock), actor: { used, max }, skill: { used, max } (the busiest of the
-//                actor's three skills today), skills: { [Ref]: { used, max } } } : credits earned today against the pinned caps,
-//       offers   [] (a trainer's offer needs the current place from Story Director, the fee from Story Block and a session id
-//                that the host allocates: all of that is the training package's).
+//   rules.training({ actor })     → see ../training/queries.js (the training section of a character's screen)
 
 import { indexOfState } from './graph.js';
-import { memberOf } from '../progress/assess.js';
-import { deriveActor, choicesOf } from '../progress/derive.js';
-import { rowsOf } from '../progress/credit.js';
-import { readClock, dayOf } from '../training/clock.js';
-import { isActorId, isObject } from './ids.js';
+import { isObject } from './ids.js';
 import { pinOf } from './pin.js';
 import { partyView } from './sheet.js';
 
@@ -50,33 +41,10 @@ export function rulesNames(state, args) {
     return out;
 }
 
-export function rulesTraining(state, args, tools) {
-    const ix = indexOfState(state);
-    if (!ix || !isObject(args) || Object.keys(args).some(key => key !== 'actor') || !isActorId(args.actor)) return null;
-    if (!memberOf(tools?.query, args.actor)) return null;
-    const progress = state?.domains?.progress ?? {};
-    const derived = deriveActor(ix, choicesOf(progress, args.actor));
-    if (derived.class === null) return null;
-    const minute = readClock(tools?.query);
-    const day = minute === null ? null : dayOf(minute, ix.constants.clockMinutesPerDay);
-    const skills = {};
-    let actorUsed = 0;
-    for (const { skill } of derived.skills) skills[skill] = { used: 0, max: ix.constants.usePerSkillDay };
-    if (day !== null) {
-        for (const { attempt, credit } of rowsOf(progress)) {
-            if (attempt.actor !== args.actor || credit.award < 1 || credit.day !== day) continue;
-            actorUsed += 1;
-            if (skills[attempt.skill]) skills[attempt.skill].used += 1;
-        }
-    }
-    const busiest = Object.values(skills).reduce((top, item) => (item.used > top.used ? item : top), { used: 0, max: ix.constants.usePerSkillDay });
-    return { actor: args.actor, session: null, caps: { day, actor: { used: actorUsed, max: ix.constants.usePerActorDay }, skill: { ...busiest }, skills }, offers: [] };
-}
-
 /** rules.party({}) → PartyView: the active, reserve and temporary sheets, or null without a pinned ruleset. */
 export function rulesParty(state, args, tools) {
     if (!noArgs(args)) return null;
     return partyView(indexOfState(state), state, tools?.query);
 }
 
-export const queries = { 'rules.party': rulesParty, 'rules.identity': rulesIdentity, 'rules.classes': rulesClasses, 'rules.names': rulesNames, 'rules.training': rulesTraining };
+export const queries = { 'rules.party': rulesParty, 'rules.identity': rulesIdentity, 'rules.classes': rulesClasses, 'rules.names': rulesNames };

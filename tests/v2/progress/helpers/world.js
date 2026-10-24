@@ -11,6 +11,7 @@
 import { createHost } from '../../../vendor/story-block/testkit/index.js';
 import { part as rulesPart, pinOf, pinRules } from '../../../../src/v2/rules/index.js';
 import { part as progressPart, recordAttempt, recordBasicClass, recordCombatUses } from '../../../../src/v2/progress/index.js';
+import { part as trainingPart } from '../../../../src/v2/training/index.js';
 import { levelFromEarned } from '../../../../src/v2/progress/level.js';
 import { storedPool } from '../../../../src/v2/party/pools.js';
 import { ACTOR, FRIEND, fixturePin, ref } from './fixture.js';
@@ -27,6 +28,46 @@ export const CLOCK = {
             ctx.absolute('director', '/time/minutes');
             time.minutes = Number(String(line.name ?? '').trim());
             return { summary: `Story time: ${time.minutes}.`, narrate: false };
+        },
+    },
+};
+
+/**
+ * Story Director as far as training reads it: the clock (`~ time`), where the party is (`~ here <place id>` and the canonical
+ * `atlas.canonical`) and `director.advance { minutes, cause, reason }` (system, a short cause label, one advance for a cause).
+ */
+export const SD = {
+    ...CLOCK,
+    domains: { director: { initial: () => ({ time: { minutes: null }, here: null, advanced: {} }), validate: () => [], counters: ['time/minutes'] } },
+    queries: {
+        ...CLOCK.queries,
+        'atlas.canonical': state => { const id = state?.domains?.director?.here ?? null; return id ? { id, name: id, atlasId: null, regionId: null, source: 'pack' } : null; },
+    },
+    commands: {
+        'director.advance'(ctx, payload = {}) {
+            if (ctx.cause === 'ui') ctx.fail('REFUSED', 'director.advance: a click cannot move the clock.');
+            if (!/^[a-z0-9][a-z0-9._-]{0,39}$/.test(String(payload.cause ?? ''))) ctx.fail('INVALID', 'director.advance: "cause" must be a short label.');
+            if (!Number.isInteger(payload.minutes) || payload.minutes < 1 || payload.minutes > 1440) ctx.fail('INVALID', 'director.advance: minutes 1-1440.');
+            const director = ctx.draft('director');
+            if (director.time.minutes === null) ctx.fail('REFUSED', 'director.advance: the clock is not set.');
+            if (Object.hasOwn(director.advanced, payload.cause)) return { summary: 'Already taken.', narrate: false, data: { minutes: director.time.minutes, from: director.time.minutes, advanced: 0, held: 'once' } };
+            const from = director.time.minutes;
+            director.time.minutes += payload.minutes;
+            director.advanced[payload.cause] = true;
+            return { summary: `${payload.minutes} minutes pass.`, narrate: false, data: { minutes: director.time.minutes, from, advanced: payload.minutes } };
+        },
+    },
+    capture: {
+        kinds: {
+            ...CLOCK.capture.kinds,
+            here: { grammar: '~ here <place id>' },
+        },
+        apply(ctx, line) {
+            if (line.kind === 'here') {
+                ctx.draft('director').here = String(line.name);
+                return { summary: `The party is at ${line.name}.`, narrate: false };
+            }
+            return CLOCK.capture.apply(ctx, line);
         },
     },
 };
@@ -69,10 +110,11 @@ export const PARTY = {
 export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
     return {
         id, name: 'RPG Battle rules (test)', version: '2.0.0-test',
-        domains: { ...rulesPart.domains, ...progressPart.domains },
+        domains: { ...rulesPart.domains, ...progressPart.domains, ...trainingPart.domains },
         commands: {
             ...rulesPart.commands,
             ...progressPart.commands,
+            ...trainingPart.commands,
             'test.pin'(ctx) {
                 const problem = pinRules(ctx.draft('rules'), given);
                 if (problem) ctx.fail('REFUSED', problem);
@@ -109,6 +151,10 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
             'test.unit'(ctx, unit) {
                 ctx.draft('progress').temporary[unit.id] = { kind: 'summon', owner: ACTOR, template: ref('s00'), fight: 'cf_00000001', name: 'Grey wolf', level: 5, hp: { cur: 20, max: 20 }, mp: { cur: 0, max: 0 }, sp: { cur: 5, max: 5 }, ended: null, ...unit };
                 return { summary: 'Unit.', narrate: false };
+            },
+            'test.coin'(ctx, { amount }) {
+                ctx.call('wallet.receive', { owner: 'party', amount, note: 'test' });
+                return { summary: 'Coin.', narrate: false };
             },
             'test.combatEnd'(ctx, input) {
                 return { summary: 'Fight ended.', narrate: false, data: recordCombatUses(ctx, input) };
@@ -207,9 +253,9 @@ export { ACTOR, FRIEND, fixturePin, ref };
  * character is made with the real command and starts in class c0 of the golden pack. `companions`: names of companions
  * added with the real internal command, each in class c0.
  */
-export async function realWorld(t, { companions = [], modules = [], pin = true, character = true, settings = {} } = {}) {
+export async function realWorld(t, { companions = [], modules = [], pin = true, character = true, settings = {}, given = undefined, sd = false } = {}) {
     const { createModule, MODULE_ID } = await import('../../../../src/v2/module.js');
-    const extra = rulesModule();
+    const extra = rulesModule({ given });
     let sdk = null;
     const base = createModule({ settings: () => ({ ...(sdk?.settings(MODULE_ID) ?? {}), ...settings }) });
     const merged = {
@@ -224,7 +270,7 @@ export async function realWorld(t, { companions = [], modules = [], pin = true, 
         },
         hooks: { ...base.hooks, ...extra.hooks },
     };
-    const host = await createHost({ modules: [CLOCK, merged, CALLER, ...modules] });
+    const host = await createHost({ modules: [sd === true ? SD : sd || CLOCK, merged, CALLER, ...modules] });
     sdk = host.sdk;
     const saved = globalThis.StoryBlock;
     globalThis.StoryBlock = { apiVersion: 2, ready: Promise.resolve(sdk), sdk };
