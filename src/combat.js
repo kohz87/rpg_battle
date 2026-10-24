@@ -16,7 +16,7 @@ import { templateFor } from './templates.js';
 const DOTS = ['poison', 'burn', 'bleed'];
 const HARMFUL = new Set(['poison', 'burn', 'bleed', 'stun', 'slow', 'weaken', 'daze']);
 // Conditions that only make sense inside a fight; the rest may follow the sheet out of it.
-const FIGHT_ONLY = new Set(['guard', 'shield', 'stun', 'slow', 'weaken', 'daze']);
+const FIGHT_ONLY = new Set(['guard', 'shield', 'stun', 'slow', 'weaken', 'daze', 'stat-shift']);
 const LABELS = {
     poison: 'poisoned', burn: 'burning', bleed: 'bleeding', stun: 'stunned', slow: 'slowed',
     weaken: 'weakened', shield: 'shielded', regen: 'regenerating', guard: 'on guard', daze: 'dazed',
@@ -62,6 +62,11 @@ export function fightCondition(kind) {
     if (FIGHT_NAMES[key]) return FIGHT_NAMES[key];
     return Object.hasOwn(LABELS, key) ? key : null;
 }
+
+// (rules v2) The typed form interpreter plugs in here (src/v2/fight/interpret.js, loaded by the v2 combat part): a skill that carries
+// `parts` (a rules-v2 form's effects, each with its own target) is planned, played and described by it. A v1 skill has no `parts`, so
+// with nothing registered, or with only v1 skills, none of these is ever called and a fight plays exactly as it did.
+export const formHooks = { plan: null, perform: null, describe: null, shifts: null };
 
 // --- small helpers ------------------------------------------------------------------------
 
@@ -153,6 +158,8 @@ function blockReason(actor, skill) {
     if ((skill.cooldownLeft ?? 0) > 0) return 'cooldown';
     // (0.5.29) A physical skill costs stamina (a monster, with no stamina, pays from MP as before).
     if ((skill.mp ?? 0) > costOf(actor, skill).cur) return costPool(skill) === 'sp' && actor.sp ? 'sp' : 'mp';
+    // (rules v2) A form may cost both pools: the cost record is { mp, sp }, paid once (formHooks.perform).
+    if (skill.costs && ((skill.costs.mp ?? 0) > (actor.mp?.cur ?? 0) || (skill.costs.sp ?? 0) > (actor.sp?.cur ?? 0))) return (skill.costs.mp ?? 0) > (actor.mp?.cur ?? 0) ? 'mp' : 'sp';
     return null;
 }
 
@@ -493,6 +500,7 @@ function beginTurn(f, actor, rng, rules) {
     }
     // Guard is "until your next turn", so it goes now; everything else lasts through this turn.
     actor.conditions = actor.conditions.filter(cond => cond.name !== 'guard' || cond.rounds > 0);
+    if (formHooks.shifts) formHooks.shifts(actor, rules);
     if (!isActive(actor)) return false;
     // (0.5.29) A little stamina comes back each turn, as breath does.
     if (actor.sp && actor.sp.cur < actor.sp.max) {
@@ -515,6 +523,7 @@ function beginTurn(f, actor, rng, rules) {
 function endTurn(f, actor, usedSkill) {
     for (const s of actor.skills) if (s.name !== usedSkill && s.cooldownLeft > 0) s.cooldownLeft -= 1;
     actor.conditions = actor.conditions.filter(cond => cond.rounds > 0);
+    if (formHooks.shifts) formHooks.shifts(actor);
     f.turnStarted = false;
     if (timeline(f)) {
         // Their next turn after one wait at the speed they have now (slowed or not).
@@ -568,11 +577,21 @@ function resolve(f, actor, action, rules) {
     if (type === 'attack') {
         return { type, targets: targetsFor(f, actor, 'one', action.target) };
     }
+    if (type === 'form') {
+        // (rules v2) The form by its stable id, each effect's targets chosen by effect index.
+        const skill = actor.skills.find(s => s.formId && s.formId === action.form);
+        if (!skill) throw new Error(`${actor.name} does not hold the form ${action.form}.`);
+        const reason = blockReason(actor, skill);
+        if (reason) throw new Error(`${skill.name} cannot be used now (${reason}).`);
+        return { type, skill, picks: formHooks.plan(f, actor, skill, action, { foes: opponents(f, actor), friends: allies(f, actor) }), targets: [] };
+    }
     if (type === 'skill') {
         const skill = findSkillOf(actor, action.skill);
         if (!skill) throw new Error(`${actor.name} has no skill ${action.skill}.`);
         const reason = blockReason(actor, skill);
         if (reason) throw new Error(`${skill.name} cannot be used now (${reason}).`);
+        // (rules v2) A form named like a v1 skill (the automatic turns, a v1 caller): its one target stands for every effect that needs one.
+        if (skill.parts) return { type: 'form', skill, picks: formHooks.plan(f, actor, skill, { type: 'form', form: skill.formId, target: action.target }, { foes: opponents(f, actor), friends: allies(f, actor) }), targets: [] };
         return { type, skill, targets: targetsFor(f, actor, scopeOf(skill), action.target) };
     }
     if (type === 'item') {
@@ -727,6 +746,7 @@ function perform(f, actor, plan, rng, rules) {
     switch (plan.type) {
         case 'attack': strike(f, actor, plan.targets[0], null, rng, rules); break;
         case 'skill': useSkill(f, actor, plan.skill, plan.targets, rng, rules); break;
+        case 'form': formHooks.perform(f, actor, plan, rng, rules, ENGINE); break;
         case 'item': useItem(f, actor, plan.item, plan.targets, rules); break;
         case 'defend': {
             addCondition(actor, 'guard', 1, 0);
@@ -865,6 +885,9 @@ function current(f) {
     return isActive(actor) && actor.controller === 'player' ? actor : null;
 }
 
+/** The engine's own pieces, handed to the form interpreter (formHooks.perform) so it plays with the same sums, not a copy of them. */
+const ENGINE = Object.freeze({ hit: hitIn, strike, heal, applyEffect, addCondition, takeDamage, markHurt, skillValue, label, log, bump, has, isActive, byId, costOf, effectivePower, LABELS, DOTS });
+
 // --- the API --------------------------------------------------------------------------------
 
 /**
@@ -889,6 +912,7 @@ export function startFight({ rules = DEFAULT_RULES, ...setup } = {}) {
         ...(setup.stunRule === 'daze' ? { stunRule: 'daze' } : {}),
         ...(setup.hitRule === 'relative' ? { hitRule: 'relative' } : {}),
         ...(setup.spellRule === 'roll' ? { spellRule: 'roll' } : {}),
+        ...(setup.draws === 'action' ? { drawsBy: 'action' } : {}),
         time: 0,
         order: [],
         turn: 0,
@@ -924,7 +948,7 @@ export function availableActions(fight, rules = DEFAULT_RULES) {
         targets: { enemies: foes.map(c => c.id), allies: allies(fight, actor).map(c => c.id) },
         skills: actor.skills.map(s => {
             const reason = blockReason(actor, s);
-            return { name: s.name, usable: !reason, reason, target: scopeOf(s) };
+            return { name: s.name, usable: !reason, reason, target: scopeOf(s), ...(s.parts ? { form: formHooks.describe(fight, actor, s) } : {}) };
         }),
         items: (actor.items ?? []).filter(i => i.effect && i.qty > 0).map(i => ({ name: i.name, qty: i.qty, target: itemScope(i) })),
         canParley: talkers.length > 0,
@@ -964,7 +988,10 @@ export function actInPlace(f, action, rules = DEFAULT_RULES) {
     const actor = current(f);
     if (!actor) throw new Error('No player-controlled combatant is waiting to act.');
     if (action?.actor != null && action.actor !== actor.id) throw new Error(`It is ${actor.name}'s turn.`);
-    const rng = makeRng(f.rngState);
+    // (rules v2) A fight that draws by action gives each action its own stream, from the fight's seed and the action's id: an action
+    // taken back does not move the dice of the ones after it. Every other fight continues the one stream, as before.
+    if (f.drawsBy === 'action' && !(typeof action?.id === 'string' && action.id)) throw new Error('An action of this fight needs its id.');
+    const rng = f.drawsBy === 'action' ? makeRng(`${f.seed}|${action.id}`) : makeRng(f.rngState);
     if (action?.type === 'auto') {
         for (const c of f.combatants) if (c.side === 'party' && c.controller === 'player') c.controller = 'auto';
         log(f, actor, 'The rest of the fight runs on auto.', 'info');
