@@ -125,6 +125,7 @@ export function registerItem(ctx, payload, attach) {
         const stored = ctx.call('inventory.registerDefinition', { write: payload.write, def: payload.def, hash: ctx.hash(payload.def) });
         return { summary: stored.summary, narrate: false, data: { def: payload.def.id, hash: stored.data.hash, ruleHash: null, created: stored.data.created } };
     }
+    if (payload.rulesHash !== null && payload.rulesHash !== ix.rulesHash) ctx.fail('RULES_MISMATCH', 'It was made under other rules than the ones this chat runs.');
     const def = payload.def;
     const rule = payload.rule ?? plainRule(def);
     if (rule === null) ctx.fail('RULES_MISMATCH', 'Equipment needs its rule (slots and hands) from the step that makes it; a name is never read for one.');

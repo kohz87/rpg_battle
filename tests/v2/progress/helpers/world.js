@@ -9,7 +9,7 @@
 //   ! attempt <actor> | skill: s00 | form: s00-base | key: k1 [| kind: combat|narrative|training] [| minute: n]
 //   ~ time <minute>                              the clock
 import { createHost } from '../../../vendor/story-block/testkit/index.js';
-import { pinOf, pinRules, rulesParts } from '../../../../src/v2/rules/index.js';
+import { pinOf, pinRules, registerPackDefs, rulesParts } from '../../../../src/v2/rules/index.js';
 import { recordAttempt, recordBasicClass, recordCombatUses } from '../../../../src/v2/progress/index.js';
 import { part as trainingPart } from '../../../../src/v2/training/index.js';
 
@@ -140,6 +140,9 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
             // An adapter of this module (craft, trade, loot) registering a generated item, and a rule event setting a flag.
             'test.register'(ctx, payload) { return ctx.call('rules.registerItem', payload); },
             'test.flagSet'(ctx, payload) { return ctx.call('rules.flagSet', payload); },
+            // Activation's half: the pack's frozen definitions registered with Story Block; and a registration that a later step undoes.
+            'test.packDefs'(ctx) { return { summary: 'Registered.', narrate: false, data: { registered: registerPackDefs(ctx) } }; },
+            'test.registerThenFail'(ctx, payload) { ctx.call('rules.registerItem', payload); return ctx.fail('REFUSED', 'The buy fell through.'); },
             'test.start'(ctx, { actor, class: cls }) {
                 recordBasicClass(ctx, { actor, class: cls });
                 return { summary: 'Started.', narrate: false };
