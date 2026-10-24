@@ -1,7 +1,8 @@
-# Progression (rules v2, first slice)
+# Progression (rules v2, first and second slice)
 
-Code: `src/v2/rules/` (the pinned ruleset, its class and form graph, lookups), `src/v2/progress/` (choices, offers,
-credits, guards, commands), `src/v2/training/` (the clock arithmetic only). Tests: `tests/v2/progress/`,
+Code: `src/v2/rules/` (the pinned ruleset, its class and form graph, lookups, the party sheets, flags, item rules and the
+generation bounds), `src/v2/progress/` (choices, offers, credits, guards, commands, the roster, the entry points, the fold),
+`src/v2/training/` (the clock, the request, the host's step, the offers). Tests: `tests/v2/progress/`,
 `tests/v2/rules/`, `tests/v2/training/`. Contract: `RB_CONTRACT` §3–§7, B3 and B5 in the track B design.
 
 The parts (`rules/index.js`, `progress/index.js`) are **not registered** by `module.js`. They are one unit: `rulesParts`
@@ -70,14 +71,73 @@ total across more files and a replay still walks every shard.)
   returns `{ dropped: true }` instead of `LIMITED`. A reply therefore adds at most a few dozen attempts, and the ledger stays
   near `FOLD_AT` plus what waits for a clock.
 
-## Code that production does not reach yet (slice 2 wires it)
+## Slice 2
 
-`recordBasicClass` and `recordAttempt` (the entry points creation, party, combat end, narrative use and training call),
-`pinRules` (activation), `readClock` for the settlement (the host's clock query), `PREREQUISITE_REMOVED` and `GUARD_KINDS`
-(the hook's own). They are exercised by the tests only, until the parts are registered and the payers call them.
+**Entry points** (every caller attaches its own guard and claim; the progress side only records):
 
-## Open (written down, not decided here)
+- `creation.finish { class, checkActor }` and `party.addCompanion { class }` call `startRulesClass` (`progress/start.js`): the
+  milestone-0 class in the same transaction, a `class.start` guard. Nothing at all in a chat that pins no rules.
+- Narrative use: the capture `! skill-use <actor> | skill: <def> | form: <def>` (and the internal `skill.use`) pays the form's
+  cost from the pool, gives a `use` proof and records the attempt, or cites one surviving `use` proof (`paid`), never both.
+- Combat end: `recordCombatUses(ctx, { fight, uses })`. Training completion: the host's step below.
 
-See the PR description: epoch source (E6), how production code reaches Story Block's checker, the creation and
-payer entry points (`recordBasicClass`, `recordAttempt`), attempt-ledger growth, `rules.settle`
-boundary, training sessions and offers.
+**Commands and queries** (payloads as the contract §3 and track C's fixtures): `rules.party`, `rules.flags`, `rules.item`,
+`rules.training`; `skill.train` (asks), `rules.settle { session }` (the host's step), `party.setActive`, `summon.end`,
+`rules.flagSet`, `rules.registerItem`.
+
+**Roster** (`progress/roster.js`): the PC and two durable companions are active; `party.setActive` is the player's, outside any
+fight, 1 to 3 living durable members with the PC among them. Summons and pets are temporary units outside that limit;
+`summon.end` ends one (the player may only dismiss).
+
+**Training** (`training/`): `skill.train` only asks; the id of the session is the next one for that character, trainer, skill and
+form (a function of the chat, never allocated by a query; a stale one is `STALE`). The host's `afterCapture` asks for
+`rules.settle { session }` once the clock, the place and the purse can be read. The step rolls the 10% event die once (`ctx.roll`,
+recorded), checks the trainer is here and the purse can pay, pays the fee (`wallet.pay`), moves the clock by exactly sixty
+minutes (`director.advance`, rejected whole if it moved otherwise), and either interrupts (the fee and the time are spent, no
+credit, no refund) or records two completion attempts that count on the day the session ended. A session the host cannot start
+is refused with its reason and costs nothing.
+
+**Flags** (`rules/flags.js`): a flag is declared by the keys the pinned requirements name; it is false until an authorized event
+sets it. `rules.flagSet` takes a surviving Story Director `event` proof whose payload is exactly `{ flag, value }`, from Story
+Director's adapter or this module's own step only, claims the evidence once and guards the block; a deleted proof turns the write
+off. The adapter that gives the proof and asks in one block is trusted by the replay through `recorded.own`.
+
+**Items** (`rules/items.js`, `rules/bounds.js`): `rules.item` reads the pin (a pack item's rule) or what was registered.
+`rules.registerItem` is the single route for generated items (Story Block's own grant, and this module's craft, trade and loot
+adapters): it recomputes the bounds from Story Director's tier for where the party is, rejects (never clamps) what is over,
+registers the definition with Story Block in the same transaction and stores the def, the rule and the provenance. The bounds are
+v1's numbers frozen (`bounds.js`), by the place's tier: rarity ceiling common/uncommon/rare/epic at tiers 0-1/2-3/4-6/7-9, level
+ceiling `min(99, 10 * (tier + 1))`, stat budget `rarityBudget` at that level, effects at the story's own ceilings, never
+legendary, at most 1000 item rules. The pack's frozen ItemDefs are registered by `registerPackDefs(ctx)` (activation calls it
+inside its transaction).
+
+**Level and XP from the pin** (`progress/level.js` `pinnedSettings`): a pinned ruleset's `xpPerLevel`, level cap, starting points,
+points per level and stat cap override the reader's, in the party's commands, its capture, its prompt line and its combat numbers,
+and in the creation wizard's budget. Hook lines outside this part: `party/sheets.js` (`rulesFrom(settings, rules)`,
+`rulesSliceOf`), `party/commands.js`, `party/capture.js`, `party/context.js`, `party/queries.js`, `creation/build.js`
+(`creationRules(settings, rules)`), `creation/commands.js` (three call sites).
+
+## Differences from the contract and track C's fixtures, and gaps (written down, not decided)
+
+- `rules.item` answers an `ItemRule` (the contract); C's fixture adds `frozen: true`, which the screens do not need.
+- C08: the party part allows three companions by default, so a test party has one reserve, not two.
+- **No flag or generation-template schema exists in the pack checker.** Flags are therefore the keys the pinned requirements name,
+  and a generated item's source template is any pinned recipe (craft/), shop (trade/) or, for story items, nothing or any pinned
+  recipe, shop, foe, quest or item. The shape of the event payload (`{ flag, value }`) is this module's reading; Story Director
+  has not frozen one. D/E3 own the schemas.
+- Story Block's grant passes `rule: null`: a rule is made only for an item that is not equipment (no slots, no hands, weight 0).
+  **Equipment from a story line is refused** until track A's slot routing says how the five legacy slots map to the eight rule
+  slots (`allowedSlots`, `hands`); a name is never read for one.
+- No ceiling or floor for an item's `value`, and no per-template budget (P25 asks for template-derived ceilings; the pack schema
+  has no template to derive from). The tier budget stands in for them.
+- In a chat with no ruleset, `rules.registerItem` passes Story Block's own grant through to `inventory.registerDefinition`
+  unchecked (a sub-command that fails would fail the whole grant, so there is no "not here" to answer).
+- The full resolved pin rides in every checkpoint (583 KB for a big pack); B3/E6 will store `resolved` once, keyed by `rulesHash`.
+- Story Block must expose `resolved`, `rulesHash`, `packHash` and `RULES_V2_PROGRESSION` to the activation: `packs.rules` returns
+  only the manifest today. That is an E/D task before activation.
+- Slice 3 and later: combat actions, effects and conditions, death and return, Story Director checks, tiers and danger.
+
+## Code that production does not reach yet
+
+`pinRules` and `registerPackDefs` (activation), and the parts themselves (`rulesParts`, not registered by `module.js`). Everything
+else above is reached through the commands and queries once the parts are registered.

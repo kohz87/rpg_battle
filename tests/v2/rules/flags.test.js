@@ -52,6 +52,11 @@ test('an event of Story Director sets a flag: the proof names exactly the flag a
     assert.deepEqual(Object.keys(stored).sort(), ['evidence', 'value', 'write']);
     assert.ok(w.head().meta.claims[`rb:ep_00000000:flag:${stored.evidence}`], 'the evidence is claimed once');
     assert.deepEqual(w.problems(), []);
+    // The adapter gave the proof and asked for the flag in one block: a rebuild (the guard asked on the state before the block, which
+    // does not hold the block\'s own proof yet) keeps the flag.
+    w.host.store.rebuild();
+    assert.deepEqual(flags(w).values, { 'bell.rung': true, 'gate.open': false });
+    assert.deepEqual(w.problems(), []);
 });
 
 test('only a trusted step may set a flag, and only with the evidence that names exactly this change', async t => {
