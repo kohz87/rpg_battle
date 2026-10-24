@@ -33,3 +33,18 @@ director.retriable/quest.board adapters and ctx.replayGuard wiring remain A1 wor
 Verification: 15 focused tests passed. Reverting only the deadline equality fix produced the
 expected assertion failure in planner.test.js; the fix was restored. The full RB dot suite
 and syntax check passed once for this extraction slice. No baseline suite was run.
+
+A3's first slice fixes combat/quest.js questTargets to discover an rpg extension regardless
+of outer thread kind. It still supports old quest-kind threads on the isolated old runtime.
+The adapter reads SD threads and quest progress only; it does not create a ledger or pay.
+Its focused regression fails when only the old kind filter is restored.
+
+A3 remaining: transfer met/turn-in/capture, attach the final B5 replay guard and root claim,
+then commit SD extension/closure/journal, SB costs/rewards and one party.grantXp atomically.
+No old payout hook has been retired in this slice. At this checkout combat/quest.js contains
+fight sizing/loot selection, not XP/coin commands. party/commands.js's old raw result payload
+can still carry XP/uses into applyResult; combat.end's actors payload already clears XP and
+calls grantXp separately. The cited line 654 begins the retained grantXp API, so removing
+that function would violate P18. The raw-result compatibility path needs B's rules-v2
+settlement adapter, not removal of the retained command or an invented rules-state marker.
+No party/combat files outside the allowed combat/quest.js exception were changed.
