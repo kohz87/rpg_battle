@@ -17,7 +17,7 @@ export const template = (more = {}) => ({ id: 'pack.fixture/job', name: 'Mill jo
     reward: { coin: 30, xp: 25, items: [] }, durationMinutes: null, repeat: null, chain: null, ...more });
 export const herb = { id: 'pack.fixture/herb', name: 'Herb', kind: 'goods', rarity: 'common', value: 1, stack: true,
     slot: null, stats: {}, effect: {}, tags: [], note: '' };
-export async function questHost({ policy = {}, templates = [template()], legacy = [], extra = [], st = null, commands = {} } = {}) {
+export async function questHost({ policy = {}, templates = [template()], legacy = [], extra = [], st = null, commands = {}, minute = null } = {}) {
     const testRules = { initial: () => ({ rulesVersion: 2, rulesHash: 'a'.repeat(64), pin: { resolved: { quests: Object.fromEntries(templates.map(t => [t.id, t])) } } }), validate: () => [] };
     const def = createModule({});
     // Replace only the quest part, preserving production wrappers and real party/item/combat commands.
@@ -41,11 +41,15 @@ export async function questHost({ policy = {}, templates = [template()], legacy 
         const initial = sd.domains.director.initial;
         sd.domains.director = { ...sd.domains.director, initial: () => ({ ...initial(), threads: Object.fromEntries(legacy.map(t => [t.id, t])), keys: Object.fromEntries(legacy.flatMap(t => [t.key, ...(t.aliases ?? [])].map(key => [key.toLowerCase(), t.id]))) }) };
     }
+    if (Number.isSafeInteger(minute)) {
+        const initial = sd.domains.director.initial;
+        sd.domains.director = { ...sd.domains.director, initial: () => ({ ...initial(), time: { minutes: minute } }) };
+    }
     const h = await createHost({ modules: [withD1(sd), withD1(def), ...extra], ...(st ? { st } : {}) });
     if (st) return h;
     const made = await h.sdk.command('party.create', { name: 'Ren', preset: 'fighter' });
     if (!made.ok) throw new Error(made.message);
-    await h.send('At the mill.', '<Changes>\n~ time June 3, 1200, 08:00 am\n</Changes>');
+    await h.send('At the mill.', Number.isSafeInteger(minute) ? 'At the mill.' : '<Changes>\n~ time June 3, 1200, 08:00 am\n</Changes>');
     return h;
 }
 export const offer = async (h, name = 'Mill job') => {

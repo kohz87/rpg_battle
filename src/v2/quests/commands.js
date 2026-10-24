@@ -62,6 +62,8 @@ export function createCommands({ settleQuest, evaluateRequirements = null, guard
             target: threadOf(ctx.query, { id: thread.id }).target, reward: threadOf(ctx.query, { id: thread.id }).reward } };
     }
     function finish(ctx, payload = {}) {
+        if (!(ctx.cause === 'ui' && !ctx.caller || ctx.caller === 'rpg-battle'
+            || ctx.caller === 'story-director' && ctx.cause === 'story')) return ctx.fail('REFUSED', 'Quest turn-in requires the reader, SD capture or RB.');
         const thread = requireThread(ctx, payload);
         if (!thread.rpg) return ctx.fail('REFUSED', 'This goal has no RPG quest extension.');
         if (payload.by !== undefined && payload.by !== 'story') return ctx.fail('INVALID', 'Unknown turn-in authority.');

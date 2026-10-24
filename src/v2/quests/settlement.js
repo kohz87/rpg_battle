@@ -7,6 +7,7 @@ import { creditFor, creditKey } from './credit.js';
 import { offerQuest } from './commands.js';
 import { boundary, call, copy, fail, pinned, guardQuestInputs, stateEpoch, templateOf, templates, writeId } from './seams.js';
 
+// TODO: replace with a static import of buildGuard when B's progress export is integrated.
 const progress = await import('../progress/index.js').catch(() => null);
 const zero = () => ({ coin: 0, xp: 0, items: [] });
 const held = message => ({ ok: false, code: 'REFUSED', message });
