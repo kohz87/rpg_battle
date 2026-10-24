@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
-    CREATED_EVENT, CREATE_SCREEN_ID, CREATE_STEPS, FILE_LIMIT, cardImage, characterFrom, createScreen, createdNotice, creationContent, onBlocked, openCreation, part, startDraft, toggled,
+    CREATED_EVENT, CREATE_SCREEN_ID, DRAFT_START_WIDGET, renderDraftStart, CREATE_STEPS, FILE_LIMIT, cardImage, characterFrom, createScreen, createdNotice, creationContent, onBlocked, openCreation, part, startDraft, toggled,
 } from '../../../src/v2/creation/index.js';
 import { makeHost, points } from './helpers/fake-host.js';
 import { installDom } from '../screens/helpers/dom.js';
@@ -357,6 +357,23 @@ test('Points left is said once per step: the lead line; the stat steppers\' own 
     // The steppers still get the budget (it stops + when the points are spent).
     const { props } = await draw('stats', { draft: { ...startDraft(), points: points({ STR: 2 }) } });
     assert.ok(props['ss.stepper'].every(p => p.budget === 8));
+});
+
+test('start step: an empty draft is filled with the persona of the moment; a draft with anything in it is left alone', () => {
+    const persona = { name: 'Mara', background: 'A cartographer.', avatar: 'mara.png' };
+    const withDraft = draft => ({ draft: { value: () => draft }, view: () => ({ persona }) });
+    const empty = {};
+    const handle = renderDraftStart({}, {}, withDraft(empty));
+    assert.deepEqual(empty, startDraft(null, { persona: { name: 'Mara', background: 'A cartographer.', avatar: '/thumbnail?type=persona&file=mara.png' } }));
+    assert.equal(typeof handle.destroy, 'function');
+    const opened = { ...startDraft(null, { persona: { name: 'Ren' } }), race: 'rpg-battle/elf' };
+    const before = structuredClone(opened);
+    renderDraftStart({}, {}, withDraft(opened));
+    assert.deepEqual(opened, before, 'openCreation\'s draft is not touched');
+    assert.doesNotThrow(() => renderDraftStart({}, {}, {}), 'no draft api: nothing happens');
+    assert.doesNotThrow(() => renderDraftStart({}, {}, withDraft(Object.freeze({}))));
+    assert.ok(part.widgets[DRAFT_START_WIDGET], 'the creation part registers it');
+    assert.match(CREATE_STEPS.find(step => step.id === 'start').template, /<ss-widget[^>]*name="rpg-battle.draft-start"/, 'first on the Start step');
 });
 
 test('start step: an import closes the wizard and says "<Name> is ready" once, whether openCreation or the start card opened it', { skip: NO_RENDERER }, async () => {

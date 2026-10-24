@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { definitionProblems } from '../../vendor/story-block/src/v2/registry.js';
 import { normalizeCard } from '../../vendor/story-block/src/v2/reply-cards.js';
 import { createModule } from '../../../src/v2/module.js';
-import { CREATE_SCREEN_ID, createScreen, part as creationPart, startDraft, validateCreation } from '../../../src/v2/creation/index.js';
+import { CREATE_SCREEN_ID, createScreen, part as creationPart, validateCreation } from '../../../src/v2/creation/index.js';
 import { START_CARD_ID, START_SCREEN_ID, startCardFor } from '../../../src/v2/creation/start-card.js';
 import { part as boardPart } from '../../../src/v2/board/index.js';
 import { BATTLE_CARD_ID, FIGHT_SCREEN, battleCardFor, fightTitle } from '../../../src/v2/board/cards.js';
@@ -20,9 +20,9 @@ import { actor } from '../combat/helpers/fake-ctx.js';
 const elf = { name: 'Ren', race: 'rpg-battle/elf', talents: ['rpg-battle/keen-eyes'], points: { STR: 4, DEX: 5, AGI: 0, VIT: 0, INT: 0, LUK: 0, CHA: 0 } };
 const fake = (values = {}) => ({ query: name => (name in values ? values[name] : null) });
 
-test('start card: under the greeting until a character exists; Create opens the wizard with the persona\'s draft, Skip is a command', () => {
+test('start card: until a character exists; Create opens the wizard (the Start step fills the persona\'s draft when it opens), Skip is a command', () => {
     const host = makeHost();
-    const card = startCardFor(host.state, { persona: { name: 'Ren', background: 'A ferryman.', avatar: '' } });
+    const card = startCardFor(host.state);
     assert.equal(card.title, 'Make your character');
     assert.deepEqual(card.actions.map(action => [action.id, action.label, action.open ?? null, action.command ?? null]), [
         ['create', 'Create', START_SCREEN_ID, null],
@@ -34,17 +34,22 @@ test('start card: under the greeting until a character exists; Create opens the 
     assert.ok(read, 'Story Block reads it as a card');
     assert.equal(read.actions.length, 2);
     assert.equal(read.actions[0].open, CREATE_SCREEN_ID);
-    assert.deepEqual(read.actions[0].payload, startDraft(null, { persona: { name: 'Ren', background: 'A ferryman.', avatar: '' } }), 'the payload is the wizard\'s starting draft');
-    assert.equal(read.actions[0].payload.name, 'Ren');
+    assert.deepEqual(read.actions[0].payload, {}, 'no persona in the payload: it is read when the wizard opens, not when the card is drawn');
     assert.equal(read.actions[1].command, 'creation.skipStart');
 });
 
-test('start card: asked about the greeting too, so it shows under it; gone once a character exists', () => {
+test('start card: asked on the head state, the greeting of a greeting-only chat or the newest reply of an existing chat; gone once a character exists', () => {
     const host = makeHost();
-    assert.equal(creationPart.cards.start.for(host.state, null, { index: 0 })?.title, 'Make your character', 'the greeting carries the card');
-    assert.equal(creationPart.cards.start.for(host.state, null, { index: 2 })?.title, 'Make your character');
+    const greeting = creationPart.cards.start.for(host.state, { is_user: false, mes: 'Welcome.' }, { index: 0, head: true });
+    assert.equal(greeting?.title, 'Make your character', 'the greeting is the head of a greeting-only chat');
+    // An existing chat with no character: the head is a later reply, not the greeting.
+    const reply = creationPart.cards.start.for(host.state, { is_user: false, mes: 'The ferry bell rings.' }, { index: 6, head: true });
+    assert.equal(reply?.title, 'Make your character', 'the newest reply carries the card');
+    assert.deepEqual(reply, greeting, 'the same card wherever the head is');
+    assert.ok(normalizeCard(reply).actions.every(action => action.open || action.command), 'with actions Story Block can run');
     assert.equal(host.command('creation.finish', elf).ok, true);
     assert.equal(startCardFor(host.state), null);
+    assert.equal(creationPart.cards.start.for(host.state, null, { index: 6, head: true }), null);
 });
 
 test('creation.skipStart: sets the card aside (a game-state flag); refused once a character exists', () => {

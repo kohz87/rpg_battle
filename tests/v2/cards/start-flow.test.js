@@ -137,3 +137,30 @@ test('greeting only: an import from the wizard\'s Start step closes the wizard t
         else globalThis.StoryBlock = savedSb;
     }
 });
+
+test('greeting only: a persona switched after the card was drawn is the one the wizard shows when Create is tapped', async () => {
+    const saved = Object.getOwnPropertyDescriptor(globalThis, 'SillyTavern');
+    const persona = { name: 'Ren', description: 'A ferryman from Bluewatch.' };
+    globalThis.SillyTavern = { getContext: () => ({ name1: persona.name, powerUserSettings: { persona_description: persona.description } }) };
+    try {
+        const chat = await greetingChat();
+        try {
+            persona.name = 'Mara';
+            persona.description = 'A cartographer from the north.';
+            chat.act('create').click();
+            const wizard = chat.ui.mounts.dialog.current();
+            assert.equal(wizard.screenId, CREATE_SCREEN_ID);
+            assert.equal(wizard.draft.name, 'Mara', 'the persona of the tap, not of the scan');
+            assert.equal(wizard.draft.background, 'A cartographer from the north.');
+            assert.deepEqual(Object.keys(wizard.draft).sort(), ['background', 'name', 'points', 'portrait', 'preset', 'race', 'talents'], 'the whole starting draft');
+            assert.match(wizard.el.querySelector('.cc-start')?.textContent ?? '', /ready-made|Import/, 'the Start step is drawn');
+            // The review ("You") step reads the same draft.
+            wizard.goTo(wizard.stepCount() - 1);
+            assert.match(wizard.el.textContent, /Mara/);
+            assert.doesNotMatch(wizard.el.textContent, /Ren/);
+        } finally { chat.close(); }
+    } finally {
+        if (saved) Object.defineProperty(globalThis, 'SillyTavern', saved);
+        else delete globalThis.SillyTavern;
+    }
+});

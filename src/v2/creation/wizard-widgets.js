@@ -13,17 +13,23 @@
 //                             says "<Name> is ready" unless that was done: the wizard also opens from Story
 //                             Block's start card, which does not go through openCreation.
 //
-// Both write nothing but through those commands; creation.rollTalent and creation.import check every
+//   rpg-battle.draft-start    the Start step's first line, drawn as nothing: when the wizard opened with an empty draft
+//                             (Story Block's start card sends no persona, so one switched since the card was drawn
+//                             counts), it fills the draft with startDraft() and the persona of this moment.
+//
+// The first two write nothing but through those commands; creation.rollTalent and creation.import check every
 // rule. Built with createElement and textContent only: nothing from data or the file is read as markup.
 
 export const TALENT_ROLL_WIDGET = 'rpg-battle.talent-roll';
 export const IMPORT_PICK_WIDGET = 'rpg-battle.import-pick';
+export const DRAFT_START_WIDGET = 'rpg-battle.draft-start';
 /** The event an import that worked sends from the widget, bubbling to the dialog. */
 export const CREATED_EVENT = 'rpg-battle:created';
 /** The largest character file read (a file is a few KB; this is far above any real one). */
 export const FILE_LIMIT = 512 * 1024;
 
 import { CHARACTER_FILE_VERSION } from '../party/portable.js';
+import { startDraft } from './draft.js';
 import { showCreated, wasTold } from './notice.js';
 import { CREATE_SCREEN_ID } from './screen.js';
 
@@ -269,5 +275,37 @@ export const importPick = Object.freeze({
     render: renderImportPick,
 });
 
+// ---------------------------------------------------------------------------------------------------
+// rpg-battle.draft-start
+
+/** The host's view (the persona it knows), when the widget api or the global sdk gives one. */
+function viewOf(api) {
+    for (const source of [api, globalThis.StoryBlock?.sdk]) {
+        try {
+            const view = typeof source?.view === 'function' ? source.view() : null;
+            if (isRecord(view)) return view;
+        } catch { /* no view: SillyTavern's persona is read */ }
+    }
+    return null;
+}
+
+/**
+ * render(el, props, api): an empty draft is filled in place with startDraft() (the dialog holds this very object and the
+ * widgets after this one, drawn next, read it); a draft that has anything in it is left as it is.
+ */
+export function renderDraftStart(el, props = {}, api = {}) {
+    try {
+        const draft = typeof api?.draft?.value === 'function' ? api.draft.value() : null;
+        if (isRecord(draft) && Object.keys(draft).length === 0 && !Object.isFrozen(draft)) Object.assign(draft, startDraft(viewOf(api)));
+    } catch { /* the wizard then starts as it was opened */ }
+    return { update() {}, destroy() {} };
+}
+
+export const draftStart = Object.freeze({
+    props: Object.freeze({}),
+    validate: () => [],
+    render: renderDraftStart,
+});
+
 /** The wizard's widgets by name (with rpg-battle.preset-pick, registered by the creation part). */
-export const wizardWidgets = Object.freeze({ [TALENT_ROLL_WIDGET]: talentRoll, [IMPORT_PICK_WIDGET]: importPick });
+export const wizardWidgets = Object.freeze({ [TALENT_ROLL_WIDGET]: talentRoll, [IMPORT_PICK_WIDGET]: importPick, [DRAFT_START_WIDGET]: draftStart });

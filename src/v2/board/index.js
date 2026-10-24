@@ -28,7 +28,7 @@ export const part = {
     kinds: {},
     hooks: {},
     tabs: [],
-    // The battle card under the reply that started a fight (UI 8f); the Fight screen's `active` shows its tab while one is on.
+    // The battle card under the newest reply while a fight is on or waits for Finish (UI 8f); the Fight screen's `active` shows its tab then.
     cards: { [BATTLE_CARD_ID]: battleCard },
     widgets: { [WIDGET_NAME]: battleBoard },
     screens: [fightScreen],

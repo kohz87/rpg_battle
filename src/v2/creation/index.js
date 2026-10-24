@@ -61,7 +61,7 @@ export const part = {
     hooks: { onBlocked },
     settings: { section: 'Character creation', defaults: { ...SETTINGS_DEFAULTS }, schema: SETTINGS_SCHEMA },
     tabs: [],
-    // The start card under the greeting until a character exists (UI 8f).
+    // The start card under the newest reply until a character exists (UI 8f).
     cards: { [START_CARD_ID]: startCard },
     widgets: { [PRESET_WIDGET]: presetPick, [CHOICE_WIDGET]: choicePick, [STAT_RADAR_WIDGET]: statRadar, ...wizardWidgets, [CREATE_BUTTON_WIDGET]: createButton },
     screens: [createScreen],
@@ -79,5 +79,5 @@ export { CREATE_SCREEN_ID, CREATE_STEPS, PORTRAIT_URL_MAX, TALENT_LIST_MAX, crea
 export { STAT_RADAR_WIDGET, radarAxes, radarPoint, radarScale, renderStatRadar, statRadar } from './radar.js';
 export { PRESET_WIDGET, presetDraft, presetPick, renderPresetPick } from './preset-pick.js';
 export {
-    CREATED_EVENT, FILE_LIMIT, IMPORT_PICK_WIDGET, TALENT_ROLL_WIDGET, characterFrom, importFile, importPick, renderImportPick, renderTalentRoll, talentRoll, wizardWidgets,
+    CREATED_EVENT, DRAFT_START_WIDGET, FILE_LIMIT, IMPORT_PICK_WIDGET, TALENT_ROLL_WIDGET, characterFrom, draftStart, importFile, importPick, renderDraftStart, renderImportPick, renderTalentRoll, talentRoll, wizardWidgets,
 } from './wizard-widgets.js';

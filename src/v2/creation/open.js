@@ -17,34 +17,14 @@
 // says "<Name> is ready" (so also when Story Block's start card opened the wizard, which does not come through here);
 // its `rpg-battle:created` event is what closes this dialog first.
 
-import { STATS } from '../../rules.js';
-import { personaFor } from './persona.js';
+import { startDraft } from './draft.js';
 import { CREATE_SCREEN_ID } from './screen.js';
 import { CREATED_EVENT } from './wizard-widgets.js';
 import { showCreated } from './notice.js';
 
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
-/**
- * The wizard's starting draft: the persona's name, background and avatar (MODULES §F22: never
- * typed in the wizard), no ready-made character, race or talents, every stat at 0 points.
- * `prefill` (a pack's ready-made character, or a draft being reopened) sets preset, race,
- * talents, points and portrait only.
- */
-export function startDraft(view = null, { prefill = null, persona = null } = {}) {
-    const who = persona ?? personaFor(view);
-    const given = isRecord(prefill) ? prefill : {};
-    const points = Object.fromEntries(STATS.map(stat => [stat, Number.isInteger(given.points?.[stat]) ? given.points[stat] : 0]));
-    return {
-        name: who.name,
-        background: who.background,
-        preset: typeof given.preset === 'string' ? given.preset : '',
-        race: typeof given.race === 'string' ? given.race : '',
-        talents: Array.isArray(given.talents) ? given.talents.filter(id => typeof id === 'string') : [],
-        points,
-        portrait: typeof given.portrait === 'string' && given.portrait.trim() ? given.portrait.trim() : who.avatar,
-    };
-}
+export { startDraft };
 
 function dialogOf(api) {
     for (const [owner, fn] of [[api?.dialog, api?.dialog?.open], [api, api?.openDialog], [api?.mounts?.dialog, api?.mounts?.dialog?.open]]) {
