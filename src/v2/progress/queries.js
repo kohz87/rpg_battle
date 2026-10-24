@@ -6,14 +6,8 @@ import { memberOf } from './assess.js';
 import { progressView } from './offers.js';
 import { indexOfState } from '../rules/graph.js';
 import { isActorId, isObject } from '../rules/ids.js';
+import { ask } from '../rules/ask.js';
 
-const ask = (query, name, args) => {
-    try {
-        return typeof query === 'function' ? query(name, args) : null;
-    } catch {
-        return null;
-    }
-};
 
 /** rules.progress({ actor? }): the actor's class, level, skill checklist, and the promotions and paths waiting. Your character by default. */
 export function rulesProgress(state, args, tools) {

@@ -14,7 +14,7 @@
 // core module registers.
 
 import { isId } from './check.js';
-import { escapeKey } from './ops.js';
+import { escapeKey, parsePath } from './ops.js';
 import { canonicalJson, deriveId, hashJson, isRecordId, sha256, sourceProblem, spanProblem } from './replay.js';
 
 const isObject = value => !!value && typeof value === 'object' && !Array.isArray(value);
@@ -255,6 +255,35 @@ export function pinOps(state, ops) {
     return out;
 }
 
+// The keys of an op's path (or `from`) when it names the state's proof record or something that holds it: the document
+// root, `/meta`, `/meta/proofs` or anything under it. An unreadable path counts, since nothing can say it does not.
+function touchedKeys(path) {
+    if (path === undefined) return null;
+    let keys;
+    try { keys = parsePath(path); } catch { return []; }
+    return keys.length === 0 || (keys[0] === 'meta' && (keys.length === 1 || keys[1] === 'proofs')) ? keys : null;
+}
+
+/** True when `op` changes the record of proof pins, or something that holds it (the root, /meta, /meta/proofs, below it): any op, add, replace, remove, move or copy, whole or empty. */
+export const touchesProof = op => !isObject(op) || touchedKeys(op.path) !== null || touchedKeys(op.from) !== null;
+
+/**
+ * '' when the only changes `ops` make to the record of proof pins are the pins of `owned` (a Set of proof ids): a pin
+ * added (or replaced) under its own id, or the whole record written with just those. Anything else that touches it
+ * (an erase, a rewrite of /meta or of the root, a pin that is not its own, a move or a copy) is why not.
+ */
+export function proofWriteProblem(ops, owned) {
+    for (const op of Array.isArray(ops) ? ops : []) {
+        if (!touchesProof(op)) continue;
+        const keys = touchedKeys(op.path);
+        const writes = isObject(op) && (op.op === 'add' || op.op === 'replace') && op.from === undefined && keys !== null;
+        if (writes && keys.length === 3 && keys[1] === 'proofs' && owned.has(keys[2]) && typeof op.value === 'string') continue;
+        if (writes && keys.length === 2 && keys[1] === 'proofs' && isObject(op.value) && Object.keys(op.value).length > 0 && Object.entries(op.value).every(([id, pin]) => owned.has(id) && typeof pin === 'string')) continue;
+        return `it changes the record of proof pins in a way a block cannot (${isObject(op) ? `${op.op} ${op.path ?? ''}` : 'an unreadable change'})`;
+    }
+    return '';
+}
+
 /**
  * '' when a block's span holds exactly the proof its ops pin (and each proof is whole, carries the span's
  * Source and is given once), else why not. Asked when the block is stored and again when it is replayed.
@@ -263,6 +292,8 @@ export function evidenceProblem(span, ops) {
     const list = Array.isArray(span?.evidence) ? span.evidence : [];
     const pins = proofPins(ops);
     const ids = new Set();
+    const writes = proofWriteProblem(ops, new Set(list.map(proof => proof?.id)));
+    if (writes) return writes;
     for (const proof of list) {
         const why = proofProblem(proof);
         if (why) return `a proof of the block is not whole: ${why}`;

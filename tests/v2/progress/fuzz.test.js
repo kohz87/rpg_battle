@@ -14,7 +14,7 @@ import { ACTOR, DAY, FRIEND, grind, nextKey, ref, started } from './helpers/worl
 import { promoted } from './helpers/states.js';
 import { seeded } from '../integration/helpers/host.js';
 import { choicesOf, deriveActor } from '../../../src/v2/progress/derive.js';
-import { rowsOf, tallyOf, usesOf } from '../../../src/v2/progress/credit.js';
+import { rowsOf, tallyOfProgress, usesOf } from '../../../src/v2/progress/credit.js';
 import { masteryOf } from '../../../src/v2/progress/mastery.js';
 import { indexOfState } from '../../../src/v2/rules/graph.js';
 import { levelFromEarned } from '../../../src/v2/progress/level.js';
@@ -95,12 +95,14 @@ async function run(t, seed, steps) {
         for (const [key, n] of per.actorReply) assert.ok(n <= k.usePerActorReply, fail(when, `${key}: ${n} credits on one reply`));
         for (const [key, n] of per.skillDay) assert.ok(n <= k.usePerSkillDay, fail(when, `${key}: ${n} credits on one day`));
         for (const [key, n] of per.actorDay) assert.ok(n <= k.usePerActorDay, fail(when, `${key}: ${n} credits on one day`));
-        const tally = tallyOf(rowsOf(progress));
+        const tally = tallyOfProgress(progress);
         for (const [key, n] of tally.formUses) assert.ok(n <= 35 && masteryOf(n, k.masteryAt) <= 5, fail(when, `${key}: ${n} uses`));
         // Every credit is an attempt and one claim; no claim is left without its record.
         const claims = Object.keys(head.meta.claims).filter(key => key.startsWith('rb:'));
         const creditClaims = claims.filter(key => key.includes(':credit:')).map(key => key.split(':credit:')[1]).sort();
-        assert.deepEqual(creditClaims, Object.keys(progress.credits).sort(), fail(when, 'credits and their claims differ'));
+        // A folded attempt (fold.js) leaves its claim behind, so a credit is never given twice: claims = credits + what was folded.
+        assert.ok(Object.keys(progress.credits).every(id => creditClaims.includes(id)), fail(when, 'a credit without its claim'));
+        assert.equal(creditClaims.length, Object.keys(progress.credits).length + progress.sealed.folded, fail(when, 'credits, folded attempts and claims differ'));
         for (const id of Object.keys(progress.credits)) assert.ok(Object.hasOwn(progress.attempts, id), fail(when, `credit ${id} has no attempt`));
         const choiceClaims = claims.filter(key => key.includes(':class:') || key.includes(':path:')).map(key => key.split(/:(?:class|path):/)[1]).sort();
         assert.deepEqual(choiceClaims, Object.values(progress.choices).map(c => `${c.actor}:${c.milestone}`).sort(), fail(when, 'choices and their claims differ'));

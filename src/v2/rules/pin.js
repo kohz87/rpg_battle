@@ -11,7 +11,10 @@
 //       identity: { packKey, packVersion, packHash, schema: 2, engine: 'rb-rules-2', constantsHash },
 //       progression: { tiers, tierLevels, skillsPerClass, maxMastery, pathwaySteps, writtenChoices, generatedChoice },
 //       resolved: { constants, manifest, forms, … },   // what Story Block's expandRulesV2 returns, immutable
+//       defs: { [Ref]: ItemDef },          // the pack's complete item definitions, frozen with the rules (B3); {} when not given
 //     },
+//     flags: { [key]: { value, evidence, write } },   // the declared flags that were set by an authorized event (flags.js)
+//     generated: { [Ref]: GeneratedItem },            // the def + rule + provenance of every generated item (items.js)
 //   }
 //
 // This file cannot import Story Block's checker (an extension has no import path to another extension in the
@@ -20,7 +23,8 @@
 // `progression` = RULES_V2_PROGRESSION. The validator below only holds the stored data to the shape this code
 // reads; it does not repeat the checker. Pure.
 
-import { int, isDefId, isHash, isObject } from './ids.js';
+import { int, isDefId, isHash, isObject, isRecordId } from './ids.js';
+import { MAX_ITEM_RULES, boundProblems, defShapeProblems, ruleProblems } from './bounds.js';
 
 export const RULES_VERSION = 2;
 export const ENGINE = 'rb-rules-2';
@@ -30,7 +34,7 @@ export const RULES_SCHEMA = 2;
 const ascending = (list, min = 1) => Array.isArray(list) && list.length > 0 && list.every((n, i) => int(n, min) && (i === 0 || n > list[i - 1]));
 
 /** The rules slice of a fresh timeline: marked as rules v2, nothing pinned yet. */
-export const initialRules = () => ({ schema: RULES_SCHEMA, rulesVersion: RULES_VERSION, rulesHash: null, pin: null });
+export const initialRules = () => ({ schema: RULES_SCHEMA, rulesVersion: RULES_VERSION, rulesHash: null, pin: null, flags: {}, generated: {} });
 
 /**
  * Whether `xpPerLevel` is a value the rules accept (contract §4 Constants, §5): a whole number from 10 to
@@ -110,6 +114,59 @@ function manifestProblems(resolved, progression, errors) {
     }
 }
 
+
+const flagWalk = (value, found, depth = 0) => {
+    if (depth > 16 || value === null || typeof value !== 'object') return;
+    if (Array.isArray(value)) { for (const item of value) flagWalk(item, found, depth + 1); return; }
+    if (value.kind === 'flag' && typeof value.key === 'string' && typeof value.value === 'boolean') found.add(value.key);
+    for (const item of Object.values(value)) flagWalk(item, found, depth + 1);
+};
+
+/**
+ * The flags a ruleset declares: every key a `{ kind: 'flag', key, value }` requirement names, in the pinned quests, shops, recipes,
+ * foes, trainers and item rules, sorted. (The pack schema has no list of its own; a flag nobody asks for has no use.)
+ */
+export function declaredFlags(resolved) {
+    const found = new Set();
+    if (!isObject(resolved)) return [];
+    for (const part of [resolved.quests, resolved.shops, resolved.recipes, resolved.foes, resolved.items, resolved.manifest?.trainers]) flagWalk(part, found);
+    return [...found].filter(key => key.length >= 1 && key.length <= 80).sort();
+}
+
+function inputsProblems(slice, errors) {
+    const flags = slice.flags;
+    if (!isObject(flags)) errors.push('rules: flags is not a record');
+    else {
+        const declared = new Set(slice.pin ? declaredFlags(slice.pin.resolved) : []);
+        for (const [key, entry] of Object.entries(flags)) {
+            if (!declared.has(key)) errors.push(`rules: flag "${key.slice(0, 80)}" is not a declared flag`);
+            else if (!isObject(entry) || typeof entry.value !== 'boolean' || !isRecordId(entry.evidence) || !isRecordId(entry.write)) errors.push(`rules: flag "${key}" is not { value, evidence, write }`);
+        }
+    }
+    const generated = slice.generated;
+    if (!isObject(generated)) return errors.push('rules: generated is not a record');
+    if (Object.keys(generated).length && !slice.pin) errors.push('rules: generated items without a pinned ruleset');
+    if (Object.keys(generated).length + Object.keys(slice.pin?.resolved?.items ?? {}).length > MAX_ITEM_RULES) errors.push('rules: more item rules than a ruleset holds');
+    for (const [ref, entry] of Object.entries(generated)) {
+        const area = entry?.area;
+        const bad = !isObject(entry) || entry.def?.id !== ref || !isObject(area) || !isRecordId(entry.write) || !isHash(entry.rulesHash) || !isHash(entry.defHash) || !isHash(entry.ruleHash) || typeof entry.template !== 'string' && entry.template !== null
+            || defShapeProblems(entry.def).length || ruleProblems(entry.rule, entry.def).length || boundProblems(entry.def, area).length;
+        if (bad) errors.push(`rules: the generated item ${String(ref).slice(0, 80)} is not whole`);
+    }
+    return errors;
+}
+
+function defsProblems(pin, errors) {
+    if (!isObject(pin.defs)) return errors.push('rules: the pin has no item definitions record');
+    const rules = pin.resolved.items ?? {};
+    const refs = Object.keys(pin.defs);
+    if (refs.length && (refs.length !== Object.keys(rules).length || !refs.every(ref => Object.hasOwn(rules, ref)))) errors.push('rules: the pinned item definitions and item rules are not one for one');
+    for (const [ref, def] of Object.entries(pin.defs)) {
+        if (!isObject(def) || def.id !== ref || defShapeProblems(def).length) errors.push(`rules: the pinned item ${ref.slice(0, 80)} is not a whole definition`);
+        else if (ruleProblems(rules[ref], def).length) errors.push(`rules: the pinned item ${ref.slice(0, 80)} and its rule disagree`);
+    }
+}
+
 /** Why a stored `rules` slice is not what this code reads: a list of sentences, empty when it is. */
 export function rulesProblems(slice) {
     if (!isObject(slice)) return ['rules: the slice is not a record'];
@@ -118,7 +175,7 @@ export function rulesProblems(slice) {
     if (!(slice.rulesHash === null || isHash(slice.rulesHash))) errors.push('rules: rulesHash must be null or a 64-character hash');
     if (slice.pin === null) {
         if (slice.rulesHash !== null) errors.push('rules: a rulesHash without a pinned ruleset');
-        return errors;
+        return inputsProblems(slice, errors);
     }
     const pin = slice.pin;
     if (!isObject(pin) || !isObject(pin.identity) || !isObject(pin.resolved)) return [...errors, 'rules: the pin has no identity and ruleset'];
@@ -130,21 +187,23 @@ export function rulesProblems(slice) {
     constantsProblems(pin.resolved.constants, errors);
     progressionProblems(pin.progression, pin.resolved.constants, errors);
     if (!errors.length) manifestProblems(pin.resolved, pin.progression, errors);
-    return errors;
+    defsProblems(pin, errors);
+    return inputsProblems(slice, errors);
 }
 
 /**
  * Pins a ruleset onto a `rules` draft, once (the same ruleset again is a no-op; another one is refused: a
  * running timeline never changes its rules). `given`: { resolved, rulesHash, progression, packKey,
- * packVersion, packHash, constantsHash }. Returns '' or why it was not pinned.
+ * packVersion, packHash, constantsHash, defs? }. Returns '' or why it was not pinned.
  */
 export function pinRules(draft, given) {
     const pin = {
         identity: { packKey: given.packKey, packVersion: given.packVersion, packHash: given.packHash, schema: 2, engine: ENGINE, constantsHash: given.constantsHash },
         progression: structuredClone(given.progression),
         resolved: structuredClone(given.resolved),
+        defs: structuredClone(given.defs ?? {}),
     };
-    const trial = { schema: RULES_SCHEMA, rulesVersion: RULES_VERSION, rulesHash: given.rulesHash ?? null, pin };
+    const trial = { schema: RULES_SCHEMA, rulesVersion: RULES_VERSION, rulesHash: given.rulesHash ?? null, pin, flags: {}, generated: {} };
     const problems = rulesProblems(trial);
     if (problems.length) return problems[0];
     if (draft.pin !== null && draft.pin !== undefined) return draft.rulesHash === trial.rulesHash ? '' : 'This chat already runs other rules; a running timeline keeps its rules.';
