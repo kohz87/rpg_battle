@@ -19,7 +19,7 @@ export function createCapture({ settleQuest = null, captureObjective = null } = 
                 return { summary: `Offered ${template.name}.`, narrate: false, data: { quest: id } };
             }
             if (!thread.rpg || thread.rpg.state === 'offered') {
-                const taken = call(ctx, 'quest.take', { id: thread.id });
+                const taken = call(ctx, 'threads.intent', { thread: thread.id });
                 return { summary: `Takes on ${thread.key}.`, narrate: false, data: taken };
             }
             return { summary: `Already following ${thread.key}.`, narrate: false, data: { quest: thread.id } };

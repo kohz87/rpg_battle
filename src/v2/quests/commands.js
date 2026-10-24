@@ -21,6 +21,7 @@ export function offerQuest(ctx, template, options = {}) {
 export function createCommands({ settleQuest, evaluateRequirements = null, guardTake = null } = {}) {
     function take(ctx, payload = {}) {
         if (payload.by !== undefined || payload.credit !== undefined || payload.reason !== undefined) return ctx.fail('INVALID', 'Taking a quest uses id or key.');
+        if (ctx.caller && !['story-director', 'rpg-battle'].includes(ctx.caller)) return ctx.fail('REFUSED', 'Quest acceptance requires the reader or validated player intent.');
         const thread = requireThread(ctx, payload);
         const pin = pinned(ctx.read('rules'));
         if (!pin) return ctx.fail('RULES_MISMATCH', 'No frozen quest rules are pinned.');
@@ -52,8 +53,11 @@ export function createCommands({ settleQuest, evaluateRequirements = null, guard
         quest.deadline = template.durationMinutes === null ? null : quest.acceptedAt + template.durationMinutes;
         if (quest.deadline !== null && !Number.isSafeInteger(quest.deadline)) return ctx.fail('INVALID', 'The quest deadline overflowed.');
         if (guardTake) guardTake(ctx, thread, payload, inputs);
+        const acceptance = ctx.cause === 'ui' ? null : inputs.proofs?.find(p => p.owner === 'story-director' && p.kind === 'acceptance'
+            && p.payload?.thread === thread.id && p.source?.sid === ctx.source.sid && p.source?.swipeKey === ctx.source.swipeKey
+            && p.source?.evidence === ctx.source.evidence && p.source?.ordinal === ctx.source.ordinal)?.id;
         call(ctx, thread.offer ? 'threads.accept' : 'threads.link', { write: writeId(ctx, `take:${thread.id}`), thread: thread.id,
-            expectedHash: ctx.query('threads.hash', { thread: thread.id }), quest });
+            expectedHash: ctx.query('threads.hash', { thread: thread.id }), quest, ...(thread.offer && acceptance ? { acceptance } : {}) });
         return { summary: `Takes on ${thread.key}.`, narrate: true, data: { quest: thread.id, key: thread.key,
             target: threadOf(ctx.query, { id: thread.id }).target, reward: threadOf(ctx.query, { id: thread.id }).reward } };
     }

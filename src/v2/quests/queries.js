@@ -9,7 +9,7 @@ const legacy = thread => !thread?.rpg;
 const all = query => ask(query, 'director.threads') ?? [];
 const owedOf = thread => thread.owed && legacy(thread) ? { id: thread.id, key: thread.key, giver: thread.fields?.giver ?? '',
     text: `${thread.owed.text} — from an earlier version`, word: '', phrase: '', countable: false, total: null,
-    credit: thread.owed.credit ?? 0, paid: Object.values(thread.owed.paid ?? {}).reduce((n, v) => n + v, 0), left: null, open: false, storyMoney: true, budget: 0 } : null;
+    credit: thread.owed.credit ?? 0, paid: Object.values(thread.owed.paid ?? {}).reduce((n, v) => n + v, 0), left: null, open: false, storyMoney: true, budget: 0, payable: 0, rev: thread.owed.rev ?? 0, ask: false, hint: historyText } : null;
 
 export function createQueries(policy = {}) {
     function progress(_state, args = {}, tools) {

@@ -4,7 +4,7 @@
 import { planQuestSettlement, settlementKey, acceptanceOf } from './planner.js';
 import { nextOffers, terminalQuest } from './outcomes.js';
 import { offerQuest } from './commands.js';
-import { boundary, call, copy, fail, pinned, questInputs, templates, threadOf, writeId } from './seams.js';
+import { boundary, call, copy, fail, pinned, questInputs, templateOf, templates, threadOf, writeId } from './seams.js';
 
 const progress = await import('../progress/index.js').catch(() => null);
 const zero = () => ({ coin: 0, xp: 0, items: [] });
@@ -34,9 +34,13 @@ function assess(query, pin, thread, outcome, policy) {
         proofs: inputs.proofs.filter(proof => plan.proofs.some(pin => pin.id === proof.id)), plan, follow } };
 }
 
-function takeInputs(thread, inputs) {
+function takeInputs(thread, inputs, pin, query) {
+    const template = templateOf(pin, thread.rpg?.template ?? thread.key);
+    const previous = template?.chain?.previous;
     return { thread: copy(thread), clock: inputs.clock,
-        prerequisites: thread.rpg?.requirements?.length ? inputs : null };
+        acceptance: thread.acceptance ? inputs.proofs?.filter(proof => proof.id === thread.acceptance.proof) ?? [] : [],
+        previous: previous ? query('director.threads', {}).filter(t => t.rpg?.template === previous && t.rpg.state === 'done' && t.rpg.settlement) : [],
+        prerequisites: template?.requirements?.length ? inputs : null };
 }
 
 export function createSettlement(policy = {}) {
@@ -50,7 +54,8 @@ export function createSettlement(policy = {}) {
         if (thread.rpg.settlement) return ctx.fail('CLAIMED', 'This quest settlement is already complete.');
         const checked = assess(ctx.query, pin, thread, outcome, policy);
         if (!checked.ok) return fail(ctx, checked);
-        const operation = { thread: thread.id, outcome };
+        const progressView = ctx.query('quest.progress', { id: thread.id });
+        const operation = { thread: thread.id, outcome, reason: payload.reason ?? outcome };
         const guard = buildGuard({ hash: ctx.hash, owner: 'rpg-battle', epoch, source, rulesHash: pin.hash,
             kind: 'quest.settlement', payload: operation, inputs: checked.inputs });
         ctx.replayGuard(guard, { inputs: checked.inputs });
@@ -62,7 +67,7 @@ export function createSettlement(policy = {}) {
         // close acquires the root settlement claim. Every later failure rolls it back with the journal.
         call(ctx, 'threads.close', { write: writeId(ctx, `close:${thread.id}`), thread: thread.id,
             expectedHash: ctx.query('threads.hash', { thread: thread.id }), instance: thread.rpg.instance,
-            outcome: checked.plan.outcome, reason: checked.plan.outcome, settlement: terminal.quest.settlement.id });
+            outcome: checked.plan.outcome, reason: operation.reason, settlement: terminal.quest.settlement.id });
         for (const stack of checked.plan.consumed) call(ctx, 'inventory.consume', stack);
         const paid = checked.plan.payout;
         if (paid.coin) {
@@ -70,18 +75,24 @@ export function createSettlement(policy = {}) {
             if (received.amount !== paid.coin) return ctx.fail('REFUSED', 'The full quest reward could not be paid.');
         }
         for (const item of paid.items) call(ctx, 'inventory.grant', { def: item.def, qty: item.qty, owner: 'party' });
-        if (paid.xp) call(ctx, 'party.grantXp', { quest: thread.id, amount: paid.xp, claim: key });
+        const xp = paid.xp ? call(ctx, 'party.grantXp', { quest: thread.id, amount: paid.xp, claim: key }) : null;
         const offers = checked.follow.map(row => offerQuest(ctx, row.template, row));
         return { summary: `${thread.key}: ${checked.plan.outcome}.`, narrate: true,
-            data: { quest: thread.id, key: thread.key, outcome: checked.plan.outcome, paid: copy(paid),
+            data: { quest: thread.id, key: thread.key, ...(outcome === 'abandoned' ? {} : {
+                have: progressView?.have ?? 0,
+                need: thread.rpg.objectives.reduce((n, o) => n + (o.count ?? 1), 0),
+                source: thread.rpg.objectives[0].kind === 'collect' ? 'inventory' : thread.rpg.objectives[0].kind === 'kill' ? 'fights' : 'story',
+                units: 1, paid: paid.coin || thread.rpg.storyCredit.coin ? { amount: paid.coin, ...(thread.rpg.storyCredit.coin ? { story: thread.rpg.storyCredit.coin } : {}) } : null,
+                consumed: copy(checked.plan.consumed), xp, fights: [], ...(payload.by === 'story' ? { by: 'story' } : {}) }),
                 v2: { key, result: { thread: thread.id, instance: thread.rpg.instance, settlement: terminal.quest.settlement.id, outcome: checked.plan.outcome, offers } } } };
     }
     function guardTake(ctx, thread, payload, inputs) {
         const { epoch, source } = boundary(ctx);
         const pin = pinned(ctx.read('rules'));
         if (typeof buildGuard !== 'function') return ctx.fail('DEPENDENCY_UNAVAILABLE', 'The shared B5 guard builder is unavailable.');
+        const progressView = ctx.query('quest.progress', { id: thread.id });
         const operation = { thread: thread.id };
-        const facts = takeInputs(thread, inputs);
+        const facts = takeInputs(thread, inputs, pin, ctx.query);
         ctx.replayGuard(buildGuard({ hash: ctx.hash, owner: 'rpg-battle', epoch, source, rulesHash: pin.hash,
             kind: 'quest.take', payload: operation, inputs: facts }), { inputs: facts });
     }
@@ -90,7 +101,7 @@ export function createSettlement(policy = {}) {
             const pin = pinned(state?.domains?.rules);
             const thread = threadOf(query, { id: info.guard.predicate.payload?.thread });
             if (!pin || pin.hash !== info.guard.rulesHash || !thread || !buildGuard) return { ok: false, reason: 'The accepted quest offer or rules changed.' };
-            const inputs = takeInputs(thread, questInputs(query));
+            const inputs = takeInputs(thread, questInputs(query), pin, query);
             const expected = buildGuard({ hash, owner: 'rpg-battle', epoch: info.guard.epoch, source: info.source,
                 rulesHash: pin.hash, kind: 'quest.take', payload: info.guard.predicate.payload, inputs });
             return expected.inputHash === info.guard.inputHash ? { ok: true } : { ok: false, reason: 'The accepted quest offer or requirements changed.' };

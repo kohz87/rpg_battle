@@ -11,7 +11,7 @@ export const template = (more = {}) => ({ id: 'pack.fixture/job', name: 'Mill jo
     reward: { coin: 30, xp: 25, items: [] }, durationMinutes: null, repeat: null, chain: null, ...more });
 export const herb = { id: 'pack.fixture/herb', name: 'Herb', kind: 'goods', rarity: 'common', value: 1, stack: true,
     slot: null, stats: {}, effect: {}, tags: [], note: '' };
-export async function questHost({ policy = {}, templates = [template()], legacy = [], extra = [], st = null } = {}) {
+export async function questHost({ policy = {}, templates = [template()], legacy = [], extra = [], st = null, commands = {} } = {}) {
     const testRules = { initial: () => ({ rulesVersion: 2, rulesHash: 'a'.repeat(64), pin: { resolved: { quests: Object.fromEntries(templates.map(t => [t.id, t])) } } }), validate: () => [] };
     const def = createModule({});
     // Replace only the quest part, preserving production wrappers and real party/item/combat commands.
@@ -22,6 +22,7 @@ export async function questHost({ policy = {}, templates = [template()], legacy 
     if (qp.hooks) def.hooks = { ...def.hooks, ...qp.hooks };
     const originalCapture = def.capture.apply;
     def.capture.apply = (ctx, line) => line.kind === 'quest' ? qp.kinds.quest.apply(ctx, line) : originalCapture(ctx, line);
+    Object.assign(def.commands, commands);
     def.domains.rules = testRules;
     def.queries['rules.party'] = (_state, _args, tools) => {
         const actors = tools.query('party.actors', {});
@@ -36,9 +37,9 @@ export async function questHost({ policy = {}, templates = [template()], legacy 
     }
     const h = await createHost({ modules: [withD1(sd), withD1(def), ...extra], ...(st ? { st } : {}) });
     if (st) return h;
-    await h.send('At the mill.', '<Changes>\n~ time June 3, 1200, 08:00 am\n</Changes>');
     const made = await h.sdk.command('party.create', { name: 'Ren', preset: 'fighter' });
     if (!made.ok) throw new Error(made.message);
+    await h.send('At the mill.', '<Changes>\n~ time June 3, 1200, 08:00 am\n</Changes>');
     return h;
 }
 export const offer = async (h, name = 'Mill job') => {
