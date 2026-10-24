@@ -42,8 +42,9 @@ export function questTargets(ctx) {
     const threads = ask(ctx, 'director.threads', { status: 'active' });
     if (!Array.isArray(threads)) return [];
     const out = [];
-    for (const thread of threads.slice(0, 50)) {
-        if (!thread || typeof thread.id !== 'string' || thread.offer || (!thread.rpg && thread.kind !== 'quest')) continue;
+    const quests = threads.filter(thread => thread && typeof thread.id === 'string'
+        && !thread.offer && (thread.rpg || thread.kind === 'quest'));
+    for (const thread of quests.slice(0, 50)) {
         const progress = ask(ctx, 'quest.progress', { id: thread.id });
         const need = Math.round(Number(progress?.need) || 0);
         const have = Math.max(0, Math.round(Number(progress?.have) || 0));
