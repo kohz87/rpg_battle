@@ -124,7 +124,7 @@ export function combatNumbersOf(state, args = {}, tools = null) {
     const party = partyOf(state);
     const member = party.actors?.[args?.id];
     if (!member) return null;
-    const rules = rulesFrom(args?.settings ?? null);
+    const rules = rulesFrom(args?.settings ?? null, state?.domains?.rules);
     // The gear as the items part counts it (wear, refinement, broken pieces out), else the defs as they are.
     const gear = wornGear(queryOf(tools), state?.domains?.inventory, member.id, { pc: party.pc });
     const sheet = toSheet(member);

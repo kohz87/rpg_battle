@@ -132,7 +132,7 @@ function querySettings(args, tools) {
  * hasRaces, hasTalents, hasPresets }.
  */
 export function contentQuery(state, args = {}, tools = null) {
-    const rules = creationRules(querySettings(args, tools));
+    const rules = creationRules(querySettings(args, tools), state?.domains?.rules);
     const content = creationContent(tools, { builtIn: rules.builtInChoices });
     const { rolled } = creationOf(readerOf(state));
     const cap = rules.statCap > 0 ? rules.statCap : null;
@@ -156,7 +156,7 @@ export function contentQuery(state, args = {}, tools = null) {
  * and what party.create asks to make a character with an origin.
  */
 export function buildQuery(state, args = {}, tools = null) {
-    const rules = creationRules(querySettings(args, tools));
+    const rules = creationRules(querySettings(args, tools), state?.domains?.rules);
     const content = creationContent(tools, { builtIn: rules.builtInChoices });
     const draft = isRecord(args?.draft) ? args.draft : (args ?? {});
     const { rolled } = creationOf(readerOf(state));
@@ -168,7 +168,7 @@ export function buildQuery(state, args = {}, tools = null) {
 
 /** What a command needs: rules from the module's settings, the content, what was rolled. */
 function setup(ctx) {
-    const rules = creationRules(settingsOf(ctx));
+    const rules = creationRules(settingsOf(ctx), ctx.read('rules'));
     const content = creationContent(ctx, { builtIn: rules.builtInChoices });
     const creation = creationOf(domain => ctx.read(domain));
     return { rules, content, creation };

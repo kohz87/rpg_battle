@@ -15,7 +15,8 @@ import { rest as restV1, restAfter, useItemOutside } from '../../recovery.js';
 import { cleanFocus, guessFocus, lockedReason, suggestSkills } from '../../builds.js';
 import { COMPANION_LEVELS_ABOVE, companionStats, companionWeights, joinLevel } from './formula.js';
 import { levelText, maxLevel, xpGainText, xpLabel } from '../../terms.js';
-import { fromSheet, growthOf, wornGear, libraryOf, maxCompanionsOf, rulesFrom, settingsOf, toSheet } from './sheets.js';
+import { fromSheet, growthOf, wornGear, libraryOf, maxCompanionsOf, rulesFrom, rulesSliceOf, settingsOf, toSheet } from './sheets.js';
+import { pinnedSettings } from '../progress/level.js';
 import { exportCharacter, originIds, readCharacter } from './portable.js';
 import { defineItem } from '../items/define.js';
 import { OUTCOMES, dcOf, outcomeOf, statForCheck } from './checks.js';
@@ -27,8 +28,8 @@ import { startRulesClass } from '../progress/start.js';
 
 // Skills learned onto a built sheet, in order (v1 newSheet's own loop, for a sheet made from final stats).
 const newSheetSkills = (sheet, skills, rules) => skills.reduce((out, skill) => learnV1(out, skill, { rules }), sheet);
-const settingsFor = ctx => settingsOf(typeof ctx?.settings === 'function' ? ctx.settings() : null);
-const rulesFor = ctx => rulesFrom(settingsFor(ctx));
+const settingsFor = ctx => pinnedSettings(settingsOf(typeof ctx?.settings === 'function' ? ctx.settings() : null), rulesSliceOf(ctx));
+const rulesFor = ctx => rulesFrom(settingsFor(ctx), rulesSliceOf(ctx));
 
 function readInventory(ctx) {
     try {

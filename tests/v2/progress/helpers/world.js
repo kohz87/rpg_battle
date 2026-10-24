@@ -271,13 +271,13 @@ export function mergeInto(base, extra) {
     };
 }
 
-export async function realWorld(t, { companions = [], modules = [], pin = true, character = true, settings = {}, given = undefined, sd = false } = {}) {
+export async function realWorld(t, { companions = [], modules = [], pin = true, character = true, settings = {}, reader = null, given = undefined, sd = false } = {}) {
     const { createModule, MODULE_ID } = await import('../../../../src/v2/module.js');
     const extra = rulesModule({ given });
     let sdk = null;
     const base = createModule({ settings: () => ({ ...(sdk?.settings(MODULE_ID) ?? {}), ...settings }) });
     const merged = mergeInto(base, extra);
-    const host = await createHost({ modules: [sd === true ? SD : sd || CLOCK, merged, CALLER, ...modules] });
+    const host = await createHost({ modules: [sd === true ? SD : sd || CLOCK, merged, CALLER, ...modules], ...(reader ? { settings: { modules: { [MODULE_ID]: reader } } } : {}) });
     sdk = host.sdk;
     const saved = globalThis.StoryBlock;
     globalThis.StoryBlock = { apiVersion: 2, ready: Promise.resolve(sdk), sdk };

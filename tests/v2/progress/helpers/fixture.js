@@ -1,7 +1,7 @@
 // Test helper: the contract's golden rules pack (RB_CONTRACT §10 "Golden fixture seed"), checked and expanded
 // by Story Block's own rules checker (the vendored copy), so the pinned ruleset in these tests is the one the
 // real checker gives and never a hand-made one. H is its rulesHash.
-import { RULES_V2_PROGRESSION, canonicalizeJson, sha256, validateRulesPack } from '../../../vendor/story-block/src/v2/packs/rules-v2.js';
+import { RULES_V2_CONSTANTS, RULES_V2_PROGRESSION, canonicalizeJson, sha256, validateRulesPack } from '../../../vendor/story-block/src/v2/packs/rules-v2.js';
 
 export function smallRulesPack() {
     const classes = [], skills = [], branches = [];
@@ -77,3 +77,19 @@ export const H = () => fixturePin().rulesHash;
 export const ref = x => `pack.fixture/${x}`;
 export const ACTOR = 'ac_00000001';
 export const FRIEND = 'ac_00000002';
+
+const withConstants = new Map();
+/** The golden pack checked under other numbers (Story Block's checker applies them): `over` is laid over RULES_V2_CONSTANTS. */
+export function pinWith(over) {
+    const key = JSON.stringify(over);
+    if (!withConstants.has(key)) {
+        const checked = validateRulesPack(smallRulesPack(), { constants: { ...RULES_V2_CONSTANTS, ...over } });
+        if (!checked.ok) throw new Error(`the golden pack does not check under ${key}: ${JSON.stringify(checked.errors)}`);
+        withConstants.set(key, Object.freeze({
+            resolved: checked.resolved, rulesHash: checked.rulesHash, progression: RULES_V2_PROGRESSION,
+            packKey: 'fixture', packVersion: '2.0.0', packHash: checked.packHash,
+            constantsHash: sha256(JSON.stringify(canonicalizeJson(checked.resolved.constants))),
+        }));
+    }
+    return withConstants.get(key);
+}
