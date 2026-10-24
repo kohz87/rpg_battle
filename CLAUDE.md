@@ -8,7 +8,7 @@ are Story Director (kohz87/Story_director) and NPC State Delta (kohz87/npc_state
 
 RPG Battle must work **alone with Story Block** (no Story Director, no NSD): read other modules only
 through guarded queries with a fallback (no level → lowest rank, no clock → no story time) or optional
-commands, and test every change with each other module absent. Work is on the `v2` branch (`main` is v1).
+commands, and test every change with each other module absent. Work is on `main`, the development branch (v1 is on branch `v1`).
 
 ## Directory map
 
@@ -43,7 +43,7 @@ npm run test:dot                                 # same files, one dot per test,
 npm run check                                    # syntax check
 node --test --test-reporter=dot tests/v2/combat/waves.test.js   # one file
 npm run sync-testkit                             # re-vendor the testkit from ../Story_block (or $STORY_BLOCK)
-git diff --check origin/v2                       # CI fails on trailing whitespace in what the PR adds
+git diff --check origin/main                     # CI fails on trailing whitespace in what the PR adds
 ```
 
 Full suite: about 1,550 tests, about 2–3 minutes. Skills: `.claude/skills/run-tests`, `sync-testkit`.
@@ -68,7 +68,7 @@ Full suite: about 1,550 tests, about 2–3 minutes. Skills: `.claude/skills/run-
 ## Conventions
 
 - No model names anywhere in the repo. Commit trailers and PR attribution: the lines the session gives.
-- Branch off `v2`, PR into `v2`; agents never merge their own PR. Rebase on `origin/v2` before pushing.
+- Branch off `main`, PR into `main`; agents never merge their own PR. Rebase on `origin/main` before pushing.
 - Re-sync the Story Block testkit before the final push of a PR that needs host changes
   (`npm run sync-testkit`, then the full tests); say the Story Block commit in the PR.
 - A part changes another part's or module's state only through its commands (`ctx.call`, e.g.
