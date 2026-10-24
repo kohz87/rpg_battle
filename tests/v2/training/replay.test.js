@@ -2,6 +2,7 @@
 // recorded completion day; same request reuses event/null draw; failed SD advance leaves no fee, event or credit"; C06
 // "re-read removes jump/completion/event").
 import test from 'node:test';
+import { seeded } from '../integration/helpers/host.js';
 import assert from 'node:assert/strict';
 import { DAY, SD, realWorld } from '../progress/helpers/world.js';
 import { ref, trainersPin } from '../progress/helpers/fixture.js';
@@ -89,8 +90,10 @@ test('the event die is rolled once and recorded; a Re-read of the reply gives th
     assert.equal(JSON.stringify([sessions(w), w.slice('progress').credits, coin(w), clock(w)]), before);
 });
 
-test('an event interrupts: the fee is paid and the time passes, no credit and no refund; ten in a hundred is the pin\'s rate', async t => {
+test('an event interrupts: the fee is paid and the time passes, no credit and no refund; ten in a hundred is the pin\'s rate', t => seeded(9, async () => {
     const w = await ready(t);
+    // Enough coin for sixty lessons at 5 (the die is random: ten in a hundred, so a run of twenty without an event is not rare).
+    assert.equal(w.host.bus.command('test.coin', { amount: 300 }, { cause: 'ui' }).ok, true);
     let hit = null;
     let before = null;
     for (let n = 0; n < 60 && !hit; n += 1) {
@@ -118,7 +121,7 @@ test('an event interrupts: the fee is paid and the time passes, no credit and no
     // Deleting nothing and asking again: an interrupted session frees the character to ask for another.
     assert.equal(w.ui('skill.train', offer(w, 'stormy', 's02').payload).ok, true);
     assert.deepEqual(w.problems(), []);
-});
+}));
 
 test('C06: the clock jump taken out, the whole training goes with it (fee, time, event, credits); put back, it returns', async t => {
     const w = await ready(t);
