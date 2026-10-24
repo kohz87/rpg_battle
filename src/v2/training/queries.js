@@ -13,7 +13,7 @@ import { deriveActor, choicesOf } from '../progress/derive.js';
 import { rowsOf } from '../progress/credit.js';
 import { readClock, dayOf } from './clock.js';
 import { expectedSessionId, currentOf, sessionView, waitingOf } from './session.js';
-import { placeOf, purseOf } from './step.js';
+import { placeOf, purseOf } from '../progress/session-step.js';
 import { lifeOf } from '../rules/sheet.js';
 import { isActorId, isObject } from '../rules/ids.js';
 

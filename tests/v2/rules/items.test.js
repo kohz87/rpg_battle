@@ -10,6 +10,8 @@ import { indexOf } from '../../../src/v2/rules/graph.js';
 import { pinOf } from '../../../src/v2/rules/pin.js';
 import { DEFAULT_RULES } from '../../../src/rules.js';
 import * as bounds from '../../../src/v2/rules/bounds.js';
+import { STORY_EFFECT_MAX } from '../../../src/v2/limits.js';
+import { REPAIR_MAX } from '../../../src/v2/items/define.js';
 
 const HAVEN = 'pack.fixture/haven';
 const WRITE = 'wr_00000001';
@@ -37,7 +39,17 @@ test('the bounds are v1\'s numbers, frozen: they equal DEFAULT_RULES today and f
     assert.deepEqual([0, 1, 2, 5, 9].map(bounds.levelCeiling), [10, 20, 30, 60, 99]);
     assert.deepEqual([0, 1, 2, 3, 4, 6, 7, 9].map(bounds.rarityCeiling), ['common', 'common', 'uncommon', 'uncommon', 'rare', 'rare', 'epic', 'epic']);
     assert.equal(bounds.budgetOf('rare', 50), 6 + 1.2 * 50);
-    assert.equal(bounds.spendOf({ ATK: 4, DEF: -2 }), 4 + (-2) * 0.5);
+    assert.equal(bounds.spendOf({ ATK: 4, DEF: -2 }), 4, 'a negative stat refunds nothing');
+    // The effect ceilings are the story's own (items/define.js), not a second copy that can drift.
+    assert.equal(bounds.EFFECT_MAX.heal, STORY_EFFECT_MAX.heal);
+    assert.equal(bounds.EFFECT_MAX.mp, STORY_EFFECT_MAX.mp);
+    assert.equal(bounds.EFFECT_MAX.damage, STORY_EFFECT_MAX.damage);
+    assert.equal(bounds.EFFECT_MAX.repair, REPAIR_MAX);
+    assert.equal(bounds.GEAR_PER_POINT, DEFAULT_RULES.trade.gearPerPoint);
+    assert.deepEqual(JSON.parse(JSON.stringify(bounds.RARITY_FACTOR)), DEFAULT_RULES.trade.rarityFactor);
+    assert.equal(bounds.valueCeiling('rare', 50), Math.round(4 * (6 + 1.2 * 50) * 10 * 2.5));
+    assert.equal(bounds.statCeiling('ATK', 66), 66);
+    assert.equal(bounds.statCeiling('STR', 66), 33);
 });
 
 test('rules.item: a pack item\'s rule from the pin, a generated item\'s from what was registered, null for the rest', async t => {
@@ -150,7 +162,15 @@ test('B3 bounds: generated legendary, a rarity above the place\'s ceiling, stats
     assert.equal(reg({ rarity: 'rare', stats: { ATK: 66 } }, BLADE_RULE, 'craft/ok-blade').ok, true, 'exactly the budget');
     assert.equal(reg({ stats: { NOPE: 1 } }).code, 'RULES_MISMATCH', 'a stat items do not have');
     assert.equal(reg({ stats: { ATK: 1.5 } }).code, 'RULES_MISMATCH');
-    assert.equal(reg({ stats: { ATK: -1000 } }).code, 'RULES_MISMATCH', 'a huge negative is not a refund');
+    assert.equal(reg({ stats: { ATK: -1000 } }).code, 'RULES_MISMATCH', 'a huge negative is out of range, and no refund');
+    // B4 of the review: a refund must not pay for an offence. +999 ATK with -999 on the base stats is no longer a pass.
+    assert.equal(reg({ stats: { ATK: 999, STR: -999, VIT: -999, AGI: -999 } }).code, 'RULES_MISMATCH');
+    assert.equal(reg({ rarity: 'rare', stats: { ATK: 66, STR: -30, VIT: -30 } }, BLADE_RULE, 'craft/pen-blade').ok, true, 'within the budget alone, penalties are allowed but refund nothing');
+    assert.equal(reg({ rarity: 'rare', stats: { ATK: 67, STR: -30 } }, BLADE_RULE, 'craft/over-blade').code, 'RULES_MISMATCH');
+    assert.equal(reg({ rarity: 'rare', stats: { STR: 34 } }, BLADE_RULE, 'craft/str-blade').code, 'RULES_MISMATCH', 'a stat past budget / its cost (66 / 2)');
+    assert.equal(reg({ value: 1e9 }, BLADE_RULE, 'craft/dear-blade').code, 'RULES_MISMATCH', 'a value past the ceiling');
+    assert.match(reg({ value: 1e9 }, BLADE_RULE, 'craft/dear-blade').message, /worth at most/);
+    assert.equal(reg({ value: bounds.valueCeiling('rare', 50), rarity: 'rare' }, BLADE_RULE, 'craft/fine-blade').ok, true, 'exactly the ceiling');
     const potion = (effect, id = 'craft/potion') => sys(w, 'test.register', { write: WRITE, def: def(id, { kind: 'consumable', effect }), rule: null, template: 'pack.fixture/forge-blade', area: null, rulesHash: null });
     assert.equal(potion({ heal: 999999 }).code, 'RULES_MISMATCH');
     assert.equal(potion({ mp: 41 }).code, 'RULES_MISMATCH');
@@ -162,10 +182,10 @@ test('B3 bounds: generated legendary, a rarity above the place\'s ceiling, stats
     assert.equal(potion({ heal: 250, mp: 40, damage: { amount: 250, element: 'fire', target: 'all' }, repair: 50, cure: ['poison'] }, 'craft/potion-max').ok, true, 'the ceilings themselves');
     assert.equal(sys(w, 'test.register', { write: WRITE, def: def('craft/rock', { stats: { ATK: 1 } }), rule: null, template: 'pack.fixture/forge-blade', area: null, rulesHash: null }).code, 'RULES_MISMATCH', 'stats only on equipment');
     assert.equal(sys(w, 'test.register', { write: WRITE, def: def('craft/rock2', { effect: { heal: 5 } }), rule: null, template: 'pack.fixture/forge-blade', area: null, rulesHash: null }).code, 'RULES_MISMATCH', 'an effect only on a consumable');
-    assert.deepEqual(Object.keys(generated(w)).sort(), ['craft/ok-blade', 'craft/potion-max']);
+    assert.deepEqual(Object.keys(generated(w)).sort(), ['craft/fine-blade', 'craft/ok-blade', 'craft/pen-blade', 'craft/potion-max']);
 });
 
-test('the tier sets the ceilings: tier 0-1 common, 2-3 uncommon, a rare at 4, an epic at 7; an unknown place bounds nothing, so only an item with nothing to bound passes', async t => {
+test('the tier sets the ceilings: tier 0-1 common, 2-3 uncommon, a rare at 4, an epic at 7; an unknown place holds generation', async t => {
     const w = await ready(t, 1);
     const rarity = (r, id) => sys(w, 'test.register', { write: WRITE, def: def(id, { rarity: r }), rule: null, template: 'pack.fixture/forge-blade', area: null, rulesHash: null });
     assert.equal(rarity('uncommon', 'craft/u1').code, 'RULES_MISMATCH', 'tier 1');
@@ -176,7 +196,7 @@ test('the tier sets the ceilings: tier 0-1 common, 2-3 uncommon, a rare at 4, an
     assert.equal(rarity('epic', 'craft/e7').ok, true);
     assert.equal(rarity('legendary', 'craft/l7').code, 'RULES_MISMATCH', 'never legendary, whatever the tier');
     delete AREA_TIERS[HAVEN];
-    assert.equal(rarity('common', 'craft/c-unknown').ok, true, 'a plain common item needs no tier');
+    assert.equal(rarity('common', 'craft/c-unknown').code, 'RULES_MISMATCH', 'an unknown tier holds generation, whatever the item (contract §5)');
     assert.equal(rarity('uncommon', 'craft/u-unknown').code, 'RULES_MISMATCH');
     assert.equal(register(w).code, 'RULES_MISMATCH', 'budgeted stats in a place nobody knows');
     assert.match(register(w).message, /no tier/);

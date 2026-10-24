@@ -7,6 +7,7 @@
 //   pinnedSetup(ctx, setup)          the fight's setup with its ruleset and the rule that its draws belong to its actions
 //   actionWithId(ctx, session, action)   an action of a pinned fight gets its id (from the receipt's seed, same on replay)
 //   guardAction(ctx, session, action)    the replay guard of combat.act: the prefix this action stands on
+//   lootHeld(ctx, def)               whether a new loot item cannot be registered under the pin (the drop is left behind, never a failed end)
 //   settleEnd(ctx, ...)              combat.end on a pinned fight: the guard, the paid uses, the sealed result
 //   cleanSelections / actionProblems closed shapes
 
@@ -17,6 +18,8 @@ import { choicesOf, deriveActor, skillViews } from '../progress/derive.js';
 import { formSkill } from './forms.js';
 import { attachGuard } from '../progress/guard.js';
 import { recordCombatUses } from '../progress/record.js';
+import { boundProblems } from '../rules/bounds.js';
+import { areaNow } from '../rules/items.js';
 import { buildEnd, buildAct } from './guards.js';
 import { batchBytes, seal, withDraws, MAX_BATCHES } from './batch.js';
 import { playStored, rebuild } from '../combat/view.js';
@@ -31,6 +34,18 @@ export function pinnedOf(ctx) {
     let rules = null;
     try { rules = ctx.read('rules'); } catch { rules = null; }
     return rules ? indexOf(pinOf({ domains: { rules } })) : null;
+}
+
+/**
+ * Whether a loot drop's new definition cannot be registered under the pin right now: equipment (its slots and hands wait for track A's
+ * slot routing: docs/dev/progress.md), an item over the place's bounds, or a place with no tier. The drop is then left behind with the
+ * others the party cannot take, because a refused registration inside the grant would fail the fight's whole end.
+ * (The value the item.define hook gives it is checked at registration, not here.) False in a chat with no pin.
+ */
+export function lootHeld(ctx, def) {
+    if (!pinnedOf(ctx)) return false;
+    if (def.kind === 'equipment') return true;
+    return boundProblems(def, areaNow((name, args) => ctx.query(name, args))).length > 0;
 }
 
 /** The fighter's skills as the engine's: its class's three, at their current forms, mastery from the credited uses; null for a stranger to the rules. */

@@ -16,7 +16,7 @@
 import { assess } from './assess.js';
 import { attachGuard } from './guard.js';
 import { recordAttempt } from './record.js';
-import { storedPool } from '../party/pools.js';
+import { fitPool, storedPool } from '../party/pools.js';
 import { indexOf } from '../rules/graph.js';
 import { pinOf } from '../rules/pin.js';
 import { epochOf, isActorId, isDefId, isObject, isRecordId } from '../rules/ids.js';
@@ -43,11 +43,17 @@ export function useSkill(ctx, payload) {
         const party = ctx.draft('party');
         const actor = party.actors[payload.actor];
         if (!actor) ctx.fail('NOT_FOUND', 'That character is not in the party.');
-        if (answer.amount > 0) actor[answer.pool] = storedPool({ cur: actor[answer.pool].cur - answer.amount, max: actor[answer.pool].max });
-        key = ctx.id('us');
-        ctx.proof({ kind: 'use', payload: { actor: payload.actor, skill: payload.skill, form: payload.form, use: key } });
+        // From the pool as it stands now (fitted: a delete may have moved what was lost), as party.fightPools writes it.
+        if (answer.amount > 0) {
+            const now = fitPool(actor[answer.pool]);
+            actor[answer.pool] = storedPool({ cur: now.cur - answer.amount, max: now.max });
+        }
+        // The attempt is named by its own proof, so citing that proof later is the same attempt, never a second one.
+        key = ctx.proof({ kind: 'use', payload: { actor: payload.actor, skill: payload.skill, form: payload.form, use: ctx.id('us') } }).id;
     }
     const made = recordAttempt(ctx, { actor: payload.actor, skill: payload.skill, form: payload.form, kind: 'narrative', key, cost: paid !== null ? paid : key });
+    // The same attempt again (a proof this very step gave, cited): counted once.
+    if (!made.created && !made.dropped) ctx.fail('CLAIMED', 'That use was already counted.');
     if (!ctx.claim(`rb:${epochOf(ctx)}:use:${made.id}`)) ctx.fail('CLAIMED', 'That use was already counted.');
     attachGuard(ctx, ix, 'skill.use', fixed, answer.inputs, { key });
     const form = ix.form(payload.form);

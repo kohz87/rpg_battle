@@ -3,7 +3,7 @@
 // replay of all of it. The same chat without a pin plays the fight it always did.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DAY, realWorld } from '../progress/helpers/world.js';
+import { AREA_TIERS, DAY, realWorld } from '../progress/helpers/world.js';
 import { fightPin, ref } from '../progress/helpers/fixture.js';
 import { hashJson } from '../../../src/v2/rules/hash.js';
 import { resolveBatch } from '../../../src/v2/fight/batch.js';
@@ -357,4 +357,27 @@ play('a unit still standing at fight end keeps its narrative presence; one that 
     assert.equal(w.ui('summon.settle', { fight: 'fi_00000001', units: [] }).code, 'REFUSED');
     assert.equal(w.ui('summon.begin', {}).code, 'REFUSED');
     assert.equal(w.host.bus.command('test.settleUnits', { fight: 'fi_00000001', units: [{ actor: 'ac_00000001', reason: 'dismissed' }] }, { cause: 'ui' }).code, 'INVALID');
+});
+
+play('a drop the pin cannot register is left behind, never a failed end: a place with no tier holds the drops, a place with one takes what it bounds', async t => {
+    const win = async tier => {
+        for (const key of Object.keys(AREA_TIERS)) delete AREA_TIERS[key];
+        if (tier !== null) AREA_TIERS['pack.fixture/haven'] = tier;
+        const w = await ready(t);
+        const v = await begin(w);
+        await w.say('Here.', ['~ here pack.fixture/haven']);
+        await finish(w);
+        const out = w.ui('combat.end', { session: v.id });
+        assert.equal(out.ok, true, out.message);
+        return out.receipt.data.loot;
+    };
+    try {
+        const unknown = await win(null);
+        assert.deepEqual(unknown.items, [], 'nothing is registered where no tier bounds it');
+        assert.ok(unknown.left.length > 0, 'the fight drops something, and it is told as left behind');
+        const known = await win(4);
+        assert.ok(known.items.length > 0 && !known.left, 'a tier 4 place takes the common drops');
+    } finally {
+        for (const key of Object.keys(AREA_TIERS)) delete AREA_TIERS[key];
+    }
 });

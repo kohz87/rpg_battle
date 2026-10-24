@@ -46,3 +46,36 @@ test('the creation wizard\'s budget is the pin\'s starting points and stat cap, 
     const loose = await realWorld(t, { pin: false, reader: points, character: false });
     assert.equal(loose.q('creation.content', {}).rules.startPoints, 20, 'without a pin the reader\'s number');
 });
+
+const xpReader = { 'party.xpBase': 50, 'party.maxLevel': 5 };
+
+test('the cards show the pin\'s level and XP, not the reader\'s: 900 of 1000 toward level 2, where the reader\'s settings alone read "Top level"', async t => {
+    const loose = await realWorld(t, { pin: false, reader: xpReader });
+    await loose.internal('party.grantXp', { amount: 900, claim: 'years' });
+    const was = loose.q('rpg-battle.cards', {})[0];
+    assert.deepEqual([was.level, was.xpText], [5, 'Top level']);
+    const w = await realWorld(t, { given: pinWith({ xpPerLevel: 1000 }), reader: xpReader });
+    await w.internal('party.grantXp', { amount: 900, claim: 'years' });
+    const card = w.q('rpg-battle.cards', {})[0];
+    assert.deepEqual([card.level, card.xp, card.xpText], [1, { cur: 900, max: 1000 }, '900 / 1000']);
+});
+
+test('the rank ladder and the terms follow the pinned level cap: the top rank ends at the pin\'s 99, not the reader\'s 5', async t => {
+    const loose = await realWorld(t, { pin: false, reader: xpReader });
+
+    assert.equal(loose.q('party.ranks', {}).at(-1).levels[1], 5);
+    const w = await realWorld(t, { given: pinWith({ xpPerLevel: 1000 }), reader: xpReader });
+    assert.equal(w.q('party.ranks', {}).at(-1).levels[1], 99);
+});
+
+test('an offered fight\'s card reads its ranks on the pinned ladder', async t => {
+    const w = await realWorld(t, { given: pinWith({ xpPerLevel: 1000 }), reader: xpReader });
+    await w.internal('party.grantXp', { amount: 40000, claim: 'years' });
+    await w.say('Wolves.', ['! encounter 2 Wolf — hungry | tier: weak']);
+    const [offer] = w.q('combat.offers', {});
+    assert.ok(offer.card, 'the card is built');
+    const loose = await realWorld(t, { pin: false, reader: xpReader });
+    await loose.internal('party.grantXp', { amount: 40000, claim: 'years' });
+    await loose.say('Wolves.', ['! encounter 2 Wolf — hungry | tier: weak']);
+    assert.notDeepEqual(JSON.stringify(offer.card), JSON.stringify(loose.q('combat.offers', {})[0].card), 'a different cap, a different ladder');
+});

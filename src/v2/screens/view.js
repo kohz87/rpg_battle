@@ -64,7 +64,7 @@ export function settingsFor(args, tools = null) {
  * part's keys, read as `party.<key>` in the module's settings or bare), and a rules file's own
  * `rules` and `terms` (module-wide keys).
  */
-export function rulesFor(settings = {}) {
+export function rulesFor(settings = {}, pin = null) {
     const s = isRecord(settings) ? settings : {};
     const own = isRecord(s.rules) ? s.rules : {};
     const character = { ...(isRecord(own.character) ? own.character : {}) };
@@ -72,6 +72,9 @@ export function rulesFor(settings = {}) {
         const value = s[`party.${key}`] ?? s[key];
         if (Number.isInteger(value)) character[key] = value;
     }
+    // (rules v2) A pinned ruleset's numbers win over the reader's: every level costs its XP, up to its cap (progress/level.js).
+    const pinned = pin?.pin?.resolved?.constants;
+    if (pinned) Object.assign(character, { xpBase: pinned.xpPerLevel, xpExponent: 0, maxLevel: pinned.levelCap, statCap: pinned.statCap, startStat: pinned.startStat });
     return makeRules({ ...own, character, ...(isRecord(s.terms) ? { terms: { ...DEFAULT_RULES.terms, ...s.terms } } : {}) });
 }
 
@@ -360,7 +363,7 @@ function burdenOf(tools, actorId) {
 export function cards(state, args = {}, tools = null) {
     const party = partyOf(state);
     const inventory = inventoryOf(state);
-    const rules = rulesFor(settingsFor(args, tools));
+    const rules = rulesFor(settingsFor(args, tools), state?.domains?.rules);
     // party.actors gives each member's portrait (the persona's, or NSD's for an NPC companion).
     const listed = tryQuery(tools, 'party.actors', {});
     const portraits = new Map((Array.isArray(listed) ? listed : []).map(entry => [entry?.id, entry?.portrait ?? null]));

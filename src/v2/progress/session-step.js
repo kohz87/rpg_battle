@@ -16,20 +16,14 @@
 //
 // planSession is pure and is what the replay guard asks again; settleSession does the writing.
 
-import { attemptFor } from '../progress/record.js';
-import { planSettlement } from '../progress/credit.js';
-import { planFold } from '../progress/fold.js';
-import { standing } from '../progress/offers.js';
-import { readClock, trainingWindow } from './clock.js';
+import { attemptFor } from './record.js';
+import { planSettlement } from './credit.js';
+import { foldInputs, planFold } from './fold.js';
+import { standing } from './offers.js';
+import { readClock, trainingWindow } from '../training/clock.js';
 import { isObject } from '../rules/ids.js';
+import { ask } from '../rules/ask.js';
 
-const ask = (query, name, args) => {
-    try {
-        return typeof query === 'function' ? query(name, args) : null;
-    } catch {
-        return null;
-    }
-};
 
 /** The coin the party's purse holds, or null when no purse can be read. */
 export function purseOf(query) {
@@ -76,9 +70,13 @@ export function planSession(env, id, event, source, hash) {
     const simulated = { ...progress, attempts: { ...(progress.attempts ?? {}), ...Object.fromEntries(attempts.map(item => [item.id, item.record])) } };
     const plan = planSettlement(ix.constants, simulated, start);
     const fold = planFold(simulated, plan, source?.sid ?? null);
+    // What the session earned is kept on the session: its attempts' rows go when the ledger folds, and its view must not.
+    const mine = plan.filter(row => attempts.some(item => item.id === row.id));
+    patch.awarded = mine.filter(row => row.award > 0).length;
+    patch.unearned = mine.find(row => row.award < 1)?.reason ?? null;
     return {
         ok: true, outcome: 'ran', patch, attempts, plan, fold, start: window.start, end: window.end, fee: trainer.fee,
-        inputs: { session: id, outcome: patch.status, trainer: trainer.id, fee: trainer.fee, place, start: window.start, end: window.end, event: patch.event, plan: plan.map(({ minute, ...row }) => row), fold: fold ? fold.ids : null },
+        inputs: { session: id, outcome: patch.status, trainer: trainer.id, fee: trainer.fee, place, start: window.start, end: window.end, event: patch.event, plan: plan.map(({ minute, ...row }) => row), fold: foldInputs(fold) },
     };
 }
 

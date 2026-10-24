@@ -13,8 +13,11 @@ export const FOLD_AT = 300;
 
 /**
  * The fold of `progress` once `plan` (a settlement's rows) is applied, or null when the ledger is small enough or nothing can be
- * folded: { ids: [attempt id, sorted], forms: { "<actor>|<form>": n }, days: { "<actor>|<skill>|<day>": n } }. `reply`: the sid of
- * the reply that settles (its attempts stay), `at`: the size above which to fold.
+ * folded: { ids: [attempt id, sorted], forms: { "<actor>|<form>": n }, days: { "<actor>|<skill>|<day>": n }, base: { forms, days } }.
+ * `base` is what the sealed counts of those keys stood at, because applying the fold writes the new total (base + n): a settlement
+ * whose base is not the chat's any more (an earlier fold was taken back) is not the one that was planned, so its guard carries
+ * the base (`foldInputs`) and the host plans it again. `reply`: the sid of the reply that settles (its attempts stay), `at`: the
+ * size above which to fold.
  */
 export function planFold(progress, plan, reply, at = FOLD_AT) {
     const attempts = isObject(progress?.attempts) ? progress.attempts : {};
@@ -33,8 +36,15 @@ export function planFold(progress, plan, reply, at = FOLD_AT) {
         forms[`${actor}|${form}`] = (forms[`${actor}|${form}`] ?? 0) + 1;
         days[`${actor}|${skill}|${credit.day}`] = (days[`${actor}|${skill}|${credit.day}`] ?? 0) + 1;
     }
-    return { ids, forms, days };
+    const sealed = isObject(progress?.sealed) ? progress.sealed : {};
+    const base = { forms: {}, days: {} };
+    for (const key of Object.keys(forms)) base.forms[key] = sealed.forms?.[key] ?? 0;
+    for (const key of Object.keys(days)) base.days[key] = sealed.days?.[key] ?? 0;
+    return { ids, forms, days, base };
 }
+
+/** What a fold adds to the guard's inputs: the attempts it removes, the counts it adds and the totals it adds them to (null: no fold). */
+export const foldInputs = fold => (fold ? { ids: fold.ids, forms: fold.forms, days: fold.days, base: fold.base } : null);
 
 /** Applies a fold to the progress draft: the rows go, the sealed counts grow. */
 export function applyFold(draft, fold) {

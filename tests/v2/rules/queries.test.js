@@ -58,3 +58,22 @@ test('rules.training: the caps of today from the clock and the credits, no sessi
     assert.equal(w.q('rules.training', { actor: 'x' }), null);
     assert.equal(w.q('rules.training', {}), null);
 });
+
+test('rules.sheet: your character by default, a member by id, null for a stranger, a malformed argument or a member with no class', async t => {
+    const w = await started(t);
+    const sheet = w.q('rules.sheet', {});
+    assert.equal(sheet.id, ACTOR);
+    assert.equal(sheet.class, ref('c0'));
+    assert.equal(sheet.skills.length, 3, 'a class holds three skills');
+    assert.deepEqual(sheet.skills.map(skill => skill.form), ['s00-base', 's01-base', 's02-base'].map(ref));
+    assert.deepEqual(Object.keys(sheet.gear).sort(), ['accessory-1', 'accessory-2', 'body', 'feet', 'head', 'legs', 'offhand', 'weapon']);
+    assert.deepEqual(w.q('rules.sheet', { actor: ACTOR }), sheet);
+    assert.equal(w.q('rules.sheet', { actor: 'ac_zzzzzzzz' }), null, 'a stranger');
+    assert.equal(w.q('rules.sheet', { actor: 'nobody' }), null);
+    assert.equal(w.q('rules.sheet', { nope: 1 }), null);
+    assert.equal(w.host.bus.command('tp.add', { id: FRIEND, name: 'Lyra' }, { cause: 'ui' }).ok, true);
+    assert.equal(w.q('rules.sheet', { actor: FRIEND }), null, 'no basic class yet');
+    const bare = await world(t);
+    await bare.say('Dawn.');
+    assert.equal(bare.q('rules.sheet', {}), null, 'no pin');
+});

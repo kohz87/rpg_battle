@@ -68,7 +68,7 @@ export function offers(state) {
  */
 export function terms(state, args = {}, tools = null) {
     const settings = args?.settings ?? (tools?.settings && typeof tools.settings === 'object' ? tools.settings : null);
-    const { levelName, xpName, tiers } = termsOf(rulesFrom(settings));
+    const { levelName, xpName, tiers } = termsOf(rulesFrom(settings, state?.domains?.rules));
     return plainCopy({ levelName, xpName, tiers });
 }
 
@@ -85,7 +85,7 @@ const queryOf = tools => (typeof tools?.query === 'function' ? (name, args) => t
  */
 export function ranks(state, args = {}, tools = null) {
     const query = queryOf(tools);
-    return plainCopy(rankLadder(rulesFrom(settingsFrom(args, tools)), { pack: packRanks(query), base: packOwnRanks(query), scale: moneyScale(query) }));
+    return plainCopy(rankLadder(rulesFrom(settingsFrom(args, tools), state?.domains?.rules), { pack: packRanks(query), base: packOwnRanks(query), scale: moneyScale(query) }));
 }
 
 /**

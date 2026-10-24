@@ -66,14 +66,18 @@ export function currentOf(training, actor) {
  * credits its attempts earned (`reason` of the first that earned nothing, else the refusal's); `capDay`: the day it counts on.
  */
 export function sessionView(session, { constants, trainer, progress }) {
+    // The count the session kept when it ran; one that was written without it is read from the ledger.
+    const kept = Number.isSafeInteger(session.awarded);
     const attempts = Object.entries(progress?.attempts ?? {}).filter(([, item]) => item.session === session.id);
     const credits = attempts.map(([id]) => progress.credits?.[id]).filter(Boolean);
     const zero = credits.find(item => item.award < 1);
+    const awarded = kept ? session.awarded : credits.filter(item => item.award > 0).length;
+    const unearned = kept ? session.unearned ?? null : zero?.reason ?? null;
     return {
         id: session.id, status: session.status, skill: session.skill, form: session.form, trainer: session.trainer,
         startMinute: session.startMinute, endMinute: session.endMinute, fee: session.fee ?? trainer?.fee ?? 0,
-        credits: constants.trainCredits, creditsAwarded: credits.filter(item => item.award > 0).length,
-        reason: session.status === 'refused' || session.status === 'interrupted' ? session.reason : zero?.reason ?? null,
+        credits: constants.trainCredits, creditsAwarded: awarded,
+        reason: session.status === 'refused' || session.status === 'interrupted' ? session.reason : unearned,
         event: session.event ? { die: session.event.die, template: session.event.template } : null,
         capDay: Number.isSafeInteger(session.endMinute) ? dayOf(session.endMinute, constants.clockMinutesPerDay) : null,
     };

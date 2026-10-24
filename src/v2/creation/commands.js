@@ -21,7 +21,6 @@ import { buildCharacter, creationRules } from './build.js';
 import { STAT_LABELS, creationContent } from './content.js';
 import { BACKGROUND_LIMIT } from './persona.js';
 import { cleanName } from '../party/util.js';
-import { startRulesClass } from '../progress/start.js';
 
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -219,6 +218,9 @@ function finish(ctx, payload = {}) {
         ...(background ? { background } : {}),
         ...(portrait.portrait ? { portrait: portrait.portrait } : {}),
         ...(withOrigin ? { origin: { race: built.race?.id ?? null, talents: built.talents.map(talent => talent.id) } } : {}),
+        // Rules v2: the wizard's class and its check actor go down to party.create, which records the milestone-0 choice once.
+        ...(draft.class !== undefined ? { class: draft.class } : {}),
+        ...(draft.checkActor !== undefined ? { checkActor: draft.checkActor } : {}),
     };
     ctx.call('party.create', create);
 
@@ -230,9 +232,6 @@ function finish(ctx, payload = {}) {
     const wrong = STATS.find(stat => pc.stats?.[stat] !== built.stats[stat]);
     if (wrong) fail(ctx, 'FAILED', `Your character could not be made with the race and talents: ${wrong} came out ${pc.stats?.[wrong]}, not ${built.stats[wrong]}.`);
     if (background && pc.background !== background) fail(ctx, 'FAILED', 'Your character could not be made with your persona\'s background.');
-    // Rules v2: the basic class picked in the wizard, recorded in this transaction (nothing at all in a chat with no rules pack).
-    startRulesClass(ctx, { actor: pc.id, class: draft.class, checkActor: draft.checkActor });
-
     // The ready-made character's skills, built from the pack's words by the party part's rules.
     const learned = [];
     for (const skill of preset?.skills ?? []) {
@@ -359,6 +358,8 @@ function importCharacter(ctx, payload = {}) {
         ...(name ? { name } : {}),
         ...(background ? { background } : {}),
         ...(portrait.portrait ? { portrait: portrait.portrait } : {}),
+        ...(input.class !== undefined ? { class: input.class } : {}),
+        ...(input.checkActor !== undefined ? { checkActor: input.checkActor } : {}),
     });
     const actor = made?.data?.actor;
     const party = readParty(ctx);

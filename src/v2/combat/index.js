@@ -34,7 +34,7 @@ import { clipped } from '../lines.js';
 import { lastParts, partsProblems } from '../board/parts.js';
 import { fitParty } from '../party/pools.js';
 import { foldStoryTime } from '../party/recovery.js';
-import { actionWithId, beginUnits, guardAction, pinnedOf, pinnedSetup, settleEnd } from '../fight/index.js';
+import { actionWithId, beginUnits, guardAction, lootHeld, pinnedOf, pinnedSetup, settleEnd } from '../fight/index.js';
 import { cleanFormFields } from '../fight/records.js';
 import { applyStock, beatenFoes, boardToken, endSummary, foeNames, foeRanks, partyNames, rebuild, sessionView, tailLines } from './view.js';
 
@@ -459,7 +459,7 @@ function grantLoot(ctx, items) {
         const shown = target?.shown ?? item.name;
         // What it weighs: the chat's def, a pack's (asked again by name), else the drop's own.
         const carried = target?.defId ? { defId: target.defId } : { def: target?.def ?? lootDef(item) };
-        if (!canCarryLoot(ctx, carried, item.qty)) {
+        if (!canCarryLoot(ctx, carried, item.qty) || (payload.def && lootHeld(ctx, payload.def))) {
             add(left, shown, item);
             continue;
         }
@@ -793,12 +793,12 @@ function dismiss(ctx, payload) {
 }
 
 /** What an offer's card reads its ranks with: { ladder (party.ranks), pcLevel, rules }; none when the queries are not there. */
-function cardContext(tools) {
+function cardContext(tools, state = null) {
     const ask = (name, query) => {
         try { return typeof tools?.query === 'function' ? tools.query(name, query) : null; } catch { return null; }
     };
     let rules;
-    try { rules = rulesFrom(tools?.settings ?? null); } catch { rules = undefined; }
+    try { rules = rulesFrom(tools?.settings ?? null, state?.domains?.rules); } catch { rules = undefined; }
     const level = Number(ask('party.pc', {})?.level);
     return { ladder: ask('party.ranks', {}), pcLevel: Number.isInteger(level) && level >= 1 ? level : 1, ...(rules ? { rules } : {}) };
 }
@@ -974,7 +974,7 @@ export const part = {
         // `card` (terms2): each foe's rank on the suite's ladder and the fight's tier, for the Fight screen.
         'combat.offers': (state, args, tools) => {
             const offers = offersOf(combatOf(state));
-            const card = offers.length ? cardContext(tools) : null;
+            const card = offers.length ? cardContext(tools, state) : null;
             return offers.map(offer => ({ ...structuredClone(offer), text: foesText(offer.foes), card: foesCard(offer.foes, card) }));
         },
         // Never throws to the reader (a view that cannot be rebuilt reads as no fight).

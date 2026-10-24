@@ -35,4 +35,24 @@ function skillTrain(ctx, payload) {
     return { summary: `${answer.member.name} asks ${answer.trainer.name} to train them.`, narrate: false, data: { v2: { key: `train:${payload.session}`, result: { session: payload.session, status: 'requested' } } } };
 }
 
-export const commands = { 'skill.train': skillTrain };
+/**
+ * skill.cancelTrain { actor, session }: the player withdraws a request that waits for the host. The session is kept, refused, so
+ * the next ask of that character is the next session id and nothing is deleted. Moves no fee and no time. (Not in the contract's
+ * command list: the gap is written down in docs/dev/progress.md.)
+ */
+function skillCancelTrain(ctx, payload) {
+    if (!isObject(payload) || Object.keys(payload).some(key => key !== 'actor' && key !== 'session') || !isActorId(payload.actor) || !isRecordId(payload.session) || !payload.session.startsWith('tr_')) {
+        ctx.fail('INVALID', 'skill.cancelTrain needs { actor, session }.');
+    }
+    if (ctx.cause !== 'ui' || ctx.caller) ctx.fail('REFUSED', 'Withdrawing a training is the player\'s own request.');
+    const ix = indexOf(pinOf({ domains: { rules: ctx.read('rules') } }));
+    if (!ix) ctx.fail('REFUSED', 'This chat does not run a rules pack.');
+    const answer = assess('skill.cancelTrain', { ix, progress: ctx.read('progress'), training: ctx.read('training'), query: (name, args) => ctx.query(name, args) }, payload);
+    if (!answer.ok) ctx.fail(answer.code, answer.why);
+    if (!ctx.claim(`rb:${epochOf(ctx)}:train-cancel:${payload.session}`)) ctx.fail('CLAIMED', 'That training was already withdrawn.');
+    Object.assign(ctx.draft('training').sessions[payload.session], { status: 'refused', reason: 'The player withdrew the request.' });
+    attachGuard(ctx, ix, 'skill.cancelTrain', payload, answer.inputs);
+    return { summary: 'The training request was withdrawn.', narrate: false, data: { v2: { key: `train-cancel:${payload.session}`, result: { session: payload.session, status: 'refused' } } } };
+}
+
+export const commands = { 'skill.train': skillTrain, 'skill.cancelTrain': skillCancelTrain };

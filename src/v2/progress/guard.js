@@ -25,7 +25,7 @@ import { assess } from './assess.js';
 import { indexOfState } from '../rules/graph.js';
 import { epochOf } from '../rules/ids.js';
 
-export const GUARD_KINDS = Object.freeze(['class.choose', 'path.choose', 'rules.settle', 'party.setActive', 'summon.end', 'class.start', 'skill.use', 'skill.train', 'rules.flagSet', 'rules.registerItem', 'combat.act', 'combat.end']);
+export const GUARD_KINDS = Object.freeze(['class.choose', 'path.choose', 'rules.settle', 'party.setActive', 'summon.end', 'class.start', 'skill.use', 'skill.train', 'skill.cancelTrain', 'rules.flagSet', 'rules.registerItem', 'combat.act', 'combat.end']);
 /** What a block the guard turned off says (contract C14: REPLAY_PREREQUISITE, "The earlier prerequisite was removed."). */
 export const PREREQUISITE_REMOVED = 'The earlier prerequisite was removed.';
 
