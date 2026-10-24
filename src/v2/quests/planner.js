@@ -101,7 +101,7 @@ export function objectiveProgress(thread, { proofs, items, activeActors, validat
  * No drafts, claims, calls, RNG or narration. Requirements, giver identity and carry legality
  * are supplied by their rule owners, not reimplemented here. Expiry precedes all turn-ins.
  */
-export function planSettlement(thread, inputs, { evaluateRequirements, validateProof, canReceive } = {}) {
+export function planQuestSettlement(thread, inputs, { evaluateRequirements, validateProof, canReceive } = {}) {
     const quest = thread?.rpg;
     if (!quest || quest.id !== thread.id) return refuse('NOT_FOUND', 'This thread has no matching RPG quest.');
     if (quest.state !== 'active' || quest.settlement || thread.status !== 'active' || !thread.taken) {
@@ -138,13 +138,4 @@ export function planSettlement(thread, inputs, { evaluateRequirements, validateP
         if (carry?.ok !== true) return carry?.ok === false ? carry : refuse('DEPENDENCY_UNAVAILABLE', 'Reward carry validation gave no valid answer.');
     }
     return { ok: true, outcome: 'done', consumed: progress.consumed, payout, proofs: progress.proofs };
-}
-
-/** B5's canonical envelope; the caller supplies the host Source/epoch and frozen rules hash. */
-export function settlementInputs({ operation, source, epoch, rulesHash, thread, inputs, plan }) {
-    return { version: 2, operation: copy(operation), source: copy(source), rulesHash, epoch,
-        inputs: { thread: copy(thread), clock: copy(inputs.clock), place: copy(inputs.place),
-            items: copy(inputs.items), activeActors: copy(inputs.activeActors),
-            storyCredit: copy(thread.rpg.storyCredit), consumed: copy(plan.consumed), payout: copy(plan.payout) },
-        proofs: copy(plan.proofs) };
 }

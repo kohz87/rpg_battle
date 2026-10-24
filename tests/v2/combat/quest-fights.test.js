@@ -11,13 +11,14 @@ import { sessionOf, unpackSetup } from '../../../src/v2/combat/stored.js';
 import { DEFAULT_BESTIARY } from '../../../src/enemies.js';
 
 function withQuest(quest, { seed = 2 } = {}) {
-    const { h, pc } = withHero({ seed });
+    const { h, pc } = withHero({ seed, queryOverrides: quest ? {
+        'quest.progress': () => ({ have: quest.have ?? 0, need: quest.need, met: false, countable: true, source: quest.source, noun: quest.noun }),
+    } : {} });
     if (quest) {
         h.registry.register({
             id: 'quest-test', name: 'Quest test', version: '1.0.0',
             queries: {
                 'director.threads': () => [{ id: 'th_00000001', kind: 'quest', status: 'active', key: 'Rats', taken: { rev: 1 } }],
-                'quest.progress': () => ({ have: quest.have ?? 0, need: quest.need, met: false, countable: true, source: quest.source, noun: quest.noun }),
             },
         });
     }
