@@ -65,7 +65,7 @@ export function replayGuard({ state, query, hash }, info) {
     if (!progress || typeof progress !== 'object') return off('');
     const payload = guard.predicate.payload;
     if (payload === null || typeof payload !== 'object') return off('');
-    const answer = assess(kind, { ix, progress, training: state?.domains?.training, rules: state?.domains?.rules, query }, payload, { source: info.source, hash, event: info.recorded?.event });
+    const answer = assess(kind, { ix, progress, training: state?.domains?.training, rules: state?.domains?.rules, query }, payload, { source: info.source, hash, event: info.recorded?.event, recorded: info.recorded });
     if (!answer.ok) return off(answer.why);
     const expected = buildGuard({ hash, owner: guard.owner, epoch: guard.epoch, source: info.source, rulesHash: ix.rulesHash, kind, payload, inputs: answer.inputs });
     return expected.inputHash === guard.inputHash ? { ok: true } : off('');

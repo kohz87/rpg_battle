@@ -53,11 +53,17 @@ export function rulesFlags(state, args) {
  * Whether flag `key` may become `value` on this state, by this evidence: the question the command and the replay guard both ask.
  * `env`: { ix, rules (the rules slice), query }. → { ok, inputs } | { ok: false, code, why }.
  */
-export function assessFlag(env, payload) {
+export function assessFlag(env, payload, extra = {}) {
     const { ix, rules, query } = env;
     if (!ix.flags().includes(payload.key)) return { ok: false, code: 'NOT_FOUND', why: 'That is not a flag this world declares.' };
     const from = rules?.flags?.[payload.key]?.value === true;
     if (from === payload.value) return { ok: false, code: 'REFUSED', why: `That flag is already ${payload.value ? 'on' : 'off'}.` };
+    // The adapter that gives the event asks for the flag in the same block: the proof is pinned by that very block, so it is not in
+    // the state before it. The block records that (`recorded.own`) and the replay trusts it: the proof lives and dies with the block.
+    const own = extra.recorded?.own;
+    if (isObject(own) && own.id === payload.evidence && typeof own.payloadHash === 'string') {
+        return { ok: true, from, inputs: { key: payload.key, from, value: payload.value, proof: own.payloadHash } };
+    }
     let found = [];
     try { found = query('story.evidence', { ids: [payload.evidence] }); } catch { found = []; }
     const proof = Array.isArray(found) ? found[0] : null;
@@ -66,7 +72,8 @@ export function assessFlag(env, payload) {
     if (proof.kind !== 'event' || proof.owner !== EVENT_OWNER || !isObject(said) || Object.keys(said).length !== 2 || said.flag !== payload.key || said.value !== payload.value) {
         return { ok: false, code: 'REFUSED', why: 'That event does not authorize exactly this change of the flag.' };
     }
-    return { ok: true, from, inputs: { key: payload.key, from, value: payload.value, proof: proof.payloadHash } };
+    const mine = extra.source && proof.source && proof.source.sid === extra.source.sid && proof.source.swipeKey === extra.source.swipeKey && proof.source.ordinal === extra.source.ordinal;
+    return { ok: true, from, inputs: { key: payload.key, from, value: payload.value, proof: proof.payloadHash }, ...(mine ? { own: { id: proof.id, payloadHash: proof.payloadHash } } : {}) };
 }
 
 const FIELDS = ['write', 'key', 'value', 'evidence', 'expectedHash'];
@@ -84,12 +91,12 @@ export function flagSet(ctx, payload, attach) {
     // The same write again, with the same event: it has been done.
     if (held && held.write === payload.write && held.evidence === payload.evidence && held.value === payload.value) return answered(valuesOf(ix, slice));
     if (hashOf(valuesOf(ix, slice)) !== payload.expectedHash) ctx.fail('STALE', 'The flags changed since they were read.');
-    const answer = assessFlag({ ix, rules: slice, query: (name, args) => ctx.query(name, args) }, payload);
+    const answer = assessFlag({ ix, rules: slice, query: (name, args) => ctx.query(name, args) }, payload, { source: ctx.source });
     if (!answer.ok) ctx.fail(answer.code, answer.why);
     if (!ctx.claim(`rb:${epochOf(ctx)}:flag:${payload.evidence}`)) ctx.fail('CLAIMED', 'That event already changed a flag once.');
     const draft = ctx.draft('rules');
     draft.flags[payload.key] = { value: payload.value, evidence: payload.evidence, write: payload.write };
-    attach(ctx, ix, 'rules.flagSet', { write: payload.write, key: payload.key, value: payload.value, evidence: payload.evidence, expectedHash: payload.expectedHash }, answer.inputs);
+    attach(ctx, ix, 'rules.flagSet', { write: payload.write, key: payload.key, value: payload.value, evidence: payload.evidence, expectedHash: payload.expectedHash }, answer.inputs, answer.own ? { own: answer.own } : undefined);
     return answered(valuesOf(ix, draft));
 }
 

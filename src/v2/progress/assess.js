@@ -134,7 +134,7 @@ export function assess(kind, env, payload, extra = {}) {
         return planSession(env, payload.session, extra.event ?? { die: 0, template: null }, extra.source, extra.hash);
     }
     if (kind === 'skill.train') return assessRequest(env, payload);
-    if (kind === 'rules.flagSet') return assessFlag(env, payload);
+    if (kind === 'rules.flagSet') return assessFlag(env, payload, extra);
     if (kind === 'rules.registerItem') return assessItem(env, payload);
     if (kind === 'rules.settle') {
         const plan = planSettlement(ix.constants, progress, readClock(query));

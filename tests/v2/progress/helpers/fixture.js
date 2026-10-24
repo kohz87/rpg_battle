@@ -99,7 +99,7 @@ export function pinWith(over) {
  * the recipe that forges the sword, the market that sells rope, and the bell quest (flags bell.rung, gate.open).
  */
 export function inputsPack() {
-    const pack = smallRulesPack();
+    const pack = trainerPack();
     const row = (slug, name, over = {}) => ({ slug, name, kind: 'goods', rarity: 'common', value: 2, stack: true, slot: null, stats: {}, effect: {}, tags: [], note: '', ...over });
     pack.content.items = [row('rope', 'Rope'), row('sword', 'Iron Sword', { kind: 'equipment', rarity: 'uncommon', value: 30, stack: false, slot: 'weapon', stats: { ATK: 3 } })];
     pack.content.rules[0].itemRules = [
