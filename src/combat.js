@@ -14,13 +14,54 @@ import { LOOT_TABLES, rollLoot } from './enemies.js';
 import { templateFor } from './templates.js';
 
 const DOTS = ['poison', 'burn', 'bleed'];
-const HARMFUL = new Set(['poison', 'burn', 'bleed', 'stun', 'slow', 'weaken']);
+const HARMFUL = new Set(['poison', 'burn', 'bleed', 'stun', 'slow', 'weaken', 'daze']);
 // Conditions that only make sense inside a fight; the rest may follow the sheet out of it.
-const FIGHT_ONLY = new Set(['guard', 'shield', 'stun', 'slow', 'weaken']);
+const FIGHT_ONLY = new Set(['guard', 'shield', 'stun', 'slow', 'weaken', 'daze']);
 const LABELS = {
     poison: 'poisoned', burn: 'burning', bleed: 'bleeding', stun: 'stunned', slow: 'slowed',
-    weaken: 'weakened', shield: 'shielded', regen: 'regenerating', guard: 'on guard',
+    weaken: 'weakened', shield: 'shielded', regen: 'regenerating', guard: 'on guard', daze: 'dazed',
 };
+// (v2) The stun rule (`setup.stunRule: 'daze'`, RPG Battle v2's fights only): nobody is stunned two
+// turns in a row. A stun that lands on someone whose last turn was lost to a stun dazes them
+// instead: their next action rolls DAZE_POINTS points lower (to hit, to flee, to talk). A fight
+// without the rule (every v1 fight, and v2 fights stored before it) plays exactly as before.
+export const DAZE_POINTS = 2;
+
+/**
+ * (v2) The one table from the fight's condition names (and the words a story writes for them)
+ * to the kinds a v2 party record keeps (MODULES §B1: `poisoned`). Every other condition keeps
+ * its own words. Shared by RPG Battle v2's party and combat parts.
+ */
+export const CONDITION_KINDS = Object.freeze({
+    poison: 'poisoned', poisoning: 'poisoned',
+    burn: 'burning', burned: 'burning', burnt: 'burning',
+    bleed: 'bleeding', bled: 'bleeding',
+    stun: 'stunned',
+    slow: 'slowed',
+    weaken: 'weakened', weak: 'weakened',
+    shield: 'shielded',
+    regen: 'regenerating', regenerate: 'regenerating',
+    guard: 'guarded',
+});
+// The fight's own names, by the kind a party record keeps ("poisoned" → "poison").
+const FIGHT_NAMES = Object.freeze(Object.fromEntries(Object.entries(CONDITION_KINDS)
+    .filter(([name]) => Object.hasOwn(LABELS, name)).map(([name, kind]) => [kind, name])));
+
+/** A condition's kind as a v2 party record keeps it: "poison" is "poisoned"; anything else as written. */
+export function conditionKind(name) {
+    const text = String(name ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim().slice(0, 40);
+    return CONDITION_KINDS[text.toLowerCase()] ?? text;
+}
+
+/**
+ * The fight's name for a party record's condition kind ("poisoned" → "poison"), or null for a
+ * condition the fight has no rules for (a story's "exhausted", "dead").
+ */
+export function fightCondition(kind) {
+    const key = conditionKind(kind).toLowerCase();
+    if (FIGHT_NAMES[key]) return FIGHT_NAMES[key];
+    return Object.hasOwn(LABELS, key) ? key : null;
+}
 
 // --- small helpers ------------------------------------------------------------------------
 
@@ -30,6 +71,27 @@ const byId = (f, id) => f.combatants.find(c => c.id === id) ?? null;
 const opponents = (f, c) => f.combatants.filter(o => o.side !== c.side && isActive(o));
 const allies = (f, c) => f.combatants.filter(o => o.side === c.side && isActive(o));
 const has = (c, name) => c.conditions.some(cond => cond.name === name);
+// The points a dazed actor's rolls lose this action (0 when not dazed; only the stun rule dazes).
+const dazed = c => (has(c, 'daze') ? DAZE_POINTS : 0);
+
+// (v2) The relative hit rule (`setup.hitRule: 'relative'`, RPG Battle v2's fights only): DEX against
+// AGI counts as a share of the two, not as raw points. Each point of difference is worth
+// RELATIVE_BASE ÷ (their mean) points, so at the start stats (a mean of RELATIVE_BASE or less) a hit
+// rolls as before, and at level 60, 60 DEX against 90 AGI is 4 points short, not 30 (a hit 63 % of
+// the time, not 5 %). A fight without the rule (every v1 fight, v2 fights stored before it) rolls
+// as before.
+export const RELATIVE_BASE = 10;
+/** The DEX a hit rolls with against `agi`: as it is, or, by the relative rule, the difference scaled to RELATIVE_BASE. */
+export function relativeDex(dex, agi, relative = false) {
+    const d = Number(dex) || 0;
+    const a = Number(agi) || 0;
+    if (!relative) return d;
+    const scale = RELATIVE_BASE / Math.max(RELATIVE_BASE, (Math.max(0, d) + Math.max(0, a)) / 2);
+    return a + (d - a) * scale;
+}
+/** An actor's chance to hit `target` in fight `f`: v1's hitChance, by the relative rule when the fight has it, dazed points off. */
+const spellIn = (f, actor, target, rules) => hitChance(relativeDex(actor.stats.INT, target.stats.AGI, f?.hitRule === 'relative') - dazed(actor), target.stats.AGI, rules);
+const hitIn = (f, actor, target, rules) => hitChance(relativeDex(actor.stats.DEX, target.stats.AGI, f?.hitRule === 'relative') - dazed(actor), target.stats.AGI, rules);
 const cap = text => text.charAt(0).toUpperCase() + text.slice(1);
 const norm = name => String(name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 const average = list => (list.length ? list.reduce((sum, value) => sum + value, 0) / list.length : 0);
@@ -146,8 +208,12 @@ function applyEffect(f, source, target, skill, rules) {
     const value = skillValue(source, skill, rules);
     const power = effectivePower(skill, skill.mastery, rules);
     const applied = [];
-    for (const [name, rounds] of Object.entries(skill.effect)) {
-        if (!LABELS[name] || !(rounds > 0)) continue;
+    for (const [written, given] of Object.entries(skill.effect)) {
+        if (!LABELS[written] || !(given > 0)) continue;
+        // The stun rule: a second stun in a row is a daze, for one turn.
+        const daze = written === 'stun' && f.stunRule === 'daze' && Boolean(f.marks.stunned?.[target.id]);
+        const name = daze ? 'daze' : written;
+        const rounds = daze ? 1 : given;
         let strength = 0;
         if (DOTS.includes(name)) strength = Math.max(1, Math.round(value * c.dot[name]));
         else if (name === 'regen') strength = Math.max(1, Math.round(value * power * c.regen));
@@ -205,7 +271,8 @@ function strike(f, actor, target, skill, rng, rules) {
     const a = rules.attack;
     const physical = !skill || skill.type === 'physical';
     const what = skill ? `${label(actor)}'s ${skill.name}` : label(actor);
-    if (physical && !rng.chance(hitChance(actor.stats.DEX, target.stats.AGI, rules))) {
+    // (v2) With the spell rule a spell rolls too: INT against AGI, as a blow rolls DEX (spellIn).
+    if ((physical ? !rng.chance(hitIn(f, actor, target, rules)) : f.spellRule === 'roll' && !rng.chance(spellIn(f, actor, target, rules)))) {
         log(f, actor, `${what} misses ${label(target)}.`, 'miss');
         return false;
     }
@@ -431,10 +498,17 @@ function beginTurn(f, actor, rng, rules) {
     if (actor.sp && actor.sp.cur < actor.sp.max) {
         actor.sp.cur = Math.min(actor.sp.max, actor.sp.cur + Math.max(1, Math.round(actor.sp.max * (rules.combat.spPerTurn ?? 0))));
     }
+    if (f.stunRule === 'daze') {
+        // The stun rule's memory: whose last turn a stun took (the next stun on them is a daze).
+        f.marks.stunned ??= {};
+        if (stunned) f.marks.stunned[actor.id] = true;
+        else delete f.marks.stunned[actor.id];
+    }
     if (stunned) {
         log(f, actor, `${label(actor)} is stunned and loses the turn.`, 'condition');
         return false;
     }
+    if (has(actor, 'daze')) log(f, actor, `${label(actor)} is dazed (−${DAZE_POINTS} to this action).`, 'condition');
     return true;
 }
 
@@ -522,7 +596,19 @@ function useSkill(f, actor, skill, targets, rng, rules) {
     if (actor.side === 'party') bump(f.stats.uses, actor.memberId, skill.name);
     const verb = skill.type === 'magic' || (skill.type !== 'physical' && skill.stat === 'INT') ? 'casts' : 'uses';
     if (skill.type === 'physical' || skill.type === 'magic') {
-        for (const target of targets) if (isActive(target)) strike(f, actor, target, skill, rng, rules);
+        // Each target rolls on its own (a spell too, by the spell rule): an area skill can miss some
+        // and hit the rest, and only the ones hit take its damage and effects.
+        const missed = [];
+        let hit = 0;
+        for (const target of targets) {
+            if (!isActive(target)) continue;
+            if (strike(f, actor, target, skill, rng, rules)) hit += 1;
+            else missed.push(target);
+        }
+        // (v2) Who an area skill missed, as a key moment (the per-target lines say it too).
+        if (f.spellRule === 'roll' && targets.length > 1 && missed.length) {
+            log(f, actor, `${label(actor)}'s ${skill.name} ${hit ? 'misses' : 'misses everyone:'} ${missed.map(label).join(', ').replace(/, ([^,]*)$/, ' and $1')}${hit ? ` and hits ${hit === 1 ? 'one' : hit}` : ''}.`, 'miss', true);
+        }
         return;
     }
     if (skill.type === 'heal') {
@@ -549,7 +635,7 @@ function useSkill(f, actor, skill, targets, rng, rules) {
     // Debuff: a curse can be shrugged off (the same roll as a hit), and may also hurt.
     for (const target of targets) {
         if (!isActive(target)) continue;
-        if (!rng.chance(hitChance(actor.stats.DEX, target.stats.AGI, rules))) {
+        if (!rng.chance(hitIn(f, actor, target, rules))) {
             log(f, actor, `${label(actor)} ${verb} ${skill.name} on ${label(target)} — miss.`, 'miss');
             continue;
         }
@@ -602,7 +688,7 @@ function flee(f, actor, rng, rules) {
     if (actor.side === 'enemy') {
         f.marks.fleeTried[actor.id] = true;
         const partyAgi = average(f.combatants.filter(c => c.side === 'party' && isActive(c)).map(c => c.stats.AGI));
-        if (rng.chance(fleeChance(actor.stats.AGI, partyAgi, {}, rules))) {
+        if (rng.chance(fleeChance(actor.stats.AGI - dazed(actor), partyAgi, {}, rules))) {
             actor.gone = 'fled';
             log(f, actor, `${label(actor)} flees.`, 'flee', true);
         } else {
@@ -611,7 +697,8 @@ function flee(f, actor, rng, rules) {
         return;
     }
     const party = f.combatants.filter(c => c.side === 'party' && isActive(c));
-    if (rng.chance(partyFleeChance(f, rules))) {
+    const daze = dazed(actor) * rules.flee.perAgi;
+    if (rng.chance(daze ? Math.max(rules.flee.min, partyFleeChance(f, rules) - daze) : partyFleeChance(f, rules))) {
         f.status = 'fled';
         log(f, actor, party.length > 1 ? 'The party escapes!' : `${label(actor)} escapes!`, 'flee', true);
     } else {
@@ -626,7 +713,7 @@ function partyFleeChance(f, rules) {
 }
 
 function parley(f, actor, target, rng, rules) {
-    if (rng.chance(parleyChance(actor.stats.CHA, target.morale, share(target), rules))) {
+    if (rng.chance(parleyChance(actor.stats.CHA - dazed(actor), target.morale, share(target), rules))) {
         target.gone = 'parleyed';
         log(f, actor, `${label(actor)} talks ${label(target)} down; it withdraws.`, 'parley', true);
     } else {
@@ -798,6 +885,10 @@ export function startFight({ rules = DEFAULT_RULES, ...setup } = {}) {
         // (0.5.14) 'timeline' only when the setup asks for it: a fight saved before keeps rounds.
         turns: setup.turns === 'timeline' ? 'timeline' : 'rounds',
         speedOffset: Number.isFinite(Number(setup.speedOffset)) ? Math.max(0, Number(setup.speedOffset)) : rules.turns.speedOffset,
+        // (v2) The stun rule and the relative hit rule, only when the setup asks for them.
+        ...(setup.stunRule === 'daze' ? { stunRule: 'daze' } : {}),
+        ...(setup.hitRule === 'relative' ? { hitRule: 'relative' } : {}),
+        ...(setup.spellRule === 'roll' ? { spellRule: 'roll' } : {}),
         time: 0,
         order: [],
         turn: 0,
@@ -842,8 +933,8 @@ export function availableActions(fight, rules = DEFAULT_RULES) {
         fleeChance: partyFleeChance(fight, rules),
         // (0.5.15) For aiming: per enemy, what Attack and each damaging skill would do.
         previews: {
-            attack: Object.fromEntries(foes.map(c => [c.id, previewStrike(actor, c, null, rules)])),
-            skills: Object.fromEntries(actor.skills.filter(s => s.type === 'physical' || s.type === 'magic').map(s => [s.name, Object.fromEntries(foes.map(c => [c.id, previewStrike(actor, c, s, rules)]))])),
+            attack: Object.fromEntries(foes.map(c => [c.id, previewStrike(actor, c, null, rules, { relative: fight.hitRule === 'relative', spells: fight.spellRule === 'roll' })])),
+            skills: Object.fromEntries(actor.skills.filter(s => s.type === 'physical' || s.type === 'magic').map(s => [s.name, Object.fromEntries(foes.map(c => [c.id, previewStrike(actor, c, s, rules, { relative: fight.hitRule === 'relative', spells: fight.spellRule === 'roll' })]))])),
         },
     };
 }
@@ -854,7 +945,22 @@ export function availableActions(fight, rules = DEFAULT_RULES) {
  */
 export function act(fight, action, rules = DEFAULT_RULES) {
     if (fight?.status !== 'active') throw new Error('The fight is over.');
-    const f = structuredClone(fight);
+    // The log and the actions only ever grow, and an entry is never changed once written: the copy
+    // gets new lists holding the same entries (the rest is copied whole, keys in their order), so one
+    // action costs the same at the 200th as at the 20th (v2 B4-12: a deep copy of the log grew with it).
+    const shell = { ...fight, ...(Array.isArray(fight.log) ? { log: [] } : {}), ...(Array.isArray(fight.actions) ? { actions: [] } : {}) };
+    const f = structuredClone(shell);
+    if (Array.isArray(fight.log)) f.log = [...fight.log];
+    if (Array.isArray(fight.actions)) f.actions = [...fight.actions];
+    return actInPlace(f, action, rules);
+}
+
+/**
+ * act on a fight this caller owns, changing it in place (replay's step: one copy for the whole
+ * replay, not one per action, so a long fight is not rebuilt at a cost that grows with its log).
+ */
+export function actInPlace(f, action, rules = DEFAULT_RULES) {
+    if (f?.status !== 'active') throw new Error('The fight is over.');
     const actor = current(f);
     if (!actor) throw new Error('No player-controlled combatant is waiting to act.');
     if (action?.actor != null && action.actor !== actor.id) throw new Error(`It is ${actor.name}'s turn.`);
@@ -880,7 +986,7 @@ export function act(fight, action, rules = DEFAULT_RULES) {
  * Physical attacks roll to hit; spells never miss (hit 100). A guarding target takes half. Null
  * for a skill that does no damage (heal, buff, debuff).
  */
-export function previewStrike(actor, target, skill = null, rules = DEFAULT_RULES) {
+export function previewStrike(actor, target, skill = null, rules = DEFAULT_RULES, { relative = false, spells = false } = {}) {
     if (!actor || !target) return null;
     if (skill && skill.type !== 'physical' && skill.type !== 'magic') return null;
     if (skill && !(Number(skill.power) > 0)) return null;
@@ -891,17 +997,27 @@ export function previewStrike(actor, target, skill = null, rules = DEFAULT_RULES
     let damage = mitigate(raw, physical ? target.pdef : target.mdef);
     if (has(target, 'guard')) damage *= a.defendTaken;
     return {
-        hit: physical ? hitChance(actor.stats?.DEX, target.stats?.AGI, rules) : 100,
+        // A spell by the spell rule rolls INT on the same curve as a blow's DEX (spellIn, hitIn).
+        hit: physical || spells ? hitChance(relativeDex(Number(actor.stats?.[physical ? 'DEX' : 'INT']) || 0, target.stats?.AGI, relative) - (actor.conditions ? dazed(actor) : 0), target.stats?.AGI, rules) : 100,
         low: Math.max(1, Math.round(damage * a.varianceLow)),
         high: Math.max(1, Math.round(damage * a.varianceHigh)),
         crit: Number(actor.crit) || 0,
     };
 }
 
-/** The fight again from its setup and the player's actions: identical, roll for roll. */
-export function replay({ setup, actions = [] }, rules = DEFAULT_RULES) {
-    let f = startFight({ ...setup, rules });
-    for (const action of actions) f = act(f, action, rules);
+/**
+ * The fight again from its setup and the player's actions: identical, roll for roll. `before(f,
+ * action)`, when given, may adjust the fight just before each action is played (v2 records what the
+ * inventory still held then, so the replay plays with what the live fight had).
+ */
+export function replay({ setup, actions = [] }, rules = DEFAULT_RULES, { before = null } = {}) {
+    // startFight keeps its own copy of the setup, but its combatants may share nested objects with
+    // it: one copy here, then every action is played on that copy (actInPlace).
+    const f = structuredClone(startFight({ ...setup, rules }));
+    for (const action of actions) {
+        if (before) before(f, action);
+        actInPlace(f, action, rules);
+    }
     return f;
 }
 

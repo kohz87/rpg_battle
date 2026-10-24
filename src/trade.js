@@ -42,8 +42,12 @@ export function itemWorth(item, { level = 1, rules = DEFAULT_RULES } = {}) {
     const factor = t.rarityFactor[rarity] ?? 1;
     const kind = kindOf(item);
     if (kind === 'equipment') {
-        const { cost, budget } = capItem({ ...item, slot: item.slot }, level, rules);
-        return Math.max(1, Math.round((cost || budget) * t.gearPerPoint * factor));
+        // Priced by the stats it keeps once capped to its rarity's budget at this level, never by
+        // what was written (a note's "ATK +9999" is worth what a capped piece is worth).
+        const piece = { ...item, slot: item.slot };
+        const { capped, stats, cost, budget } = capItem(piece, level, rules);
+        const kept = capped ? capItem({ ...piece, stats }, level, rules).cost : cost;
+        return Math.max(1, Math.round((kept || budget) * t.gearPerPoint * factor));
     }
     if (kind === 'consumable') {
         const e = item.effect ?? {};
@@ -306,14 +310,16 @@ function stockRarity(rng, tier, fence) {
  * day (`seed`), preferring what is not in `seen` (what they offered before). Prices: the
  * thing's worth × the place's goods price (a fence a little under).
  */
-export function shopStock({ kind = 'general', prices = placePrices(''), seed = '', seen = [], level = 1, rules = DEFAULT_RULES } = {}) {
+export function shopStock({ kind = 'general', prices = placePrices(''), seed = '', seen = [], level = 1, rules = DEFAULT_RULES, size = null } = {}) {
     const rng = makeRng(`shop:${seed}`);
     const tier = prices.tier ?? 'town';
     const pool = (STOCK[kind] ?? STOCK.general).filter(entry => tierAtLeast(tier, entry.from));
     const old = new Set((seen ?? []).map(nameKey));
     // New things first, in an order of the day's own; what they had before fills the rest.
     const order = pool.map(entry => ({ entry, key: (old.has(nameKey(entry.name)) ? 1 : 0) + rng.next() * 0.9 })).sort((a, b) => a.key - b.key).map(({ entry }) => entry);
-    const count = Math.min(order.length, rng.int(STOCK_SIZE[0], STOCK_SIZE[1]));
+    // `size`: [least, most] things this trader has (v2: by the place's settlement type), else STOCK_SIZE.
+    const [least, most] = Array.isArray(size) && size.length === 2 && size.every(n => Number.isInteger(n) && n >= 1) && size[0] <= size[1] ? size : STOCK_SIZE;
+    const count = Math.min(order.length, rng.int(least, most));
     return order.slice(0, count).map(entry => {
         const rarity = entry.kind === 'equipment' ? stockRarity(rng, tier, kind === 'fence') : 'common';
         const item = { name: entry.name, kind: entry.kind, rarity, stats: {}, slot: null, effect: null, tags: [] };

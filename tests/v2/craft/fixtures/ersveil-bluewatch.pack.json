@@ -1,0 +1,303 @@
+{
+  "id": "ersveil-bluewatch",
+  "version": "1.2.0",
+  "name": "Ersveil: Bluewatch Starter",
+  "author": "Story Suite examples",
+  "description": "Test-play pack for Story Suite v2 in the Ersveil world: Wessel arrives at Bluewatch Village, the northernmost village, with three F-letter jobs on the Guild board. Money is one coin, the mark. Lore stays in the Ersveil lorebooks.",
+  "requires": {
+    "storyBlock": "^2",
+    "capabilities": [
+      "inventory",
+      "scene"
+    ]
+  },
+  "currency": {
+    "name": "mark",
+    "short": "mk"
+  },
+  "economy": {"scale": 8, "note": "marks are small coin: about 8 marks to one coin of the built-in defaults"},
+  "calendar": {
+    "era": "CY",
+    "months": [
+      {"name": "Dawnwane", "days": 30},
+      {"name": "Rainmoot", "days": 30},
+      {"name": "Greengale", "days": 30},
+      {"name": "Highsun", "days": 30},
+      {"name": "Goldwane", "days": 30},
+      {"name": "Haywane", "days": 30},
+      {"name": "Emberwane", "days": 30},
+      {"name": "Nightfall", "days": 30},
+      {"name": "Frostfall", "days": 30},
+      {"name": "Deepwinter", "days": 30},
+      {"name": "Icewane", "days": 30},
+      {"name": "Yearsend", "days": 30}
+    ],
+    "start": {"year": 611, "month": "Goldwane", "day": 12, "hour": 6, "minute": 40}
+  },
+  "content": {
+    "items": [
+      {"name": "Cane-Blade", "kind": "equipment", "value": 600, "slot": "weapon", "stats": {"ATK": 4}, "aliases": ["Cane Blade", "walking stick", "ash walking stick", "cane"], "tags": ["blade", "hidden"], "note": "Self-made katana-shaped blade hidden in an ash walking stick with an iron ferrule; crude steel, dulls fast, may snap on mail; heavier than any stick."},
+      {"name": "Patched Oilcloth Coat", "kind": "equipment", "value": 60, "slot": "armour", "stats": {"DEF": 1}, "aliases": ["oilcloth coat"], "note": "River-worn and patched."},
+      {"name": "Knife", "kind": "goods", "value": 40, "tags": ["tool"], "aliases": ["work knife"]},
+      {"name": "Whetstone", "kind": "goods", "value": 8, "tags": ["tool"]},
+      {"name": "Minor Healing Draught", "kind": "consumable", "value": 30, "effect": {"heal": 20}, "aliases": ["healing draught", "minor healing potion"], "note": "Closes wounds, leaves weakness and a scar."},
+      {"name": "Healing Salve", "kind": "consumable", "value": 12, "effect": {"heal": 10}, "aliases": ["salve"]},
+      {"name": "Bandage", "kind": "consumable", "value": 4, "effect": {"cure": ["bleed"]}, "aliases": ["bandages"]},
+      {"name": "Common Antidote", "kind": "consumable", "value": 24, "effect": {"cure": ["poison"]}, "aliases": ["antidote"]},
+      {"name": "Mana Draught", "kind": "consumable", "value": 50, "rarity": "uncommon", "effect": {"mp": 20}, "aliases": ["mana potion"]},
+      {"name": "Leech-salt Pouch", "kind": "consumable", "value": 6, "effect": {"damage": 6}, "tags": ["salt"], "note": "Coarse salt in burlap, thrown or packed: leeches let go and shrivel."},
+      {"name": "Coarse Bread", "kind": "goods", "value": 2, "tags": ["food"]},
+      {"name": "Hot Meal", "kind": "goods", "value": 8, "tags": ["food"]},
+      {"name": "Common Ale", "kind": "goods", "value": 3, "tags": ["drink"], "aliases": ["ale"]},
+      {"name": "Trail Rations", "kind": "goods", "value": 12, "tags": ["food"], "note": "One day."},
+      {"name": "Torch", "kind": "goods", "value": 2, "tags": ["light"]},
+      {"name": "Lamp Oil", "kind": "goods", "value": 3, "tags": ["light"], "note": "Enough for one night."},
+      {"name": "Flint and Steel", "kind": "goods", "value": 7, "tags": ["tool"]},
+      {"name": "Hemp Rope", "kind": "goods", "value": 40, "tags": ["tool"], "note": "10 m."},
+      {"name": "Waterskin", "kind": "goods", "value": 20},
+      {"name": "Bedroll", "kind": "goods", "value": 45},
+      {"name": "Wool Blanket", "kind": "goods", "value": 60, "aliases": ["blanket"]},
+      {"name": "Backpack", "kind": "goods", "value": 100},
+      {"name": "Burlap Sack", "kind": "goods", "value": 2, "aliases": ["sack", "burlap sacks"]},
+      {"name": "Coarse Salt", "kind": "material", "value": 3, "tags": ["salt"], "note": "A scoop from the salt sheds."},
+      {"name": "Completion Salts", "kind": "goods", "value": 15, "tags": ["salt", "funeral"], "note": "Licensed salt-and-iron mix that seals one body."},
+      {"name": "Fur-lined Cloak", "kind": "equipment", "value": 160, "slot": "worn", "stats": {"DEF": 1}, "tags": ["cold"], "note": "Bluewatch cold-weather gear."},
+      {"name": "Spear", "kind": "equipment", "value": 150, "slot": "weapon", "stats": {"ATK": 5}, "tags": ["reach"]},
+      {"name": "Hatchet", "kind": "equipment", "value": 250, "slot": "weapon", "stats": {"ATK": 4}, "tags": ["axe"]},
+      {"name": "Iron-bound Buckler", "kind": "equipment", "value": 300, "slot": "offhand", "stats": {"DEF": 2}},
+      {"name": "Gambeson", "kind": "equipment", "value": 600, "slot": "armour", "stats": {"DEF": 3}},
+      {"name": "Iron Cap", "kind": "equipment", "value": 400, "slot": "worn", "stats": {"DEF": 1}},
+      {"name": "Wolf-pelt Mantle", "kind": "equipment", "value": 200, "slot": "worn", "stats": {"DEF": 2}, "tags": ["cold"]},
+      {"name": "Crag Wolf Pelt", "kind": "material", "value": 30, "aliases": ["wolf pelt"]},
+      {"name": "Crag Wolf Fang", "kind": "material", "value": 8, "aliases": ["wolf fang"]},
+      {"name": "Rat Tail", "kind": "material", "value": 1, "aliases": ["rat tails"]},
+      {"name": "Live Leech", "kind": "material", "value": 3, "aliases": ["leech"], "note": "Alchemists and barber-surgeons buy them."},
+      {"name": "Small Monster Core", "kind": "material", "value": 50, "rarity": "uncommon", "aliases": ["monster core"], "note": "Intact core of a Soul Class I creature."},
+      {"name": "River Drake Scale", "kind": "material", "value": 300, "rarity": "uncommon"},
+      {"name": "Bluecap Moss", "kind": "material", "value": 4, "aliases": ["moss"], "tags": ["herb"], "note": "Pale moss off the culvert stones; alchemists steep it for salves and draughts."},
+      {"name": "Cleansing Spirits", "kind": "material", "value": 8, "aliases": ["spirits"], "tags": ["alchemy"], "note": "A stoppered flask of strong clear spirit for wounds and glassware."},
+      {"name": "Iron Filings", "kind": "material", "value": 2, "tags": ["iron", "salt"], "note": "A twist of forge filings: the iron in salt-and-iron mixes."}
+    ],
+    "creatures": [
+      {"name": "Starved Crag Wolf", "aliases": ["Crag Wolf", "Starved Wolf"], "template": "beast", "level": 3, "role": "skirmisher", "talks": false, "coins": false, "temperament": "wild", "traits": ["swift", "frail"], "moves": [{"name": "Bite", "type": "physical", "stat": "STR", "target": "one", "effect": ["bleed"], "cooldown": 2, "description": "Teeth that tear."}, {"name": "Pounce", "type": "physical", "stat": "AGI", "target": "one", "effect": ["stun"], "cooldown": 3, "description": "A leap off the rocks."}, {"name": "Howl", "type": "debuff", "stat": "CHA", "target": "all", "effect": ["weaken"], "cooldown": 4, "description": "A howl from the bluff."}], "loot": [{"name": "Crag Wolf Pelt", "chance": 60, "qty": [1, 1], "kind": "material"}, {"name": "Crag Wolf Fang", "chance": 40, "qty": [1, 2], "kind": "material"}, {"name": "Small Monster Core", "chance": 5, "qty": [1, 1], "kind": "material"}], "look": "Gaunt grey wolf of the bluffs, ribs showing through a patchy coat; hunger has made it bold.", "eg": "EG3 as a pack", "soulClass": "I"},
+      {"name": "Crag Wolf Matriarch", "template": "beast", "level": 5, "role": "brute", "talks": false, "coins": false, "temperament": "proud", "traits": ["leader", "fierce"], "moves": [{"name": "Bite", "type": "physical", "stat": "STR", "target": "one", "effect": ["bleed"], "cooldown": 2, "description": "Teeth that tear."}, {"name": "Rend", "type": "physical", "stat": "STR", "target": "one", "effect": [], "cooldown": 1, "description": "A raking swipe."}, {"name": "Howl", "type": "debuff", "stat": "CHA", "target": "all", "effect": ["weaken"], "cooldown": 4, "description": "The pack answers her."}], "loot": [{"name": "Crag Wolf Pelt", "chance": 80, "qty": [1, 1], "kind": "material"}, {"name": "Crag Wolf Fang", "chance": 60, "qty": [1, 2], "kind": "material"}, {"name": "Small Monster Core", "chance": 20, "qty": [1, 1], "kind": "material"}], "look": "The pack's grey-muzzled leader, scarred and less starved than the rest.", "eg": "EG3", "soulClass": "I"},
+      {"name": "Cellar Rat Swarm", "aliases": ["Cellar Rat", "Granary Rat", "Plague Rat"], "template": "beast", "level": 1, "role": "skirmisher", "talks": false, "coins": false, "temperament": "cowardly", "traits": ["frail", "swift"], "moves": [{"name": "Bite", "type": "physical", "stat": "STR", "target": "one", "effect": ["poison"], "cooldown": 2, "description": "Dirty teeth; the bite festers."}, {"name": "Swarm", "type": "physical", "stat": "AGI", "target": "all", "effect": [], "cooldown": 3, "description": "A squealing rush out of the bins."}], "loot": [{"name": "Rat Tail", "chance": 80, "qty": [1, 2], "kind": "material"}], "look": "Fat brown rats boiling out of the grain bins, bold in the dark.", "eg": "EG2 nest", "soulClass": "I"},
+      {"name": "Sluice Leech", "aliases": ["Culvert Leech", "Giant Leech"], "template": "insect", "level": 2, "role": "tank", "talks": false, "coins": false, "temperament": "mindless", "traits": ["slow", "savage"], "moves": [{"name": "Latch", "type": "physical", "stat": "STR", "target": "one", "effect": ["bleed"], "cooldown": 2, "description": "A sucker clamps on and drinks."}, {"name": "Drain", "type": "physical", "stat": "STR", "target": "one", "effect": ["weaken"], "cooldown": 3, "description": "It swells as you weaken."}], "loot": [{"name": "Live Leech", "chance": 70, "qty": [1, 2], "kind": "material"}], "look": "Arm-long black leeches clotted on the culvert grate, swaying toward warmth.", "eg": "EG2 nest", "soulClass": "I"},
+      {"name": "River Drake", "template": "drake", "level": 12, "role": "brute", "talks": false, "coins": false, "temperament": "proud", "traits": ["armoured"], "moves": [{"name": "Rending Bite", "type": "physical", "stat": "STR", "target": "one", "effect": ["bleed"], "cooldown": 2, "description": "Teeth like knives."}, {"name": "Tail Lash", "type": "physical", "stat": "STR", "target": "one", "effect": ["stun"], "cooldown": 3, "description": "A tail like a club."}, {"name": "Drag Under", "type": "physical", "stat": "STR", "target": "one", "effect": ["slow"], "cooldown": 3, "description": "It rolls into the current with its prey."}], "loot": [{"name": "River Drake Scale", "chance": 60, "qty": [1, 2], "kind": "material"}, {"name": "Small Monster Core", "chance": 20, "qty": [1, 1], "kind": "material"}], "look": "A long armoured river lizard of the Bluewatch Branch; it takes ferrymen and swimmers.", "eg": "EG3 individual", "soulClass": "II"},
+      {"name": "Salt-crew Tough", "aliases": ["Brecht's man", "Smuggler"], "template": "humanoid", "level": 3, "role": "skirmisher", "talks": true, "coins": true, "temperament": "cunning", "traits": [], "moves": [{"name": "Quick Cut", "type": "physical", "stat": "DEX", "target": "one", "effect": ["bleed"], "cooldown": 2, "description": "A fast, mean cut."}, {"name": "Dirty Trick", "type": "debuff", "stat": "DEX", "target": "one", "effect": ["weaken"], "cooldown": 3, "description": "Salt in the eyes."}], "loot": [{"name": "Coarse Salt", "chance": 50, "qty": [1, 3], "kind": "material"}, {"name": "Knife", "chance": 15, "qty": [1, 1], "kind": "material"}], "look": "One of Brecht's smugglers from the salt sheds: knife on the belt, counting newcomers.", "soulClass": "I-II"}
+    ],
+    "shops": [
+      {"name": "Watch Stores", "kind": "general goods", "place": "Bluewatch Village", "spot": "Watch Granary", "keeper": "the storehouse quartermaster", "note": "Garrison exchange: frontier river provisions, cold-weather gear, Auvoth convoy supplies.", "stock": [{"item": "Trail Rations", "qty": 20}, {"item": "Coarse Bread", "qty": 20}, {"item": "Torch", "qty": 20}, {"item": "Lamp Oil", "qty": 10}, {"item": "Flint and Steel", "qty": 4}, {"item": "Hemp Rope", "qty": 4}, {"item": "Waterskin", "qty": 4}, {"item": "Bedroll", "qty": 3}, {"item": "Wool Blanket", "qty": 3}, {"item": "Backpack", "qty": 2, "price": 150}, {"item": "Burlap Sack", "qty": 30}, {"item": "Fur-lined Cloak", "qty": 2}]},
+      {"name": "Salt-and-Ash Dispensary", "kind": "apothecary", "place": "Bluewatch Village", "spot": "Salt-and-Ash Yard", "keeper": "the lay sealer", "note": "Salts and remedies from the salt-and-ash yard; imported potions cost half again as much this far north.", "stock": [{"item": "Bandage", "qty": 20}, {"item": "Healing Salve", "qty": 4, "price": 18}, {"item": "Minor Healing Draught", "qty": 2, "price": 45}, {"item": "Common Antidote", "qty": 1, "price": 36}, {"item": "Coarse Salt", "qty": 40}, {"item": "Completion Salts", "qty": 10}, {"item": "Bluecap Moss", "qty": 10}, {"item": "Cleansing Spirits", "qty": 6}]},
+      {"name": "Gate Forge", "kind": "smith", "place": "Bluewatch Village", "spot": "Gate Forge", "keeper": "the Watch smith", "note": "Repairs and plain iron; no fine blades.", "stock": [{"item": "Knife", "qty": 3}, {"item": "Whetstone", "qty": 5}, {"item": "Spear", "qty": 2}, {"item": "Hatchet", "qty": 2}, {"item": "Iron-bound Buckler", "qty": 1}, {"item": "Iron Cap", "qty": 1}, {"item": "Gambeson", "qty": 1}, {"item": "Iron Filings", "qty": 10}]},
+      {"name": "Stray Oar", "kind": "inn", "place": "Bluewatch Village", "spot": "Stray Oar", "keeper": "the innkeeper", "note": "Common bunk 8-16 marks a night.", "stock": [{"item": "Hot Meal", "qty": 20}, {"item": "Common Ale", "qty": 30}, {"item": "Coarse Bread", "qty": 10}, {"item": "Trail Rations", "qty": 10}]}
+    ],
+    "recipes": [
+      {"name": "Leech-salt Pouch", "makes": "Leech-salt Pouch", "qty": 2, "materials": [{"item": "Coarse Salt", "qty": 2}, {"item": "Burlap Sack", "qty": 1}], "fee": 0, "minutes": 10, "crafter": "anyone", "craft": "fieldcraft", "dc": 6, "known": true},
+      {"name": "Pitch Torches", "slug": "pitch-torches", "makes": "Torch", "qty": 2, "materials": [{"item": "Lamp Oil", "qty": 1}, {"item": "Burlap Sack", "qty": 1}], "fee": 0, "minutes": 15, "crafter": "anyone", "craft": "fieldcraft", "dc": 5, "known": true},
+      {"name": "Camp Stew", "makes": "Hot Meal", "qty": 2, "materials": [{"item": "Trail Rations", "qty": 1}, {"item": "Coarse Bread", "qty": 1}], "minutes": 30, "craft": "cooking", "dc": 5, "station": "campfire", "known": true},
+      {"name": "Healing Salve", "makes": "Healing Salve", "materials": [{"item": "Bluecap Moss", "qty": 2}, {"item": "Lamp Oil", "qty": 1}], "minutes": 60, "craft": "alchemy", "dc": 10, "station": "alchemy-table", "known": true},
+      {"name": "Minor Healing Draught", "makes": "Minor Healing Draught", "materials": [{"item": "Bluecap Moss", "qty": 3}, {"item": "Cleansing Spirits", "qty": 1}], "minutes": 120, "craft": "alchemy", "dc": 16, "station": "alchemy-table", "teaches": "the lay sealer at the Salt-and-Ash Yard"},
+      {"name": "Completion Salts", "makes": "Completion Salts", "materials": [{"item": "Coarse Salt", "qty": 3}, {"item": "Iron Filings", "qty": 1}], "minutes": 60, "craft": "alchemy", "dc": 18, "station": "alchemy-table", "teaches": "the lay sealer at the Salt-and-Ash Yard, as licensed work"},
+      {"name": "Wolf-pelt Mantle", "makes": "Wolf-pelt Mantle", "materials": [{"item": "Crag Wolf Pelt", "qty": 3}], "fee": 60, "minutes": 480, "crafter": "Gate Forge", "craft": "leather", "dc": 14, "station": "workbench", "teaches": "the Watch smith at the Gate Forge"}
+    ],
+    "events": [
+      {"id": "guild-board", "when": "query('scene.place').name == 'Bluewatch Village' && time() != null && time() >= 316931520", "cue": "The Guild office beside the Watchhouse opens its shutters. Fenna, the branch clerk, pins three F-letter notices to the board: Granary Rats (6 cellar rats, 50 marks), East Bluff Wolves (4 starved crag wolves, 200 marks) and Culvert Leeches (8 sluice leeches off the north culvert grate by Goldwane 14 dusk, 120 marks)."},
+      {"id": "wolves-at-dusk", "after": "guild-board", "when": "time() != null && time() >= 316932180 && !(quest('East Bluff Wolves') != null && quest('East Bluff Wolves').ended != null && quest('East Bluff Wolves').ended.outcome == 'done')", "cue": "At dusk the crag wolves howl from the east bluff, close enough that the tower watch counts them aloud: four, maybe five, and one deeper voice."},
+      {"id": "culvert-rising", "after": "guild-board", "when": "time() != null && time() >= 316933560 && !(quest('Culvert Leeches') != null && quest('Culvert Leeches').ended != null && quest('Culvert Leeches').ended.outcome == 'done')", "cue": "Rain in the northern hills: the north culvert runs brown and high, its grate thick with leeches. The sluice keeper says it will back up by tomorrow dusk."},
+      {"id": "culvert-floods", "after": "culvert-rising", "when": "time() != null && time() >= 316935060 && !(quest('Culvert Leeches') != null && quest('Culvert Leeches').ended != null && quest('Culvert Leeches').ended.outcome == 'done')", "cue": "The clogged north culvert backs up. Muddy water floods the storehouse lane and the lowest granary cellar; the Watch blames the Guild office for a job left on the board."},
+      {"id": "culvert-cleared", "after": "guild-board", "when": "(quest('Culvert Leeches') != null && quest('Culvert Leeches').ended != null && quest('Culvert Leeches').ended.outcome == 'done') && time() != null && time() < 316935060", "cue": "A runner from the Watchhouse: the north culvert ran clear through the hill rain. Watch-Captain Rorke sends 20 marks on top of the Guild's fee.", "then": [{"command": "wallet.receive", "payload": {"owner": "party", "amount": 20, "note": "Watch-Captain Rorke's thanks for the culvert"}}]},
+      {"id": "granary-cleared", "after": "guild-board", "when": "(quest('Granary Rats') != null && quest('Granary Rats').ended != null && quest('Granary Rats').ended.outcome == 'done')", "cue": "Word goes round the storehouses that the granary cellars are quiet; the quartermaster nods at the newcomer for the first time."}
+    ],
+    "quests": [
+      {"name": "Granary Rats", "type": "side", "giver": "Fenna", "place": "Bluewatch Village", "spot": "Watch Granary", "letter": "F", "goal": "Clear the cellar rats out of the Watch granary under the storehouses", "target": "6 cellar rats", "reward": "50 marks", "step": "Posted on the Guild office board", "note": "A poor client: the Watch pays below Guild rates."},
+      {"name": "East Bluff Wolves", "aliases": ["EastBluffWolves"], "type": "side", "giver": "Fenna", "place": "Bluewatch Village", "spot": "East Bluff", "letter": "F", "goal": "Hunt the starved crag wolf pack off the east bluff", "target": "4 crag wolves", "reward": "200 marks", "step": "Posted on the Guild office board", "note": "Dangerous F work. Pelts belong to whoever butchers them; the Watch-Captain claims a tenth."},
+      {"name": "Culvert Leeches", "type": "side", "giver": "Fenna", "place": "Bluewatch Village", "spot": "North Culvert", "letter": "F", "goal": "Scrape the sluice leeches off the north culvert grate before the hill rain comes down", "target": "8 sluice leeches", "reward": "120 marks", "due": "Goldwane 14, 07:00 pm", "step": "Posted on the Guild office board", "note": "If the grate stays clogged when the rain comes, the culvert backs up into the storehouse lane."}
+    ],
+    "races": [
+      {"id": "human", "name": "Human", "note": "The most numerous people, masters of the Northern Belt and the rivers. Short, hard lives. No stat change, so a kit's stats come out as written.", "stats": {}, "tags": ["human"]},
+      {"id": "elf", "name": "Elf", "note": "Three to five centuries of life and a long memory for what humans did. Tolerated, resented, still sold in slave markets.", "stats": {"DEX": 1, "VIT": -1}, "tags": ["elf"]},
+      {"id": "dwarf", "name": "Dwarf", "note": "Hold-born, oath-bound, about two centuries of life. \"Stone remembers.\"", "stats": {"VIT": 1, "AGI": -1}, "tags": ["dwarf"]},
+      {"id": "halfling", "name": "Halfling", "note": "River-town folk of barges, kitchens and ledgers; quietly indispensable to Confederacy trade.", "stats": {"LUK": 1, "STR": -1}, "tags": ["halfling", "small"]},
+      {"id": "beastfolk", "name": "Beastfolk", "note": "Animal ears, tails or horns and keen senses; refused rooms and suspected first, valued as scouts.", "stats": {"AGI": 1, "CHA": -1}, "tags": ["beastfolk"]},
+      {"id": "orc", "name": "Orc", "note": "Large, strong, short-lived; vilified as half-monsters, with bounties in some Highmark provinces.", "stats": {"STR": 1, "CHA": -1}, "tags": ["orc"]},
+      {"id": "goblin", "name": "Goblin", "note": "Small, quick, short-lived fixers and couriers nobody notices until too late; most realms treat them as vermin.", "stats": {"DEX": 1, "STR": -1}, "tags": ["goblin", "small"]}
+    ],
+    "talents": [
+      {"id": "shadow-bent", "name": "Shadow-bent", "note": "An outward bent toward shadow, woken late and self-taught, with no spell grammar.", "stats": {"INT": 1}, "tags": ["shadow", "outward-bent"]},
+      {"id": "river-born", "name": "River-born", "note": "Born on the Confederacy waterways: Riverspeech first, at home on a barge deck and in cold water.", "stats": {"AGI": 1}, "tags": ["river", "swimmer", "riverspeech"]},
+      {"id": "hulkrow-raised", "name": "Hulkrow-raised", "note": "Grew up in the floating slum of Thousand Sails: reads a crowd, finds the back way out.", "stats": {"LUK": 1}, "tags": ["streetwise"]},
+      {"id": "hidden-draw", "name": "Hidden Draw", "note": "A self-taught draw-cut from a hidden sheath: the first blow lands before the fight starts.", "stats": {"DEX": 1}, "tags": ["blade", "draw-cut"]},
+      {"id": "inward-bent", "name": "Inward Bent", "note": "The common bent: mana pushed into the body for strength and toughness.", "stats": {"STR": 1, "VIT": 1}, "tags": ["inward-bent"]},
+      {"id": "frontier-tracker", "name": "Frontier Tracker", "note": "Knows wolf sign, wet ground and which way the herds will run.", "stats": {"DEX": 1}, "tags": ["tracking", "frontier"]}
+    ],
+    "skills": [
+      {"name": "Cane Draw", "type": "physical", "stat": "DEX", "target": "one", "note": "The hidden blade drawn and cut in one motion.", "tags": ["blade", "draw-cut"]},
+      {"name": "Shadow Cut", "type": "magic", "stat": "INT", "target": "all", "note": "The draw-cut carried past the blade as a thin arc of cold shadow, cutting every foe within a pace or two.", "tags": ["shadow", "blade"]}
+    ],
+    "presets": [
+      {"id": "wessel-kit", "name": "Wessel (kit)", "race": "human", "talents": ["shadow-bent", "river-born"], "points": {"STR": 0, "VIT": 1, "AGI": 2, "DEX": 3, "INT": 1, "LUK": 1, "CHA": 0}, "skills": ["cane-draw", "shadow-cut"], "note": "STR 5, VIT 6, AGI 8, DEX 8, INT 7, LUK 6, CHA 5 with Human and the two talents (2 points) plus these 8. Name and background come from the persona."}
+    ],
+    "places": [
+      {"name": "Bluewatch Village", "region": "River Confederacy: core cities", "kind": "settlement", "x": 64.0, "y": 110.0},
+      {"name": "Auvoth", "region": "Auvoth Compact", "kind": "city", "x": 59.0, "y": 110.0},
+      {"name": "Hollin's Reach", "region": "Shornmarch", "kind": "village", "x": 58.0, "y": 104.0},
+      {"name": "Wolfmere Outpost", "region": "Shornmarch", "kind": "outpost", "x": 55.0, "y": 100.0},
+      {"name": "Varnhold Watch", "region": "Shornmarch", "kind": "fort", "x": 52.0, "y": 97.0},
+      {"name": "Shorn", "region": "Shornmarch", "kind": "capital", "x": 50.0, "y": 95.0},
+      {"name": "Greyvein Camp", "region": "Shornmarch", "kind": "town", "x": 49.0, "y": 95.0},
+      {"name": "Frostgate", "region": "Shornmarch", "kind": "lock town", "x": 50.0, "y": 90.0},
+      {"name": "Crowpine Town", "region": "Shornmarch", "kind": "town", "x": 49.0, "y": 92.0},
+      {"name": "Old Lantern Post", "region": "Shornmarch", "kind": "town", "x": 48.0, "y": 91.0},
+      {"name": "Hearthmere", "region": "Shornmarch", "kind": "town", "x": 52.0, "y": 92.0},
+      {"name": "Northledger Depot", "region": "Shornmarch", "kind": "depot", "x": 50.0, "y": 84.0},
+      {"name": "Rimebridge", "region": "Shornmarch", "kind": "fort", "x": 53.0, "y": 86.0},
+      {"name": "Ledgerford", "region": "River Confederacy: core cities", "kind": "city", "x": 50.0, "y": 80.0},
+      {"name": "Glassdock", "region": "River Confederacy: core cities", "kind": "port", "x": 62.0, "y": 72.0},
+      {"name": "Northbarge", "region": "River Confederacy: locks/connectors", "kind": "depot", "x": 50.0, "y": 78.0},
+      {"name": "Brightwater Lock", "region": "River Confederacy: locks/connectors", "kind": "lock town", "x": 45.0, "y": 75.0},
+      {"name": "Siltbarrow", "region": "River Confederacy: locks/connectors", "kind": "town", "x": 55.0, "y": 63.0},
+      {"name": "Lockswell", "region": "River Confederacy: locks/connectors", "kind": "lock town", "x": 47.0, "y": 70.0},
+      {"name": "Ferrywake", "region": "River Confederacy: locks/connectors", "kind": "town", "x": 58.0, "y": 58.0},
+      {"name": "Ninebarge Crossing", "region": "River Confederacy: core cities", "kind": "town", "x": 35.0, "y": 65.0},
+      {"name": "Reedmere", "region": "River Confederacy: locks/connectors", "kind": "town", "x": 42.0, "y": 62.0},
+      {"name": "Davenford", "region": "Valegard", "kind": "town", "x": 29.0, "y": 63.0},
+      {"name": "Coinwater", "region": "River Confederacy: core cities", "kind": "city", "x": 45.0, "y": 55.0},
+      {"name": "Canalspur", "region": "River Confederacy: locks/connectors", "kind": "town", "x": 65.0, "y": 40.0},
+      {"name": "Pearlbank", "region": "River Confederacy: core cities", "kind": "city", "x": 75.0, "y": 48.0},
+      {"name": "Valegard", "region": "Valegard", "kind": "capital", "x": 22.0, "y": 56.0},
+      {"name": "Saltledger Quay", "region": "River Confederacy: core cities", "kind": "port", "x": 70.0, "y": 35.0},
+      {"name": "Tarnby", "region": "Valegard", "kind": "town", "x": 18.0, "y": 50.0},
+      {"name": "Thousand Sails", "region": "River Confederacy: core cities", "kind": "city", "x": 40.0, "y": 40.0},
+      {"name": "Stirrup Crossing", "region": "Silver Mark", "kind": "town", "x": 7.0, "y": 45.0},
+      {"name": "Wheatwake", "region": "River Confederacy: core cities", "kind": "town", "x": 32.0, "y": 30.0},
+      {"name": "Mirage City", "region": "River Confederacy: core cities", "kind": "city", "x": 55.0, "y": 25.0},
+      {"name": "Black Iron Riverhold", "region": "River Confederacy: core cities", "kind": "fortress city", "x": 5.0, "y": 40.0},
+      {"name": "Silvermark Commandery", "region": "Silver Mark", "kind": "fortress", "x": 2.0, "y": 32.0},
+      {"name": "Holy City of Aurelion", "region": "Aurelion/Church Heartland", "kind": "capital", "x": 5.0, "y": 25.0},
+      {"name": "Highmark Capital", "region": "Highmark Empire", "kind": "capital", "x": 15.0, "y": -5.0},
+      {"name": "Seventh Seal Terrace", "region": "Auvoth Compact", "kind": "district", "x": 59.0, "y": 110.0},
+      {"name": "Delver's Crown", "region": "Auvoth Compact", "kind": "district", "x": 58.7, "y": 109.9},
+      {"name": "Outer Lamps", "region": "Auvoth Compact", "kind": "district", "x": 59.0, "y": 109.5},
+      {"name": "Pale Market", "region": "Auvoth Compact", "kind": "district", "x": 59.4, "y": 109.6},
+      {"name": "Boneglass Yard", "region": "Auvoth Compact", "kind": "district", "x": 58.3, "y": 109.8},
+      {"name": "Ashbell Hospice", "region": "Auvoth Compact", "kind": "district", "x": 59.7, "y": 109.8},
+      {"name": "Auvoth Depths", "region": "Auvoth Compact", "kind": "dungeon", "layer": "underground", "x": 58.8, "y": 110.2, "note": "Treaty-controlled megadungeon under Auvoth: sealed internal descents, F to SSS by depth."},
+      {"name": "Rimeglass Delve", "region": "Shornmarch", "kind": "dungeon", "layer": "underground", "x": 46.0, "y": 102.0, "note": "Seasonal licensed delve (C-B): cold iron, blue coal, ice crystals; moving ice galleries."},
+      {"name": "Inspection Quay", "aliases": ["river-gate", "the quay"], "region": "Bluewatch Village", "kind": "quay", "x": 64.0, "y": 109.99, "note": "Stone river-gate with its chain across the Bluewatch Branch; every hand is named here before stepping ashore."},
+      {"name": "Watchhouse", "aliases": ["signal tower", "the Watch"], "region": "Bluewatch Village", "kind": "watch-fort", "x": 64.01, "y": 110.02, "note": "Seat of Watch-Captain Rorke; the signal tower trails brazier smoke and faces north."},
+      {"name": "Stray Oar", "aliases": ["the Stray Oar inn"], "region": "Bluewatch Village", "kind": "inn", "x": 63.99, "y": 110.0, "note": "Inn for convoy crews; the salvage convoy to Auvoth hires guards here."},
+      {"name": "Guild Office", "aliases": ["Adventurer Guild office", "guild office"], "region": "Bluewatch Village", "kind": "guild office", "x": 64.0, "y": 110.01, "note": "A one-room Adventurer Guild branch desk beside the Watchhouse; Fenna keeps the register and the job board."},
+      {"name": "Watch Granary", "aliases": ["the granary", "storehouses"], "region": "Bluewatch Village", "kind": "storehouse", "x": 64.02, "y": 109.99, "note": "The Watch storehouses and the granary cellars under them."},
+      {"name": "Salt-and-Ash Yard", "aliases": ["salt-and-ash yard", "salt sheds"], "region": "Bluewatch Village", "kind": "yard", "x": 63.98, "y": 110.03, "note": "Where the lay sealer completes the dead, since no priest lives this far north; the salt sheds stand by it."},
+      {"name": "Gate Forge", "aliases": ["the forge", "smithy"], "region": "Bluewatch Village", "kind": "smithy", "x": 64.01, "y": 109.99, "note": "The Watch smith's forge by the river-gate."},
+      {"name": "North Culvert", "aliases": ["the culvert", "culvert"], "region": "Bluewatch Village", "kind": "culvert", "x": 64.0, "y": 110.08, "note": "Stone culvert under the north road that drains the hill stream past the palisade; a grate keeps debris out."},
+      {"name": "East Bluff", "aliases": ["the east bluff", "east bluffs"], "region": "Bluewatch Village", "kind": "bluff", "x": 64.25, "y": 110.05, "note": "Rocky bluff above the river east of the palisade; crag wolves den in its clefts."}
+    ],
+    "routes": [
+      {"from": "Thousand Sails", "to": "Coinwater", "kind": "river", "km": 180, "corridor": "Ledger River Trunk", "note": "code W"},
+      {"from": "Coinwater", "to": "Reedmere", "kind": "river", "km": 90, "corridor": "Ledger River Trunk", "note": "code W"},
+      {"from": "Reedmere", "to": "Lockswell", "kind": "river", "km": 110, "corridor": "Ledger River Trunk", "note": "code W"},
+      {"from": "Lockswell", "to": "Brightwater Lock", "kind": "river", "km": 60, "corridor": "Ledger River Trunk", "note": "code W"},
+      {"from": "Brightwater Lock", "to": "Northbarge", "kind": "river", "km": 65, "corridor": "Ledger River Trunk", "note": "code W"},
+      {"from": "Northbarge", "to": "Ledgerford", "kind": "river", "km": 25, "corridor": "Ledger River Trunk", "note": "code W"},
+      {"from": "Brightwater Lock", "to": "Glassdock", "kind": "river", "km": 200, "corridor": "Glassdock Channel", "note": "code W"},
+      {"from": "Glassdock", "to": "Bluewatch Village", "kind": "river", "km": 440, "corridor": "Bluewatch Branch", "note": "code W Does not pass through Shornmarch. Northbound is upstream."},
+      {"from": "Thousand Sails", "to": "Canalspur", "kind": "river", "km": 290, "corridor": "Confederacy Estuary", "note": "code W"},
+      {"from": "Canalspur", "to": "Saltledger Quay", "kind": "river", "km": 80, "corridor": "Confederacy Estuary", "note": "code W"},
+      {"from": "Canalspur", "to": "Pearlbank", "kind": "river", "km": 150, "corridor": "Pearlbank Canal", "note": "code W"},
+      {"from": "Wheatwake", "to": "Thousand Sails", "kind": "river", "km": 150, "corridor": "Wheatwake Canal", "note": "code W"},
+      {"from": "Ledgerford", "to": "Northledger Depot", "kind": "river", "km": 55, "corridor": "Upper Ledger", "note": "code W Northbound is upstream. Frostgate's lock is the head of navigation; beyond it, sledge or road to Shorn. Ices over in deep winter; sledges then run the Bastion Road."},
+      {"from": "Northledger Depot", "to": "Frostgate", "kind": "river", "km": 80, "corridor": "Upper Ledger", "note": "code W Northbound is upstream. Frostgate's lock is the head of navigation; beyond it, sledge or road to Shorn. Ices over in deep winter; sledges then run the Bastion Road."},
+      {"from": "Ledgerford", "to": "Northledger Depot", "kind": "bastion road", "km": 50, "corridor": "Ledgerford–Shorn Bastion Road", "note": "code B"},
+      {"from": "Northledger Depot", "to": "Frostgate", "kind": "bastion road", "km": 75, "corridor": "Ledgerford–Shorn Bastion Road", "note": "code B"},
+      {"from": "Frostgate", "to": "Shorn", "kind": "bastion road", "km": 60, "corridor": "Ledgerford–Shorn Bastion Road", "note": "code B"},
+      {"from": "Shorn", "to": "Varnhold Watch", "kind": "bastion road", "km": 35, "corridor": "Shorn–Auvoth Bastion Road", "note": "code B"},
+      {"from": "Varnhold Watch", "to": "Wolfmere Outpost", "kind": "bastion road", "km": 55, "corridor": "Shorn–Auvoth Bastion Road", "note": "code B"},
+      {"from": "Wolfmere Outpost", "to": "Auvoth", "kind": "bastion road", "km": 130, "corridor": "Shorn–Auvoth Bastion Road", "note": "code B"},
+      {"from": "Auvoth", "to": "Bluewatch Village", "kind": "frontier road", "km": 70, "corridor": "Bluewatch–Auvoth Frontier Road", "note": "code F"},
+      {"from": "Highmark Capital", "to": "Thousand Sails", "kind": "road", "km": 620, "corridor": "Highmark–Thousand Sails Road", "note": "code R"},
+      {"from": "Highmark Capital", "to": "Holy City of Aurelion", "kind": "road", "km": 380, "corridor": "Highmark–Aurelion Road", "note": "code R"},
+      {"from": "Holy City of Aurelion", "to": "Silvermark Commandery", "kind": "road", "km": 90, "corridor": "Aurelion–Deepwalker Trunk", "note": "code R"},
+      {"from": "Valegard", "to": "Davenford", "kind": "road", "km": 115, "corridor": "Valegard–Ledgerford Road", "note": "code R"},
+      {"from": "Davenford", "to": "Ledgerford", "kind": "road", "km": 320, "corridor": "Valegard–Ledgerford Road", "note": "code R"},
+      {"from": "Mirage City", "to": "Saltledger Quay", "kind": "local road", "km": 210, "note": "code L"},
+      {"from": "Ninebarge Crossing", "to": "Ledgerford", "kind": "local road", "km": 240, "note": "code L"},
+      {"from": "Ferrywake", "to": "Canalspur", "kind": "local road", "km": 210, "note": "code L"},
+      {"from": "Ferrywake", "to": "Coinwater", "kind": "local road", "km": 150, "note": "code L"},
+      {"from": "Ferrywake", "to": "Pearlbank", "kind": "local road", "km": 225, "note": "code L"},
+      {"from": "Siltbarrow", "to": "Ferrywake", "kind": "local road", "km": 65, "note": "code L"},
+      {"from": "Siltbarrow", "to": "Glassdock", "kind": "local road", "km": 130, "note": "code L"},
+      {"from": "Siltbarrow", "to": "Lockswell", "kind": "local road", "km": 120, "note": "code L"},
+      {"from": "Bluewatch Village", "to": "Hollin's Reach", "kind": "frontier road", "km": 100, "note": "code F"},
+      {"from": "Northledger Depot", "to": "Rimebridge", "kind": "local road", "km": 45, "note": "code L"},
+      {"from": "Crowpine Town", "to": "Frostgate", "kind": "local road", "km": 30, "note": "code L"},
+      {"from": "Greyvein Camp", "to": "Shorn", "kind": "local road", "km": 10, "note": "code L"},
+      {"from": "Hearthmere", "to": "Frostgate", "kind": "local road", "km": 35, "note": "code L"},
+      {"from": "Hollin's Reach", "to": "Wolfmere Outpost", "kind": "frontier road", "km": 60, "note": "code F"},
+      {"from": "Old Lantern Post", "to": "Frostgate", "kind": "local road", "km": 30, "note": "code L"},
+      {"from": "Ashbell Hospice", "to": "Auvoth", "kind": "street", "hours": 2.0, "note": "code L"},
+      {"from": "Boneglass Yard", "to": "Auvoth", "kind": "street", "hours": 2.0, "note": "code L"},
+      {"from": "Outer Lamps", "to": "Auvoth", "kind": "street", "hours": 1.5, "note": "code L"},
+      {"from": "Pale Market", "to": "Auvoth", "kind": "street", "hours": 1.5, "note": "code L"},
+      {"from": "Tarnby", "to": "Stirrup Crossing", "kind": "local road", "km": 145, "note": "code L"},
+      {"from": "Davenford", "to": "Ninebarge Crossing", "kind": "local road", "km": 80, "note": "code L"},
+      {"from": "Tarnby", "to": "Valegard", "kind": "local road", "km": 85, "note": "code L"},
+      {"from": "Silvermark Commandery", "to": "Stirrup Crossing", "kind": "local road", "km": 170, "note": "code L"},
+      {"from": "Stirrup Crossing", "to": "Black Iron Riverhold", "kind": "local road", "km": 65, "note": "code L"},
+      {"from": "Delver's Crown", "to": "Auvoth", "kind": "street", "hours": 0.9, "note": "internal access"},
+      {"from": "Seventh Seal Terrace", "to": "Auvoth", "kind": "street", "hours": 0.2, "note": "internal access"},
+      {"from": "Auvoth", "to": "Auvoth Depths", "kind": "dungeon access", "hours": 1, "note": "sealed internal descents, about 3 km; registered parties only"},
+      {"from": "Greyvein Camp", "to": "Rimeglass Delve", "kind": "mountain road", "km": 100, "note": "winter mountain road (seasonal licence)"},
+      {"from": "Bluewatch Village", "to": "Inspection Quay", "kind": "street", "hours": 0.1, "note": "inside Bluewatch"},
+      {"from": "Bluewatch Village", "to": "Watchhouse", "kind": "street", "hours": 0.1, "note": "inside Bluewatch"},
+      {"from": "Bluewatch Village", "to": "Stray Oar", "kind": "street", "hours": 0.1, "note": "inside Bluewatch"},
+      {"from": "Bluewatch Village", "to": "Guild Office", "kind": "street", "hours": 0.1, "note": "inside Bluewatch"},
+      {"from": "Bluewatch Village", "to": "Watch Granary", "kind": "street", "hours": 0.1, "note": "inside Bluewatch"},
+      {"from": "Bluewatch Village", "to": "Salt-and-Ash Yard", "kind": "street", "hours": 0.15, "note": "inside Bluewatch"},
+      {"from": "Bluewatch Village", "to": "Gate Forge", "kind": "street", "hours": 0.1, "note": "inside Bluewatch"},
+      {"from": "Bluewatch Village", "to": "North Culvert", "kind": "track", "hours": 0.25, "note": "just outside the palisade"},
+      {"from": "Bluewatch Village", "to": "East Bluff", "kind": "track", "hours": 0.75, "note": "just outside the palisade"}
+    ],
+    "terms": [
+      {"name": "Soul Class", "levelName": "Soul Class", "xpName": "Soul Growth", "tiers": {"size": 10, "numerals": "roman"}}
+    ],
+    "ranks": [
+      {"id": "F", "title": "Registered", "levels": [1, 10], "reward": [50, 400]},
+      {"id": "E", "title": "Journeyman", "levels": [11, 20], "reward": [800, 3000]},
+      {"id": "D", "title": "Proven", "levels": [21, 30], "reward": [3000, 12000]},
+      {"id": "C", "title": "Veteran", "levels": [26, 40], "reward": [12000, 60000]},
+      {"id": "B", "title": "Elite", "levels": [31, 45], "reward": [60000, 360000]},
+      {"id": "A", "title": "Paragon", "levels": [41, 50], "reward": [360000, 2000000]},
+      {"id": "S", "title": "Legend", "levels": [46, 60], "reward": [2000000, 10000000]}
+    ],
+    "crafts": [
+      {"id": "alchemy", "title": "Alchemy", "stats": ["INT", "DEX"], "stations": ["alchemy-table"], "note": "A craft, not spellcasting: clean reagents, glassware, heat and time. A slip poisons or burns the alchemist."},
+      {"id": "fieldcraft", "title": "Fieldcraft", "stats": ["DEX"], "stations": [], "note": "Frontier makeshift work, done anywhere: salt pouches, pitch torches, snares."}
+    ],
+    "meterPresets": [
+      {"id": "frontier-regard", "title": "Frontier Regard", "meters": [
+        {"id": "regard", "name": "Regard", "min": -100, "max": 100, "start": -20, "describe": "How far a frontier local trusts an outsider. Strangers start below even.", "bands": [{"at": -100, "word": "hostile"}, {"at": -50, "word": "wary"}, {"at": -10, "word": "guarded"}, {"at": 20, "word": "civil"}, {"at": 50, "word": "trusting"}, {"at": 80, "word": "sworn"}]},
+        {"id": "owed", "name": "Owed", "min": 0, "max": 100, "start": 0, "describe": "Favours this person owes you. Nothing on the frontier is free, and debts are remembered for a while.", "bands": [{"at": 0, "word": "even"}, {"at": 20, "word": "owes a little"}, {"at": 50, "word": "in your debt"}], "drift": {"toward": 0, "perDay": 1}}
+      ], "stages": [
+        {"id": "marked", "name": "Marked as trouble", "needs": [{"meter": "regard", "at": -60}], "milestone": "They name you to the Watch as trouble."},
+        {"id": "known-face", "name": "Known face", "needs": [{"meter": "regard", "at": 20}]},
+        {"id": "vouched", "name": "Vouched for", "needs": [{"meter": "regard", "at": 50}, {"meter": "owed", "at": 20}], "milestone": "They will speak for you at the Watchhouse or the Guild desk."}
+      ]},
+      {"id": "road-companion", "title": "Road Companion", "meters": [
+        {"id": "loyalty", "name": "Loyalty", "min": -100, "max": 100, "start": 0, "describe": "Whether they stay when staying costs them.", "bands": [{"at": -100, "word": "ready to leave"}, {"at": -30, "word": "doubtful"}, {"at": 10, "word": "with you"}, {"at": 60, "word": "loyal"}]},
+        {"id": "nerve", "name": "Nerve", "min": 0, "max": 100, "start": 50, "describe": "How steady they are after blood and bad nights. Rest brings it back.", "bands": [{"at": 0, "word": "breaking"}, {"at": 25, "word": "shaken"}, {"at": 50, "word": "steady"}, {"at": 80, "word": "hardened"}], "drift": {"toward": 50, "perDay": 5}}
+      ], "stages": [
+        {"id": "wavering", "name": "Wavering", "needs": [{"meter": "loyalty", "at": -30}], "milestone": "They start counting what staying costs them."},
+        {"id": "shield-mate", "name": "Shield-mate", "needs": [{"meter": "loyalty", "at": 60}, {"meter": "nerve", "at": 40}], "milestone": "They would hold the line beside you."}
+      ]}
+    ]
+  },
+  "start": {
+    "scene": {"place": {"name": "Bluewatch Village", "kind": "settlement", "region": "River Confederacy"}, "present": ["Marrit", "Quay inspector"]},
+    "inventory": {"items": [{"item": "Cane-Blade"}, {"item": "Patched Oilcloth Coat"}, {"item": "Knife", "note": "For work, not fights"}, {"item": "Whetstone", "note": "Worn thin"}], "money": 44}
+  },
+  "theme": {
+    "--ss-accent": "#5b7a8c"
+  }
+}

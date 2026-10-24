@@ -65,7 +65,7 @@ globalThis.SillyTavern = { getContext: () => ctx };
 let npcs = [];
 storySuite().announce({ id: 'npc-state-delta', name: 'NPC State Delta', version: '1.2.2', owns: [], enabled: true, api: { npcProfiles: () => npcs } });
 
-await import('../index.js');
+await import('../v1.js');
 
 const settle = async () => {
     for (let round = 0; round < 6; round++) await new Promise(resolve => setTimeout(resolve, 2));

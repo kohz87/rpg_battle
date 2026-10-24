@@ -3,10 +3,10 @@
   "loading_order": 40,
   "requires": [],
   "optional": [],
-  "generate_interceptor": "rpgBattleInterceptor",
+  "dependencies": ["third-party/Story_block"],
   "js": "index.js",
   "css": "style.css",
   "author": "kohz87",
-  "version": "0.5.52",
+  "version": "2.0.0-beta.2",
   "homePage": "https://github.com/kohz87/rpg_battle"
 }

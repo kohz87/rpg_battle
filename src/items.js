@@ -213,7 +213,7 @@ function slotFromCategory(category) {
 
 const EQUIPMENT_CATEGORY = /equip|gear|weapon|armou?r|accessor|jewel/i;
 
-function kindOf(name) {
+export function kindOf(name) {
     return KINDS.find(kind => kind.pattern.test(String(name ?? ''))) ?? null;
 }
 
@@ -534,6 +534,9 @@ export function gearSummary(items, level, rules = DEFAULT_RULES) {
  * tags, capped: [{ name, from, to }] }. `tags` (range, fire…) are the weapon's and armour's
  * tags together, for combat's elements.
  */
+/** An item's own non-zero, finite stats (a piece with none has none). */
+const writtenStats = item => Object.fromEntries(Object.entries(item?.stats ?? {}).filter(([, value]) => Number.isFinite(value) && value !== 0));
+
 export function gearBonuses(items, level, rules = DEFAULT_RULES) {
     const totals = Object.fromEntries(ITEM_STATS.map(name => [name, 0]));
     const tags = new Set();
@@ -541,7 +544,10 @@ export function gearBonuses(items, level, rules = DEFAULT_RULES) {
     const capped = [];
     const gear = equipped(items, rules);
     for (const item of [gear.weapon, gear.offhand, gear.armour, ...gear.worn, ...gear.accessory].filter(Boolean)) {
-        const result = capItem(item, level, rules);
+        // (v2) A piece whose stats are final (`final: true`: RPG Battle v2's items.gear, capped at the
+        // wearer's level, then scaled by condition and refinement) counts as it is, never capped
+        // (nor given a default main stat) again.
+        const result = item.final === true ? { stats: writtenStats(item), capped: false } : capItem(item, level, rules);
         for (const [name, value] of Object.entries(result.stats)) totals[name] = (totals[name] ?? 0) + value;
         for (const tag of item.tags ?? []) tags.add(tag);
         // (0.5.33) An element on what strikes or is worn to (weapon, off-hand, accessory) works in a fight.
@@ -653,6 +659,18 @@ export function formatMoneyShort(amount, currency = DEFAULT_RULES.currency) {
 function unitLabel(name, count) {
     // "1 crowns" reads wrong; copper, silver and gold have no plural to drop.
     return count === 1 && /[^s]s$/i.test(name) ? name.slice(0, -1) : name;
+}
+
+/**
+ * (v2, MODULES §F1) Story Suite v2 keeps one currency per chat: Story Block's
+ * `inventory.currency` query → { name, short }. This is that currency as the v1 currency object
+ * formatMoney, formatMoneyShort, tradeLine and the hand-off take: one unit, no tiers, so an
+ * amount reads "134 gold". Amounts are whole numbers of it (v1's numbers kept as they are).
+ */
+export function oneCurrency(currency = null) {
+    const name = String(currency?.name ?? '').replace(/\s+/g, ' ').trim() || 'gold';
+    const short = String(currency?.short ?? '').trim() || name[0].toLowerCase();
+    return { ...DEFAULT_RULES.currency, mode: 'single', tiers: [], single: name, singleShort: short, row: name };
 }
 
 /** An amount in the smallest unit as words: '1 gold, 3 silver, 4 copper' | '134 coins'. */

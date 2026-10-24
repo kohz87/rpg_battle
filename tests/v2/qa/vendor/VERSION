@@ -1,0 +1,3 @@
+Story Block (kohz87/Story_block) branch v2 at commit 6badfd53a80d76cc0a0b170973be99978b750b3a (2.0.0-alpha.2)
+Copied unchanged: src/id.js, src/v2/{commands,ops,rng,check,registry}.js, src/v2/domains/*.js and every
+file under src/ those import (followed through their imports).
