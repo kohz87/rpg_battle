@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_RULES, makeRules } from '../../../src/rules.js';
 import { DEFAULT_SKILLS, resolveSkills } from '../../../src/skills.js';
-import { act, availableActions, replay, startFight } from '../../../src/combat.js';
+import { act, availableActions, replay, startFight, summarize } from '../../../src/combat.js';
 import { formSkill } from '../../../src/v2/fight/forms.js';
 import '../../../src/v2/fight/interpret.js';
 import { foe, friend, hero } from './golden.js';
@@ -18,6 +18,7 @@ const nobody = { skills: [] };
 const setupOf = (over = {}) => ({ id: 'fx', seed: 'seed-x', party: [hero({ skills: hold([SMITE, 2]) }), friend({ ...nobody, hp: { cur: 40, max: 160 } })], enemies: [foe('e1'), foe('e2', { name: 'Boar' })], stakes: 'normal', draws: 'action', ...over });
 const start = (over, rules = EXACT) => startFight({ ...setupOf(over), rules });
 const get = (f, id) => f.combatants.find(c => c.id === id);
+const summarizeOf = f => summarize(f, EXACT);
 const FORM = (extra = {}) => ({ type: 'form', form: SMITE.id, id: 'ca_00000001', selections: [{ effect: 0, targets: ['e1'] }, { effect: 1, targets: ['ally'] }], ...extra });
 
 test('a mixed form hurts one foe and heals one ally with two legal targets, and charges once', () => {
@@ -197,4 +198,36 @@ test('shield depletion and expiry, regeneration ticks with their strength, the d
         assert.match(text, /shielded \(/);
         assert.match(text, /regenerates \d+ HP/);
     }
+});
+
+test('a unit: built from the caster and the form\'s frozen shares, on auto, capped at six, gone when its rounds are out, never a member, never keeping the party standing', () => {
+    const wolf = form('wolf-base', { name: 'Grey wolf', type: 'physical', cost: { mp: 0, sp: 0, cooldown: 0 }, effects: [effect('damage', 'one', 100)] });
+    const call = form('call-base', { name: 'Call', type: 'physical', cost: { mp: 0, sp: 0, cooldown: 0 }, effects: [effect('damage', 'one', 50)], unit: { kind: 'summon', class: 'pack.t/pack', statShare: 50, poolShare: 25, rounds: 2 } });
+    const ix = { class: () => ({ name: 'Pack', skills: ['pack.t/wolf'] }), baseForm: () => wolf.id, form: () => wolf };
+    const caller = formSkill(call, 0, ix);
+    assert.deepEqual([caller.unit.name, caller.unit.skills.length, caller.unit.skills[0].formId], ['Pack', 1, wolf.id]);
+    const open = (over = {}) => startFight({ ...setupOf({ party: [hero({ skills: [caller], stats: { STR: 10, VIT: 8, AGI: 8, DEX: 8, INT: 8, LUK: 5, CHA: 8 }, hp: { cur: 160, max: 160 } }), friend(nobody)], enemies: [foe('e1', { hp: { cur: 900, max: 900 } })], ...over }), rules: EXACT });
+    const cast = (f, n) => act(f, { type: 'form', form: call.id, id: `ca_0000000${n}`, selections: [{ effect: 0, targets: ['e1'] }] }, EXACT);
+    let f = cast(open(), 1);
+    const unit = f.combatants.find(c => c.summoned);
+    assert.ok(unit, 'a unit joined');
+    assert.deepEqual([unit.side, unit.controller, unit.summoned.owner, unit.summoned.kind, unit.stats.STR, unit.hp.max, unit.level], ['party', 'auto', 'pc', 'summon', 5, 40, 3]);
+    assert.equal(unit.skills[0].formId, wolf.id);
+    // Its rounds out, it fades, and the fight goes on without it.
+    for (let n = 0; n < 8 && f.status === 'active' && !unit.gone && !f.combatants.find(c => c.id === unit.id).gone; n += 1) f = act(f, { type: 'defend', id: `ca_1000000${n}` }, EXACT);
+    assert.equal(f.combatants.find(c => c.id === unit.id).gone, 'expired');
+    // The cap is six at once.
+    let many = open({ party: [hero({ skills: [{ ...caller, unit: { ...caller.unit, rounds: 60 } }], hp: { cur: 1600, max: 1600 }, mp: { cur: 50, max: 50 } }), friend(nobody)] });
+    for (let n = 0; n < 8 && many.status === 'active'; n += 1) {
+        const skill = many.combatants.find(c => c.id === 'pc').skills[0];
+        if (skill.cooldownLeft) { many = act(many, { type: 'defend', id: `ca_2000000${n}` }, EXACT); continue; }
+        many = cast(many, n);
+    }
+    assert.ok(many.combatants.filter(c => c.summoned).length <= 6);
+    // A summon does not keep the party standing: with every member down and a unit up, the fight is lost.
+    const standing = startFight({ ...setupOf({ party: [hero({ hp: { cur: 0, max: 160 } }), { ...hero({ id: 'u1', memberId: 'u1', name: 'Grey wolf', controller: 'auto' }), summoned: { owner: 'pc', kind: 'summon', form: call.id, class: 'c', until: 9 } }], enemies: [foe('e1')] }), rules: EXACT });
+    assert.equal(standing.status, 'defeat');
+    // ... and earns nothing, and is not written to the party.
+    const after = cast(open(), 1);
+    assert.equal(summarizeOf(after).party.some(member => member.memberId === after.combatants.find(c => c.summoned).id), false);
 });
