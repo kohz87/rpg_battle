@@ -1,8 +1,10 @@
 // Cards under replies (fix 8e): the socket a module uses to put a card under an assistant message (WIDGETS.md, "Cards under
 // replies"; the README's "How modules connect" table). A module declares `cards: { <id>: { for(state, message, ctx) → card | null } }`.
-// `for` is asked about each assistant message, oldest first, with that message's own state and its SillyTavern message object; the
-// first message whose answer is a card gets it, so a card id shows once per chat. A card the module stops returning goes away on the
-// next draw (a character made, a fight ended); a swipe or a delete moves or removes it with its message.
+// `for` is asked once per card, about the HEAD reply (the newest assistant message; in a chat that holds only the greeting, the
+// greeting), with the head's state, its SillyTavern message object and `ctx.head === true`. When it answers, the card is drawn under
+// the head reply with its actions enabled; older replies carry no module cards. So a card follows the story: a start card goes when
+// the character exists, and a second fight's battle card sits under the newest reply, not the first fight's. A card the module
+// stops returning goes away on the next draw (a character made, a fight ended); a swipe or a delete moves it with the head.
 //
 // A card: { tone: 'accent'|'bad'|'good'|'info', icon: 'ph-…' | 'fa-…', title, text?, rows?: [{ icon?, text, tag?, tagTone? }] (at most 4),
 // actions?: [{ id, label, icon?, primary?, command?, payload?, open? }] (at most 3), later?: true|false }. An action runs its `command`
@@ -10,7 +12,8 @@
 // into one line. Text is plain: the host prints it, never parses it. `normalizeCard` drops what it cannot read; a card without a title
 // is no card.
 //
-// The Later state is the viewer's (localStorage, per chat and message): it is not game state, so it is never in a command or a save.
+// The Later state is the viewer's (localStorage, per chat and card key): it is not game state, so it is never in a command or a save.
+// It is cleared when the card stops being drawn, so a later card of the same id starts unfolded.
 // Pure except for the storage that `laterStore` takes; no DOM.
 
 import { oneLine } from '../text.js';
@@ -33,6 +36,17 @@ function rowOf(raw) {
     return { icon: iconOf(raw.icon, ''), text, tag, tagTone: CARD_TONES.includes(raw.tagTone) ? raw.tagTone : 'info' };
 }
 
+// A payload as plain JSON (what a command or a dialog's draft takes), or {} when it cannot be copied (a loop, a BigInt, a getter that throws).
+function payloadOf(value) {
+    if (!isRecord(value)) return {};
+    try {
+        const copy = JSON.parse(JSON.stringify(value));
+        return isRecord(copy) ? copy : {};
+    } catch {
+        return {};
+    }
+}
+
 function actionOf(raw, at) {
     if (!isRecord(raw)) return null;
     const label = oneLine(raw.label ?? '', 32);
@@ -46,7 +60,7 @@ function actionOf(raw, at) {
         icon: iconOf(raw.icon, ''),
         primary: raw.primary === true,
         command,
-        payload: isRecord(raw.payload) ? raw.payload : {},
+        payload: payloadOf(raw.payload),
         open,
     };
 }
@@ -70,29 +84,38 @@ export function normalizeCard(raw) {
 }
 
 /**
- * The cards of every assistant message, by index: `entries` are the registry's [{ moduleId, id, fn }] (id: "<module>/<card>"),
- * `carriers` the assistant messages' indexes (oldest first), `messageAt(index)` the message, `stateAt(index)` the state after it,
- * `query(name, args, state)` the queries. → Map index → [{ key, card }]; a card id appears at most once (the first message).
+ * The cards under the head reply: `entries` are the registry's [{ moduleId, id, fn }] (id: "<module>/<card>"), `head` the head
+ * reply's index, `messageAt(index)` the message, `stateAt(index)` the state after it (asked once, shared by every card),
+ * `query(name, args, state)` the queries. Each `fn(state, message, { index, head: true, chatId, query })` is asked once; a card that
+ * throws (or whose words cannot be read) is left out and never stops the others. `onEnded(id)` hears of each card that answered
+ * without a card. → Map head index → [{ key, card }] (empty when there is no head).
  */
-export function scanReplyCards(entries, { carriers = [], messageAt = () => null, stateAt = () => null, query = () => null, chatId = '' } = {}) {
+export function scanReplyCards(entries, { head = -1, messageAt = () => null, stateAt = () => null, query = () => null, chatId = '', onEnded = null } = {}) {
     const out = new Map();
-    for (const { id, fn } of Array.isArray(entries) ? entries : []) {
-        if (typeof fn !== 'function') continue;
-        for (const index of carriers) {
-            const state = stateAt(index);
-            let answer;
-            try {
-                answer = fn(state, messageAt(index), { index, chatId, query: (name, args) => query(name, args, state) });
-            } catch {
-                continue;
+    if (!Number.isInteger(head) || head < 0) return out;
+    const list = (Array.isArray(entries) ? entries : []).filter(entry => typeof entry?.fn === 'function');
+    if (!list.length) return out;
+    let state;
+    let message = null;
+    try {
+        state = stateAt(head);
+        message = messageAt(head);
+    } catch {
+        return out;
+    }
+    const found = [];
+    for (const { id, fn } of list) {
+        try {
+            const card = normalizeCard(fn(state, message, { index: head, head: true, chatId, query: (name, args) => query(name, args, state) }));
+            if (card) found.push({ key: id, card });
+            else {
+                try { onEnded?.(id); } catch { /* the caller's note never stops the scan */ }
             }
-            const card = normalizeCard(answer);
-            if (!card) continue;
-            if (!out.has(index)) out.set(index, []);
-            out.get(index).push({ key: id, card });
-            break;
+        } catch {
+            // One module's card never stops the others.
         }
     }
+    if (found.length) out.set(head, found);
     return out;
 }
 
@@ -101,12 +124,16 @@ export function scanReplyCards(entries, { carriers = [], messageAt = () => null,
  * copy (read once), and each change is written to the storage when there is one; a storage that throws or holds junk is read as
  * nothing folded, and a change the storage refuses lasts this page only. Never throws.
  */
-export function laterStore(storage = globalThis.localStorage) {
+export function laterStore(storage) {
     let kept = null;
+    // The default storage is read inside a try: a browser that refuses site data throws on `localStorage` itself.
+    const area = () => {
+        try { return storage === undefined ? globalThis.localStorage : storage; } catch { return null; }
+    };
     const load = () => {
         if (kept) return kept;
         try {
-            const parsed = JSON.parse(storage?.getItem?.(LATER_KEY) ?? '{}');
+            const parsed = JSON.parse(area()?.getItem?.(LATER_KEY) ?? '{}');
             kept = isRecord(parsed) ? parsed : {};
         } catch {
             kept = {};
@@ -114,14 +141,14 @@ export function laterStore(storage = globalThis.localStorage) {
         return kept;
     };
     return {
-        /** Whether the card (`${chatId}|${index}|${key}`) is folded. */
+        /** Whether the card (`${chatId}|${key}`: a chat and a card key, never a message index) is folded. */
         has: key => load()[key] === true,
         /** Folds (on) or opens the card. */
         set(key, on) {
             const all = load();
             if (on) all[key] = true;
             else delete all[key];
-            try { storage?.setItem?.(LATER_KEY, JSON.stringify(all)); } catch { /* the choice lasts this page only */ }
+            try { area()?.setItem?.(LATER_KEY, JSON.stringify(all)); } catch { /* the choice lasts this page only */ }
         },
     };
 }

@@ -24,7 +24,7 @@ async function withPersona(fn) {
 }
 
 // A greeting-only chat with the host UI over it and the start card drawn under message 0.
-async function greetingChat() {
+async function greetingChat({ earlier = false } = {}) {
     const doc = installDom();
     const st = createFakeContext({});
     st.notices = [];
@@ -35,15 +35,26 @@ async function greetingChat() {
     runtime.turn.install({ globalName: null });
     st.interceptor = runtime.turn.interceptor;
     runtime.markReady();
+    // An existing chat that has no character (made before the module, say): the greeting, a message of yours and a reply; the reply is the head.
+    if (earlier) {
+        st.addUser('Hello there.');
+        st.addMessage({ name: 'Narrator', is_user: false, is_system: false, mes: 'The ferry bell rings.', swipe_id: 0, swipes: ['The ferry bell rings.'], swipe_info: [{}], extra: {} });
+    }
     await runtime.turn.onChatChanged();
-    const mes = doc.createElement('div');
-    mes.className = 'mes';
-    mes.setAttribute('mesid', '0');
-    doc.body.appendChild(mes);
-    ui.mounts.card.refresh(0, { force: true });
+    const head = earlier ? 2 : 0;
+    const marks = [];
+    for (let index = 0; index <= head; index += 1) {
+        const node = doc.createElement('div');
+        node.className = 'mes';
+        node.setAttribute('mesid', String(index));
+        doc.body.appendChild(node);
+        marks.push(node);
+        ui.mounts.card.refresh(index, { force: true });
+    }
+    const mes = marks[head];
     const card = () => mes.querySelector(`[data-ss-reply-card="${CARD}"]`);
     const act = id => card().querySelector(`button[data-action="${id}"]`);
-    return { doc, st, ui, runtime, card, act, close: () => runtime.turn.uninstall({ globalName: null }) };
+    return { doc, st, ui, runtime, marks, card, act, close: () => runtime.turn.uninstall({ globalName: null }) };
 }
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
@@ -163,4 +174,19 @@ test('greeting only: a persona switched after the card was drawn is the one the 
         if (saved) Object.defineProperty(globalThis, 'SillyTavern', saved);
         else delete globalThis.SillyTavern;
     }
+});
+
+test('an existing chat with no character: the start card is under the newest reply only (the head), not the greeting, with working buttons', async () => {
+    await withPersona(async () => {
+        const chat = await greetingChat({ earlier: true });
+        try {
+            assert.equal(chat.marks.length, 3);
+            assert.ok(chat.card(), 'the card is under the newest reply');
+            for (const older of chat.marks.slice(0, 2)) assert.equal(older.querySelector(`[data-ss-reply-card="${CARD}"]`), null, 'older messages carry no module card');
+            assert.ok(!chat.act('create').disabled && !chat.act('skip').disabled, 'the head card acts');
+            chat.act('create').click();
+            assert.equal(chat.ui.mounts.dialog.current()?.screenId, CREATE_SCREEN_ID);
+            assert.equal(chat.ui.mounts.dialog.current().draft.name, 'Ren');
+        } finally { chat.close(); }
+    });
 });

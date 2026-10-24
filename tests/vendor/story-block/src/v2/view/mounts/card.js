@@ -223,9 +223,40 @@ export function createCardMount(deps) {
             (message.querySelector('.mes_block') ?? message).appendChild(box);
         }
         box.setAttribute('data-ss-index', String(index));
-        const current = Array.from(box.children);
         nodes.push(...replies);
-        if (current.length !== nodes.length || current.some((node, i) => node !== nodes[i])) box.replaceChildren(...nodes);
+        syncBox(box, nodes);
+    }
+
+    // The box shows `nodes`, changing only what differs: a node that stays is not moved, so the focus on it stays. A control that
+    // was focused on a node that was drawn again (Later, Open, an action followed by `committed`) gets the focus back on the same
+    // control of the card with the same key, else on the card's fold line or Later button, else on its first button.
+    function syncBox(box, nodes) {
+        const current = Array.from(box.children);
+        if (current.length === nodes.length && current.every((node, i) => node === nodes[i])) return;
+        const held = focusHeld(box);
+        for (const node of current) if (!nodes.includes(node)) node.remove();
+        nodes.forEach((node, i) => {
+            if (box.children[i] !== node) box.insertBefore(node, box.children[i] ?? null);
+        });
+        if (held && doc.activeElement !== held.control) restoreFocus(box, held);
+    }
+
+    const cardKeyOf = node => node.getAttribute?.('data-ss-reply-card') ?? node.getAttribute?.('data-ss-card') ?? null;
+    function focusHeld(box) {
+        const control = doc.activeElement;
+        if (!control || !box.contains?.(control)) return null;
+        let owner = control;
+        while (owner && owner.parentNode !== box) owner = owner.parentNode;
+        const key = owner ? cardKeyOf(owner) : null;
+        return key === null ? null : { control, key, focus: control.getAttribute?.('data-focus') ?? null };
+    }
+    function restoreFocus(box, { key, focus }) {
+        const node = Array.from(box.children).find(child => cardKeyOf(child) === key);
+        if (!node) return;
+        const spots = Array.from(node.querySelectorAll('[data-focus]'));
+        const by = name => spots.find(spot => spot.getAttribute('data-focus') === name);
+        const target = (focus && by(focus)) || by('line') || by('later') || node.querySelector('button:not([disabled])') || null;
+        target?.focus?.();
     }
 
     /**

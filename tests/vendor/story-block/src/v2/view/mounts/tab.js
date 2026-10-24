@@ -36,6 +36,7 @@ export function createTabMount(deps) {
                 ...(entry.screen.order !== undefined ? { order: entry.screen.order } : {}),
                 // Read when the bar is drawn: an active tab's alert (a red dot) follows the story.
                 get alert() { return activeNow(entry.screen, headStateSafe(deps), deps.query).alert; },
+                get alertText() { return activeNow(entry.screen, headStateSafe(deps), deps.query).badge ?? ''; },
                 render: (el, view, api) => mount(el, entry.id, {
                     ...(view?.state ? { state: view.state } : {}),
                     ...(api ? { api } : {}),

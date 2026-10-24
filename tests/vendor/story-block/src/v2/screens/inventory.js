@@ -47,16 +47,17 @@ const ITEM_FILTER = "(draft.rarity == null || draft.rarity == '' || draft.rarity
 const rarityClasses = name => RARITIES.filter(rarity => rarity !== 'common').map(rarity => `r-${rarity}: ${name}.rarity == '${rarity}'`).join('; ');
 const RARITY_CLASSES = rarityClasses('it');
 
-// The actions that open a fold (Equip on…, Use on…, Drop). Each is a radio styled as a button in the card's action row:
-// it sets the card's `fold[stack]` in the view's draft, and that one value is the one open fold of the card (the radios of
-// a stack share one group). The fold opens in a row BELOW the action row, so the row does not move. Tapping the open action
-// again does nothing (a radio stays checked); Cancel, the group's empty value, closes it.
+// The actions that open a fold (Equip on…, Use on…, Drop). Each is a real button in the card's action row with aria-expanded and
+// aria-controls (the fold row's id): a press sets the card's `fold[stack]` in the view's draft (`data-draft` on a button picks its
+// value; a press on the open one closes it), and that one value is the one open fold of the card. The fold opens in a row BELOW the
+// action row, so the row does not move. Escape inside the card closes the open fold and the focus goes back to its button
+// (`data-draft-close` on the card); Cancel does the same (`data-draft-cancel`). Arrow keys do nothing here: they are not radios.
 const foldAction = (kind, when, icon, label, title) => `
-          <label class="ss-button act"${when ? ` data-if="${when}"` : ''} title="${title}"><input type="radio" name="fold_{{ it.stack }}" value="${kind}" data-draft="fold[it.stack]" aria-expanded="{{ draft.fold[it.stack] == '${kind}' }}" aria-controls="fold-{{ it.stack }}"><i class="fa-solid ${icon}" aria-hidden="true"></i> ${label}</label>`;
+          <button type="button" class="ss-button act"${when ? ` data-if="${when}"` : ''} title="${title}" data-draft="fold[it.stack]" value="${kind}" aria-expanded="{{ draft.fold[it.stack] == '${kind}' }}" aria-controls="fold-{{ it.stack }}"><i class="fa-solid ${icon}" aria-hidden="true"></i> ${label}</button>`;
 const foldPanel = (kind, cls, when, question, body) => `
-          <div class="fold ${cls}" id="fold-{{ it.stack }}" data-if="draft.fold[it.stack] == '${kind}'${when ? ` && ${when}` : ''}">
+          <div class="fold ${cls}" id="fold-{{ it.stack }}" role="group" aria-label="${question}" data-if="draft.fold[it.stack] == '${kind}'${when ? ` && ${when}` : ''}">
             <span class="fold-q">${question}</span>${body}
-            <label class="ss-button fold-cancel"><input type="radio" name="fold_{{ it.stack }}" value="" data-draft="fold[it.stack]"> ${html(S.cancel)}</label>
+            <button type="button" class="ss-button fold-cancel" data-draft-cancel>${html(S.cancel)}</button>
           </div>`;
 
 function group(kind) {
@@ -64,7 +65,7 @@ function group(kind) {
   <section class="group" data-kind="${kind}" data-if="${anyKind(kind)}">
     <h4 class="ss-section-label"><i class="fa-solid ${KIND_ICONS[kind]}" aria-hidden="true"></i> ${html(KIND_TITLES[kind])}</h4>
     <ul>
-      <li class="item ss-glass" data-each="q.items as it" data-if="it.kind == '${kind}' && ${ITEM_FILTER}"
+      <li class="item ss-glass" data-each="q.items as it" data-draft-close="fold[it.stack]" data-if="it.kind == '${kind}' && ${ITEM_FILTER}"
           data-class="${RARITY_CLASSES}; equipped: ${RPG} && it.equipped != null">
         <span class="ss-tile-box" aria-hidden="true"><i class="fa-solid ${KIND_ICONS[kind]}"></i><span class="ss-tile-count" data-if="it.qty != 1">{{ it.qty }}</span></span>
         <div class="body">
@@ -191,17 +192,17 @@ const CSS = `${BASE_CSS}
 .owner { font-size: 0.85em; }
 .note { margin: 2px 0 0; font-size: 0.85em; }
 .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
-.act { position: relative; cursor: pointer; }
-.act > input, .fold-cancel > input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
-.act:has(> input:checked) { border-color: var(--sb-accent); }
-.act:focus-within, .fold-cancel:focus-within { outline: 2px solid var(--sb-accent); outline-offset: 2px; }
+.act { cursor: pointer; }
+.act[aria-expanded="true"] { border-color: var(--sb-accent); }
+.act:focus-visible, .fold-cancel:focus-visible, .fold .ss-button:focus-visible { outline: 2px solid var(--sb-accent); outline-offset: 2px; }
 /* The fold row: a hairline above it, the question muted, the members as accent-soft buttons, Cancel plain (the design's Equip on… row). */
 .fold { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 0 0; border-top: 1px solid var(--sb-border); }
 .fold .fold-q { flex-basis: 100%; color: var(--sb-em); font-weight: 400; }
 .fold .pick-member { background: color-mix(in srgb, var(--sb-accent) 24%, transparent); border-color: var(--sb-accent); }
 .fold .ss-button { min-height: 44px; }
-/* The danger tone is the confirm's text and ring, never a filled background (the Drop action itself is a plain button). */
-.fold .ss-button-danger { background: transparent; color: var(--sb-bad); border-color: var(--sb-bad); }
+/* The danger tone is the confirm's text and ring, never a filled background (the Drop action itself is a plain button). The text is the
+   theme's error text (4.5:1 on the glass); --sb-bad is a fixed #d9534f (3.3 to 4.0:1), so it stays the ring only. */
+.fold .ss-button-danger { background: transparent; color: var(--ss-bad-text, var(--sb-bad)); border-color: var(--sb-bad); }
 .loot { display: grid; gap: 6px; }
 .loot .offer { display: grid; gap: 4px; padding: 6px 8px; border-radius: 6px; background: var(--sb-raised); }
 .loot .loot-head, .loot .hint { margin: 0; }
