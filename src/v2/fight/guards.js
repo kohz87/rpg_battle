@@ -84,7 +84,9 @@ export function buildEnd(env, payload) {
         inputs: {
             version: FIGHT_VERSION,
             setup: hashJson(session.setup),
-            // The place the loot is registered in (rules.registerItem bounds it by this tier): a place taken back takes the loot with it.
+            // The area the loot is registered in (rules.registerItem bounds it by this tier), as it was when the end was planned: read once and kept
+            // with the block (`recorded`), because Story Block answers a replay guard no query of Story Director's. A place taken back later does not
+            // retract the end or its loot (a written follow-up: stricter state reads).
             area: env.recorded && Object.hasOwn(env.recorded, 'area') ? env.recorded.area : areaOf(env.query),
             actions: (session.actions ?? []).map(action => ({ id: action.id ?? null, hash: actionHash(action) })),
             outcome: result.outcome,
