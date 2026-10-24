@@ -112,7 +112,7 @@ export function registerItem(ctx, payload, attach) {
     if (!isObject(payload) || Object.keys(payload).some(key => !FIELDS.includes(key))) ctx.fail('INVALID', `rules.registerItem takes { ${FIELDS.join(', ')} } and nothing else.`);
     for (const key of ['write', 'def', 'rule', 'template', 'area', 'rulesHash']) if (!Object.hasOwn(payload, key)) ctx.fail('INVALID', `rules.registerItem needs ${key} (null where there is none).`);
     if (!isRecordId(payload.write)) ctx.fail('INVALID', 'A registration needs the id of the write that asks for it.');
-    if (ctx.cause === 'ui' || !TRUSTED.includes(ctx.caller)) ctx.fail('REFUSED', 'Item definitions are registered by the item grant and the rules\' own steps, not from a button or the story\'s words.');
+    if (!TRUSTED.includes(ctx.caller)) ctx.fail('REFUSED', 'Item definitions are registered by the item grant and the rules\' own steps, not from a button or the story\'s words.');
     if (!(payload.rulesHash === null || isHash(payload.rulesHash))) ctx.fail('INVALID', 'rulesHash is a hash or null.');
     if (!(payload.template === null || isDefId(payload.template))) ctx.fail('INVALID', 'The template is a pinned id or null.');
     if (!isObject(payload.def)) ctx.fail('INVALID', 'The definition is a record.');

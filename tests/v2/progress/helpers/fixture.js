@@ -93,3 +93,31 @@ export function pinWith(over) {
     }
     return withConstants.get(key);
 }
+
+/**
+ * The golden pack with item rules, a recipe, a shop and a quest that asks for flags: Rope (goods), Iron Sword (a one-handed weapon),
+ * the recipe that forges the sword, the market that sells rope, and the bell quest (flags bell.rung, gate.open).
+ */
+export function inputsPack() {
+    const pack = smallRulesPack();
+    const row = (slug, name, over = {}) => ({ slug, name, kind: 'goods', rarity: 'common', value: 2, stack: true, slot: null, stats: {}, effect: {}, tags: [], note: '', ...over });
+    pack.content.items = [row('rope', 'Rope'), row('sword', 'Iron Sword', { kind: 'equipment', rarity: 'uncommon', value: 30, stack: false, slot: 'weapon', stats: { ATK: 3 } })];
+    pack.content.rules[0].itemRules = [
+        { def: 'rope', allowedSlots: [], hands: 0, requires: {}, weight: 1 },
+        { def: 'sword', allowedSlots: ['weapon'], hands: 1, requires: { STR: 3 }, weight: 5 },
+    ];
+    pack.content.recipes = [{ slug: 'forge-blade', name: 'Forge a blade', craft: 'smithing', makes: 'sword', qty: 1, materials: [{ item: 'rope', qty: 1 }], fee: 0, minutes: 10, dc: 10, stat: 'STR' }];
+    pack.content.shops = [{ slug: 'market', name: 'Market', place: 'pack.fixture/haven', kind: 'general', stock: [{ item: 'rope', qty: 5, price: 3 }] }];
+    pack.content.quests = [{
+        slug: 'bell', name: 'The bell', category: 'side', giver: null, turnInPlace: null,
+        requirements: [{ kind: 'flag', key: 'bell.rung', value: true }, { kind: 'flag', key: 'gate.open', value: false }],
+        objectives: [{ id: 'ob_00000001', kind: 'visit', place: 'pack.fixture/mill' }],
+        reward: { coin: 0, xp: 0, items: [] }, durationMinutes: null, repeat: null, chain: null,
+    }];
+    return pack;
+}
+export const inputsPin = () => {
+    const pin = pinFor('inputs', inputsPack());
+    const def = (slug, name, over = {}) => ({ id: `pack.fixture/${slug}`, name, kind: 'goods', rarity: 'common', value: 2, stack: true, slot: null, stats: {}, effect: {}, tags: [], note: '', ...over });
+    return Object.freeze({ ...pin, defs: { 'pack.fixture/rope': def('rope', 'Rope'), 'pack.fixture/sword': def('sword', 'Iron Sword', { kind: 'equipment', rarity: 'uncommon', value: 30, stack: false, slot: 'weapon', stats: { ATK: 3 } }) } });
+};

@@ -75,7 +75,7 @@ const FIELDS = ['write', 'key', 'value', 'evidence', 'expectedHash'];
 export function flagSet(ctx, payload, attach) {
     if (!isObject(payload) || Object.keys(payload).some(key => !FIELDS.includes(key)) || FIELDS.some(key => !Object.hasOwn(payload, key))) ctx.fail('INVALID', `rules.flagSet takes { ${FIELDS.join(', ')} } and nothing else.`);
     if (!isRecordId(payload.write) || !validKey(payload.key) || typeof payload.value !== 'boolean' || !isRecordId(payload.evidence) || !isHash(payload.expectedHash)) ctx.fail('INVALID', 'A flag write names its write, a flag, a value, the event that allows it and the flags as read.');
-    if (ctx.cause === 'ui' || !TRUSTED.includes(ctx.caller)) ctx.fail('REFUSED', 'A flag is set by an event of the story\'s own rules, never from a button or by the story\'s words.');
+    if (!TRUSTED.includes(ctx.caller)) ctx.fail('REFUSED', 'A flag is set by an event of the story\'s own rules, never from a button or by the story\'s words.');
     const ix = indexOfState({ domains: { rules: ctx.read('rules') } });
     if (!ix) ctx.fail('REFUSED', 'This chat does not run a rules pack.');
     const slice = ctx.read('rules');

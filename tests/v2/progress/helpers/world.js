@@ -38,14 +38,29 @@ export const CLOCK = {
  * Story Director as far as training reads it: the clock (`~ time`), where the party is (`~ here <place id>` and the canonical
  * `atlas.canonical`) and `director.advance { minutes, cause, reason }` (system, a short cause label, one advance for a cause).
  */
+/** The tier of each place for `world.areaTier` (a test sets it; an unlisted place is unknown). */
+export const AREA_TIERS = {};
+
 export const SD = {
     ...CLOCK,
+    id: 'story-director',
     domains: { director: { initial: () => ({ time: { minutes: null }, here: null, advanced: {} }), validate: () => [], counters: ['time/minutes'] } },
     queries: {
         ...CLOCK.queries,
+        'world.areaTier': (state, { place } = {}) => (Object.hasOwn(AREA_TIERS, place)
+            ? { place, tier: AREA_TIERS[place], source: 'place', sourceId: place, allowedFoes: [], allowedTags: [], lore: [] }
+            : { place: place ?? null, tier: null, source: 'unknown', sourceId: null, allowedFoes: [], allowedTags: [], lore: [] }),
         'atlas.canonical': state => { const id = state?.domains?.director?.here ?? null; return id ? { id, name: id, atlasId: null, regionId: null, source: 'pack' } : null; },
     },
     commands: {
+        // Story Director's event adapter: a code-validated event proves a flag change, then asks for it (contract §3 rules.flagSet).
+        'sd.event'(ctx, { flag, value, evidence = null, expectedHash = null, write = null } = {}) {
+            const proof = evidence ?? ctx.proof({ kind: 'event', payload: { flag, value } }).id;
+            const read = ctx.query('rules.flags', {});
+            return ctx.call('rules.flagSet', { write: write ?? ctx.id('wr'), key: flag, value, evidence: proof, expectedHash: expectedHash ?? read.hash });
+        },
+        // Only the proof of an event (the adapter that asks for the flag comes in a later reply).
+        'sd.prove'(ctx, { flag, value }) { return { summary: 'Event.', narrate: false, data: { evidence: ctx.proof({ kind: 'event', payload: { flag, value } }).id } }; },
         'director.advance'(ctx, payload = {}) {
             if (ctx.cause === 'ui') ctx.fail('REFUSED', 'director.advance: a click cannot move the clock.');
             if (!/^[a-z0-9][a-z0-9._-]{0,39}$/.test(String(payload.cause ?? ''))) ctx.fail('INVALID', 'director.advance: "cause" must be a short label.');
@@ -122,6 +137,9 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
                 if (problem) ctx.fail('REFUSED', problem);
                 return { summary: 'Rules pinned.', narrate: false };
             },
+            // An adapter of this module (craft, trade, loot) registering a generated item, and a rule event setting a flag.
+            'test.register'(ctx, payload) { return ctx.call('rules.registerItem', payload); },
+            'test.flagSet'(ctx, payload) { return ctx.call('rules.flagSet', payload); },
             'test.start'(ctx, { actor, class: cls }) {
                 recordBasicClass(ctx, { actor, class: cls });
                 return { summary: 'Started.', narrate: false };
