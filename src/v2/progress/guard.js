@@ -31,9 +31,13 @@ export const PREREQUISITE_REMOVED = 'The earlier prerequisite was removed.';
 
 const sourceOf = source => ({ sid: source.sid, swipeKey: source.swipeKey });
 
-/** The Guard of an operation (`hash`: ctx.hash or the hook's): owner = the module that attaches it. */
-export function buildGuard({ hash, owner, source, rulesHash, kind, payload, inputs }) {
-    const epoch = epochOf();
+/**
+ * The Guard of an operation (`hash`: ctx.hash or the hook's): owner = the module that attaches it, `epoch` the epoch it is made in
+ * (epochOf(ctx); the replay hook passes the guard's own, after checking it is the state's). **The one helper that builds a guard
+ * envelope** (B5): every track that guards a block (the quests' settlement included) imports this, so `source` and the rest hash
+ * identically.
+ */
+export function buildGuard({ hash, owner, epoch, source, rulesHash, kind, payload, inputs }) {
     const inputHash = hash({ version: 2, operation: { type: kind, payload }, source: sourceOf(source), rulesHash, epoch, inputs, proofs: [] });
     return { owner, version: 2, epoch, rulesHash, inputHash, predicate: { kind, payload } };
 }
@@ -41,7 +45,7 @@ export function buildGuard({ hash, owner, source, rulesHash, kind, payload, inpu
 /** Attaches the guard of a command's block to its transaction: `inputs` are the facts the block depended on. */
 export function attachGuard(ctx, ix, kind, payload, inputs, recorded) {
     const source = ctx.source ?? ctx.fail('FAILED', 'There is no reply yet to hold this.');
-    ctx.replayGuard(buildGuard({ hash: value => ctx.hash(value), owner: ctx.module, source, rulesHash: ix.rulesHash, kind, payload, inputs }), recorded);
+    ctx.replayGuard(buildGuard({ hash: value => ctx.hash(value), owner: ctx.module, epoch: epochOf(ctx), source, rulesHash: ix.rulesHash, kind, payload, inputs }), recorded);
 }
 
 /**
@@ -56,12 +60,13 @@ export function replayGuard({ state, query, hash }, info) {
     const ix = indexOfState(state);
     if (!ix) return { ok: false, reason: 'No rules are pinned in this chat, so this cannot be checked.' };
     if (guard.version !== 2 || guard.rulesHash !== ix.rulesHash) return { ok: false, reason: 'It was made under other rules than the ones this chat runs.' };
+    if (guard.epoch !== epochOf(state)) return { ok: false, reason: 'It was made in another epoch than the one this chat is in.' };
     const progress = state?.domains?.progress;
     if (!progress || typeof progress !== 'object') return off('');
     const payload = guard.predicate.payload;
     if (payload === null || typeof payload !== 'object') return off('');
     const answer = assess(kind, { ix, progress, training: state?.domains?.training, rules: state?.domains?.rules, query }, payload, { source: info.source, hash, event: info.recorded?.event });
     if (!answer.ok) return off(answer.why);
-    const expected = buildGuard({ hash, owner: guard.owner, source: info.source, rulesHash: ix.rulesHash, kind, payload, inputs: answer.inputs });
+    const expected = buildGuard({ hash, owner: guard.owner, epoch: guard.epoch, source: info.source, rulesHash: ix.rulesHash, kind, payload, inputs: answer.inputs });
     return expected.inputHash === guard.inputHash ? { ok: true } : off('');
 }

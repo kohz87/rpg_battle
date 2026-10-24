@@ -14,7 +14,7 @@
 // Internal: the story, the host or another command; the player's click is refused (a button is not a story use).
 
 import { assess } from './assess.js';
-import { buildGuard } from './guard.js';
+import { attachGuard } from './guard.js';
 import { recordAttempt } from './record.js';
 import { storedPool } from '../party/pools.js';
 import { indexOf } from '../rules/graph.js';
@@ -37,7 +37,7 @@ export function useSkill(ctx, payload) {
     let key;
     if (paid !== null) {
         key = paid;
-        if (!ctx.claim(`rb:${epochOf()}:paid:${paid}`)) ctx.fail('CLAIMED', 'That paid use was already counted once.');
+        if (!ctx.claim(`rb:${epochOf(ctx)}:paid:${paid}`)) ctx.fail('CLAIMED', 'That paid use was already counted once.');
     } else {
         // Pay now: the pool, then the proof that it was paid. The use's own name comes from the receipt's seed, so it is the same on replay.
         const party = ctx.draft('party');
@@ -48,8 +48,8 @@ export function useSkill(ctx, payload) {
         ctx.proof({ kind: 'use', payload: { actor: payload.actor, skill: payload.skill, form: payload.form, use: key } });
     }
     const made = recordAttempt(ctx, { actor: payload.actor, skill: payload.skill, form: payload.form, kind: 'narrative', key, cost: paid !== null ? paid : key });
-    if (!ctx.claim(`rb:${epochOf()}:use:${made.id}`)) ctx.fail('CLAIMED', 'That use was already counted.');
-    ctx.replayGuard(buildGuard({ hash: value => ctx.hash(value), owner: ctx.module, source: ctx.source ?? ctx.fail('FAILED', 'There is no reply yet to hold the use.'), rulesHash: ix.rulesHash, kind: 'skill.use', payload: fixed, inputs: answer.inputs }), { key });
+    if (!ctx.claim(`rb:${epochOf(ctx)}:use:${made.id}`)) ctx.fail('CLAIMED', 'That use was already counted.');
+    attachGuard(ctx, ix, 'skill.use', fixed, answer.inputs, { key });
     const form = ix.form(payload.form);
     return {
         summary: `${answer.member.name} uses ${form?.name ?? payload.skill}${paid !== null ? '' : ` (${answer.amount} ${answer.pool.toUpperCase()})`}.`,

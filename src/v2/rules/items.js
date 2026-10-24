@@ -145,7 +145,7 @@ export function registerItem(ctx, payload, attach) {
     const ruleHash = answer.inputs.rule;
     const stored = ctx.call('inventory.registerDefinition', { write: payload.write, def, hash: ctx.hash(def) });
     if (stored.data?.def !== def.id) ctx.fail('RULES_MISMATCH', 'Story Block did not register the definition under its id.');
-    if (!ctx.claim(`rb:${epochOf()}:item:${def.id}`)) ctx.fail('CLAIMED', 'That item was already registered once.');
+    if (!ctx.claim(`rb:${epochOf(ctx)}:item:${def.id}`)) ctx.fail('CLAIMED', 'That item was already registered once.');
     ctx.draft('rules').generated[def.id] = { def: structuredClone(def), rule: structuredClone(rule), template: payload.template, area, rulesHash: ix.rulesHash, defHash, ruleHash, write: payload.write };
     attach(ctx, ix, 'rules.registerItem', fixed, answer.inputs);
     return { summary: `${def.name} is defined.`, narrate: false, data: { def: def.id, hash: defHash, ruleHash, created: true } };

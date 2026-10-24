@@ -5,6 +5,7 @@
 
 import { initialRules, rulesProblems } from './pin.js';
 import { commands } from '../progress/commands.js';
+import { part as progressPart } from '../progress/index.js';
 import { queries } from '../progress/queries.js';
 import { queries as lookups } from './queries.js';
 import { queries as trainingQueries } from '../training/queries.js';
@@ -22,3 +23,10 @@ export const part = {
     commands: { 'rules.settle': commands['rules.settle'], ...inputCommands },
     queries: { 'rules.progress': queries['rules.progress'], ...lookups, ...trainingQueries, ...flagQueries, ...itemQueries },
 };
+
+/**
+ * The two parts of rules v2, **registered together or not at all**: `rules.settle` writes the `progress` domain and every guard of
+ * `progress` reads the pin in the `rules` domain, so either one alone is a chat that cannot settle or check anything. `[id, part]`
+ * pairs in the order module.js lists its parts.
+ */
+export const rulesParts = Object.freeze([['rules', part], ['progress', progressPart]]);

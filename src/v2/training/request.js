@@ -6,7 +6,7 @@
 // settlement built on it.
 
 import { assess } from '../progress/assess.js';
-import { buildGuard } from '../progress/guard.js';
+import { attachGuard } from '../progress/guard.js';
 import { indexOf } from '../rules/graph.js';
 import { pinOf } from '../rules/pin.js';
 import { epochOf, isActorId, isDefId, isObject, isRecordId } from '../rules/ids.js';
@@ -26,12 +26,12 @@ function skillTrain(ctx, payload) {
     const env = { ix, progress: ctx.read('progress'), training: ctx.read('training'), query: (name, args) => ctx.query(name, args) };
     const answer = assess('skill.train', env, payload);
     if (!answer.ok) ctx.fail(answer.code, answer.why);
-    if (!ctx.claim(`rb:${epochOf()}:train-request:${payload.session}`)) ctx.fail('CLAIMED', 'That training was already asked for.');
+    if (!ctx.claim(`rb:${epochOf(ctx)}:train-request:${payload.session}`)) ctx.fail('CLAIMED', 'That training was already asked for.');
     ctx.draft('training').sessions[payload.session] = {
         id: payload.session, actor: payload.actor, skill: payload.skill, form: payload.form, trainer: payload.trainer, status: 'requested',
         fee: null, startMinute: null, endMinute: null, event: null, reason: null,
     };
-    ctx.replayGuard(buildGuard({ hash: value => ctx.hash(value), owner: ctx.module, source: ctx.source ?? ctx.fail('FAILED', 'There is no reply yet to hold the request.'), rulesHash: ix.rulesHash, kind: 'skill.train', payload, inputs: answer.inputs }));
+    attachGuard(ctx, ix, 'skill.train', payload, answer.inputs);
     return { summary: `${answer.member.name} asks ${answer.trainer.name} to train them.`, narrate: false, data: { v2: { key: `train:${payload.session}`, result: { session: payload.session, status: 'requested' } } } };
 }
 

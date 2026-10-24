@@ -124,3 +124,4 @@ The full list is in Story Block's [RELEASES](https://github.com/kohz87/Story_blo
 - Developers: [docs/dev](docs/dev/), [DESIGN](docs/DESIGN.md), [ARCHITECTURE](docs/ARCHITECTURE.md), [CLAUDE.md](CLAUDE.md)
 - History, decisions and the after-beta list: `suite-notes/` in
   [kohz87/inventory-block](https://github.com/kohz87/inventory-block/tree/claude/hopeful-babbage-tipaw8/suite-notes)
+- Licence: [MIT](LICENSE). The test copy of Story Block is AGPL-3.0: see [NOTICE.md](NOTICE.md).

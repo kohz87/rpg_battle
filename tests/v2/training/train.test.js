@@ -50,7 +50,7 @@ test('skill.train is a request: no fee, no time; refusals for a stranger trainer
     assert.equal(coin(w), c0);
     assert.equal(clock(w), m0);
     assert.deepEqual(sessions(w)[item.session], { id: item.session, actor: w.pc, skill: ref('s00'), form: ref('s00-base'), trainer: ref('mentor'), status: 'requested', fee: null, startMinute: null, endMinute: null, event: null, reason: null });
-    assert.ok(w.head().meta.claims[`rb:ep_00000001:train-request:${item.session}`]);
+    assert.ok(w.head().meta.claims[`rb:ep_00000000:train-request:${item.session}`]);
     assert.equal(w.q('rules.training', { actor: w.pc }).session.status, 'requested');
     const second = offer(w, 'mentor', 's01');
     assert.equal(train(w, second).code, 'REFUSED', 'one waits at a time');

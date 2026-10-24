@@ -86,7 +86,7 @@ export function flagSet(ctx, payload, attach) {
     if (hashOf(valuesOf(ix, slice)) !== payload.expectedHash) ctx.fail('STALE', 'The flags changed since they were read.');
     const answer = assessFlag({ ix, rules: slice, query: (name, args) => ctx.query(name, args) }, payload);
     if (!answer.ok) ctx.fail(answer.code, answer.why);
-    if (!ctx.claim(`rb:${epochOf()}:flag:${payload.evidence}`)) ctx.fail('CLAIMED', 'That event already changed a flag once.');
+    if (!ctx.claim(`rb:${epochOf(ctx)}:flag:${payload.evidence}`)) ctx.fail('CLAIMED', 'That event already changed a flag once.');
     const draft = ctx.draft('rules');
     draft.flags[payload.key] = { value: payload.value, evidence: payload.evidence, write: payload.write };
     attach(ctx, ix, 'rules.flagSet', { write: payload.write, key: payload.key, value: payload.value, evidence: payload.evidence, expectedHash: payload.expectedHash }, answer.inputs);

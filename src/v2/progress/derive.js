@@ -15,8 +15,7 @@
 
 import { masteryOf, nextAt } from './mastery.js';
 import { rowsOf, tallyOf, usesOf } from './credit.js';
-
-const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+import { isObject } from '../rules/ids.js';
 
 /** The key a choice is kept under. */
 export const choiceKey = (actor, milestone) => `${actor}|${milestone}`;

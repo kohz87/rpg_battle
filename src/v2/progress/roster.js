@@ -12,7 +12,7 @@
 // this file only reads, lists and ends them.
 
 import { assess } from './assess.js';
-import { buildGuard } from './guard.js';
+import { attachGuard } from './guard.js';
 import { indexOf } from '../rules/graph.js';
 import { pinOf } from '../rules/pin.js';
 import { isObject } from '../rules/ids.js';
@@ -34,7 +34,7 @@ function pinned(ctx) {
 }
 
 function guard(ctx, ix, kind, payload, inputs) {
-    ctx.replayGuard(buildGuard({ hash: value => ctx.hash(value), owner: ctx.module, source: ctx.source ?? ctx.fail('FAILED', 'There is no reply yet to hold the choice.'), rulesHash: ix.rulesHash, kind, payload, inputs }));
+    attachGuard(ctx, ix, kind, payload, inputs);
 }
 
 function setActive(ctx, payload) {

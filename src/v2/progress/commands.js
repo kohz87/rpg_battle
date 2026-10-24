@@ -18,7 +18,7 @@
 // they are always empty here. Failures: INVALID, NOT_FOUND, REFUSED, STALE, RULES_MISMATCH, CLAIMED.
 
 import { assess } from './assess.js';
-import { buildGuard } from './guard.js';
+import { attachGuard } from './guard.js';
 import { choiceKey } from './derive.js';
 import { indexOf } from '../rules/graph.js';
 import { pinOf } from '../rules/pin.js';
@@ -51,7 +51,8 @@ function pinned(ctx, payload) {
 const queryOf = ctx => (name, args) => ctx.query(name, args);
 
 // "No choices during active or unsettled combat" (B3): the combat part's last fight, if it is under way or not settled yet
-// (party/commands.js fightOn), or a combat query that says one is active.
+// (party/commands.js fightOn), or any session the combat query still holds
+// it still holds (a won fight whose end has not been settled included) refuses; only a query that is absent, or throws, is no fight.
 function noFight(ctx) {
     if (fightOn(ctx)) ctx.fail('REFUSED', 'Finish the fight, and settle it, before choosing.');
     let session = null;
@@ -60,7 +61,7 @@ function noFight(ctx) {
     } catch {
         return;
     }
-    if (isObject(session) && session.status === 'active') ctx.fail('REFUSED', 'Finish the fight before choosing.');
+    if (isObject(session)) ctx.fail('REFUSED', 'Finish the fight, and let it settle, before choosing.');
 }
 
 function claimOnce(ctx, key, message) {
@@ -68,7 +69,7 @@ function claimOnce(ctx, key, message) {
 }
 
 function guard(ctx, ix, kind, payload, inputs, recorded) {
-    ctx.replayGuard(buildGuard({ hash: value => ctx.hash(value), owner: ctx.module, source: ctx.source ?? ctx.fail('FAILED', 'There is no reply yet to hold the choice.'), rulesHash: ix.rulesHash, kind, payload, inputs }), recorded);
+    attachGuard(ctx, ix, kind, payload, inputs, recorded);
 }
 
 function classChoose(ctx, payload) {
@@ -82,7 +83,7 @@ function classChoose(ctx, payload) {
     const answer = assess('class.choose', { ix, progress: ctx.read('progress'), query: queryOf(ctx) }, payload);
     if (!answer.ok) ctx.fail(answer.code, answer.why);
     const { actor, milestone } = payload;
-    claimOnce(ctx, `rb:${epochOf()}:class:${actor}:${milestone}`, 'That promotion was already taken.');
+    claimOnce(ctx, `rb:${epochOf(ctx)}:class:${actor}:${milestone}`, 'That promotion was already taken.');
     ctx.draft('progress').choices[choiceKey(actor, milestone)] = {
         actor, milestone, kind: 'class', previous: payload.expectedClass, selected: payload.class, skills: [...answer.skills], rulesHash: ix.rulesHash,
     };
@@ -105,7 +106,7 @@ function pathChoose(ctx, payload) {
     const answer = assess('path.choose', { ix, progress: ctx.read('progress'), query: queryOf(ctx) }, payload);
     if (!answer.ok) ctx.fail(answer.code, answer.why);
     const { actor, milestone } = payload;
-    claimOnce(ctx, `rb:${epochOf()}:path:${actor}:${milestone}`, 'That step was already taken.');
+    claimOnce(ctx, `rb:${epochOf(ctx)}:path:${actor}:${milestone}`, 'That step was already taken.');
     ctx.draft('progress').choices[choiceKey(actor, milestone)] = {
         actor, milestone, kind: 'path', skill: payload.skill, fromForm: payload.fromForm, option: payload.option, step: answer.step, rulesHash: ix.rulesHash,
     };
@@ -142,7 +143,7 @@ function settle(ctx, payload = {}) {
     const started = [];
     const completed = [];
     if (session) {
-        claimOnce(ctx, `rb:${epochOf()}:train:${session}`, 'That training was already settled.');
+        claimOnce(ctx, `rb:${epochOf(ctx)}:train:${session}`, 'That training was already settled.');
         const trainer = ix.trainer(env.training.sessions[session].trainer);
         if (answer.outcome === 'ran') {
             ctx.call('wallet.pay', { owner: 'party', amount: answer.fee, note: `${trainer.name} trains` });
@@ -157,7 +158,7 @@ function settle(ctx, payload = {}) {
     const credits = progress.credits;
     const credited = [];
     for (const { id, award, reason, minute, day, reply } of answer.plan) {
-        claimOnce(ctx, `rb:${epochOf()}:credit:${id}`, 'That use was already credited.');
+        claimOnce(ctx, `rb:${epochOf(ctx)}:credit:${id}`, 'That use was already credited.');
         credits[id] = { award, reason, minute, day, reply };
         if (award > 0) credited.push(id);
     }

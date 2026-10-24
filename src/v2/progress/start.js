@@ -11,7 +11,7 @@
 // Director's side (`checks.link`, a later package).
 
 import { assess } from './assess.js';
-import { buildGuard } from './guard.js';
+import { attachGuard } from './guard.js';
 import { recordBasicClass } from './record.js';
 import { indexOf } from '../rules/graph.js';
 import { pinOf } from '../rules/pin.js';
@@ -26,6 +26,6 @@ export function startRulesClass(ctx, { actor, class: ref, checkActor } = {}) {
     const answer = assess('class.start', { ix, progress: ctx.read('progress'), query: null }, { actor, class: ref });
     if (!answer.ok) ctx.fail(answer.code, answer.why);
     const made = recordBasicClass(ctx, { actor, class: ref });
-    ctx.replayGuard(buildGuard({ hash: value => ctx.hash(value), owner: ctx.module, source: ctx.source ?? ctx.fail('FAILED', 'There is no reply yet to hold the new character.'), rulesHash: ix.rulesHash, kind: 'class.start', payload: { actor, class: ref }, inputs: answer.inputs }));
+    attachGuard(ctx, ix, 'class.start', { actor, class: ref }, answer.inputs);
     return made;
 }

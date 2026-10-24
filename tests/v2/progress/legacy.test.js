@@ -10,14 +10,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PARTS, createModule } from '../../../src/v2/module.js';
+import { createHost } from '../../vendor/story-block/testkit/index.js';
+import { MODULE_ID } from '../../../src/v2/module.js';
 import { rpgHost, seeded } from '../integration/helpers/host.js';
-import { CLOCK, DAY, nextKey, rulesModule } from './helpers/world.js';
+import { CLOCK, DAY, mergeInto, nextKey, rulesModule } from './helpers/world.js';
 import { ref } from './helpers/fixture.js';
 
 const NEW_NAMES = {
     domains: ['rules', 'progress', 'training'],
-    commands: ['class.choose', 'path.choose', 'rules.settle', 'skill.train'],
-    queries: ['rules.progress', 'rules.identity', 'rules.classes', 'rules.names', 'rules.training', 'rules.sheet', 'rules.party', 'rules.quests'],
+    commands: ['class.choose', 'path.choose', 'rules.settle', 'skill.train', 'skill.use', 'party.setActive', 'summon.end', 'rules.flagSet', 'rules.registerItem'],
+    queries: ['rules.progress', 'rules.identity', 'rules.classes', 'rules.names', 'rules.training', 'rules.sheet', 'rules.party', 'rules.quests', 'rules.flags', 'rules.item'],
     hooks: ['replayGuard'],
 };
 const SLICE = 'rb-rules-slice';
@@ -66,9 +68,25 @@ test('a chat that pins no rules: the parts answer null or refuse, add no step af
 });
 
 // A scripted legacy session that needs no dice: it must read the same with and without the new parts beside it.
-async function session(modules) {
+async function mergedHost() {
+    let sdk = null;
+    const merged = mergeInto(createModule({ settings: () => sdk?.settings(MODULE_ID) ?? {} }), rulesModule({}));
+    const host = await createHost({ modules: [merged, { id: 'rb-test-caller', name: 'Caller', version: '0.0.0', commands: { 'rbtest.call': (ctx, { type, payload } = {}) => ctx.call(type, payload ?? {}) } }] });
+    sdk = host.sdk;
+    const saved = globalThis.StoryBlock;
+    globalThis.StoryBlock = { apiVersion: 2, ready: Promise.resolve(sdk), sdk };
+    const close = host.close;
+    host.close = () => { close(); if (saved === undefined) delete globalThis.StoryBlock; else globalThis.StoryBlock = saved; };
+    host.q = (name, args) => sdk.query(name, args);
+    host.cmd = (type, payload = {}, opts) => sdk.command(type, payload, opts);
+    host.internal = (type, payload = {}) => sdk.command('rbtest.call', { type, payload });
+    host.reply = (text, lines = []) => (lines.length ? `${text}\n\n<Changes>\n${lines.join('\n')}\n</Changes>` : text);
+    return host;
+}
+
+async function session(modules, { merge = false } = {}) {
     return seeded(5, async () => {
-        const host = await rpgHost({ modules });
+        const host = merge ? await mergedHost() : await rpgHost({ modules });
         try {
             assert.equal((await host.cmd('party.create', { name: 'Ren', preset: 'fighter' })).ok, true);
             await host.send('We walk into the village.', host.reply('Bluewatch Village.', ['~ place Bluewatch Village | kind: settlement', '+ item Rope | qty: 1']));
@@ -87,7 +105,8 @@ async function session(modules) {
 test('the real module\'s state and story are the same with the rules-v2 parts loaded beside it as without', async t => {
     t.mock.method(console, 'warn', () => {});
     const alone = await session([]);
-    const beside = await session([CLOCK, rulesModule({ id: SLICE })]);
+    // Merged into the real module (id rpg-battle), as module.js will register them: Story Block's item grant now finds rules.registerItem.
+    const beside = await session([], { merge: true });
     assert.equal(alone.pc.level, 10, 'the script did something: 950 XP and a story award');
     // Every id and dice seed comes from a seeded source that the extra module's own set-up receipt also draws from, so the
     // ids differ; what the module keeps (names, levels, XP, points, pools, effects, items) must not.

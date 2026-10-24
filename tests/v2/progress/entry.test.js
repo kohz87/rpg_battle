@@ -34,7 +34,7 @@ test('creation.finish with a pinned ruleset: the class is required, a basic clas
     const pc = out.receipt.data.actor;
     assert.equal(w.q('party.pc').id, pc);
     assert.deepEqual(w.slice('progress').choices[`${pc}|0`], { actor: pc, milestone: 0, kind: 'class', previous: null, selected: ref('c0'), skills: [ref('s00'), ref('s01'), ref('s02')], rulesHash: w.slice('rules').rulesHash });
-    assert.ok(w.head().meta.claims[`rb:ep_00000001:class:${pc}:0`]);
+    assert.ok(w.head().meta.claims[`rb:ep_00000000:class:${pc}:0`]);
     const view = w.progress(pc);
     assert.equal(view.level, 1);
     assert.deepEqual(view.checklist.map(item => [item.mastery, item.needed]), [[0, 5], [0, 5], [0, 5]]);
@@ -105,7 +105,7 @@ test('a skill used in the story pays its cost in the same transaction, gives a u
     assert.deepEqual(proofs.map(proof => [proof.kind, proof.owner, proof.payload.actor, proof.payload.skill, proof.payload.form]), [['use', 'rpg-battle', w.pc, ref('s00'), ref('s00-base')]]);
     assert.equal(attempt.cost, proofs[0].payload.use);
     assert.equal(w.slice('progress').credits[id].award, 1, 'the host settled it after the reply');
-    assert.ok(w.head().meta.claims[`rb:ep_00000001:use:${id}`]);
+    assert.ok(w.head().meta.claims[`rb:ep_00000000:use:${id}`]);
     assert.equal(w.progress().checklist[0].mastery, 1);
     const span = w.host.ctx.chat.at(-1).extra.storySuite.spans.find(item => item.guard?.predicate?.kind === 'skill.use');
     assert.ok(span, 'the use is a guarded block');

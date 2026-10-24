@@ -5,7 +5,7 @@
 // queries it is given (`party.actor` for the level, `director.time` for the clock).
 
 import { evaluateClass, evaluatePath, standing } from './offers.js';
-import { planSettlement } from './credit.js';
+import { pendingOf, planSettlement } from './credit.js';
 import { readClock } from '../training/clock.js';
 import { planSession } from '../training/step.js';
 import { expectedSessionId, waitingOf } from '../training/session.js';
@@ -123,7 +123,8 @@ function assessUse(env, payload) {
 /**
  * Asks about an operation: `kind` 'class.choose' | 'path.choose' (payload = the command's payload) or
  * 'rules.settle'. `env`: { ix, progress, query }. → { ok: true, inputs, … } | { ok: false, code, why }.
- * `inputs` is what the guard hashes; the extras (`member`, `skills`, `step`, `plan`) are for the command.
+ * `inputs` is what the guard hashes (a settlement's rows carry the day, not the minute: a minute edited within its day moves no later
+ * settlement, and the row stored keeps the minute); the extras (`member`, `skills`, `step`, `plan`) are for the command.
  */
 export function assess(kind, env, payload, extra = {}) {
     const { ix, progress, query } = env;
@@ -136,7 +137,11 @@ export function assess(kind, env, payload, extra = {}) {
     if (kind === 'rules.registerItem') return assessItem(env, payload);
     if (kind === 'rules.settle') {
         const plan = planSettlement(ix.constants, progress, readClock(query));
-        return plan.length ? { ok: true, plan, inputs: { plan } } : { ok: false, code: 'NO_LONGER_DONE', why: 'There is nothing to settle here.' };
+        if (plan.length) return { ok: true, plan, inputs: { plan: plan.map(({ minute, ...row }) => row) } };
+        // Only held attempts left (no minute of their own, no clock): the contract's CLOCK_UNSET; nothing at all: nothing to do.
+        return pendingOf(progress).length
+            ? { ok: false, code: 'CLOCK_UNSET', why: 'The story clock is not set, so these uses wait for it.' }
+            : { ok: false, code: 'NO_LONGER_DONE', why: 'There is nothing to settle here.' };
     }
     if (kind === 'class.start') return assessStart(env, payload);
     if (kind === 'skill.use') return assessUse(env, payload);

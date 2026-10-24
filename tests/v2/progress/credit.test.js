@@ -100,17 +100,23 @@ test('mastered: a form at 35 credited uses earns 0 ("mastered"), whichever reply
     assert.equal(awards(progress).slice(35).reduce((sum, n) => sum + n, 0), 0);
 });
 
-test('"mastered" is checked before the clock and the caps: a mastered form never reads as held', () => {
+test('"mastered" is checked before the caps: a mastered form earns 0 "mastered" whatever else is full', () => {
     const progress = play(Array.from({ length: 36 }, (_, i) => attempt({ source: source(300 + i), capSource: source(300 + i), minute: (i % 4) * DAY })), null);
-    const held = decide(C, tallyOf(rowsOf(progress)), attempt({ source: source(999), capSource: source(999) }), null);
-    assert.equal(held.reason, 'mastered');
+    const mastered = decide(C, tallyOf(rowsOf(progress)), attempt({ source: source(999), capSource: source(999) }), 0);
+    assert.equal(mastered.reason, 'mastered');
 });
 
-test('no clock holds the attempt: 0 "clock", kept as an attempt, no wall time; with the clock set at its place it earns', () => {
-    const none = play([attempt(), attempt({ minute: 600 })], null);
-    assert.deepEqual(awards(none), [0, 1]);
-    assert.deepEqual(none.credits[AT(1)], { award: 0, reason: 'clock', minute: null, day: null, reply: SR(1) });
-    assert.equal(Object.keys(none.attempts).length, 2, 'the held attempt is still on the ledger');
+test('no clock HOLDS the attempt (not a zero): no row, no credit, still pending; the clock set earns it at its place', () => {
+    const list = { [AT(1)]: attempt(), [AT(2)]: attempt({ minute: 600 }) };
+    const none = { schema: 2, choices: {}, attempts: list, credits: {} };
+    // The attempt that carries its own minute (a training session\'s) settles without a clock; the other waits.
+    const plan = planSettlement(C, none, null);
+    assert.deepEqual(plan.map(({ id, award, minute }) => [id, award, minute]), [[AT(2), 1, 600]]);
+    for (const { id, ...credit } of plan) none.credits[id] = credit;
+    assert.deepEqual(pendingOf(none).map(({ id }) => id), [AT(1)], 'the held attempt is still pending: nothing was written for it');
+    assert.equal(Object.hasOwn(none.credits, AT(1)), false);
+    assert.deepEqual(planSettlement(C, none, null), [], 'and it stays held while there is no clock');
+    assert.deepEqual(planSettlement(C, none, 700).map(({ id, award, minute, day }) => [id, award, minute, day]), [[AT(1), 1, 700, 0]]);
     assert.deepEqual(awards(play([attempt()], 600)), [1]);
 });
 
@@ -133,7 +139,7 @@ test('the order of a settlement is by attempt id: it does not depend on how the 
 
 test('note counts a credit and not a zero', () => {
     const tally = tallyOf([]);
-    note(tally, attempt(), { award: 0, reason: 'clock', day: null, reply: SR(1) });
+    note(tally, attempt(), { award: 0, reason: 'skill-day', day: 2, reply: SR(1) });
     assert.equal(usesOf(tally, ACTOR, ref('s00-base')), 0);
     note(tally, attempt(), { award: 1, reason: null, day: 2, reply: SR(1) });
     assert.equal(usesOf(tally, ACTOR, ref('s00-base')), 1);

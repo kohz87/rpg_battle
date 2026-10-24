@@ -76,7 +76,7 @@ export function planSession(env, id, event, source, hash) {
     const plan = planSettlement(ix.constants, simulated, start);
     return {
         ok: true, outcome: 'ran', patch, attempts, plan, start: window.start, end: window.end, fee: trainer.fee,
-        inputs: { session: id, outcome: patch.status, trainer: trainer.id, fee: trainer.fee, place, start: window.start, end: window.end, event: patch.event, plan },
+        inputs: { session: id, outcome: patch.status, trainer: trainer.id, fee: trainer.fee, place, start: window.start, end: window.end, event: patch.event, plan: plan.map(({ minute, ...row }) => row) },
     };
 }
 

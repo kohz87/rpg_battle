@@ -9,9 +9,11 @@
 //   ! attempt <actor> | skill: s00 | form: s00-base | key: k1 [| kind: combat|narrative|training] [| minute: n]
 //   ~ time <minute>                              the clock
 import { createHost } from '../../../vendor/story-block/testkit/index.js';
-import { part as rulesPart, pinOf, pinRules } from '../../../../src/v2/rules/index.js';
-import { part as progressPart, recordAttempt, recordBasicClass, recordCombatUses } from '../../../../src/v2/progress/index.js';
+import { pinOf, pinRules, rulesParts } from '../../../../src/v2/rules/index.js';
+import { recordAttempt, recordBasicClass, recordCombatUses } from '../../../../src/v2/progress/index.js';
 import { part as trainingPart } from '../../../../src/v2/training/index.js';
+
+const [[, rulesPart], [, progressPart]] = rulesParts;
 import { levelFromEarned } from '../../../../src/v2/progress/level.js';
 import { storedPool } from '../../../../src/v2/party/pools.js';
 import { ACTOR, FRIEND, fixturePin, ref } from './fixture.js';
@@ -131,7 +133,7 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
                 const progress = ctx.draft('progress');
                 for (const choice of choices) {
                     progress.choices[`${choice.actor}|${choice.milestone}`] = choice;
-                    ctx.claim(`rb:ep_00000001:${choice.kind === 'class' ? 'class' : 'path'}:${choice.actor}:${choice.milestone}`);
+                    ctx.claim(`rb:ep_00000000:${choice.kind === 'class' ? 'class' : 'path'}:${choice.actor}:${choice.milestone}`);
                 }
                 let n = Object.keys(progress.attempts).length;
                 for (const [form, count] of Object.entries(uses)) {
@@ -142,7 +144,7 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
                         const source = { sid: ctx.source.sid, swipeKey: ctx.source.swipeKey, evidence: ctx.source.evidence };
                         progress.attempts[id] = { actor, skill: form.replace(/-base.*$/, ''), form, kind: 'narrative', source, capSource: { ...source, sid: reply }, cost: null, session: null, minute: null };
                         progress.credits[id] = { award: 1, reason: null, minute: (100000 + n) * DAY + 600, day: 100000 + n, reply };
-                        ctx.claim(`rb:ep_00000001:credit:${id}`);
+                        ctx.claim(`rb:ep_00000000:credit:${id}`);
                     }
                 }
                 return { summary: 'Seeded.', narrate: false };
@@ -253,12 +255,9 @@ export { ACTOR, FRIEND, fixturePin, ref };
  * character is made with the real command and starts in class c0 of the golden pack. `companions`: names of companions
  * added with the real internal command, each in class c0.
  */
-export async function realWorld(t, { companions = [], modules = [], pin = true, character = true, settings = {}, given = undefined, sd = false } = {}) {
-    const { createModule, MODULE_ID } = await import('../../../../src/v2/module.js');
-    const extra = rulesModule({ given });
-    let sdk = null;
-    const base = createModule({ settings: () => ({ ...(sdk?.settings(MODULE_ID) ?? {}), ...settings }) });
-    const merged = {
+/** The real module with the rules-v2 module's pieces merged into it, as module.js will register them (one module id, one module). */
+export function mergeInto(base, extra) {
+    return {
         ...base,
         domains: { ...base.domains, ...extra.domains },
         commands: { ...base.commands, ...extra.commands },
@@ -270,6 +269,14 @@ export async function realWorld(t, { companions = [], modules = [], pin = true, 
         },
         hooks: { ...base.hooks, ...extra.hooks },
     };
+}
+
+export async function realWorld(t, { companions = [], modules = [], pin = true, character = true, settings = {}, given = undefined, sd = false } = {}) {
+    const { createModule, MODULE_ID } = await import('../../../../src/v2/module.js');
+    const extra = rulesModule({ given });
+    let sdk = null;
+    const base = createModule({ settings: () => ({ ...(sdk?.settings(MODULE_ID) ?? {}), ...settings }) });
+    const merged = mergeInto(base, extra);
     const host = await createHost({ modules: [sd === true ? SD : sd || CLOCK, merged, CALLER, ...modules] });
     sdk = host.sdk;
     const saved = globalThis.StoryBlock;

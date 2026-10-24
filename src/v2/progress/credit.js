@@ -11,7 +11,6 @@
 // earns at most one credit, and none when
 //
 //   * the form is at the top step ("mastered": uses never pass the cap; XP is not touched here),
-//   * the clock is not set ("clock": time is never taken from a wall clock; the day caps need the day),
 //   * the skill already earned usePerSkillReply credits on the reply that settles it ("skill-reply"),
 //   * the character already earned usePerActorReply credits on it ("actor-reply"),
 //   * the skill already earned usePerSkillDay on that story day ("skill-day"), or the character
@@ -20,16 +19,18 @@
 // The skill caps count a skill across all its forms and classes; the actor caps count every skill, so a new
 // form or class cannot reset them. Combat, narrative and training attempts share them. The day is the day of
 // the attempt's own minute (a training session records its completion minute) or, without one, the clock when
-// the settlement runs. The reasons are checked in the order above, and the first that applies is recorded.
+// the settlement runs. An attempt with neither is **held**, not zeroed: time is never taken from a wall clock, an unset clock
+// (or a dormant Story Director) holds only the actions that depend on it (contract §4 "unset time holds only dependent actions",
+// §3 CLOCK_UNSET), so it stays pending, with no row and no claim, and earns when a clock is set. The reasons are checked in the
+// order above, and the first that applies is recorded.
 // Pure: the pinned constants and the progress slice in, decisions out.
 
 import { isMastered } from './mastery.js';
 import { dayOf } from '../training/clock.js';
+import { isObject } from '../rules/ids.js';
 
 export const KINDS = Object.freeze(['combat', 'narrative', 'training']);
-export const REASONS = Object.freeze(['mastered', 'clock', 'skill-reply', 'actor-reply', 'skill-day', 'actor-day']);
-
-const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+export const REASONS = Object.freeze(['mastered', 'skill-reply', 'actor-reply', 'skill-day', 'actor-day']);
 
 /** The attempts that have a credit, as rows { id, attempt, credit }. */
 export function rowsOf(progress) {
@@ -75,17 +76,15 @@ export const usesOf = (tally, actor, form) => tally.formUses.get(`${actor}|${for
 
 /**
  * What an attempt earns given the counts so far: { award, reason, minute, day, reply }. `minute` is the
- * absolute story minute it counts on (null with no clock), `reply` the canonical sid of the reply whose
- * boundary settles it (attempt.capSource.sid).
+ * absolute story minute it counts on (a whole minute: an attempt with none is held by planSettlement and never asked here),
+ * `reply` the canonical sid of the reply whose boundary settles it (attempt.capSource.sid).
  */
 export function decide(constants, tally, attempt, minute) {
-    const known = Number.isSafeInteger(minute);
-    const day = known ? dayOf(minute, constants.clockMinutesPerDay) : null;
+    const day = dayOf(minute, constants.clockMinutesPerDay);
     const reply = attempt.capSource.sid;
-    const out = (award, reason) => ({ award, reason, minute: known ? minute : null, day, reply });
+    const out = (award, reason) => ({ award, reason, minute, day, reply });
     const { actor, skill, form } = attempt;
     if (isMastered(usesOf(tally, actor, form), constants.masteryAt)) return out(0, 'mastered');
-    if (!known) return out(0, 'clock');
     if ((tally.skillReply.get(`${actor}|${skill}|${reply}`) ?? 0) >= constants.usePerSkillReply) return out(0, 'skill-reply');
     if ((tally.actorReply.get(`${actor}|${reply}`) ?? 0) >= constants.usePerActorReply) return out(0, 'actor-reply');
     if ((tally.skillDay.get(`${actor}|${skill}|${day}`) ?? 0) >= constants.usePerSkillDay) return out(0, 'skill-day');
@@ -95,13 +94,16 @@ export function decide(constants, tally, attempt, minute) {
 
 /**
  * The credits a settlement gives every attempt that has none, one after the other (each sees the ones before
- * it): [{ id, award, reason, minute, day, reply }]. `clock`: the absolute minute now, or null.
+ * it): [{ id, award, reason, minute, day, reply }]. `clock`: the absolute minute now, or null. An attempt with no minute of its
+ * own while there is no clock is left out (held: still pending, no credit, no claim).
  */
 export function planSettlement(constants, progress, clock) {
     const tally = tallyOf(rowsOf(progress));
     const plan = [];
     for (const { id, attempt } of pendingOf(progress)) {
-        const credit = decide(constants, tally, attempt, Number.isSafeInteger(attempt.minute) ? attempt.minute : clock);
+        const minute = Number.isSafeInteger(attempt.minute) ? attempt.minute : clock;
+        if (!Number.isSafeInteger(minute)) continue;
+        const credit = decide(constants, tally, attempt, minute);
         note(tally, attempt, credit);
         plan.push({ id, ...credit });
     }
