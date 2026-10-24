@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import { part } from '../../../src/v2/items/index.js';
 import { defineItem } from '../../../src/v2/items/define.js';
 import { interimItemRule } from '../../../src/v2/items/equip-query.js';
-import { normalizeSlot, readSlot } from '../../../src/v2/items/slots.js';
+import { normalizeSlot, readSlot, slotsForLegacy } from '../../../src/v2/items/slots.js';
 import { makeCtx } from './helpers/fake-ctx.js';
 
 const load = name => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'));
@@ -142,4 +142,10 @@ test('the old pack: Ersveil Bluewatch\'s weapon, armour and off-hand read as the
         assert.equal(rule.requires && Object.keys(rule.requires).length, 0, 'the interim rule invents no requirement');
     }
     assert.equal(rules.filter(entry => entry.item.slot === 'worn').length, 3);
+});
+
+test('slotsForLegacy: the five legacy SB slots map to the eight rule slots, ambiguous ones to null (track B calls this)', () => {
+    assert.deepEqual(['weapon', 'offhand', 'armour', 'worn', 'accessory'].map(slotsForLegacy), ['weapon', 'offhand', 'body', null, null]);
+    assert.deepEqual(['mainhand', 'main-hand', 'off-hand', 'armor', 'head', 'accessory-2'].map(slotsForLegacy), ['weapon', 'weapon', 'offhand', 'body', 'head', 'accessory-2']);
+    for (const word of ['hands', 'waist', 'worn-1', '', null, undefined, 4, {}]) assert.equal(slotsForLegacy(word), null);
 });

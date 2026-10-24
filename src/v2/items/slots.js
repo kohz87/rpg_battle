@@ -32,6 +32,15 @@ export function normalizeSlot(slot) {
     return Object.hasOwn(CANONICAL_ALIASES, slot) ? CANONICAL_ALIASES[slot] : null;
 }
 
+/**
+ * The v2 slot a legacy slot word stands for (§9), or null when it names no single slot: pure, never guesses.
+ * The five slots of Story Block's six-slot runtime: weapon -> weapon, offhand -> offhand, armour -> body,
+ * worn -> null (head, legs or feet: ambiguous), accessory -> null (bare: ambiguous). The §9 aliases (mainhand,
+ * main-hand, off-hand, armor) and the eight canonical IDs read as themselves; hands, waist and anything else are null.
+ * A caller that gets null must ask for an explicit v2 slot, never pick one.
+ */
+export const slotsForLegacy = legacySlot => normalizeSlot(legacySlot);
+
 /** Whether `slot` is one of the generic words §9 says to require an explicit v2 slot for. */
 export const isAmbiguousSlot = slot => AMBIGUOUS_SLOTS.includes(slot);
 

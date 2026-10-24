@@ -121,6 +121,6 @@ export { applyWear, fightWear, pieceNamed, recordEvent, repairOf, storyWear, use
 export { REPAIR_MAX, REPAIR_WORTH, repairKitAmount } from './define.js';
 export { canCarry, capacityOf, carrySettings, carryView, weightOf, WEIGHTS } from './carry.js';
 export { renderItems, itemsTab } from './page.js';
-export { EQUIP_SLOTS, SLOT_LABELS, normalizeSlot, readSlot } from './slots.js';
+export { EQUIP_SLOTS, SLOT_LABELS, normalizeSlot, readSlot, slotsForLegacy } from './slots.js';
 export { INTERIM_BINDING, INTERIM_RULES_HASH, canWearQuery, equipEnv, interimItemRule, interimSheet, interimSheetQuery, rulesEquipPlan, slotsQuery } from './equip-query.js';
 export { equipPlan, equipmentSlots } from './equip-plan.js';
