@@ -638,7 +638,7 @@
 .ss-rc-primary { border-color: var(--ss-accent); background: var(--ss-accent-soft); font-weight: 700; }
 .ss-rc-later { flex: 0 0 auto; }
 .ss-rc-action:focus-visible, .ss-rc-line:focus-visible { outline: 2px solid var(--ss-text); outline-offset: 2px; }
-.ss-rc-line { display: block; width: 100%; min-height: 44px; margin: 6px 0 0 46px; padding: 0 14px; text-align: left;
+.ss-rc-line { display: block; width: 100%; min-height: 44px; margin: 0; padding: 0 14px; text-align: left;
               border-radius: 14px; border: 1px solid var(--ring); background: var(--ss-glass, var(--ss-tile)); color: var(--ss-text);
               font: inherit; font-weight: 600; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 

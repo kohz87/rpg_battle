@@ -24,11 +24,15 @@ export function beforeReply(view, info) {
 
 /**
  * canGenerate(view) (MODULES §F12): character creation is mandatory, so no story reply is
- * written until party.create has made your character. `action` is the words of the button Story
- * Block's Home shows with the reason ("Before you start"), which runs the onBlocked hook (the wizard).
+ * written until party.create has made your character, unless the reader set the start card aside
+ * (creation.skipStart: `creation.skipped`, game state, so a swipe or rollback undoes it).
+ * `action` is the words of the button Story Block's Home shows with the reason ("Before you
+ * start"), which runs the onBlocked hook (the wizard).
  */
 export function canGenerate(view) {
-    const party = view?.state?.domains?.party;
+    const domains = view?.state?.domains;
+    const party = domains?.party;
+    if (domains?.creation?.skipped === true) return { ok: true };
     return party?.pc && party.actors?.[party.pc] ? { ok: true } : { ok: false, reason: 'Create your character first.', action: 'Create your character' };
 }
 

@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { definitionProblems } from '../../vendor/story-block/src/v2/registry.js';
 import { normalizeCard } from '../../vendor/story-block/src/v2/reply-cards.js';
 import { createModule } from '../../../src/v2/module.js';
-import { part as creationPart, validateCreation } from '../../../src/v2/creation/index.js';
+import { CREATE_SCREEN_ID, createScreen, part as creationPart, startDraft, validateCreation } from '../../../src/v2/creation/index.js';
 import { START_CARD_ID, START_SCREEN_ID, startCardFor } from '../../../src/v2/creation/start-card.js';
 import { part as boardPart } from '../../../src/v2/board/index.js';
 import { BATTLE_CARD_ID, FIGHT_SCREEN, battleCardFor } from '../../../src/v2/board/cards.js';
@@ -19,24 +19,28 @@ import { liveFight } from '../board/helpers.js';
 const elf = { name: 'Ren', race: 'rpg-battle/elf', talents: ['rpg-battle/keen-eyes'], points: { STR: 4, DEX: 5, AGI: 0, VIT: 0, INT: 0, LUK: 0, CHA: 0 } };
 const fake = (values = {}) => ({ query: name => (name in values ? values[name] : null) });
 
-test('start card: under the greeting until a character exists; Create opens the Party screen, Skip is a command', () => {
+test('start card: under the greeting until a character exists; Create opens the wizard with the persona\'s draft, Skip is a command', () => {
     const host = makeHost();
-    const card = startCardFor(host.state);
+    const card = startCardFor(host.state, { persona: { name: 'Ren', background: 'A ferryman.', avatar: '' } });
     assert.equal(card.title, 'Make your character');
     assert.deepEqual(card.actions.map(action => [action.id, action.label, action.open ?? null, action.command ?? null]), [
         ['create', 'Create', START_SCREEN_ID, null],
         ['skip', 'Skip', null, 'creation.skipStart'],
     ]);
-    assert.equal(START_SCREEN_ID, 'rpg-battle/party', 'the Party screen has the wizard\'s button for an empty party');
+    assert.equal(START_SCREEN_ID, CREATE_SCREEN_ID);
+    assert.deepEqual(createScreen.mounts, ['dialog'], 'the wizard is dialog-only: Story Block opens its dialog');
     const read = normalizeCard(card);
     assert.ok(read, 'Story Block reads it as a card');
     assert.equal(read.actions.length, 2);
+    assert.equal(read.actions[0].open, CREATE_SCREEN_ID);
+    assert.deepEqual(read.actions[0].payload, startDraft(null, { persona: { name: 'Ren', background: 'A ferryman.', avatar: '' } }), 'the payload is the wizard\'s starting draft');
+    assert.equal(read.actions[0].payload.name, 'Ren');
     assert.equal(read.actions[1].command, 'creation.skipStart');
 });
 
-test('start card: never on the greeting (message 0), under the first reply; gone once a character exists', () => {
+test('start card: asked about the greeting too, so it shows under it; gone once a character exists', () => {
     const host = makeHost();
-    assert.equal(creationPart.cards.start.for(host.state, null, { index: 0 }), null, 'Story Block draws no card under the greeting');
+    assert.equal(creationPart.cards.start.for(host.state, null, { index: 0 })?.title, 'Make your character', 'the greeting carries the card');
     assert.equal(creationPart.cards.start.for(host.state, null, { index: 2 })?.title, 'Make your character');
     assert.equal(host.command('creation.finish', elf).ok, true);
     assert.equal(startCardFor(host.state), null);

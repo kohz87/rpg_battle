@@ -1,18 +1,23 @@
 // RPG Battle v2, the start card (UI 8f, cards under replies): under the greeting, until a character exists, a card that
-// opens the Party screen (its empty state has the wizard's Create button, widget `rpg-battle.create-character`) or sets the
-// card aside (`creation.skipStart`, a game-state flag, so a swipe or a rollback undoes it). Story Block's `cards` socket
-// asks `for(state, message, ctx)` per assistant message; a card returned by the first message that answers it shows once.
+// opens the creation wizard or sets the card aside (`creation.skipStart`, a game-state flag, so a swipe or a rollback undoes
+// it; the party part's canGenerate lets replies through once it is set). Story Block's `cards` socket asks
+// `for(state, message, ctx)` per assistant message; a card returned by the first message that answers it shows once.
 //
-// Create opens the Party screen rather than the wizard: a card's `open` opens a screen with the `screen` mount, and the
-// wizard is dialog-only (see the note in the UI 8f live check).
+// Create opens the wizard, which is dialog-only: a card's `open` shows a screen's dialog when the screen has no `screen`
+// mount (Story Block's card actions), with the action's `payload` as the dialog's draft; the payload is the wizard's
+// starting draft (the persona's name, background and portrait, open.js startDraft), as openCreation gives it. In a chat with only the greeting the greeting is the newest reply, so its card acts;
+// the party part blocks every reply until a character exists, so this card is the only place to start.
+
+import { startDraft } from './open.js';
+import { CREATE_SCREEN_ID } from './screen.js';
 
 const hasPc = party => Boolean(party?.pc && party.actors?.[party.pc]);
 
 export const START_CARD_ID = 'start';
-export const START_SCREEN_ID = 'rpg-battle/party';
+export const START_SCREEN_ID = CREATE_SCREEN_ID;
 
-/** The start card for a state: null once a character exists or the reader set it aside. */
-export function startCardFor(state) {
+/** The start card for a state: null once a character exists or the reader set it aside. `persona` is the wizard's persona (default: SillyTavern's). */
+export function startCardFor(state, { persona = null } = {}) {
     if (hasPc(state?.domains?.party)) return null;
     if (state?.domains?.creation?.skipped === true) return null;
     return {
@@ -21,15 +26,11 @@ export function startCardFor(state) {
         title: 'Make your character',
         text: 'The story follows one character of yours. Make one now, or set this aside and make one later from the Party screen.',
         actions: [
-            { id: 'create', label: 'Create', icon: 'fa-user-plus', primary: true, open: START_SCREEN_ID },
+            { id: 'create', label: 'Create', icon: 'fa-user-plus', primary: true, open: START_SCREEN_ID, payload: startDraft(null, { persona }) },
             { id: 'skip', label: 'Skip', command: 'creation.skipStart', payload: {} },
         ],
     };
 }
 
-/**
- * The `cards` entry of the creation part: `for(state, message, ctx)`. Never on the greeting (message 0): Story Block draws
- * cards only under replies after the reader's first message (ui-host.js hasReplyRecord), and a card its scan gives the
- * greeting is never drawn, so the card would be lost. The first reply carries it instead.
- */
-export const startCard = Object.freeze({ for: (state, message, ctx) => (ctx?.index === 0 ? null : startCardFor(state)) });
+/** The `cards` entry of the creation part: `for(state, message, ctx)`. The greeting is the first message asked, so it carries the card. */
+export const startCard = Object.freeze({ for: state => startCardFor(state) });

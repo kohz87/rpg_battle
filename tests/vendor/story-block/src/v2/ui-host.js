@@ -375,9 +375,20 @@ export function mountUi({ runtime, ctx, doc = globalThis.document, version = '' 
             });
         });
     };
+    // A card's "open" names a screen: the game view when the screen has a screen mount, else its dialog (a wizard is dialog-only;
+    // the action's `payload` is the dialog's starting draft), else nothing; that is said once per screen.
+    const unopened = new Set();
+    function openReplyScreen(id, payload) {
+        const mountsOf = screens.resolve(id)?.screen?.mounts ?? [];
+        if (mountsOf.includes('screen') && api.openScreen(id)) return;
+        if (mountsOf.includes('dialog') && api.dialog.open(id, { draft: JSON.parse(JSON.stringify(payload ?? {})) })) return;
+        if (unopened.has(id)) return;
+        unopened.add(id);
+        console.warn(`[Story Suite] a card asked to open "${id}", which has no screen or dialog to show.`);
+    }
     // A reply card's action: "open" shows the screen; "command" sends the command (sdk.command, recorded with the reply).
     function runReplyAction(action) {
-        if (action.open) { api.openScreen(action.open); return; }
+        if (action.open) { openReplyScreen(action.open, action.payload); return; }
         if (action.command) {
             try { Promise.resolve(api.command(action.command, JSON.parse(JSON.stringify(action.payload ?? {})), { cause: 'ui' })).catch(() => {}); } catch { /* the host reports its own failures */ }
         }
