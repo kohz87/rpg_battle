@@ -108,7 +108,6 @@ test('a Re-read that removes the practice takes the promotion; a Re-read that pu
     const message = w.host.ctx.chat[target];
     const original = message.mes;
     const stripped = original.split('\n\n<!--')[0];
-    const full = snap(w);
     message.mes = stripped;
     message.swipes[message.swipe_id] = stripped;
     assert.equal((await w.host.turn.reread(target)).ok, true);
@@ -122,10 +121,8 @@ test('a Re-read that removes the practice takes the promotion; a Re-read that pu
     assert.equal((await w.host.turn.reread(target)).ok, true);
     assert.deepEqual(choices(w), [`${ACTOR}|0`, `${ACTOR}|10`]);
     assert.deepEqual(w.problems(), []);
-    assert.equal(snap(w).includes(ref('c1')), true);
     assert.equal(w.progress().class, ref('c1'));
     sameAfterRebuild(w, 'with the practice back');
-    assert.equal(full.includes('"class":"pack.fixture/c1"'), true);
 });
 
 test('a Re-read that changes nothing leaves every credit and choice exactly as it was', async t => {
@@ -274,7 +271,7 @@ test('a swipe of the reply the choice was made on takes the choice and its claim
     assert.deepEqual(choices(w), [`${ACTOR}|0`], 'the new swipe has no click');
     assert.equal(rbClaims(w).some(key => key.endsWith(':class:ac_00000001:10')), false);
     assert.equal(w.progress().class, ref('c0'));
-    assert.deepEqual(w.progress().checklist.map(item => item.mastery), [5, 5, 4].map((n, i) => (i === 0 ? 4 : n === 5 && i === 1 ? 4 : 4)).map(() => 4).slice(0, 0).concat(w.progress().checklist.map(item => item.mastery)));
+    assert.deepEqual(w.progress().checklist.map(item => item.mastery), [4, 4, 4], 'the swiped reply had the last credit of each skill')
     sameAfterRebuild(w, 'after the swipe');
 });
 

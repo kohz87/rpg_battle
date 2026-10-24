@@ -11,7 +11,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PARTS, createModule } from '../../../src/v2/module.js';
 import { rpgHost, seeded } from '../integration/helpers/host.js';
-import { CLOCK, DAY, grind, nextKey, rulesModule } from './helpers/world.js';
+import { CLOCK, DAY, nextKey, rulesModule } from './helpers/world.js';
 import { ref } from './helpers/fixture.js';
 
 const NEW_NAMES = {
@@ -141,8 +141,7 @@ test('with a rules pack pinned the real party\'s level is what rules.progress sh
     t.mock.method(console, 'warn', () => {});
     await seeded(3, async () => {
         const host = await rpgHost({ modules: [CLOCK, rulesModule({ id: SLICE })] });
-        const w = { host, ui: (type, payload) => host.bus.command(type, payload, { cause: 'ui' }) };
-        try {
+                try {
             assert.equal((await host.cmd('party.create', { name: 'Ren', preset: 'fighter' })).ok, true);
             const pc = host.q('party.pc').id;
             await host.send('Dawn.', host.reply('The road.'));
@@ -155,21 +154,18 @@ test('with a rules pack pinned the real party\'s level is what rules.progress sh
             assert.equal(host.q('rules.progress', { actor: pc }).level, host.q('party.pc').level);
             assert.equal(host.q('rules.progress', { actor: pc }).level, 10);
             // Master the three skills (the pack's day and reply caps apply), then promote.
-            const forms = ['s00-base', 's01-base', 's02-base'].map(form => form.replace(/^/, 'pack.fixture/'));
-            const world = { say: (text, lines) => host.send('Go on.', host.reply(text, lines)) };
-            const lines = [];
+            const forms = ['s00-base', 's01-base', 's02-base'].map(ref);
             for (let n = 0; n < 18; n += 1) {
                 const day = 1 + Math.floor(n / 5);
                 const body = [`~ time ${day * DAY + 600}`];
                 for (const form of forms) for (let i = 0; i < 2 && !(n === 17 && i === 1); i += 1) body.push(`! attempt ${pc} | skill: ${form.replace('pack.fixture/', '').replace('-base', '')} | form: ${form.replace('pack.fixture/', '')} | key: ${nextKey()}`);
-                lines.push(body);
-                await world.say(`Practice ${n}.`, body);
+                await host.send('Go on.', host.reply(`Practice ${n}.`, body));
             }
             const view = host.q('rules.progress', { actor: pc });
             assert.deepEqual(view.checklist.map(item => item.mastery), [5, 5, 5]);
             assert.equal(view.promotions[0].eligible, true);
             const rulesHash = host.head().domains.rules.rulesHash;
-            const out = await w.ui('class.choose', { actor: pc, milestone: 10, class: ref('c1'), expectedClass: ref('c0'), rulesHash });
+            const out = host.bus.command('class.choose', { actor: pc, milestone: 10, class: ref('c1'), expectedClass: ref('c0'), rulesHash }, { cause: 'ui' });
             assert.equal(out.ok, true, out.message);
             assert.equal(host.q('rules.progress', { actor: pc }).class, ref('c1'));
             // Take back the XP: the real party drops to level 1 and the stored promotion goes off, with nothing in its place.
@@ -178,7 +174,6 @@ test('with a rules pack pinned the real party\'s level is what rules.progress sh
             assert.equal(host.q('party.pc').level, 1);
             assert.equal(host.q('rules.progress', { actor: pc }).class, ref('c0'));
             assert.deepEqual(host.store.problems().map(problem => problem.code), ['REPLAY_PREREQUISITE']);
-            assert.equal(lines.length, 18);
         } finally {
             host.close();
         }

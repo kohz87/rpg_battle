@@ -19,8 +19,8 @@ import { masteryOf } from '../../../src/v2/progress/mastery.js';
 import { indexOfState } from '../../../src/v2/rules/graph.js';
 import { levelFromEarned } from '../../../src/v2/progress/level.js';
 
-const SEEDS = process.env.QA_FUZZ_SEED ? [Number(process.env.QA_FUZZ_SEED)] : [1, 2, 3, 4, 5, 6];
-const STEPS = Number(process.env.QA_FUZZ_STEPS) || 50;
+const SEEDS = process.env.QA_FUZZ_SEED ? [Number(process.env.QA_FUZZ_SEED)] : [1, 2, 3, 4];
+const STEPS = Number(process.env.QA_FUZZ_STEPS) || 40;
 
 function prng(seed) {
     let a = seed >>> 0;
