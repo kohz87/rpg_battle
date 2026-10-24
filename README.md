@@ -1,7 +1,6 @@
 # RPG Battle 2.0.0-beta.2
 
-> This is the **`v2` branch**: Story Suite v2, second beta. It is for test play, not for your real campaigns yet.
-> RPG Battle 1 (the offer-based extension) is on the [`main` branch](https://github.com/kohz87/rpg_battle/tree/main).
+> Story Suite v2, second beta (2.0.0-beta.2). It is for test play, not for your real campaigns yet.
 
 ## What it is
 
@@ -16,13 +15,15 @@ clock, quests) and [NPC State Delta](https://github.com/kohz87/npc_state_delta) 
 ## Install
 
 1. SillyTavern **1.19 or newer**; try the beta in a separate profile.
-2. Install **Story Block first** from `https://github.com/kohz87/Story_block`, branch **`v2`**.
-3. **Extensions → Install extension**, paste `https://github.com/kohz87/rpg_battle`, choose the branch **`v2`**,
-   reload.
+2. Install **Story Block first** from `https://github.com/kohz87/Story_block`.
+3. **Extensions → Install extension**, paste `https://github.com/kohz87/rpg_battle` and install (no branch to
+   pick), reload.
+
+For RPG Battle 1 (the offer-based extension), install the `v1` branch of the same repo instead: paste the URL and type `v1` as the branch.
 
 Needs (`requires`): Story Block **2.0.0-beta.2 or later**. Without Story Block 2 RPG Battle shows one line in the extensions drawer and does nothing else; an older
 Story Block 2 shows a red notice and RPG Battle waits. Works with, but does not need: Story Director, NPC State Delta. Update Story Block before
-RPG Battle. Install help: [guide, Installing](https://github.com/kohz87/Story_block/blob/v2/docs/v2/GUIDE.md#installing).
+RPG Battle. Install help: [guide, Installing](https://github.com/kohz87/Story_block/blob/main/docs/v2/GUIDE.md#installing).
 
 ## What you get
 
@@ -80,8 +81,8 @@ The model writes the story and ends it with a hidden `<Changes>` list. RPG Battl
 Code rolls and decides: dice come from code, a fight is played by you, an item's effect comes from the item's own
 numbers. Anything that does not fit is skipped and listed under **Problems**. Swipe, delete, Re-read and reload
 stay correct because the state is kept with each reply. Details: Story Block's
-[GUIDE](https://github.com/kohz87/Story_block/blob/v2/docs/v2/GUIDE.md) (Checks and modifiers, Fights, Trade)
-and [SPEC](https://github.com/kohz87/Story_block/blob/v2/docs/v2/SPEC.md).
+[GUIDE](https://github.com/kohz87/Story_block/blob/main/docs/v2/GUIDE.md) (Checks and modifiers, Fights, Trade)
+and [SPEC](https://github.com/kohz87/Story_block/blob/main/docs/v2/SPEC.md).
 
 ## Settings
 
@@ -114,12 +115,12 @@ groups. The ones that matter:
 - Quest-sized fights (enough foes for a quest's real progress) need Story Director; without it a fight is as the story wrote it.
 - The look of the settings screen is still to be redesigned.
 
-The full list is in Story Block's [RELEASES](https://github.com/kohz87/Story_block/blob/v2/docs/v2/RELEASES.md).
+The full list is in Story Block's [RELEASES](https://github.com/kohz87/Story_block/blob/main/docs/v2/RELEASES.md).
 
 ## Links
 
-- [Player guide](https://github.com/kohz87/Story_block/blob/v2/docs/v2/GUIDE.md), [Changelog](CHANGELOG.md),
-  [Releases and known issues](https://github.com/kohz87/Story_block/blob/v2/docs/v2/RELEASES.md)
+- [Player guide](https://github.com/kohz87/Story_block/blob/main/docs/v2/GUIDE.md), [Changelog](CHANGELOG.md),
+  [Releases and known issues](https://github.com/kohz87/Story_block/blob/main/docs/v2/RELEASES.md)
 - Developers: [docs/dev](docs/dev/), [DESIGN](docs/DESIGN.md), [ARCHITECTURE](docs/ARCHITECTURE.md), [CLAUDE.md](CLAUDE.md)
 - History, decisions and the after-beta list: `suite-notes/` in
   [kohz87/inventory-block](https://github.com/kohz87/inventory-block/tree/claude/hopeful-babbage-tipaw8/suite-notes)
