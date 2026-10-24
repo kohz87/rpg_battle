@@ -18,7 +18,7 @@ import { combatantFromSheet, enemiesFromRows, engagements } from '../../party.js
 import { fightCondition } from '../../combat.js';
 import { makeRng } from '../../rng.js';
 import { fightRules, foeId } from './stored.js';
-import { fightSkills, pinnedOf } from '../fight/index.js';
+import { fightSkills, pinnedOf, restoreStrengths } from '../fight/index.js';
 import { powerScale } from './power.js';
 import { nounNames } from './quest.js';
 
@@ -194,6 +194,7 @@ export function partyCombatants(ctx, { rules = DEFAULT_RULES } = {}) {
         // (rules v2) On a pinned ruleset the fighter's skills are its class's three forms, not the v1 library's.
         const held = ix ? fightSkills(ctx, ix, actor.id) : null;
         if (held) c.skills = held;
+        if (ix) restoreStrengths(ctx, c);
         c.gone = c.hp.cur <= 0 ? 'down' : null;
         const numbers = tryQuery(ctx, 'party.combatNumbers', { id: actor.id }, null);
         if (numbers && typeof numbers === 'object') {

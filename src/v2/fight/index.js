@@ -43,6 +43,27 @@ export function fightSkills(ctx, ix, actor) {
     return skillViews(ix, derived, progress, actor).map(view => formSkill(ix.form(view.form), view.mastery));
 }
 
+/**
+ * A regeneration a fight left on a character keeps its strength (B4: "Shields/regeneration retain resolved strength from their source"):
+ * the party record keeps the kind and the rounds only, so the strength is read back from the newest sealed result that recorded one for
+ * the character, as long as it had at least as many rounds then as the record has now. A combatant's conditions are changed in place.
+ */
+export function restoreStrengths(ctx, combatant) {
+    const regen = combatant.conditions.find(cond => cond.name === 'regen' && !(cond.power > 0));
+    if (!regen) return;
+    let batches = null;
+    try { batches = ctx.read('progress')?.batches; } catch { batches = null; }
+    const newest = Object.values(batches ?? {}).sort((a, b) => b.seq - a.seq);
+    for (const entry of newest) {
+        const member = entry.bytes?.party?.find(item => item.actor === combatant.memberId);
+        const kept = member?.conditions?.find(item => item.kind === 'regenerating' && item.strength > 0 && item.rounds >= regen.rounds);
+        if (kept) {
+            regen.power = kept.strength;
+            return;
+        }
+    }
+}
+
 /** The stored setup of a pinned fight: it names its ruleset and draws by action. */
 export function pinnedSetup(ctx, setup) {
     const ix = pinnedOf(ctx);

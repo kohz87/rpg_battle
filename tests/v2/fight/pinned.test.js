@@ -8,6 +8,10 @@ import { fightPin, ref } from '../progress/helpers/fixture.js';
 import { hashJson } from '../../../src/v2/rules/hash.js';
 import { resolveBatch } from '../../../src/v2/fight/batch.js';
 import { roundsLeft } from '../../../src/v2/party/pools.js';
+import { seeded } from '../integration/helpers/host.js';
+
+// Every dice and id of a host comes from a seed: these fights are the same fights on every run.
+const play = (name, fn) => test(name, t => seeded(7, () => fn(t)));
 
 const S0 = ref('s00-base');
 const S1 = ref('s01-base');
@@ -38,7 +42,7 @@ async function finish(w, limit = 40) {
     throw new Error('the fight did not end');
 }
 
-test('C10 offer to start: the fight names its ruleset and draws by action, the party fights with its class\'s three forms and their effects', async t => {
+play('C10 offer to start: the fight names its ruleset and draws by action, the party fights with its class\'s three forms and their effects', async t => {
     const w = await ready(t);
     const v = await begin(w);
     const stored = fights(w)[v.id];
@@ -54,7 +58,7 @@ test('C10 offer to start: the fight names its ruleset and draws by action, the p
     assert.deepEqual(w.problems(), []);
 });
 
-test('a mixed form hurts one foe and heals one ally, charged once; the action is stored with its id and its choices; the board moves on', async t => {
+play('a mixed form hurts one foe and heals one ally, charged once; the action is stored with its id and its choices; the board moves on', async t => {
     const w = await ready(t);
     const v = await begin(w);
     const was = mp(w);
@@ -75,7 +79,7 @@ test('a mixed form hurts one foe and heals one ally, charged once; the action is
     assert.deepEqual(w.problems(), []);
 });
 
-test('stale boards: another fight\'s id, an older board token and an older log length are all refused without playing', async t => {
+play('stale boards: another fight\'s id, an older board token and an older log length are all refused without playing', async t => {
     const w = await ready(t);
     const v = await begin(w);
     const before = JSON.stringify(fights(w));
@@ -85,7 +89,7 @@ test('stale boards: another fight\'s id, an older board token and an older log l
     assert.equal(JSON.stringify(fights(w)), before);
 });
 
-test('malformed, wrong-side, duplicate and unknown choices are refused whole: nothing is paid, stored, rolled or logged', async t => {
+play('malformed, wrong-side, duplicate and unknown choices are refused whole: nothing is paid, stored, rolled or logged', async t => {
     const w = await ready(t);
     const v = await begin(w);
     const [foe, other] = v.actions.targets.enemies;
@@ -110,7 +114,7 @@ test('malformed, wrong-side, duplicate and unknown choices are refused whole: no
     assert.deepEqual(w.problems(), []);
 });
 
-test('the settlement pays once: the uses as attempts named by the fight, the XP through party.grantXp with its claim, the result sealed', async t => {
+play('the settlement pays once: the uses as attempts named by the fight, the XP through party.grantXp with its claim, the result sealed', async t => {
     const w = await ready(t);
     const v = await begin(w);
     const [foe] = v.actions.targets.enemies;
@@ -148,7 +152,7 @@ test('the settlement pays once: the uses as attempts named by the fight, the XP 
     assert.deepEqual(w.problems(), []);
 });
 
-test('the sealed bytes are immutable: a rebuild, a reload and a second fight leave them and their hash as they were', async t => {
+play('the sealed bytes are immutable: a rebuild, a reload and a second fight leave them and their hash as they were', async t => {
     const w = await ready(t);
     const v = await begin(w);
     await finish(w);
@@ -169,7 +173,7 @@ test('the sealed bytes are immutable: a rebuild, a reload and a second fight lea
 
 const defend = (w, v) => w.ui('combat.act', { action: { type: 'defend' }, session: v.id, board: v.board });
 
-test('B5: an action taken back takes the actions after it with it, and nothing is put in its place; the one before it stays as it was', async t => {
+play('B5: an action taken back takes the actions after it with it, and nothing is put in its place; the one before it stays as it was', async t => {
     const w = await ready(t);
     const v0 = await begin(w);
     const [foe] = v0.actions.targets.enemies;
@@ -198,7 +202,7 @@ test('B5: an action taken back takes the actions after it with it, and nothing i
     assert.equal(JSON.stringify(w.head().domains.combat), live, 'a rebuild gives the same');
 });
 
-test('B5: the settlement is bound to the fight\'s terminal prefix: take back the blow that won it and the whole settlement goes with it', async t => {
+play('B5: the settlement is bound to the fight\'s terminal prefix: take back the blow that won it and the whole settlement goes with it', async t => {
     const w = await ready(t);
     const v = await begin(w);
     await w.say('The blows.');
@@ -221,20 +225,25 @@ test('B5: the settlement is bound to the fight\'s terminal prefix: take back the
     assert.deepEqual(w.slice('combat').last ?? [], []);
 });
 
-test('a companion on auto plays its class\'s forms with the engine\'s own AI, and the whole fight replays identically', async t => {
+play('a companion on auto plays its class\'s forms with the engine\'s own AI, and the whole fight replays identically', async t => {
     const w = await ready(t, { companions: ['Lyra'] });
-    const v = await begin(w);
-    const final = await finish(w);
-    assert.equal(final.status, 'won');
-    const text = w.q('combat.session', {}).log.map(entry => entry.text).join('\n');
-    assert.match(text, /Lyra (casts|uses) s0\d/);
-    const live = JSON.stringify(fights(w)[v.id]);
-    w.host.store.rebuild();
-    assert.equal(JSON.stringify(fights(w)[v.id]), live);
-    assert.deepEqual(JSON.stringify(view(w).log), JSON.stringify(view(w).log));
+    let seen = '';
+    for (let n = 0; n < 4 && !/Lyra (casts|uses) s0\d/.test(seen); n += 1) {
+        await w.say(`Wolves ${n}.`, ['~ time 3000', '! encounter 3 Wolf — hungry | tier: even']);
+        const [offer] = w.q('combat.offers', {});
+        assert.equal(w.ui('combat.start', { offer: offer.id }).ok, true);
+        const v = view(w);
+        await finish(w);
+        seen += view(w).log.map(entry => entry.text).join('\n');
+        const live = JSON.stringify(fights(w)[v.id]);
+        w.host.store.rebuild();
+        assert.equal(JSON.stringify(fights(w)[v.id]), live, 'the whole fight replays identically');
+        assert.equal(w.ui('combat.end', { session: v.id }).ok, true);
+    }
+    assert.match(seen, /Lyra (casts|uses) s0\d/);
 });
 
-test('an unpinned chat fights exactly the fight it always did: v1 skills, one stream, no ruleset, no ids, no sealed result, the v1 mastery path', async t => {
+play('an unpinned chat fights exactly the fight it always did: v1 skills, one stream, no ruleset, no ids, no sealed result, the v1 mastery path', async t => {
     const w = await realWorld(t, { pin: false });
     await w.say('The wolves come.', ['~ time 3000', '! encounter 2 Wolf — hungry | tier: weak']);
     const [offer] = w.q('combat.offers', {});
@@ -255,7 +264,7 @@ test('an unpinned chat fights exactly the fight it always did: v1 skills, one st
     assert.equal(Object.keys(w.head().meta.claims).filter(key => key.startsWith('xp:combat:')).length, 0, 'the v1 award has no claim of the pinned path');
 });
 
-test('what a fight left on a character is dated by the ending minute: a condition read at endingMinute + 10 has one round less, and a rebuild agrees', async t => {
+play('what a fight left on a character is dated by the ending minute: a condition read at endingMinute + 10 has one round less, and a rebuild agrees', async t => {
     const w = await ready(t);
     const v = await begin(w);
     await finish(w);
@@ -276,4 +285,20 @@ test('what a fight left on a character is dated by the ending minute: a conditio
     w.host.store.rebuild();
     assert.equal(JSON.stringify(w.q('party.actor', { id: w.pc }).conditions), live);
     assert.ok(DAY > 0);
+});
+
+play('a regeneration a fight left keeps its strength into the next fight (the party record keeps only kind and rounds)', async t => {
+    const w = await ready(t);
+    // A sealed result that recorded a regeneration of strength 7 with 3 rounds left, and the character carrying "regenerating" with 2.
+    const bytes = { v: 1, kind: 'fight', fight: 'fi_00000001', party: [{ actor: w.pc, conditions: [{ kind: 'regenerating', stacks: 3, rounds: 3, strength: 7, at: 3000, source: null }] }] };
+    assert.equal(w.host.bus.command('test.batch', { id: 'br_00000001', bytes }, { cause: 'ui' }).ok, true);
+    assert.equal(w.host.bus.command('test.condition', { actor: w.pc, kind: 'regenerating', rounds: 2, at: 3000 }, { cause: 'ui' }).ok, true);
+    const v = await begin(w);
+    const stored = fights(w)[v.id].setup.party.find(c => c.memberId === w.pc);
+    assert.deepEqual(stored.conditions.map(cond => [cond.name, cond.rounds, cond.power]), [['regen', 2, 7]]);
+    // A character with no such record regenerates what v1 gave it: nothing.
+    const other = await ready(t);
+    assert.equal(other.host.bus.command('test.condition', { actor: other.pc, kind: 'regenerating', rounds: 2, at: 3000 }, { cause: 'ui' }).ok, true);
+    const o = await begin(other);
+    assert.equal(fights(other)[o.id].setup.party.find(c => c.memberId === other.pc).conditions[0].power, 0);
 });

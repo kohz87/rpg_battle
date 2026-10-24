@@ -58,7 +58,7 @@ export function conditionRecord(cond, { at = null, source = null } = {}) {
 
 /** The problems of a condition record: [] or sentences. */
 export function conditionProblems(record) {
-    if (!isObject(record) || Object.keys(record).sort().join() !== 'at,kind,rounds,source,strength,stacks') return ['A condition record is { kind, stacks, rounds, strength, at, source }.'];
+    if (!isObject(record) || Object.keys(record).sort().join() !== 'at,kind,rounds,source,stacks,strength') return ['A condition record is { kind, stacks, rounds, strength, at, source }.'];
     const errors = [];
     if (typeof record.kind !== 'string' || !record.kind) errors.push('A condition has a kind.');
     for (const key of ['stacks', 'rounds', 'strength']) if (!Number.isInteger(record[key]) || record[key] < 0) errors.push(`A condition's ${key} is a whole number.`);
