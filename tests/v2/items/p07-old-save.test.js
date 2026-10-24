@@ -108,22 +108,31 @@ test('the planner on the old save: a body piece takes the old armour off, a head
     }
 });
 
-test('a def whose old slot is generic cannot be worn until it names one of the eight: refused in words, never guessed', () => {
+test('a def with a generic old slot is worn where the reader chooses (a bare accessory takes the first empty one); worn-1 pieces can be re-equipped', () => {
     const h = makeCtx({ state: stateOf(), handlers: part.commands, queries: part.queries });
-    for (const name of ['Leather Boots', 'Bone Charm']) {
-        const before = JSON.stringify(h.state());
-        const result = h.run('item.equip', { stack: idOf(name) });
-        assert.equal(result.ok, false, name);
-        assert.equal(result.code, 'REFUSED');
-        assert.match(result.message, /needs a v2 slot before it can be worn/);
-        assert.equal(JSON.stringify(h.state()), before);
-    }
+    // The boots' old word is `worn`: head, body, legs or feet. The rules never pick.
+    const before = JSON.stringify(h.state());
+    const result = h.run('item.equip', { stack: idOf('Leather Boots') });
+    assert.equal(result.ok, false);
+    assert.equal(result.code, 'REFUSED');
+    assert.equal(result.message, 'Choose where to wear it: Head, Body, Legs or Feet.');
+    assert.equal(JSON.stringify(h.state()), before);
     const asked = q(stateOf(), 'items.canWear', { actor: pc, stack: idOf('Leather Boots') });
-    assert.equal(asked.ok, false);
-    assert.match(asked.why, /old "worn" slot/);
-    // Taking it off needs no plan.
-    assert.equal(h.run('item.unequip', { stack: idOf('Iron Helm') }).ok, true);
-    assert.equal(h.state().domains.inventory.stacks[idOf('Iron Helm')].equipped, null);
+    assert.deepEqual(asked, { ok: false, why: 'Choose where to wear it: Head, Body, Legs or Feet.', choose: ['head', 'body', 'legs', 'feet'] });
+    assert.equal(h.run('item.equip', { stack: idOf('Leather Boots'), targetSlot: 'weapon' }).ok, false, 'not one of its candidates');
+    const feet = h.run('item.equip', { stack: idOf('Leather Boots'), targetSlot: 'feet' });
+    assert.equal(feet.ok, true, feet.message);
+    assert.deepEqual([feet.receipt.data.slot, feet.receipt.data.removed], ['feet', []]);
+    // The old worn-1 helm: its record stays as stored until the reader picks a slot for it (or takes it off).
+    const helm = h.run('item.equip', { stack: idOf('Iron Helm'), targetSlot: 'head' });
+    assert.equal(helm.ok, true, helm.message);
+    assert.equal(h.state().domains.inventory.stacks[idOf('Iron Helm')].equipped, 'head');
+    // A bare accessory (the charm) takes the first empty accessory slot, else swaps the first: both rings are on.
+    const charm = h.run('item.equip', { stack: idOf('Bone Charm') });
+    assert.equal(charm.ok, true, charm.message);
+    assert.deepEqual([charm.receipt.data.slot, charm.receipt.data.removed], ['accessory-1', [idOf('Silver Ring')]]);
+    assert.equal(h.run('item.unequip', { stack: idOf('Jade Ring') }).ok, true);
+    assert.equal(h.run('item.equip', { stack: idOf('Silver Ring') }).receipt.data.slot, 'accessory-2', 'the first EMPTY slot');
 });
 
 test('the old pack: Ersveil Bluewatch\'s weapon, armour and off-hand read as their v2 slots; its worn pieces name none', () => {
@@ -131,21 +140,28 @@ test('the old pack: Ersveil Bluewatch\'s weapon, armour and off-hand read as the
     const items = pack.content.items.filter(item => item.kind === 'equipment' && item.slot);
     assert.ok(items.length >= 9);
     const rules = items.map((item, at) => ({ item, ...interimItemRule({ id: `pack.ersveil-bluewatch/item-${at}`, name: item.name, kind: 'equipment', slot: item.slot, tags: item.tags ?? [] }) }));
-    for (const { item, rule, note } of rules) {
+    for (const { item, rule, choice } of rules) {
         if (item.slot === 'weapon') assert.deepEqual([rule.allowedSlots, rule.hands], [['weapon'], 1], item.name);
         if (item.slot === 'armour') assert.deepEqual([rule.allowedSlots, rule.hands], [['body'], 0], item.name);
         if (item.slot === 'offhand') assert.deepEqual([rule.allowedSlots, rule.hands], [['offhand'], 1], item.name);
         if (item.slot === 'worn') {
             assert.deepEqual(rule.allowedSlots, [], item.name);
-            assert.match(note, /needs a v2 slot/);
+            assert.deepEqual(choice, { slots: ['head', 'body', 'legs', 'feet'], auto: false }, item.name);
         }
         assert.equal(rule.requires && Object.keys(rule.requires).length, 0, 'the interim rule invents no requirement');
     }
     assert.equal(rules.filter(entry => entry.item.slot === 'worn').length, 3);
 });
 
-test('slotsForLegacy: the five legacy SB slots map to the eight rule slots, ambiguous ones to null (track B calls this)', () => {
-    assert.deepEqual(['weapon', 'offhand', 'armour', 'worn', 'accessory'].map(slotsForLegacy), ['weapon', 'offhand', 'body', null, null]);
-    assert.deepEqual(['mainhand', 'main-hand', 'off-hand', 'armor', 'head', 'accessory-2'].map(slotsForLegacy), ['weapon', 'weapon', 'offhand', 'body', 'head', 'accessory-2']);
-    for (const word of ['hands', 'waist', 'worn-1', '', null, undefined, 4, {}]) assert.equal(slotsForLegacy(word), null);
+test('slotsForLegacy: the legacy slots map to a slot, a choice or nothing (track B calls this)', () => {
+    assert.deepEqual(['weapon', 'offhand', 'armour'].map(slotsForLegacy), [{ slot: 'weapon' }, { slot: 'offhand' }, { slot: 'body' }]);
+    assert.deepEqual(slotsForLegacy('accessory'), { choose: ['accessory-1', 'accessory-2'], auto: true });
+    assert.deepEqual(slotsForLegacy('worn'), { choose: ['head', 'body', 'legs', 'feet'], auto: false });
+    assert.deepEqual(slotsForLegacy('hands'), { choose: ['weapon', 'offhand'], auto: false });
+    assert.deepEqual(slotsForLegacy('waist'), { choose: ['accessory-1', 'accessory-2'], auto: false });
+    assert.deepEqual(['mainhand', 'main-hand', 'off-hand', 'armor', 'head', 'accessory-2'].map(slotsForLegacy).map(found => found.slot), ['weapon', 'weapon', 'offhand', 'body', 'head', 'accessory-2']);
+    for (const word of ['worn-1', 'accessory-3', '', 'banana', 'toString', null, undefined, 4, {}]) assert.equal(slotsForLegacy(word), null, String(word));
+    // The answer is a copy: nobody can change the table through it.
+    slotsForLegacy('worn').choose.push('x');
+    assert.deepEqual(slotsForLegacy('worn').choose.length, 4);
 });

@@ -15,7 +15,7 @@
 import { equipPlan, equipmentSlots, isHash, placedAt, wornBy } from './equip-plan.js';
 import { hashJson } from './equip-hash.js';
 import { weightOf } from './carry.js';
-import { normalizeSlot } from './slots.js';
+import { slotsForLegacy } from './slots.js';
 
 /** Names the interim binding in code, tests and docs. Remove with B3's frozen rules. */
 export const INTERIM_BINDING = 'rb-items-interim-1';
@@ -28,21 +28,27 @@ const STATS = ['STR', 'VIT', 'AGI', 'DEX', 'INT', 'LUK', 'CHA'];
 const PROBE = 'it_probe000';
 
 /**
- * INTERIM: the ItemRule a def implies on its own (§9 adapters applied): one allowed slot from its slot
- * word, hands 1 for a weapon or offhand (2 with the two-handed tag), no requirement, its carry weight.
- * A def whose slot names no single v2 slot (worn, hands, waist, a bare accessory) gets no slot and a
- * note saying so; it is never guessed. Returns null for what is not equipment.
+ * INTERIM: the ItemRule a def implies on its own (§9 adapters applied): one allowed slot from its slot word, hands 1
+ * for a weapon or offhand (2 with the two-handed tag), no requirement, its carry weight. A generic old word (worn,
+ * hands, waist, a bare accessory) has no slot of its own but a CHOICE (slotsForLegacy): the planner takes the first
+ * empty accessory slot for a bare accessory, and wants the reader's targetSlot for the others. A word that names
+ * nothing gets no slot and a note saying so. Returns { rule, note, choice } or null for what is not equipment.
  */
 export function interimItemRule(def) {
     if (!isRecord(def) || def.kind !== 'equipment' || typeof def.id !== 'string') return null;
-    const slot = normalizeSlot(def.slot);
+    const found = slotsForLegacy(def.slot);
     const base = { def: def.id, requires: {}, weight: Math.min(10000, weightOf(def)), unique: false };
-    if (!slot) {
-        const word = typeof def.slot === 'string' && def.slot ? def.slot : 'no slot';
-        return { rule: { ...base, allowedSlots: [], hands: 0 }, note: `The ${def.name} has an old "${word}" slot that does not name one of the eight: it needs a v2 slot before it can be worn.` };
+    if (found?.choose) {
+        const handed = found.choose.every(slot => slot === 'weapon' || slot === 'offhand');
+        return { rule: { ...base, allowedSlots: [], hands: handed ? 1 : 0 }, note: null, choice: { slots: found.choose, auto: found.auto } };
     }
+    if (!found) {
+        const word = typeof def.slot === 'string' && def.slot ? def.slot : 'no slot';
+        return { rule: { ...base, allowedSlots: [], hands: 0 }, note: `The ${def.name} has an old "${word}" slot that does not name one of the eight: it needs a v2 slot before it can be worn.`, choice: null };
+    }
+    const slot = found.slot;
     const hands = slot === 'weapon' ? ((def.tags ?? []).includes('two-handed') ? 2 : 1) : slot === 'offhand' ? 1 : 0;
-    return { rule: { ...base, allowedSlots: [slot], hands }, note: null };
+    return { rule: { ...base, allowedSlots: [slot], hands }, note: null, choice: null };
 }
 
 /** INTERIM: the actor's base sheet as far as equipment reads it, from the party domain; null for no such member. */
@@ -101,6 +107,7 @@ export function equipEnv(state, tools, actor, also = []) {
     }
     const itemRules = {};
     const notes = {};
+    const choices = {};
     for (const id of defs) {
         if (frozen) {
             const found = askSeam(tools, 'rules.item', { def: id });
@@ -111,24 +118,28 @@ export function equipEnv(state, tools, actor, also = []) {
         if (!interim) continue;
         itemRules[id] = interim.rule;
         if (interim.note) notes[id] = interim.note;
+        if (interim.choice) choices[id] = interim.choice;
     }
     const owners = Object.entries(isRecord(party.actors) ? party.actors : {})
         .filter(([, member]) => isRecord(member) && member.kind !== 'summon' && member.kind !== 'pet').map(([id]) => id);
     return {
         ok: true,
         binding: frozen ? 'frozen' : 'interim',
-        env: { rulesHash: frozen ?? INTERIM_RULES_HASH, stacks: inventory.stacks, defs: inventory.defs, itemRules, notes, actorSheet: sheet, owners },
+        env: { rulesHash: frozen ?? INTERIM_RULES_HASH, stacks: inventory.stacks, defs: inventory.defs, itemRules, notes, choices, actorSheet: sheet, owners },
     };
+}
+
+function planFor(state, args, tools) {
+    const bad = equipPlan(args, null);
+    if (bad.code === 'INVALID') return { answer: bad, bound: null };
+    const target = inventoryOf(state).stacks?.[args.stack];
+    const bound = equipEnv(state, tools, args.actor, [target?.def]);
+    return { answer: bound.ok ? equipPlan(args, bound.env) : bound, bound };
 }
 
 /** `rules.equipPlan({ stack, actor, targetSlot? })` (§3, P07): the one planner every equip route asks. Pure. */
 export function rulesEquipPlan(state, args, tools) {
-    const bad = equipPlan(args, null);
-    if (bad.code === 'INVALID') return bad;
-    const target = inventoryOf(state).stacks?.[args.stack];
-    const bound = equipEnv(state, tools, args.actor, [target?.def]);
-    if (!bound.ok) return bound;
-    return equipPlan(args, bound.env);
+    return planFor(state, args, tools).answer;
 }
 
 /**
@@ -147,7 +158,8 @@ export function slotsQuery(state, args, tools) {
 /**
  * `items.canWear({ actor, stack | defId, targetSlot? })` -> { ok, why? }: whether the planner would
  * give a plan now, in the planner's own words. With a def only (Story Block's picker), a probe stack
- * that does not exist is planned; the answer never writes.
+ * that does not exist is planned; the answer never writes. `choose` (slot IDs, with `ok:false`) is the list a piece with a
+ * generic old slot word may be worn in when the reader has not chosen one (ask again with a targetSlot from it).
  */
 export function canWearQuery(state, args, tools) {
     const party = isRecord(state?.domains?.party) ? state.domains.party : {};
@@ -168,6 +180,9 @@ export function canWearQuery(state, args, tools) {
         id = PROBE;
         seen = { ...state, domains: { ...state.domains, inventory: { ...inventory, stacks: { ...inventory.stacks, [PROBE]: { id: PROBE, def: def.id, qty: 1, owner: 'party', equipped: null } } } } };
     }
-    const answer = rulesEquipPlan(seen, { stack: id, actor: args.actor, ...targetSlot }, tools);
+    const { answer, bound } = planFor(seen, { stack: id, actor: args.actor, ...targetSlot }, tools);
+    // A generic old slot word the reader must choose for: say where it could go, so a screen can ask.
+    const choice = bound?.env?.choices?.[def.id];
+    if (answer.ok !== true && choice && !choice.auto && args.targetSlot === undefined && /^Choose where/.test(answer.message)) return { ok: false, why: String(answer.message), choose: [...choice.slots] };
     return answer.ok === true ? { ok: true } : { ok: false, why: String(answer.message ?? 'It cannot be worn.') };
 }

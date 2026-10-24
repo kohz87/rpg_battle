@@ -21,7 +21,7 @@ each('item.use at full HP with nothing to cure: REFUSED, nothing spent', () => {
     assert.equal(rejected(h, 'item.use', { stack: stackOf(h, pot) }).code, 'REFUSED');
 });
 
-each('item.equip of a piece whose old slot names no single v2 slot (a bare worn hood): REFUSED, never guessed, nothing changes', equipsOnInt, () => {
+each('item.equip of a piece with a generic old slot (a worn hood): REFUSED with the choice until the reader names a slot', equipsOnInt, () => {
     const { h } = withHero();
     const boots = storyItem(h, 'Leather Boots', 1, 'AGI +1, slot: feet');
     const hood = storyItem(h, 'Hood', 1, 'worn, DEF +1');
@@ -29,8 +29,9 @@ each('item.equip of a piece whose old slot names no single v2 slot (a bare worn 
     const before = bytes(h.state());
     const refused = rejected(h, 'item.equip', { stack: stackOf(h, hood) });
     assert.equal(refused.code, 'REFUSED');
-    assert.match(refused.message, /needs a v2 slot/);
+    assert.match(refused.message, /Choose where to wear it: Head, Body, Legs or Feet/);
     assert.equal(bytes(h.state()), before);
+    assert.equal(h.command('item.equip', { stack: stackOf(h, hood), targetSlot: 'head' }).ok, true);
 });
 
 each('item.equip of an off-hand beside a two-handed weapon: REFUSED', equipsOnInt, () => {

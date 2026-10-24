@@ -6,7 +6,8 @@
 // -> body, accessory-1/-2 unchanged. A generic `worn`, `hands`, `waist` or a bare `accessory`
 // (and the numbered `worn-1` / `accessory-3` keys the six-slot runtime wrote) says which
 // kind of slot but not which one, so it is never guessed: such a record stays exactly as stored,
-// is shown as "unplaced", and changes only when the reader explicitly chooses a v2 slot.
+// is shown as "unplaced", and changes only when the reader explicitly chooses a v2 slot (slotsForLegacy lists
+// the slots such a word may go in; the reader picks, the rules never do).
 
 export const EQUIP_SLOTS = Object.freeze(['weapon', 'offhand', 'head', 'body', 'legs', 'feet', 'accessory-1', 'accessory-2']);
 export const SLOT_LABELS = Object.freeze({ weapon: 'Main hand', offhand: 'Off hand', head: 'Head', body: 'Body', legs: 'Legs', feet: 'Feet', 'accessory-1': 'Accessory 1', 'accessory-2': 'Accessory 2' });
@@ -33,13 +34,35 @@ export function normalizeSlot(slot) {
 }
 
 /**
- * The v2 slot a legacy slot word stands for (§9), or null when it names no single slot: pure, never guesses.
- * The five slots of Story Block's six-slot runtime: weapon -> weapon, offhand -> offhand, armour -> body,
- * worn -> null (head, legs or feet: ambiguous), accessory -> null (bare: ambiguous). The §9 aliases (mainhand,
- * main-hand, off-hand, armor) and the eight canonical IDs read as themselves; hands, waist and anything else are null.
- * A caller that gets null must ask for an explicit v2 slot, never pick one.
+ * What a legacy slot word (the six-slot runtime's weapon, offhand, armour, worn, accessory, and the older hands and
+ * waist) stands for in the eight slots (§9): pure, never guesses, and it never picks among kinds of slot.
+ *   { slot }                    one slot: weapon, offhand, armour/armor -> body, mainhand/main-hand/off-hand, or a canonical ID
+ *   { choose: [...], auto }     several slots the piece may go in. `auto: true` (a bare accessory: accessory-1 or -2, which
+ *                               are interchangeable) lets the planner take the first empty one, else an explicit target.
+ *                               `auto: false` (worn -> head/body/legs/feet, hands -> weapon/offhand, waist -> the two
+ *                               accessories) means the READER chooses: with no targetSlot the plan is refused with the list.
+ *   null                        names no slot at all (unknown words, non-text)
+ * A caller that needs a stored slot for a registration keeps the word as it is and lets this answer how it is worn.
  */
-export const slotsForLegacy = legacySlot => normalizeSlot(legacySlot);
+export function slotsForLegacy(legacySlot) {
+    const one = normalizeSlot(legacySlot);
+    if (one !== null) return { slot: one };
+    if (typeof legacySlot !== 'string' || !Object.hasOwn(LEGACY_CHOICES, legacySlot)) return null;
+    const { slots, auto } = LEGACY_CHOICES[legacySlot];
+    return { choose: [...slots], auto };
+}
+const LEGACY_CHOICES = Object.freeze({
+    accessory: Object.freeze({ slots: Object.freeze(['accessory-1', 'accessory-2']), auto: true }),
+    worn: Object.freeze({ slots: Object.freeze(['head', 'body', 'legs', 'feet']), auto: false }),
+    hands: Object.freeze({ slots: Object.freeze(['weapon', 'offhand']), auto: false }),
+    waist: Object.freeze({ slots: Object.freeze(['accessory-1', 'accessory-2']), auto: false }),
+});
+
+/** "Head, Body, Legs or Feet" for a list of slot IDs. */
+export function slotWords(slots) {
+    const names = slots.map(slot => SLOT_LABELS[slot] ?? slot);
+    return names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names.at(-1)}` : names.join('');
+}
 
 /** Whether `slot` is one of the generic words §9 says to require an explicit v2 slot for. */
 export const isAmbiguousSlot = slot => AMBIGUOUS_SLOTS.includes(slot);

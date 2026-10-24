@@ -81,7 +81,7 @@ test('a piece goes to the slot its def names; the stack becomes its wearer\'s; t
     });
 });
 
-test('a piece whose old slot names no single v2 slot is refused in words and nothing changes (never guessed)', async t => {
+test('a piece with an old generic slot word is refused until the reader chooses; a word that is no slot is refused for good', async t => {
     quiet(t);
     await seeded(23, async () => {
         const host = await hero();
@@ -90,12 +90,16 @@ test('a piece whose old slot names no single v2 slot is refused in words and not
             const result = await equip(host, 'Old Hood');
             assert.equal(result.ok, false);
             assert.equal(result.code, 'REFUSED');
-            assert.match(result.message, /needs a v2 slot/);
-            for (const targetSlot of ['head', 'worn', 'armour', 'accessory', 'Head', '']) {
+            assert.match(result.message, /^Choose where to wear it: Head, Body, Legs or Feet\./);
+            assert.deepEqual(host.q('items.canWear', { actor: host.pc(), stack: host.stackOf('Old Hood') }).choose, ['head', 'body', 'legs', 'feet']);
+            for (const targetSlot of ['weapon', 'accessory-1', 'worn', 'armour', 'Head', '']) {
                 const asked = await equip(host, 'Old Hood', { targetSlot });
                 assert.equal(asked.ok, false, `targetSlot ${targetSlot}`);
             }
             assert.equal(host.snapshot(), before);
+            const chosen = await equip(host, 'Old Hood', { targetSlot: 'legs' });
+            assert.equal(chosen.ok, true, chosen.message);
+            assert.equal(host.at('Old Hood'), 'legs');
         } finally {
             host.close();
         }

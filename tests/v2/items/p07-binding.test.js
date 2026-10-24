@@ -32,8 +32,11 @@ test('the interim binding is named, signs plans with a fixed hash of its name, a
     assert.deepEqual(interimItemRule(defs['story/silver-ring']).rule.allowedSlots, ['accessory-1'], 'one slot: the interim rule never invents a second');
     assert.equal(interimItemRule(defs['story/rope']), null, 'not equipment: no rule');
     const generic = interimItemRule({ id: 'pack.x/band', name: 'Plain Band', kind: 'equipment', slot: 'worn', tags: [] });
-    assert.deepEqual(generic.rule.allowedSlots, []);
-    assert.match(generic.note, /Plain Band has an old "worn" slot/);
+    assert.deepEqual([generic.rule.allowedSlots, generic.choice], [[], { slots: ['head', 'body', 'legs', 'feet'], auto: false }], 'a generic word has a choice for the reader, not a slot');
+    const nothing = interimItemRule({ id: 'pack.x/odd', name: 'Odd Thing', kind: 'equipment', slot: 'banana', tags: [] });
+    assert.deepEqual(nothing.rule.allowedSlots, []);
+    assert.equal(nothing.choice, null);
+    assert.match(nothing.note, /Odd Thing has an old "banana" slot/);
     // The hash Story Block recomputes from its own records is the plan's.
     const stack = state.domains.inventory.stacks.it_blade001;
     const worn = [state.domains.inventory.stacks.it_dagger01];

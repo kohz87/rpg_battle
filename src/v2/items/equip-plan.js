@@ -1,7 +1,7 @@
 // Pure P07 equipment planning over explicit frozen inputs. SB alone writes stacks/ownership.
 // No B storage layout, live-pack fallback, guessed rules hash or caller-supplied trusted plan.
 import { hashJson } from './equip-hash.js';
-import { EQUIP_SLOTS, SLOT_COUNTS, SLOT_LABELS, normalizeSlot } from './slots.js';
+import { EQUIP_SLOTS, SLOT_COUNTS, SLOT_LABELS, normalizeSlot, slotWords } from './slots.js';
 
 export { AMBIGUOUS_SLOTS, CANONICAL_ALIASES, EQUIP_SLOTS, SLOT_LABELS, isAmbiguousSlot, normalizeSlot } from './slots.js';
 const STATS = ['STR', 'VIT', 'AGI', 'DEX', 'INT', 'LUK', 'CHA'];
@@ -101,7 +101,18 @@ export function equipPlan(payload, env) {
     if (definition.kind !== 'equipment') return failure('REFUSED', 'This item is not equipment.');
     const rule = env.itemRules[stack.def];
     if (ruleProblem(rule, stack.def)) return failure('RULES_MISMATCH', 'The frozen ItemRule is missing or malformed.');
-    if (!rule.allowedSlots.length) return failure('REFUSED', env.notes?.[stack.def] ?? 'This item has no equipment slot.');
+    // A rule with no slot may still come with a CHOICE (an old generic slot word, interim binding): the slots the
+    // reader may put it in. `auto` lets the plan take the first empty one (a bare accessory); otherwise the reader
+    // must name one with targetSlot, and without it the plan is refused with the list. The rule never picks.
+    let candidates = rule.allowedSlots;
+    const choice = env.choices?.[stack.def];
+    if (!candidates.length && choice !== undefined) {
+        if (!record(choice) || !Array.isArray(choice.slots) || !choice.slots.length || choice.slots.some(slot => !EQUIP_SLOTS.includes(slot))
+            || typeof choice.auto !== 'boolean') return failure('RULES_MISMATCH', 'The choice of slots for this item is malformed.');
+        candidates = choice.slots;
+        if (!choice.auto && payload.targetSlot === undefined) return failure('REFUSED', `Choose where to wear it: ${slotWords(EQUIP_SLOTS.filter(slot => candidates.includes(slot)))}.`);
+    }
+    if (!candidates.length) return failure('REFUSED', env.notes?.[stack.def] ?? 'This item has no equipment slot.');
     // Base stats only: what the piece itself (or any other gear) adds never qualifies the wearer.
     const short = Object.entries(rule.requires).find(([stat, minimum]) => actor.stats[stat] < minimum);
     if (short) return failure('REFUSED', `Base stats do not meet the equipment requirements: needs ${short[0]} ${short[1]}, base ${short[0]} is ${actor.stats[short[0]]}.`);
@@ -119,7 +130,7 @@ export function equipPlan(payload, env) {
     if (new Set(worn.map(other => other.slot)).size !== worn.length) return failure('RULES_MISMATCH', 'Two stacks occupy one actor slot.');
     const at = slot => worn.find(other => other.slot === slot);
     const twoHanded = at('weapon') && env.itemRules[at('weapon').def].hands === 2;
-    const allowed = EQUIP_SLOTS.filter(slot => rule.allowedSlots.includes(slot));
+    const allowed = EQUIP_SLOTS.filter(slot => candidates.includes(slot));
     // The legal candidates: an offhand is not one while a two-handed weapon is worn.
     const legal = allowed.filter(slot => !(slot === 'offhand' && twoHanded));
     let slot;
