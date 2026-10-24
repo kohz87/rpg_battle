@@ -96,4 +96,3 @@ test('item.equip: each accessory slot holds one piece, in the slot its def names
     const w = harness(worn);
     assert.equal(w.run('item.equip', { stack: 'it_helm0001' }).receipt.data.key, 'head');
 });
-
