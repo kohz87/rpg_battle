@@ -600,8 +600,7 @@ function resultFromActors(payload) {
  * party.applyResult (internal, from combat.end): combat's { outcome, stakes, actors: [{ id, hp,
  * mp, sp?, down, conditions: [{ kind, rounds }], uses }] }, or { result, stakes? } with v1 combat
  * summarize's result as it is. Applied to each member it names by v1 applyResult (HP/MP/SP and
- * lasting conditions as the fight left them, kept as party kinds: poison → poisoned; XP with
- * level-ups when the result carries any; skill mastery), companions on auto then spending by
+ * lasting conditions as the fight left them, kept as party kinds: poison → poisoned; skill mastery), companions on auto then spending by
  * build. A fight to the death that is lost leaves your character dead; a companion who went down
  * in a fight to the death died and is gone from the party for good (MODULES §F26, no offer: what
  * they carried goes to the party). Member ids are actor ids ('pc' is read as your character).
@@ -612,7 +611,7 @@ function applyResult(ctx, payload = {}) {
     const rules = rulesFor(ctx);
     const raw = Array.isArray(payload.actors) ? resultFromActors(payload) : payload.result;
     if (!raw || typeof raw !== 'object' || !Array.isArray(raw.party)) fail(ctx, 'INVALID', 'That is not a fight result.');
-    const result = normalResult(raw, party.pc);
+    const result = { ...normalResult(raw, party.pc), xp: {} };
     const named = new Set([...result.party.map(entry => entry.memberId), ...Object.keys(result.xp), ...Object.keys(result.uses)]);
     const ids = party.order.filter(id => named.has(id));
     if (!ids.length) fail(ctx, 'NOT_FOUND', 'That fight result names nobody in the party.');

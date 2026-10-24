@@ -22,7 +22,7 @@ export function settlementKey(epoch, quest) {
     return `rb:${epoch}:quest:${quest.id}:${quest.instance}:settled`;
 }
 
-function acceptanceOf(thread, proofs) {
+export function acceptanceOf(thread, proofs) {
     const acceptance = thread.acceptance;
     const quest = thread.rpg;
     const proof = proofs.find(proof => proof.id === acceptance?.proof);

@@ -277,26 +277,26 @@ function fightResult(state, overrides = {}) {
     };
 }
 
-test('party.applyResult writes the fight to each member, levels them and settles companions', () => {
+test('party.applyResult writes pools and mastery without granting raw result XP', () => {
     let state = withCompanion();
     state = run(state, 'party.learnSkill', { name: 'Power Strike' }).state;
     const lyra = byName(state, 'Lyra');
     const out = run(state, 'party.applyResult', { result: fightResult(state) });
     assert.ok(out.ok, out.message);
     const ren = pcOf(out.state);
-    assert.equal(ren.level, 2);
-    assert.equal(ren.xp, 20);
-    assert.equal(ren.points, 4);
-    assert.equal(ren.hp.cur, 12 + 4, 'a level-up raises current HP by what max HP grew');
+    assert.equal(ren.level, 1);
+    assert.equal(ren.xp, 0);
+    assert.equal(ren.points, 0);
+    assert.equal(ren.hp.cur, 12);
     assert.deepEqual(ren.conditions, [{ kind: 'poisoned', stacks: 2, rounds: 2 }], 'v1 poison is kept as poisoned, with the rounds the fight left');
     assert.deepEqual(ren.skills[0], { name: 'Power Strike', level: 2, uses: 1, active: true });
     const after = out.state.domains.party.actors[lyra.id];
-    assert.equal(after.level, 2);
+    assert.equal(after.level, 1);
     assert.equal(after.points, 0, 'a companion on auto spends by build');
-    assert.match(out.result.summary, /Ren reaches Level 2; Lyra reaches Level 2/);
+    assert.deepEqual(out.result.data.levels, {});
     // Commanded companions keep their points; so does everyone with auto-spend off.
     const kept = run(state, 'party.applyResult', { result: fightResult(state) }, { settings: { autoSpend: false } });
-    assert.equal(kept.state.domains.party.actors[lyra.id].points, 4);
+    assert.equal(kept.state.domains.party.actors[lyra.id].points, 0);
 });
 
 test('party.applyResult reads "pc" as your character; death stakes; rejections', () => {
@@ -308,7 +308,7 @@ test('party.applyResult reads "pc" as your character; death stakes; rejections',
     result.uses = {};
     const out = run(state, 'party.applyResult', { result });
     assert.ok(out.ok, out.message);
-    assert.equal(pcOf(out.state).xp, 10);
+    assert.equal(pcOf(out.state).xp, 0);
     const lost = run(state, 'party.applyResult', { result: { ...fightResult(state), outcome: 'defeat' }, stakes: 'death' });
     assert.deepEqual(pcOf(lost.state).conditions, [{ kind: 'dead', stacks: 1 }]);
     assert.equal(pcOf(lost.state).hp.cur, 0);
