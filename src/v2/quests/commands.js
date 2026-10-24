@@ -18,7 +18,7 @@ export function offerQuest(ctx, template, options = {}) {
     return id;
 }
 
-export function createCommands({ settleQuest, evaluateRequirements = null, guardTake = null } = {}) {
+export function createCommands({ settleQuest, evaluateRequirements = null, guardTake = null, settleCredit = null } = {}) {
     function take(ctx, payload = {}) {
         if (payload.by !== undefined || payload.credit !== undefined || payload.reason !== undefined) return ctx.fail('INVALID', 'Taking a quest uses id or key.');
         if (ctx.caller && !['story-director', 'rpg-battle'].includes(ctx.caller)) return ctx.fail('REFUSED', 'Quest acceptance requires the reader or validated player intent.');
@@ -80,8 +80,12 @@ export function createCommands({ settleQuest, evaluateRequirements = null, guard
         if (ctx.cause !== 'system') return ctx.fail('REFUSED', 'Rewards owed are settled by code.');
         const thread = requireThread(ctx, payload);
         if (!thread.rpg) return ctx.fail('REFUSED', 'Reward from an earlier version (read only).');
-        if (thread.rpg.settlement) return ctx.fail('CLAIMED', 'This quest settlement is already complete.');
-        return finish(ctx, payload);
+        if (thread.rpg.settlement) {
+            if (payload.credit === true && settleCredit) return settleCredit(ctx, thread);
+            return ctx.fail('CLAIMED', 'This quest settlement is already complete.');
+        }
+        const out = settleQuest(ctx, thread, { ...payload, by: 'story' }, 'done');
+        return { ...out, replan: true };
     }
     return { 'quest.take': take, 'quest.abandon': abandon, 'quest.finish': finish, 'quest.payOwed': payOwed };
 }

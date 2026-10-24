@@ -1,9 +1,11 @@
 // RB owns quest lines. Narration proposes offers/progress/turn-ins; code owns acceptance and rewards.
 import { offerQuest } from './commands.js';
-import { ask, call, pinned, templateOf, threadOf } from './seams.js';
+import { ask, boundary, call, pinned, templateOf, threadOf } from './seams.js';
+
+import { turnInKey } from './credit.js';
 
 export const QUEST_GRAMMAR = '+ quest Name — a frozen quest offer; + quest Name after the reader accepts; ~ quest Name | progress: … | met: yes; - quest Name — done|failed|abandoned';
-export function createCapture({ settleQuest = null, captureObjective = null } = {}) {
+export function createCapture({ settleQuest = null, captureObjective = null, guardIntent = null } = {}) {
     return (ctx, line) => {
         const key = String(line.name ?? '').trim();
         let thread = threadOf(ctx.query, { key });
@@ -36,7 +38,12 @@ export function createCapture({ settleQuest = null, captureObjective = null } = 
                 if (!settleQuest) return ctx.fail('DEPENDENCY_UNAVAILABLE', 'The guarded settlement adapter is unavailable.');
                 return settleQuest(ctx, thread, { id: thread.id, by: 'story' }, 'failed');
             }
-            return call(ctx, 'quest.finish', { id: thread.id, by: 'story' });
+            if (!guardIntent) return ctx.fail('DEPENDENCY_UNAVAILABLE', 'The guarded turn-in adapter is unavailable.');
+            guardIntent(ctx, thread);
+            const { epoch } = boundary(ctx);
+            const intent = turnInKey(epoch, thread.rpg, ctx.reply.sid);
+            ctx.claim(intent);
+            return { summary: `Turn-in proposed for ${thread.key}.`, narrate: false, data: { quest: thread.id, intent, reply: ctx.reply.sid } };
         }
         if (line.op === '~') {
             if (line.labels?.met && typeof captureObjective === 'function') return captureObjective(ctx, thread, line);

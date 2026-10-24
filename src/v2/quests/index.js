@@ -2,6 +2,7 @@
 import { createSettlement } from './settlement.js';
 import { createCommands } from './commands.js';
 import { createQueries } from './queries.js';
+import { questCreditHook } from './credit.js';
 import { QUEST_STATIC, questTail } from './prompt.js';
 import { createCapture, QUEST_GRAMMAR } from './capture.js';
 
@@ -16,6 +17,6 @@ export function createQuestPart(policy = {}) {
     return { context: { static: () => QUEST_STATIC, tail: questTail, budget: 250 }, replayQueries: ['quest.replayInputs'], domains: {}, commands: createCommands(policy), queries: createQueries(policy),
         kinds: { quest: { grammar: QUEST_GRAMMAR, apply: createCapture(policy) } },
         settings: { defaults: { followLadder: true }, schema: { followLadder: { type: 'bool', label: 'Quest ranks follow the rank ladder' } } },
-        ...(policy.replayGuard ? { hooks: { replayGuard: policy.replayGuard } } : {}) };
+        ...(policy.replayGuard ? { hooks: { replayGuard: policy.replayGuard, afterCapture: questCreditHook } } : {}) };
 }
 export const part = createQuestPart();

@@ -59,7 +59,7 @@ export function questInputs(query) {
  * Raw cross-owner reads are confined to this replay seam (the E1 exception).
  * Canonical place/giver and requirements await B3's state projections.
  */
-export function replayInputs(state) {
+export function replayInputs(state, { reply = null } = {}) {
     const domains = state?.domains ?? {};
     const threads = Object.values(domains.director?.threads ?? {}).map(({ track: _track, ...thread }) => copy(thread));
     const party = domains.party ?? null;
@@ -68,12 +68,14 @@ export function replayInputs(state) {
     const items = Object.values(domains.inventory?.stacks ?? {})
         .filter(stack => domains.inventory?.defs?.[stack.def])
         .map(stack => ({ stack: stack.id, def: stack.def, qty: stack.qty, owner: stack.owner }));
-    return { threads, party: copy(party), activeActors, items,
+    const tally = reply ? domains.inventory?.perReply?.[reply] : null;
+    const storyCoin = reply ? { reply, coin: tally?.coin ?? 0, vouched: tally?.vouched ?? 0, claimed: state?.meta?.claims?.[`storycoin:${reply}`] === true } : null;
+    return { storyCoin, threads, party: copy(party), activeActors, items,
         clock: { minutes: domains.director?.time?.minutes ?? null }, place: null };
 }
 
-export function guardQuestInputs(query) {
-    const inputs = query('quest.replayInputs', {});
+export function guardQuestInputs(query, reply = null) {
+    const inputs = query('quest.replayInputs', { reply });
     return { ...inputs, proofs: query('story.evidence', {}) };
 }
 
