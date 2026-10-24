@@ -159,7 +159,7 @@ export function foesPack() {
     const stats = n => ({ STR: n, VIT: n, AGI: n, DEX: n, INT: n, LUK: n, CHA: n });
     pack.content.creatures = [
         { slug: 'wolf', name: 'Wolf', tier: 1, level: 1, stats: stats(1), skills: ['s01'], loot: [{ def: 'rope', chance: 100, qty: 2 }], loreTags: ['beast', 'forest'] },
-        { slug: 'warlord', name: 'Warlord', tier: 4, level: 40, stats: stats(30), skills: ['s01', 's02'], loot: [], loreTags: ['war'] },
+        { slug: 'warlord', name: 'Warlord', tier: 4, level: 40, stats: stats(28), skills: ['s01', 's02'], loot: [], loreTags: ['war'] },
     ];
     return pack;
 }

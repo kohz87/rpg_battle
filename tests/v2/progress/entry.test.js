@@ -337,3 +337,13 @@ test('a chat with no rules pack never asks Story Director for a check actor', as
     assert.equal(w.w.host.bus.command('party.create', { name: 'Ren', preset: 'fighter' }, { cause: 'ui' }).ok, true);
     assert.deepEqual(w.book.calls, []);
 });
+
+test('R1: a companion is never linked to a check actor: party.addCompanion asks Story Director for nothing and does not meet the player\'s CONFLICT', async t => {
+    const w = await withChecks(t, { actors: { ca_00000001: { name: 'Hero', rbActor: null } }, defaultActor: 'ca_00000001' });
+    assert.equal(w.w.host.bus.command('party.create', { name: 'Ren', preset: 'fighter', class: ref('c0') }, { cause: 'ui' }).ok, true);
+    const calls = w.book.calls.length;
+    const out = await w.w.internal('party.addCompanion', { name: 'Lyra', level: 1, class: ref('c0') });
+    assert.equal(out.ok, true, out.message);
+    assert.equal(w.book.calls.length, calls, 'no check.actor or checks.link for a companion');
+    assert.equal(Object.keys(w.w.slice('party').actors).length, 2);
+});

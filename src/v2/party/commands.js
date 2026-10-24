@@ -223,7 +223,7 @@ function create(ctx, payload = {}) {
     party.order = [id, ...party.order.filter(entry => entry !== old && entry !== id)];
     // Rules v2: the basic class of the new character, recorded here and nowhere else (a rules chat refuses a character with none;
     // nothing at all in a chat with no rules pack). creation.finish passes the wizard's class down to this.
-    startRulesClass(ctx, { actor: id, class: payload.class, checkActor: payload.checkActor });
+    startRulesClass(ctx, { actor: id, class: payload.class, checkActor: payload.checkActor, pc: true });
     return { summary: `${name} is ready.`, data: { actor: id }, narrate: false };
 }
 
@@ -848,7 +848,7 @@ function importPc(ctx, payload = {}) {
     party.pc = id;
     party.order = [id, ...party.order.filter(entry => entry !== id)];
     // Rules v2: an arrival takes a basic class like any new character (a rules chat refuses one without).
-    startRulesClass(ctx, { actor: id, class: payload.class, checkActor: payload.checkActor });
+    startRulesClass(ctx, { actor: id, class: payload.class, checkActor: payload.checkActor, pc: true });
     return {
         summary: `${character.name} arrives from another story (${levelText(character.sheet.level, rules)}).`,
         data: { actor: id, items: character.items, purse: character.purse, cut: { ...character.cut } },

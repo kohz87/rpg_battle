@@ -18,7 +18,7 @@ import { indexOfCtx } from '../rules/graph.js';
 import { isDefId, isObject, isRecordId } from '../rules/ids.js';
 
 /** → { choice } when a class was recorded, or null when the chat pins no rules. */
-export function startRulesClass(ctx, { actor, class: ref, checkActor } = {}) {
+export function startRulesClass(ctx, { actor, class: ref, checkActor, pc = false } = {}) {
     const ix = indexOfCtx(ctx);
     if (!ix) return null;
     if (!isDefId(ref)) ctx.fail('INVALID', 'Choose a basic class for the new character.');
@@ -27,7 +27,8 @@ export function startRulesClass(ctx, { actor, class: ref, checkActor } = {}) {
     if (!answer.ok) ctx.fail(answer.code, answer.why);
     const made = recordBasicClass(ctx, { actor, class: ref });
     attachGuard(ctx, ix, 'class.start', { actor, class: ref }, answer.inputs);
-    linkChecks(ctx, { actor, checkActor });
+    // Only the player character is linked (a companion is not: Story Director's default actor is the player's).
+    if (pc === true) linkChecks(ctx, { actor, checkActor });
     return made;
 }
 

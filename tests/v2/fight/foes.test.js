@@ -4,7 +4,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AREA_TIERS, SD, realWorld } from '../progress/helpers/world.js';
 import { foesPin, ref } from '../progress/helpers/fixture.js';
-import { foeToEngine } from '../../../src/v2/fight/foes.js';
+import { foeStatBudget, foeToEngine } from '../../../src/v2/fight/foes.js';
+import { packFoes } from '../../../src/v2/fight/index.js';
 import { indexOf, initialRules, pinOf, pinRules } from '../../../src/v2/rules/index.js';
 import { makeRules } from '../../../src/rules.js';
 import { seeded } from '../integration/helpers/host.js';
@@ -55,6 +56,29 @@ test('the area bounds the foe: no tier, the level ceiling, the foe allowlist, th
     assert.equal(make(wolf, { area: { ...AREA, allowedTags: ['beast', 'forest', 'war'] } }).ok, true);
 });
 
+test('R2: the foe\'s stats may not total more than a player of its level could buy, 35 + 10 + 4 x (level - 1): refused, not clamped', () => {
+    const at = (level, each) => ({ ...wolf, level, stats: Object.fromEntries(Object.keys(wolf.stats).map(stat => [stat, each])) });
+    assert.equal(make(at(1, 6), { area: { ...AREA, tier: 0 } }).ok, true, '42 of 45');
+    assert.equal(make(at(1, 7), { area: { ...AREA, tier: 0 } }).code, 'BUDGET', '49 of 45');
+    assert.equal(make(at(11, 12), { area: { ...AREA, tier: 1 } }).ok, true, '84 of 85');
+    assert.equal(make(at(11, 13), { area: { ...AREA, tier: 1 } }).code, 'BUDGET', '91 of 85');
+    assert.equal(make(at(20, 11), { area: { ...AREA, tier: 1 } }).ok, true, '77 of 121');
+    assert.equal(foeStatBudget(1), 45);
+    assert.equal(foeStatBudget(99), 45 + 4 * 98);
+});
+
+test('a name two pack foes share is no foe (a ref is); one name, one foe', () => {
+    assert.equal(ix.foeNamed('Wolf'), wolf);
+    const pin2 = foesPin();
+    const copy = structuredClone(pin2.resolved.foes['pack.fixture/wolf']);
+    const two = { ...pin2, resolved: { ...pin2.resolved, foes: { ...pin2.resolved.foes, 'pack.fixture/wolf-2': { ...copy, id: 'pack.fixture/wolf-2' } } } };
+    const slice2 = initialRules();
+    assert.equal(pinRules(slice2, two), '');
+    const ix2 = indexOf(pinOf({ domains: { rules: slice2 } }));
+    assert.equal(ix2.foeNamed('Wolf'), null, 'ambiguous');
+    assert.equal(ix2.foe('pack.fixture/wolf-2').id, 'pack.fixture/wolf-2');
+});
+
 test('a foe that is not a record, or names what the ruleset does not have, is refused', () => {
     assert.equal(make({ ...wolf, level: 100 }).code, 'FOE');
     assert.equal(make({ ...wolf, stats: { ...wolf.stats, STR: 0 } }).code, 'FOE');
@@ -72,6 +96,22 @@ test('the foe\'s record does not change when the same foe is made twice, and the
     const before = JSON.stringify(wolf);
     assert.deepEqual(make().enemy, make().enemy);
     assert.equal(JSON.stringify(wolf), before);
+});
+
+test('R2: an offered foe that names a ref is that foe (an unknown ref is none); the adapter throwing leaves the v1 foe, so a fight always starts', () => {
+    const query = (name) => {
+        if (name === 'atlas.canonical') return { id: 'pack.fixture/haven' };
+        if (name === 'world.areaTier') return AREA;
+        return null;
+    };
+    const ctx = { query };
+    const setup = { turns: 'timeline', hit: {}, enemies: [{ id: 'fo_00000001', name: 'Hound', questName: 'Hound', ref: 'pack.fixture/wolf' }, { id: 'fo_00000002', name: 'Wolf', questName: 'Wolf', ref: 'pack.fixture/nobody' }, { id: 'fo_00000003', name: 'Wolf', questName: 'Wolf' }] };
+    const out = packFoes(ctx, ix, setup);
+    assert.deepEqual(out.enemies.map(foe => foe.pack ?? null), ['pack.fixture/wolf', null, 'pack.fixture/wolf'], 'by ref; an unknown ref is no foe; by name when no ref');
+    assert.equal(out.enemies[0].name, 'Hound', 'the offer\'s own name stays');
+    const broken = { ...ix, itemDef() { throw new Error('boom'); } };
+    const kept = packFoes(ctx, broken, setup);
+    assert.deepEqual(kept.enemies, setup.enemies, 'nothing swapped, nothing thrown');
 });
 
 // --- the fight ----------------------------------------------------------------------------------------------------------------------
@@ -117,19 +157,38 @@ const attackAll = async w => {
     throw new Error('the fight did not end');
 };
 
-play('the pack\'s foe fights to the end: a win pays its XP, and its loot row is granted from the pack\'s definition', async t => {
+const fightToEnd = async (t, { register, story = false }) => {
     AREA_TIERS['pack.fixture/haven'] = 1;
     t.after(() => { delete AREA_TIERS['pack.fixture/haven']; });
     const w = await ready(t);
+    if (story) await w.say('A coil of rope.', ['~ here pack.fixture/haven', '+ item Rope | qty: 1']);
+    if (register) assert.equal(w.ui('test.packDefs').ok, true);
     await begin(w, '! encounter 1 Wolf — hungry | tier: weak', '~ here pack.fixture/haven');
     const done = await attackAll(w);
     assert.equal(done.status, 'won');
     const ended = w.ui('combat.end', { session: done.id });
     assert.equal(ended.ok, true, ended.message);
-    const last = w.q('combat.last', {}) ?? w.slice('combat').last?.[0];
-    assert.ok(last, 'a result was kept');
-    assert.ok(w.q('inventory.items', { owner: 'party' }).some(row => /rope/i.test(row.name ?? row.def ?? '')), 'the rope dropped (chance 100)');
+    return { w, ended };
+};
+
+play('the pack\'s foe fights to the end: a win pays its XP, and its loot row is the frozen pinned definition (the pack\'s stack), never a lookup by name', async t => {
+    const { w, ended } = await fightToEnd(t, { register: true });
+    assert.deepEqual(ended.receipt.data.loot.items.map(item => [item.name, item.qty]), [['Rope', 2]]);
+    const stacks = w.q('inventory.items', { owner: 'party' }).filter(row => row.def === 'pack.fixture/rope' || row.defId === 'pack.fixture/rope');
+    assert.equal(stacks.reduce((sum, row) => sum + row.qty, 0), 2, JSON.stringify(w.q('inventory.items', { owner: 'party' })));
     assert.deepEqual(w.problems(), []);
+});
+
+play('a drop that names its pinned definition is that definition even when a story item has the same name', async t => {
+    const { w, ended } = await fightToEnd(t, { register: true, story: true });
+    assert.deepEqual(w.q('inventory.items', { owner: 'party' }).map(row => [row.def ?? row.defId, row.qty]).sort(), [['pack.fixture/rope', 2], ['story/rope', 1]]);
+    assert.equal(ended.receipt.data.loot.items[0].qty, 2);
+});
+
+play('a pinned drop whose definition the chat does not hold (rules cannot register a pack id here) is held and told, never a failed end', async t => {
+    const { ended } = await fightToEnd(t, { register: false });
+    assert.deepEqual(ended.receipt.data.loot.items, []);
+    assert.deepEqual(ended.receipt.data.loot.left.map(item => [item.name, item.reason]), [['Rope', 'held']]);
 });
 
 play('an area that does not allow the foe leaves the v1 projection in its place: the fight still begins', async t => {

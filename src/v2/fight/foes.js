@@ -6,6 +6,8 @@
 //   1. the area must have a tier (0..9): without one nothing can be bounded, and the foe is refused ('AREA');
 //   2. the foe must be a well-formed record of the pack (stats 1..99, 1..3 skills, up to 8 loot rows, up to 8 tags) ('FOE');
 //   3. its level may not pass the area's ceiling, min(99, 10 x (tier + 1)) ('LEVEL');
+//   3b. its stats may not total more than the point-buy a player of its level could reach, 35 + 10 + 4 x (level - 1) (the level held to the
+//      area's ceiling): a foe over it is refused, never clamped ('BUDGET'). INTERIM (lead decision) until the ruleset's authors publish a foe budget;
 //   4. `allowedFoes`, when the area lists any, must name it ('FOE_NOT_ALLOWED'); `allowedTags`, when it lists any, must name every
 //      one of its lore tags ('TAG_NOT_ALLOWED'). An empty list says nothing (contract: only an unknown place has "empty lists" and no tier);
 //   5. every skill is a skill of the ruleset with a base form, every loot row an item with a complete definition ('REF').
@@ -22,6 +24,8 @@ import { isObject } from '../rules/ids.js';
 
 const int = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
 const text = (value, max) => typeof value === 'string' && value.length >= 1 && value.length <= max;
+/** The most a foe's seven stats may total at `level`: the player's point-buy (7 stats at the start value 5, 10 starting points, 4 a level). Interim. */
+export const foeStatBudget = level => 35 + 10 + 4 * (level - 1);
 const refuse = (code, why) => ({ ok: false, code, why });
 const foeRecord = ordinal => `fo_${String(ordinal).padStart(8, '0')}`;
 
@@ -38,7 +42,7 @@ function shapeProblem(foe) {
 
 /**
  * foe, { rules (the fight's), forms (the pinned index), items (ref -> complete ItemDef or null), area (AreaTier), ordinal (1-based) }
- * -> { ok: true, enemy } | { ok: false, code: 'AREA' | 'FOE' | 'LEVEL' | 'FOE_NOT_ALLOWED' | 'TAG_NOT_ALLOWED' | 'REF', why }.
+ * -> { ok: true, enemy } | { ok: false, code: 'AREA' | 'FOE' | 'LEVEL' | 'BUDGET' | 'FOE_NOT_ALLOWED' | 'TAG_NOT_ALLOWED' | 'REF', why }.
  */
 export function foeToEngine(foe, { rules, forms, items, area, ordinal } = {}) {
     if (!isObject(area) || !int(area.tier, 0, 9)) return refuse('AREA', 'The place has no tier, so no foe can be bounded.');
@@ -47,6 +51,9 @@ export function foeToEngine(foe, { rules, forms, items, area, ordinal } = {}) {
     if (!int(ordinal, 1, 99999999)) return refuse('FOE', 'A foe has an ordinal from 1.');
     const ceiling = levelCeiling(area.tier);
     if (foe.level > ceiling) return refuse('LEVEL', `A tier ${area.tier} place holds foes to level ${ceiling}, not ${foe.level}.`);
+    const total = STATS.reduce((sum, stat) => sum + foe.stats[stat], 0);
+    const room = foeStatBudget(Math.min(foe.level, ceiling));
+    if (total > room) return refuse('BUDGET', `${foe.name}'s stats total ${total}; a level ${foe.level} foe may total ${room}.`);
     const foes = Array.isArray(area.allowedFoes) ? area.allowedFoes : [];
     if (foes.length && !foes.includes(foe.id)) return refuse('FOE_NOT_ALLOWED', `${foe.name} is not among the foes this place allows.`);
     const tags = Array.isArray(area.allowedTags) ? area.allowedTags : [];
