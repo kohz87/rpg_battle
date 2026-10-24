@@ -148,6 +148,8 @@ export function storeSaving({ ctx, live = () => ctx, fetch = null, onSaveError =
             } catch { return false; }
         },
         chat: () => ctx.chat,
+        // The chat's metadata (SillyTavern's, saved with the chat file): the store keeps the source-map archive there.
+        metadata: () => context().chatMetadata ?? null,
         chatId: () => (typeof ctx.getCurrentChatId === 'function' ? ctx.getCurrentChatId() : ctx.chatId),
         place: () => file.where(),
         save: (change, { keepalive = false, signal = null, stamp: wanted = false } = {}) => {
@@ -388,7 +390,7 @@ export function createRuntime({
             // The chatter the reader may send back to the story (its setting): the replies and how to read one.
             // The head reply's index too, for `scene.moved` (the store is made below; asked only later).
             // Whether Story Director's World screen is there (it shows the chatter; else Scene does: `scene.chatter`).
-            extras: { chat: () => ctx.chat, display, headIndex: () => store.headIndex(), worldShown: () => registry.screens().some(screen => screen.id === DEFAULT_HIDDEN[SCENE_SCREEN_ID]) },
+            extras: { chat: () => ctx.chat, display, headIndex: () => store.headIndex(), proofs: () => store.proofs(), worldShown: () => registry.screens().some(screen => screen.id === DEFAULT_HIDDEN[SCENE_SCREEN_ID]) },
             version: VERSION,
             packs: packPart,
             // Due events are the host's own system cues: straight to the bus (the public sdk only runs
