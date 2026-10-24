@@ -424,7 +424,8 @@ test('equipment styles: the marked tile\'s words use the text token (the red is 
     const rule = /\.rpg-eq-tile\.armed \.rpg-eq-sub \{([^}]*)\}/.exec(EQUIPMENT_CSS);
     assert.ok(rule, 'the armed sub line has a rule');
     assert.match(rule[1], /color: var\(--ss-text\)/);
-    // every colour in the sheet is a Story Block token; the only literal is the red's fallback (the Follow SillyTavern look has no --ss-bad yet)
-    assert.deepEqual([...new Set(EQUIPMENT_CSS.match(/#[0-9a-f]{3,8}\b|rgba?\(/gi) ?? [])], ['#e5484d']);
+    // every colour in the sheet is a Story Block token (no literal), and a use of --ss-bad falls back to the text red where a look has none
+    assert.deepEqual(EQUIPMENT_CSS.match(/#[0-9a-f]{3,8}\b|rgba?\(/gi) ?? [], []);
     assert.equal((EQUIPMENT_CSS.match(/var\(--ss-bad\)/g) ?? []).length, 0, 'every use of --ss-bad carries the fallback');
+    assert.match(EQUIPMENT_CSS, /var\(--ss-bad, var\(--ss-bad-text\)\)/);
 });

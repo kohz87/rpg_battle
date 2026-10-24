@@ -320,8 +320,8 @@ export const EQUIPMENT_CSS = `
 .rb button.rpg-eq-tile:focus-visible, .rb .rpg-eq-tile.empty:focus-visible { outline: 2px solid var(--ss-accent); outline-offset: 2px; }
 .rb .rpg-eq-tile.empty { background: none; border-style: solid; }
 .rb .rpg-eq-tile.extra { border-style: dashed; }
-/* the red has a fallback: the Follow SillyTavern look does not define --ss-bad yet */
-.rb .rpg-eq-tile.armed { border-color: var(--ss-bad, #e5484d); background: color-mix(in srgb, var(--ss-bad, #e5484d) 14%, var(--ss-tile)); box-shadow: inset 0 0 0 1px var(--ss-bad, #e5484d); }
+/* the red falls back to the text red: the Follow SillyTavern look does not define --ss-bad yet (the screens test allows no literal colour) */
+.rb .rpg-eq-tile.armed { border-color: var(--ss-bad, var(--ss-bad-text)); background: color-mix(in srgb, var(--ss-bad, var(--ss-bad-text)) 14%, var(--ss-tile)); box-shadow: inset 0 0 0 1px var(--ss-bad, var(--ss-bad-text)); }
 .rb .rpg-eq-slot { font-size: 10px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--ss-text); }
 .rb .rpg-eq-name { font-size: 14px; font-weight: 700; line-height: 1.2; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
 .rb .rpg-eq-tile.empty .rpg-eq-name { font-weight: 600; color: var(--ss-muted); }
@@ -332,7 +332,7 @@ export const EQUIPMENT_CSS = `
 .rb .rpg-eq-bar { display: block; height: 4px; border-radius: 999px; overflow: hidden; background: var(--ss-track); }
 .rb .rpg-eq-bar > span { display: block; height: 100%; width: calc(var(--rpg-ratio, 1) * 100%); background: var(--ss-good); }
 .rb .rpg-eq-cond.ss-tone-warn .rpg-eq-bar > span { background: var(--ss-warn); }
-.rb .rpg-eq-cond.ss-tone-bad .rpg-eq-bar > span { background: var(--ss-bad, #e5484d); }
+.rb .rpg-eq-cond.ss-tone-bad .rpg-eq-bar > span { background: var(--ss-bad, var(--ss-bad-text)); }
 .rb .rpg-eq-help { margin: 0; font-size: 12px; color: var(--ss-muted); }
 .rb .rpg-eq-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .rb .rpg-toggle { flex: none; width: 44px; height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; margin: 0;
