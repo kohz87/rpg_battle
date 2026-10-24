@@ -194,7 +194,7 @@ export function partyCombatants(ctx, { rules = DEFAULT_RULES } = {}) {
         // (rules v2) On a pinned ruleset the fighter's skills are its class's three forms, not the v1 library's.
         const held = ix ? fightSkills(ctx, ix, actor.id) : null;
         if (held) c.skills = held;
-        if (ix) restoreStrengths(ctx, c);
+        if (ix) restoreStrengths(ctx, c, rules);
         c.gone = c.hp.cur <= 0 ? 'down' : null;
         const numbers = tryQuery(ctx, 'party.combatNumbers', { id: actor.id }, null);
         if (numbers && typeof numbers === 'object') {

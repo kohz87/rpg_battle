@@ -9,6 +9,7 @@ import { hashJson } from '../../../src/v2/rules/hash.js';
 import { resolveBatch } from '../../../src/v2/fight/batch.js';
 import { roundsLeft } from '../../../src/v2/party/pools.js';
 import { seeded } from '../integration/helpers/host.js';
+import { DEFAULT_RULES } from '../../../src/rules.js';
 
 // Every dice and id of a host comes from a seed: these fights are the same fights on every run.
 const play = (name, fn) => test(name, t => seeded(7, () => fn(t)));
@@ -287,20 +288,21 @@ play('what a fight left on a character is dated by the ending minute: a conditio
     assert.ok(DAY > 0);
 });
 
-play('a regeneration a fight left keeps its strength into the next fight (the party record keeps only kind and rounds)', async t => {
+play('a regeneration a fight left keeps its strength into the next fight (the party record keeps only kind and rounds); one the story gave acts as the engine\'s default, never as nothing', async t => {
     const w = await ready(t);
-    // A sealed result that recorded a regeneration of strength 7 with 3 rounds left, and the character carrying "regenerating" with 2.
-    const bytes = { v: 1, kind: 'fight', fight: 'fi_00000001', party: [{ actor: w.pc, conditions: [{ kind: 'regenerating', stacks: 3, rounds: 3, strength: 7, at: 3000, source: null }] }] };
-    assert.equal(w.host.bus.command('test.batch', { id: 'br_00000001', bytes }, { cause: 'ui' }).ok, true);
+    // What the last fight left for the character: a regeneration of strength 7 with 3 rounds left, and the party record carrying "regenerating" with 2.
+    assert.equal(w.host.bus.command('test.carried', { actor: w.pc, list: [{ kind: 'regenerating', rounds: 3, strength: 7 }] }, { cause: 'ui' }).ok, true);
     assert.equal(w.host.bus.command('test.condition', { actor: w.pc, kind: 'regenerating', rounds: 2, at: 3000 }, { cause: 'ui' }).ok, true);
     const v = await begin(w);
     const stored = fights(w)[v.id].setup.party.find(c => c.memberId === w.pc);
     assert.deepEqual(stored.conditions.map(cond => [cond.name, cond.rounds, cond.power]), [['regen', 2, 7]]);
-    // A character with no such record regenerates what v1 gave it: nothing.
+    // One that no fight left (the story gave it) heals the engine's default share of maximum HP, not nothing.
     const other = await ready(t);
     assert.equal(other.host.bus.command('test.condition', { actor: other.pc, kind: 'regenerating', rounds: 2, at: 3000 }, { cause: 'ui' }).ok, true);
     const o = await begin(other);
-    assert.equal(fights(other)[o.id].setup.party.find(c => c.memberId === other.pc).conditions[0].power, 0);
+    const member = fights(other)[o.id].setup.party.find(c => c.memberId === other.pc);
+    assert.equal(member.conditions[0].power, Math.max(1, Math.round(member.hp.max * DEFAULT_RULES.combat.dotMaxHpShare)));
+    assert.ok(member.conditions[0].power > 0);
 });
 
 const CALL = ref('s11-base');

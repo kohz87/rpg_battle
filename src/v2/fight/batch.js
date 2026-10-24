@@ -26,6 +26,9 @@ export const isBatchId = value => typeof value === 'string' && BATCH_ID.test(val
 
 const sorted = list => [...list].sort((a, b) => (JSON.stringify(a) < JSON.stringify(b) ? -1 : 1));
 
+/** The strength a condition stands at on a member of the finished fight (0 when it has none). */
+const strengthOf = (fight, memberId, name) => fight?.combatants?.find(c => c.memberId === memberId)?.conditions?.find(cond => cond.name === name)?.power ?? 0;
+
 /**
  * The bytes of a fight's result. `fight`: the finished engine fight; `session`: the stored one (setup and actions); `result`: v1's
  * summarize of it (loot money already in the chat's scale); `ix`: the pinned index; `at`: the ending minute or null.
@@ -51,7 +54,8 @@ export function batchBytes({ fight, session, result, ix, at = null }) {
         party: result.party.map(member => ({
             actor: member.memberId, name: member.name, level: member.level,
             hp: { ...member.hp }, mp: { ...member.mp }, sp: member.sp ? { ...member.sp } : null, down: member.down,
-            conditions: member.conditions.map(cond => conditionRecord(cond, { at })),
+            // v1's summary keeps a condition's name and rounds only; the strength it was applied with is the fight's own combatant's.
+            conditions: member.conditions.map(cond => conditionRecord({ ...cond, power: strengthOf(fight, member.memberId, cond.name) }, { at })),
         })),
         enemies: result.enemies.map(e => ({ id: e.id, name: e.name, gone: e.gone ?? null, xp: e.xp ?? 0, level: e.level ?? 1, rank: e.rank ?? null })),
         defeated: [...result.defeated],

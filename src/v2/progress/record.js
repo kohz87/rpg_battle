@@ -11,8 +11,7 @@
 import { choiceKey } from './derive.js';
 import { KINDS } from './credit.js';
 import { MAX_ATTEMPTS } from './domain.js';
-import { indexOf } from '../rules/graph.js';
-import { pinOf } from '../rules/pin.js';
+import { indexOfCtx } from '../rules/graph.js';
 import { epochOf, idFromHash, isActorId, isDefId, isObject, isRecordId } from '../rules/ids.js';
 
 // A Source as an attempt keeps it: the reply and swipe it stands on and its evidence id, never the ordinal (the host numbers a
@@ -21,7 +20,7 @@ const whole = source => ({ sid: source.sid, swipeKey: source.swipeKey, evidence:
 
 /** The pinned index for a writer, or a refusal. */
 function ixOf(ctx) {
-    const ix = indexOf(pinOf({ domains: { rules: ctx.read('rules') } }));
+    const ix = indexOfCtx(ctx);
     if (!ix) ctx.fail('REFUSED', 'This chat does not run a rules pack.');
     return ix;
 }
@@ -123,7 +122,7 @@ export function recordCombatUses(ctx, { fight, uses } = {}) {
     const ids = [];
     let created = 0;
     if (typeof fight !== 'string' || !fight || !Array.isArray(uses) || !ctx.source) return { ids, created };
-    const ix = indexOf(pinOf({ domains: { rules: ctx.read('rules') } }));
+    const ix = indexOfCtx(ctx);
     if (!ix) return { ids, created };
     for (const item of uses) {
         if (!isObject(item) || !Number.isSafeInteger(item.count) || item.count < 1 || item.count > 1000) continue;

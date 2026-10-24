@@ -24,6 +24,7 @@ import { hashJson } from '../rules/hash.js';
 import { idFromHash } from '../rules/ids.js';
 import { formHooks } from '../../combat.js';
 import { addShift, syncShifts } from './shifts.js';
+import { selectionProblems } from './records.js';
 
 export const HOSTILE_CONDITIONS = Object.freeze(['poison', 'burn', 'bleed', 'stun', 'daze', 'slow', 'weaken']);
 export const FRIENDLY_CONDITIONS = Object.freeze(['regen', 'guard']);
@@ -46,7 +47,6 @@ export function scopeOfPart(part) {
     return word === 'all' || word === 'allies' ? 'all' : 'one';
 }
 
-const SELECTION_KEYS = ['effect', 'targets'];
 
 function poolFor(scope, view, actor) {
     if (scope === 'self') return [actor];
@@ -62,14 +62,12 @@ export function planForm(f, actor, skill, action, view) {
     const parts = skill.parts;
     const given = new Map();
     if (action.selections !== undefined) {
-        if (!Array.isArray(action.selections)) throw new Error('The selections are a list of { effect, targets }.');
+        // The shape is the one validator's (records.js); what follows is about this form: its effects, each chosen once, no target twice.
+        const shape = selectionProblems(action.selections);
+        if (shape.length) throw new Error(shape[0]);
         for (const sel of action.selections) {
-            if (sel === null || typeof sel !== 'object' || Array.isArray(sel) || Object.keys(sel).some(key => !SELECTION_KEYS.includes(key)) || !SELECTION_KEYS.every(key => Object.hasOwn(sel, key))) {
-                throw new Error('A selection is { effect, targets } and nothing else.');
-            }
             if (!Number.isInteger(sel.effect) || sel.effect < 0 || sel.effect >= parts.length) throw new Error(`${skill.name} has no effect ${sel.effect}.`);
             if (given.has(sel.effect)) throw new Error(`The effect ${sel.effect} is chosen twice.`);
-            if (!Array.isArray(sel.targets) || sel.targets.some(id => typeof id !== 'string')) throw new Error('The targets of an effect are a list of ids.');
             if (new Set(sel.targets).size !== sel.targets.length) throw new Error(`The effect ${sel.effect} names a target twice.`);
             given.set(sel.effect, sel.targets);
         }
@@ -119,7 +117,8 @@ export function performForm(f, actor, plan, rng, rules, engine) {
     if (costs.mp) actor.mp.cur -= costs.mp;
     if (costs.sp && actor.sp) actor.sp.cur -= costs.sp;
     skill.cooldownLeft = skill.cooldown ?? 0;
-    if (actor.side === 'party') bump(f.stats.uses, actor.memberId, skill.formId);
+    // A summoned unit's use earns nobody mastery: only the party's own members are counted.
+    if (actor.side === 'party' && !actor.summoned) bump(f.stats.uses, actor.memberId, skill.formId);
     const verb = skill.type === 'magic' || (skill.type !== 'physical' && skill.stat === 'INT') ? 'casts' : 'uses';
     log(f, actor, `${label(actor)} ${verb} ${skill.name}.`, 'skill');
     for (const { index, part, targets } of picks) {

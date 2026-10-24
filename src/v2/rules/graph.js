@@ -74,3 +74,13 @@ export function indexOf(pin) {
 
 /** The index of the pinned ruleset in a state, or null (a legacy chat or nothing pinned). */
 export const indexOfState = state => indexOf(pinOf(state));
+
+/**
+ * The index of the pinned ruleset a command's context holds, or null: no pin, or no `rules` domain registered at all (a chat that
+ * runs no rules module). The one reader every writer uses.
+ */
+export function indexOfCtx(ctx) {
+    let rules = null;
+    try { rules = ctx.read('rules'); } catch { rules = null; }
+    return rules ? indexOf(pinOf({ domains: { rules } })) : null;
+}

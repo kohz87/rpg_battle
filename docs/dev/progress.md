@@ -145,6 +145,10 @@ this slice, and `engine-unchanged.test.js` plays them again; `pinned.test.js` pl
   is dated by the fight's `endingMinute`, so a read at `endingMinute + 10` has one round less. Stat shifts are fight-only conditions
   (`fight/shifts.js`); summoned units (`summon.begin`/`summon.settle`, `progress/roster.js`) join the party's side with the caster's shares,
   act on auto, are never party members and never keep a wipe from counting.
+- **combat.start** carries a replay guard (`combat.start { fight, offer, party }`, `fight/guards.js` `buildStart`): the offer is still there and
+  each fighter holds the forms, at the mastery, the fight was begun with, recomputed with `fightForms` from the state before the block. Take
+  back the promotion or the narrative use that gave a form or a mastery and the start goes off, and the acts and the end stand on a fight
+  that is not there, so they go with it.
 - **combat.act** carries a replay guard (`combat.act`, `fight/guards.js`): the prefix of actions it stands on. Take back an action and the
   ones after it go off with it (`REPLAY_PREREQUISITE`), nothing is put in their place.
 - **combat.end** (`settleEnd`, first in the end settlement) carries the guard that binds the fight's terminal prefix, ends the fight's units,
@@ -158,9 +162,28 @@ this slice, and `engine-unchanged.test.js` plays them again; `pinned.test.js` pl
   function Story Block's `batchResults.resolve` calls; it returns null for a missing id or bytes that do not hash to their hash. Once
   sealed under an id the bytes never change (a rebuild, a reload and a second fight leave them). The receipt and `combat.last` carry
   `batch: { id, hash }`. Wiring `batchResults` on the module definition is lead-owned (`module.js`) and is not done here.
-- **Loot.** A drop whose new definition the pin cannot register (story equipment, a rarity over the place's ceiling, a place with no tier) is
-  left behind with the ones the party cannot carry (`lootHeld`), so a refused registration inside the grant never fails the fight's end. The
-  end's summary says "too heavy to carry" for those too (v1's words; unchanged on purpose).
+- **Loot never fails the end.** `registrable(env, offered)` (`rules/items.js`) is the one question `rules.registerItem`, its replay guard and a
+  fight's loot all ask: shape, a generated prefix, a rule that fits (equipment states its own), the template, the bounds (the value ceiling is
+  read in the chat's coin: `valueCeiling(rarity, level, scale)`, the scale riding in the area snapshot), an id never redefined, and the
+  1000-rule closure. `lootProblem(ctx, def)` runs it on the def as Story Block's `item.define` hook prices it (`defineItem` with
+  `{ note: '', owner: 'party', scale }`), so what it holds is exactly what a registration would refuse. A held drop is left behind with
+  `reason: 'held'` and a `cause` (`equipment`, `no-tier`, `rules`); weight keeps v1's sentence ("Left behind, too heavy to carry") and a held
+  drop has its own ("Couldn't be kept here", with "set the area's danger to keep loot like this" when no tier is known: Story Director dormant or no
+  policy for the place). `loot.left` rows are additive (`reason`, `cause`, pinned chats only). The end's guard also carries the area
+  (`{ place, tier, scale }`), so taking back the reply that set the place takes the registered loot with it.
+- **Summoned units earn nothing**: their use is not counted by the engine (`performForm`) and the settlement keeps only `session.setup.party`
+  actors in the uses and the batch. The foes' XP follows the pin: `pinnedSetup` stores `xpBase = xpPerLevel` (exponent 0) and `fightRules`
+  honours a setup's `xpBase`; a v1 setup has none.
+- **A fight is pinned or not by its session** (`setup.draws === 'action'`), not by the chat's pin of the moment: `end` and `settleEnd` key on it, so a
+  fight begun before the pin settles as v1 would (uses by the v1 path, XP without a claim). A v1 action never keeps an `id`, `form` or
+  `selections` a caller sent, and a `form` action is refused.
+- **Carried strengths** (`progress.carried[actor] = [{ kind, rounds, strength }]`): every end replaces the entry of each member of the fight
+  (from the sealed record, whose strength is the combatant's, since v1's summary keeps names and rounds only). The next fight reads a
+  regeneration's strength from it; one the story gave acts as the engine's damage-over-time default (a share of maximum HP), never as nothing.
+- **summon.begin** takes `standing` (how many units of the fight stand now, this one included: the fight knows who is down; seven is refused)
+  and keeps the record bounded at 24 by age (`born`), ended first, then ones that left their fight, then the oldest called.
+- **progress.batches** are never written over (`storeBatch`: a taken id is a `CONFLICT`); the newest 8 results of fights are kept and a result of
+  another kind (B6's death and return) is exempt from that pruning.
 
 **Hook lines outside this part** (a pinned fight needs them; each is a one-liner or a guarded branch, all but the engine's behind `pinnedOf`):
 
@@ -168,23 +191,29 @@ this slice, and `engine-unchanged.test.js` plays them again; `pinned.test.js` pl
   `formHooks.shifts` at the start and end of a turn, `type: 'form'` and skills with `parts` in `resolve`/`perform`, `form` in
   `availableActions`, the per-action stream in `actInPlace` (`f.drawsBy === 'action'`), `drawsBy` in `startFight`, `joinFight` and `ENGINE`,
   summoned units outside the wipe check and `summarize`.
-- `src/v2/combat/index.js` (+20/-7): imports; `form` action fields; `built`/`pinnedSetup` and `beginUnits` in `start`; `actionWithId`,
+- `src/v2/combat/index.js` (+45/-16): imports; `form` action fields; `built`/`pinnedSetup` and `beginUnits` in `start`; `actionWithId`,
   `guardAction` and `beginUnits` in the play path; `settleEnd` first in `end`; `uses: {}` and the XP `claim` for a pinned fight; `sealed.batch`
-  on the last result and the receipt; `lootHeld` in `grantLoot`; the pin's slice into `cardContext`.
+  on the last result and the receipt; `lootProblem` and the held rows in `grantLoot` (and the sentence for them in `end`), `guardStart` in `start`, `actionWithId` stripping v1 actions, the session (not the pin) deciding the v1 or pinned settlement; the pin's slice into `cardContext`.
 - `src/v2/combat/setup.js` (+6): the pinned skills and `restoreStrengths` in `partyCombatants`.
+- `src/v2/combat/stored.js` (+3/-1): `fightRules` honours a setup's `xpBase` (a pinned fight's XP per level).
 - In the parts of this module: `progress/guard.js` (kinds `combat.act`, `combat.end`), `progress/assess.js` (dispatch), `progress/domain.js`
   (`batches`, `unitProblem` exported), `progress/roster.js` (`summon.begin`, `summon.settle`), `rules/commands.js` (`attachIfFree`, because
   the loot grant inside `combat.end` registers items under the end's own guard).
 
+**Additions for the contract** (the lead folds them in): `summon.begin { actor, owner, kind, template, fight, name, level, standing, hp, mp, sp }` and
+`summon.settle { fight, units: [{ actor, reason: null | 'downed' | 'expired' }] }` (both the combat part's own steps, refused for anyone else);
+`br_xxxxxxxx` ids for sealed results and `ca_xxxxxxxx` for actions; `combat.act` with `{ type: 'form', form, selections: [{ effect, targets }] }`
+(effects 0-3, four selections at most, the id made by the host); the `combat.session` projection `actions.skills[].form` (`describeForm`:
+`{ id, skill, effects: [{ index, op, side, scope, choose, legal: [combatant ids] }] }`, next to the v1 fields name, usable, reason and target); the guard kinds `combat.start`, `combat.act`,
+`combat.end`; `progress.carried`; `skill.cancelTrain` (slice 2).
+
 **Gaps and differences (written down, not decided):**
 
 - Death, return and wipe batches (B6), Story Director checks, danger and NSD (slice 4) are not here. `BatchResult` v1 is the fight's own kind.
-- A carried condition's strength is known only from a sealed result; a character who keeps a regeneration from a fight whose result was
-  evicted (more than eight fights later) carries the condition without its recorded strength, and the engine's own default for it applies (`restoreStrengths`).
-- Foe adapters (`foeToEngine`) and element resistances are not in the engine; foes are v1's, scaled as before.
-- The value the `item.define` hook gives a loot item is checked at registration, not by `lootHeld`; a drop over the value ceiling can still
-  fail a grant. (The value ceiling is generous: four times the stat budget at the level ceiling, by rarity.)
-- `batchResults.resolve` is wired by the lead on the module definition; until then nothing in Story Block reads `progress.batches`.
+- Foe adapters (`foeToEngine`) and element resistances: deferred to the area-tier slice (the lead's decision); elements are not promised.
+- `batchResults.resolve` is wired by the lead at integration, one resolver for fight and death batches; until then nothing in Story Block reads
+  `progress.batches`.
+- `lootProblem` mirrors Story Block's hook call (`{ note: '', owner: 'party', scale }`, level 1); if Story Block's call changes, so must it.
 
 ## Differences from the contract and track C's fixtures, and gaps (written down, not decided)
 

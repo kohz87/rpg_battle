@@ -17,8 +17,7 @@ import { assess } from './assess.js';
 import { attachGuard } from './guard.js';
 import { recordAttempt } from './record.js';
 import { fitPool, storedPool } from '../party/pools.js';
-import { indexOf } from '../rules/graph.js';
-import { pinOf } from '../rules/pin.js';
+import { indexOfCtx } from '../rules/graph.js';
 import { epochOf, isActorId, isDefId, isObject, isRecordId } from '../rules/ids.js';
 
 const FIELDS = ['actor', 'skill', 'form', 'paid'];
@@ -29,7 +28,7 @@ export function useSkill(ctx, payload) {
     const paid = payload.paid ?? null;
     if (paid !== null && !isRecordId(paid)) ctx.fail('INVALID', 'The paid use is a proof id.');
     if (ctx.cause === 'ui' && !ctx.caller) ctx.fail('REFUSED', 'A skill is used in the story, not from a button.');
-    const ix = indexOf(pinOf({ domains: { rules: ctx.read('rules') } }));
+    const ix = indexOfCtx(ctx);
     if (!ix) ctx.fail('REFUSED', 'This chat does not run a rules pack.');
     const fixed = { actor: payload.actor, skill: payload.skill, form: payload.form, paid };
     const answer = assess('skill.use', { ix, progress: ctx.read('progress'), query: (name, args) => ctx.query(name, args) }, fixed);

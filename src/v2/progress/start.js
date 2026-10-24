@@ -13,13 +13,12 @@
 import { assess } from './assess.js';
 import { attachGuard } from './guard.js';
 import { recordBasicClass } from './record.js';
-import { indexOf } from '../rules/graph.js';
-import { pinOf } from '../rules/pin.js';
+import { indexOfCtx } from '../rules/graph.js';
 import { isDefId, isRecordId } from '../rules/ids.js';
 
 /** → { choice } when a class was recorded, or null when the chat pins no rules. */
 export function startRulesClass(ctx, { actor, class: ref, checkActor } = {}) {
-    const ix = indexOf(pinOf({ domains: { rules: ctx.read('rules') } }));
+    const ix = indexOfCtx(ctx);
     if (!ix) return null;
     if (!isDefId(ref)) ctx.fail('INVALID', 'Choose a basic class for the new character.');
     if (checkActor !== undefined && checkActor !== null && !(isRecordId(checkActor) && checkActor.startsWith('ca_'))) ctx.fail('INVALID', 'The check actor is a ca_ id.');

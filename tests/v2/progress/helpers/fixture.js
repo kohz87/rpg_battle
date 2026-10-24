@@ -142,6 +142,8 @@ export function fightPack() {
         { op: 'shield', target: 'self', power: 50, element: 'none', damageType: null },
         { op: 'stat', target: 'self', stat: 'STR', amount: 1, rounds: 2 },
     ] });
+    // A tier-1 skill that mends its user a little each turn (a regeneration, whose strength the fight resolves and the party record does not keep).
+    set('s12', { type: 'magic', stat: 'INT', unit: null, cost: { mp: 3, sp: 0, cooldown: 2 }, effects: [{ op: 'condition', target: 'self', kind: 'regen', chance: 100, rounds: 4 }] });
     // A tier-1 skill that calls a unit (a unit costs 12 of a tier's budget): half the caster's stats and pools, three rounds, the first class's forms.
     skills.find(skill => skill.slug === 's11').base = { type: 'physical', stat: 'STR', cost: { mp: 0, sp: 2, cooldown: 3 }, effects: [{ op: 'damage', target: 'one', power: 60, element: 'none', damageType: 'physical' }], unit: { kind: 'summon', class: 'c0', statShare: 50, poolShare: 50, rounds: 3 } };
     return pack;

@@ -15,7 +15,6 @@ import { CONDITION_KINDS } from '../../combat.js';
 import { hashJson } from '../rules/hash.js';
 import { isObject } from '../rules/ids.js';
 
-export const RECORD_VERSION = 1;
 const ACTION_ID = /^ca_[0-9a-z]{8}$/;
 export const isActionId = value => typeof value === 'string' && ACTION_ID.test(value);
 
@@ -29,14 +28,7 @@ export function actionProblems(action) {
     if (!ACTION_TYPES.includes(action.type)) errors.push(`An action is one of ${ACTION_TYPES.join(', ')}.`);
     if (!isActionId(action.id)) errors.push('A pinned fight\'s action carries its id like ca_k3f9a2qz.');
     if (action.type === 'form' && (typeof action.form !== 'string' || !action.form)) errors.push('A form action names the form by its id.');
-    if (action.selections !== undefined) {
-        if (!Array.isArray(action.selections) || action.selections.length > 4) errors.push('Selections are a list of at most four.');
-        else for (const sel of action.selections) {
-            if (!isObject(sel) || Object.keys(sel).sort().join() !== 'effect,targets' || !Number.isInteger(sel.effect) || sel.effect < 0 || sel.effect > 3 || !Array.isArray(sel.targets) || sel.targets.length > 12 || sel.targets.some(id => typeof id !== 'string')) {
-                errors.push('A selection is { effect: 0-3, targets: [ids] }.');
-            }
-        }
-    }
+    if (action.selections !== undefined) errors.push(...selectionProblems(action.selections));
     return errors;
 }
 
@@ -66,16 +58,17 @@ export function conditionProblems(record) {
     return errors;
 }
 
+/** The one validator of a form action's `selections`: [] or sentences. Each is { effect: 0-3, targets: [ids] } and a list holds four at most. */
+export function selectionProblems(list) {
+    if (!Array.isArray(list) || list.length > 4) return ['Selections are a list of at most four.'];
+    const ok = sel => isObject(sel) && Object.keys(sel).sort().join() === 'effect,targets' && Number.isInteger(sel.effect) && sel.effect >= 0 && sel.effect <= 3
+        && Array.isArray(sel.targets) && sel.targets.length <= 12 && sel.targets.every(id => typeof id === 'string' && id.length > 0 && id.length <= 80);
+    return list.every(ok) ? [] : ['A selection is { effect: 0-3, targets: [ids] }.'];
+}
+
 /** Copies a form action's `selections` from `action` into `out` if they are the closed shape; false when they are not. */
 export function cleanFormFields(action, out) {
-    const list = action.selections;
-    if (!Array.isArray(list) || list.length > 4) return false;
-    const clean = [];
-    for (const sel of list) {
-        if (!isObject(sel) || Object.keys(sel).sort().join() !== 'effect,targets' || !Number.isInteger(sel.effect) || sel.effect < 0 || sel.effect > 3) return false;
-        if (!Array.isArray(sel.targets) || sel.targets.length > 12 || sel.targets.some(id => typeof id !== 'string' || !id || id.length > 80)) return false;
-        clean.push({ effect: sel.effect, targets: [...sel.targets] });
-    }
-    out.selections = clean;
+    if (selectionProblems(action.selections).length) return false;
+    out.selections = action.selections.map(sel => ({ effect: sel.effect, targets: [...sel.targets] }));
     return true;
 }
