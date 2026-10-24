@@ -38,6 +38,7 @@
 import { part as party } from './party/index.js';
 import { part as creation } from './creation/index.js';
 import { part as checks } from './checks/index.js';
+import { part as quests } from './quests/index.js';
 import { part as items } from './items/index.js';
 import { part as combat } from './combat/index.js';
 import { part as board } from './board/index.js';
@@ -56,7 +57,7 @@ export const VERSION = '2.0.0-beta.2';
 
 /** The parts in their order: [part id, part]. */
 export const PARTS = Object.freeze([
-    ['party', party], ['creation', creation], ['checks', checks], ['items', items], ['combat', combat],
+    ['party', party], ['creation', creation], ['checks', checks], ['quests', quests], ['items', items], ['combat', combat],
     ['board', board], ['return', returnPart], ['trade', trade], ['craft', craft], ['screens', screens],
 ]);
 
