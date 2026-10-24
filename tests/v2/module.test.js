@@ -148,6 +148,16 @@ test('canGenerate: any part\'s no blocks (no character yet; a dead character)', 
     assert.deepEqual(await module.hooks.canGenerate({ state: state(pc([])) }), { ok: true });
 });
 
+test('canGenerate: a skipped start card (creation.skipStart) lets replies through with no character; the other parts still block', async () => {
+    const empty = { pc: null, order: [], actors: {}, custom: {}, offers: [] };
+    const skipped = party => ({ v: 2, meta: { rev: 0, claims: {} }, domains: { party, creation: { rolled: [], skipped: true } } });
+    const open = { v: 2, meta: { rev: 0, claims: {} }, domains: { party: empty, creation: { rolled: [], skipped: false } } };
+    assert.deepEqual(await module.hooks.canGenerate({ state: skipped(empty) }), { ok: true });
+    assert.equal((await module.hooks.canGenerate({ state: open })).ok, false, 'not skipped: still blocked');
+    const dead = { pc: 'ac_00000001', order: ['ac_00000001'], actors: { ac_00000001: { id: 'ac_00000001', name: 'Ren', kind: 'pc', conditions: [{ kind: 'dead', stacks: 1 }] } }, custom: {}, offers: [] };
+    assert.equal((await module.hooks.canGenerate({ state: skipped(dead) })).ok, false, 'a dead character still stops the story');
+});
+
 test('item.define: the items part\'s rules with its settings; beforeGenerate: the checks part\'s rolls', async () => {
     const def = { id: 'story/mana-tonic', name: 'Mana Tonic', kind: 'goods', rarity: 'common', value: 0, stack: true, slot: null, stats: {}, effect: {}, tags: [], note: '' };
     const out = module.hooks['item.define'](def, { note: 'mp 20', owner: 'party' });
