@@ -1,4 +1,4 @@
-// The Fight screen (SPEC §13.1): the battle board while a fight is on, the fights on offer with Fight
+// The Fight screen (SPEC §13.1): the battle board while a fight is on or waits for Finish, the fights on offer with Fight
 // and Not now, and the last fight's summary once it is settled. A §13.2 template, so a card or a pack
 // can restyle or replace it by its id; the code it needs comes in through the board widget only. After a
 // fight to the death that killed your character, the return card (widget `rpg-battle.return-card`, the
@@ -12,8 +12,10 @@
 export const FIGHT_SCREEN_ID = 'rpg-battle/fight';
 
 /**
- * Shown on the bar (and the More sheet) only while there is something to act on: a fight on, or an offer waiting. The red
- * dot (`alert`) marks a move the reader must make now, or an offer. Off, the screen still opens by id (a battle card's Fight).
+ * Shown on the bar (and the More sheet) only while there is something to act on: a fight on, a fight that is over and waits for
+ * Finish (won, lost or fled; the board's result and its only Finish button are here), or an offer waiting. The red dot (`alert`)
+ * marks a move the reader must make now, a fight to finish, or an offer. Off, the screen still opens by id (a battle card's
+ * Fight). Once the fight is settled (Finish, or the settle before the next reply) the session is gone and the tab with it.
  */
 export function fightActive(state, ctx) {
     let session = null;
@@ -21,8 +23,9 @@ export function fightActive(state, ctx) {
     try { session = ctx?.query?.('combat.session', {}) ?? null; } catch { session = null; }
     try { offers = ctx?.query?.('combat.offers', {}) ?? []; } catch { offers = []; }
     const fighting = Boolean(session && session.status === 'active');
+    const finishing = Boolean(session && (session.status === 'won' || session.status === 'lost' || session.status === 'fled'));
     const waiting = Array.isArray(offers) && offers.length > 0;
-    const alert = (fighting && Boolean(session.actions?.actor)) || waiting;
+    const alert = (fighting && Boolean(session.actions?.actor)) || finishing || waiting;
     return alert ? { on: true, badge: 'alert' } : { on: fighting || waiting };
 }
 

@@ -11,10 +11,11 @@ import { createModule } from '../../../src/v2/module.js';
 import { CREATE_SCREEN_ID, createScreen, part as creationPart, startDraft, validateCreation } from '../../../src/v2/creation/index.js';
 import { START_CARD_ID, START_SCREEN_ID, startCardFor } from '../../../src/v2/creation/start-card.js';
 import { part as boardPart } from '../../../src/v2/board/index.js';
-import { BATTLE_CARD_ID, FIGHT_SCREEN, battleCardFor } from '../../../src/v2/board/cards.js';
+import { BATTLE_CARD_ID, FIGHT_SCREEN, battleCardFor, fightTitle } from '../../../src/v2/board/cards.js';
 import { fightActive, fightScreen } from '../../../src/v2/board/screen.js';
 import { makeHost } from '../creation/helpers/fake-host.js';
 import { liveFight } from '../board/helpers.js';
+import { actor } from '../combat/helpers/fake-ctx.js';
 
 const elf = { name: 'Ren', race: 'rpg-battle/elf', talents: ['rpg-battle/keen-eyes'], points: { STR: 4, DEX: 5, AGI: 0, VIT: 0, INT: 0, LUK: 0, CHA: 0 } };
 const fake = (values = {}) => ({ query: name => (name in values ? values[name] : null) });
@@ -91,10 +92,9 @@ test('battle card: while a fight is on, with the foes, the round, Fight (the Fig
     assert.equal(battleCardFor(state, null, fake({ 'combat.session': null })), null, 'no fight, no card');
 });
 
-test('battle card: gone when the fight is settled; a long foe list is cut to the title limit', () => {
-    assert.equal(battleCardFor({}, null, fake({ 'combat.session': { status: 'won', combatants: [] } })), null);
-    assert.equal(battleCardFor({}, null, fake({ 'combat.session': { status: 'lost', combatants: [] } })), null);
-    assert.equal(battleCardFor({}, null, fake({ 'combat.session': { status: 'fled', combatants: [] } })), null);
+test('battle card: a fight that is over is a result card, no session is no card; a long foe list is cut to the title limit', () => {
+    assert.equal(battleCardFor({}, null, fake({ 'combat.session': null })), null, 'settled: the session is gone, so is the card');
+    assert.equal(battleCardFor({}, null, fake({ 'combat.session': { status: 'settled', combatants: [] } })), null);
     const kinds = battleCardFor({}, null, fake({ 'combat.session': { id: 's2', status: 'active', round: 1, combatants: [
         { side: 'enemy', name: 'Cellar Rat A' }, { side: 'enemy', name: 'Cellar Rat B' }, { side: 'enemy', name: 'Cellar Rat C' }, { side: 'enemy', name: 'Bat' },
     ], actions: { actor: null } } }));
@@ -108,10 +108,114 @@ test('battle card: gone when the fight is settled; a long foe list is cut to the
     assert.ok(normalizeCard(card));
 });
 
+test('battle card title: cut at a word boundary, never inside a surrogate pair, "+N more" for the kinds left out', () => {
+    const wolves = ['Grey Wolf', 'Dire Wolf', 'Frost Wolf', 'Cave Bear', 'Giant Spider', 'Skeleton Warrior'];
+    const title = fightTitle(wolves);
+    assert.equal(title, 'Fight: Grey Wolf, Dire Wolf, Frost Wolf, Cave Bear +2 more');
+    assert.ok(Array.from(title).length <= 60);
+    assert.equal(fightTitle(wolves.slice(0, 3)), 'Fight: Grey Wolf, Dire Wolf, Frost Wolf', 'all fit: nothing is dropped');
+    const one = fightTitle(['Goblin Chieftain of the Broken Tooth Clan and Warlord of the Marsh', 'Bat']);
+    assert.match(one, /^Fight: Goblin Chieftain of the Broken Tooth( Clan)?\.\.\. \+1 more$/, one);
+    assert.ok(Array.from(one).length <= 60, one);
+    // Emoji are two UTF-16 units: a cut between them leaves a lone surrogate.
+    for (const emoji of ['😀', '👨‍👩‍👧']) {
+        const cut = fightTitle([emoji.repeat(40)]);
+        assert.ok(Array.from(cut).length <= 60, cut);
+        assert.equal(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(cut), false, 'no lone surrogate');
+    }
+    const through = battleCardFor({}, null, fake({ 'combat.session': { id: 's3', status: 'active', round: 1, actions: { actor: null }, combatants: wolves.map(name => ({ side: 'enemy', name })) } }));
+    assert.equal(through.title, title, 'the card uses it');
+    assert.ok(normalizeCard(through).title.endsWith('+2 more'), 'and Story Block keeps all of it');
+});
+
+test('battle card title: a lone foe whose name ends in a letter keeps it; the letter goes only where the same name repeats', () => {
+    const title = (...names) => battleCardFor({}, null, fake({ 'combat.session': { id: 's4', status: 'active', round: 1, actions: { actor: null }, combatants: names.map(name => ({ side: 'enemy', name })) } })).title;
+    assert.equal(title('Agent K'), 'Fight: Agent K');
+    assert.equal(title('Agent K', 'Cellar Rat A', 'Cellar Rat B'), 'Fight: Agent K, Cellar Rat ×2');
+    assert.equal(title('Agent K', 'Agent L'), 'Fight: Agent ×2', 'two of a kind');
+    assert.equal(title('Agent K', 'Agent'), 'Fight: Agent K, Agent', 'a lettered name beside a plain one is its own kind');
+    assert.equal(title('K'), 'Fight: K');
+});
+
+test('battle card: the card is asked once, on the head reply\'s state, and answers there with its actions (Story Block\'s head rule)', () => {
+    const world = liveFight('3 Cellar Rats');
+    // Story Block asks once, about the head reply (ctx.index is the head, ctx.head true), also after a new reply was written.
+    const query = (name, args) => world.query(name, args, world.state);
+    const asked = battleCardFor(world.state, { is_user: false }, { query, index: 4, head: true });
+    assert.equal(asked.title.startsWith('Fight: '), true);
+    assert.equal(asked.actions[0].open, FIGHT_SCREEN);
+    const read = normalizeCard(asked);
+    assert.ok(read.actions.length >= 1 && read.actions.every(action => action.open || action.command));
+    // The same answer without a ctx.index/head (older hosts): nothing in the card reads them.
+    assert.deepEqual(battleCardFor(world.state, null, { query }), asked);
+});
+
+// Plays `commands` on a world until the fight is no longer on; the card and the tab as the head state gives them.
+function ended(world, step) {
+    for (let n = 0; n < 300 && world.query('combat.session', {}, world.state)?.status === 'active'; n += 1) step();
+    return world.query('combat.session', {}, world.state);
+}
+const headCard = world => battleCardFor(world.state, null, { query: (name, args) => world.query(name, args, world.state), index: 3, head: true });
+const headTab = world => fightActive(world.state, { query: (name, args) => world.query(name, args, world.state) });
+
+test('a fight won and not yet settled: the Fight tab stays on with its dot and the card says "Fight won" with Finish; settled, both go', () => {
+    const world = liveFight('3 Cellar Rats', { tier: 'weak' });
+    assert.equal(headCard(world).title.startsWith('Fight: '), true, 'while it is on, the battle card');
+    const over = ended(world, () => assert.equal(world.run('combat.act', { action: { type: 'auto' } }).ok, true));
+    assert.equal(over.status, 'won');
+    const card = headCard(world);
+    assert.equal(card.title, 'Fight won');
+    assert.equal(card.tone, 'good');
+    assert.equal(card.later, false, 'no Later: the reader must see it');
+    assert.deepEqual(card.actions.map(action => [action.id, action.label, action.primary === true, action.open ?? null, action.command ?? null]), [['finish', 'Finish', true, FIGHT_SCREEN, null]]);
+    assert.equal(card.rows, undefined);
+    assert.ok(normalizeCard(card), 'Story Block reads it');
+    assert.equal(normalizeCard(card).actions[0].open, 'rpg-battle/fight');
+    assert.deepEqual(headTab(world), { on: true, badge: 'alert' }, 'the tab stays, with its dot');
+
+    // Finish (the board\'s button runs combat.end) settles it: no card, no tab.
+    assert.equal(world.run('combat.end', { session: over.id }).ok, true);
+    assert.equal(headCard(world), null);
+    assert.deepEqual(headTab(world), { on: false });
+});
+
+test('a fight lost, then one fled from the card\'s Flee: each is a result card until it is settled', () => {
+    const weak = actor(1, { level: 1, hp: { cur: 6, max: 6 }, stats: { STR: 3, VIT: 3, AGI: 3, DEX: 3, INT: 3, LUK: 3, CHA: 3 } });
+    const lostWorld = liveFight('2 Cave Bears', { tier: 'deadly' }, { actors: [weak] });
+    const gone = ended(lostWorld, () => lostWorld.run('combat.act', { action: { type: 'defend' } }));
+    assert.equal(gone.status, 'lost');
+    assert.equal(headCard(lostWorld).title, 'Fight lost');
+    assert.equal(headCard(lostWorld).tone, 'bad');
+    assert.equal(headTab(lostWorld).badge, 'alert');
+    assert.equal(lostWorld.run('combat.end', { session: gone.id }).ok, true);
+    assert.equal(headCard(lostWorld), null);
+    assert.equal(headTab(lostWorld).on, false);
+
+    // Flee, as the battle card\'s own button sends it, until the party gets away.
+    const world = liveFight('3 Cellar Rats', { tier: 'weak' });
+    for (let n = 0; n < 50; n += 1) {
+        const card = headCard(world);
+        const flee = card.actions?.find(action => action.id === 'flee');
+        if (!flee) break;
+        assert.equal(world.run(flee.command, flee.payload).ok, true);
+    }
+    const out = world.query('combat.session', {}, world.state);
+    assert.equal(out.status, 'fled');
+    const fled = headCard(world);
+    assert.equal(fled.title, 'Fight fled');
+    assert.equal(fled.actions[0].label, 'Finish');
+    assert.deepEqual(headTab(world), { on: true, badge: 'alert' });
+    assert.equal(world.run('combat.end', { session: out.id }).ok, true);
+    assert.equal(headCard(world), null);
+    assert.equal(headTab(world).on, false);
+});
+
 test('fight screen: active is on while a fight is on or an offer waits, and the red dot marks a move or an offer', () => {
     assert.equal(fightScreen.active, fightActive);
     assert.deepEqual(fightActive({}, fake({ 'combat.session': null, 'combat.offers': [] })), { on: false });
-    assert.deepEqual(fightActive({}, fake({ 'combat.session': { status: 'won' }, 'combat.offers': [] })), { on: false }, 'settled: off');
+    for (const status of ['won', 'lost', 'fled']) {
+        assert.deepEqual(fightActive({}, fake({ 'combat.session': { status }, 'combat.offers': [] })), { on: true, badge: 'alert' }, `${status} and not settled: on, with the dot`);
+    }
     assert.deepEqual(fightActive({}, fake({ 'combat.session': null, 'combat.offers': [{ id: 'o1' }] })), { on: true, badge: 'alert' });
     assert.deepEqual(fightActive({}, fake({ 'combat.session': { status: 'active', actions: { actor: 'ac_1' } }, 'combat.offers': [] })), { on: true, badge: 'alert' });
     const waiting = fightActive({}, fake({ 'combat.session': { status: 'active', actions: { actor: null } }, 'combat.offers': [] }));
