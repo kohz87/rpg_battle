@@ -68,10 +68,10 @@ test('a chat that pins no rules: the parts answer null or refuse, add no step af
 });
 
 // A scripted legacy session that needs no dice: it must read the same with and without the new parts beside it.
-async function mergedHost() {
+async function mergedHost({ modules = [] } = {}) {
     let sdk = null;
     const merged = mergeInto(createModule({ settings: () => sdk?.settings(MODULE_ID) ?? {} }), rulesModule({}));
-    const host = await createHost({ modules: [merged, { id: 'rb-test-caller', name: 'Caller', version: '0.0.0', commands: { 'rbtest.call': (ctx, { type, payload } = {}) => ctx.call(type, payload ?? {}) } }] });
+    const host = await createHost({ modules: [...modules, merged, { id: 'rb-test-caller', name: 'Caller', version: '0.0.0', commands: { 'rbtest.call': (ctx, { type, payload } = {}) => ctx.call(type, payload ?? {}) } }] });
     sdk = host.sdk;
     const saved = globalThis.StoryBlock;
     globalThis.StoryBlock = { apiVersion: 2, ready: Promise.resolve(sdk), sdk };
@@ -159,7 +159,8 @@ test('a chat the real module recorded replays the same with the parts loaded; th
 test('with a rules pack pinned the real party\'s level is what rules.progress shows and what the guard reads', async t => {
     t.mock.method(console, 'warn', () => {});
     await seeded(3, async () => {
-        const host = await rpgHost({ modules: [CLOCK, rulesModule({ id: SLICE })] });
+        // One module, as the real one is: Story Block answers a replay guard only its owner's own queries.
+        const host = await mergedHost({ modules: [CLOCK] });
                 try {
             assert.equal((await host.cmd('party.create', { name: 'Ren', preset: 'fighter' })).ok, true);
             const pc = host.q('party.pc').id;

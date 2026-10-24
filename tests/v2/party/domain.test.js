@@ -145,7 +145,7 @@ test('settings: the Character section with v1\'s defaults and a schema for each'
 });
 
 test('the part has the MODULES §A shape', () => {
-    assert.deepEqual(Object.keys(part).sort(), ['commands', 'context', 'domains', 'features', 'hooks', 'kinds', 'queries', 'settings', 'tabs']);
+    assert.deepEqual(Object.keys(part).sort(), ['commands', 'context', 'domains', 'features', 'hooks', 'kinds', 'queries', 'replayQueries', 'settings', 'tabs']);
     for (const [kind, def] of Object.entries(part.kinds)) {
         assert.equal(typeof def.grammar, 'string', kind);
         assert.equal(typeof def.apply, 'function', kind);
