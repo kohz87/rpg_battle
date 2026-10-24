@@ -72,27 +72,28 @@ test('item.give is refused when the taker cannot carry it; it stays with the giv
     assert.equal(h.run('item.give', { stack: 'it_draught1', to: LYRA }).ok, true, 'a draught fits');
 });
 
-test('item.equip: each allowed accessory has its own key (accessory-1, accessory-2); the receipt names what came off', () => {
+test('item.equip: each accessory slot holds one piece, in the slot its def names; the receipt names what came off', () => {
     const state = makeState();
     state.domains.inventory.stacks.it_ring0001.equipped = null;
     state.domains.inventory.stacks.it_ring0002.equipped = null;
     const h = harness(state);
     const first = h.run('item.equip', { stack: 'it_ring0001' });
-    assert.deepEqual(h.calls, [{ type: 'inventory.equip', payload: { stack: 'it_ring0001', slot: 'accessory-1' } }]);
-    assert.deepEqual([first.receipt.data.slot, first.receipt.data.key, first.receipt.data.removed], ['accessory', 'accessory-1', []]);
+    assert.deepEqual(h.calls, [{ type: 'inventory.equipOn', payload: { stack: 'it_ring0001', actor: PC } }]);
+    assert.deepEqual([first.receipt.data.slot, first.receipt.data.key, first.receipt.data.removed], ['accessory-1', 'accessory-1', []]);
     const second = h.run('item.equip', { stack: 'it_ring0002' });
     assert.equal(second.receipt.data.key, 'accessory-2');
     assert.doesNotMatch(second.receipt.summary, /puts away/);
-    assert.equal(h.run('item.equip', { stack: 'it_charm001' }).code, 'REFUSED');
-    assert.equal(h.run('item.unequip', { stack: 'it_ring0001' }).ok, true);
-    assert.equal(h.run('item.equip', { stack: 'it_charm001' }).receipt.data.key, 'accessory-1');
-    // The gear query reads the keys as the accessory slot: both count.
+    // A third accessory made for accessory-1 takes the first ring's place, and the ring comes off.
+    const third = h.run('item.equip', { stack: 'it_charm001' });
+    assert.equal(third.receipt.data.key, 'accessory-1');
+    assert.deepEqual(third.receipt.data.removed, ['it_ring0001']);
+    // The gear query reads the keys as the accessory slots: both count.
     const gear = part.queries['items.gear'](h.state(), { settings: {} });
-    assert.deepEqual(gear.counted.filter(row => row.slot === 'accessory').map(row => row.stack).sort(), ['it_charm001', 'it_ring0002']);
-    // A worn piece too: worn-1.
+    assert.deepEqual(gear.counted.filter(row => row.slot === 'accessory').map(row => [row.stack, row.key]).sort(), [['it_charm001', 'accessory-1'], ['it_ring0002', 'accessory-2']]);
+    // A worn piece too: head.
     const worn = makeState();
     worn.domains.inventory.stacks.it_boots001.equipped = null;
     const w = harness(worn);
-    assert.equal(w.run('item.equip', { stack: 'it_helm0001' }).receipt.data.key, 'worn-1');
-    void PC;
+    assert.equal(w.run('item.equip', { stack: 'it_helm0001' }).receipt.data.key, 'head');
 });
+

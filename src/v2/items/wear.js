@@ -25,6 +25,7 @@ import {
     WEAR_OFF, addEvent, bandOf, bareName, featureOn, gearFeatures, pieceName, pieceOf, wearWord,
 } from './condition.js';
 import { inventoryOf, partyOwns, stackIds, wearerOf } from './shared.js';
+import { normalizeSlot } from './slots.js';
 
 const text = value => (typeof value === 'string' ? value.trim() : '');
 const key = value => String(value ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -48,8 +49,9 @@ export function replyOf(ctx) {
 
 /** Whether a piece is armour (takes blows) or strikes: armour and worn pieces, an off-hand with DEF or MDEF. */
 export function wearRole(def, slotKey) {
-    const slot = String(def?.slot || slotKey || '').replace(/-\d+$/, '');
-    if (slot === 'armour' || slot === 'worn') return 'armour';
+    // Where it is worn decides (the eight slots, older keys read through the §9 adapters), else what its def says.
+    const slot = normalizeSlot(slotKey) ?? normalizeSlot(def?.slot) ?? String(def?.slot || slotKey || '').replace(/-\d+$/, '');
+    if (slot === 'body' || slot === 'head' || slot === 'legs' || slot === 'feet' || slot === 'armour' || slot === 'worn') return 'armour';
     if (slot === 'weapon') return 'weapon';
     if (slot === 'offhand') return (def?.stats?.DEF || def?.stats?.MDEF) ? 'armour' : 'weapon';
     return null;

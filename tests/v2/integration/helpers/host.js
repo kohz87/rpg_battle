@@ -59,9 +59,12 @@ const CALLER = {
 };
 
 export async function rpgHost(options = {}) {
+    const { tweak = null, ...hostOptions } = options;
     let sdk = null;
     const module = createModule({ settings: () => sdk?.settings(MODULE_ID) ?? {} });
-    const host = await createHost({ ...options, modules: [module, CALLER, ...(options.modules ?? [])] });
+    // `tweak(module)`: a test's change to the module before it registers (a query wrapped to misbehave).
+    if (typeof tweak === 'function') tweak(module);
+    const host = await createHost({ ...hostOptions, modules: [module, CALLER, ...(options.modules ?? [])] });
     sdk = host.sdk;
     const saved = globalThis.StoryBlock;
     globalThis.StoryBlock = { apiVersion: 2, ready: Promise.resolve(sdk), sdk };

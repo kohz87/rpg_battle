@@ -4,28 +4,24 @@
 // reads `inventory` and `party` and changes them only through their owners' commands
 // (`inventory.consume|equip|unequip|transfer`, `party.heal|restore`), inside the same
 // transaction, so a refusal anywhere saves nothing. The numbers are v1's: useItemOutside for a
-// dose, gearLimits for what counts, capItem for what a piece gives at the wearer's level.
+// dose, capItem for what a piece gives at the wearer's level.
 // A rule refusing (full HP, the wrong kind of thing, a slot limit, too heavy to carry) is
 // REFUSED; a malformed payload INVALID (MODULES §F4).
 //
-// Slots: a weapon, an off-hand, an armour (and any slot v1 does not count by number) are one each,
-// kept under the slot's own name. Worn
-// pieces and accessories may be several (v1 gearLimits: 1 worn piece, 2 accessories), so each
-// allowed copy has its own key, `accessory-1`, `accessory-2`, `worn-1`: Story Block keeps one
-// stack per owner and key, and a second ring is worn beside the first, never in its place.
+// Slots (P07): the eight slots (weapon, offhand, head, body, legs, feet, accessory-1, accessory-2),
+// one piece to a slot. Wearing is Story Block's, planned by this module's `rules.equipPlan`: item.equip
+// only asks `inventory.equipOn` (with the optional `targetSlot`), which asks the plan, checks it against
+// its own records and applies it in one step. This part never writes equipment by itself.
 
-import { capItem, formatStats, gearLimits } from '../../items.js';
+import { capItem, formatStats } from '../../items.js';
 import { useItemOutside } from '../../recovery.js';
 import { canCarry } from './carry.js';
-import { canWear } from './queries.js';
+import { EQUIP_SLOTS, SLOT_CATEGORY, normalizeSlot } from './slots.js';
 import { MAX_DOSES, planStoryUse, stackNamed } from './story-use.js';
 import { repairOf, useKit } from './wear.js';
 import { fitParty } from '../party/pools.js';
 import { sessionOf } from '../combat/stored.js';
-import { baseSlot, helpsOutside, inventoryOf, itemOf, partyOf, partyOwns, rulesFrom, sheetOf, stackIds, wearerOf } from './shared.js';
-
-// Slots that hold several pieces (v1 gearLimits); every other slot holds one, a new piece replacing the old.
-const MANY_SLOTS = ['worn', 'accessory'];
+import { helpsOutside, inventoryOf, itemOf, partyOwns, rulesFrom, sheetOf, wearerOf } from './shared.js';
 
 const stateOf = ctx => ({ domains: { inventory: ctx.read('inventory'), party: fitParty(ctx.read('party')) } });
 const text = value => (typeof value === 'string' ? value.trim() : '');
@@ -46,20 +42,6 @@ function actorFor(ctx, party, id, missing = 'That companion is not in the party.
     const actor = id ? party.actors?.[id] : null;
     if (!actor) ctx.fail('NOT_FOUND', id ? missing : 'Make your character first.');
     return actor;
-}
-
-/** The equipped stacks `actorId` wears, in a stable order. */
-function wornBy(inventory, party, actorId) {
-    return stackIds(inventory)
-        .map(id => inventory.stacks[id])
-        .filter(stack => stack.equipped && stack.qty > 0 && wearerOf(stack, party) === actorId)
-        .map(stack => ({ stack, def: inventory.defs?.[stack.def] ?? null }));
-}
-
-// "only 2 accessories count", "no worn pieces count" (v1's words).
-function limitWords(count, slot) {
-    const word = slot === 'accessory' ? (count === 1 ? 'accessory' : 'accessories') : (count === 1 ? 'worn piece' : 'worn pieces');
-    return count ? `only ${count} ${word} ${count === 1 ? 'counts' : 'count'}` : `no ${word} count`;
 }
 
 /** One dose of `def` from `stack` on `targetId`: consume, heal, restore. → { hp, mp, cured, message }. */
@@ -270,44 +252,37 @@ export function applyUse(ctx, line) {
 
 export const USE_GRAMMAR = '! use <item> | on: Name | by: Name | qty: 1 (someone drinks, eats or applies it; code applies its effect)';
 
+const EQUIP_FIELDS = ['stack', 'to', 'actor', 'targetSlot'];
+
 /**
- * `item.equip` { stack, actor? }: the wearer puts a piece on. The wearer is whoever carries it
- * (the shared bag's pieces are the main character's); a companion gets a piece by `item.give`
- * first. One weapon, off-hand and armour each: a new one replaces the old one. Worn pieces and
- * accessories up to the rules' limits (v1 gearLimits), else refused, each copy under its own key
- * (`accessory-1`, `accessory-2`). Whatever came off is named in the summary and listed in
- * `data.removed` (stack ids) and `data.removedNames`. No off-hand with a
- * two-handed weapon (the weapon puts the off-hand away; an off-hand is refused while one is held).
- * What the piece gives is capped by its rarity at the wearer's level (v1 capItem), and the
- * summary says so. `to` (UI 8f) names who wears it: any party member, the piece moved to them first when
- * they do not hold it (canWear, the carry limit); without it, the stack's own wearer, as before.
+ * `item.equip` { stack, to?, actor?, targetSlot? }: the wearer puts a piece on, in the eight slots (P07).
+ * The wearer is `to` when named (any party member; a piece of the party bag goes to them), else whoever
+ * carries the piece (the shared bag's pieces are the main character's); `actor` only checks the current
+ * carrier. The slot is `targetSlot` when the reader chose one (the only new field; a canonical ID), else the
+ * first legal empty slot of the piece, else an explicit swap of its first slot (rules.equipPlan decides
+ * and says why not). Nothing is worn here: this calls `inventory.equipOn`, which asks the plan, checks it and
+ * applies it (a spoofed plan is refused there, a two-handed piece clears the off-hand, an off-hand beside
+ * one is refused, a carried piece of another member is handed over first). Whatever came off is named in
+ * the summary and listed in `data.removed` (stack ids) and `data.removedNames`; `data.slot` and `data.key`
+ * are the v2 slot it went into. What the piece gives is capped by its rarity at the wearer's level (v1
+ * capItem), and the summary says so.
  */
 export function itemEquip(ctx, payload) {
-    const { stack, def, party, inventory } = stackFor(ctx, payload);
-    const slot = def.slot;
-    if (def.kind !== 'equipment' || !slot) ctx.fail('REFUSED', `The ${def.name} is not something to wear or wield.`);
-    if (!(stack.qty > 0)) ctx.fail('NOT_ENOUGH', `There is no ${def.name} left.`);
-    // `to` (UI 8f): any party member may wear a piece of the bag. It is checked (canWear, the carry limit),
-    // moved to them through the inventory's transfer when they do not hold it, then worn as below.
-    const to = text(payload?.to);
-    let moved = null;
-    if (to) {
-        const taker = party.actors?.[to] ?? null;
-        if (!taker) ctx.fail('NOT_FOUND', 'That companion is not in the party.');
-        if (stack.equipped) ctx.fail('REFUSED', `${actorFor(ctx, party, wearerOf(stack, party)).name} already has the ${def.name} on.`);
-        const can = canWear(stateOf(ctx), { actor: to, stack: stack.id, settings: ctx.settings() });
-        if (!can.ok) ctx.fail('REFUSED', can.why);
-        if (wearerOf(stack, party) !== to) {
-            const fits = canCarry(inventoryOf(stateOf(ctx)), party, { owner: to, add: [{ def, qty: 1 }], move: true, settings: ctx.settings() });
-            if (!fits.ok) ctx.fail('REFUSED', fits.message);
-            // The main character's bag is the party's: a piece the party holds is theirs without a move.
-            if (!(stack.owner === 'party' && to === party.pc)) {
-                ctx.call('inventory.transfer', { stack: stack.id, to, qty: 1 });
-                moved = { from: stack.owner, to };
-            }
-        }
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload) || Object.keys(payload).some(key => !EQUIP_FIELDS.includes(key))) {
+        ctx.fail('INVALID', 'Equip takes a stack, optionally who wears it (to) and a targetSlot; nothing else.');
     }
-    const wearerId = to || wearerOf(stack, party);
+    const targetSlot = payload.targetSlot;
+    if (targetSlot !== undefined && !EQUIP_SLOTS.includes(targetSlot)) ctx.fail('INVALID', `targetSlot must be one of ${EQUIP_SLOTS.join(', ')}.`);
+    const { stack, def, party } = stackFor(ctx, payload);
+    if (def.kind !== 'equipment' || !def.slot) ctx.fail('REFUSED', `The ${def.name} is not something to wear or wield.`);
+    if (!(stack.qty > 0)) ctx.fail('NOT_ENOUGH', `There is no ${def.name} left.`);
+    const to = text(payload?.to);
+    const holder = wearerOf(stack, party);
+    if (to) {
+        if (!party.actors?.[to]) ctx.fail('NOT_FOUND', 'That companion is not in the party.');
+        if (stack.equipped && holder !== to) ctx.fail('REFUSED', `${actorFor(ctx, party, holder).name} already has the ${def.name} on.`);
+    }
+    const wearerId = to || holder;
     const actor = actorFor(ctx, party, wearerId);
     const asked = to ? '' : text(payload?.actor);
     if (asked && asked !== wearerId) {
@@ -315,48 +290,36 @@ export function itemEquip(ctx, payload) {
         if (!other) ctx.fail('NOT_FOUND', 'That companion is not in the party.');
         ctx.fail('REFUSED', `${actor.name} carries the ${def.name}: give it to ${other.name} first.`);
     }
-    if (!to && stack.equipped) ctx.fail('REFUSED', `${actor.name} already has the ${def.name} on.`);
+    // Already on, in the slot asked for (or, with none asked, in the one it is in): nothing to do.
+    if (stack.equipped && holder === wearerId && (targetSlot === undefined || normalizeSlot(stack.equipped) === targetSlot)) {
+        ctx.fail('REFUSED', `${actor.name} already has the ${def.name} on.`);
+    }
+
+    const done = ctx.call('inventory.equipOn', { stack: stack.id, actor: wearerId, ...(targetSlot !== undefined ? { targetSlot } : {}) });
+    const into = done?.data?.slot;
+    const key = EQUIP_SLOTS.includes(into) ? into : normalizeSlot(readStackKey(ctx, stack.id));
+    const removed = Array.isArray(done?.data?.replaced) ? done.data.replaced.filter(id => typeof id === 'string') : [];
+    const removedNames = Array.isArray(done?.data?.replacedNames) ? done.data.replacedNames.map(String) : [];
+    const from = done?.data?.from;
+    // The main character's bag is the party's: a piece the party held is theirs without a hand-over to say.
+    const moved = typeof from === 'string' && from !== wearerId && !(from === 'party' && wearerId === party.pc) ? { from, to: wearerId } : null;
 
     const rules = rulesFrom(ctx.settings());
-    const worn = wornBy(inventory, party, wearerId);
-    const inSlot = worn.filter(entry => baseSlot(entry.stack.equipped) === slot);
-    const off = [];
-    let key = slot;
-    if (!MANY_SLOTS.includes(slot)) {
-        off.push(...inSlot);
-        if (slot === 'offhand') {
-            const weapon = worn.find(entry => entry.stack.equipped === 'weapon' && entry.def?.tags?.includes('two-handed'));
-            if (weapon) ctx.fail('REFUSED', `The ${weapon.def.name} is two-handed: put it away before taking up the ${def.name}.`);
-        }
-        if (slot === 'weapon' && def.tags?.includes('two-handed')) off.push(...worn.filter(entry => entry.stack.equipped === 'offhand'));
-    } else {
-        const limit = gearLimits(rules)[slot];
-        if (inSlot.length >= limit) {
-            ctx.fail('REFUSED', limit ? `For ${actor.name} ${limitWords(limit, slot)}: take one off first.` : `In this chat's rules ${limitWords(0, slot)}.`);
-        }
-        const taken = new Set(worn.map(entry => entry.stack.equipped));
-        let n = 1;
-        while (taken.has(`${slot}-${n}`)) n += 1;
-        key = `${slot}-${n}`;
-    }
-    for (const entry of off) ctx.call('inventory.unequip', { stack: entry.stack.id });
-    ctx.call('inventory.equip', { stack: stack.id, slot: key });
-
-    // What came off, by what is worn now (the pieces put away above, and anything else the
-    // inventory took off to make room): the receipt says so.
-    const now = new Set(wornBy(inventoryOf({ domains: { inventory: ctx.read('inventory') } }), party, wearerId).map(entry => entry.stack.id));
-    const removed = worn.filter(entry => !now.has(entry.stack.id));
-
     const level = Math.max(1, Math.round(Number(actor.level) || 1));
-    const result = capItem({ ...itemOf(stack, def), equipped: true }, level, rules);
+    const result = capItem({ ...itemOf(stack, def), slot: SLOT_CATEGORY[key] ?? itemOf(stack, def).slot, equipped: true }, level, rules);
     const gives = formatStats(result.stats);
     const capped = result.capped ? `, capped from ${formatStats(def.stats)} at level ${level}` : '';
-    const swapped = removed.length ? `; puts away the ${removed.map(entry => entry.def?.name ?? 'old piece').join(' and the ')}` : '';
+    const swapped = removed.length ? `; puts away the ${(removedNames.length === removed.length ? removedNames : removed.map(() => 'old piece')).join(' and the ')}` : '';
     return {
         summary: `${actor.name} equips the ${def.name}${gives ? ` (${gives}${capped})` : ''}${swapped}.`,
         narrate: false,
-        data: { actor: wearerId, stack: stack.id, slot, key, stats: result.stats, capped: result.capped, removed: removed.map(entry => entry.stack.id), removedNames: removed.map(entry => entry.def?.name ?? ''), ...(moved ? { moved } : {}) },
+        data: { actor: wearerId, stack: stack.id, slot: key, key, stats: result.stats, capped: result.capped, removed, removedNames, ...(targetSlot !== undefined ? { targetSlot } : {}), ...(moved ? { moved } : {}) },
     };
+}
+
+// The key a stack is stored under now (read back after the nested call, for the receipt).
+function readStackKey(ctx, id) {
+    return ctx.read('inventory')?.stacks?.[id]?.equipped ?? null;
 }
 
 /** `item.unequip` { stack }: the wearer takes a piece off; it stays with them. */

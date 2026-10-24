@@ -102,7 +102,9 @@ export function equipPlan(payload, env) {
     const rule = env.itemRules[stack.def];
     if (ruleProblem(rule, stack.def)) return failure('RULES_MISMATCH', 'The frozen ItemRule is missing or malformed.');
     if (!rule.allowedSlots.length) return failure('REFUSED', env.notes?.[stack.def] ?? 'This item has no equipment slot.');
-    if (Object.entries(rule.requires).some(([stat, minimum]) => actor.stats[stat] < minimum)) return failure('REFUSED', 'Base stats do not meet the equipment requirements.');
+    // Base stats only: what the piece itself (or any other gear) adds never qualifies the wearer.
+    const short = Object.entries(rule.requires).find(([stat, minimum]) => actor.stats[stat] < minimum);
+    if (short) return failure('REFUSED', `Base stats do not meet the equipment requirements: needs ${short[0]} ${short[1]}, base ${short[0]} is ${actor.stats[short[0]]}.`);
     // What the actor wears now, by v2 slot. A record whose key names no single slot (worn-1, a bare
     // accessory) occupies nothing here and is left exactly as stored.
     const worn = [];
