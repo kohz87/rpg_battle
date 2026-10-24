@@ -21,6 +21,7 @@ import { buildCharacter, creationRules } from './build.js';
 import { STAT_LABELS, creationContent } from './content.js';
 import { BACKGROUND_LIMIT } from './persona.js';
 import { cleanName } from '../party/util.js';
+import { startRulesClass } from '../progress/start.js';
 
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -229,6 +230,8 @@ function finish(ctx, payload = {}) {
     const wrong = STATS.find(stat => pc.stats?.[stat] !== built.stats[stat]);
     if (wrong) fail(ctx, 'FAILED', `Your character could not be made with the race and talents: ${wrong} came out ${pc.stats?.[wrong]}, not ${built.stats[wrong]}.`);
     if (background && pc.background !== background) fail(ctx, 'FAILED', 'Your character could not be made with your persona\'s background.');
+    // Rules v2: the basic class picked in the wizard, recorded in this transaction (nothing at all in a chat with no rules pack).
+    startRulesClass(ctx, { actor: pc.id, class: draft.class, checkActor: draft.checkActor });
 
     // The ready-made character's skills, built from the pack's words by the party part's rules.
     const learned = [];

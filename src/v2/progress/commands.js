@@ -22,6 +22,7 @@ import { buildGuard } from './guard.js';
 import { choiceKey } from './derive.js';
 import { indexOf } from '../rules/graph.js';
 import { pinOf } from '../rules/pin.js';
+import { fightOn } from '../party/commands.js';
 import { epochOf, isActorId, isDefId, isHash, isObject } from '../rules/ids.js';
 
 const CLASS_FIELDS = ['actor', 'milestone', 'class', 'expectedClass', 'rulesHash'];
@@ -48,8 +49,10 @@ function pinned(ctx, payload) {
 
 const queryOf = ctx => (name, args) => ctx.query(name, args);
 
-// "No choices during an active fight" (B3): asked of the combat part by its query, which may not be there.
+// "No choices during active or unsettled combat" (B3): the combat part's last fight, if it is under way or not settled yet
+// (party/commands.js fightOn), or a combat query that says one is active.
 function noFight(ctx) {
+    if (fightOn(ctx)) ctx.fail('REFUSED', 'Finish the fight, and settle it, before choosing.');
     let session = null;
     try {
         session = ctx.query('combat.session', {});

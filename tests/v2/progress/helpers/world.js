@@ -10,8 +10,9 @@
 //   ~ time <minute>                              the clock
 import { createHost } from '../../../vendor/story-block/testkit/index.js';
 import { part as rulesPart, pinOf, pinRules } from '../../../../src/v2/rules/index.js';
-import { part as progressPart, recordAttempt, recordBasicClass } from '../../../../src/v2/progress/index.js';
+import { part as progressPart, recordAttempt, recordBasicClass, recordCombatUses } from '../../../../src/v2/progress/index.js';
 import { levelFromEarned } from '../../../../src/v2/progress/level.js';
+import { storedPool } from '../../../../src/v2/party/pools.js';
 import { ACTOR, FRIEND, fixturePin, ref } from './fixture.js';
 
 /** Story Director's clock as the story sets it: `~ time <minute>` is a set (ctx.absolute), like the real tracker's. */
@@ -104,6 +105,20 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
                 }
                 return { summary: 'Seeded.', narrate: false };
             },
+            // A summon or pet of a fight, as the summon command (track B4) will leave it.
+            'test.unit'(ctx, unit) {
+                ctx.draft('progress').temporary[unit.id] = { kind: 'summon', owner: ACTOR, template: ref('s00'), fight: 'cf_00000001', name: 'Grey wolf', level: 5, hp: { cur: 20, max: 20 }, mp: { cur: 0, max: 0 }, sp: { cur: 5, max: 5 }, ended: null, ...unit };
+                return { summary: 'Unit.', narrate: false };
+            },
+            'test.combatEnd'(ctx, input) {
+                return { summary: 'Fight ended.', narrate: false, data: recordCombatUses(ctx, input) };
+            },
+            // Sets a member's pool as the party keeps it (the module that owns the party writes it).
+            'test.pool'(ctx, { actor, pool, cur }) {
+                const member = ctx.draft('party').actors[actor];
+                member[pool] = storedPool({ cur, max: member[pool].max });
+                return { summary: 'Pool set.', narrate: false };
+            },
             'test.attempt'(ctx, input) {
                 const made = recordAttempt(ctx, input);
                 return { summary: 'Attempt.', narrate: false, data: made };
@@ -111,8 +126,9 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
         },
         queries: { ...rulesPart.queries },
         capture: {
-            kinds: { attempt: { grammar: '! attempt ac_id | skill: s | form: f | key: k' } },
+            kinds: { ...progressPart.kinds, attempt: { grammar: '! attempt ac_id | skill: s | form: f | key: k' } },
             apply(ctx, line) {
+                if (line.kind === 'skill-use') return progressPart.kinds['skill-use'].apply(ctx, line);
                 const l = line.labels;
                 const input = { actor: line.name, skill: ref(l.skill), form: ref(l.form), kind: l.kind ?? 'narrative', key: l.key };
                 if (l.minute !== undefined) input.minute = Number(l.minute);
@@ -183,3 +199,64 @@ export async function started(t, options = {}) {
 }
 
 export { ACTOR, FRIEND, fixturePin, ref };
+
+
+/**
+ * The real RPG Battle module (party, creation, items, trade, ...) with the rules-v2 parts merged into it the way the lead
+ * will register them: one module, `rpg-battle`, so the new commands may change the party's state and guards name it. The
+ * character is made with the real command and starts in class c0 of the golden pack. `companions`: names of companions
+ * added with the real internal command, each in class c0.
+ */
+export async function realWorld(t, { companions = [], modules = [], pin = true, character = true, settings = {} } = {}) {
+    const { createModule, MODULE_ID } = await import('../../../../src/v2/module.js');
+    const extra = rulesModule();
+    let sdk = null;
+    const base = createModule({ settings: () => ({ ...(sdk?.settings(MODULE_ID) ?? {}), ...settings }) });
+    const merged = {
+        ...base,
+        domains: { ...base.domains, ...extra.domains },
+        commands: { ...base.commands, ...extra.commands },
+        queries: { ...base.queries, ...extra.queries },
+        capture: {
+            ...base.capture,
+            kinds: { ...base.capture.kinds, ...extra.capture.kinds },
+            apply(ctx, line) { return Object.hasOwn(extra.capture.kinds, line?.kind) ? extra.capture.apply(ctx, line) : base.capture.apply(ctx, line); },
+        },
+        hooks: { ...base.hooks, ...extra.hooks },
+    };
+    const host = await createHost({ modules: [CLOCK, merged, CALLER, ...modules] });
+    sdk = host.sdk;
+    const saved = globalThis.StoryBlock;
+    globalThis.StoryBlock = { apiVersion: 2, ready: Promise.resolve(sdk), sdk };
+    t.after(() => {
+        host.close();
+        if (saved === undefined) delete globalThis.StoryBlock; else globalThis.StoryBlock = saved;
+    });
+    t.mock.method(console, 'warn', () => {});
+    const ok = (out, what) => { if (!out.ok) throw new Error(`${what}: ${out.code} ${out.message}`); return out; };
+    const internal = (type, payload = {}) => host.sdk.command('rbtest.call', { type, payload });
+    if (character) ok(await host.sdk.command('party.create', { name: 'Astra', preset: 'fighter' }), 'party.create');
+    const pc = character ? host.sdk.query('party.pc').id : null;
+    // Without a character the story waits (canGenerate); setting the start card aside lets the replies come.
+    if (!character) ok(await host.sdk.command('creation.skipStart', {}), 'creation.skipStart');
+    await host.send('Dawn.', 'The road.');
+    const mates = [];
+    if (pin) ok(host.bus.command('test.pin', {}, { cause: 'ui' }), 'test.pin');
+    if (pin && character) {
+        ok(host.bus.command('test.start', { actor: pc, class: ref('c0') }, { cause: 'ui' }), 'test.start');
+        for (const name of companions) mates.push(ok(await internal('party.addCompanion', { name, level: 1, class: ref('c0') }), 'party.addCompanion').receipt.data.actor);
+    }
+    return {
+        host, pc, mates, internal,
+        ui: (type, payload = {}) => host.bus.command(type, payload, { cause: 'ui' }),
+        q: (name, args = {}) => host.sdk.query(name, args),
+        head: () => host.head(),
+        slice: name => host.head().domains[name],
+        problems: () => host.store.problems(),
+        say: (text, lines = []) => host.send('Go on.', lines.length ? `${text}\n\n<Changes>\n${lines.join('\n')}\n</Changes>` : text),
+        progress: (actor = pc) => host.sdk.query('rules.progress', { actor }),
+    };
+}
+
+// A tiny module that sends an internal command as another part would (the real party commands refuse a bare click).
+const CALLER = { id: 'rb-test-caller', name: 'Caller', version: '0.0.0', commands: { 'rbtest.call': (ctx, { type, payload } = {}) => ctx.call(type, payload ?? {}) } };

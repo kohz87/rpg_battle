@@ -5,6 +5,8 @@
 //     choices:  { [`<actor>|<milestone>`]: Choice },     // derive.js: the basic class (0), promotions (10…30), paths (40…90)
 //     attempts: { [attempt id]: Attempt },                // credit.js: every paid use of a skill, whatever it earned
 //     credits:  { [attempt id]: Credit },                 // credit.js: what rules.settle decided for an attempt
+//     roster:   { active: ActorId[] | null },             // roster.js: who is active (null: the first three, the PC first)
+//     temporary:{ [unit id]: Unit },                      // roster.js: summons and pets of a fight, outside the limit
 //   }
 //
 // Every record is written once under its own key and never changed (SPEC §2.2): a reply deleted from the
@@ -20,7 +22,7 @@ import { isActorId, isDefId, isHash, isObject } from '../rules/ids.js';
 export const MAX_ATTEMPTS = 4000;
 export const PROGRESS_SCHEMA = 2;
 
-export const initialProgress = () => ({ schema: PROGRESS_SCHEMA, choices: {}, attempts: {}, credits: {} });
+export const initialProgress = () => ({ schema: PROGRESS_SCHEMA, choices: {}, attempts: {}, credits: {}, roster: { active: null }, temporary: {} });
 
 const int = (value, min = -Infinity, max = Infinity) => Number.isSafeInteger(value) && value >= min && value <= max;
 // The ledger holds thousands of records and its validator runs after every block a replay applies, so a record is checked
@@ -75,10 +77,29 @@ function creditProblem(id, credit, attempts) {
     return '';
 }
 
+const UNIT_KINDS = ['summon', 'pet'];
+const ENDED = ['expired', 'dismissed', 'downed', 'fight-ended'];
+
+function unitProblem(id, unit) {
+    const where = `progress: temporary unit ${id}`;
+    if (!isObject(unit) || unit.id !== id || !/^ac_[0-9a-z]{8}$/.test(id)) return `${where} is not whole`;
+    if (!UNIT_KINDS.includes(unit.kind) || !isActorId(unit.owner) || !isDefId(unit.template) || typeof unit.fight !== 'string') return `${where} names no kind, owner, template and fight`;
+    if (typeof unit.name !== 'string' || !unit.name || unit.name.length > 80 || !int(unit.level, 1, 99)) return `${where} needs a name and a level`;
+    for (const pool of ['hp', 'mp', 'sp']) if (!isObject(unit[pool]) || !int(unit[pool].cur, 0) || !int(unit[pool].max, 0)) return `${where}: ${pool} is { cur, max }`;
+    if (!(unit.ended === null || (isObject(unit.ended) && ENDED.includes(unit.ended.reason)))) return `${where}: ended is null or a reason`;
+    return '';
+}
+
 /** The problems of a progress slice (the domain validator): a list of sentences, empty when it is whole. */
 export function progressProblems(slice) {
     if (!isObject(slice) || slice.schema !== PROGRESS_SCHEMA || !isObject(slice.choices) || !isObject(slice.attempts) || !isObject(slice.credits)) return ['progress: the slice is not progress schema 2'];
+    if (!isObject(slice.roster) || !(slice.roster.active === null || (Array.isArray(slice.roster.active) && slice.roster.active.length <= 3 && slice.roster.active.every(isActorId)))) return ['progress: roster.active is null or up to three actors'];
+    if (!isObject(slice.temporary) || Object.keys(slice.temporary).length > 24) return ['progress: temporary is a record of at most 24 units'];
     const errors = [];
+    for (const [id, unit] of Object.entries(slice.temporary)) {
+        const problem = unitProblem(id, unit);
+        if (problem) errors.push(problem);
+    }
     for (const [key, choice] of Object.entries(slice.choices)) {
         const problem = choiceProblem(key, choice);
         if (problem) errors.push(problem);

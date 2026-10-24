@@ -5,6 +5,7 @@
 //   rules.identity({})            → { hash, packId, version } | null     the rules hash class.choose and path.choose carry
 //   rules.classes({ tier? })      → [{ id, name, tier, parent, skills: [Ref, Ref, Ref] }]   the pack's classes, in its order
 //   rules.names({ refs })         → { [Ref]: name }                      class, skill and form names; unknown refs left out
+//   rules.party({})               → PartyView | null                     active (PC + 2), reserve, temporary sheets (sheet.js)
 //   rules.training({ actor })     → { actor, session, caps, offers } | null   the training clock's side of the screen:
 //       session  null (no sessions exist before the training package),
 //       caps     { day (the story day now, null without a clock), actor: { used, max }, skill: { used, max } (the busiest of the
@@ -19,6 +20,7 @@ import { rowsOf } from '../progress/credit.js';
 import { readClock, dayOf } from '../training/clock.js';
 import { isActorId, isObject } from './ids.js';
 import { pinOf } from './pin.js';
+import { partyView } from './sheet.js';
 
 const noArgs = args => args === undefined || args === null || (isObject(args) && Object.keys(args).length === 0);
 
@@ -71,4 +73,10 @@ export function rulesTraining(state, args, tools) {
     return { actor: args.actor, session: null, caps: { day, actor: { used: actorUsed, max: ix.constants.usePerActorDay }, skill: { ...busiest }, skills }, offers: [] };
 }
 
-export const queries = { 'rules.identity': rulesIdentity, 'rules.classes': rulesClasses, 'rules.names': rulesNames, 'rules.training': rulesTraining };
+/** rules.party({}) → PartyView: the active, reserve and temporary sheets, or null without a pinned ruleset. */
+export function rulesParty(state, args, tools) {
+    if (!noArgs(args)) return null;
+    return partyView(indexOfState(state), state, tools?.query);
+}
+
+export const queries = { 'rules.party': rulesParty, 'rules.identity': rulesIdentity, 'rules.classes': rulesClasses, 'rules.names': rulesNames, 'rules.training': rulesTraining };

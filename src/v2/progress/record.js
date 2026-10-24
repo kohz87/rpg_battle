@@ -84,3 +84,25 @@ export function recordAttempt(ctx, input) {
     attempts[id] = attempt;
     return { id, created: true };
 }
+
+/**
+ * A fight's paid uses (contract B3/B5: "No permanent mastery at act; combat.end alone awards it"): what combat.end calls once
+ * the fight's end is confirmed, in the end settlement's own transaction (it carries the guard that binds the terminal prefix).
+ * `uses`: [{ actor, skill, form, count }] counted from the fight's recorded actions; each use is an attempt of kind combat
+ * named by the fight, the character, the skill and its number, so settling the same end again records nothing twice.
+ * The end settlement is the cap source (the default: this reply). → { ids: [attempt id], created: n }.
+ */
+export function recordCombatUses(ctx, { fight, uses }) {
+    if (typeof fight !== 'string' || !fight || !Array.isArray(uses)) ctx.fail('INVALID', 'A fight\'s uses are { fight, uses: [{ actor, skill, form, count }] }.');
+    const ids = [];
+    let created = 0;
+    for (const item of uses) {
+        if (!isObject(item) || !Number.isSafeInteger(item.count) || item.count < 1 || item.count > 1000) ctx.fail('INVALID', 'Each use says how many times (1 to 1000).');
+        for (let n = 1; n <= item.count; n += 1) {
+            const made = recordAttempt(ctx, { actor: item.actor, skill: item.skill, form: item.form, kind: 'combat', key: `${fight}:${item.actor}:${item.skill}:${n}`, cost: fight });
+            ids.push(made.id);
+            if (made.created) created += 1;
+        }
+    }
+    return { ids, created };
+}

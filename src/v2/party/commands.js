@@ -23,6 +23,7 @@ import { sessionOf } from '../combat/stored.js';
 import { filledBy, fitActor, fitParty, fitPool, storedPool } from './pools.js';
 import { foldStoryTime } from './recovery.js';
 import { actorFrom, actorsInOrder, attempt, cleanName, cleanRole, fail, nameKey, newId, offersRecord, revOf, waitingOffers } from './util.js';
+import { startRulesClass } from '../progress/start.js';
 
 // Skills learned onto a built sheet, in order (v1 newSheet's own loop, for a sheet made from final stats).
 const newSheetSkills = (sheet, skills, rules) => skills.reduce((out, skill) => learnV1(out, skill, { rules }), sheet);
@@ -281,6 +282,8 @@ function joinParty(ctx, payload = {}) {
     const npc = payload.npc ? String(payload.npc).trim().slice(0, 80) || null : null;
     writeSheet(party, { id, kind: 'companion', control: payload.control === 'player' ? 'player' : 'auto', growth: payload.growth === 'manual' ? 'manual' : 'auto', role: member.role, npc, portrait: portraitOf(ctx, payload.portrait) }, sheet, rules);
     party.order.push(id);
+    // Rules v2: the companion's basic class, chosen by the player (nothing at all in a chat with no rules pack).
+    startRulesClass(ctx, { actor: id, class: payload.class });
     return { summary: `${name} joins the party (${levelText(level, rules)}, ${member.role}).`, data: { actor: id, level }, narrate: true };
 }
 
@@ -866,7 +869,7 @@ function acceptOffer(ctx, payload = {}) {
     if (offer.kind === 'join') {
         return joinParty(ctx, {
             name: offer.name, role: offer.role, level: offer.level ?? undefined, npc: offer.npc, text: offer.text, preset: offer.preset ?? null,
-            focus: payload.focus ?? offer.focus, skills: payload.skills ?? offer.skills, control: payload.control,
+            focus: payload.focus ?? offer.focus, skills: payload.skills ?? offer.skills, control: payload.control, class: payload.class,
         });
     }
     return learnSkill(ctx, { actor: offer.actor, name: offer.skill, template: offer.template, setAside: payload.setAside ?? null });
