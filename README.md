@@ -1,6 +1,6 @@
-# RPG Battle 2.0.0-beta.1
+# RPG Battle 2.0.0-beta.2
 
-> This is the **`v2` branch**: Story Suite v2, first beta. It is for test play, not for your real campaigns yet.
+> This is the **`v2` branch**: Story Suite v2, second beta. It is for test play, not for your real campaigns yet.
 > RPG Battle 1 (the offer-based extension) is on the [`main` branch](https://github.com/kohz87/rpg_battle/tree/main).
 
 ## What it is
@@ -20,7 +20,7 @@ clock, quests) and [NPC State Delta](https://github.com/kohz87/npc_state_delta) 
 3. **Extensions → Install extension**, paste `https://github.com/kohz87/rpg_battle`, choose the branch **`v2`**,
    reload.
 
-Needs (`requires`): Story Block **2.0.0-beta.1 or later**. Without Story Block 2 RPG Battle shows one line in the extensions drawer and does nothing else; an older
+Needs (`requires`): Story Block **2.0.0-beta.2 or later**. Without Story Block 2 RPG Battle shows one line in the extensions drawer and does nothing else; an older
 Story Block 2 shows a red notice and RPG Battle waits. Works with, but does not need: Story Director, NPC State Delta. Update Story Block before
 RPG Battle. Install help: [guide, Installing](https://github.com/kohz87/Story_block/blob/v2/docs/v2/GUIDE.md#installing).
 
