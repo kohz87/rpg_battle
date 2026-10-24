@@ -123,6 +123,98 @@ and in the creation wizard's budget. Hook lines outside this part: `party/sheets
 `rulesSliceOf`), `party/commands.js`, `party/capture.js`, `party/context.js`, `party/queries.js`, `creation/build.js`
 (`creationRules(settings, rules)`), `creation/commands.js` (three call sites).
 
+## Slice 3: combat on rules v2 (B4)
+
+**Rule: a chat that pins no ruleset fights the fight it always did.** Everything below runs only when `pinnedOf(ctx)` finds a pin
+(`src/v2/fight/index.js`); otherwise the engine, the setup, the stored actions, the end settlement and the v1 mastery path are v1's, byte for
+byte. `tests/v2/fight/golden.json` holds traces of fixed v1 fights (one rng stream, ids, summaries) from the engine as it was before
+this slice, and `engine-unchanged.test.js` plays them again; `pinned.test.js` plays an unpinned chat through the real combat part.
+
+- **Actions come from the pinned skills and forms** (`fight/forms.js`, `fight/interpret.js`): a fighter's three skills are those of its
+  class at their current forms (`derive` through `fightSkills`), with the mastery the credited uses give and the stat cap of the pin. An
+  action is `{ type: 'form', form, selections: [{ effect, targets }] }`; each effect has its own side and scope (hostile damage and
+  conditions, friendly heal, shield, regen and guard), a choice of one target must name a legal one, and every refusal comes before
+  anything is paid or rolled. The power is the pack's hundredths with the mastery factor `1 + 0.1 x mastery` applied once; the cost
+  (mp, sp) is paid once, the cooldown set once (in the actor's turns), the use counted once under the form's id. The automatic turns (foes,
+  companions on auto) use the engine's own AI on the same forms, one target standing for every effect that needs one.
+- **Draws belong to actions** (`setup.draws === 'action'`): each action's dice come from its own stream seeded `<seed>|<action id>`, so
+  taking back one action never changes the dice of the ones before it. Action ids (`ca_xxxxxxxx`) come from the receipt's seed, the same
+  on every replay. The fight is the replay of its stored actions (`combat/stored.js`), as before.
+- **Closed records** (`fight/records.js`): `ActionRecord` and `ConditionRecord { kind, stacks, rounds, strength, at, source }`. Durations are
+  the contract's units: rounds are actor turns inside the fight, ten story minutes each after it; a condition a fight leaves on a character
+  is dated by the fight's `endingMinute`, so a read at `endingMinute + 10` has one round less. Stat shifts are fight-only conditions
+  (`fight/shifts.js`); summoned units (`summon.begin`/`summon.settle`, `progress/roster.js`) join the party's side with the caster's shares,
+  act on auto, are never party members and never keep a wipe from counting.
+- **combat.start** carries a replay guard (`combat.start { fight, offer, party }`, `fight/guards.js` `buildStart`): the offer is still there and
+  each fighter holds the forms, at the mastery, the fight was begun with, recomputed with `fightForms` from the state before the block. Take
+  back the promotion or the narrative use that gave a form or a mastery and the start goes off, and the acts and the end stand on a fight
+  that is not there, so they go with it.
+- **combat.act** carries a replay guard (`combat.act`, `fight/guards.js`): the prefix of actions it stands on. Take back an action and the
+  ones after it go off with it (`REPLAY_PREREQUISITE`), nothing is put in their place.
+- **combat.end** (`settleEnd`, first in the end settlement) carries the guard that binds the fight's terminal prefix, ends the fight's units,
+  pays the uses through `recordCombatUses` (attempts of kind `combat`, key `<fight>:<actor>:<skill>:<n>`, credited by the next
+  `rules.settle` under the shared caps), claims and pays XP through the single `party.grantXp { actor, amount, claim }` combat variant (claim
+  `xp:combat:<fight>:<member>`), and seals the result. The v1 mastery path is off for a pinned fight (`uses: {}`), and track A's quest hooks
+  are not touched here: a quest's own XP and coin are its own, and a fight's loot money and XP are paid once, here. (Track A retires the old
+  hooks; `src/v2/quests/` and `combat/quest.js` are not edited.)
+- **Sealed BatchResult** (`fight/batch.js`, `progress.batches[br_xxxxxxxx] = { hash, bytes, seq }`, the newest 8): plain JSON built only from
+  what the fight recorded, `hash = hashJson(bytes)` (the contract's Hash). `resolveBatch({ id, state }) -> { id, hash, bytes } | null` is the
+  function Story Block's `batchResults.resolve` calls; it returns null for a missing id or bytes that do not hash to their hash. Once
+  sealed under an id the bytes never change (a rebuild, a reload and a second fight leave them). The receipt and `combat.last` carry
+  `batch: { id, hash }`. Wiring `batchResults` on the module definition is lead-owned (`module.js`) and is not done here.
+- **Loot never fails the end.** `registrable(env, offered)` (`rules/items.js`) is the one question `rules.registerItem`, its replay guard and a
+  fight's loot all ask: shape, a generated prefix, a rule that fits (equipment states its own), the template, the bounds (the value ceiling is
+  read in the chat's coin: `valueCeiling(rarity, level, scale)`, the scale riding in the area snapshot), an id never redefined, and the
+  1000-rule closure. `lootProblem(ctx, def)` runs it on the def as Story Block's `item.define` hook prices it (`defineItem` with
+  `{ note: '', owner: 'party', scale }`), so what it holds is exactly what a registration would refuse. A held drop is left behind with
+  `reason: 'held'` and a `cause` (`equipment`, `no-tier`, `rules`); weight keeps v1's sentence ("Left behind, too heavy to carry") and a held
+  drop has its own ("Couldn't be kept here", with "set the area's danger to keep loot like this" when no tier is known: Story Director dormant or no
+  policy for the place). `loot.left` rows are additive (`reason`, `cause`, pinned chats only). The end's guard also carries the area
+  (`{ place, tier, scale }`), so taking back the reply that set the place takes the registered loot with it.
+- **Summoned units earn nothing**: their use is not counted by the engine (`performForm`) and the settlement keeps only `session.setup.party`
+  actors in the uses and the batch. The foes' XP follows the pin: `pinnedSetup` stores `xpBase = xpPerLevel` (exponent 0) and `fightRules`
+  honours a setup's `xpBase`; a v1 setup has none.
+- **A fight is pinned or not by its session** (`setup.draws === 'action'`), not by the chat's pin of the moment: `end` and `settleEnd` key on it, so a
+  fight begun before the pin settles as v1 would (uses by the v1 path, XP without a claim). A v1 action never keeps an `id`, `form` or
+  `selections` a caller sent, and a `form` action is refused.
+- **Carried strengths** (`progress.carried[actor] = [{ kind, rounds, strength }]`): every end replaces the entry of each member of the fight
+  (from the sealed record, whose strength is the combatant's, since v1's summary keeps names and rounds only). The next fight reads a
+  regeneration's strength from it; one the story gave acts as the engine's damage-over-time default (a share of maximum HP), never as nothing.
+- **summon.begin** takes `standing` (how many units of the fight stand now, this one included: the fight knows who is down; seven is refused)
+  and keeps the record bounded at 24 by age (`born`), ended first, then ones that left their fight, then the oldest called.
+- **progress.batches** are never written over (`storeBatch`: a taken id is a `CONFLICT`); the newest 8 results of fights are kept and a result of
+  another kind (B6's death and return) is exempt from that pruning.
+
+**Hook lines outside this part** (a pinned fight needs them; each is a one-liner or a guarded branch, all but the engine's behind `pinnedOf`):
+
+- `src/combat.js` (+40/-5): `formHooks` export (plan, perform, describe, shifts), `'stat-shift'` in `FIGHT_ONLY`, `skill.costs` in `blockReason`,
+  `formHooks.shifts` at the start and end of a turn, `type: 'form'` and skills with `parts` in `resolve`/`perform`, `form` in
+  `availableActions`, the per-action stream in `actInPlace` (`f.drawsBy === 'action'`), `drawsBy` in `startFight`, `joinFight` and `ENGINE`,
+  summoned units outside the wipe check and `summarize`.
+- `src/v2/combat/index.js` (+45/-16): imports; `form` action fields; `built`/`pinnedSetup` and `beginUnits` in `start`; `actionWithId`,
+  `guardAction` and `beginUnits` in the play path; `settleEnd` first in `end`; `uses: {}` and the XP `claim` for a pinned fight; `sealed.batch`
+  on the last result and the receipt; `lootProblem` and the held rows in `grantLoot` (and the sentence for them in `end`), `guardStart` in `start`, `actionWithId` stripping v1 actions, the session (not the pin) deciding the v1 or pinned settlement; the pin's slice into `cardContext`.
+- `src/v2/combat/setup.js` (+6): the pinned skills and `restoreStrengths` in `partyCombatants`.
+- `src/v2/combat/stored.js` (+3/-1): `fightRules` honours a setup's `xpBase` (a pinned fight's XP per level).
+- In the parts of this module: `progress/guard.js` (kinds `combat.act`, `combat.end`), `progress/assess.js` (dispatch), `progress/domain.js`
+  (`batches`, `unitProblem` exported), `progress/roster.js` (`summon.begin`, `summon.settle`), `rules/commands.js` (`attachIfFree`, because
+  the loot grant inside `combat.end` registers items under the end's own guard).
+
+**Additions for the contract** (the lead folds them in): `summon.begin { actor, owner, kind, template, fight, name, level, standing, hp, mp, sp }` and
+`summon.settle { fight, units: [{ actor, reason: null | 'downed' | 'expired' }] }` (both the combat part's own steps, refused for anyone else);
+`br_xxxxxxxx` ids for sealed results and `ca_xxxxxxxx` for actions; `combat.act` with `{ type: 'form', form, selections: [{ effect, targets }] }`
+(effects 0-3, four selections at most, the id made by the host); the `combat.session` projection `actions.skills[].form` (`describeForm`:
+`{ id, skill, effects: [{ index, op, side, scope, choose, legal: [combatant ids] }] }`, next to the v1 fields name, usable, reason and target); the guard kinds `combat.start`, `combat.act`,
+`combat.end`; `progress.carried`; `skill.cancelTrain` (slice 2).
+
+**Gaps and differences (written down, not decided):**
+
+- Death, return and wipe batches (B6), Story Director checks, danger and NSD (slice 4) are not here. `BatchResult` v1 is the fight's own kind.
+- Foe adapters (`foeToEngine`) and element resistances: deferred to the area-tier slice (the lead's decision); elements are not promised.
+- `batchResults.resolve` is wired by the lead at integration, one resolver for fight and death batches; until then nothing in Story Block reads
+  `progress.batches`.
+- `lootProblem` mirrors Story Block's hook call (`{ note: '', owner: 'party', scale }`, level 1); if Story Block's call changes, so must it.
+
 ## Differences from the contract and track C's fixtures, and gaps (written down, not decided)
 
 - `rules.item` answers an `ItemRule` (the contract); C's fixture adds `frozen: true`, which the screens do not need.
@@ -146,7 +238,7 @@ and in the creation wizard's budget. Hook lines outside this part: `party/sheets
 - The full resolved pin rides in every checkpoint (583 KB for a big pack); B3/E6 will store `resolved` once, keyed by `rulesHash`.
 - Story Block must expose `resolved`, `rulesHash`, `packHash` and `RULES_V2_PROGRESSION` to the activation: `packs.rules` returns
   only the manifest today. That is an E/D task before activation.
-- Slice 3 and later: combat actions, effects and conditions, death and return, Story Director checks, tiers and danger.
+- Slice 4 and later: death and return, Story Director checks, tiers and danger.
 
 ## Code that production does not reach yet
 

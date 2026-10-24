@@ -14,6 +14,7 @@ import { isObject, isActorId } from '../rules/ids.js';
 import { ACTIVE_LIMIT, lifeOf } from '../rules/sheet.js';
 import { assessFlag } from '../rules/flags.js';
 import { assessItem } from '../rules/items.js';
+import { buildAct, buildEnd, buildStart } from '../fight/guards.js';
 
 /** A party member through `query` ({ id, name, level, … }) or null: the party part is another part's, asked only by query. */
 export function memberOf(query, actor) {
@@ -148,6 +149,9 @@ export function assess(kind, env, payload, extra = {}) {
     if (kind === 'skill.cancelTrain') return assessCancel(env, payload);
     if (kind === 'rules.flagSet') return assessFlag(env, payload, extra);
     if (kind === 'rules.registerItem') return assessItem(env, payload);
+    if (kind === 'combat.start') return buildStart(env, payload);
+    if (kind === 'combat.act') return buildAct(env, payload);
+    if (kind === 'combat.end') return buildEnd(env, payload);
     if (kind === 'rules.settle') {
         const plan = planSettlement(ix.constants, progress, readClock(query));
         if (plan.length) {

@@ -24,10 +24,10 @@
 //      id are a CONFLICT; the id is claimed (`rb:<epoch>:item:<def>`) and a replay guard remembers what it depended on.
 // Ids are never assigned here: the def's id is the caller's (`story/<slug>`, `craft/<slug>`, `trade/<slug>[-rarity-l<level>]`).
 
-import { boundProblems, defShapeProblems, GENERATED_PREFIXES, MAX_ITEM_RULES, ruleProblems } from './bounds.js';
+import { boundProblems, defShapeProblems, GENERATED_PREFIXES, MAX_ITEM_RULES, moneyScale, ruleProblems } from './bounds.js';
 import { hashJson } from './hash.js';
 import { TRUSTED, epochOf, isDefId, isHash, isObject, isRecordId } from './ids.js';
-import { indexOfState } from './graph.js';
+import { indexOfCtx, indexOfState } from './graph.js';
 import { ask } from './ask.js';
 
 const FIELDS = ['write', 'def', 'rule', 'template', 'area', 'rulesHash'];
@@ -60,8 +60,10 @@ export function areaNow(query) {
     const here = ask(query, 'atlas.canonical', {});
     const place = isObject(here) && typeof here.id === 'string' ? here.id : null;
     const found = place ? ask(query, 'world.areaTier', { place }) : null;
-    if (!isObject(found) || !Number.isInteger(found.tier) || found.tier < 0 || found.tier > 9) return { place, tier: null, source: 'unknown', sourceId: null };
-    return { place: found.place ?? place, tier: found.tier, source: found.source ?? 'unknown', sourceId: found.sourceId ?? null };
+    // The pack's money scale: the item.define hook prices in the chat's coin, so the value ceiling is read in it.
+    const scale = moneyScale(Number(ask(query, 'inventory.economy', {})?.scale));
+    if (!isObject(found) || !Number.isInteger(found.tier) || found.tier < 0 || found.tier > 9) return { place, tier: null, source: 'unknown', sourceId: null, scale };
+    return { place: found.place ?? place, tier: found.tier, source: found.source ?? 'unknown', sourceId: found.sourceId ?? null, scale };
 }
 
 const templateOk = (ix, def, template) => {
@@ -74,17 +76,21 @@ const templateOk = (ix, def, template) => {
 };
 
 /**
- * The question both the command and the replay guard ask: could this registration stand on this state? `payload` is the fixed one
- * { write, def, rule, template, area (the snapshot), rulesHash }. env: { ix, rules }.
- * → { ok: true, inputs, existing } | { ok: false, code, why }.
+ * Whether a definition can be registered on this state, the one question the command, the replay guard and a fight's loot all ask
+ * (a drop that cannot be is held, never granted: a refusal inside a grant would fail the fight's whole end). Pure.
+ * `env`: { ix, rules } (the pinned index and the `rules` slice); `offered`: { def (as the item.define hook priced it), rule (null where
+ * there is none), template, area (a snapshot: { place, tier, scale }) }.
+ * → { ok: true, inputs, existing } | { ok: false, code, why }. Each refusal is one of: shape, a prefix that is not generated, a rule
+ * that does not fit the def (equipment states its own), a template not in the ruleset, an area with no tier or a def over its bounds
+ * (value read in the chat's coin), an id already defined differently, or a ruleset already holding 1000 item rules.
  */
-export function assessItem(env, payload) {
+export function registrable(env, offered) {
     const { ix, rules } = env;
-    const { def, rule, template, area } = payload;
-    if (payload.rulesHash !== ix.rulesHash) return { ok: false, code: 'RULES_MISMATCH', why: 'It was made under other rules than the ones this chat runs.' };
+    const { def, rule, template, area } = offered;
     const shape = defShapeProblems(def);
     if (shape.length) return { ok: false, code: 'INVALID', why: shape.join(' ') };
     if (!GENERATED_PREFIXES.includes(def.id.slice(0, def.id.indexOf('/')))) return { ok: false, code: 'REFUSED', why: 'Only story, craft and trade items are registered here; a pack\'s items are frozen with the rules.' };
+    if (rule === null) return { ok: false, code: 'RULES_MISMATCH', why: 'Equipment needs its rule (slots and hands) from the step that makes it; a name is never read for one.' };
     const broken = ruleProblems(rule, def);
     if (broken.length) return { ok: false, code: 'RULES_MISMATCH', why: broken.join(' ') };
     const source = templateOk(ix, def, template);
@@ -97,6 +103,15 @@ export function assessItem(env, payload) {
     if (existing && (existing.defHash !== defHash || existing.ruleHash !== ruleHash)) return { ok: false, code: 'CONFLICT', why: `${existing.def.name} (${def.id}) is already defined differently; a definition never changes once it exists.` };
     if (!existing && Object.keys(rules?.generated ?? {}).length + ix.itemRuleCount >= MAX_ITEM_RULES) return { ok: false, code: 'REFUSED', why: `A ruleset holds at most ${MAX_ITEM_RULES} item rules.` };
     return { ok: true, existing, inputs: { def: defHash, rule: ruleHash, template, area, rulesHash: ix.rulesHash } };
+}
+
+/**
+ * The question both the command and the replay guard ask: could this registration stand on this state? `payload` is the fixed one
+ * { write, def, rule, template, area (the snapshot), rulesHash }. env: { ix, rules }.
+ */
+export function assessItem(env, payload) {
+    if (payload.rulesHash !== env.ix.rulesHash) return { ok: false, code: 'RULES_MISMATCH', why: 'It was made under other rules than the ones this chat runs.' };
+    return registrable(env, payload);
 }
 
 /** rules.registerItem: see above. `attach(ctx, ix, kind, payload, inputs)` puts the replay guard on. */
@@ -152,7 +167,7 @@ export function registerItem(ctx, payload, attach) {
  * (Story Block accepts only this module's own nested call). → the list of { def, created }.
  */
 export function registerPackDefs(ctx) {
-    const ix = indexOfState({ domains: { rules: ctx.read('rules') } });
+    const ix = indexOfCtx(ctx);
     if (!ix) return [];
     const pin = ctx.read('rules').pin;
     return Object.keys(pin.defs ?? {}).sort().map(ref => {

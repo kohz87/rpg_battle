@@ -34,6 +34,8 @@ import { clipped } from '../lines.js';
 import { lastParts, partsProblems } from '../board/parts.js';
 import { fitParty } from '../party/pools.js';
 import { foldStoryTime } from '../party/recovery.js';
+import { actionWithId, beginUnits, guardAction, guardStart, lootProblem, pinnedFight, pinnedOf, pinnedSetup, settleEnd } from '../fight/index.js';
+import { cleanFormFields } from '../fight/records.js';
 import { applyStock, beatenFoes, boardToken, endSummary, foeNames, foeRanks, partyNames, rebuild, sessionView, tailLines } from './view.js';
 
 export { MAX_BEATEN, MAX_OFFERS } from './stored.js';
@@ -98,8 +100,8 @@ function recordOf(draft, key, field = 'id') {
     return draft[key];
 }
 const STATUSES = ['active', 'won', 'lost', 'fled'];
-const ACTION_TYPES = ['attack', 'skill', 'item', 'defend', 'flee', 'parley', 'auto'];
-const ACTION_FIELDS = ['target', 'skill', 'item', 'actor'];
+const ACTION_TYPES = ['attack', 'skill', 'item', 'defend', 'flee', 'parley', 'auto', 'form'];
+const ACTION_FIELDS = ['target', 'skill', 'item', 'actor', 'form', 'id'];
 const MAX_SUMMARY = 400;
 
 // The instruction every reply carries (byte-identical: no names, no numbers). The line's own
@@ -148,6 +150,8 @@ function cleanAction(action) {
         if (typeof action[field] !== 'string' || !action[field].trim() || action[field].length > 80) return null;
         out[field] = action[field];
     }
+    // (rules v2) A form action's choices: effect -> targets, a closed shape (fight/records.js).
+    if (action.selections !== undefined && !cleanFormFields(action, out)) return null;
     return out;
 }
 
@@ -340,6 +344,8 @@ function playAction(ctx, action, payload = {}) {
             ctx.fail('REFUSED', `There is no ${item.name} left in the inventory.`);
         }
     }
+    action = actionWithId(ctx, session, action);
+    if (!action) ctx.fail('REFUSED', 'A form means nothing in a fight that does not run a ruleset.');
     let next;
     try {
         next = act(fight, action, rules);
@@ -348,7 +354,9 @@ function playAction(ctx, action, payload = {}) {
     }
     const used = readInventory(ctx) ? consumeSpent(ctx, itemsSpent(fight, next)) : { taken: [], missing: [] };
     syncPools(ctx, next);
+    beginUnits(ctx, session, fight, next);
     // Under the fight's own key (stored.js): replayed without this fight's start, the block does not apply.
+    guardAction(ctx, session, stock.length ? { ...action, stock } : action);
     const stored = draftSession(ctx.draft('combat'), session.id);
     stored.actions.push(stock.length ? { ...action, stock } : action);
     stored.status = sessionStatus(next.status);
@@ -439,10 +447,12 @@ function canCarryLoot(ctx, carried, qty) {
 function grantLoot(ctx, items) {
     const told = [];
     const left = [];
-    const add = (list, name, item) => {
+    // A pinned chat says why a drop stayed ('weight': too heavy; 'held': the rules cannot register it here, with its `cause`); another chat's rows are v1's.
+    const pinned = Boolean(pinnedOf(ctx));
+    const add = (list, name, item, why = null) => {
         const same = list.find(entry => entry.name === name);
         if (same) same.qty += item.qty;
-        else list.push({ name, qty: item.qty, rarity: item.rarity ?? 'common' });
+        else list.push({ name, qty: item.qty, rarity: item.rarity ?? 'common', ...(why && pinned ? why : {}) });
     };
     for (const item of items) {
         const target = lootTarget(ctx, item);
@@ -452,8 +462,14 @@ function grantLoot(ctx, items) {
         const shown = target?.shown ?? item.name;
         // What it weighs: the chat's def, a pack's (asked again by name), else the drop's own.
         const carried = target?.defId ? { defId: target.defId } : { def: target?.def ?? lootDef(item) };
+        // A new definition the rules cannot register is held, never granted: nothing in the end may fail on a drop.
+        const problem = payload.def ? lootProblem(ctx, payload.def) : null;
+        if (problem) {
+            add(left, shown, item, { reason: 'held', cause: problem.reason });
+            continue;
+        }
         if (!canCarryLoot(ctx, carried, item.qty)) {
-            add(left, shown, item);
+            add(left, shown, item, { reason: 'weight' });
             continue;
         }
         ctx.call('inventory.grant', { ...payload, qty: item.qty, owner: 'party' });
@@ -490,7 +506,8 @@ function start(ctx, payload) {
     } catch (error) {
         ctx.fail('REFUSED', error?.message || 'That fight cannot start.');
     }
-    const { setup, made } = built;
+    const { made } = built;
+    const setup = pinnedSetup(ctx, built.setup);
     // The foes past the field (the reader's setting, setup.planWaves) come in later waves.
     const later = (setup.waves ?? []).reduce((sum, wave) => sum + (wave.enemies?.length ?? 0), 0);
     // The party as it stands before the opening (the automatic turns before the first choice,
@@ -518,6 +535,7 @@ function start(ctx, payload) {
     // and the foes' first blows show on the party at once.
     if (inventory) consumeSpent(ctx, itemsSpent(before, opening));
     syncPools(ctx, opening);
+    beginUnits(ctx, { id, setup }, { combatants: [] }, opening);
     const rev = nextRev(ctx);
     if (made.length) {
         const bestiary = ctx.draft('bestiary');
@@ -529,6 +547,8 @@ function start(ctx, payload) {
         }
         prune(bestiary.creatures, MAX_CREATURES, null);
     }
+    // (rules v2) The offer and the forms each fighter takes in, bound to the state this stands on.
+    guardStart(ctx, { offer: offer.id, fight: id, setup });
     const draft = ctx.draft('combat');
     delete recordOf(draft, 'offers')[offer.id];
     // The foes' written ranks (`rank: D`) go with the session, for the tail line (none: no key).
@@ -588,6 +608,8 @@ function end(ctx, payload) {
     const result = summarize(fight, rules);
     // The foes' coin is RPG Battle's default money (rules.moneyByRank): × the pack's scale the fight began with (F104).
     result.loot.money = scaledMoney(result.loot.money, setup.moneyScale ?? 1);
+    // (rules v2) The pinned fight's settlement, first, as the root's one guard: the paid uses and the sealed result of the fight as it ended.
+    const sealed = settleEnd(ctx, { session, fight, result });
     const rev = nextRev(ctx);
     const present = partyIds(ctx);
     const here = id => !present || present.has(id);
@@ -606,7 +628,8 @@ function end(ctx, payload) {
             ...(member.sp ? { sp: { cur: member.sp.cur } } : {}),
             down: member.down,
             conditions: member.conditions.map(cond => ({ kind: cond.name, rounds: cond.rounds })),
-            uses: { ...(result.uses?.[member.memberId] ?? {}) },
+            // (rules v2) A pinned fight's uses are paid by its settlement (recordCombatUses), never by the v1 mastery path; a fight begun before the pin is v1's.
+            uses: sealed ? {} : { ...(result.uses?.[member.memberId] ?? {}) },
         })),
     });
 
@@ -616,7 +639,7 @@ function end(ctx, payload) {
     for (const member of setup.party) {
         if (gone.has(member.memberId) || !here(member.memberId)) continue;
         const xp = Math.max(0, Math.round(Number(result.xp?.[member.memberId]) || 0));
-        if (xp > 0) ctx.call('party.grantXp', { actor: member.memberId, amount: xp });
+        if (xp > 0) ctx.call('party.grantXp', { actor: member.memberId, amount: xp, ...(pinnedFight(session) ? { claim: `combat:${session.id}:${member.memberId}` } : {}) });
     }
 
     // Gear wears once a fight (the items part, TRS idea 1): armour by the blows its wearer took, a weapon by the fight.
@@ -650,8 +673,13 @@ function end(ctx, payload) {
     const terms = ctx.settings()?.terms;
     const shown = terms && typeof terms === 'object' ? { ...rules, terms: { ...rules.terms, ...terms } } : rules;
     const lost = died.length ? ` ${died.map(entry => entry.name).join(', ').replace(/, ([^,]*)$/, ' and $1')} died and ${died.length === 1 ? 'is' : 'are'} gone from the party for good.` : '';
-    const behind = leftBehind.length ? ` Left behind, too heavy to carry: ${leftBehind.map(item => (item.qty > 1 ? `${item.name} ×${item.qty}` : item.name)).join(', ')}.` : '';
-    const summary = `${endSummary(result, { pcName, rules: shown, names, currency: chatCurrency(ctx) })}${behind}${lost}${worn}`;
+    const told = list => list.map(item => (item.qty > 1 ? `${item.name} ×${item.qty}` : item.name)).join(', ');
+    const heavy = leftBehind.filter(item => item.reason !== 'held');
+    const held = leftBehind.filter(item => item.reason === 'held');
+    const behind = heavy.length ? ` Left behind, too heavy to carry: ${told(heavy)}.` : '';
+    // What the rules cannot register here is told apart from weight; with no danger tier (Story Director dormant, or no policy for the place) it says what to set.
+    const kept = held.length ? ` Couldn't be kept here: ${told(held)}${held.some(item => item.cause === 'no-tier') ? ' (set the area\'s danger to keep loot like this)' : ''}.` : '';
+    const summary = `${endSummary(result, { pcName, rules: shown, names, currency: chatCurrency(ctx) })}${behind}${kept}${lost}${worn}`;
     const combat = ctx.draft('combat');
     if (foes.length) {
         const beaten = recordOf(combat, 'beaten', 'fight');
@@ -660,11 +688,11 @@ function end(ctx, payload) {
     }
     // Written whole (a one-entry list is one replace): the newest result left on the chat's line wins.
     // `parts`: the same summary in parts, for the Fight screen (board/parts.js); the text stays as it was.
-    const parts = lastParts(result, { names, pcName, rules: shown, currency: chatCurrency(ctx), notes: [behind, lost, worn] });
+    const parts = lastParts(result, { names, pcName, rules: shown, currency: chatCurrency(ctx), notes: [behind, kept, lost, worn] });
     // `reply`: the reply the settle is stored on (ctx.reply, SPEC §4.2), so the Fight screen can fold the
     // result once a later reply has been written (lastFresh, combat.fold).
     const settledOn = replyOf(ctx);
-    combat.last = [{ summary, moments: [...result.keyMoments], outcome: session.status, rev, parts, ...(settledOn ? { reply: settledOn } : {}) }];
+    combat.last = [{ summary, moments: [...result.keyMoments], outcome: session.status, rev, parts, ...(settledOn ? { reply: settledOn } : {}), ...(sealed ? { batch: sealed.batch } : {}) }];
     dropSession(combat, session.id);
     return {
         summary,
@@ -676,11 +704,12 @@ function end(ctx, payload) {
             died: died.map(entry => ({ ...entry })),
             ...(wear?.data?.changes?.length ? { wear: wear.data.changes.map(change => ({ stack: change.stack, name: change.name, cond: change.to, band: change.band })) } : {}),
             foes,
+            ...(sealed ? { batch: sealed.batch } : {}),
             xp: { ...result.xp },
             loot: {
                 money: result.loot.money,
                 items: result.loot.items.map(item => ({ name: item.name, qty: item.qty, rarity: item.rarity })),
-                ...(leftBehind.length ? { left: leftBehind.map(item => ({ name: item.name, qty: item.qty, rarity: item.rarity })) } : {}),
+                ...(leftBehind.length ? { left: leftBehind.map(item => ({ name: item.name, qty: item.qty, rarity: item.rarity, ...(item.reason ? { reason: item.reason, ...(item.cause ? { cause: item.cause } : {}) } : {}) })) } : {}),
             },
         },
     };

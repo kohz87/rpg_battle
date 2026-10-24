@@ -9,8 +9,8 @@
 //   * stat budget     rarityBudget(rarity, level ceiling)   >=  the cost of its **positive** stats (statCost per point; a negative stat
 //                     refunds nothing, so it cannot pay for an offence), and no stat beyond budget / its cost either way; stats only on
 //                     equipment, only the named stats
-//   * value           at most 4 x budget x gearPerPoint x the rarity's factor (v1's trade numbers: what a piece is worth, with room for a
-//                     dear market); a bound, not a price
+//   * value           at most 4 x budget x gearPerPoint x the rarity's factor x the pack's money scale (v1's trade numbers: what a piece is
+//                     worth, with room for a dear market, in the chat's coin as the item.define hook prices it); a bound, not a price
 //   * effect          heal <= 250, mp <= 40, damage.amount <= 250, repair <= 50, cure up to 8 condition words; no other key, only
 //                     on a consumable (the numbers a story's words were already held to, items/define.js STORY_EFFECT_MAX)
 //   * rule            the ItemRule shape of the pack schema, and consistent with the def: a non-equipment item has no slots and
@@ -21,7 +21,7 @@
 // The numbers below are v1's DEFAULT_RULES (src/rules.js), copied so that a later change of v1's tuning cannot move a running
 // timeline; tests/v2/rules/items.test.js holds them equal and fails when they drift (so does the effect ceiling, against
 // items/define.js STORY_EFFECT_MAX and REPAIR_MAX). Not decided here (written down as gaps in docs/dev/progress.md): a per-template
-// budget (the pack schema has no generation template) and the pack's money scale on `value`.
+// budget (the pack schema has no generation template).
 
 import { int, isDefId, isObject } from './ids.js';
 
@@ -71,7 +71,10 @@ export function spendOf(stats) {
 export const statCeiling = (name, budget) => Math.floor(budget / (STAT_COST[name] ?? 1));
 
 /** The most a generated item may be worth at a rarity and level (a bound, not a price). */
-export const valueCeiling = (rarity, level) => Math.round(VALUE_HEADROOM * budgetOf(rarity, level) * GEAR_PER_POINT * (RARITY_FACTOR[rarity] ?? 1));
+export const valueCeiling = (rarity, level, scale = 1) => Math.round(VALUE_HEADROOM * budgetOf(rarity, level) * GEAR_PER_POINT * (RARITY_FACTOR[rarity] ?? 1) * moneyScale(scale));
+
+/** The pack's money scale (`inventory.economy`), a positive number; 1 for anything else. Item values are priced in the chat's coin, so the ceiling is. */
+export const moneyScale = scale => (Number.isFinite(scale) && scale > 0 ? scale : 1);
 
 const PLAIN_KEYS = ['id', 'name', 'kind', 'rarity', 'value', 'stack', 'slot', 'stats', 'effect', 'tags', 'note', 'carry'];
 
@@ -139,7 +142,7 @@ function effectProblems(effect) {
 
 /**
  * Holds a generated def to the budget of the place it came into: `area` = { tier } (world.areaTier's answer, tier an integer
- * 0..9, or null when the place is unknown). → [] when it is within, else the sentences that say what is over.
+ * 0..9, or null when the place is unknown; `scale` the pack's money scale, default 1). → [] when it is within, else the sentences that say what is over.
  */
 export function boundProblems(def, area) {
     const errors = [];
@@ -159,7 +162,8 @@ export function boundProblems(def, area) {
         const spend = spendOf(def.stats);
         if (spend > budget + 1e-9) errors.push(`The stats cost ${spend} and a ${def.rarity} item at tier ${area.tier} may cost ${budget}.`);
     }
-    if (def.value > valueCeiling(def.rarity, levelCeiling(area.tier))) errors.push(`A ${def.rarity} item at tier ${area.tier} is worth at most ${valueCeiling(def.rarity, levelCeiling(area.tier))}.`);
+    const worth = valueCeiling(def.rarity, levelCeiling(area.tier), area.scale);
+    if (def.value > worth) errors.push(`A ${def.rarity} item at tier ${area.tier} is worth at most ${worth}.`);
     if (Object.keys(def.effect).length && def.kind !== 'consumable') errors.push('Only a consumable has an effect.');
     errors.push(...effectProblems(def.effect));
     return errors;

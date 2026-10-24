@@ -25,7 +25,7 @@ import { assess } from './assess.js';
 import { indexOfState } from '../rules/graph.js';
 import { epochOf } from '../rules/ids.js';
 
-export const GUARD_KINDS = Object.freeze(['class.choose', 'path.choose', 'rules.settle', 'party.setActive', 'summon.end', 'class.start', 'skill.use', 'skill.train', 'skill.cancelTrain', 'rules.flagSet', 'rules.registerItem']);
+export const GUARD_KINDS = Object.freeze(['class.choose', 'path.choose', 'rules.settle', 'party.setActive', 'summon.end', 'class.start', 'skill.use', 'skill.train', 'skill.cancelTrain', 'rules.flagSet', 'rules.registerItem', 'combat.start', 'combat.act', 'combat.end']);
 /** What a block the guard turned off says (contract C14: REPLAY_PREREQUISITE, "The earlier prerequisite was removed."). */
 export const PREREQUISITE_REMOVED = 'The earlier prerequisite was removed.';
 
@@ -49,6 +49,18 @@ export function attachGuard(ctx, ix, kind, payload, inputs, recorded) {
 }
 
 /**
+ * Like attachGuard, for a nested step whose root may already carry the guard of another operation (a loot item registered inside
+ * combat.end): the root's guard binds the whole block, this step goes with it, so a second guard is simply not attached.
+ */
+export function attachIfFree(ctx, ix, kind, payload, inputs, recorded) {
+    try {
+        attachGuard(ctx, ix, kind, payload, inputs, recorded);
+    } catch (error) {
+        if (error?.code !== 'CONFLICT') throw error;
+    }
+}
+
+/**
  * hooks.replayGuard({ state, query, hash }, { guard, source, … }) → { ok } | { ok: false, reason } | undefined.
  * undefined for a guard that is not this file's (another part may answer); the host fails closed on no answer.
  */
@@ -65,7 +77,7 @@ export function replayGuard({ state, query, hash }, info) {
     if (!progress || typeof progress !== 'object') return off('');
     const payload = guard.predicate.payload;
     if (payload === null || typeof payload !== 'object') return off('');
-    const answer = assess(kind, { ix, progress, training: state?.domains?.training, rules: state?.domains?.rules, query }, payload, { source: info.source, hash, event: info.recorded?.event, recorded: info.recorded });
+    const answer = assess(kind, { ix, progress, training: state?.domains?.training, rules: state?.domains?.rules, combat: state?.domains?.combat, query }, payload, { source: info.source, hash, event: info.recorded?.event, recorded: info.recorded });
     if (!answer.ok) return off(answer.why);
     const expected = buildGuard({ hash, owner: guard.owner, epoch: guard.epoch, source: info.source, rulesHash: ix.rulesHash, kind, payload, inputs: answer.inputs });
     return expected.inputHash === guard.inputHash ? { ok: true } : off('');

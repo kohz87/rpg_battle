@@ -17,7 +17,7 @@
 
 import { hashJson } from './hash.js';
 import { TRUSTED, epochOf, isHash, isObject, isRecordId } from './ids.js';
-import { indexOfState } from './graph.js';
+import { indexOfCtx, indexOfState } from './graph.js';
 
 /** The evidence's owner and kind: Story Director's `event` proofs (contract §6). */
 export const EVENT_OWNER = 'story-director';
@@ -81,7 +81,7 @@ export function flagSet(ctx, payload, attach) {
     if (!isObject(payload) || Object.keys(payload).some(key => !FIELDS.includes(key)) || FIELDS.some(key => !Object.hasOwn(payload, key))) ctx.fail('INVALID', `rules.flagSet takes { ${FIELDS.join(', ')} } and nothing else.`);
     if (!isRecordId(payload.write) || !validKey(payload.key) || typeof payload.value !== 'boolean' || !isRecordId(payload.evidence) || !isHash(payload.expectedHash)) ctx.fail('INVALID', 'A flag write names its write, a flag, a value, the event that allows it and the flags as read.');
     if (!TRUSTED.flagSet.includes(ctx.caller)) ctx.fail('REFUSED', 'A flag is set by an event of the story\'s own rules, never from a button or by the story\'s words.');
-    const ix = indexOfState({ domains: { rules: ctx.read('rules') } });
+    const ix = indexOfCtx(ctx);
     if (!ix) ctx.fail('REFUSED', 'This chat does not run a rules pack.');
     const slice = ctx.read('rules');
     const held = slice.flags?.[payload.key];

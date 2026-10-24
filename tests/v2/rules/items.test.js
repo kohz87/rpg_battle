@@ -85,7 +85,7 @@ test('Story Block\'s item grant routes a story item through rules.registerItem: 
     const entry = generated(w)['story/moon-charm'];
     assert.deepEqual(entry.rule, { def: 'story/moon-charm', allowedSlots: [], hands: 0, requires: {}, weight: 0, unique: false });
     assert.equal(entry.template, null);
-    assert.deepEqual(entry.area, { place: HAVEN, tier: 4, source: 'place', sourceId: HAVEN });
+    assert.deepEqual(entry.area, { place: HAVEN, tier: 4, source: 'place', sourceId: HAVEN, scale: 1 });
     assert.equal(entry.rulesHash, w.slice('rules').rulesHash);
     assert.equal(entry.defHash, hashJson(entry.def));
     assert.equal(entry.ruleHash, hashJson(entry.rule));

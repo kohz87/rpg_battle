@@ -144,6 +144,11 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
             // Activation's half: the pack's frozen definitions registered with Story Block; and a registration that a later step undoes.
             'test.packDefs'(ctx) { return { summary: 'Registered.', narrate: false, data: { registered: registerPackDefs(ctx) } }; },
             'test.registerThenFail'(ctx, payload) { ctx.call('rules.registerItem', payload); return ctx.fail('REFUSED', 'The buy fell through.'); },
+            // A sealed result and a condition on a member, as an earlier fight would have left them.
+            'test.carried'(ctx, { actor, list }) { ctx.draft('progress').carried[actor] = list; return { summary: 'Carried.', narrate: false }; },
+            'test.condition'(ctx, { actor, kind, rounds, at }) { ctx.draft('party').actors[actor].conditions.push({ kind, stacks: rounds, rounds, at }); return { summary: 'Condition.', narrate: false }; },
+            'test.settleUnits'(ctx, payload) { return ctx.call('summon.settle', payload); },
+            'test.begin'(ctx, payload) { return ctx.call('summon.begin', payload); },
             // A paid use some other step of this module gave proof of.
             'test.useProof'(ctx, payload) { return { summary: 'Proof.', narrate: false, data: { proof: ctx.proof({ kind: 'use', payload }).id } }; },
             'test.start'(ctx, { actor, class: cls }) {
