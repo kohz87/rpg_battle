@@ -85,7 +85,7 @@ export function buildEnd(env, payload) {
             version: FIGHT_VERSION,
             setup: hashJson(session.setup),
             // The place the loot is registered in (rules.registerItem bounds it by this tier): a place taken back takes the loot with it.
-            area: areaOf(env.query),
+            area: env.recorded && Object.hasOwn(env.recorded, 'area') ? env.recorded.area : areaOf(env.query),
             actions: (session.actions ?? []).map(action => ({ id: action.id ?? null, hash: actionHash(action) })),
             outcome: result.outcome,
             result: hashJson({ ...result, keyMoments: [], moneyScale: setup.moneyScale ?? 1 }),

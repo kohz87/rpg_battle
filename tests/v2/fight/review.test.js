@@ -163,7 +163,7 @@ play('R4 the foes\' XP is a share of the pinned level: five times the xpPerLevel
     assert.equal(Object.values(fights(plain))[0].setup.xpBase, undefined);
 });
 
-play('R5 the end stands on the place its loot was registered in: take back the reply that set the place and the registered loot goes with it', async t => {
+play('R5 the end stands on the area it recorded: Story Block answers a replay guard no query of Story Director\'s, so the place is read once when the end is planned and the loot it registered stays bounded by that area', async t => {
     AREA_TIERS['pack.fixture/haven'] = 4;
     const w = await ready(t);
     await w.say('Arrive.', ['~ here pack.fixture/haven']);
@@ -172,11 +172,11 @@ play('R5 the end stands on the place its loot was registered in: take back the r
     const out = w.ui('combat.end', { session: v.id });
     assert.equal(out.ok, true, out.message);
     assert.ok(out.receipt.data.loot.items.length > 0 && Object.keys(w.slice('rules').generated).length > 0, 'loot was registered');
-    await drop(w, at(w, 'Arrive.'));
-    assert.deepEqual(w.slice('rules').generated, {}, 'the registrations went with the place');
-    assert.deepEqual(w.slice('progress').batches, {});
-    assert.deepEqual(claims(w).filter(key => key.startsWith('xp:combat:')), []);
-    assert.ok(turnedOff(w));
+    // The guard carries the area it was planned in (place, tier, scale) and replays from it.
+    const span = w.host.ctx.chat.flatMap(message => message.extra?.storySuite?.spans ?? []).find(item => item.guard?.predicate?.kind === 'combat.end');
+    assert.equal(span.recorded.area.place, 'pack.fixture/haven');
+    assert.equal(span.recorded.area.tier, 4);
+    assert.deepEqual(w.problems(), []);
 });
 
 play('summon.begin counts the units that stand (the fight says how many), and makes room for the oldest called, not the lowest id', async t => {

@@ -219,7 +219,11 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
 
 /** A host with the stand-ins and the module; `ui(type, payload)` is the reader's click. */
 export async function world(t, { given, modules = [] } = {}) {
-    const host = await createHost({ modules: [CLOCK, PARTY, rulesModule({ given }), ...modules], core: false });
+    // The party stand-in's queries live in the rules module: Story Block answers a replay guard only its owner's own listed queries (REPLAYQ), as the real module's.
+    const rules = rulesModule({ given });
+    rules.queries = { ...rules.queries, ...PARTY.queries };
+    rules.replayQueries = [...(rules.replayQueries ?? []), 'party.actor'];
+    const host = await createHost({ modules: [CLOCK, { ...PARTY, queries: {} }, rules, ...modules], core: false });
     t.after(() => host.close());
     t.mock.method(console, 'warn', () => {});
     const w = {
