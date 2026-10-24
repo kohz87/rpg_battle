@@ -19,10 +19,13 @@ import { WIDGET_NAMES } from './helpers/render.js';
 import { screenWidgets } from '../../../src/v2/screens/widgets.js';
 
 // This part's own widgets (widgets.js) beside Story Block's standard ones.
-const OWN_WIDGETS = [...Object.keys(screenWidgets), 'rpg-battle.create-character', 'rpg-battle.return-card'];
+const OWN_WIDGETS = [...Object.keys(screenWidgets), 'rpg-battle.create-character', 'rpg-battle.return-card',
+    'rpg-battle.permanent-choice', 'rpg-battle.class-pick', 'rpg-battle.command-input', 'rpg-battle.command-button'];
 
 const byId = Object.fromEntries(screens.map(screen => [screen.id, screen]));
-const COMMANDS = new Set([...Object.keys(partyPart.commands), ...Object.keys(itemsPart.commands), ...Object.keys(tradePart.commands)]);
+// Commands the rules screens name that other tracks own (quests: A; training: B); see tests/v2/screens/rules/fixtures.js PENDING.
+const PENDING_COMMANDS = ['quest.take', 'quest.finish', 'quest.abandon', 'skill.train'];
+const COMMANDS = new Set([...Object.keys(partyPart.commands), ...Object.keys(itemsPart.commands), ...Object.keys(tradePart.commands), ...PENDING_COMMANDS]);
 // Story Block's registry rules (src/v2/registry.js): screen ids lowercase, query names words joined by dots.
 // An <ss-widget …> tag's name (attribute values may hold ">", as in data-if="len(x) > 0").
 const WIDGET_TAG = /<ss-widget\b(?:[^>"']|"[^"]*"|'[^']*')*?\sname="([^"]+)"/g;
@@ -31,11 +34,13 @@ const QUERY_NAME = /^[a-z][a-zA-Z0-9_-]*(?:\.[a-zA-Z0-9_-]+)*$/;
 
 test('the part exports the five default screens under the new `screens` key, its view queries and widgets', () => {
     // No Items screen: Story Block's Inventory is the one bag (MODULES §F99).
-    assert.deepEqual(screens.map(screen => screen.id), ['rpg-battle/party', 'rpg-battle/trade', 'rpg-battle/crafting', 'rpg-battle/hud', 'rpg-battle/status-card']);
+    // The five below are first; track C's five rules screens follow (tests/v2/screens/rules/), each shown only while the rules queries exist.
+    assert.deepEqual(screens.map(screen => screen.id), ['rpg-battle/party', 'rpg-battle/trade', 'rpg-battle/crafting', 'rpg-battle/hud', 'rpg-battle/status-card',
+        'rpg-battle/progress', 'rpg-battle/quests', 'rpg-battle/roster', 'rpg-battle/links', 'rpg-battle/setup']);
     assert.equal(byId['rpg-battle/items'], undefined);
     assert.equal(part.screens, screens);
-    assert.deepEqual(Object.keys(part.queries).sort(), ['rpg-battle.cards', 'rpg-battle.carry', 'rpg-battle.crafting', 'rpg-battle.heroes', 'rpg-battle.hud', 'rpg-battle.itemDetail', 'rpg-battle.trade']);
-    assert.deepEqual(Object.keys(part.widgets).sort(), ['rpg-battle.character-file', 'rpg-battle.equipment', 'rpg-battle.item-detail', 'rpg-battle.member-toggle', 'rpg-battle.skill-tree']);
+    assert.deepEqual(Object.keys(part.queries).sort(), ['rpg-battle.cards', 'rpg-battle.carry', 'rpg-battle.classPicker', 'rpg-battle.crafting', 'rpg-battle.heroes', 'rpg-battle.hud', 'rpg-battle.itemDetail', 'rpg-battle.linksView', 'rpg-battle.progressView', 'rpg-battle.questsView', 'rpg-battle.rosterView', 'rpg-battle.rulesDeps', 'rpg-battle.setupView', 'rpg-battle.trade']);
+    assert.deepEqual(Object.keys(part.widgets).sort(), ['rpg-battle.character-file', 'rpg-battle.class-pick', 'rpg-battle.command-button', 'rpg-battle.command-input', 'rpg-battle.equipment', 'rpg-battle.item-detail', 'rpg-battle.member-toggle', 'rpg-battle.permanent-choice', 'rpg-battle.skill-tree']);
     for (const widget of Object.values(part.widgets)) {
         assert.equal(typeof widget.render, 'function');
         assert.deepEqual(widget.validate({}), []);
@@ -188,7 +193,8 @@ test('buttons run commands RPG Battle has; widgets are the standard ss.* set', (
     // The party card's EQUIPMENT tiles send no commands (the unequip is the widget's own tap, UI 8f); crafting has no buttons.
     assert.deepEqual([...used].sort(), [
         'craft.collect', 'craft.commission',
-        'party.acceptOffer', 'party.dismissOffer', 'party.edit', 'party.setSkillActive', 'party.spend', 'trade.buy', 'trade.sell',
+        'party.acceptOffer', 'party.dismissOffer', 'party.edit', 'party.setSkillActive', 'party.spend',
+        'quest.abandon', 'quest.finish', 'quest.take', 'skill.train', 'trade.buy', 'trade.sell',
     ]);
     assert.doesNotMatch(byId['rpg-battle/crafting'].template, /data-command|<button/);
     const widgets = new Set(screens.flatMap(screen => [...screen.template.matchAll(WIDGET_TAG)].map(match => match[1])));

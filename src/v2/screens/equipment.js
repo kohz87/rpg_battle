@@ -50,7 +50,9 @@ export function renderEquipment(el, props = {}, api = {}) {
     const grid = make(doc, 'div', 'rpg-eq-grid');
     const live = make(doc, 'span', 'rpg-eq-live');
     live.setAttribute('aria-live', 'polite');
-    root.append(grid, make(doc, 'p', 'rpg-eq-help', EQUIPMENT_HELP), live);
+    // A screen with its own way to equip (the Roster) says so in the help line; the Party screen keeps the default.
+    const helpText = typeof props?.help === 'string' && props.help.trim() ? Array.from(props.help.trim()).slice(0, 200).join('') : EQUIPMENT_HELP;
+    root.append(grid, make(doc, 'p', 'rpg-eq-help', helpText), live);
     el.append(root);
 
     let tiles = tilesOf(props);
