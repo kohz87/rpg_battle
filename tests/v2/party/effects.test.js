@@ -7,7 +7,7 @@ import { byName, capture, makeState, pcOf, run, withPc } from './helpers/fake-ct
 import { part } from '../../../src/v2/party/index.js';
 import { bandOf, minutesSince, isOn, readDuration, readOn, validateEffects, SETBACK, turnBeforeReply, FEATURE, MAX_TURNS } from '../../../src/v2/party/effects.js';
 import { effects as effectsQuery, combatNumbersOf, toSpend } from '../../../src/v2/party/queries.js';
-import { memberOf, modifiersFor, tableLine } from '../../../src/v2/checks/modifiers.js';
+import { memberOf, modifiersFor, tableLine } from '../../../src/v2/rules/modifiers.js';
 import { tail } from '../../../src/v2/party/context.js';
 
 const rejects = (out, code, pattern) => {

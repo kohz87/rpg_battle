@@ -19,7 +19,7 @@ import { fromSheet, growthOf, wornGear, libraryOf, maxCompanionsOf, rulesFrom, r
 import { pinnedSettings } from '../progress/level.js';
 import { exportCharacter, originIds, readCharacter } from './portable.js';
 import { defineItem } from '../items/define.js';
-import { OUTCOMES, dcOf, outcomeOf, statForCheck } from './checks.js';
+import { OUTCOMES, dcOf, outcomeOf, statForCheck } from '../rules/check-words.js';
 import { sessionOf } from '../combat/stored.js';
 import { filledBy, fitActor, fitParty, fitPool, storedPool } from './pools.js';
 import { foldStoryTime } from './recovery.js';

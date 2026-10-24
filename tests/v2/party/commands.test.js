@@ -375,7 +375,7 @@ test('check.resolve rolls a d20 + the stat modifier, deterministic per seed', ()
 });
 
 test('check.resolve outcomes follow the dice rules', async () => {
-    const { outcomeOf, dcOf, statForCheck } = await import('../../../src/v2/party/checks.js');
+    const { outcomeOf, dcOf, statForCheck } = await import('../../../src/v2/rules/check-words.js');
     assert.equal(outcomeOf(20, -3, 30), 'crit');
     assert.equal(outcomeOf(1, 10, 5), 'critfail');
     assert.equal(outcomeOf(12, 3, 15), 'success');

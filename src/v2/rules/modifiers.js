@@ -31,7 +31,7 @@
 //    the query, nothing.
 
 import { DEFAULT_RULES, STATS, checkModifier } from '../../rules.js';
-import { statForCheck } from '../party/checks.js';
+import { statForCheck } from './check-words.js';
 
 /** The fixed topics and the skill words that fall under each (tested against the skill word). */
 export const TOPICS = Object.freeze({

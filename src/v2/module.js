@@ -37,7 +37,6 @@
 
 import { part as party } from './party/index.js';
 import { part as creation } from './creation/index.js';
-import { part as checks } from './checks/index.js';
 import { part as items } from './items/index.js';
 import { part as combat } from './combat/index.js';
 import { part as board } from './board/index.js';
@@ -56,7 +55,7 @@ export const VERSION = '2.0.0-beta.2';
 
 /** The parts in their order: [part id, part]. */
 export const PARTS = Object.freeze([
-    ['party', party], ['creation', creation], ['checks', checks], ['items', items], ['combat', combat],
+    ['party', party], ['creation', creation], ['items', items], ['combat', combat],
     ['board', board], ['return', returnPart], ['trade', trade], ['craft', craft], ['screens', screens],
 ]);
 
@@ -65,7 +64,8 @@ export const PARTS = Object.freeze([
 export const SHARED_SETTINGS = Object.freeze({ creation: Object.freeze({ party: Object.freeze(['startPoints', 'statCap']) }) });
 
 // Change-line kinds a later part takes over from an earlier one: kind → the part that keeps it.
-export const KIND_OVERRIDES = Object.freeze({ check: 'checks' });
+// (None since the checks flip: Story Director keeps the `check` kind, contract P09.)
+export const KIND_OVERRIDES = Object.freeze({});
 
 // The query a ctx without `rev` reads meta.rev through (the receipt's rev is one more).
 export const REV_QUERY = `${MODULE_ID}.rev`;

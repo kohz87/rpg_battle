@@ -17,7 +17,7 @@ import { ask } from './ask.js';
 import { gearOf, partyView, sheetView } from './sheet.js';
 import { isActorId } from './ids.js';
 import { STATS } from '../../rules.js';
-import { memberOf, modifiersFor, rulesFor } from '../checks/modifiers.js';
+import { memberOf, modifiersFor, rulesFor } from './modifiers.js';
 
 const noArgs = args => args === undefined || args === null || (isObject(args) && Object.keys(args).length === 0);
 
