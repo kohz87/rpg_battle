@@ -266,11 +266,20 @@ this slice, and `engine-unchanged.test.js` plays them again; `pinned.test.js` pl
   wire; nothing is invented.
 - **An empty `allowedFoes` or `allowedTags` means "no restriction".** The contract says only that an unknown place has empty lists; a place with a tier and a policy that names
   no foes is read as one that names none to forbid. Confirm or say otherwise.
-- **No foe-stat budget beyond the schema.** P05/P06 ask for foe-stat budgets; none are published. The pack's schema (stats 1 to 99, level 1 to 99) and the level ceiling are all that bound a foe.
+- **Foe stat budget (interim, the lead's decision).** A foe's seven stats total at most `35 + 10 + 4 x (level - 1)`, the point-buy a player of that level could reach, the level held to the area's
+  ceiling; a foe over it is refused (`BUDGET`), never clamped. This stands until the ruleset's authors (D) publish a foe budget. The pack's schema and the level ceiling bound the rest.
   The foe's own `tier` is carried by the pack and not compared with the area's.
 - The foe fights with the engine's morale and flee threshold (`rules.enemy`) and carries no coin; the pack says neither. A foe that flees pays no XP or loot, as before.
 - A loot row is granted by name as before (`lootTarget`); `rollLoot` (v1) drops the row's `def` ref, so the ref is not what the grant uses.
-- An offered foe is matched to the pack's by name, case aside; the pack's foe replaces the offer's tier, level and role (it is fought as written).
+- An offered foe is matched to the pack's by its ref when the offer names one (`ref`; an unknown ref is no foe), else by name, case aside, and only when exactly one pack foe has that name. Today's offers carry names only
+  (`! encounter` lines), so a ref never arrives yet. The pack's foe replaces the offer's tier, level and role (it is fought as written). Whatever the adapter cannot do (including a throw) leaves the v1 foe: a fight always starts.
+- A pinned foe's loot row carries its `def` ref through `rollLoot`; the grant uses the frozen pinned definition (the pack's stack when the activation registered it, else the definition itself if the rules
+  can register it), never a lookup by name. A definition the chat does not hold and the rules cannot register is held and told, like any drop.
+- **Replay guards (Story Block E1).** Story Block answers a guard only the queries its owner lists in `replayQueries` and which depend on the state alone. The party part lists `party.actor` and `party.actors`
+  (`module.js` forwards the list: a lead-owned commit; track A needs the same forward). What else a guard read from outside is no longer asked on replay: the story clock is read from the state
+  (`director.time`'s data), and the place and purse of a training session and the area of a combat end are **recorded with the block** and read back from it. One consequence, written down:
+  taking back the reply that set the place no longer turns the end (and the loot it registered) off; the loot stays bounded by the area it was planned in. `story.evidence` is allowed once E5 merges.
+  With Story Block `main`'s testkit (E1) the suite passes except the tests that need E5's `ctx.proof` and `story.evidence` (use proofs and flags: 10 tests), which wait for the E5 merge; the vendored testkit is re-synced then.
 - `world.areaTier` is read as the contract's `AreaTier`; Story Director's own tests cover its side.
 
 ## Code that production does not reach yet
