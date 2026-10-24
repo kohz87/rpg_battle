@@ -137,5 +137,5 @@ export function planQuestSettlement(thread, inputs, { evaluateRequirements, vali
         const carry = canReceive(payout.items, inputs, progress.consumed);
         if (carry?.ok !== true) return carry?.ok === false ? carry : refuse('DEPENDENCY_UNAVAILABLE', 'Reward carry validation gave no valid answer.');
     }
-    return { ok: true, outcome: 'done', consumed: progress.consumed, payout, proofs: progress.proofs };
+    return { ok: true, outcome: 'done', consumed: progress.consumed, payout, proofs: progress.proofs, objectives: progress.objectives };
 }

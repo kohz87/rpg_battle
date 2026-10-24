@@ -4,7 +4,7 @@
 import { planQuestSettlement, settlementKey, acceptanceOf } from './planner.js';
 import { nextOffers, terminalQuest } from './outcomes.js';
 import { offerQuest } from './commands.js';
-import { boundary, call, copy, fail, pinned, guardQuestInputs, stateEpoch, templateOf, templates, threadOf, writeId } from './seams.js';
+import { boundary, call, copy, fail, pinned, guardQuestInputs, stateEpoch, templateOf, templates, writeId } from './seams.js';
 
 const progress = await import('../progress/index.js').catch(() => null);
 const zero = () => ({ coin: 0, xp: 0, items: [] });
@@ -21,30 +21,34 @@ function terminalPlan(thread, inputs, outcome, policy) {
         consumed: [], payout: zero(), proofs: [{ id: proof.id, payloadHash: proof.payloadHash }] };
 }
 
-/** Owner inputs are retained on the root, including the exact proof bytes and nested writer hash. */
+/** The closed prerequisites, not the entire party, inventory or formatted calendar. */
 function assess(query, pin, thread, outcome, policy) {
     const inputs = guardQuestInputs(query);
+    if (thread.rpg.requirements.length) return { ok: false, code: 'DEPENDENCY_UNAVAILABLE', message: 'B3 requirement replay inputs are unavailable.' };
     const plan = terminalPlan(thread, inputs, outcome, policy);
     if (!plan.ok) return plan;
     if (thread.rpg.repeat && !Number.isSafeInteger(inputs.clock?.minutes)) return { ok: false, code: 'CLOCK_UNSET', message: 'A repeat cooldown needs the story clock.' };
     const follow = nextOffers(thread.rpg, plan.outcome, inputs.clock?.minutes, templates(pin));
     if (follow.some(row => row.instance > 1000000 || row.nextOfferAt !== null && !Number.isSafeInteger(row.nextOfferAt))) return { ok: false, code: 'LIMITED', message: 'The repeat instance or cooldown limit was reached.' };
-    return { ok: true, plan, follow, inputs: { thread: copy(thread), clock: inputs.clock, place: inputs.place, party: inputs.party, items: inputs.items,
-        proofs: inputs.proofs.filter(proof => plan.proofs.some(pin => pin.id === proof.id)), plan, follow } };
+    return { ok: true, plan, follow, inputs: guardInputs({ thread: copy(thread),
+        ...(thread.rpg.deadline !== null || thread.rpg.repeat ? { clock: inputs.clock } : {}),
+        ...(thread.rpg.turnInPlace !== null ? { place: inputs.place } : {}),
+        ...(thread.rpg.giver !== null ? { giver: inputs.giverPresent === true } : {}),
+        proofs: inputs.proofs.filter(proof => plan.proofs.some(pin => pin.id === proof.id)), plan, follow }) };
 }
 
 function takeInputs(thread, inputs, pin) {
     const template = templateOf(pin, thread.rpg?.template ?? thread.key);
     const previous = template?.chain?.previous;
-    return { thread: copy(thread), clock: inputs.clock,
+    return guardInputs({ thread: copy(thread),
+        ...(template?.durationMinutes !== null || thread.rpg?.repeat?.nextOfferAt != null ? { clock: inputs.clock } : {}),
         acceptance: thread.acceptance ? inputs.proofs?.filter(proof => proof.id === thread.acceptance.proof) ?? [] : [],
         previous: previous ? inputs.threads.filter(t => t.rpg?.template === previous && t.rpg.state === 'done' && t.rpg.settlement) : [],
-        prerequisites: template?.requirements?.length ? inputs : null };
+        prerequisites: null });
 }
 
 // Re-read can renumber transport ordinals/revisions without changing the accepted action.
-// Retain the exact SD writer hash and stamps in recorded inputs for audit; the B5 predicate
-// depends on the surviving proof identity/bytes and semantic thread, not those counters.
+// Only the surviving proof identity/bytes and thread semantics are prerequisites.
 function semanticThread(value) {
     const thread = copy(value);
     delete thread.rev;
@@ -120,7 +124,7 @@ export function createSettlement(policy = {}) {
         const { epoch, source } = boundary(ctx);
         const pin = pinned(ctx.read('rules'));
         if (typeof buildGuard !== 'function') return ctx.fail('DEPENDENCY_UNAVAILABLE', 'The shared B5 guard builder is unavailable.');
-        const progressView = ctx.query('quest.progress', { id: thread.id });
+        if (thread.rpg?.requirements.length || templateOf(pin, thread.rpg?.template ?? thread.key)?.requirements.length) return ctx.fail('DEPENDENCY_UNAVAILABLE', 'B3 requirement replay inputs are unavailable.');
         const operation = { thread: thread.id };
         const facts = takeInputs(thread, guardQuestInputs(ctx.query), pin);
         ctx.replayGuard(buildGuard({ hash: ctx.hash, owner: 'rpg-battle', epoch, source, rulesHash: pin.hash,
