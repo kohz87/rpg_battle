@@ -14,7 +14,7 @@
 // whose parent form is not the skill's current form does not apply. Pure.
 
 import { masteryOf, nextAt } from './mastery.js';
-import { rowsOf, tallyOf, usesOf } from './credit.js';
+import { rowsOf, tallyOfProgress, usesOf } from './credit.js';
 import { isObject } from '../rules/ids.js';
 
 /** The key a choice is kept under. */
@@ -55,7 +55,7 @@ export function deriveActor(ix, choices) {
 
 /** The three skills of an actor as the contract's SkillView (§3) reads them, from its derived choices and the credited uses. */
 export function skillViews(ix, derived, progress, actor) {
-    const tally = tallyOf(rowsOf(progress));
+    const tally = tallyOfProgress(progress);
     const { masteryAt } = ix.constants;
     // Every form of the skill the actor has uses in (its history), plus the form it holds now.
     const history = new Map();
@@ -63,6 +63,14 @@ export function skillViews(ix, derived, progress, actor) {
         if (attempt.actor !== actor || credit.award < 1) continue;
         if (!history.has(attempt.skill)) history.set(attempt.skill, new Set());
         history.get(attempt.skill).add(attempt.form);
+    }
+    // The forms whose uses were folded away (fold.js) are history too.
+    for (const key of Object.keys(progress?.sealed?.forms ?? {})) {
+        const [who, form] = key.split('|');
+        const skill = ix.form(form)?.skill;
+        if (who !== actor || !skill) continue;
+        if (!history.has(skill)) history.set(skill, new Set());
+        history.get(skill).add(form);
     }
     return derived.skills.map(({ skill, form, steps }) => {
         const uses = usesOf(tally, actor, form);

@@ -18,6 +18,7 @@
 
 import { attemptFor } from '../progress/record.js';
 import { planSettlement } from '../progress/credit.js';
+import { planFold } from '../progress/fold.js';
 import { standing } from '../progress/offers.js';
 import { readClock, trainingWindow } from './clock.js';
 import { isObject } from '../rules/ids.js';
@@ -74,9 +75,10 @@ export function planSession(env, id, event, source, hash) {
     ));
     const simulated = { ...progress, attempts: { ...(progress.attempts ?? {}), ...Object.fromEntries(attempts.map(item => [item.id, item.record])) } };
     const plan = planSettlement(ix.constants, simulated, start);
+    const fold = planFold(simulated, plan, source?.sid ?? null);
     return {
-        ok: true, outcome: 'ran', patch, attempts, plan, start: window.start, end: window.end, fee: trainer.fee,
-        inputs: { session: id, outcome: patch.status, trainer: trainer.id, fee: trainer.fee, place, start: window.start, end: window.end, event: patch.event, plan: plan.map(({ minute, ...row }) => row) },
+        ok: true, outcome: 'ran', patch, attempts, plan, fold, start: window.start, end: window.end, fee: trainer.fee,
+        inputs: { session: id, outcome: patch.status, trainer: trainer.id, fee: trainer.fee, place, start: window.start, end: window.end, event: patch.event, plan: plan.map(({ minute, ...row }) => row), fold: fold ? fold.ids : null },
     };
 }
 

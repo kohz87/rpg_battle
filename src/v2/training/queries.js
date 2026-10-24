@@ -37,6 +37,13 @@ export function rulesTraining(state, args, tools) {
             actorUsed += 1;
             if (skills[attempt.skill]) skills[attempt.skill].used += 1;
         }
+        // Uses of this day that were folded into the sealed counts still count against the day's caps.
+        for (const [key, n] of Object.entries(progress?.sealed?.days ?? {})) {
+            const [who, skill, sealedDay] = key.split('|');
+            if (who !== args.actor || Number(sealedDay) !== day) continue;
+            actorUsed += n;
+            if (skills[skill]) skills[skill].used += n;
+        }
     }
     const busiest = Object.values(skills).reduce((top, item) => (item.used > top.used ? item : top), { used: 0, max: ix.constants.usePerSkillDay });
     const here = placeOf(tools?.query);

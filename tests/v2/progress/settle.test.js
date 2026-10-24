@@ -21,13 +21,13 @@ test('rules.settle is the host\'s step: not the player\'s, not the story\'s; it 
     const result = out.receipt.data.v2.result;
     assert.deepEqual(Object.keys(result).sort(), ['completed', 'credited', 'expired', 'started']);
     assert.deepEqual([result.started, result.completed, result.expired], [[], [], []]);
-    assert.equal(result.credited.length, 2, 'two a reply for one skill; the third earns nothing');
+    assert.equal(result.credited.length, 2, 'two a reply for one skill; the third use was not kept: it could not earn');
     assert.equal(out.receipt.narrate, false);
     assert.equal(out.receipt.replan?.payload !== undefined || out.receipt.summary.length > 0, true);
     const credits = Object.values(w.slice('progress').credits);
-    assert.deepEqual(credits.map(credit => credit.reason).sort(), ['skill-reply', null, null].sort());
+    assert.deepEqual(credits.map(credit => credit.reason), [null, null]);
     assert.equal(settle(w).code, 'NO_LONGER_DONE', 'nothing is left to settle');
-    assert.equal(Object.keys(w.head().meta.claims).filter(key => key.includes(':credit:')).length, 3, 'one claim for each');
+    assert.equal(Object.keys(w.head().meta.claims).filter(key => key.includes(':credit:')).length, 2, 'one claim for each');
     assert.deepEqual(w.problems(), []);
 });
 

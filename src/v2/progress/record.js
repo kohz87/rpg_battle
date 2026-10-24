@@ -67,9 +67,25 @@ export function recordAttempt(ctx, input) {
         if (!same) ctx.fail('CONFLICT', 'That attempt was recorded with other contents.');
         return { id: made.id, created: false };
     }
-    if (Object.keys(attempts).length >= MAX_ATTEMPTS) ctx.fail('LIMITED', `This chat keeps at most ${MAX_ATTEMPTS} paid attempts.`);
+    // A payer never fails on the ledger's size (fold.js): an attempt that cannot earn is not kept, and past the hard limit none is.
+    if (cannotEarn(ix.constants, attempts, made.record) || Object.keys(attempts).length >= MAX_ATTEMPTS) return { id: made.id, created: false, dropped: true };
     attempts[made.id] = made.record;
     return { id: made.id, created: true };
+}
+
+/**
+ * Whether a use is sure to earn nothing: a combat or narrative use that counts on the clock's day, when the same character has
+ * already used the same skill in the same form on the same reply `usePerSkillReply` times. Whatever zeroed the first ones (the
+ * mastered form, a day cap, the reply caps) holds for this one too, since counts only grow. Training counts on its own day and is
+ * never judged here.
+ */
+function cannotEarn(constants, attempts, record) {
+    if (record.kind === 'training' || record.minute !== null) return false;
+    let same = 0;
+    for (const other of Object.values(attempts)) {
+        if (other.kind !== 'training' && other.minute === null && other.actor === record.actor && other.skill === record.skill && other.form === record.form && other.capSource.sid === record.capSource.sid) same += 1;
+    }
+    return same >= constants.usePerSkillReply;
 }
 
 /**

@@ -18,11 +18,11 @@
 import { KINDS, REASONS } from './credit.js';
 import { int, isActorId, isDefId, isHash, isObject } from '../rules/ids.js';
 
-/** The most attempts the ledger keeps. Every paid attempt stays (caps and mastery are derived from them). */
+/** The most attempts the ledger holds at once (fold.js keeps it far below; a payer past it drops the attempt, it never fails). */
 export const MAX_ATTEMPTS = 4000;
 export const PROGRESS_SCHEMA = 2;
 
-export const initialProgress = () => ({ schema: PROGRESS_SCHEMA, choices: {}, attempts: {}, credits: {}, roster: { active: null }, temporary: {} });
+export const initialProgress = () => ({ schema: PROGRESS_SCHEMA, choices: {}, attempts: {}, credits: {}, roster: { active: null }, temporary: {}, sealed: { forms: {}, days: {}, folded: 0 } });
 
 // The ledger holds thousands of records and its validator runs after every block a replay applies, so a record is checked
 // by shape (a prefix and a length), not by pattern; the writers (record.js, commands.js) make ids that match the patterns.
@@ -93,7 +93,11 @@ export function progressProblems(slice) {
     if (!isObject(slice) || slice.schema !== PROGRESS_SCHEMA || !isObject(slice.choices) || !isObject(slice.attempts) || !isObject(slice.credits)) return ['progress: the slice is not progress schema 2'];
     if (!isObject(slice.roster) || !(slice.roster.active === null || (Array.isArray(slice.roster.active) && slice.roster.active.length <= 3 && slice.roster.active.every(isActorId)))) return ['progress: roster.active is null or up to three actors'];
     if (!isObject(slice.temporary) || Object.keys(slice.temporary).length > 24) return ['progress: temporary is a record of at most 24 units'];
+    const sealed = slice.sealed;
+    if (!isObject(sealed) || !isObject(sealed.forms) || !isObject(sealed.days) || !int(sealed.folded, 0)) return ['progress: sealed is { forms, days, folded }'];
     const errors = [];
+    for (const [key, n] of Object.entries(sealed.forms)) if (!int(n, 1, 100000) || key.split('|').length !== 2) errors.push(`progress: sealed form ${key.slice(0, 80)} is not a count`);
+    for (const [key, n] of Object.entries(sealed.days)) if (!int(n, 1, 100000) || key.split('|').length !== 3) errors.push(`progress: sealed day ${key.slice(0, 80)} is not a count`);
     for (const [id, unit] of Object.entries(slice.temporary)) {
         const problem = unitProblem(id, unit);
         if (problem) errors.push(problem);

@@ -6,6 +6,7 @@
 
 import { evaluateClass, evaluatePath, standing } from './offers.js';
 import { pendingOf, planSettlement } from './credit.js';
+import { planFold } from './fold.js';
 import { readClock } from '../training/clock.js';
 import { planSession } from '../training/step.js';
 import { expectedSessionId, waitingOf } from '../training/session.js';
@@ -137,7 +138,10 @@ export function assess(kind, env, payload, extra = {}) {
     if (kind === 'rules.registerItem') return assessItem(env, payload);
     if (kind === 'rules.settle') {
         const plan = planSettlement(ix.constants, progress, readClock(query));
-        if (plan.length) return { ok: true, plan, inputs: { plan: plan.map(({ minute, ...row }) => row) } };
+        if (plan.length) {
+            const fold = planFold(progress, plan, extra.source?.sid ?? null);
+            return { ok: true, plan, fold, inputs: { plan: plan.map(({ minute, ...row }) => row), fold: fold ? fold.ids : null } };
+        }
         // Only held attempts left (no minute of their own, no clock): the contract's CLOCK_UNSET; nothing at all: nothing to do.
         return pendingOf(progress).length
             ? { ok: false, code: 'CLOCK_UNSET', why: 'The story clock is not set, so these uses wait for it.' }

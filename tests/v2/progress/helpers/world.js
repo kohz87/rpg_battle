@@ -139,8 +139,8 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
                 for (const [form, count] of Object.entries(uses)) {
                     for (let i = 0; i < count; i += 1) {
                         n += 1;
-                        const id = `at_${n.toString(36).padStart(8, 's')}`;
-                        const reply = `sr_${n.toString(36).padStart(8, 's')}`;
+                        const id = `at_${n.toString(36).padStart(8, '0')}`;
+                        const reply = `sr_${n.toString(36).padStart(8, '0')}`;
                         const source = { sid: ctx.source.sid, swipeKey: ctx.source.swipeKey, evidence: ctx.source.evidence };
                         progress.attempts[id] = { actor, skill: form.replace(/-base.*$/, ''), form, kind: 'narrative', source, capSource: { ...source, sid: reply }, cost: null, session: null, minute: null };
                         progress.credits[id] = { award: 1, reason: null, minute: (100000 + n) * DAY + 600, day: 100000 + n, reply };

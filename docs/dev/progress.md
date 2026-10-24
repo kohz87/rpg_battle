@@ -46,6 +46,30 @@ On the state before the block the hook asks the same question the command asked 
 earned the block stays stored but off (REPLAY_PREREQUISITE) and nothing replaces it. `rules.settle` asks to be
 planned again (`replan`), so a zero credit can become a credit and the other way.
 
+## The ledger stays bounded (slice 2 design; review item 7)
+
+Measured: about 0.5 ms per attempt per reply (the validator, the draft and the replay all walk the domain), 2400 attempts
+is 1.2 s a reply and a 3.2 s rebuild, and the 4000 cap failed `LIMITED` inside a payer's own transaction. **Chosen: a guarded
+fold of settled attempts into per-form and per-day totals, in the same domain, plus two rules that keep the payer from ever
+failing on size.** (Splitting the domain was not chosen: every cap and every mastery reads all of it, so a split moves the same
+total across more files and a replay still walks every shard.)
+
+- Only a **credit** counts toward anything (`note`: a 0 counts nothing). So what mastery and the caps need from a settled
+  attempt is just its credited use: `progress.sealed = { forms: { "<actor>|<form>": uses }, days: { "<actor>|<skill>|<day>": uses },
+  folded }`. The actor's day total is the sum of its skills' day entries. `tallyOf(rows, sealed)` adds them to the live counts,
+  so every number derived from the ledger reads the same before and after a fold.
+- **The fold** is part of `rules.settle` (no new command): when the ledger holds more than `FOLD_AT` (300) attempts, the
+  settlement also folds every attempt that has a credit (existing or just planned) and whose boundary reply is not the one
+  settling now: the attempt and its credit rows go, the sealed counts grow. The ids folded are in the settlement's guard inputs.
+  When a reply that held a folded attempt is deleted or re-read, the settlement's guard no longer matches and the host plans
+  the step again in place (`replan`), now without that attempt, so the totals follow the surviving story exactly as the
+  rows did. Audit of old zero-credit attempts is the price (they counted nothing).
+- **A payer never fails on size.** `recordAttempt` does not store an attempt that cannot earn: the third use of one skill in one
+  form by one character on one reply (the per-reply skill cap is 2, and the reasons that zeroed the first two persist), for
+  combat and narrative attempts that count on the clock's day. At the hard limit (4000 held, e.g. a clock unset for ever) it
+  returns `{ dropped: true }` instead of `LIMITED`. A reply therefore adds at most a few dozen attempts, and the ledger stays
+  near `FOLD_AT` plus what waits for a clock.
+
 ## Code that production does not reach yet (slice 2 wires it)
 
 `recordBasicClass` and `recordAttempt` (the entry points creation, party, combat end, narrative use and training call),

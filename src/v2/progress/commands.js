@@ -20,6 +20,7 @@
 import { assess } from './assess.js';
 import { attachGuard } from './guard.js';
 import { choiceKey } from './derive.js';
+import { applyFold } from './fold.js';
 import { indexOf } from '../rules/graph.js';
 import { pinOf } from '../rules/pin.js';
 import { fightOn } from '../party/commands.js';
@@ -162,6 +163,7 @@ function settle(ctx, payload = {}) {
         credits[id] = { award, reason, minute, day, reply };
         if (award > 0) credited.push(id);
     }
+    if (answer.fold) applyFold(progress, answer.fold);
     guard(ctx, ix, 'rules.settle', session ? { session } : {}, answer.inputs, session ? { event } : { plan: answer.plan });
     return {
         summary: session ? (started.length ? `The training ${completed.length ? 'is done' : 'was interrupted'}.` : 'The training could not start.') : (credited.length ? `${credited.length} use${credited.length === 1 ? '' : 's'} credited.` : 'No use earned a credit.'),

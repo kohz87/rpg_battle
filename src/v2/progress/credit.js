@@ -51,12 +51,27 @@ export function pendingOf(progress) {
 
 const bump = (map, key) => map.set(key, (map.get(key) ?? 0) + 1);
 
-/** The counts the caps and the masteries are read from, built from the surviving credits. */
-export function tallyOf(rows) {
+/**
+ * The counts the caps and the masteries are read from, built from the surviving credits and the **sealed** counts (the credited
+ * uses of attempts folded away, fold.js): `sealed` = { forms: { "<actor>|<form>": n }, days: { "<actor>|<skill>|<day>": n } }.
+ */
+export function tallyOf(rows, sealed = null) {
     const tally = { formUses: new Map(), skillReply: new Map(), actorReply: new Map(), skillDay: new Map(), actorDay: new Map() };
     for (const { attempt, credit } of rows) note(tally, attempt, credit);
+    if (isObject(sealed)) {
+        for (const [key, n] of Object.entries(sealed.forms ?? {})) tally.formUses.set(key, (tally.formUses.get(key) ?? 0) + n);
+        for (const [key, n] of Object.entries(sealed.days ?? {})) {
+            tally.skillDay.set(key, (tally.skillDay.get(key) ?? 0) + n);
+            const cut = key.lastIndexOf('|');
+            const actorDay = `${key.slice(0, key.indexOf('|'))}|${key.slice(cut + 1)}`;
+            tally.actorDay.set(actorDay, (tally.actorDay.get(actorDay) ?? 0) + n);
+        }
+    }
     return tally;
 }
+
+/** The tally of a progress slice: its surviving credits and its sealed counts. */
+export const tallyOfProgress = progress => tallyOf(rowsOf(progress), progress?.sealed);
 
 /** Counts one credit (a 0 counts nothing). */
 export function note(tally, attempt, credit) {
@@ -98,7 +113,7 @@ export function decide(constants, tally, attempt, minute) {
  * own while there is no clock is left out (held: still pending, no credit, no claim).
  */
 export function planSettlement(constants, progress, clock) {
-    const tally = tallyOf(rowsOf(progress));
+    const tally = tallyOfProgress(progress);
     const plan = [];
     for (const { id, attempt } of pendingOf(progress)) {
         const minute = Number.isSafeInteger(attempt.minute) ? attempt.minute : clock;

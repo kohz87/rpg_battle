@@ -165,16 +165,17 @@ test('a fight\'s paid uses are attempts named by the fight, the character, the s
     const uses = [{ actor: w.pc, skill: ref('s00'), form: ref('s00-base'), count: 3 }, { actor: w.pc, skill: ref('s01'), form: ref('s01-base'), count: 1 }];
     const out = w.host.bus.command('test.combatEnd', { fight: 'cf_00000001', uses }, { cause: 'ui' });
     assert.equal(out.ok, true, out.message);
-    assert.equal(out.receipt.data.created, 4);
-    assert.equal(Object.keys(w.slice('progress').attempts).length, 4);
+    assert.equal(out.receipt.data.created, 3, 'the third use of one skill in one reply cannot earn, so it is not kept');
+    assert.equal(out.receipt.data.ids.length, 4);
+    assert.equal(Object.keys(w.slice('progress').attempts).length, 3);
     assert.ok(Object.values(w.slice('progress').attempts).every(attempt => attempt.kind === 'combat' && attempt.cost === 'cf_00000001'));
     assert.equal(w.host.bus.command('test.combatEnd', { fight: 'cf_00000001', uses }, { cause: 'ui' }).receipt.data.created, 0);
-    assert.equal(Object.keys(w.slice('progress').attempts).length, 4);
+    assert.equal(Object.keys(w.slice('progress').attempts).length, 3);
     assert.equal(w.host.bus.command('test.combatEnd', { fight: 'cf_00000001', uses: [{ ...uses[0], count: 0 }] }, { cause: 'ui' }).code, 'INVALID');
     assert.equal(w.host.bus.command('test.combatEnd', { fight: '', uses }, { cause: 'ui' }).code, 'INVALID');
-    // Settled with the next reply's step: 2 credits for the first skill (the reply cap), 1 for the second.
+    // Settled with the next reply's step: 2 credits for the first skill (the reply cap; its third use was not kept), 1 for the second.
     await w.say('Afterwards.', [useLine(w, 's02', 's02-base')]);
     const credits = Object.entries(w.slice('progress').credits).map(([id, credit]) => [w.slice('progress').attempts[id].skill, credit.award]);
     assert.equal(credits.filter(([skill, award]) => skill === ref('s00') && award === 1).length, 2);
-    assert.equal(credits.filter(([skill, award]) => skill === ref('s00') && award === 0).length, 1);
+    assert.equal(credits.filter(([skill, award]) => skill === ref('s00') && award === 0).length, 0);
 });
