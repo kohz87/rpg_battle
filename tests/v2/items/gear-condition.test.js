@@ -198,7 +198,7 @@ test('items.gear: a worn piece gives its band share × refinement (final: true);
     assert.equal(dagger.final, true);
     assert.deepEqual(dagger.stats, { ATK: Math.round(3 * 0.85 * 1.16) });
     assert.equal(view.counted.some(row => row.stack === 'it_buckle01'), false);
-    assert.deepEqual(view.unused.find(row => row.stack === 'it_buckle01'), { stack: 'it_buckle01', name: 'Oak Buckler', slot: 'offhand', rarity: 'common', why: 'broken', cond: 5, max: 100, band: 'broken', refine: 0 });
+    assert.deepEqual(view.unused.find(row => row.stack === 'it_buckle01'), { stack: 'it_buckle01', name: 'Oak Buckler', slot: 'offhand', key: 'offhand', slotLabel: 'Off hand', rarity: 'common', why: 'broken', cond: 5, max: 100, band: 'broken', refine: 0 });
     assert.equal(view.bonuses.DEF, view.counted.reduce((sum, row) => sum + (row.stats.DEF ?? 0), 0), 'the broken buckler adds nothing');
     assert.equal(view.bonuses.DEF, 1, 'only the boots');
     assert.equal(view.bonuses.ATK, dagger.stats.ATK);
@@ -250,17 +250,26 @@ test('a refined piece never passes the next rarity\'s budget at the wearer\'s le
     assert.ok(dagger.stats.ATK <= uncommon, `${dagger.stats.ATK} ≤ ${uncommon}`);
 });
 
-test('items.slots and items.canWear answer from the rules in force (Story Block\'s Equip on… picker)', async () => {
+test('items.slots and items.canWear answer from the planner (Story Block\'s Equip on… picker)', async () => {
     const { canWear, slots } = await import('../../../src/v2/items/queries.js');
-    assert.deepEqual(slots(makeState(), { settings: {} }), { accessory: 2, worn: 1 });
-    assert.deepEqual(slots(makeState(), { settings: { gear: { accessories: 3, worn: 0 } } }), { accessory: 3, worn: 0 });
+    // The eight slots in order, the compatibility counts fixed by them; no setting changes them.
+    const view = slots(makeState(), { settings: {} });
+    assert.deepEqual(view.slots.map(slot => slot.key), ['weapon', 'offhand', 'head', 'body', 'legs', 'feet', 'accessory-1', 'accessory-2']);
+    assert.deepEqual(view.slots.map(slot => slot.label), ['Main hand', 'Off hand', 'Head', 'Body', 'Legs', 'Feet', 'Accessory 1', 'Accessory 2']);
+    assert.deepEqual([view.accessory, view.worn], [2, 4]);
+    assert.equal(view.slots.every(slot => slot.blockedBy === null), true);
+    assert.deepEqual(slots(makeState(), { settings: { gear: { accessories: 3, worn: 0 } } }), view);
     const state = makeState();
     assert.deepEqual(canWear(state, { actor: PC, stack: 'it_helm0001', settings: {} }), { ok: true });
     assert.equal(canWear(state, { actor: PC, stack: 'it_draught1', settings: {} }).ok, false);
     assert.equal(canWear(state, { actor: 'ac_nobody00', stack: 'it_helm0001', settings: {} }).ok, false);
-    assert.equal(canWear(state, { actor: PC, defId: 'story/silver-ring', settings: { gear: { accessories: 0 } } }).ok, false);
-    // An off-hand beside a two-handed weapon is refused, as item.equip refuses it.
+    // A def only (Story Block's picker): the slot the def names, for a member who is there.
+    assert.equal(canWear(state, { actor: PC, defId: 'story/silver-ring' }).ok, true);
+    assert.equal(canWear(state, { actor: PC, defId: 'story/silver-ring', targetSlot: 'head' }).ok, false);
+    // An off-hand beside a two-handed weapon is refused, as item.equip refuses it, and the slot says what blocks it.
     state.domains.inventory.stacks.it_dagger01.equipped = null;
+    state.domains.inventory.stacks.it_buckle01.equipped = null;
     state.domains.inventory.stacks.it_great001.equipped = 'weapon';
     assert.match(canWear(state, { actor: PC, stack: 'it_buckle01', settings: {} }).why, /two-handed/);
+    assert.equal(slots(state, {}).slots.find(slot => slot.key === 'offhand').blockedBy, 'it_great001');
 });

@@ -18,10 +18,15 @@ import { isMaterial, itemWorth, kindOf } from '../../trade.js';
 import { maxLevel } from '../../terms.js';
 import { hostCurrency, hostEconomyScale, hostSettings, rulesFrom } from './shared.js';
 import { capEffect, capStats, storyRarity } from '../limits.js';
+import { EQUIP_SLOTS, normalizeSlot } from './slots.js';
 
 export { STORY_EFFECT_MAX, capEffect, capStats, storyRarity } from '../limits.js';
 
-const SLOTS = ['weapon', 'offhand', 'armour', 'worn', 'accessory'];
+// The slot words a def may carry: the eight v2 slots (P07) and, for older packs and saves, the six-slot
+// runtime's words (armour/worn/accessory) and the §9 aliases. Nothing is rewritten: a def keeps its word
+// and the adapters (slots.js) read it; `worn` and a bare `accessory` stay ambiguous, never guessed.
+const EXPLICIT_SLOT = /\bslot\s*:\s*(head|body|legs|feet|accessory-[12])(?![\w-])/i;
+const SLOTS = [...EQUIP_SLOTS, 'armour', 'armor', 'worn', 'accessory', 'hands', 'waist', 'mainhand', 'main-hand', 'off-hand'];
 
 // Repair kits (TRS idea 2): a thing named for mending gear is a consumable with `effect.repair`, the
 // condition one patch gives back (items/wear.js). Its size from its name, code's numbers: a minor kit
@@ -124,7 +129,11 @@ export function defineItem(def, { note, owner = null, settings, currency, level 
     const described = describeRow({ name, category, note: text });
     // The story's words never make a thing legendary; a def's own rarity (a pack's, a loot drop's) stays.
     const rarity = described.rarity !== 'common' ? storyRarity(described.rarity) : def?.rarity ?? 'common';
-    const slot = described.slot ?? (SLOTS.includes(def?.slot) ? def.slot : null);
+    // A def that already names one of the eight slots (or an alias of one) keeps it: a v2 pack's `head` is
+    // not re-read from the name as an ambiguous `worn`.
+    // A note that names one of the four slots the old words fold together (`slot: head`) says so on purpose.
+    const said = text.match(EXPLICIT_SLOT)?.[1]?.toLowerCase() ?? null;
+    const slot = said ?? (normalizeSlot(def?.slot) !== null ? def.slot : described.slot ?? (SLOTS.includes(def?.slot) ? def.slot : null));
     // Stats the note wrote are held to the most the rarity allows at all (its budget at the level
     // cap: a wearer's own level caps them again when worn, items.gear), and priced capped at `level`.
     const written = Object.keys(described.stats ?? {}).length ? capStats(described.stats, { slot, rarity, level: maxLevel(rules), rules }) : null;

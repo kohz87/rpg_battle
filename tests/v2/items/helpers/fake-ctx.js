@@ -66,6 +66,27 @@ const OWNERS = {
     },
 };
 
+// Story Block's inventory.equipOn while a ready rules module answers rules.equipPlan, in miniature: ask the
+// plan once, apply it to the draft (pieces move, the displaced come off, the piece goes on). The real host
+// checks the plan against its records first (tests/v2/items/p07-equip-host.test.js runs that on the testkit).
+let planQueries = {};
+function equipOn(draft, { stack, actor, targetSlot }) {
+    const entry = draft.domains.inventory.stacks[stack];
+    if (!entry) fail('NOT_FOUND', 'No such stack.');
+    const tools = { query: (name, args) => { if (!planQueries[name]) fail('NOT_FOUND', `There is no query called "${name}".`); return planQueries[name](deepFreeze(clone(draft)), args, tools); } };
+    const answer = planQueries['rules.equipPlan'](deepFreeze(clone(draft)), { stack, actor, ...(targetSlot ? { targetSlot } : {}) }, tools);
+    if (answer?.ok !== true) fail(answer?.code ?? 'REFUSED', answer?.message ?? 'No plan.');
+    const plan = answer.plan;
+    const stacks = draft.domains.inventory.stacks;
+    const from = entry.owner;
+    const names = plan.unequip.map(id => draft.domains.inventory.defs[stacks[id].def].name);
+    for (const move of plan.move) stacks[move.stack].owner = move.to;
+    for (const id of plan.unequip) stacks[id].equipped = null;
+    entry.owner = actor;
+    entry.equipped = plan.slot;
+    return { summary: 'equipped', data: { stack, def: entry.def, actor, from, slot: plan.slot, replaced: plan.unequip, replacedNames: names, ...(targetSlot ? { targetSlot } : {}) } };
+}
+
 /**
  * makeCtx({ state, settings, handlers }) → { run(type, payload), state(), calls, ctx }.
  * `handlers` are the commands under test ({ 'item.use': fn, … }); `calls` lists every
@@ -74,6 +95,7 @@ const OWNERS = {
 export function makeCtx({ state, settings = {}, handlers = {}, queries = {} }) {
     let committed = clone(state);
     let draft = null;
+    planQueries = queries;
     const claims = new Set();
     const harness = { calls: [], saves: 0 };
     const ctx = {
@@ -82,6 +104,7 @@ export function makeCtx({ state, settings = {}, handlers = {}, queries = {} }) {
         draft: domain => fail('NOT_OWNER', `The items part owns no domain (${domain}).`),
         call(type, payload) {
             harness.calls.push({ type, payload: clone(payload) });
+            if (type === 'inventory.equipOn') return equipOn(draft, clone(payload));
             const owner = OWNERS[type];
             if (!owner) fail('UNKNOWN_COMMAND', `No command ${type}.`);
             return owner(draft, clone(payload)) ?? {};

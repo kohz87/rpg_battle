@@ -1,44 +1,61 @@
-# Track A equipment handoff
+# Track A equipment (P07): eight slots, one planner
 
-A4 currently supplies a pure eight-slot planner and slot projection, not an active equipment
-migration. The frozen contract governs; existing legacy item runtime files were preserved.
+The frozen contract governs (§3 rules.equipPlan, §4 Slot, §5 Equipment/Carry, §9 adapters).
 
-src/v2/items/equip-plan.js exports equipPlan(payload, env), equipmentSlots(env), equipInputHash,
-EQUIP_SLOTS/SLOT_LABELS and authoring-only normalizeSlot/isAmbiguousSlot. The public signature
-for future registration remains rules.equipPlan({stack,actor,targetSlot?}); env is a private
-owner handoff, never a command/query payload or trusted caller plan. It requires explicit
-stacks, immutable defs, frozen itemRules/rulesHash, actorSheet and durable owner IDs. It does
-not read a guessed rules domain layout, invent rules.hash or infer rules-v2 from settings.
+## What runs
 
-The planner uses the fixed eight-slot order, exact displaced records and ownership moves,
-base-stat requirements and 2H/offhand rules. Omitted slot selects the first legal empty slot,
-then a canonical first-slot swap. Alias normalization is for authoring/import; a runtime
-ItemRule and targetSlot must already use canonical IDs. Ambiguous worn/hands/waist/accessory
-keys require explicit reauthoring, never an old-save rewrite. No uniqueness equip rule was
-invented from ItemRule.unique. The acquisition owner must enforce frozen unique-item policy.
+- `src/v2/items/slots.js`: the eight IDs, labels, the compatibility counts `{accessory:2, worn:4}`, the §9
+  read adapters (`mainhand`/`main-hand` -> weapon, `off-hand` -> offhand, `armour`/`armor` -> body) and
+  `slotsForLegacy(word) -> {slot} | {choose:[...], auto} | null`, the one pure mapping for legacy words:
+  `weapon`, `offhand`, `armour` are one slot; a bare `accessory` is `accessory-1|2` with `auto:true` (first empty,
+  else the explicit target); `worn` is head|body|legs|feet, `hands` weapon|offhand, `waist` accessory-1|2, all
+  `auto:false` (the reader names the slot with `targetSlot`; without it the plan is refused with the list); anything
+  else (`worn-1`, `accessory-3`, unknown words) is null. The rules never pick among kinds of slot.
+- `src/v2/items/equip-plan.js`: the pure planner. Candidates are the rule's slots that are LEGAL (an offhand is not
+  while a two-hander is worn); the first empty one, else an explicit swap of the first. A stack moves only from its
+  durable owner (the actor, or the party bag; the bag's worn piece is the main character's). Only a living member
+  changes gear (refused in words; taking off needs no plan). Base stats only qualify; gear never qualifies itself.
+- `src/v2/items/equip-query.js`: the registered pure queries `rules.equipPlan`, `items.slots`, `items.canWear`.
+- `item.equip {stack, to?, actor?, targetSlot?}` only calls `inventory.equipOn` (Story Block asks the plan, checks it
+  against its records and applies it in one step). Nothing in this part writes equipment, and no payload field can carry
+  a plan, token or bypass.
 
-The browser-safe SHA-256/strict JSON helper in equip-hash.js matches the SB equipment input
-hash, including selected stack, affected records, actor base stats/life and requested slot.
-The focused tests compare actual bytes with SB's vendored equipInputHash reference. No Node
-built-in import remains in browser runtime. No state is written by either projection.
+## The binding (interim until B3)
 
-Still required before A4 can be called complete:
+`rules.equipPlan` reads `rules.identity` (hash), `rules.sheet` (base stats, life, kind) and `rules.item` (ItemRule).
+When `rules.identity` answers, all three are used and none is guessed (a missing sheet is DEPENDENCY_UNAVAILABLE, a
+missing rule RULES_MISMATCH). Until then `INTERIM_BINDING` ('rb-items-interim-1') supplies them:
 
-- B/lead must bind the frozen inputs and register rules.equipPlan once. Frozen rules storage
-  and its hash accessor are not finalized in this checkout; no guessed replacement was added.
-- Route item.equip's retained stack/to/actor plus targetSlot through SB inventory.equipOn;
-  add the live items.slots/items.canWear adapters over the pure projections. Do not activate
-  a route that would fall back to unplanned equipment when the required planner is absent.
-- Apply eight-slot rules/packs/prompt/UI integration. The live six-slot legacy path remains.
-  C-owned screens/paperdoll.js is hard-coded to six slots; ownership forbids A editing it.
-- The frozen contract includes life in equipment inputs but does not specify non-alive equip
-  eligibility. For these sheets the pure planner holds DEPENDENCY_UNAVAILABLE pending owner
-  policy instead of defaulting missing life/kind or inventing an injury/death exception.
+- hash: a fixed hash of the binding's name;
+- rule: from the def alone: one allowed slot from its slot word (adapters applied), hands 1 for weapon/offhand (2 with
+  `two-handed`), no requirement, its carry weight. A generic word has no slot but a choice (`env.choices`, from
+  `slotsForLegacy`); a word that names nothing gets no slot and says so;
+- sheet: the party domain's base stats and a life of alive/downed/dead.
 
-One requested writer round was reviewed. Browser imports, guessed hash/state/feature probes,
-unsafe fallback routing and arbitrary new default weights were rejected; the final pure
-implementation and tests were corrected locally. The writer's shell harness could not run
-commands because its agent script directory was read-only; verification was run by the monitor.
+Story Block checks every plan against `rules.sheet`, so `module.js` carries a lead-owned interim `rules.sheet`
+(`interimSheetQuery`, only equipment's inputs, not a SheetView). It steps aside as soon as a part registers the
+real query; delete it and `INTERIM_*` with B3's frozen rules.
 
-Thirteen focused tests pass. Reverting only 2H offhand displacement causes the displacement
-and SB hash-parity assertions to fail; the fix was restored. No baseline suite was run.
+## Old saves and packs
+
+Reading never writes. A save's `armour` key reads as body; `accessory-1/2`, `weapon`, `offhand` are canonical. A
+`worn-1` or bare `accessory` record is listed as unplaced in `items.gear` (not counted, told why), kept exactly as
+stored, never displaced, and it blocks nothing. Its def carries a generic word, so the reader re-equips it by choosing
+a slot (`items.canWear` answers `{ok:false, why, choose:[...]}` so a screen can ask). Fixtures:
+`tests/v2/items/fixtures/old-six-slot-save.json` (written untouched by the six-slot runtime) and the Ersveil Bluewatch pack.
+
+## Limits that went away
+
+`gear.worn` and `gear.accessories` are no longer settings: `gearLimits()` is `{worn:3, accessory:2}` (head, legs, feet;
+accessory-1/2), one piece to a slot. Carry weights keep their old numbers per slot (body = armour, legs = a worn piece).
+
+## Open
+
+- B3's frozen ItemRules/hash/sheet replace the interim binding (and give a piece two slots or a requirement).
+- Generated gear (craft, trade, loot) still writes the old slot words; they are wearable through `slotsForLegacy`'s
+  choice. `rules.registerItem` (B3) should call `slotsForLegacy` for story-line equipment.
+- Story Block's apply-side plan check should also require that a move comes from the stack's durable owner (today only
+  this planner refuses another member's piece).
+- The six-slot paperdoll (track C, `screens/paperdoll.js`, `view.js`) reads `items.slots` counts the old way; draft #139
+  replaces it with the eight-slot tiles.
+- `party/sheets.js gearOf` (the fallback when `items.gear` does not answer) still reads the old words.

@@ -108,24 +108,31 @@ test('unknown hash, actor, owner and malformed frozen rule fail closed', () => {
     assert.equal(equipPlan(request, env).code, 'RULES_MISMATCH');
 });
 
-test('missing life/kind cannot acquire guessed defaults; nonstandard life is an explicit handoff', () => {
+test('missing life/kind cannot acquire guessed defaults; a known non-alive state is a refusal, not "unavailable"', () => {
     const env = fixture();
     delete env.actorSheet.life;
     assert.equal(equipPlan(request, env).code, 'DEPENDENCY_UNAVAILABLE');
-    env.actorSheet.life = 'gravely-injured';
-    assert.equal(equipPlan(request, env).code, 'DEPENDENCY_UNAVAILABLE');
+    for (const life of ['gravely-injured', 'downed', 'dead']) {
+        env.actorSheet.life = life;
+        const refused = equipPlan(request, env);
+        assert.equal(refused.code, 'REFUSED', life);
+        assert.match(refused.message, /cannot change their gear|downed|gravely/);
+    }
     env.actorSheet.life = 'alive';
     delete env.actorSheet.kind;
     assert.equal(equipPlan(request, env).code, 'DEPENDENCY_UNAVAILABLE');
 });
 
-test('malformed slot, quantity and duplicate equipped records cannot produce a plan', () => {
+test('malformed quantity and duplicate equipped records cannot produce a plan; an old key is never a mismatch', () => {
     const env = fixture();
     assert.equal(equipPlan({ ...request, bypass: true }, env).code, 'INVALID');
     env.stacks.st_00000001.qty = 1.5;
     assert.equal(equipPlan(request, env).code, 'RULES_MISMATCH');
     env.stacks.st_00000001.qty = 1;
-    env.stacks.st_00000001.equipped = 'worn';
+    // The piece itself may carry an old key (worn-1): choosing it a slot is the explicit act that places it.
+    env.stacks.st_00000001.equipped = 'worn-1';
+    assert.equal(equipPlan(request, env).ok, true);
+    env.stacks.st_00000001.equipped = '';
     assert.equal(equipPlan(request, env).code, 'RULES_MISMATCH');
     env.stacks.st_00000001.equipped = null;
     env.stacks.st_00000005 = { ...env.stacks.st_00000002, id: 'st_00000005' };

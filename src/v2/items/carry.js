@@ -27,6 +27,8 @@
 //   a second mule of the same kind adds none). Losing the last of a kind lowers the capacity; nothing is
 //   dropped, the party is encumbered.
 
+import { normalizeSlot } from './slots.js';
+
 export const DEFAULTS = Object.freeze({ carryLimit: true, carrySize: 100, carryItems: Object.freeze([]) });
 // The most one thing adds (as Story Block's def check holds it).
 export const CARRY_MAX = 1000;
@@ -35,7 +37,12 @@ export const CAPACITY = Object.freeze({ base: 20, perStr: 4 });
 /** Default weights by kind, and equipment by slot. */
 export const WEIGHTS = Object.freeze({
     money: 0, quest: 0, consumable: 1, material: 1, goods: 2,
-    equipment: Object.freeze({ weapon: 4, twoHanded: 8, offhand: 4, armour: 10, armor: 10, worn: 2, accessory: 0, head: 2, hands: 1, feet: 2, waist: 1, other: 3 }),
+    // By slot: the eight slots (P07) carry the numbers their old words did (body = armour, legs = a worn piece);
+    // the old words stay for older defs. The default is only a fallback: an ItemRule's own weight wins.
+    equipment: Object.freeze({
+        weapon: 4, twoHanded: 8, offhand: 4, body: 10, head: 2, legs: 2, feet: 2, 'accessory-1': 0, 'accessory-2': 0,
+        armour: 10, armor: 10, worn: 2, accessory: 0, hands: 1, waist: 1, other: 3,
+    }),
 });
 
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -55,8 +62,9 @@ export function weightOf(def) {
     const kind = String(def?.kind ?? 'goods');
     if (kind === 'equipment') {
         const table = WEIGHTS.equipment;
-        if (def?.slot === 'weapon' && (def?.tags ?? []).includes('two-handed')) return table.twoHanded;
-        return table[String(def?.slot ?? '')] ?? table.other;
+        const slot = normalizeSlot(def?.slot) ?? String(def?.slot ?? '');
+        if (slot === 'weapon' && (def?.tags ?? []).includes('two-handed')) return table.twoHanded;
+        return Object.hasOwn(table, slot) ? table[slot] : table.other;
     }
     return Number.isInteger(WEIGHTS[kind]) ? WEIGHTS[kind] : WEIGHTS.goods;
 }

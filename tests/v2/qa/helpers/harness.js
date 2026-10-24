@@ -68,6 +68,12 @@ export function each(name, options, fn) {
     }
 }
 
+/**
+ * `each` options for a test that wears something: item.equip is Story Block's `inventory.equipOn` asking this
+ * module's `rules.equipPlan` (P07, E4), which the 'sb' host (alpha.2, kept for the older bus) does not have.
+ */
+export const equipsOnInt = host => (host === 'sb' ? { skip: 'item.equip needs the E4 host (inventory.equipOn with rules.equipPlan); the alpha.2 host has neither' } : {});
+
 const isObject = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
 function mergeInto(target, source, what, partName) {
