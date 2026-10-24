@@ -8,8 +8,10 @@
 //   rpg-battle.import-pick    the Start step's "Import character": the reader picks a character file
 //                             (`party.export`'s file, JSON), and `creation.import` runs with it and the
 //                             persona's name, background and portrait from the draft (MODULES §F22).
-//                             After it worked the widget sends a bubbling `rpg-battle:created` event,
-//                             which openCreation's dialog closes on.
+//                             After it worked the widget sends a bubbling `rpg-battle:created` event (which
+//                             openCreation's dialog closes on), then closes the wizard's dialog itself and
+//                             says "<Name> is ready" unless that was done: the wizard also opens from Story
+//                             Block's start card, which does not go through openCreation.
 //
 // Both write nothing but through those commands; creation.rollTalent and creation.import check every
 // rule. Built with createElement and textContent only: nothing from data or the file is read as markup.
@@ -22,6 +24,8 @@ export const CREATED_EVENT = 'rpg-battle:created';
 export const FILE_LIMIT = 512 * 1024;
 
 import { CHARACTER_FILE_VERSION } from '../party/portable.js';
+import { showCreated, wasTold } from './notice.js';
+import { CREATE_SCREEN_ID } from './screen.js';
 
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 /** The longest note the widgets show (a refusal can quote a file's own words). */
@@ -195,6 +199,21 @@ export async function importFile(file, api, doc = null) {
     return api.command('creation.import', payload);
 }
 
+/**
+ * An import made the character: the wizard has nothing left to do. Closes the open wizard dialog (the event above did
+ * it when openCreation opened it) and says "<Name> is ready" once (the draft's name is the persona's, as the command used).
+ */
+function finishWizard(api, result) {
+    try {
+        const draft = draftOf(api);
+        // The widget api's dialog, else Story Block's global sdk (the widget api of an older host has none, as for create-button.js).
+        const host = typeof api?.dialog?.current === 'function' ? api.dialog : globalThis.StoryBlock?.sdk?.dialog;
+        const dialog = host?.current?.() ?? null;
+        if (dialog?.screenId === CREATE_SCREEN_ID && dialog.isOpen?.() !== false) dialog.close?.(result);
+        if (!wasTold(result)) showCreated(result, draft, null);
+    } catch { /* the character is made; a window that stays open is closed by hand */ }
+}
+
 /** render(el, props, api) → { update, destroy }. */
 export function renderImportPick(el, props = {}, api = {}) {
     const doc = el.ownerDocument;
@@ -226,6 +245,7 @@ export function renderImportPick(el, props = {}, api = {}) {
                 const View = doc.defaultView ?? globalThis;
                 const Event = View.CustomEvent ?? globalThis.CustomEvent;
                 if (typeof Event === 'function') root.dispatchEvent?.(new Event(CREATED_EVENT, { bubbles: true, detail: { result: out } }));
+                finishWizard(api, out);
             }
         } catch (error) {
             note.textContent = str(error?.message, NOTE_LIMIT) || 'That did not work.';

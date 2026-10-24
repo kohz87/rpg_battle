@@ -70,7 +70,8 @@ export const part = {
 export { BUILT_IN_RACES, BUILT_IN_TALENTS, STAT_LABELS, bonusText, creationContent, statChanges, talentCost } from './content.js';
 export { buildCharacter, creationRules, SETTINGS_DEFAULTS, SETTINGS_SCHEMA } from './build.js';
 export { buildQuery, cleanPortrait, commands, contentQuery, initialCreation, queries, validateCreation } from './commands.js';
-export { createdNotice, openCreation, startDraft } from './open.js';
+export { openCreation, startDraft } from './open.js';
+export { createdNotice } from './notice.js';
 export { CHOICE_WIDGET, cardImage, choicePick, renderChoicePick, toggled } from './choice-pick.js';
 export { CREATE_BUTTON_WIDGET, CREATE_LABEL, createButton, creationApi, renderCreateButton } from './create-button.js';
 export { BACKGROUND_LIMIT, avatarUrl, personaFor, readPersona } from './persona.js';

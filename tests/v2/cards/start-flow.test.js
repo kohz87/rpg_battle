@@ -101,3 +101,39 @@ test('greeting only: Skip sets the card aside and lets the replies generate with
         assert.equal(chat.st.notices.length, 1, 'nothing more was held back');
     } finally { chat.close(); }
 });
+
+test('greeting only: an import from the wizard\'s Start step closes the wizard the card opened and says the character is ready', async () => {
+    const toasts = [];
+    const savedToastr = globalThis.toastr;
+    const savedSb = globalThis.StoryBlock;
+    globalThis.toastr = { success: (text, title) => toasts.push({ title, text }) };
+    try {
+        await withPersona(async () => {
+            const chat = await greetingChat();
+            try {
+                globalThis.StoryBlock = { sdk: chat.runtime.sdk };   // the widget api of this host has no dialog: the global sdk has
+                chat.act('create').click();
+                const wizard = chat.ui.mounts.dialog.current();
+                assert.equal(wizard.screenId, CREATE_SCREEN_ID, 'the card opened the wizard (not openCreation)');
+                const file = { rpgBattleCharacter: 1, name: 'Ren of Elsewhere', role: 'rogue', level: 1, xp: 0, points: 0,
+                    stats: { STR: 5, VIT: 5, AGI: 5, DEX: 5, INT: 5, LUK: 5, CHA: 5 }, skills: [], custom: [], items: [], purse: 0 };
+                const input = wizard.el.querySelector('input.rpg-import-file');
+                input.files = [{ name: 'ren.json', size: 200, text: async () => JSON.stringify(file) }];
+                input.dispatch('change');
+                for (let i = 0; i < 20 && wizard.isOpen(); i += 1) await settle();
+                assert.equal(wizard.isOpen(), false, 'the import closed its own dialog');
+                assert.equal(chat.ui.mounts.dialog.current(), null);
+                assert.equal(chat.runtime.sdk.query('party.pc')?.name, 'Ren', 'the character is the persona\'s');
+                assert.equal(toasts.length, 1, 'one toast');
+                assert.equal(toasts[0].title, 'Ren is ready');
+                assert.match(toasts[0].text, /See them on the Party screen\./);
+                assert.equal(chat.card(), null, 'the start card is gone');
+            } finally { chat.close(); }
+        });
+    } finally {
+        if (savedToastr === undefined) delete globalThis.toastr;
+        else globalThis.toastr = savedToastr;
+        if (savedSb === undefined) delete globalThis.StoryBlock;
+        else globalThis.StoryBlock = savedSb;
+    }
+});
