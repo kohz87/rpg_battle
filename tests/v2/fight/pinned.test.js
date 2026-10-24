@@ -302,3 +302,59 @@ play('a regeneration a fight left keeps its strength into the next fight (the pa
     const o = await begin(other);
     assert.equal(fights(other)[o.id].setup.party.find(c => c.memberId === other.pc).conditions[0].power, 0);
 });
+
+const CALL = ref('s11-base');
+
+/** A world whose character is a tier-1 class (so it holds the form that calls a unit). */
+async function summoner(t) {
+    const w = await ready(t);
+    const { promo } = await import('../progress/helpers/states.js');
+    assert.equal(w.host.bus.command('test.seed', { actor: w.pc, choices: [promo(w.pc, 10, 'c0', 'c1')] }, { cause: 'ui' }).ok, true);
+    return w;
+}
+
+play('a form that calls a unit: the unit joins the party\'s side with the caster\'s shares, fights on auto, is a narrative presence, and is not a member', async t => {
+    const w = await summoner(t);
+    let v = await begin(w);
+    const call = v.actions.skills.find(skill => skill.form.id === CALL);
+    assert.ok(call, 'the tier-1 class holds the form');
+    const out = form(w, v, CALL, [{ effect: 0, targets: [v.actions.targets.enemies[0]] }]);
+    assert.equal(out.ok, true, out.message);
+    const units = Object.values(w.slice('progress').temporary);
+    assert.equal(units.length, 1);
+    const [unit] = units;
+    assert.deepEqual([unit.kind, unit.owner, unit.template, unit.fight, unit.ended, unit.sheet], ['summon', w.pc, ref('c0'), v.id, null, true]);
+    const owner = w.q('party.actor', { id: w.pc });
+    const sheet = view(w).combatants.find(c => c.id === unit.id);
+    assert.equal(sheet.side, 'party');
+    assert.equal(sheet.controller, 'auto');
+    assert.equal(sheet.hp.max, Math.max(1, Math.round(owner.hp.max / 2)), 'half the owner\'s pools');
+    assert.equal(w.q('rules.party', {}).temporary.length, 1, 'listed as a temporary unit, outside the active three');
+    assert.equal(w.q('rules.party', {}).active.every(s => s.id !== unit.id), true);
+    // It fights: the fight is played out; the unit does not earn XP and is not written to the party.
+    await finish(w);
+    const members = w.q('party.actors', {});
+    assert.equal((Array.isArray(members) ? members : Object.values(members)).some(member => member.id === unit.id), false, 'a unit is never a member of the party');
+    const ended = w.ui('combat.end', { session: v.id });
+    assert.equal(ended.ok, true, ended.message);
+    // The fight's end clears the combat sheet and leaves the presence (unless it went down or ran out).
+    const after = w.slice('progress').temporary[unit.id];
+    assert.equal(after.sheet, false, 'the combat sheet is cleared');
+    assert.ok(after.ended === null || ['downed', 'expired'].includes(after.ended.reason));
+    assert.deepEqual(w.problems(), []);
+});
+
+play('a unit still standing at fight end keeps its narrative presence; one that went down ends; the record never holds more than the cap', async t => {
+    const w = await summoner(t);
+    for (const [id, ended] of [['ac_00000001', null], ['ac_00000002', { reason: 'downed' }]]) {
+        assert.equal(w.host.bus.command('test.unit', { id, fight: 'fi_00000001', sheet: true, ended }, { cause: 'ui' }).ok, true);
+    }
+    const settle = payload => w.host.bus.command('test.settleUnits', payload, { cause: 'ui' });
+    assert.equal(settle({ fight: 'fi_00000001', units: [{ actor: 'ac_00000001', reason: null }] }).ok, true);
+    assert.deepEqual(w.q('rules.party', {}).temporary.map(unit => unit.id), ['ac_00000001'], 'the survivor is still there; the downed one is not listed');
+    assert.equal(w.slice('progress').temporary.ac_00000001.sheet, false);
+    // The step is the fight\'s own: nobody else calls it.
+    assert.equal(w.ui('summon.settle', { fight: 'fi_00000001', units: [] }).code, 'REFUSED');
+    assert.equal(w.ui('summon.begin', {}).code, 'REFUSED');
+    assert.equal(w.host.bus.command('test.settleUnits', { fight: 'fi_00000001', units: [{ actor: 'ac_00000001', reason: 'dismissed' }] }, { cause: 'ui' }).code, 'INVALID');
+});

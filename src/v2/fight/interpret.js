@@ -19,7 +19,9 @@
 // 1 + 0.1 x mastery applied once. Cost: the form's mp and sp are paid once, the cooldown set once, the use counted once (under the
 // form's id), then the effects run in index order, targets in the fight's order.
 
-import { DEFAULT_RULES } from '../../rules.js';
+import { DEFAULT_RULES, derive } from '../../rules.js';
+import { hashJson } from '../rules/hash.js';
+import { idFromHash } from '../rules/ids.js';
 import { formHooks } from '../../combat.js';
 import { addShift, syncShifts } from './shifts.js';
 
@@ -174,6 +176,50 @@ export function performForm(f, actor, plan, rng, rules, engine) {
             }
         }
     }
+    if (skill.unit) summon(f, actor, skill, rng, rules, engine);
+}
+
+/** How many summoned units a fight holds on the party's side at once (the contract's temporaryLimit). */
+export const UNIT_LIMIT = 6;
+
+/**
+ * A form that calls a unit (B4: "owner-level/class/template, statShare/poolShare and fight/round expiry are frozen inputs"): after its
+ * effects a combatant joins the party's side, built from the caster as it stands and the form's frozen shares. It fights on auto with the
+ * class's three base forms, has no gear, earns nothing and carries nothing out of the fight, and does not keep the party standing. Its id
+ * is made from the fight and the moment (replayable); at most UNIT_LIMIT stand at once.
+ */
+function summon(f, actor, skill, rng, rules, engine) {
+    const unit = skill.unit;
+    const { log, label, join } = engine;
+    const standing = f.combatants.filter(c => c.side === 'party' && c.summoned && engine.isActive(c)).length;
+    if (standing >= UNIT_LIMIT) {
+        log(f, actor, `${label(actor)} cannot call another: ${UNIT_LIMIT} stand already.`, 'info');
+        return;
+    }
+    const id = idFromHash('ac', hashJson({ fight: f.seed, at: f.actions.length, by: actor.id, form: skill.formId, log: f.log.length }));
+    if (f.combatants.some(c => c.id === id)) return;
+    const share = (value, per) => Math.max(1, Math.round(value * per / 100));
+    const stats = Object.fromEntries(Object.entries(actor.stats).map(([name, value]) => [name, share(value, unit.statShare)]));
+    const pools = Object.fromEntries(['hp', 'mp', 'sp'].map(name => {
+        const max = actor[name] ? (name === 'hp' ? share(actor[name].max, unit.poolShare) : Math.round(actor[name].max * unit.poolShare / 100)) : 0;
+        return [name, { cur: max, max }];
+    }));
+    const c = {
+        id, memberId: id, name: unit.name, side: 'party', controller: 'auto', level: actor.level, rank: null, role: null, boss: false,
+        stats, ...pools, ...derive(stats, {}, rules), skills: structuredClone(unit.skills), items: [], conditions: [], morale: 0, talks: false,
+        fleesBelow: 0, xp: 0, loot: null, gone: null, capped: [], onHit: [],
+        summoned: { owner: actor.id, kind: unit.kind, form: skill.formId, class: unit.class, until: f.round + unit.rounds },
+    };
+    join(f, c, rng);
+    log(f, actor, `${label(actor)} calls ${unit.name}.`, 'skill', true);
+}
+
+/** A unit whose rounds are out is gone ('expired'); called at the start and end of every turn with the fight. */
+function expireUnits(actor, f) {
+    if (!f || !actor.summoned || actor.gone || f.round < actor.summoned.until) return;
+    actor.gone = 'expired';
+    actor.conditions = [];
+    f.log.push({ round: f.round, actor: actor.id, text: `${actor.name} fades.`, kind: 'info', important: false });
 }
 
 /** What a screen needs to choose the targets of a form: one row per effect with its side, scope and legal targets. */
@@ -197,6 +243,6 @@ export function installFormHooks() {
     formHooks.plan = planForm;
     formHooks.perform = performForm;
     formHooks.describe = describeForm;
-    formHooks.shifts = syncShifts;
+    formHooks.shifts = (actor, rules, f) => { syncShifts(actor, rules); expireUnits(actor, f); };
 }
 installFormHooks();

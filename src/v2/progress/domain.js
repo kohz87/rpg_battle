@@ -79,7 +79,7 @@ function creditProblem(id, credit, attempts) {
 const UNIT_KINDS = ['summon', 'pet'];
 const ENDED = ['expired', 'dismissed', 'downed', 'fight-ended'];
 
-function unitProblem(id, unit) {
+export function unitProblem(id, unit) {
     const where = `progress: temporary unit ${id}`;
     if (!isObject(unit) || unit.id !== id || !/^ac_[0-9a-z]{8}$/.test(id)) return `${where} is not whole`;
     if (!UNIT_KINDS.includes(unit.kind) || !isActorId(unit.owner) || !isDefId(unit.template) || typeof unit.fight !== 'string') return `${where} names no kind, owner, template and fight`;

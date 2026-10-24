@@ -28,8 +28,17 @@ function hintsOf(form) {
     return Object.keys(hints).length ? hints : null;
 }
 
-/** The engine skill of `form` (a resolved form of the pin) at `mastery` (0..5). */
-export function formSkill(form, mastery = 0) {
+/** The unit a form calls (a summon or a pet): its frozen inputs and the class's three base forms it fights with. `ix`: the pinned index. */
+function unitOf(form, ix) {
+    if (!form.unit) return null;
+    const { kind, class: template, statShare, poolShare, rounds } = form.unit;
+    const picked = ix?.class(template) ?? null;
+    const skills = picked ? picked.skills.map(skill => ix.baseForm(skill)).filter(Boolean).map(id => formSkill(ix.form(id), 0)) : [];
+    return { kind, class: template, statShare, poolShare, rounds, name: picked?.name ?? template, skills };
+}
+
+/** The engine skill of `form` (a resolved form of the pin) at `mastery` (0..5). `ix` lets a form that calls a unit carry the unit's own skills. */
+export function formSkill(form, mastery = 0, ix = null) {
     const first = form.effects.find(effect => typeof effect.power === 'number') ?? null;
     return {
         name: form.name,
@@ -52,5 +61,6 @@ export function formSkill(form, mastery = 0) {
         // conditions and shield. The interpreter never applies this map; it plays `parts`.
         effect: hintsOf(form),
         parts: form.effects.map(clone),
+        ...(form.unit ? { unit: unitOf(form, ix) } : {}),
     };
 }

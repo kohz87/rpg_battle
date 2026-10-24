@@ -500,7 +500,7 @@ function beginTurn(f, actor, rng, rules) {
     }
     // Guard is "until your next turn", so it goes now; everything else lasts through this turn.
     actor.conditions = actor.conditions.filter(cond => cond.name !== 'guard' || cond.rounds > 0);
-    if (formHooks.shifts) formHooks.shifts(actor, rules);
+    if (formHooks.shifts) formHooks.shifts(actor, rules, f);
     if (!isActive(actor)) return false;
     // (0.5.29) A little stamina comes back each turn, as breath does.
     if (actor.sp && actor.sp.cur < actor.sp.max) {
@@ -523,7 +523,7 @@ function beginTurn(f, actor, rng, rules) {
 function endTurn(f, actor, usedSkill) {
     for (const s of actor.skills) if (s.name !== usedSkill && s.cooldownLeft > 0) s.cooldownLeft -= 1;
     actor.conditions = actor.conditions.filter(cond => cond.rounds > 0);
-    if (formHooks.shifts) formHooks.shifts(actor);
+    if (formHooks.shifts) formHooks.shifts(actor, undefined, f);
     f.turnStarted = false;
     if (timeline(f)) {
         // Their next turn after one wait at the speed they have now (slowed or not).
@@ -538,7 +538,8 @@ function endTurn(f, actor, usedSkill) {
 function checkEnd(f) {
     if (f.status !== 'active') return;
     const enemies = f.combatants.some(c => c.side === 'enemy' && isActive(c));
-    const party = f.combatants.some(c => c.side === 'party' && isActive(c));
+    // (rules v2) A summoned unit does not keep the party standing: a wipe is the party's own members all down.
+    const party = f.combatants.some(c => c.side === 'party' && isActive(c) && !c.summoned);
     if (!enemies && !pendingWaves(f).length) {
         f.status = 'victory';
         log(f, null, 'Victory.', 'info');
@@ -886,7 +887,13 @@ function current(f) {
 }
 
 /** The engine's own pieces, handed to the form interpreter (formHooks.perform) so it plays with the same sums, not a copy of them. */
-const ENGINE = Object.freeze({ hit: hitIn, strike, heal, applyEffect, addCondition, takeDamage, markHurt, skillValue, label, log, bump, has, isActive, byId, costOf, effectivePower, LABELS, DOTS });
+/** A combatant who joins mid-fight on a side (a summon): in the timeline it waits its first turn, in rounds it acts from the next round. */
+function joinFight(f, c, rng) {
+    f.combatants.push(c);
+    if (timeline(f)) enterTimeline(f, c, rng);
+}
+
+const ENGINE = Object.freeze({ join: joinFight, hit: hitIn, strike, heal, applyEffect, addCondition, takeDamage, markHurt, skillValue, label, log, bump, has, isActive, byId, costOf, effectivePower, LABELS, DOTS });
 
 // --- the API --------------------------------------------------------------------------------
 
@@ -1082,7 +1089,8 @@ export function foeXpWorth(enemy, memberLevel, rules = DEFAULT_RULES, { parleyed
 /** The finished fight as a Result (see docs/ARCHITECTURE.md). */
 export function summarize(fight, rules = DEFAULT_RULES) {
     const f = fight;
-    const party = f.combatants.filter(c => c.side === 'party');
+    // (rules v2) A summoned unit is not a member: it earns nothing and is not written back to the party.
+    const party = f.combatants.filter(c => c.side === 'party' && !c.summoned);
     const enemies = f.combatants.filter(c => c.side === 'enemy');
     const gone = kind => enemies.filter(c => c.gone === kind);
     const defeated = gone('down');

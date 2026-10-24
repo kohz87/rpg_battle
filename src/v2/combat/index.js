@@ -34,7 +34,7 @@ import { clipped } from '../lines.js';
 import { lastParts, partsProblems } from '../board/parts.js';
 import { fitParty } from '../party/pools.js';
 import { foldStoryTime } from '../party/recovery.js';
-import { actionWithId, guardAction, pinnedOf, pinnedSetup, settleEnd } from '../fight/index.js';
+import { actionWithId, beginUnits, guardAction, pinnedOf, pinnedSetup, settleEnd } from '../fight/index.js';
 import { cleanFormFields } from '../fight/records.js';
 import { applyStock, beatenFoes, boardToken, endSummary, foeNames, foeRanks, partyNames, rebuild, sessionView, tailLines } from './view.js';
 
@@ -353,6 +353,7 @@ function playAction(ctx, action, payload = {}) {
     }
     const used = readInventory(ctx) ? consumeSpent(ctx, itemsSpent(fight, next)) : { taken: [], missing: [] };
     syncPools(ctx, next);
+    beginUnits(ctx, session, fight, next);
     // Under the fight's own key (stored.js): replayed without this fight's start, the block does not apply.
     guardAction(ctx, session, stock.length ? { ...action, stock } : action);
     const stored = draftSession(ctx.draft('combat'), session.id);
@@ -525,6 +526,7 @@ function start(ctx, payload) {
     // and the foes' first blows show on the party at once.
     if (inventory) consumeSpent(ctx, itemsSpent(before, opening));
     syncPools(ctx, opening);
+    beginUnits(ctx, { id, setup }, { combatants: [] }, opening);
     const rev = nextRev(ctx);
     if (made.length) {
         const bestiary = ctx.draft('bestiary');

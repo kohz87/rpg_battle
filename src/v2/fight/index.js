@@ -40,7 +40,7 @@ export function fightSkills(ctx, ix, actor) {
     if (!progress) return null;
     const derived = deriveActor(ix, choicesOf(progress, actor));
     if (derived.class === null) return null;
-    return skillViews(ix, derived, progress, actor).map(view => formSkill(ix.form(view.form), view.mastery));
+    return skillViews(ix, derived, progress, actor).map(view => formSkill(ix.form(view.form), view.mastery, ix));
 }
 
 /**
@@ -99,6 +99,15 @@ function storyMinute(ctx) {
     }
 }
 
+/** The units a played action called (a combatant on the party's side that is `summoned` and was not in the fight before): their narrative records begin. */
+export function beginUnits(ctx, session, before, after) {
+    if (!drawsByAction(session)) return;
+    for (const c of after.combatants) {
+        if (!c.summoned || before.combatants.some(other => other.id === c.id)) continue;
+        ctx.call('summon.begin', { actor: c.id, owner: c.summoned.owner, kind: c.summoned.kind, template: c.summoned.class, fight: session.id, name: c.name, level: c.level, hp: { ...c.hp }, mp: { ...c.mp }, sp: { ...c.sp } });
+    }
+}
+
 /** The end of each action's own random stream, from the fight replayed action by action. */
 function drawEnds(session) {
     const setup = unpackSetup(session.setup);
@@ -124,6 +133,9 @@ export function settleEnd(ctx, { session, fight, result }) {
     const asked = buildEnd({ ix, combat: ctx.read('combat') }, { session: session.id });
     if (!asked.ok) ctx.fail('REFUSED', asked.why);
     attachGuard(ctx, ix, 'combat.end', { session: session.id }, asked.inputs);
+    // The fight's units lose their combat sheets; one that went down or ran out ends, one still standing stays as a narrative presence.
+    const units = fight.combatants.filter(c => c.summoned).map(c => ({ actor: c.id, reason: c.gone === 'expired' ? 'expired' : c.gone === 'down' || c.hp.cur <= 0 ? 'downed' : null }));
+    if (units.length) ctx.call('summon.settle', { fight: session.id, units });
     const uses = [];
     for (const [actor, byForm] of Object.entries(result.uses ?? {})) {
         for (const [form, count] of Object.entries(byForm ?? {})) {
