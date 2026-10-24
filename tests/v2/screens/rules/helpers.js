@@ -61,3 +61,12 @@ export const buttons = (root, command) => all(root, 'button').filter(button => b
 export const widgetsIn = (root, name) => all(root, 'ss-widget').filter(el => el.getAttribute('name') === name);
 export const names = log => [...new Set(log.map(entry => entry.name))];
 export const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+
+/** Runs `fn` with a host whose sdk.modules() says `modules` (Story Block's module status), then puts the globals back. */
+export function withHost(modules, fn) {
+    const before = Object.getOwnPropertyDescriptor(globalThis, 'StoryBlock');
+    globalThis.StoryBlock = { sdk: { modules: () => structuredClone(modules) } };
+    try { return fn(); } finally {
+        if (before) Object.defineProperty(globalThis, 'StoryBlock', before); else delete globalThis.StoryBlock;
+    }
+}

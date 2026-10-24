@@ -18,6 +18,7 @@
 import { sheet } from '../style.js';
 import { EQUIPMENT_CSS } from '../equipment.js';
 import { RULES_WIDGET_CSS } from './widgets.js';
+import { hostModules, ownStatus } from './deps.js';
 
 /** The rules queries a page needs to exist before it is offered: a host without them (older, or RPG Battle 1) shows none of the pages. */
 export function rulesActive(state, ctx) {
@@ -27,6 +28,15 @@ export function rulesActive(state, ctx) {
     } catch {
         return { on: false };
     }
+}
+/**
+ * The Setup page is offered on the same condition, and also while Story Block's module status says RPG Battle is dormant or
+ * restoring: then its own queries may not answer, and this page, which asks the host for the status, is where the reason is.
+ */
+export function setupActive(state, ctx) {
+    if (rulesActive(state, ctx).on) return { on: true };
+    const status = ownStatus(hostModules());
+    return { on: status === 'dormant' || status === 'restore-pending' };
 }
 const ACTIVE_NOTE = 'Shown once RPG Battle\'s new rules are present.';
 
@@ -546,8 +556,8 @@ export const setupScreen = Object.freeze({
     title: 'Setup',
     icon: 'fa-plug-circle-check',
     mounts: Object.freeze(['tab', 'screen']),
-    active: rulesActive,
-    activeNote: ACTIVE_NOTE,
+    active: setupActive,
+    activeNote: 'Shown once RPG Battle\'s new rules are present, and while the host says RPG Battle is dormant.',
     data: Object.freeze({ s: Object.freeze({ query: 'rpg-battle.setupView' }) }),
     template: setupTemplate,
     css: setupCss,

@@ -491,6 +491,21 @@ export const C13 = {
     nsdAbsent: () => answers({ 'npc.identity': MISSING }),
 };
 
+/** Story Block's module status (`sdk.modules()`, E2): what the host says about each module. */
+export const mod = (id, status = 'ready', reason = null) => ({ id, name: id, version: '2.0.0', domains: [], commands: [], kinds: [], tabs: [], features: [], status, reason });
+export const HOST = {
+    ready: () => [mod('story-block'), mod('story-director'), mod('rpg-battle')],
+    rbDormant: () => [mod('story-block'), mod('rpg-battle', 'dormant', 'waiting for story-director')],
+    rbDormantSdWaiting: () => [mod('story-block'), mod('story-director', 'dormant', 'waiting for a peer'), mod('rpg-battle', 'dormant', 'waiting for story-director')],
+    sdOld: () => [mod('story-block'), mod('story-director'), mod('rpg-battle')],
+    restoring: () => [mod('story-block'), mod('story-director'), mod('rpg-battle', 'restore-pending', 'a restore holds it')],
+};
+/** RB dormant: none of RPG Battle's own rules queries answer, Story Director is absent. */
+export const rbDormantAnswers = () => answers({
+    'rules.party': MISSING, 'rules.progress': MISSING, 'rules.training': MISSING, 'rules.quests': MISSING, 'rules.identity': MISSING,
+    'director.contract': MISSING, 'director.time': MISSING, 'atlas.canonical': MISSING, 'world.areaTier': MISSING, 'chronicle.day': MISSING, 'journal.day': MISSING, 'checks.policy': MISSING,
+});
+
 /** C14: replay. A manual save the deleted reply carried is simply not listed. */
 export const C14 = {
     result: QF.C14.result,

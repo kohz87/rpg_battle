@@ -14,7 +14,7 @@ import { depsBanner, setupView } from './setup.js';
 import { classPickerView } from './class-step.js';
 
 export { ask, ASK } from './ask.js';
-export { dependencyView } from './deps.js';
+export { dependencyView, hostModules, ownStatus } from './deps.js';
 export { progressView } from './progress.js';
 export { questsView } from './quests.js';
 export { rosterView, slotTilesOf } from './roster.js';
@@ -24,7 +24,7 @@ export { CLASS_STEP_TEMPLATE, classPickerView } from './class-step.js';
 export {
     CLASS_PICK_WIDGET, COMMAND_BUTTON_WIDGET, COMMAND_INPUT_WIDGET, PERMANENT_CHOICE_WIDGET, RULES_WIDGET_CSS, rulesWidgets,
 } from './widgets.js';
-export { linksScreen, progressScreen, questsScreen, rosterScreen, rulesActive, rulesScreens, setupScreen } from './screens.js';
+export { linksScreen, progressScreen, questsScreen, rosterScreen, rulesActive, rulesScreens, setupActive, setupScreen } from './screens.js';
 
 export const rulesQueries = Object.freeze({
     'rpg-battle.progressView': progressView,

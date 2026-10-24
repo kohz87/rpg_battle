@@ -8,7 +8,7 @@
 
 import { ASK, ask, isList, isRecord, isText } from './ask.js';
 import { btn, clip, clockLabel } from './format.js';
-import { dependencyView } from './deps.js';
+import { dependencyView, hostModules } from './deps.js';
 
 const isSnapshot = value => isRecord(value) && isText(value.id) && isText(value.name) && typeof value.available === 'boolean';
 const KIND_WORDS = Object.freeze({ initial: 'Start', manual: 'Manual', 'day-start': 'Start of day' });
@@ -35,12 +35,12 @@ function savesModel(tools) {
 
 /** rpg-battle.setupView({}) → { deps, saves }. */
 export function setupView(state, args, tools) {
-    return { deps: dependencyView(tools), saves: savesModel(tools) };
+    return { deps: dependencyView(tools, hostModules()), saves: savesModel(tools) };
 }
 
 /** rpg-battle.rulesDeps({}) → the banner: { show, tone, headline, held, lines } (only the lines that are not fine). */
 export function depsBanner(state, args, tools) {
-    const view = dependencyView(tools);
+    const view = dependencyView(tools, hostModules());
     const trouble = view.lines.filter(line => line.tone === 'bad' || line.tone === 'warn');
     return {
         show: trouble.length > 0 || !view.ready,

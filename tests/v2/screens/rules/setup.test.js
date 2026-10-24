@@ -9,16 +9,17 @@ import { progressScreen, setupScreen } from '../../../../src/v2/screens/rules/sc
 import { dependencyView } from '../../../../src/v2/screens/rules/deps.js';
 import { depsBanner, setupView } from '../../../../src/v2/screens/rules/setup.js';
 import { progressView } from '../../../../src/v2/screens/rules/progress.js';
-import { C13, MISSING, answers } from './fixtures.js';
-import { all, drawOver, skip, text, toolsOf, viewOf } from './helpers.js';
+import { C13, HOST, MISSING, answers, rbDormantAnswers } from './fixtures.js';
+import { setupActive, rulesActive } from '../../../../src/v2/screens/rules/screens.js';
+import { all, drawOver, skip, text, toolsOf, viewOf, withHost } from './helpers.js';
 
 const lines = table => Object.fromEntries(dependencyView(toolsOf(table)).lines.map(line => [line.id, line]));
 const states = table => Object.fromEntries(Object.entries(lines(table)).map(([id, line]) => [id, line.state]));
 
-test('C13 dependencies: everything present is ready, and the six lines are in a fixed order', { skip }, () => {
+test('C13 dependencies: everything present is ready, and the seven lines are in a fixed order', { skip }, () => {
     const view = dependencyView(toolsOf(C13.ready()));
-    assert.deepEqual(view.lines.map(line => line.id), ['sd', 'save', 'clock', 'area', 'journal', 'social']);
-    assert.deepEqual(states(C13.ready()), { sd: 'ready', save: 'ready', clock: 'ready', area: 'ready', journal: 'ready', social: 'ready' });
+    assert.deepEqual(view.lines.map(line => line.id), ['sd', 'save', 'clock', 'area', 'journal', 'social', 'rb']);
+    assert.deepEqual(states(C13.ready()), { sd: 'ready', save: 'ready', clock: 'ready', area: 'ready', journal: 'ready', social: 'ready', rb: 'unknown' });
     assert.equal(view.ready, true);
     assert.equal(view.mode, 'ready');
     assert.deepEqual(view.held, []);
@@ -149,11 +150,11 @@ test('C13 dependencies: every state in every line is distinct for the reader (it
     assert.equal(tones.get('journal:off'), 'neutral');
 });
 
-test('C13 dependencies: the Setup page draws all six lines with their states; the banner appears on other pages only when needed', { skip }, () => {
+test('C13 dependencies: the Setup page draws all seven lines with their states; the banner appears on other pages only when needed', { skip }, () => {
     const { drawn: d } = drawOver(setupScreen, C13.unknownTier());
     assert.deepEqual(d.warnings, []);
-    assert.deepEqual(all(d.el, '.dep').map(row => text(row.querySelector('b'))), ['Story Director', 'Save points', 'Story clock', 'Danger here', 'Day recaps', 'Relationships']);
-    assert.deepEqual(all(d.el, '.dep .ss-pill').map(text), ['ready', 'ready', 'ready', 'unknown-tier', 'ready', 'ready']);
+    assert.deepEqual(all(d.el, '.dep').map(row => text(row.querySelector('b'))), ['Story Director', 'Save points', 'Story clock', 'Danger here', 'Day recaps', 'Relationships', 'RPG Battle']);
+    assert.deepEqual(all(d.el, '.dep .ss-pill').map(text), ['ready', 'ready', 'ready', 'unknown-tier', 'ready', 'ready', 'unknown']);
     assert.equal(all(d.el, '.dep.warn').length, 1);
     assert.equal(all(d.el, '.held li').length, 1);
 
@@ -170,9 +171,57 @@ test('C13 dependencies: queries that throw, answer null or answer nonsense are a
     const weird = answers({ 'director.contract': () => null, 'savepoint.contract': () => 'yes', 'director.time': () => ({ text: 5 }), 'atlas.canonical': () => 7, 'world.areaTier': () => ({}), 'checks.policy': () => 3 });
     const view = dependencyView(toolsOf(weird));
     assert.equal(view.ready, false);
-    assert.equal(view.lines.length, 6);
+    assert.equal(view.lines.length, 7);
     assert.ok(view.lines.every(line => typeof line.state === 'string' && typeof line.text === 'string'));
     assert.doesNotThrow(() => setupView({}, {}, toolsOf({})));
     assert.equal(setupView({}, {}, toolsOf({})).deps.ready, false);
     assert.equal(viewOf(progressView, { 'rules.party': () => { throw new TypeError('boom'); } }).state, 'unavailable');
+});
+
+test('C13 dependencies: with RPG Battle dormant, Setup is still offered and still draws every line, reason included', { skip }, () => {
+    const table = rbDormantAnswers();
+    // None of the rules queries answers, so the old gate would hide the page; the host's module status keeps it.
+    const ctx = { query: name => { if (Object.hasOwn(table, name) && table[name] !== MISSING) return table[name]; throw new Error(`No query called "${name}".`); } };
+    assert.deepEqual(rulesActive(null, ctx), { on: false });
+    assert.deepEqual(withHost(HOST.rbDormant(), () => setupActive(null, ctx)), { on: true });
+    assert.deepEqual(withHost(HOST.restoring(), () => setupActive(null, ctx)), { on: true });
+    assert.deepEqual(withHost(HOST.ready(), () => setupActive(null, ctx)), { on: false }, 'a ready module without rules queries (an old save) shows nothing new');
+    assert.deepEqual(setupActive(null, ctx), { on: false }, 'a host without module status shows nothing new');
+
+    withHost(HOST.rbDormant(), () => {
+        const view = dependencyView(toolsOf(table));
+        const rb = view.lines.find(line => line.id === 'rb');
+        assert.deepEqual([rb.state, rb.tone, rb.required, rb.reason], ['dormant', 'bad', true, 'waiting for story-director']);
+        assert.deepEqual([view.ready, view.mode], [false, 'dormant']);
+        assert.deepEqual(view.blocking.sort(), ['rb', 'sd']);
+        assert.match(view.headline, /RPG Battle is waiting \(waiting for story-director\)\. Your story and the other modules keep working\./);
+        const { drawn: d } = drawOver(setupScreen, table);
+        assert.deepEqual(d.warnings, []);
+        assert.equal(all(d.el, '.dep').length, 7, 'every line is still drawn');
+        assert.equal(all(d.el, '.sect.status.dormant').length, 1);
+        assert.deepEqual(all(d.el, '.dep .ss-pill').map(text), ['missing', 'ready', 'unknown', 'unknown', 'unknown', 'ready', 'dormant']);
+        assert.match(text(all(d.el, '.dep')[6]), /RPG Battle is dormant: waiting for story-director\./);
+        // The other pages say the same in their banner, and the Save now button still works (Story Block's own command).
+        assert.equal(all(d.el, '.saves .rpg-cb-go').length, 1);
+    });
+});
+
+test('C13 dependencies: Story Block\'s module status tells a waiting Story Director from a missing or an old one, and restoring from dormant', { skip }, () => {
+    const down = answers({ 'director.contract': MISSING });
+    const sdState = modules => withHost(modules, () => dependencyView(toolsOf(down)).lines.find(line => line.id === 'sd'));
+    assert.equal(sdState(HOST.rbDormant()).state, 'missing', 'not in the module list at all');
+    const waiting = sdState(HOST.rbDormantSdWaiting());
+    assert.equal(waiting.state, 'dormant');
+    assert.match(waiting.text, /installed but waiting: waiting for a peer\./);
+    assert.equal(sdState(HOST.sdOld()).state, 'incompatible', 'running, but offers no contract');
+    assert.match(sdState(HOST.sdOld()).text, /may be too old/);
+    const restoring = withHost(HOST.restoring(), () => dependencyView(toolsOf(answers())));
+    assert.equal(restoring.lines.find(line => line.id === 'rb').state, 'restore-pending');
+    assert.equal(restoring.ready, false);
+    assert.equal(withHost(HOST.ready(), () => dependencyView(toolsOf(answers()))).ready, true);
+    assert.equal(withHost(HOST.ready(), () => dependencyView(toolsOf(answers()))).lines.find(line => line.id === 'rb').state, 'ready');
+    // A host whose sdk.modules() throws or lacks it reads as unknown, never an error.
+    const broken = Object.getOwnPropertyDescriptor(globalThis, 'StoryBlock');
+    globalThis.StoryBlock = { sdk: { modules: () => { throw new Error('boom'); } } };
+    try { assert.equal(dependencyView(toolsOf(answers())).lines.find(line => line.id === 'rb').state, 'unknown'); } finally { if (broken) Object.defineProperty(globalThis, 'StoryBlock', broken); else delete globalThis.StoryBlock; }
 });

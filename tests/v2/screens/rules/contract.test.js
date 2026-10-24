@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 
-import { rulesActive, rulesScreens } from '../../../../src/v2/screens/rules/screens.js';
+import { rulesActive, rulesScreens, setupActive } from '../../../../src/v2/screens/rules/screens.js';
 import { rulesQueries, rulesWidgets } from '../../../../src/v2/screens/rules/index.js';
 import { CLASS_STEP_TEMPLATE } from '../../../../src/v2/screens/rules/class-step.js';
 import { isAreaTier, isParty, isProgress, isQuestView, isSheet } from '../../../../src/v2/screens/rules/ask.js';
@@ -30,7 +30,7 @@ test('five screens, unique ids, tab and screen mounts, each gated by rulesActive
     assert.equal(new Set(rulesScreens.map(screen => screen.id)).size, 5);
     for (const screen of rulesScreens) {
         assert.deepEqual(screen.mounts, ['tab', 'screen']);
-        assert.equal(screen.active, rulesActive);
+        assert.equal(screen.active, screen.id === 'rpg-battle/setup' ? setupActive : rulesActive);
         assert.ok(screen.activeNote.length > 0);
         for (const { query } of Object.values(screen.data)) assert.equal(typeof rulesQueries[query], 'function', `${screen.id} reads ${query}`);
     }
