@@ -103,4 +103,3 @@ export function partyView(ix, state, query) {
         temporary, activeLimit: ACTIVE_LIMIT,
     };
 }
-
