@@ -52,7 +52,7 @@ export { TERM_FIELDS, foldReaderTerms, mergeTerms, packTerms, readerRanks, withT
 
 export const MODULE_ID = 'rpg-battle';
 export const MODULE_NAME = 'RPG Battle';
-export const VERSION = '2.0.0-beta.1';
+export const VERSION = '2.0.0-beta.2';
 
 /** The parts in their order: [part id, part]. */
 export const PARTS = Object.freeze([
@@ -304,7 +304,7 @@ export function createModule({ settings = null, query = null } = {}) {
         // and keyed bookkeeping, the F80 dice path, and replay that passes over a gone key's remove and
         // replays list appends at the end (B-b1r2-13) came in Story Block 2.0.0-alpha.2; the beta asks for
         // the beta host it was built and tested with (the Features switches, F100, among them).
-        requires: { storyBlock: '>=2.0.0-beta.1' },
+        requires: { storyBlock: '>=2.0.0-beta.2' },
         domains,
         commands,
         queries,
