@@ -5,10 +5,10 @@ description: Re-vendor Story Block's testkit and v2 runtime into tests/vendor/st
 
 # Sync the Story Block testkit
 
-1. Have a Story Block checkout at the commit you want (normally `origin/v2`, or the release head before
+1. Have a Story Block checkout at the commit you want (normally `origin/main`, or the release head before
    a release). The default is `../Story_block`; another place goes in `STORY_BLOCK`:
    ```sh
-   git -C ../Story_block fetch -q origin v2 && git -C ../Story_block checkout -q v2 && git -C ../Story_block pull -q --ff-only
+   git -C ../Story_block fetch -q origin main && git -C ../Story_block checkout -q main && git -C ../Story_block pull -q --ff-only
    ```
    The checkout must be clean: with local changes the VERSION file records `<sha>+local-changes`.
 2. Sync (replaces `tests/vendor/story-block/` as a whole, so dropped files do not linger):

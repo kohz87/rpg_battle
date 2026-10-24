@@ -16,7 +16,7 @@ Node 24 is what CI uses (node ≥ 22 works). No install step.
    ```sh
    npm run test:dot
    npm run check
-   git diff --check origin/v2
+   git diff --check origin/main
    ```
    Run it once; do not re-run old code to show a test failed before.
 3. Reading the output:
