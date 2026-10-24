@@ -182,6 +182,7 @@ export function createModule({ settings = null, query = null } = {}) {
     const domains = {};
     const commands = {};
     const queries = {};
+    const replayQueries = new Set();
     const kinds = {};
     const owners = { domain: {}, command: {}, query: {}, kind: {}, tab: {}, widget: {}, screen: {}, feature: {} };
     const hooks = {};
@@ -206,6 +207,7 @@ export function createModule({ settings = null, query = null } = {}) {
     });
 
     for (const [id, part] of PARTS) {
+        for (const name of part.replayQueries ?? []) replayQueries.add(name);
         for (const [name, domain] of Object.entries(part.domains ?? {})) {
             claim(owners.domain, name, id, 'domain');
             domains[name] = domain;
@@ -309,6 +311,7 @@ export function createModule({ settings = null, query = null } = {}) {
         domains,
         commands,
         queries,
+        replayQueries: [...replayQueries],
         capture: {
             kinds: Object.fromEntries(Object.entries(kinds).map(([kind, spec]) => [kind, grammarOf(spec, () => withTerms(partSettings(moduleSettings(), spec.part), staticQuery))])),
             apply(ctx, line) {
