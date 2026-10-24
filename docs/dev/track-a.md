@@ -1,50 +1,56 @@
-# Track A implementation evidence
+# Track A handoff
 
-The frozen RB_PHASE0 contract and RB_TRACK_B_DESIGN B5 govern this work. SB is read-only
-at 4f5b43449bedba8c4e8a9c499b3c60f2306ee7db. No substitute runtime API or rule is authorized.
+The frozen phase-0 contract, P23, B5 and lead decisions D1–D3 govern this branch.
+Story Block and NPC State Delta are unchanged. No legacy character conversion is included.
 
-A1 currently supplies the transferred pure parse/progress/rank mechanics and a pure typed
-settlement planner. It selects the same SD thread, including an RPG extension on a hook,
-requires surviving acceptance evidence, consumes exact stacks, excludes reserve/temporary
-owners, credits only this reward, and expires at deadline equality. It creates no quest domain.
-It is deliberately not registered alongside SD's still-registered quest names.
+| Task | Delivered | Remaining integration |
+| --- | --- | --- |
+| A1 | RB owns retained quest commands/queries, parser, progress/ranks, board/retry adapters and quest capture. | B3's frozen requirements and non-collect objective validators. |
+| A2 | SD owns the five thread writers, hash and retry ledger; neutral acceptance/progress/journal work alone. Old quest registrations and payouts are removed. | Host D1 cursor/epoch. |
+| A3 | One guarded quest settlement spans SD closure/journal, SB costs/rewards and one nonzero XP grant. Repeat/chain offers use fresh IDs; raw-result XP is retired. | Shared B5 export and B3 owner inputs; host E6 epoch enforcement. |
+| A4 | Pure eight-slot planner, slot projection, authoring aliases and SB hash parity. | Live equipment routing/projection/registration and rules/packs/prompt/UI integration remain incomplete; see track-a-equipment.md. |
+| A5 | NSD preset ownership confirmed; no runtime needs moving. | None; read-only audit. |
+| A6 | Real retained-selector/alias, retirement, neutral standalone, forged-caller, C15, rollback, old-chat and replay/reload fixtures. | Final integrated B3/E6/matrix coverage. |
 
-The following integration gates remain; the extraction is not a completed quest migration:
+## Integration seams and gaps
 
-- P23 requires a host-allocated, persisted write ID before dispatch. Current ctx exposes
-  receiptId/id/source, but no contracted write reservation adapter. A deterministic generated
-  ID or receipt-derived ID is not proof that the host persisted it before dispatch.
-- P23 acceptance requires the host cursor including block/op/rev. ctx.source supplies
-  sid/swipeKey/evidence/ordinal only. Receipt rev or a guessed block ID cannot supply that cursor.
-- Quest claims require the active savepoint epoch. SB REPLAY.md explicitly leaves active
-  epoch/rules comparison to E6. There is no synchronous public epoch accessor for handlers;
-  the frozen timeline.head interface is not implemented in this checkout.
-- B3 must supply closed kill/visit/story objective proof validation and the single shared
-  requirements evaluator. The planner requires these callbacks when needed; it never treats
-  narration, ready flags or a visible opaque proof as sufficient action authority.
-- B5 leaves the final closed quest operation records/predicates to B. settlementInputs supplies
-  its recommended canonical envelope, not a claim that those owner records are frozen.
-- Frozen quest-template lookup/registration is a B3 deliverable. No live-pack fallback may
-  create a rules-v2 quest with guessed template, objective or reward IDs.
+- D1 supplies only `ctx.cursor()` and `ctx.epoch`. Production uses no alternate source and
+  refuses missing support. Tests supply an explicit host shim. Writer IDs derive from the
+  caller's Source plus writer key and are recorded in SD's writes ledger.
+- The sole guard envelope is `buildGuard({hash,owner,epoch,source,rulesHash,kind,payload,inputs})`,
+  exported by progress on track B at `3f27e5650e70ae5cf0130743d13642f4e92fdc5e`.
+  It is not on main. Merge B's implementation; no copy is included here. Its absence holds
+  quest mutations. Tests use that actual implementation from a temporary archive.
+- B3's closed kill/visit/story validator, shared requirement evaluator, reward carry check,
+  giver-presence resolution and objective-event capture exports are not specified in this
+  checkout. The private quest policy accepts these owner callbacks and fails closed when
+  required. Narration, `met`, ready flags and opaque visible proofs cannot replace them.
+- Frozen templates come only from `rules.pin.resolved.quests`. Installed packs never replace
+  historical rewards. Existing typed storyCredit reduces only that quest's coin; its claims
+  are retained and bound by the guard. New story-credit attribution needs B3's validated
+  reward-event seam; this branch does not guess which unbound coin line paid which quest.
+- The quest hook checks pinned rules and all retained thread/proof/plan inputs. Active epoch
+  enforcement remains the host's E6 responsibility; no second epoch source is invented.
+- D3 keeps old quest/owed data readable and unpaid, including after reload. There is no
+  automatic conversion, second quest store, wallet authority or duplicate name owner.
 
-No command may pay or write around these gates. Runtime command/query transfer,
-director.retriable/quest.board adapters and ctx.replayGuard wiring remain A1 work.
+## Validation
 
-Verification: 15 focused tests passed. Reverting only the deadline equality fix produced the
-expected assertion failure in planner.test.js; the fix was restored. The full RB dot suite
-and syntax check passed once for this extraction slice. No baseline suite was run.
+Latest full RB run: 1,758 tests; 1,751 passed, zero failures, one skipped, six TODOs.
+The existing currency-format TODO prints a failing assertion without failing the suite.
+SD: 880 tests; 879 passed, zero failures, one skipped. Syntax checks and
+`git diff --check origin/main HEAD` pass in both repositories. No baseline suite was run.
+Fixtures use real module definitions and the pinned SB runtime/testkit at
+`d23ab1fd04e80b06d443cb79e3174c6ffc443c8e`, with the explicit D1/B5 seams above.
 
-A3's first slice fixes combat/quest.js questTargets to discover an rpg extension regardless
-of outer thread kind. It still supports old quest-kind threads on the isolated old runtime.
-The adapter reads SD threads and quest progress only; it does not create a ledger or pay.
-Its focused regression fails when only the old kind filter is restored.
+Removing only the settlement guard makes swipe/delete fixtures retain stale payment;
+restoring raw-result XP fails the duplicate-award fixture. Removing acceptance-proof
+forwarding or SD's neutral RPG routing fails its C15 fixture. Each fix was restored.
 
-A3 remaining: transfer met/turn-in/capture, attach the final B5 replay guard and root claim,
-then commit SD extension/closure/journal, SB costs/rewards and one party.grantXp atomically.
-No old payout hook has been retired in this slice. At this checkout combat/quest.js contains
-fight sizing/loot selection, not XP/coin commands. party/commands.js's old raw result payload
-can still carry XP/uses into applyResult; combat.end's actors payload already clears XP and
-calls grantXp separately. The cited line 654 begins the retained grantXp API, so removing
-that function would violate P18. The raw-result compatibility path needs B's rules-v2
-settlement adapter, not removal of the retained command or an invented rules-state marker.
-No party/combat files outside the allowed combat/quest.js exception were changed.
+The permitted party edit is `src/v2/party/commands.js`: clear raw-result XP before
+applyResult. Existing explicit combat XP and all grantXp payload variants remain.
+`combat/quest.js` filters eligible quests before its 50-quest limit. No other protected
+party/combat/checks/rules/progress/training/death/screen/board/creation source was changed.
+
+Lead-owned commits: RB `e2d1cd4`; SD `6c812f3`, `e3745a6`. These contain the minimal shared
+registration/settings changes. File inventories are in track-a-files.md in each repository.

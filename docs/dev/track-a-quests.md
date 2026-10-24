@@ -1,39 +1,33 @@
 # RPG quests
 
-The retained quest command names and the progress/details/ranks/owed projections are
-registered by RB. `director.retriable` and `quest.board` belong to the same part.
-SD is the only thread writer. Acceptance and linking install the extension on that
-thread; RB has no quest domain or second quest ID. Legacy quests and owed text remain
-read-only. Unpinned legacy chats do not activate the new rank/budget projection.
+RB registers quest.take/abandon/finish/payOwed and the retained progress/details/ranks/owed,
+quest.board and director.retriable adapters. SD alone writes the thread and its rpg extension.
+There is no second quest domain or ID. Historical quest/owed data is read-only and unpaid.
 
-`planQuestSettlement` is the quest planner; `planSettlement` belongs to progression.
-Terminal extension construction covers failed, expired and abandoned outcomes with
-zero payout, and anchors repeat cooldowns to the terminal story minute. Chain offer
-planning selects the next template only after done. Settlement dispatch binds one guarded root transaction for SD extension/closure/journal,
-SB consumption/wallet/stacks, one nonzero XP grant and fresh repeat/chain offers.
+planQuestSettlement is distinct from B's planSettlement. The dispatcher uses B's sole
+buildGuard envelope, attaches ctx.replayGuard, and lets SD close acquire the root's exact
+`rb:<epoch>:quest:<thread>:<instance>:settled` claim. SD extension/closure/journal, exact
+consumption, SB wallet/stacks, one nonzero XP grant and fresh follow-up offers commit together.
+Any failure rolls back the whole root. Zero XP omits grantXp. Legacy difficulty and combat
+amount selectors remain supported by party.grantXp; raw-result applyResult XP is retired.
 
-Frozen quest templates use the checker's `resolved.quests` table. Requirements and
-non-collect objective proofs require the shared B3 validators; there is no text-only
-completion fallback. No definition or reward is reconstructed from an installed pack.
+Turn-in rechecks active acceptance, objectives and owner prerequisites; deadline equality
+expires first. Failed/expired/abandoned outcomes pay zero. Repeat cooldown starts at terminal
+story minute; repeat and chain offers get fresh th_ IDs, remain unaccepted and keep old IDs
+queryable. A chain follows only done. Existing story credit reduces only remaining coin.
 
-The command fixtures use real SB/SD/RB definitions with the explicit D1 cursor/epoch
-shim and frozen-rule projections. Removing only the accept/link call makes both
-retained selector tests fail; the call was restored. The full suite identified an
-old rank-budget activation on unpinned chats; the projection gate and its affected
-item/trade/combat fixtures were then verified.
+Reader capture obtains SD acceptance proof and forwards it through real quest.take to atomic
+threads.accept. Accepted neutral threads use threads.link and retain the original proof/cursor.
+Neutral SD annotations preserve the extension; terminal SD lines route through RB capture.
+Narration cannot synthesize reader consent or objective completion.
 
-The B5 envelope comes only from progress.buildGuard. Its public export is on track B at
-3f27e5650e70ae5cf0130743d13642f4e92fdc5e and is not on main. Integration must merge it;
-production fails closed when absent. Tests load that exact helper in a temporary archive,
-with no duplicate helper in this tree. D1 cursor()/epoch likewise use only the host seam.
-The host owns active epoch comparison (E6); the quest hook checks pinned rules, the expected
-thread/writer hash, original acceptance, objective proof bytes, inputs and planned result.
+The runtime/replay/C15 fixtures cover selectors and aliases, root claims, zero XP, rollback,
+repeat/chain/cooldown, forged callers, legacy reloads and proof-backed acceptance. Reopening
+follows every swipe/delete/Re-read mutation; removing story acceptance through Re-read also
+removes the later payment. Integration gates and latest counts are in track-a.md.
 
-The permitted party/commands.js retirement clears raw-result XP before applyResult;
-combat's explicit XP grant and the retained grantXp payload variants stay intact.
-No other party or combat engine file was edited for this step.
-
-Verification: 1,748 tests, 1,741 passed, zero failures, one skipped, six TODOs; syntax and
-whitespace checks passed. Guard removal alone fails the swipe/delete replay fixtures;
-raw XP restoration alone fails the duplicate-award fixture. Reopening the chat follows
-each swipe/delete/Re-read mutation in the settlement fixtures.
+Re-read may renumber acceptance transport ordinals/revisions. Guard comparison excludes
+those counters while retaining the exact writer hash and original stamps in recorded inputs.
+It still revalidates the acceptance's Source/cursor binding, active proof ID and payload bytes,
+objectives and payout. Unchanged acceptance Re-read keeps one payment; changed proof words
+or removed acceptance retracts it. The regression fails when only this normalization is removed.

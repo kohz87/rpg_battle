@@ -1,44 +1,29 @@
 # Track A equipment handoff
 
-A4 currently supplies a pure eight-slot planner and slot projection, not an active equipment
-migration. The frozen contract governs; existing legacy item runtime files were preserved.
+A4 supplies a pure eight-slot planner and slot projection. The live equipment migration is
+still incomplete; no legacy save is rewritten.
 
-src/v2/items/equip-plan.js exports equipPlan(payload, env), equipmentSlots(env), equipInputHash,
-EQUIP_SLOTS/SLOT_LABELS and authoring-only normalizeSlot/isAmbiguousSlot. The public signature
-for future registration remains rules.equipPlan({stack,actor,targetSlot?}); env is a private
-owner handoff, never a command/query payload or trusted caller plan. It requires explicit
-stacks, immutable defs, frozen itemRules/rulesHash, actorSheet and durable owner IDs. It does
-not read a guessed rules domain layout, invent rules.hash or infer rules-v2 from settings.
+src/v2/items/equip-plan.js exports equipPlan(payload,env), equipmentSlots(env), equipInputHash,
+EQUIP_SLOTS/SLOT_LABELS and authoring-only normalizeSlot/isAmbiguousSlot. The public query
+remains rules.equipPlan({stack,actor,targetSlot?}); env is a private owner input, never a
+trusted command plan or bypass token. It requires stacks, immutable definitions, frozen
+ItemRules/rulesHash, the complete base sheet and durable owner IDs.
 
-The planner uses the fixed eight-slot order, exact displaced records and ownership moves,
-base-stat requirements and 2H/offhand rules. Omitted slot selects the first legal empty slot,
-then a canonical first-slot swap. Alias normalization is for authoring/import; a runtime
-ItemRule and targetSlot must already use canonical IDs. Ambiguous worn/hands/waist/accessory
-keys require explicit reauthoring, never an old-save rewrite. No uniqueness equip rule was
-invented from ItemRule.unique. The acquisition owner must enforce frozen unique-item policy.
+Planning uses eight canonical slots, exact ownership moves/displacements, base-stat
+requirements and 2H/offhand rules. Omitted slot selects the first legal empty slot, otherwise
+the first legal swap. Runtime slots must be canonical; ambiguous worn/hands/waist/accessory
+requires explicit authoring. No uniqueness or non-alive eligibility rule was invented.
+The browser-safe hash matches SB's equipment input bytes. Neither projection writes state.
 
-The browser-safe SHA-256/strict JSON helper in equip-hash.js matches the SB equipment input
-hash, including selected stack, affected records, actor base stats/life and requested slot.
-The focused tests compare actual bytes with SB's vendored equipInputHash reference. No Node
-built-in import remains in browser runtime. No state is written by either projection.
+Remaining work:
 
-Still required before A4 can be called complete:
+- Bind frozen owner inputs and register rules.equipPlan once in a lead-owned commit.
+- Route retained item.equip stack/to/actor plus targetSlot through SB inventory.equipOn;
+  bind items.slots/items.canWear to the same planner and fail closed when it is absent.
+- Integrate eight-slot rules, pack transport, prompt and UI. The current live legacy path
+  still has six-slot assumptions. C-owned screens/paperdoll.js was not edited.
+- Obtain the rule owner's non-alive equipment eligibility policy; the planner currently
+  holds those cases rather than inventing an exception.
 
-- B/lead must bind the frozen inputs and register rules.equipPlan once. Frozen rules storage
-  and its hash accessor are not finalized in this checkout; no guessed replacement was added.
-- Route item.equip's retained stack/to/actor plus targetSlot through SB inventory.equipOn;
-  add the live items.slots/items.canWear adapters over the pure projections. Do not activate
-  a route that would fall back to unplanned equipment when the required planner is absent.
-- Apply eight-slot rules/packs/prompt/UI integration. The live six-slot legacy path remains.
-  C-owned screens/paperdoll.js is hard-coded to six slots; ownership forbids A editing it.
-- The frozen contract includes life in equipment inputs but does not specify non-alive equip
-  eligibility. For these sheets the pure planner holds DEPENDENCY_UNAVAILABLE pending owner
-  policy instead of defaulting missing life/kind or inventing an injury/death exception.
-
-One requested writer round was reviewed. Browser imports, guessed hash/state/feature probes,
-unsafe fallback routing and arbitrary new default weights were rejected; the final pure
-implementation and tests were corrected locally. The writer's shell harness could not run
-commands because its agent script directory was read-only; verification was run by the monitor.
-
-Thirteen focused tests pass. Reverting only 2H offhand displacement causes the displacement
-and SB hash-parity assertions to fail; the fix was restored. No baseline suite was run.
+Thirteen focused tests pass. Removing only 2H offhand displacement fails displacement and
+SB hash-parity assertions; the fix was restored. Full branch validation is in track-a.md.
