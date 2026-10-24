@@ -291,6 +291,7 @@ export function mergeInto(base, extra) {
         domains: { ...base.domains, ...extra.domains },
         commands: { ...base.commands, ...extra.commands },
         queries: { ...base.queries, ...extra.queries },
+        replayQueries: [...new Set([...(base.replayQueries ?? []), ...(extra.replayQueries ?? [])])],
         capture: {
             ...base.capture,
             kinds: { ...base.capture.kinds, ...extra.capture.kinds },
