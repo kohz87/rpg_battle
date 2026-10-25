@@ -41,6 +41,7 @@ export function batchBytes({ fight, session, result, ix, at = null }) {
             if (known) uses.push({ actor, skill: known.skill, form, count });
         }
     }
+    const enemies = [...session.setup.enemies, ...(session.setup.waves ?? []).flatMap(wave => wave.enemies)];
     return {
         v: BATCH_VERSION,
         kind: 'fight',
@@ -57,7 +58,7 @@ export function batchBytes({ fight, session, result, ix, at = null }) {
             // v1's summary keeps a condition's name and rounds only; the strength it was applied with is the fight's own combatant's.
             conditions: member.conditions.map(cond => conditionRecord({ ...cond, power: strengthOf(fight, member.memberId, cond.name) }, { at })),
         })),
-        enemies: result.enemies.map(e => ({ id: e.id, name: e.name, gone: e.gone ?? null, xp: e.xp ?? 0, level: e.level ?? 1, rank: e.rank ?? null })),
+        enemies: result.enemies.map(e => ({ id: e.id, name: e.name, foe: enemies.find(enemy => enemy.id === e.id)?.foeRef ?? null, gone: e.gone ?? null, xp: e.xp ?? 0, level: e.level ?? 1, rank: e.rank ?? null })),
         defeated: [...result.defeated],
         fled: [...result.fled],
         parleyed: [...result.parleyed],

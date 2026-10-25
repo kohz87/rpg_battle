@@ -112,18 +112,18 @@ export function pinnedSetup(ctx, setup) {
  */
 export function packFoes(ctx, ix, setup) {
     const area = areaPolicyNow((name, args) => ctx.query(name, args));
-    if (area.tier === null) return setup;
     const rules = fightRules(setup);
     const swap = enemy => {
         // An offer's foe that names a ref is that foe (an unknown ref is none); one that names only a name is the pack's one foe of that name.
         const foe = typeof enemy.ref === 'string' ? ix.foe(enemy.ref) : ix.foeNamed(enemy.questName ?? enemy.name);
+        enemy = { ...enemy, foeRef: foe?.id ?? null };
         const ordinal = Number(String(enemy.id).slice(3));
-        if (!foe || !Number.isInteger(ordinal)) return enemy;
+        if (!foe || !Number.isInteger(ordinal) || area.tier === null) return enemy;
         // A fight always starts: whatever the adapter cannot do, the foe stays what the v1 projection made of it.
         try {
             const made = foeToEngine(foe, { rules, forms: ix, items: ref => ix.itemDef(ref), area, ordinal });
             if (!made.ok) return enemy;
-            return { ...made.enemy, id: enemy.id, name: enemy.name, ...(enemy.questName ? { questName: enemy.questName } : {}), ...(enemy.wave ? { wave: enemy.wave } : {}), ...(enemy.threat ? { threat: enemy.threat } : {}) };
+            return { ...made.enemy, foeRef: foe.id, id: enemy.id, name: enemy.name, ...(enemy.questName ? { questName: enemy.questName } : {}), ...(enemy.wave ? { wave: enemy.wave } : {}), ...(enemy.threat ? { threat: enemy.threat } : {}) };
         } catch {
             return enemy;
         }

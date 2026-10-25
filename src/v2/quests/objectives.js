@@ -41,10 +41,11 @@ export function killSource({ ix, quest, combat, progress }, objective, fight) {
     if (!found || sealedProblem(found[1])) return refuse('NOT_FOUND', 'The fight\'s sealed result is not kept.');
     const bytes = found[1].bytes;
     if (bytes.outcome !== 'victory') return refuse('REFUSED', 'That fight was not won.');
-    const wanted = String(foe.name).trim().toLowerCase();
     // The sealed rows keep the name the fight showed ("Wolf A"); the foe's own name is that without the letter that told twins apart.
     const nameOf = enemy => String(enemy?.name ?? '').replace(/\s+[A-Z]$/, '').trim().toLowerCase();
-    const count = (Array.isArray(bytes.enemies) ? bytes.enemies : []).filter(enemy => enemy?.gone === 'down' && nameOf(enemy) === wanted).length;
+    const count = (Array.isArray(bytes.enemies) ? bytes.enemies : []).filter(enemy => enemy?.gone === 'down' && (Object.hasOwn(enemy, 'foe')
+        ? enemy.foe === objective.foe
+        : ix.foeNamed(nameOf(enemy))?.id === objective.foe)).length;
     if (count < 1) return refuse('NOT_FOUND', 'That fight did not defeat this foe.');
     return { ok: true, fight, batch: { id: found[0], hash: found[1].hash }, count: Math.min(count, 999) };
 }
