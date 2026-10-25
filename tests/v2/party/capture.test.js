@@ -1,3 +1,4 @@
+import { rollCheck } from './helpers/check.js';
 // The party part's change-line kinds: wound, join, skill, check, rest. Each runs as a story
 // command against a fake ctx; a rejection leaves the state as it was.
 import test from 'node:test';
@@ -133,17 +134,17 @@ test('skill rejections', () => {
 
 test('check: resolved at once with the receipt seed', () => {
     const state = party();
-    const out = capture(state, '? check stealth — slipping past the guard | dc: hard', { seed: 9 });
+    const out = rollCheck(state, { skill: 'stealth', dc: 'hard' }, { seed: 9 });
     assert.ok(out.ok, out.message);
     assert.equal(out.result.data.stat, 'DEX');
     assert.equal(out.result.data.dc, 20);
     assert.equal(out.result.narrate, true);
-    assert.deepEqual(capture(state, '? check stealth — slipping past the guard | dc: hard', { seed: 9 }).result, out.result);
-    const theirs = capture(state, '? check persuade — talking the guard down | dc: 12 | who: Astra', { seed: 9 });
+    assert.deepEqual(rollCheck(state, { skill: 'stealth', dc: 'hard' }, { seed: 9 }).result, out.result);
+    const theirs = rollCheck(state, { skill: 'persuade', dc: 12, who: 'Astra Vell' }, { seed: 9 });
     assert.equal(theirs.result.data.actor, byName(state, 'Astra Vell').id);
     assert.equal(theirs.result.data.stat, 'CHA');
-    rejects(capture(state, '? check stealth — x | dc: legendary'), 'INVALID');
-    rejects(capture(state, '? check stealth — x | who: Kael'), 'NOT_FOUND');
+    rejects(rollCheck(state, { skill: 'stealth', dc: 'legendary' }), 'INVALID');
+    rejects(rollCheck(state, { skill: 'stealth', who: 'Kael' }), 'NOT_FOUND');
 });
 
 test('rest: a short or long rest for the whole party', () => {

@@ -7,7 +7,7 @@ import { initialRules, rulesProblems } from './pin.js';
 import { commands } from '../progress/commands.js';
 import { part as progressPart } from '../progress/index.js';
 import { queries } from '../progress/queries.js';
-import { queries as lookups } from './queries.js';
+import { queries as lookups, rulesModifier } from './queries.js';
 import { part as trainingPart } from '../training/index.js';
 import { commands as inputCommands } from './commands.js';
 import { queries as flagQueries } from './flags.js';
@@ -17,6 +17,9 @@ export { RULES_VERSION, ENGINE, pinRules, pinOf, initialRules, rulesProblems, xp
 export { indexOf, indexOfState } from './graph.js';
 export { declaredFlags } from './pin.js';
 export { registerPackDefs };
+
+// The modifier projection also serves legacy crafting; it has no domain or dice.
+export const modifierPart = { queries: { 'rules.modifier': rulesModifier } };
 
 export const part = {
     domains: { rules: { initial: initialRules, validate: rulesProblems } },

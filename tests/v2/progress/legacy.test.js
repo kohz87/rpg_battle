@@ -27,7 +27,7 @@ const SLICE = 'rb-rules-slice';
 const json = value => JSON.stringify(value);
 
 test('module.js registers the quest part while rules-v2 domains await pinned preflight', async () => {
-    assert.deepEqual(PARTS.map(([id]) => id), ['rules', 'progress', 'training', 'party', 'creation', 'checks', 'quests', 'items', 'combat', 'board', 'return', 'trade', 'craft', 'screens']);
+    assert.deepEqual(PARTS.map(([id]) => id), ['rules', 'progress', 'training', 'modifiers', 'party', 'creation', 'quests', 'items', 'combat', 'board', 'return', 'trade', 'craft', 'screens']);
     const module = createModule({ settings: () => ({}), query: () => [] });
     for (const name of NEW_NAMES.domains) assert.equal(Object.hasOwn(module.domains, name), false, `domain ${name}`);
     for (const name of NEW_NAMES.commands) assert.equal(Object.hasOwn(module.commands, name), false, `command ${name}`);

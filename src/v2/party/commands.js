@@ -6,7 +6,7 @@
 // (INVALID, its own words); a command that would change nothing is rejected too, so nothing is
 // saved for it. Summaries are code-written with code's numbers (SPEC §4.3).
 
-import { STATS, checkModifier, maxHp, maxMp, maxSp } from '../../rules.js';
+import { STATS, maxHp, maxMp, maxSp } from '../../rules.js';
 import { PRESETS, findSkill, skillFromTemplate, DEFAULT_SKILLS, canLearn } from '../../skills.js';
 import { applyResult as applyResultV1, forgetSkill as forgetV1, learnSkill as learnV1, newSheet, setSkillActive as setActiveV1, spendPoints } from '../../sheet.js';
 import { newCompanion } from '../../party.js';
@@ -19,7 +19,6 @@ import { fromSheet, growthOf, wornGear, libraryOf, maxCompanionsOf, rulesFrom, r
 import { pinnedSettings } from '../progress/level.js';
 import { exportCharacter, originIds, readCharacter } from './portable.js';
 import { defineItem } from '../items/define.js';
-import { OUTCOMES, dcOf, outcomeOf, statForCheck } from '../rules/check-words.js';
 import { sessionOf } from '../combat/stored.js';
 import { filledBy, fitActor, fitParty, fitPool, storedPool } from './pools.js';
 import { foldStoryTime } from './recovery.js';
@@ -723,35 +722,6 @@ function grantXp(ctx, payload = {}) {
 }
 
 // ---------------------------------------------------------------------------------------
-// Checks
-
-/**
- * check.resolve { actor? | who?, skill, stat?, dc, what? }: a d20 for the member (your character
- * unless another is named), + v1's check modifier of the stat the skill word names (base stats,
- * as the v1 Checks line), against the difficulty; the outcome by Story Block's dice rules. The
- * roll is the receipt's (ctx.roll), so the same seed gives the same result.
- */
-function resolveCheck(ctx, payload = {}) {
-    const party = ctx.read('party');
-    const rules = rulesFor(ctx);
-    const actor = fitActor(actorFrom(ctx, party, payload));
-    const skill = String(payload.skill ?? '').trim().slice(0, 40);
-    if (!skill && !payload.stat) fail(ctx, 'INVALID', 'A check needs a skill or a stat.');
-    const stat = statForCheck(skill, payload.stat);
-    const target = dcOf(payload.dc);
-    if (!target) fail(ctx, 'INVALID', 'The difficulty is easy, normal, hard or a number from 1 to 40.');
-    const rolled = typeof ctx.roll === 'function' ? ctx.roll('1d20') : null;
-    const die = Math.min(20, Math.max(1, Math.round(Number(typeof rolled === 'number' ? rolled : rolled?.dice?.[0] ?? rolled?.total) || 0) || Math.floor(ctx.rng() * 20) + 1));
-    const mod = checkModifier(actor.stats?.[stat] ?? rules.character.startStat, rules);
-    const total = die + mod;
-    const outcome = outcomeOf(die, mod, target.dc);
-    const what = String(payload.what ?? '').trim().slice(0, 120);
-    const sign = mod < 0 ? `− ${-mod}` : `+ ${mod}`;
-    const summary = `${actor.name} tries ${skill || stat}${what ? ` (${what})` : ''}: d20 ${die} ${sign} ${stat} = ${total} against ${target.dc}${target.word ? ` (${target.word})` : ''}, ${OUTCOMES[outcome]}.`;
-    return { summary, data: { actor: actor.id, skill, stat, die, mod, total, dc: target.dc, outcome }, narrate: true };
-}
-
-// ---------------------------------------------------------------------------------------
 // Your character as a file (MODULES §F66)
 
 /**
@@ -922,7 +892,7 @@ export function addOffer(ctx, party, offer) {
 
 export const handlers = {
     create, addCompanion, edit, removeCompanion, spend, learnSkill, setSkillActive, forgetSkill,
-    rest, heal, fightPools, applyResult, grantXp, resolveCheck, acceptOffer, dismissOffer, exportPc, importPc,
+    rest, heal, fightPools, applyResult, grantXp, acceptOffer, dismissOffer, exportPc, importPc,
 };
 
 export const commands = {
@@ -944,5 +914,4 @@ export const commands = {
     'party.dismissOffer': dismissOffer,
     'party.export': exportPc,
     'party.import': importPc,
-    'check.resolve': resolveCheck,
 };

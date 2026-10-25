@@ -4,7 +4,7 @@
 //
 // The rule, in full:
 // 1. **The stat.** Every check is answered by one stat: the one written (`stat:`), else the one
-//    its skill word means (party/checks.js statForCheck: stealth → DEX, climb → STR, …, else LUK).
+//    its skill word means (rules/check-words.js statForCheck: stealth → DEX, climb → STR, …, else LUK).
 //    Its modifier is v1's check modifier of the member's **base** stat (rules.checkModifier:
 //    (stat − 5) ÷ 2 rounded down, from −3 to +10; gear does not count, as in v1's Checks line).
 // 2. **Topics.** A check's skill word falls under none, one or more fixed topics (TOPICS below:

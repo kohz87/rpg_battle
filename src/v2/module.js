@@ -11,7 +11,7 @@
 //   of them and Story Block keeps its own storage (contract §9). `rules.sheet` is the rules part's alone.
 // - capture: every part's kinds, each line handed to the part that owns its kind. One kind is
 //   taken over on purpose: `check` is the checks part's (a pending check the reader rolls), not
-//   the party part's (which keeps its check.resolve command for compatibility).
+//   the party part's. Story Director alone owns the check kind and dice.
 // - context: the statics joined in part order (each is fixed text, so the whole is byte-identical
 //   every reply), the tails concatenated in part order, the budgets summed.
 // - hooks: every part's functions of a name, called in part order (canGenerate: any "no" blocks,
@@ -41,7 +41,7 @@
 
 import { part as party } from './party/index.js';
 import { part as creation } from './creation/index.js';
-import { rulesParts, initialRules, pinRules, registerPackDefs } from './rules/index.js';
+import { rulesParts, modifierPart, initialRules, pinRules, registerPackDefs } from './rules/index.js';
 import { part as quests } from './quests/index.js';
 import { part as items } from './items/index.js';
 import { part as combat } from './combat/index.js';
@@ -61,7 +61,7 @@ export const VERSION = '2.0.0-beta.2';
 
 /** The parts in their order: [part id, part]. */
 export const PARTS = Object.freeze([
-    ...rulesParts, ['party', party], ['creation', creation], ['quests', quests], ['items', items], ['combat', combat],
+    ...rulesParts, ['modifiers', modifierPart], ['party', party], ['creation', creation], ['quests', quests], ['items', items], ['combat', combat],
     ['board', board], ['return', returnPart], ['trade', trade], ['craft', craft], ['screens', screens],
 ]);
 

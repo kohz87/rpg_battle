@@ -1,3 +1,4 @@
+import { rollCheck } from './helpers/check.js';
 // The party part's commands against a fake ctx: each success path, each rejection (with its
 // code), and that a rejected command leaves the state exactly as it was.
 import test from 'node:test';
@@ -351,40 +352,41 @@ test('party.grantXp: amounts, awards by kind or difficulty, claims, the cap', ()
     assert.equal(JSON.stringify(capped.state.domains.party), JSON.stringify(state.domains.party));
 });
 
-test('check.resolve rolls a d20 + the stat modifier, deterministic per seed', () => {
+test('SD rolls a d20 + the stat modifier, deterministic per seed', () => {
     const state = withPc();
-    const one = run(state, 'check.resolve', { skill: 'stealth', dc: 'hard', what: 'slipping past the guard' }, { seed: 42 });
-    const two = run(state, 'check.resolve', { skill: 'stealth', dc: 'hard', what: 'slipping past the guard' }, { seed: 42 });
+    const one = rollCheck(state, { skill: 'stealth', dc: 'hard', what: 'slipping past the guard' }, { seed: 42 });
+    const two = rollCheck(state, { skill: 'stealth', dc: 'hard', what: 'slipping past the guard' }, { seed: 42 });
     assert.ok(one.ok, one.message);
     assert.deepEqual(one.result, two.result);
     assert.equal(one.result.data.stat, 'DEX');
     assert.equal(one.result.data.mod, 1, 'DEX 7 → +1');
     assert.equal(one.result.data.dc, 20);
     assert.equal(one.result.data.total, one.result.data.die + 1);
-    assert.match(one.result.summary, /^Ren tries stealth \(slipping past the guard\): d20 \d+ \+ 1 DEX = \d+ against 20 \(hard\), /);
+    assert.match(one.result.summary, /^Ren tries stealth: d20 \d+ \+1 = \d+ against 20, /);
     assert.equal(one.state.domains.party, one.state.domains.party, 'a check changes no party state');
     assert.deepEqual(one.state.domains.party, state.domains.party);
     const dice = new Set();
-    for (let seed = 1; seed <= 40; seed++) dice.add(run(state, 'check.resolve', { skill: 'persuade', dc: 12 }, { seed }).result.data.die);
+    for (let seed = 1; seed <= 40; seed++) dice.add(rollCheck(state, { skill: 'persuade', dc: 12 }, { seed }).result.data.die);
     assert.ok(dice.size > 8, 'different seeds roll differently');
-    rejects(run(state, 'check.resolve', { skill: 'stealth', dc: 'absurd' }), 'INVALID');
-    rejects(run(state, 'check.resolve', { skill: 'stealth', dc: 99 }), 'INVALID');
-    rejects(run(state, 'check.resolve', { dc: 'easy' }), 'INVALID');
-    rejects(run(makeState(), 'check.resolve', { skill: 'stealth', dc: 'easy' }), 'NOT_FOUND');
-    rejects(run(state, 'check.resolve', { skill: 'stealth', who: 'Kael' }), 'NOT_FOUND');
+    rejects(rollCheck(state, { skill: 'stealth', dc: 'absurd' }), 'INVALID');
+    rejects(rollCheck(state, { skill: 'stealth', dc: 99 }), 'INVALID');
+    rejects(rollCheck(state, { dc: 'easy' }), 'INVALID');
+    rejects(rollCheck(makeState(), { skill: 'stealth', dc: 'easy' }), 'NOT_FOUND');
+    rejects(rollCheck(state, { skill: 'stealth', who: 'Kael' }), 'NOT_FOUND');
 });
 
-test('check.resolve outcomes follow the dice rules', async () => {
-    const { outcomeOf, dcOf, statForCheck } = await import('../../../src/v2/rules/check-words.js');
+test('SD outcomes follow the dice rules', async () => {
+    const { outcomeOf, dcOf } = await import('../../../../Story_director/src/v2/checks/words.js');
+    const { statForCheck } = await import('../../../src/v2/rules/check-words.js');
     assert.equal(outcomeOf(20, -3, 30), 'crit');
     assert.equal(outcomeOf(1, 10, 5), 'critfail');
     assert.equal(outcomeOf(12, 3, 15), 'success');
     assert.equal(outcomeOf(12, 1, 15), 'cost');
     assert.equal(outcomeOf(10, 0, 15), 'fail');
-    assert.deepEqual(dcOf('easy'), { dc: 10, word: 'easy' });
-    assert.deepEqual(dcOf('normal'), { dc: 15, word: 'normal' });
-    assert.deepEqual(dcOf(''), { dc: 15, word: 'normal' });
-    assert.deepEqual(dcOf('17'), { dc: 17, word: '' });
+    assert.deepEqual(dcOf('easy'), 10);
+    assert.deepEqual(dcOf('normal'), 15);
+    assert.deepEqual(dcOf(''), null);
+    assert.deepEqual(dcOf('17'), 17);
     assert.equal(dcOf('0'), null);
     assert.equal(statForCheck('climbing'), 'STR');
     assert.equal(statForCheck('persuasion'), 'CHA');
@@ -397,7 +399,7 @@ test('check.resolve outcomes follow the dice rules', async () => {
 
 test('a check by a named companion uses their stats', () => {
     const state = withCompanion('Lyra', { role: 'rogue', level: 5 });
-    const out = run(state, 'check.resolve', { who: 'Lyra', skill: 'agility', dc: 'easy' }, { seed: 3 });
+    const out = rollCheck(state, { who: 'Lyra', skill: 'agility', dc: 'easy' }, { seed: 3 });
     assert.ok(out.ok, out.message);
     assert.equal(out.result.data.actor, byName(state, 'Lyra').id);
     assert.equal(out.result.data.stat, 'AGI');
