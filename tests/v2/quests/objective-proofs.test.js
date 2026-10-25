@@ -153,7 +153,7 @@ test('refusals are atomic: a reused proof, another thread, another objective, no
         assert.equal((await h.sdk.command('quest.objective', { id: mill.id, objective: 'ob_00000001', proof: proof.id })).code, 'REFUSED', 'a click proves nothing');
         assert.deepEqual(h.head(), before);
         // Citing the Mill job's proof for the Cellar job's second objective is another thread first, never another objective's credit.
-        await h.send('I greet the miller again.', '<Changes>\n~ quest Cellar job | met: yes\n</Changes>');
+        await h.send('I greet the miller again.', '<Changes>\n~ quest Cellar job | met: yes | objective: ob_00000001\n</Changes>');
         const [, cellarProof] = proofs(h);
         assert.equal(cellarProof.payload.objective, 'ob_00000001');
         refused({ id: cellar.id, objective: 'ob_00000002', proof: cellarProof.id }, 'REFUSED', /another objective/);

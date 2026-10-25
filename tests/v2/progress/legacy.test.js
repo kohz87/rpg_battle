@@ -25,8 +25,8 @@ const NEW_NAMES = {
 const SLICE = 'rb-rules-slice';
 const json = value => JSON.stringify(value);
 
-test('module.js registers the quest part while B rules-v2 domains and commands still await activation', () => {
-    assert.deepEqual(PARTS.map(([id]) => id), ['party', 'creation', 'checks', 'quests', 'items', 'combat', 'board', 'return', 'trade', 'craft', 'screens']);
+test('module.js registers the quest part while rules-v2 domains await pinned preflight', async () => {
+    assert.deepEqual(PARTS.map(([id]) => id), ['rules', 'progress', 'training', 'party', 'creation', 'checks', 'quests', 'items', 'combat', 'board', 'return', 'trade', 'craft', 'screens']);
     const module = createModule({ settings: () => ({}), query: () => [] });
     for (const name of NEW_NAMES.domains) assert.equal(Object.hasOwn(module.domains, name), false, `domain ${name}`);
     for (const name of NEW_NAMES.commands) assert.equal(Object.hasOwn(module.commands, name), false, `command ${name}`);
@@ -34,7 +34,7 @@ test('module.js registers the quest part while B rules-v2 domains and commands s
     for (const type of ['quest.take', 'quest.finish', 'quest.abandon', 'quest.payOwed']) assert.equal(typeof module.commands[type], 'function', type);
     assert.equal(typeof module.queries['rules.quests'], 'function');
     assert.equal(module.hooks.replayGuard({ state: { domains: {} } }, { guard: { predicate: { kind: 'class.choose' } } }), undefined, 'the quest guard does not handle B choices');
-    assert.equal(module.hooks.afterCapture({ query: () => [] }), undefined, 'an unpinned legacy chat schedules no quest settlement');
+    assert.deepEqual(await module.hooks.afterCapture({ query: () => [] }), { commands: [] }, 'an unpinned legacy chat schedules no quest settlement');
 });
 
 test('a chat that pins no rules: the parts answer null or refuse, add no step after a reply and write nothing', async t => {

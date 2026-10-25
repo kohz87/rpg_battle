@@ -1,5 +1,5 @@
 // Story coin remains SB-owned. RB only attributes it to one reward on that reply.
-import { ask, stateEpoch } from './seams.js';
+import { ask, pinned, stateEpoch } from './seams.js';
 import { pendingObjectives } from './objectives.js';
 export const creditKey = sid => `storycoin:${sid}`;
 export const turnInKey = (epoch, quest, sid) => `rb:${epoch}:quest:${quest.id}:${quest.instance}:turnin:${sid}`;
@@ -58,6 +58,7 @@ export function repeatedThreads(state, tools) {
 export const repeatedCoin = (state, _args, tools) => ({ amount: repeatedThreads(state, tools)[0]?.rpg.settlement.coinPaid ?? 0 });
 
 export function questCreditHook(view) {
+    if (!pinned(view?.state?.domains?.rules)) return undefined;
     // Select intents now; payOwed rechecks readiness after the preceding objective commands have committed.
     const intents = view.query('quest.autoTurnIns', { pending: true }).sort();
     const ids = [...new Set([...expiredQuests(view), ...intents, ...view.query('quest.owedCredits', {})])];

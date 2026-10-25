@@ -92,7 +92,7 @@ test('awards: same as v1 awardParty, companions settled the same', () => {
     }
 });
 
-test('a fight result: v1 pool and mastery parity with XP settled separately', () => {
+test('a fight result: legacy v1 pool, mastery and XP parity', () => {
     let state = withPc({ name: 'Ren', preset: 'fighter' });
     state = run(state, 'party.addCompanion', { name: 'Lyra', role: 'archer', level: 3, skills: ['Aimed Shot', 'Poison Dart'] }).state;
     const ids = state.domains.party.order;
@@ -104,8 +104,8 @@ test('a fight result: v1 pool and mastery parity with XP settled separately', ()
     };
     const out = run(state, 'party.applyResult', { result });
     assert.ok(out.ok, out.message);
-    const v1pc = applyResult(toSheet(pcOf(state)), ids[0], { ...result, xp: {} }, DEFAULT_RULES).sheet;
-    const v1lyra = applyResult(toSheet(state.domains.party.actors[ids[1]]), ids[1], { ...result, xp: {} }, DEFAULT_RULES).sheet;
+    const v1pc = applyResult(toSheet(pcOf(state)), ids[0], result, DEFAULT_RULES).sheet;
+    const v1lyra = applyResult(toSheet(state.domains.party.actors[ids[1]]), ids[1], result, DEFAULT_RULES).sheet;
     const [settled] = settleCompanions([{ id: ids[1], control: 'auto', sheet: v1lyra }], { autoSpend: true, rules: DEFAULT_RULES });
     assert.deepEqual(numbers(toSheet(pcOf(out.state))), numbers(v1pc));
     assert.deepEqual(numbers(toSheet(out.state.domains.party.actors[ids[1]])), numbers(settled.sheet));

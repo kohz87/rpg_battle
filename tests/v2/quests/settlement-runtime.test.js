@@ -1,3 +1,5 @@
+import { initialRules, pinRules } from '../../../src/v2/rules/pin.js';
+import { fixturePin } from '../progress/helpers/fixture.js';
 // Real retained commands share one guarded SD/SB/RB settlement; missing prerequisites retract it.
 import assert from 'node:assert/strict';
 import { run, withPc, pcOf } from '../party/helpers/fake-ctx.js';
@@ -60,8 +62,10 @@ test('zero XP omits the XP call and abandoned pays no reward', async t => {
     assert.equal(next.h.sdk.query('director.thread', { id: next.id }).rpg.state, 'abandoned');
 });
 
-test('raw fight results cannot grant a second XP award', () => {
+test('pinned raw fight results cannot grant a second XP award', () => {
     const state = withPc();
+    state.domains.rules = initialRules();
+    assert.equal(pinRules(state.domains.rules, fixturePin()), '');
     const pc = pcOf(state);
     const result = run(state, 'party.applyResult', { result: { party: [{ memberId: pc.id, hp: pc.hp, mp: pc.mp }], xp: { [pc.id]: 99 }, uses: {} } });
     assert.equal(result.ok, true, result.message);
