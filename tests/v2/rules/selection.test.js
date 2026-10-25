@@ -1,5 +1,6 @@
 // Production boot (no injected rules), installed packs, Setup's real command widget and the real host.
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { randomId } from '../../vendor/story-block/src/id.js';
 import { createHost } from '../../vendor/story-block/testkit/index.js';
@@ -240,4 +241,63 @@ test('definition conflicts roll back the whole pin transaction', async t => {
     assert.equal(h.head().domains.rules, undefined);
     assert.equal(h.head().domains.progress, undefined);
     assert.equal(h.head().domains.training, undefined);
+});
+
+// Story Block's example pack (examples/packs/ersveil-bluewatch, a real rules pack), copied unchanged.
+const ersveil = () => JSON.parse(readFileSync(new URL('./fixtures/ersveil-bluewatch-rules.pack.json', import.meta.url), 'utf8'));
+
+test('Ersveil, end to end through the real module: Setup offers it, the pin turns rules v2 on, and reload, rebuild and a same-version reinstall leave the timeline alone', async t => {
+    const h = await world(t, { packs: [ersveil()] });
+    assert.equal(h.q('rules.identity'), null, 'a fresh chat is not pinned');
+    const offers = h.selection();
+    assert.equal(offers.state, 'offered');
+    assert.deepEqual(offers.offers.map(offer => [offer.pack, offer.version, offer.name]), [['ersveil-bluewatch', '1.4.0', 'Ersveil Rules']]);
+    const d = h.draw();
+    const pin = all(d.el, 'button').find(button => text(button) === 'Pin Ersveil Rules');
+    assert.ok(pin, text(d.el));
+    assert.deepEqual(d.warnings, []);
+    await click(pin);
+    assert.equal(d.commands[0].type, 'rules.pin');
+    assert.equal(h.sdk.receipts().filter(({ receipt }) => receipt.type === 'rules.pin').length, 1);
+    const frozen = structuredClone(h.head().domains.rules);
+    const identity = h.q('rules.identity');
+    assert.deepEqual([identity.packId, identity.version, identity.hash], ['ersveil-bluewatch', '1.4.0', frozen.rulesHash]);
+    assert.equal(frozen.pin.identity.packHash, offers.offers[0].packHash);
+    assert.equal(h.selection().state, 'pinned');
+    assert.ok(staticParts(h.registry)[0].text.includes('! skill-use'), 'rules v2 is active');
+
+    const basics = h.q('rules.classes', { tier: 0 }).map(entry => entry.id);
+    assert.ok(basics.includes('pack.ersveil-bluewatch/militiaman'), basics.join());
+    const race = h.q('packs.content', { kind: 'races' }).find(entry => /human/i.test(entry.id));
+    assert.ok(race, 'the pack brings its races');
+    ok(await h.sdk.command('creation.finish', { name: 'Marrit', race: race.id, talents: [], points: { STR: 4, VIT: 2, AGI: 2, DEX: 2 }, portrait: '', background: '', class: 'pack.ersveil-bluewatch/militiaman', checkActor: null }));
+    const sheet = structuredClone(h.q('rules.sheet'));
+    assert.equal(sheet.level, 1);
+    assert.equal(sheet.skills.length, 3);
+    await stable(h);
+
+    // The same version, different content: a new rules hash for the installed pack, none for the timeline.
+    const changed = ersveil();
+    const militia = changed.content.rules[0].classes.find(entry => entry.slug === 'militiaman');
+    militia.name = 'Reinstalled Militia';
+    ok(await h.packs.packs.install(changed));
+    assert.notEqual(h.q('packs.rules', { resolve: true })[0].pin.rulesHash, frozen.rulesHash, 'the installed pack really changed');
+    assert.deepEqual(h.q('rules.identity'), identity);
+    assert.deepEqual(h.head().domains.rules, frozen);
+    assert.deepEqual(h.q('rules.sheet'), sheet);
+    assert.notEqual(h.q('rules.classes', { tier: 0 }).find(entry => entry.id === 'pack.ersveil-bluewatch/militiaman').name, 'Reinstalled Militia');
+    assert.equal(h.selection().state, 'pinned');
+    const again = h.q('packs.rules', { resolve: true })[0].pin;
+    assert.equal((await h.pin({ pack: again.packKey, version: again.packVersion, rulesHash: again.rulesHash, packHash: again.packHash })).code, 'REFUSED');
+    assert.deepEqual(h.head().domains.rules, frozen);
+    await stable(h);
+
+    // A reloaded chat, with the changed pack installed (and again with none), reads only its own pin.
+    for (const packs of [[changed], []]) {
+        const loaded = await world(t, { packs, st: { chat: structuredClone(h.ctx.chat), extensionSettings: structuredClone(h.ctx.extensionSettings) } });
+        assert.deepEqual(loaded.q('rules.identity'), identity);
+        assert.deepEqual(loaded.q('rules.sheet'), sheet);
+        assert.deepEqual(loaded.head().domains.rules, frozen);
+        await stable(loaded);
+    }
 });
