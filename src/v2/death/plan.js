@@ -63,15 +63,20 @@ export function assessDeath(kind, env, payload, recorded = {}) {
     } catch (error) { return fail('REFUSED', error.message); }
 }
 
-/** list is the host's eligible points in target order; availability never changes target preference. */
+/**
+ * list is the host's eligible points in target order; availability never changes target preference. Contract §8: the start of the previous
+ * narrative day, unless a manual save is more recent, else the initial save. With the story clock unset there is no previous day: the
+ * latest manual save wins, else the initial one. A save is never ignored for want of a clock.
+ */
 export function selectSnapshot(points, minute) {
-    if (!Array.isArray(points) || !Number.isSafeInteger(minute)) return null;
+    if (!Array.isArray(points)) return null;
+    const point = p => (p ? { id: p.id, payloadHash: p.payloadHash } : null);
+    if (!Number.isSafeInteger(minute)) return point(points.findLast(p => p.kind === 'manual') ?? points.find(p => p.kind === 'initial'));
     const day = Math.floor(minute / 1440) - 1;
     const auto = points.findLast(p => p.kind === 'day-start' && p.day === day) ?? points.find(p => p.kind === 'initial');
     const at = auto ? points.indexOf(auto) : -1;
     const manual = points.findLast((p, i) => p.kind === 'manual' && i >= at);
-    const picked = manual ?? auto;
-    return picked ? { id: picked.id, payloadHash: picked.payloadHash } : null;
+    return point(manual ?? auto);
 }
 
 export function resultBytes(env, batch, plan, recorded) {
