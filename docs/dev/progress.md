@@ -40,7 +40,7 @@ rebuild never runs the command or resolves an installed pack again. As with the 
 history contract, a prefix deleted outside a session that saw it can require explicit history
 repair; no replacement pack is substituted.
 
-Host dependency: Story Block `09a98fd49af968b7b52807bc8109774f2967b501` or a descendant,
+Host dependency: Story Block `ed936ae02ca6d33ccb0b513d49b879abe79eb518` or a descendant,
 vendored by sync-testkit. P01's additive transport/lifecycle contracts are documented in SB
 PACKS.md (`resolve: true` and its `pin` transport), LIFECYCLE.md (deferred domains and API
 presence) and REPLAY.md (`replyBound`). These are coordinated host changes, not missing seams.
@@ -333,6 +333,11 @@ Taking back the paid use, the sealed result or the rescuer's place turns the blo
 ## Synced host compatibility
 
 The refreshed host includes E6b native history selection. RB recognizes a completed host selection
-as the reconciliation boundary; it keeps the older player-facing mismatch hold when no such
-selection exists. The death history fixture covers native revival after deletion as well as the
-older host's hold. Explicit checked activation/resume still works without a live query callback.
+as a reconciliation boundary only while its selected native history retains each surviving death
+acknowledgement. Native edits may descend from that checkpoint; a restore does not inherit the deaths
+it undoes. If a history edit preserves an RB death but invalidates its strict native prefix, generation
+keeps the player-facing repair hold. Automatic reconciliation of that case remains a host contract gap.
+The death history fixtures cover native revival after deletion, the older host's hold, and this
+surviving-death mismatch. Their synthetic reward uses a guarded payer, as production awards do, so
+undoing a return cannot replay duplicate claims. Explicit checked activation/resume still works
+without a live query callback.

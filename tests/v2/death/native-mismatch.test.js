@@ -39,3 +39,20 @@ test('F4: deleting the lethal reply selects the living native checkpoint; an old
         assert.match(text, /put that reply back/);
     }
 }));
+
+test('a completed host selection must retain each surviving native death acknowledgement', () => {
+    const point = hash => ({ module: 'npc-state-delta', schema: 1, hash });
+    const state = { domains: { death: { outbox: { batch: { native: [{ event: 'death' }] } } } } };
+    const death = { kind: 'native-event', phase: 'done', event: 'death', participant: 'npc-state-delta', before: point('living'), after: point('dead') };
+    const select = hash => ({ kind: 'selection', phase: 'complete', desired: { 'npc-state-delta': point(hash) } });
+    assert.match(historySelectionProblem(state, [death, select('living')]), /death remains/);
+    assert.equal(historySelectionProblem(state, [death, select('dead')]), null);
+    const edit = { kind: 'native-mutation', phase: 'done', before: point('dead'), after: point('dead-with-new-trust') };
+    assert.equal(historySelectionProblem(state, [death, edit, select('dead-with-new-trust')]), null,
+        'a later native edit retains the acknowledged death');
+    const restore = { kind: 'restore', phase: 'complete', before: [point('dead')], participants: { 'npc-state-delta': point('living') } };
+    assert.match(historySelectionProblem(state, [death, restore, select('living')]), /death remains/,
+        'a restore does not inherit the deaths it undoes');
+    assert.equal(historySelectionProblem({ domains: {} }, [death, select('living')]), null,
+        'a retracted death and its reselected living checkpoint agree');
+});
