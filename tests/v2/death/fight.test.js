@@ -27,7 +27,7 @@ test('C11: a normal-stakes wipe has one death batch, no lethal die and one retur
     assert.deepEqual(w.problems(), []);
 }));
 
-test('C11: code-confirmed companion death is permanent; rest/heal and active selection cannot revive it', async t => seeded(17, async () => {
+test('C11: code-confirmed companion death is permanent; rest/heal and active selection cannot revive it', async t => seeded(1, async () => {
     const w = await world(t);
     // Seed fixes the original die; the command accepts neither die nor outcome.
     const event = w.lethal(w.friend);

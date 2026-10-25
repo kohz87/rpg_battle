@@ -5,7 +5,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { BANDS, actorCard, cards, carry, conditionBadge, conditionStatus, conditionView, crafting, effectBadge, heroOf, heroes, hud, itemDetail, skillNodes, trade, tryQuery } from '../../../src/v2/screens/index.js';
-import { validateChecks } from '../../../src/v2/checks/shared.js';
 import { LYRA, PC, QUERIES, emptyState, makeState, toolsFor } from './helpers/state.js';
 
 const ask = (fn, state, args = {}) => fn(state, args, toolsFor(state));
@@ -170,7 +169,7 @@ test('cards: a companion NSD knows gets its portrait through party.actors (MODUL
 
 test('hud: your character; checks no longer wait for a roll (MODULES §F80)', () => {
     const state = makeState();
-    assert.deepEqual(validateChecks(state.domains.checks), [], 'the fixture is a valid checks slice');
+    assert.equal(QUERIES['checks.view'], undefined, 'the status card has no check projection');
     const view = ask(hud, state);
     assert.equal(view.ready, true);
     assert.equal(view.pc.id, PC);

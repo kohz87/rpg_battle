@@ -104,8 +104,8 @@ test('crafts: Story Block\'s table (packs.crafts), the words a story writes for 
     assert.deepEqual(stationsOfRecipe({ station: 'salt-yard' }, 'alchemy', table), ['salt-yard']);
     assert.deepEqual(stationsOfRecipe({}, 'fieldcraft', table), [], 'anywhere');
     assert.deepEqual(statList('STR+DEX+STR+XYZ'), ['STR', 'DEX']);
-    // Several stats: the average of their check modifiers, rounded down (STR 9 → +2, DEX 6 → +0: +1).
-    assert.equal(statsModifier({ stats: { STR: 9, DEX: 6 } }, ['STR', 'DEX']), 1);
+    // Recipe stats add their modifiers (STR 9 → +2, DEX 6 → +0: +2).
+    assert.equal(statsModifier({ stats: { STR: 9, DEX: 6 } }, ['STR', 'DEX']), 2);
     assert.equal(statsModifier({ stats: { INT: 9 } }, ['INT']), 2);
 });
 

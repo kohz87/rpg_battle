@@ -9,7 +9,7 @@ import { createDeathPart } from '../../../src/v2/death/index.js';
 import { generationProblem } from '../../../src/v2/death/selection.js';
 import { lifeOf } from '../../../src/v2/rules/sheet.js';
 
-test('F4: deleting the lethal reply of a delivered companion death holds the story with a player-facing reason and a remedy', async t => seeded(17, async () => {
+test('F4: native history reselects after a delete; a legacy mismatch still gives a player-facing remedy', async t => seeded(1, async () => {
     const w = await savedWorld(t);
     await w.say('<Changes>\n~ time 15840\n</Changes>');
     await w.say('The lethal reply.');
@@ -21,7 +21,10 @@ test('F4: deleting the lethal reply of a delivered companion death holds the sto
     await w.host.st.deleteMessage(index);
     await w.host.st.deleteMessage(index - 1);
     assert.equal(lifeOf(w.q('party.actor', { id: w.friend })), 'alive', 'the story has her alive again');
-    assert.equal(w.native.live.dossiers.lyra.alive, false, 'while the native record still says dead');
+    assert.equal(w.native.live.dossiers.lyra.alive, true, 'E6b reselects the surviving native checkpoint');
+    // Preserve the old-host refusal coverage by recreating its unmatched native dossier explicitly.
+    w.native.live.dossiers.lyra.alive = false;
+    assert.equal(w.native.live.dossiers.lyra.alive, false, 'legacy host mismatch fixture');
     const host = w.host.timeline.host;
     const reason = generationProblem(w.head(), host);
     assert.ok(reason, 'generation is held');

@@ -4,6 +4,7 @@
 // only if the guard will accept it on the same story. Pure over the pinned index, the progress slice and the
 // queries it is given (`party.actor` for the level, `director.time` for the clock).
 
+import { assessCheck } from './check.js';
 import { canRescue } from './rescue-effect.js';
 import { evaluateClass, evaluatePath, standing } from './offers.js';
 import { pendingOf, planSettlement } from './credit.js';
@@ -199,6 +200,7 @@ export function assess(kind, env, payload, extra = {}) {
             ? { ok: false, code: 'CLOCK_UNSET', why: 'The story clock is not set, so these uses wait for it.' }
             : { ok: false, code: 'NO_LONGER_DONE', why: 'There is nothing to settle here.' };
     }
+    if (kind === 'check.practice') return assessCheck(env, payload);
     if (kind === 'class.start') return assessStart(env, payload);
     if (kind === 'skill.use') return assessUse(env, payload);
     if (kind === 'rescue.use') return assessRescue(env, payload);

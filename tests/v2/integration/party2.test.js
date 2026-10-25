@@ -27,11 +27,11 @@ test('an effect from the story: in the tail and the check table, counted on the 
             const tail = host.tails().at(-1);
             assert.match(tail, /Effects: Ren — Keen Sight \(sharper eyes, \d repl/);
             // The check table (checks/table.js) has a Perception row for the effect's topic.
-            assert.match(tail, /Checks — Ren \(you\) 1st: [^|]*Perception/);
-            const [check] = host.q('checks.log');
-            assert.deepEqual(check.modifiers.find(entry => entry.source === 'effect'), { source: 'effect', amount: 1, reason: 'Keen Sight' });
+            assert.ok(!tail.includes('Checks — Ren'));
+            const [check] = Object.values(host.head().domains.checks.log);
+            assert.deepEqual(check.modifiers.find(entry => entry.source === 'effect'), { source: 'effect', ref: null, amount: 1, reason: 'Keen Sight' });
             await host.swipe('She looks around, nothing more.');
-            assert.equal(host.q('checks.log').length, 0, 'the swipe takes the check back');
+            assert.equal(Object.values(host.head().domains.checks.log).length, 0, 'the swipe takes the check back');
             assert.equal(host.q('party.effects', {}).length, 1, 'the effect is the earlier reply\'s');
             const statics = new Set(host.statics());
             assert.equal(statics.size, 1, 'the static prompt is byte-identical reply to reply');
