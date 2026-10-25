@@ -1,5 +1,4 @@
-// B6 review F4: a native mismatch (the dossier says dead, the reply that killed is gone) is held, and the hold says what
-// the player can do today. The full fix is the host's native checkpoint selection (GAPS.md, "must close before release").
+// The refreshed host restores native participant prefixes; RB's conservative journal gate still reports retracted death history.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ok } from './helpers.js';
@@ -9,7 +8,7 @@ import { createDeathPart } from '../../../src/v2/death/index.js';
 import { generationProblem } from '../../../src/v2/death/selection.js';
 import { lifeOf } from '../../../src/v2/rules/sheet.js';
 
-test('F4: deleting the lethal reply of a delivered companion death holds the story with a player-facing reason and a remedy', async t => seeded(17, async () => {
+test('F4: deleting a delivered death restores the native prefix and retains the conservative history hold', async t => seeded(17, async () => {
     const w = await savedWorld(t);
     await w.say('<Changes>\n~ time 15840\n</Changes>');
     await w.say('The lethal reply.');
@@ -21,7 +20,7 @@ test('F4: deleting the lethal reply of a delivered companion death holds the sto
     await w.host.st.deleteMessage(index);
     await w.host.st.deleteMessage(index - 1);
     assert.equal(lifeOf(w.q('party.actor', { id: w.friend })), 'alive', 'the story has her alive again');
-    assert.equal(w.native.live.dossiers.lyra.alive, false, 'while the native record still says dead');
+    assert.equal(w.native.live.dossiers.lyra.alive, true, 'the refreshed host restores the native participant prefix');
     const host = w.host.timeline.host;
     const reason = generationProblem(w.head(), host);
     assert.ok(reason, 'generation is held');
