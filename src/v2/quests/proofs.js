@@ -10,7 +10,7 @@
 // `acceptance` is the id of the reader's acceptance proof and the proof's only parent: the objective cannot outlive the
 // acceptance it stands on, and nothing before the acceptance can be bound to it. Pure.
 
-import { isDefId, isHash, isObject, isRecordId } from '../rules/ids.js';
+import { isDefId, isId, isHash, isObject, isRecordId } from '../rules/ids.js';
 
 export const OBJECTIVE_OWNER = 'rpg-battle';
 
@@ -29,7 +29,7 @@ export function payloadProblem(objectiveKind, payload) {
     if (!isObject(payload)) return 'An objective proof is a record.';
     const keys = [...COMMON, ...EXTRA[objectiveKind]];
     if (Object.keys(payload).length !== keys.length || keys.some(key => !Object.hasOwn(payload, key))) return `A ${objectiveKind} proof is exactly { ${keys.join(', ')} }.`;
-    if (!isRecordId(payload.thread) || !whole(payload.instance, 1, 1000000) || !isRecordId(payload.objective) || payload.objectiveKind !== objectiveKind || !isRecordId(payload.acceptance)) {
+    if (!isRecordId(payload.thread) || !whole(payload.instance, 1, 1000000) || !isId(payload.objective) || payload.objectiveKind !== objectiveKind || !isRecordId(payload.acceptance)) {
         return 'An objective proof names its thread, instance, objective, kind and acceptance.';
     }
     if (objectiveKind === 'kill') {
