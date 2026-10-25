@@ -2,10 +2,10 @@
 // when that missing host step would expose mismatched state. This does not claim to implement E6b's scan barrier.
 export function historySelectionProblem(state, journal) {
     const lastRestore = journal.findLast(e => e.kind === 'restore' && Object.keys(e.participants ?? {}).length && ['complete', 'retracted', 'committed', 'participants-pending', 'acked'].includes(e.phase));
-    if (lastRestore && !state.domains.savepoints?.returns?.[lastRestore.return]) return 'Story Block must reselect the native checkpoint after this history change (E6b).';
+    if (lastRestore && !state.domains.savepoints?.returns?.[lastRestore.return]) return 'A return was recorded, but this chat has changed since and the companions\' records no longer match it. To go on, restore a save point from before that return, or put the changed reply back.';
     const after = lastRestore ? journal.indexOf(lastRestore) : -1;
     const active = new Set(Object.values(state.domains.death?.outbox ?? {}).flatMap(o => o.native.map(n => n.event)));
-    if (journal.some((e, i) => i > after && e.kind === 'native-event' && e.phase === 'done' && !active.has(e.event))) return 'Story Block must retract the native death with its removed evidence (E6b).';
+    if (journal.some((e, i) => i > after && e.kind === 'native-event' && e.phase === 'done' && !active.has(e.event))) return 'A companion\'s death was recorded, but the reply that caused it is gone, so the companion\'s record and the story disagree. To go on, restore a save point from before the death, or put that reply back.';
     return null;
 }
 

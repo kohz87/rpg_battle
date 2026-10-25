@@ -126,3 +126,9 @@ Resume 2: main and replay audit
   seeds 33/91/217 ran 200 steps each (600 B6 steps); the fight/progression entry fuzzes
   also passed at 200 steps per seed. After the assertion fix, the full suite passed with
   its default fuzz lengths. Both whitespace checks pass, including origin/main to HEAD.
+
+Open gaps (review round)
+
+| Gap | Tag | Today | Closes with |
+|---|---|---|---|
+| Native mismatch is a dead end: a companion's death was delivered (the dossier is dead), then the lethal reply was deleted. The story has the companion alive, the generation hold stays, and `recover()` answers DEPENDENCY_UNAVAILABLE with no way out inside the story. | must close before release | RB refuses generation and delivery with a player-facing reason (selection.js) and the one remedy that works today: restore a save point from before the death, or put the reply back. | Stage-5 integration with E6b's native checkpoint selection: the host reselects the matching native checkpoint when a history change removes a death's evidence, before a scan, read or generation. |
