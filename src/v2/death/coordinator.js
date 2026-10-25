@@ -2,8 +2,9 @@
 // `timeline` is sdk.timeline; `state` reads RB's state; `command` is the host's system bus adapter.
 // Signatures are copied from SB TIMELINE.md and coordinator.js. No capability is fabricated or exposed to a UI.
 import { resolveBatch } from '../fight/batch.js';
-import { deathResultProblem, refOK } from './records.js';
+import { deathResultProblem, refOK, outboxFor } from './records.js';
 import { historySelectionProblem } from './selection.js';
+import { hashJson } from '../rules/hash.js';
 
 const fail = (code, message) => ({ ok: false, code, message });
 export function createDeathCoordinator({ timeline, host, state, command, query, participant = 'npc-state-delta' }) {
@@ -20,6 +21,7 @@ export function createDeathCoordinator({ timeline, host, state, command, query, 
         if (!refOK(ref)) return fail('INVALID', 'A death delivery names its sealed { id, hash }.');
         const recovered = await host.recover();
         if (!recovered.ok) return recovered;
+        if (recovered.state !== 'idle') return fail('RESTORE_PENDING', 'The host must finish the prepared native selection before delivery.');
         const selection = historySelectionProblem(state(), host.journal());
         if (selection) return fail('DEPENDENCY_UNAVAILABLE', selection);
         const pinned = host.pin(ref.id);
@@ -36,6 +38,7 @@ export function createDeathCoordinator({ timeline, host, state, command, query, 
         const bytes = sealed.bytes;
         const outbox = state().domains.death?.outbox?.[bytes.batch];
         if (!outbox || outbox.result.id !== ref.id || outbox.result.hash !== ref.hash) return fail('REFUSED', 'The sealed batch has no committed RB outbox.');
+        if (hashJson(outbox) !== hashJson(outboxFor(bytes, ref))) return fail('CONFLICT', 'The outbox does not match the sealed death decisions.');
         for (const native of outbox.native) {
             const head = await timeline.head({});
             if (!head.ok) return head;

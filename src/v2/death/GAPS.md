@@ -38,3 +38,60 @@ its system wake with the host's ordinary durable action lifecycle. Production co
 UI returnInTime/card routing and automatic outbox scheduling remain lead/C/E integration work.
 The old return adapter refuses pinned chats until that authenticated route is wired; it never
 branches a rules-v2 death through the legacy rewind.
+
+Resume 1 review and handoff
+
+- Rescue records retain paymentHash in addition to the rescue proof hash. A paid parent changing
+  under the same id invalidates its dependent intervention/result. Each result retains actor kind
+  so returnRequested and outcome semantics can be validated, including a rescued companion in a
+  batch whose PC dies. The outcome projection always describes the requested event.
+- The guard kinds are lethal, intervention, death.resolve, death.fight-end and return.cue.
+  death.fight-end combines B4's exact terminal prefix with the fighting actors' native links,
+  life/pool/condition state and SD minute. Its one claim/guard covers fight payout and the wipe
+  result/outbox together. The part declares party.actor, party.actors and return.status as
+  replayQueries; story.evidence is the host's intrinsically replay-safe query (E5).
+- A capture batch uses the canonical carrier/swipe and epoch. A fight-end uses that key plus
+  the host-issued fight id so it cannot collide with a narrative batch on the same carrier.
+  The host exposes no assigned lethal-batch id: deriving this private db_ id is an explicit
+  transport gap against B6's host-assigned-batch wording, not a new public host signature.
+- Injury remains one HP on recovery, with the pinned 1440-minute condition and STR/AGI penalty.
+  Ordinary rest, recovery and sheet/XP rewrites preserve its anchor; an expired injury cannot
+  become indefinite. Death stays permanent until an authenticated timeline selection restores
+  saved living state. A fight begun before the rules pin keeps its saved legacy settlement.
+- Delivery compares the entire outbox to the sealed decisions before native writes and refuses
+  a non-idle host recovery. The injected command adapter must persist its wake; the test adapter
+  flushes it and propagates save failures. The factory does not turn public sdk.timeline into
+  an authenticated handle, and production composition is still required.
+
+Available host records (copied from the vendored timeline/coordinator.js, not redefined by RB):
+
+- pin(id): {id, hash, bytes, resolvedBy, return, prepared, deathEvents, manifestHash,
+  preRestore, aborted}. Its preRestore projection contains the captured payload and proofs.
+- journal() restore entry: {id, kind:'restore', phase, session, return, snapshot, deathEvents,
+  batchResult, expectedHead, newEpoch, block, cue, payloadHash, manifest, manifestHash,
+  participants, pre}. Participant slots retain {checkpoint, hash, schema, prepared,
+  preparedHash, ack}. Native prefix mappings retain before/after/selected checkpoints in SB.
+- SB owns transition/retry semantics, checkpoint schemas and durable acknowledgments. B6 consumes
+  these host records and pins, and does not draft savepoints, native dossiers or the archive.
+
+Validation scope: real SB c36b355 + real RB mechanics + the existing SD clock fixture + a clearly
+marked synthetic native participant. C11, C12, concurrent duplicate delivery, a second epoch's
+cue, missing payload/native bytes, stale prepare, crash after native write/before host ack,
+paid-parent deletion and restore swipe/delete are covered. The fuzz compares checkpoint replay
+with replay after removing every cache after the genesis checkpoint, then restores the caches
+and compares again. A native mismatch after an E6a history edit is explicitly held; that hold
+is not a passing assertion of the requested native-selection invariant. Real NSD identity-map
+mutation/rename and four-module restoration remain integration acceptance, not RB test claims.
+
+Read locations: the home Story_block checkout lacks docs/v2/TIMELINE.md. The E6a document was
+read at /tmp/e6bwork/Story_block/docs/v2/TIMELINE.md and checked against the vendored code. No
+host, native participant, module registration, screen, shared testkit or contract files were
+changed by this resume. Those integration gaps require their owners; no extra public API was
+invented to hide them.
+
+Resume validation: 48 B6 tests pass; full suite 1987 tests, zero failures, six existing TODOs
+and 14 skips; npm run check and git diff --check pass. Expanded death fuzz: seeds 33/91/217,
+200 steps each (600 steps), zero failures. New bug regressions were also run with only their
+fixes temporarily removed and failed, then restored. The old active-roster fixture was aligned
+with B6's dead-member exclusion. An unseeded legacy foe-rank-tail test failed once through a
+random immediate defeat; its isolated file and the final full suite passed. It was not changed.

@@ -13,8 +13,7 @@ import { coordinator, savedWorld } from './return-helper.js';
 test('C12 rules side: full return restores RB/native companion, fades rewards and wakes exactly once', async t => seeded(17, async () => {
     const w = await savedWorld(t);
     await w.say('The rewarded deed.');
-    ok(w.command('test.coin', { amount: 30 }));
-    ok(w.command('party.grantXp', { actor: w.pc, amount: 25, claim: 'quest-test' }));
+    ok(w.command('test.reward'));
     await w.say('<Changes>\n~ time 15840\n</Changes>');
     const companion = w.lethal(w.friend);
     const companionOut = ok(w.command('death.resolve', { event: companion.event }));
@@ -38,7 +37,8 @@ test('C12 rules side: full return restores RB/native companion, fades rewards an
     assert.equal(lifeOf(w.q('party.actor', { id: w.friend })), 'alive');
     assert.equal(w.native.live.dossiers.lyra.alive, true);
     assert.equal(w.native.live.applied.length, 0);
-    assert.equal(Object.keys(w.head().meta.claims).includes('xp:quest-test'), false);
+    assert.equal(Object.keys(w.head().meta.claims).includes('xp:c12:reward'), false);
+    assert.equal(Object.keys(w.head().meta.claims).includes('c12:reward'), false);
     const status = w.q('return.status');
     assert.equal(status.dead, false);
     assert.equal(status.pending, false);
@@ -58,6 +58,10 @@ test('C12 rules side: full return restores RB/native companion, fades rewards an
     w.host.store.rebuild();
     assert.equal(Object.keys(w.slice('death').wakes).length, 1);
     assert.deepEqual(w.problems(), []);
+    ok(w.command('test.reward'));
+    assert.equal(w.command('test.reward').code, 'CLAIMED');
+    assert.equal(w.q('inventory.wallet', { owner: 'party' }).coin, 30);
+    assert.equal(w.q('party.actor', { id: w.pc }).xp, 25);
     void companionOut;
 }));
 
@@ -65,6 +69,7 @@ test('C11: missing selected snapshot bytes holds the exact death; another manual
     const w = await savedWorld(t);
     await w.say('<Changes>\n~ time 15840\n</Changes>');
     const ref = (await wipe(w)).receipt.data.deathBatch;
+    ok(await w.host.sdk.command('savepoint.make', { name: 'A later point cannot replace the sealed choice' }));
     const archive = w.host.ctx.chatMetadata.storySuite.timeline;
     delete archive.payloads[w.target.payloadHash];
     const out = await w.coordinator.deliver(ref);

@@ -69,3 +69,31 @@ test('native-event journal crash: retry resumes one death and returns the durabl
     assert.deepEqual(ack, again);
     assert.equal((await loaded.host.timeline.host.nativeEvent({ event: event.event, participant: 'npc-state-delta', npc: 'np_00000002', kind: 'confirmed-death', expectedHead: first.headHash })).code, 'CONFLICT');
 }));
+
+for (const method of ['activate', 'applyEvent']) test(`native ${method} crash after writing: recovery acknowledges one application`, async t => seeded(method === 'activate' ? 91 : 17, async () => {
+    const w = await savedWorld(t);
+    let ref, event;
+    if (method === 'activate') {
+        await w.say('<Changes>\n~ time 15840\n</Changes>');
+        ref = (await wipe(w)).receipt.data.deathBatch;
+    } else {
+        event = w.lethal(w.friend);
+        ok(w.command('death.resolve', { event: event.event }));
+        ref = w.slice('death').batches[event.batch].result;
+    }
+    const disk = track(w.host);
+    await w.host.store.flush();
+    w.native.crashAfter = new Set([method]);
+    await assert.rejects(w.coordinator.deliver(ref), new RegExp(`native.${method}.applied`));
+    w.host.close();
+    const loaded = await world(t, { native: nativeFixture(w.native), image: disk.image });
+    ok(await coordinator(loaded).deliver(ref));
+    if (method === 'activate') {
+        assert.equal(w.native.calls.filter(c => c.method === 'activate').length, 1);
+        assert.equal(Object.keys(loaded.slice('death').wakes).length, 1);
+    } else {
+        assert.deepEqual(w.native.live.applied, [event.event]);
+        assert.equal(w.native.live.dossiers.lyra.alive, false);
+    }
+    assert.deepEqual(loaded.problems(), []);
+}));

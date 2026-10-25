@@ -5,7 +5,7 @@ import { storedPool, fitPool, FIGHT_LEFT_MINUTES } from '../party/pools.js';
 import { seal } from '../fight/batch.js';
 import { storeBatch } from '../fight/index.js';
 import { assessDeath, batchId, eventId, resultBytes, selectSnapshot, sourceOf } from './plan.js';
-import { closed, resultOK } from './records.js';
+import { closed, resultOK, outboxFor } from './records.js';
 
 const pinned = ctx => indexOfCtx(ctx) ?? ctx.fail('FEATURE_OFF', 'This chat does not run rules v2.');
 const envOf = (ctx, ix) => {
@@ -97,7 +97,7 @@ export function sealDeath(ctx, env, batch, plan, recorded) {
     const death = ctx.draft('death');
     death.batches[batch.id].status = 'complete';
     death.batches[batch.id].result = result;
-    death.outbox[batch.id] = { batch: batch.id, result, events: bytes.events.map(e => e.id), native: bytes.events.filter(e => e.outcome === 'dead' && e.npcId !== null).map(e => ({ event: e.id, npc: e.npcId })), returnRequested: bytes.returnRequested, snapshot: bytes.snapshot };
+    death.outbox[batch.id] = outboxFor(bytes, result);
     applyDeaths(ctx, bytes);
     return { batch: result, bytes };
 }
@@ -112,7 +112,7 @@ export function resolve(ctx, payload) {
     const batch = env.death.batches[event.batch];
     if (batch.status === 'complete') {
         const bytes = ctx.read('progress').batches[batch.result.id].bytes;
-        return { summary: 'That death batch is already resolved.', narrate: false, data: { v2: { result: { event: event.id, batch: batch.result.id, outcome: bytes.returnRequested ? 'dead' : bytes.events.find(e => e.id === event.id).outcome, snapshot: bytes.snapshot?.id ?? null } } } };
+        return { summary: 'That death batch is already resolved.', narrate: false, data: { v2: { result: { event: event.id, batch: batch.result.id, outcome: bytes.events.find(e => e.id === event.id).outcome, snapshot: bytes.snapshot?.id ?? null } } } };
     }
     const plan = assert(ctx, assessDeath('death.resolve', env, payload));
     for (const a of plan.actors) knownNative(ctx, a.npcId);
@@ -131,7 +131,7 @@ export function resolve(ctx, payload) {
     claim(ctx, 'death', batch.id);
     attachGuard(ctx, ix, 'death.resolve', payload, asked.inputs, recorded);
     const sealed = sealDeath(ctx, env, batch, asked, recorded);
-    const outcome = sealed.bytes.returnRequested ? 'dead' : sealed.bytes.events.find(e => e.id === event.id).outcome;
+    const outcome = sealed.bytes.events.find(e => e.id === event.id).outcome;
     return { summary: 'The lethal batch is resolved.', narrate: true, data: { v2: { key: `death:${batch.id}`, result: { event: event.id, batch: sealed.batch.id, outcome, snapshot: sealed.bytes.snapshot?.id ?? null } } } };
 }
 

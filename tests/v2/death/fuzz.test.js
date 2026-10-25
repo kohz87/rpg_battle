@@ -9,6 +9,7 @@ import { wipe } from './fight-helper.js';
 import { seeded } from '../integration/helpers/host.js';
 import { lifeOf } from '../../../src/v2/rules/sheet.js';
 import { hashJson } from '../../../src/v2/rules/hash.js';
+import { assertFullReplay } from './replay-helper.js';
 import { generationProblem } from '../../../src/v2/death/selection.js';
 
 const seeds = process.env.QA_FUZZ_SEED ? [Number(process.env.QA_FUZZ_SEED)] : [33, 91, 217];
@@ -86,9 +87,7 @@ for (const seed of seeds) test(`B6 death/wipe/return fuzz ${seed}: rewards, nati
                 const member = w.q('party.actor', { id: w.friend });
                 if (member) assert.equal(w.native.live.dossiers.lyra.alive, lifeOf(member) !== 'dead', 'native companion differs on a ready timeline');
             }
-            const before = snapshot();
-            w.host.store.rebuild();
-            assert.deepEqual(snapshot(), before, 'checkpoint state differs from full replay');
+            assertFullReplay(w);
             assert.deepEqual(w.problems().filter(p => !['REPLAY_PREREQUISITE', 'REPLANNED'].includes(p.code)), []);
         } catch (error) { error.message += `\nseed ${seed}; ${trace.slice(-15).join(' ')}`; throw error; }
     }

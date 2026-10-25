@@ -8,6 +8,7 @@ import { selectSnapshot } from '../../../src/v2/death/plan.js';
 import { lifeOf } from '../../../src/v2/rules/sheet.js';
 import { assessDeath } from '../../../src/v2/death/plan.js';
 import { indexOfState } from '../../../src/v2/rules/graph.js';
+import { seeded } from '../integration/helpers/host.js';
 import { rescueProof } from '../../../src/v2/death/proofs.js';
 
 test('C11: pending death is sealed once, checks survive rebuild and the shared batch resolver', async t => {
@@ -125,3 +126,21 @@ test('day11 targets day10; latest manual wins, missing bytes never selects an ol
     assert.equal(selectSnapshot([initial, day10, manual, day11], 11 * 1440).id, manual.id);
     assert.equal(selectSnapshot([], 11 * 1440), null);
 });
+
+test('a PC death in the batch cannot misreport a rescued companion as dead on retry', async t => seeded(17, async () => {
+    const w = await world(t);
+    const friend = w.lethal(w.friend);
+    w.lethal(w.pc);
+    ok(w.command('skill.use', { actor: w.pc, skill: ref('s00'), form: ref('s00-base') }));
+    const paid = w.q('story.evidence').find(p => p.kind === 'use').id;
+    const proof = w.proof('rescue', { event: friend.event, batch: friend.batch, actor: w.friend, rescuer: w.pc, skill: ref('s00'), form: ref('s00-base'), effect: 1, payment: paid }, [paid]);
+    ok(w.command('test.intervene', { event: friend.event, evidence: proof }));
+    const first = ok(w.command('death.resolve', { event: friend.event }));
+    const batchRef = w.slice('death').batches[friend.batch].result;
+    const bytes = resolveBatch({ id: batchRef.id, state: w.head() }).bytes;
+    assert.equal(bytes.returnRequested, true);
+    assert.equal(first.receipt.data.v2.result.outcome, bytes.events.find(e => e.actor === w.friend).outcome);
+    assert.equal(first.receipt.data.v2.result.outcome, 'gravely-injured');
+    const again = ok(w.command('death.resolve', { event: friend.event }));
+    assert.equal(again.receipt.data.v2.result.outcome, 'gravely-injured');
+}));

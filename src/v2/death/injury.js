@@ -7,7 +7,9 @@ export function preserveInjury(ctx, before, after) {
     if (!indexOfCtx(ctx) || ctx.read('death')?.schema !== 2) return after;
     let minutes = null;
     try { minutes = ctx.query('director.time', {})?.minutes ?? null; } catch { /* No invented time. */ }
-    const injuries = (fitActor(before, { minutes }).conditions ?? []).filter(c => c.kind === 'injury' && Number.isInteger(c.rounds));
-    if (injuries.length) after.conditions = [...after.conditions.filter(c => c.kind !== 'injury'), ...injuries.map(c => ({ ...c }))];
+    if ((before.conditions ?? []).some(c => c.kind === 'injury' && Number.isInteger(c.rounds))) {
+        const injuries = (fitActor(before, { minutes }).conditions ?? []).filter(c => c.kind === 'injury' && Number.isInteger(c.rounds));
+        after.conditions = [...after.conditions.filter(c => c.kind !== 'injury'), ...injuries.map(c => ({ ...c }))];
+    }
     return after;
 }

@@ -42,6 +42,8 @@ test('injury lasts 1440 story minutes through rest, XP rewrites and automatic re
     assert.equal(penalty(), -2);
     await w.say('<Changes>\n~ time 3440\n</Changes>');
     assert.equal(injury(), undefined);
+    ok(w.command('party.grantXp', { actor: w.friend, amount: 1, claim: 'after-injury' }));
+    assert.equal(injury(), undefined, 'an expired injury cannot become an indefinite condition during an XP write');
     assert.equal(penalty(), undefined);
     w.host.store.rebuild();
     assert.deepEqual(w.problems(), []);

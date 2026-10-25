@@ -16,6 +16,9 @@ export const closed = (value, keys) => isObject(value) && Object.keys(value).len
 export const sourceOK = s => closed(s, ['sid', 'swipeKey', 'evidence', 'ordinal']) && isRecordId(s.sid) && isRecordId(s.swipeKey) && isRecordId(s.evidence) && int(s.ordinal, 0, 1000000);
 export const refOK = r => closed(r, ['id', 'hash']) && isRecordId(r.id) && isHash(r.hash);
 export const snapshotOK = s => s === null || (closed(s, ['id', 'payloadHash']) && isRecordId(s.id) && isHash(s.payloadHash));
+export const outboxFor = (bytes, result) => ({ batch: bytes.batch, result, events: bytes.events.map(e => e.id),
+    native: bytes.events.filter(e => e.outcome === 'dead' && e.npcId !== null).map(e => ({ event: e.id, npc: e.npcId })),
+    returnRequested: bytes.returnRequested, snapshot: bytes.snapshot });
 const proofOK = p => closed(p, ['id', 'payloadHash']) && isRecordId(p.id) && isHash(p.payloadHash);
 export const eventOK = e => closed(e, ['id', 'batch', 'source', 'actor', 'npcId', 'cause', 'evidence', 'intervention']) && isRecordId(e.id) && isRecordId(e.batch) && sourceOK(e.source) && isActorId(e.actor)
     && (e.npcId === null || /^np_[0-9a-z]{8}$/.test(e.npcId)) && ['narrative', 'execution', 'wipe'].includes(e.cause)

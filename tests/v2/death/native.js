@@ -1,5 +1,6 @@
 // Synthetic NSD-shaped participant, exercising the real host protocol. This is not the NSD production participant.
 import { hashJson } from '../../../src/v2/rules/hash.js';
+import { crash } from '../../vendor/story-block/src/v2/timeline/util.js';
 export const NPC = 'np_00000001';
 export function nativeFixture(saved = null) {
     const n = saved ?? { live: { map: { [NPC]: 'lyra' }, dossiers: { lyra: { name: 'Lyra', alive: true, trust: 7 } }, applied: [] }, checkpoints: {}, prepared: {}, returns: {}, seq: 0, fail: new Set(), missing: new Set(), calls: [] };
@@ -12,7 +13,10 @@ export function nativeFixture(saved = null) {
     const failure = (code, message) => ({ ok: false, code, message });
     const call = (method, input, f) => {
         n.calls.push({ method, input });
-        return n.fail.has(method) ? failure('FAILED', `Native ${method} held.`) : f();
+        if (n.fail.has(method)) return failure('FAILED', `Native ${method} held.`);
+        const out = f();
+        if (n.crashAfter?.delete(method)) throw crash(`native.${method}.applied`);
+        return out;
     };
     const participant = {
         schema: 1,
