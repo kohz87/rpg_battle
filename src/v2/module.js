@@ -116,22 +116,24 @@ function claim(table, name, partId, what) {
  * defaults. Used where no ctx or view carries them (queries, the item.define hook).
  */
 export function createModule({ settings = null, query = null, parts = [], rules = null, preflight = null } = {}) {
-    // A checked frozen pack and a successful host preflight are both required. Legacy chats get no rules marker.
+    // Activate only from a checked frozen pack or the host's surviving pinned timeline; a legacy chat gets no marker.
+    const peer = preflight?.peers?.find(peer => peer.module === 'story-director');
+    const compatible = preflight?.hostApi === 2 && preflight.restore === 'idle' && peer?.enabled
+        && /^2\./.test(peer.version ?? '');
+    const resumed = compatible && preflight.classification === 'current' && preflight.rulesVersion === 2
+        && /^[0-9a-f]{64}$/.test(preflight.rulesHash ?? '');
     let activation = null;
     if (rules !== null) {
         const slice = initialRules();
         const problem = pinRules(slice, rules);
         if (problem) throw new Error(problem);
-        const peer = preflight?.peers?.find(peer => peer.module === 'story-director');
-        if (preflight?.hostApi !== 2 || preflight.restore !== 'idle' || !peer?.enabled
-            || !/^2\./.test(peer.version ?? '') || !['empty', 'current'].includes(preflight.classification)
-            || preflight.classification === 'current' && (preflight.rulesVersion !== 2 || preflight.rulesHash !== slice.rulesHash)) {
+        if (!compatible || !(preflight.classification === 'empty' || resumed && preflight.rulesHash === slice.rulesHash)) {
             throw new Error('Rules v2 activation requires a compatible preflight and Story Director.');
         }
         activation = slice;
     }
     const ruleIds = new Set(rulesParts.map(([id]) => id));
-    const registered = [...PARTS.filter(([id]) => activation || !ruleIds.has(id)), ...parts];
+    const registered = [...PARTS.filter(([id]) => activation || resumed || !ruleIds.has(id)), ...parts];
     const defaults = {};
     const schema = {};
     for (const [id, part] of registered) {
@@ -234,7 +236,7 @@ export function createModule({ settings = null, query = null, parts = [], rules 
             claim(owners.command, type, id, 'command');
             commands[type] = withFeature((ctx, payload) => {
                 const own = ctxFor(ctx, id);
-                if (activation && ['party.create', 'creation.finish'].includes(type)) registerPackDefs(own);
+                if ((activation || resumed) && ['party.create', 'creation.finish'].includes(type)) registerPackDefs(own);
                 return handler(own, payload);
             }, handler);
         }

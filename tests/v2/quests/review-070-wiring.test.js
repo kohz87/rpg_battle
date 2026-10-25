@@ -27,3 +27,18 @@ test('production registers the rules parts together only with a frozen pack and 
     };
     check(); await h.st.loadChat(structuredClone(h.ctx.chat)); check(); h.store.rebuild(); check();
 });
+
+test('an existing rules timeline resumes from preflight without passing a pack or injecting a definition', { skip }, async t => {
+    const h = await realQuestHost(t);
+    await h.send('Work?', '<Changes>\n+ quest Mill job\n</Changes>');
+    const image = { chat: structuredClone(h.ctx.chat), extensionSettings: structuredClone(h.ctx.extensionSettings) };
+    const loaded = await realQuestHost(t, { given: null, st: image });
+    const check = () => {
+        assert.deepEqual(loaded.sdk.query('rules.identity'), h.sdk.query('rules.identity'));
+        assert.equal(loaded.sdk.query('rules.identity').hash, h.head().domains.rules.rulesHash);
+        assert.ok(loaded.registry.module('rpg-battle').commands['skill.use']);
+        assert.equal(loaded.sdk.query('director.thread', { key: 'Mill job' }).rpg.state, 'offered');
+        assert.deepEqual(loaded.store.problems(), []);
+    };
+    check(); loaded.store.rebuild(); check();
+});

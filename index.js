@@ -61,7 +61,7 @@ export async function boot({ rules = null, global = globalThis, doc = global.doc
             if (migrateRankLadder(st?.extensionSettings?.storySuite)) st.saveSettingsDebounced?.();
         } catch (error) { console.warn(`[${MODULE_NAME}] the rank ladder could not be moved`, error); }
         await sdk.registerModule(createModule({ settings: () => sdk.settings(MODULE_ID), rules,
-            preflight: rules ? sdk.preflight({ module: MODULE_ID, rulesVersion: 2 }) : null }));
+            preflight: sdk.preflight({ module: MODULE_ID, rulesVersion: 2 }) }));
         return { ok: true, sdk };
     } catch (error) {
         console.error(`[${MODULE_NAME}] Story Block v2 did not take the module:`, error);
