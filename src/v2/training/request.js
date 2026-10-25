@@ -1,14 +1,13 @@
 // RPG Battle v2, the player's request to train (contract §3 `skill.train { actor, skill, form, trainer, session }`: "Player
 // request; { session, status: 'requested' }", REFUSED running/pending session, unknown trainer NOT_FOUND, "No fee/time at UI").
 // The request only records that the player asked, under the session id the offer carried (session.js: the next one for this
-// character, trainer, skill and form, or the request is STALE). The host's step (step.js, through rules.settle) validates the
+// character, trainer, skill and form, or the request is STALE). The host's step (progress/session-step.js, through rules.settle) validates the
 // place and the funds, then pays and moves the clock. A deleted request takes its session and claim with it, and the
 // settlement built on it.
 
 import { assess } from '../progress/assess.js';
 import { attachGuard } from '../progress/guard.js';
-import { indexOf } from '../rules/graph.js';
-import { pinOf } from '../rules/pin.js';
+import { indexOfCtx } from '../rules/graph.js';
 import { epochOf, isActorId, isDefId, isObject, isRecordId } from '../rules/ids.js';
 
 const FIELDS = ['actor', 'skill', 'form', 'trainer', 'session'];
@@ -21,7 +20,7 @@ function skillTrain(ctx, payload) {
         ctx.fail('INVALID', 'skill.train needs a character, a skill, its form, a trainer and the session the offer named.');
     }
     if (ctx.cause !== 'ui' || ctx.caller) ctx.fail('REFUSED', 'Asking to train is the player\'s own request.');
-    const ix = indexOf(pinOf({ domains: { rules: ctx.read('rules') } }));
+    const ix = indexOfCtx(ctx);
     if (!ix) ctx.fail('REFUSED', 'This chat does not run a rules pack.');
     const env = { ix, progress: ctx.read('progress'), training: ctx.read('training'), query: (name, args) => ctx.query(name, args) };
     const answer = assess('skill.train', env, payload);
@@ -45,7 +44,7 @@ function skillCancelTrain(ctx, payload) {
         ctx.fail('INVALID', 'skill.cancelTrain needs { actor, session }.');
     }
     if (ctx.cause !== 'ui' || ctx.caller) ctx.fail('REFUSED', 'Withdrawing a training is the player\'s own request.');
-    const ix = indexOf(pinOf({ domains: { rules: ctx.read('rules') } }));
+    const ix = indexOfCtx(ctx);
     if (!ix) ctx.fail('REFUSED', 'This chat does not run a rules pack.');
     const answer = assess('skill.cancelTrain', { ix, progress: ctx.read('progress'), training: ctx.read('training'), query: (name, args) => ctx.query(name, args) }, payload);
     if (!answer.ok) ctx.fail(answer.code, answer.why);

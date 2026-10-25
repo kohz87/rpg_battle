@@ -21,8 +21,7 @@ import { assess } from './assess.js';
 import { attachGuard } from './guard.js';
 import { choiceKey } from './derive.js';
 import { applyFold } from './fold.js';
-import { indexOf } from '../rules/graph.js';
-import { pinOf } from '../rules/pin.js';
+import { indexOfCtx } from '../rules/graph.js';
 import { fightOn } from '../party/commands.js';
 import { placeOf, purseOf, rollEvent } from './session-step.js';
 import { epochOf, isActorId, isDefId, isHash, isObject, isRecordId } from '../rules/ids.js';
@@ -43,7 +42,7 @@ const player = (ctx, name) => {
 
 /** The pinned index as a command sees it (the rules slice on the transaction's state), or a refusal. */
 function pinned(ctx, payload) {
-    const ix = indexOf(pinOf({ domains: { rules: ctx.read('rules') } }));
+    const ix = indexOfCtx(ctx);
     if (!ix) ctx.fail('REFUSED', 'This chat does not run a rules pack, so there is nothing to choose from.');
     if (payload && payload.rulesHash !== ix.rulesHash) ctx.fail('RULES_MISMATCH', 'The rules changed since this was offered; read the choices again.');
     return ix;

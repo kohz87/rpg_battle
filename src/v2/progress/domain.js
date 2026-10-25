@@ -17,12 +17,13 @@
 
 import { KINDS, REASONS } from './credit.js';
 import { int, isActorId, isDefId, isHash, isObject } from '../rules/ids.js';
+import { MAX_BATCHES, isBatchId } from '../fight/batch.js';
 
 /** The most attempts the ledger holds at once (fold.js keeps it far below; a payer past it drops the attempt, it never fails). */
 export const MAX_ATTEMPTS = 4000;
 export const PROGRESS_SCHEMA = 2;
 
-export const initialProgress = () => ({ schema: PROGRESS_SCHEMA, choices: {}, attempts: {}, credits: {}, roster: { active: null }, temporary: {}, sealed: { forms: {}, days: {}, folded: 0 } });
+export const initialProgress = () => ({ schema: PROGRESS_SCHEMA, choices: {}, attempts: {}, credits: {}, roster: { active: null }, temporary: {}, sealed: { forms: {}, days: {}, folded: 0 }, batches: {}, carried: {} });
 
 // The ledger holds thousands of records and its validator runs after every block a replay applies, so a record is checked
 // by shape (a prefix and a length), not by pattern; the writers (record.js, commands.js) make ids that match the patterns.
@@ -78,12 +79,13 @@ function creditProblem(id, credit, attempts) {
 const UNIT_KINDS = ['summon', 'pet'];
 const ENDED = ['expired', 'dismissed', 'downed', 'fight-ended'];
 
-function unitProblem(id, unit) {
+export function unitProblem(id, unit) {
     const where = `progress: temporary unit ${id}`;
     if (!isObject(unit) || unit.id !== id || !/^ac_[0-9a-z]{8}$/.test(id)) return `${where} is not whole`;
     if (!UNIT_KINDS.includes(unit.kind) || !isActorId(unit.owner) || !isDefId(unit.template) || typeof unit.fight !== 'string') return `${where} names no kind, owner, template and fight`;
     if (typeof unit.name !== 'string' || !unit.name || unit.name.length > 80 || !int(unit.level, 1, 99)) return `${where} needs a name and a level`;
     for (const pool of ['hp', 'mp', 'sp']) if (!isObject(unit[pool]) || !int(unit[pool].cur, 0) || !int(unit[pool].max, 0)) return `${where}: ${pool} is { cur, max }`;
+    if (!(unit.born === undefined || int(unit.born, 0))) return `${where}: born is a whole number`;
     if (!(unit.ended === null || (isObject(unit.ended) && ENDED.includes(unit.ended.reason)))) return `${where}: ended is null or a reason`;
     return '';
 }
@@ -95,6 +97,16 @@ export function progressProblems(slice) {
     if (!isObject(slice.temporary) || Object.keys(slice.temporary).length > 24) return ['progress: temporary is a record of at most 24 units'];
     const sealed = slice.sealed;
     if (!isObject(sealed) || !isObject(sealed.forms) || !isObject(sealed.days) || !int(sealed.folded, 0)) return ['progress: sealed is { forms, days, folded }'];
+    // The sealed results of fights (fight/batch.js): { hash, bytes, seq }, the newest few of each kind. (The hash is checked where the bytes are read.)
+    if (!isObject(slice.batches) || Object.keys(slice.batches).length > MAX_BATCHES + 64) return ['progress: batches is a record of the newest sealed results'];
+    for (const [id, entry] of Object.entries(slice.batches)) if (!isBatchId(id) || !isObject(entry) || !isHash(entry.hash) || !isObject(entry.bytes) || !int(entry.seq, 1)) return [`progress: the sealed result ${id.slice(0, 20)} is not { hash, bytes, seq }`];
+    // What each member carries out of its last fight (fight/index.js settleEnd): a strength the party record does not keep.
+    if (slice.carried !== undefined) {
+        if (!isObject(slice.carried) || Object.keys(slice.carried).length > 64) return ['progress: carried is a record of the strengths members carry out of a fight'];
+        for (const [actor, list] of Object.entries(slice.carried)) {
+            if (!isActorId(actor) || !Array.isArray(list) || list.length > 8 || !list.every(item => isObject(item) && typeof item.kind === 'string' && item.kind.length <= 24 && int(item.rounds, 0, 9999) && int(item.strength, 1, 100000))) return [`progress: carried for ${actor.slice(0, 20)} is a list of { kind, rounds, strength }`];
+        }
+    }
     const errors = [];
     for (const [key, n] of Object.entries(sealed.forms)) if (!int(n, 1, 100000) || key.split('|').length !== 2) errors.push(`progress: sealed form ${key.slice(0, 80)} is not a count`);
     for (const [key, n] of Object.entries(sealed.days)) if (!int(n, 1, 100000) || key.split('|').length !== 3) errors.push(`progress: sealed day ${key.slice(0, 80)} is not a count`);
