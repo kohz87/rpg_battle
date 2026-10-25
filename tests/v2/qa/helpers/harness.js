@@ -86,7 +86,7 @@ function mergeInto(target, source, what, partName) {
 
 /** The parts as one module definition, by MODULES §A, settings keys as the parts write them. */
 export function mergeParts(parts = PARTS, { id = RB_ID, name = 'RPG Battle' } = {}) {
-    const def = { id, name, version: '2.0.0-qa', domains: {}, commands: {}, queries: {}, hooks: {}, tabs: [] };
+    const def = { id, name, version: '2.0.0-qa', domains: {}, commands: {}, queries: {}, hooks: {}, tabs: [], features: [] };
     const kinds = {};
     const defaults = {};
     const schema = {};
@@ -98,6 +98,7 @@ export function mergeParts(parts = PARTS, { id = RB_ID, name = 'RPG Battle' } = 
         mergeInto(defaults, p.settings?.defaults, 'setting', partName);
         mergeInto(schema, p.settings?.schema, 'setting', partName);
         def.tabs.push(...(p.tabs ?? []));
+        def.features.push(...(p.features ?? []));
     }
     def.capture = {
         kinds: Object.fromEntries(Object.entries(kinds).map(([kind, spec]) => [kind, { grammar: spec.grammar }])),
