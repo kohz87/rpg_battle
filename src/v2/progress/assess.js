@@ -123,7 +123,7 @@ function assessUse(env, payload) {
         try { proofs = query('story.evidence', { ids: [payload.paid] }); } catch { proofs = []; }
         const proof = Array.isArray(proofs) ? proofs[0] : null;
         const said = proof?.payload;
-        if (!proof || proof.kind !== 'use' || said?.actor !== payload.actor || said?.skill !== payload.skill || said?.form !== payload.form) {
+        if (!proof || proof.owner !== 'rpg-battle' || proof.kind !== 'use' || said?.actor !== payload.actor || said?.skill !== payload.skill || said?.form !== payload.form) {
             return { ok: false, code: 'NOT_FOUND', why: 'No surviving paid use of that skill is named.' };
         }
         return { ok: true, member, form: ix.form(payload.form), inputs: { paid: proof.id, proof: proof.payloadHash } };

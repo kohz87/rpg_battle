@@ -44,7 +44,11 @@ export function rescueUse(ctx, payload) {
     if (!answer.ok) ctx.fail(answer.code, answer.why);
     if (!ctx.claim(`rb:${epochOf(ctx)}:rescue:${fixed.event}:${fixed.actor}`)) ctx.fail('CLAIMED', 'That lethal event was already answered by a rescue.');
     // The cost: now, or one surviving paid use (applyUse refuses a proof already cited). It attaches no guard: the rescue's covers it.
-    const spent = applyUse(ctx, { actor: fixed.rescuer, skill: fixed.skill, form: fixed.form, paid: fixed.paid });
+    const spent = fixed.paid === null
+        ? applyUse(ctx, { actor: fixed.rescuer, skill: fixed.skill, form: fixed.form })
+        : { key: fixed.paid };
+    // Mastery and rescue consume different entitlements: an existing paid attempt keeps its one credit.
+    if (!ctx.claim(`rb:${epochOf(ctx)}:rescue-use:${spent.key}`)) ctx.fail('CLAIMED', 'That paid action already funded a rescue.');
     const made = ctx.proof({ kind: 'rescue', parents: [spent.key], payload: { event: fixed.event, batch: fixed.batch, actor: fixed.actor, rescuer: fixed.rescuer,
         skill: fixed.skill, form: fixed.form, effect: fixed.effect, use: spent.key } });
     attachGuard(ctx, ix, 'rescue.use', fixed, answer.inputs, { proof: made.id });
