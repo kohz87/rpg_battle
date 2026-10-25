@@ -297,18 +297,12 @@ and must have struck `actor`; the rescuer is another, alive, active durable memb
 no guard of its own). The `rescue` proof binds all of it with the use as its only parent; the claim `rb:<epoch>:rescue:<event>:<actor>` consumes the rescue once.
 Taking back the paid use, the sealed result or the rescuer's place turns the block off with its claims.
 
-## The checks flip (branch `track-b/checks-flip`, unmerged; the lead's single release)
+## Stage 5: checks flip
 
-Story Director's checks part (branch `track-b/checks-flip` in Story Director) takes the `checks` domain, the `check` kind and the `checks.*` names. This branch is RPG Battle's half, **mechanical and not finished**:
+Story Director alone registers domain `checks`, `checks.roll` and `? check` (P09). RPG Battle has no check table, prepared dice, check capture, or direct `check.resolve` roller. Its modifier and stat-word code lives in `src/v2/rules/`; `rules.modifier` also serves legacy characters without activating a rules pack.
 
-- Done: `src/v2/checks/` is gone (the part, its table, card, prepare/capture and queries), and its tests; `checks/modifiers.js` is `rules/modifiers.js` (what `rules.modifier` and the party's effects read) and
-  `party/checks.js` (`statForCheck`, `dcOf`, `outcomeOf`, `OUTCOMES`) is `rules/check-words.js`; `module.js` no longer lists the part and has no `check` override; the party part no longer keeps a `check` kind
-  (its `check.resolve` command stays for a direct roll).
-- Not done, and each needs a decision, not a move (the suite on this branch is red there):
-  1. **Craft's dice.** `craft` took the reply's roll by its place among the reply's checks (`checks.rolls`, `checks.log`, F80). With no table, `dieFor` falls to "code rolled" with the receipt's die; the craft tests
-     (`tests/v2/craft/`) that swipe for a wanted die (`replyWhen`) have nothing to swipe on, and `craft/book.js` still asks the retired `checks.modifiers` (it should ask `rules.modifier`).
-  2. **The narrator's check table.** The static instruction and the tail (the results worked out in advance, `| result:` on the line) were the checks part's. Story Director's `check` kind rolls its own d20 and never reads `result:`, so the
-     table must go with the kind, and some other instruction (or none: the pre-roll tells the result) has to say what to do about a check.
-  3. **The status card** (track C's `screens/status-card.js`) reads `checks.view` and `state.checks.log` in RPG Battle's record shape; Story Director's log record differs. Track C's screen tests build the checks part (`tests/v2/screens/`).
-  4. Tests that count the parts or the prompt (`module`, `legacy`, `party2`, `wiring`, `hook-args`, `create-entry`, the break files that name the table).
-- The E7b patch for Story Block (`assist.precheck` calls `capture.check` once) and Story Director's flip branch go with it.
+- Crafting calls SD `checks.roll` with `{ craft: { recipe, at?: 'campfire' } }`, the linked actor, recipe DC and source evidence. SD asks RB for the recipe's modifier: sum of stat modifiers, tools/talents, craft rank, station and material quality. RB decides the existing quality bands from SD's die and total. Both writes and materials roll back together. Old `roll` labels cannot select dice.
+- Narrator checks omit `result`. Older check lines may carry it; SD ignores it with no disagreement flag or Problem. The receipt is narrated in the next tail. All other prompt instructions stay as before.
+- The status card has no check rows; the reply receipts show the roll and outcome.
+- SD calls internal `rules.practiceCheck` in its roll transaction. A held skill (name or definition/form reference) records one narrative practice attempt, regardless of outcome; stat-only and unknown skills record nothing. The existing settlement applies two per skill, six per reply and thirty per day, and an unset clock holds credit. The guard reads the pinned state and declared party queries only. Deleting, swiping or editing/Re-reading the check retracts its attempt and credit.
+- Tests formerly tied to prepared dice now exercise the SD command and RB modifier, receipt visibility, ignored labels, craft rollback and the original fight folding regressions. Each suite repo contains a real SB+SD+RB test, including Assist, caps, reload/rebuild and no Problems.

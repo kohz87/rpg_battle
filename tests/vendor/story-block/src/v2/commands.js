@@ -45,7 +45,10 @@
 
 import { apply, checkOps, clone, counterInside, deepFreeze, diff, escapeKey, frozenCopy, isCounterPath, isDeepFrozen, isJson, valueAt } from './ops.js';
 import { isSeed, rng as makeRng, roll as rollDice, seed as freshSeed } from './rng.js';
-import { blockIdOf, epochOf, guardProblem, hashJson, isPlainJson } from './replay.js';
+import { blockIdOf, deriveId, epochOf, guardProblem, hashJson, isPlainJson } from './replay.js';
+import { CLOCK_COMMANDS, markerHash } from './timeline/boundary.js';
+import { capture as captureSnapshot } from './timeline/manifest.js';
+import { stateHash } from './timeline/host-block.js';
 import { newRoot, occurrenceOf, operationKey, receiptEvidence, submitProof } from './evidence.js';
 
 export const MAX_DEPTH = 8;
@@ -211,7 +214,8 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
             const view = Object.freeze({ state, query: tools.query, hash: hashJson });
             answer = hook(view, deepFreeze(clone({ guard: info.guard, source: info.source, block: info.block, operation: info.operation, recorded: info.recorded ?? null, payload: info.payload ?? null })));
         } catch (error) {
-            return { ok: false, reason: `${owner}'s replayGuard failed (${error?.message ?? error})` };
+            // The store records thrown guards even when this is a tentative plan that will not be stored.
+            throw error;
         }
         if (answer && typeof answer.then === 'function') {
             answer.then(null, () => {});
@@ -336,7 +340,7 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
     }
 
     function invoke(tx, type, target, payload, depth, caller = null) {
-        const ctx = makeCtx(tx, target.moduleId, depth, caller);
+        const ctx = makeCtx(tx, target.moduleId, depth, caller, type);
         const out = target.handler(ctx, deepFreeze(clone(payload)));
         if (out && typeof out.then === 'function') {
             out.then(null, () => {});   // nobody waits on it; keep a late rejection quiet
@@ -345,7 +349,27 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
         return out;
     }
 
-    function makeCtx(tx, moduleId, depth, caller) {
+    function giveProof(tx, moduleId, spec) {
+        const made = submitProof(spec, {
+            who: moduleId, cause: tx.cause, chat: tx.chat, source: sourceOf(tx), origin: originOf(tx), state: () => currentState(tx),
+            stored: () => store.proofs?.() ?? [], taken: () => store.proofs?.({ all: true }) ?? [], planned: tx.planned, root: tx.proofs, fail, replacing: tx.replacing,
+        });
+        if (made.created) {
+            const meta = metaOf(tx);
+            if (!isRecord(meta.proofs)) meta.proofs = {};
+            meta.proofs[made.proof.id] = made.pin;
+        }
+        return Object.freeze({ id: made.proof.id, payloadHash: made.proof.payloadHash });
+    }
+
+    function allocateId(tx, prefix) {
+        if (typeof prefix !== 'string' || !ID_PREFIX.test(prefix)) fail('INVALID', `An id prefix is lowercase letters and digits (like "it"), not "${prefix}".`);
+        let out = '';
+        for (let n = 0; n < 8; n += 1) out += BASE36[Math.floor(tx.idRandom() * 36) % 36];
+        return `${prefix}_${out}`;
+    }
+
+    function makeCtx(tx, moduleId, depth, caller, type) {
         const open = () => {
             if (tx.closed) throw new Error('This command has already finished; its ctx cannot be used any more.');
         };
@@ -374,12 +398,30 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
             get source() {
                 return sourceOf(tx);
             },
-            id(prefix) {
+            id: prefix => { open(); return allocateId(tx, prefix); },
+            clockBoundary(input) {
                 open();
-                if (typeof prefix !== 'string' || !ID_PREFIX.test(prefix)) fail('INVALID', `An id prefix is lowercase letters and digits (like "it"), not "${prefix}".`);
-                let out = '';
-                for (let n = 0; n < 8; n += 1) out += BASE36[Math.floor(tx.idRandom() * 36) % 36];
-                return `${prefix}_${out}`;
+                if (moduleId !== 'story-director' || !CLOCK_COMMANDS.includes(type) || tx.cause === 'ui') fail('REFUSED', 'Only a trusted SD clock command may mark a midnight.');
+                if (!isRecord(input) || Object.keys(input).some(key => !['minute', 'source'].includes(key))) fail('INVALID', 'clockBoundary takes { minute, source }.');
+                const source = sourceOf(tx);
+                if (!source || hashJson(input.source ?? null) !== hashJson(source)) fail('REFUSED', 'A clock marker must carry this root source.');
+                const minute = input.minute;
+                const before = tx.head.domains?.director?.time?.minutes;
+                const current = currentState(tx).domains?.director?.time?.minutes;
+                const previous = tx.clockBoundaries.at(-1)?.minute;
+                const next = Math.floor((previous === undefined ? before : previous) / 1440) * 1440 + 1440;
+                if (!Number.isSafeInteger(before) || !Number.isSafeInteger(minute) || minute !== next || current !== minute) fail('INVALID', 'A marker must be the next crossed midnight, with the draft clock at that minute.');
+                // E5 assigns this root's occurrence; no second allocator for ambiguous Re-reads.
+                const root = cursorOf(tx);
+                const entry = captureSnapshot({ registry, state: currentState(tx), settings });
+                const cursor = { ...root, block: deriveId('bl', `clock:${root.block}:${minute}:${hashJson(entry)}`), op: tx.clockBoundaries.length + 1, rev: tx.rev };
+                const marker = { minute, source: clone(source), cursor, entry, baseHash: stateHash(tx.head) };
+                marker.prefixHash = markerHash(marker);
+                const made = giveProof(tx, moduleId, { kind: 'event', payload: { clockBoundary: minute, prefixHash: marker.prefixHash } });
+                marker.proof = made.id;
+                marker.pin = tx.meta.proofs[made.id];
+                tx.clockBoundaries.push(marker);
+                return deepFreeze({ cursor: clone(cursor), prefixHash: marker.prefixHash });
             },
             read(domain) {
                 open();
@@ -480,16 +522,7 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
             // published only when the root commits, on this command's block, and only while that block applies.
             proof(spec) {
                 open();
-                const made = submitProof(spec, {
-                    who: moduleId, cause: tx.cause, chat: tx.chat, source: sourceOf(tx), origin: originOf(tx), state: () => currentState(tx),
-                    stored: () => store.proofs?.() ?? [], taken: () => store.proofs?.({ all: true }) ?? [], planned: tx.planned, root: tx.proofs, fail, replacing: tx.replacing,
-                });
-                if (made.created) {
-                    const meta = metaOf(tx);
-                    if (!isRecord(meta.proofs)) meta.proofs = {};
-                    meta.proofs[made.proof.id] = made.pin;
-                }
-                return Object.freeze({ id: made.proof.id, payloadHash: made.proof.payloadHash });
+                return giveProof(tx, moduleId, spec);
             },
             claim(key) {
                 open();
@@ -643,7 +676,7 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
                 rev: headRev + 1, carrier: carrierOf(carrier), chat: chatOf(chat), again: again === true && cause === 'story',
                 standing: cause === 'story' && isRecord(standing) ? (isDeepFrozen(standing) ? standing : deepFreeze(clone(standing))) : null,
                 drafts: new Map(), meta: null, failure: null, closed: false, absolute: new Set(), within: new Set(),
-                guard: null, recorded: null, source: undefined, pending: 0, ordinal: undefined, proofs: newRoot(), cursor: undefined, opsBefore: null, reusing,
+                clockBoundaries: [], guard: null, recorded: null, source: undefined, pending: 0, ordinal: undefined, proofs: newRoot(), cursor: undefined, opsBefore: null, reusing,
                 // The proof a Re-read's earlier lines gave (planned, not stored yet), for parents and story.evidence.
                 planned: Array.isArray(planned) ? planned : [],
                 // The proof of the blocks being replaced (a Re-read's lines and steps, a step planned again): a proof of the same kind and key, at the same place among those, keeps the id.
@@ -664,6 +697,11 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
             if (Number.isInteger(place?.opsBefore) && place.opsBefore >= 0) tx.opsBefore = place.opsBefore;
             const out = invoke(tx, type, target, payload, 0);
             if (tx.failure) throw tx.failure;
+            if (tx.clockBoundaries.length) {
+                const last = tx.clockBoundaries.at(-1).minute;
+                const end = currentState(tx).domains?.director?.time?.minutes;
+                if (!Number.isSafeInteger(end) || end < last || end >= last + 1440) fail('INVALID', 'Every crossed midnight needs its own logical marker.');
+            }
             const done = resultOf(type, out, cause);
             const { summary, narrate, problem, replan } = done;
             let { data } = done;
@@ -689,6 +727,7 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
                 const operation = payload ?? {};
                 if (!isPlainJson(operation)) fail('INVALID', `${type} is guarded, so its payload must be plain JSON.`);
                 block = {
+                    ...(tx.clockBoundaries.length ? { clockBoundaries: clone(tx.clockBoundaries) } : {}),
                     module: target.moduleId, source, guard: tx.guard ?? null, operation: { type, payload: clone(operation) }, recorded: tx.recorded,
                     result: Object.hasOwn(data.v2, 'result') ? clone(data.v2.result) : clone(data),
                     ...(proofs.length ? { evidence: clone(proofs) } : {}),

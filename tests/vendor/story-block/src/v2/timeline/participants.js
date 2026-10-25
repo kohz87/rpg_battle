@@ -8,6 +8,19 @@
 import { isHash } from '../replay.js';
 import { CODES, crashing, fail, isObject } from './util.js';
 
+export const PARTICIPANT_TIMEOUT_MS = 10000;
+
+// One bound for every asynchronous participant callback, including native prepare. A timed-out
+// call remains quarantined until it really settles: a late activation must not race a new selection.
+export async function boundedParticipant(callback, timeoutMs = PARTICIPANT_TIMEOUT_MS) {
+    let timer;
+    try {
+        return await Promise.race([Promise.resolve().then(callback), new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`participant callback timed out after ${timeoutMs} ms`)), timeoutMs);
+        })]);
+    } finally { clearTimeout(timer); }
+}
+
 export const CALLBACKS = Object.freeze(['checkpoint', 'prepare', 'activate', 'abort', 'status']);
 const MODULE_ID = /^[a-z0-9][a-z0-9._-]*$/;
 const STATUSES = Object.freeze(['prepared', 'active', 'aborted']);
@@ -23,7 +36,23 @@ const SHAPES = Object.freeze({
     applyEvent: answer => text(answer.event) && text(answer.checkpoint) && isHash(answer.hash) && answer.ack === true,
 });
 
-export function createParticipants() {
+export function createParticipants({ timeoutMs = PARTICIPANT_TIMEOUT_MS, chat = () => null } = {}) {
+    // Callback state belongs to the chat that began it. Late completion clears only that chat's slot.
+    const inflight = new Map();
+    async function run(module, callback) {
+        const holder = chat();
+        let calls = inflight.get(holder);
+        if (!calls) { calls = new Map(); inflight.set(holder, calls); }
+        if (calls.has(module)) throw new Error(`The participant ${module} still has a timed-out callback in flight.`);
+        const pending = Promise.resolve().then(callback);
+        calls.set(module, pending);
+        const clear = () => {
+            if (calls.get(module) === pending) calls.delete(module);
+            if (!calls.size && inflight.get(holder) === calls) inflight.delete(holder);
+        };
+        pending.then(clear, clear);
+        return boundedParticipant(() => pending, timeoutMs);
+    }
     const table = new Map();
     return {
         /** Registers a participant: → { ok: true, module } | INVALID | CONFLICT. */
@@ -42,6 +71,8 @@ export function createParticipants() {
             return { ok: true, module: spec.module };
         },
         has: module => table.has(module),
+        ready: () => !inflight.get(chat())?.size,
+        run,
         get: module => table.get(module) ?? null,
         /** The registered participants' modules, sorted. */
         modules: () => [...table.keys()].sort(),
@@ -81,7 +112,7 @@ export function createParticipants() {
             if (typeof callback !== 'function') return fail('UNSUPPORTED', `The participant ${module} cannot ${method}.`);
             let answer;
             try {
-                answer = await callback(structuredClone(input));
+                answer = await run(module, () => callback(structuredClone(input)));
             } catch (error) {
                 if (crashing(error)) throw error;
                 return fail('FAILED', `The participant ${module} failed at ${method}: ${error?.message ?? error}`);

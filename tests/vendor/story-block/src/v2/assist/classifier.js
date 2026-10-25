@@ -9,20 +9,20 @@
 //   1. claims `assist:precheck:<key>` (the key is the reader's message: its index and a hash of its
 //      text), so the same message is never checked twice on this line of history; swiping or
 //      deleting the carrier the claim is on takes it back, like any other change;
-//   2. runs `capture.check` with the line, exactly as if the reply had written it (RPG Battle's
-//      `check` kind: it makes the pending check, or, before pending checks exist, resolves it);
-//   3. rolls it with `check.roll { id }` when step 2 left a pending check (its id in the capture's
-//      `data.check`), with the automatic modifiers (MODULES §F16);
-//   4. returns the roll's summary as this receipt's summary (narrate: true), so the next reply is
+//   2. runs `capture.check` with the line, exactly as if the reply had written it: the module that
+//      keeps the `check` kind (Story Director, contract P09) makes the check with its one
+//      `checks.roll`, one die, the policy's modifiers, the outcome from the die and never from the
+//      line. There is no second step and no probe for an older `check.roll` command;
+//   3. returns the roll's summary as this receipt's summary (narrate: true), so the next reply is
 //      told the result under [Happened].
-// Anything that fails rejects the whole transaction: no claim, no check, nothing saved.
+// Anything that fails rejects the whole transaction: no claim, no check, nothing saved. A `check`
+// kind that is not there fails the capture call, so the claim is not kept either.
 
 import { extractBlock, parseChanges } from '../capture.js';
 import { BACKGROUND, SETTING, TIMEOUT_MS, clip, estimateTokens, hashText, normalizeType, withTimeout } from './common.js';
 
 export const PRECHECK = 'assist.precheck';
 export const CHECK_KIND = 'check';
-export const ROLL_COMMAND = 'check.roll';
 export const claimKey = key => `assist:precheck:${key}`;
 
 // The classifier's whole prompt stays within this many tokens (chars/4): the static head below plus
@@ -119,14 +119,6 @@ export function claimed(state, key) {
 
 const KEY = /^\d{1,7}-[0-9a-z]{1,7}$/;
 
-// The pending check a capture made, from its data: `data.check` (or `pending`, `id`) as an id. A
-// capture that already resolved the check (its data has an outcome) left nothing to roll.
-export function pendingCheckId(data) {
-    if (!data || typeof data !== 'object' || data.outcome !== undefined) return null;
-    for (const key of ['check', 'pending', 'id']) if (typeof data[key] === 'string' && data[key]) return data[key];
-    return null;
-}
-
 /**
  * `assist.precheck { key, line }`: the command the classifier's answer is committed through (see
  * the top of this file). Synchronous and pure apart from ctx, like every handler (SPEC §3.2).
@@ -138,28 +130,17 @@ export function precheck(ctx, payload = {}) {
     if (!line) ctx.fail('INVALID', 'A pre-rolled check needs one check line with a skill and a difficulty.');
     if (!ctx.claim(claimKey(key))) ctx.fail('CLAIMED', 'This message has already been turned into a check.');
     const made = ctx.call(`capture.${CHECK_KIND}`, { ...line, index: 0, word: CHECK_KIND }) ?? {};
-    const pending = pendingCheckId(made.data);
-    let rolled = null;
-    if (pending) {
-        try {
-            rolled = ctx.call(ROLL_COMMAND, { id: pending }) ?? {};
-        } catch (error) {
-            // Nothing ran: the check stays pending for the reader (and RPG Battle's own roll).
-            if (error?.code !== 'UNKNOWN_COMMAND') throw error;
-        }
-    }
-    const out = rolled ?? made;
-    const summary = String(out.summary ?? '').trim() || String(made.summary ?? '').trim() || `A ${line.name} check is made.`;
-    const outcome = out.data?.outcome;
+    const result = made.data?.v2?.result ?? made.data ?? {};
+    const outcome = result.outcome;
     return {
-        summary,
+        summary: String(made.summary ?? '').trim() || `A ${line.name} check is made.`,
         narrate: true,
         data: {
             key,
             skill: line.name,
             dc: line.labels.dc,
-            check: pending,
-            rolled: Boolean(rolled),
+            check: typeof result.check === 'string' ? result.check : null,
+            rolled: typeof outcome === 'string',
             outcome: typeof outcome === 'string' ? outcome : null,
         },
     };

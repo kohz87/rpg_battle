@@ -3,7 +3,7 @@
 // `story-block.extractor`, MODULES §F100; the profile is in the settings section "Assist").
 //
 // * Pre-roll classifier (classifier.js), in `beforeGenerate`: the reader's new message → at most one
-//   check line → `assist.precheck` (claim, capture.check, check.roll) committed before the reply, so
+//   check line → `assist.precheck` (claim, capture.check) committed before the reply, so
 //   the reply narrates the roll.
 // * After-reply extractor, the safety net (extractor.js, safety.js), in the `afterReply` hook the host
 //   calls after each captured reply: the reply and its own lines → only the lines it missed, through the
@@ -23,8 +23,8 @@ import { stCallModel, stChat, stChatId } from './st-adapter.js';
 
 export { DEFAULTS, FEATURE_TEXT, SCHEMA, SETTING, TIMEOUT_MS, createRunLog, estimateTokens, hashText, withTimeout } from './common.js';
 export {
-    ANSWER_TOKENS as CLASSIFIER_ANSWER_TOKENS, CHECK_KIND, CLASSIFIER_HEAD, MESSAGE_LIMIT, PRECHECK, PROMPT_BUDGET, ROLLED_LINE, ROLL_COMMAND,
-    checkLine, claimKey, classifierPrompt, createClassifier, normalizeDc, parseClassifierAnswer, pendingCheckId, precheck,
+    ANSWER_TOKENS as CLASSIFIER_ANSWER_TOKENS, CHECK_KIND, CLASSIFIER_HEAD, MESSAGE_LIMIT, PRECHECK, PROMPT_BUDGET, ROLLED_LINE,
+    checkLine, claimKey, classifierPrompt, createClassifier, normalizeDc, parseClassifierAnswer, precheck,
 } from './classifier.js';
 export { EXTRACTOR_FOOT, EXTRACTOR_HEAD, MAX_LINES, REPLY_HEAD, REPLY_LIMIT, WRITTEN_HEAD, allowedGrammar, createExtractor, extractorPrompt, grammarKind, notWritten, parseExtractorAnswer } from './extractor.js';
 export { DEFAULT_KINDS, KIND_CHOICES, allowedKinds, refusedWhy, safeLines } from './safety.js';
