@@ -5,7 +5,7 @@ import { lethalProofs, rescueProof } from './proofs.js';
 import { statModifier } from '../checks/modifiers.js';
 
 export const sourceOf = s => ({ sid: s.sid, swipeKey: s.swipeKey, evidence: s.evidence, ordinal: s.ordinal });
-export const batchId = (source, epoch) => idFromHash('db', hashJson({ sid: source.sid, swipeKey: source.swipeKey, epoch }));
+export const batchId = (source, epoch, fight = null) => idFromHash('db', hashJson({ sid: source.sid, swipeKey: source.swipeKey, epoch, ...(fight ? { fight } : {}) }));
 export const eventId = (batch, actor) => idFromHash('de', hashJson({ batch, actor }));
 export const fail = (code, why) => ({ ok: false, code, why });
 

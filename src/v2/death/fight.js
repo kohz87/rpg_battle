@@ -5,14 +5,20 @@ import { epochOf } from '../rules/ids.js';
 import { activeIds } from '../rules/sheet.js';
 import { batchId, eventId, sourceOf, assessDeath, selectSnapshot } from './plan.js';
 import { insertEvent, sealDeath, applyDeaths } from './commands.js';
+import { sessionOf } from '../combat/stored.js';
 
 export function deathEnabled(ctx) {
     try { return !!indexOfCtx(ctx) && ctx.read('death')?.schema === 2; } catch { return false; }
 }
 
+// A fight begun before the pin still settles by its saved v1 setup.
+export function rulesFightResult(ctx) {
+    return deathEnabled(ctx) && sessionOf(ctx.read('combat'))?.setup?.draws === 'action';
+}
+
 export function activeFighters(ctx, members) {
     if (!deathEnabled(ctx)) return members;
-    const ids = activeIds(ctx.read('progress').roster, members.filter(m => m.kind === 'pc' || !(m.conditions ?? []).some(c => c.kind === 'dead')), members.find(m => m.kind === 'pc')?.id);
+    const ids = activeIds(ctx.read('progress').roster, members.filter(m => !(m.conditions ?? []).some(c => c.kind === 'dead')), members.find(m => m.kind === 'pc')?.id);
     return members.filter(m => ids.includes(m.id));
 }
 
@@ -33,7 +39,7 @@ export function settleFightDeaths(ctx, { session, result }) {
     }
     const epoch = epochOf(ctx);
     const source = sourceOf(ctx.source);
-    const batch = batchId(source, epoch);
+    const batch = batchId(source, epoch, session.id);
     const id = eventId(batch, party.pc);
     insertEvent(ctx, { id, batch, source, actor: party.pc, npcId: party.actors[party.pc].npcId ?? null, cause: 'wipe', evidence: [], intervention: null });
     const env = { ix, death: ctx.read('death'), progress: ctx.read('progress'), query: (n, a) => ctx.query(n, a), epoch };

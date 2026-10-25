@@ -1,3 +1,4 @@
+import { preserveInjury } from '../death/injury.js';
 // HP, MP and SP that come back as story time passes (v1 recovery.recoverOverTime, DESIGN §8.5),
 // feature `rpg-battle.recovery` (MODULES §F100, on by default). The clock is Story Director's
 // (`director.time`, read only through a query that may not be there, rule 11): without it nothing
@@ -143,7 +144,7 @@ export function foldStoryTime(ctx, { markOnly = false } = {}) {
             // A full rest, as `! rest long` (party.rest): max first worked out with what they wear, and what a fight left ends.
             const rested = restV1(toSheet(actor), 'long', { gear: wornGear((name, args) => ctx.query(name, args), inventory, id, { pc: draft.pc }), rules });
             const next = { ...rested, conditions: (rested.conditions ?? []).filter(entry => !Number.isInteger(entry.rounds)) };
-            draft.actors[id] = fromSheet(actor, next, rules, { filled: filledBy('long') });
+            draft.actors[id] = preserveInjury(ctx, actor, fromSheet(actor, next, rules, { filled: filledBy('long') }));
         } else {
             for (const name of POOLS) {
                 const pool = fitPool(actor[name]);

@@ -1,7 +1,7 @@
 import { indexOfCtx } from '../rules/graph.js';
 import { epochOf, isActorId, isObject, isRecordId } from '../rules/ids.js';
 import { attachGuard } from '../progress/guard.js';
-import { storedPool, fitPool } from '../party/pools.js';
+import { storedPool, fitPool, FIGHT_LEFT_MINUTES } from '../party/pools.js';
 import { seal } from '../fight/batch.js';
 import { storeBatch } from '../fight/index.js';
 import { assessDeath, batchId, eventId, resultBytes, selectSnapshot, sourceOf } from './plan.js';
@@ -80,13 +80,14 @@ export function applyDeaths(ctx, bytes) {
         member.hp = storedPool({ cur: event.outcome === 'dead' ? 0 : 1, max: hp.max });
         member.conditions = member.conditions.filter(c => !['dead', 'injury', 'downed'].includes(c.kind));
         member.conditions.push(event.outcome === 'dead' ? { kind: 'dead', stacks: 1 }
-            : { kind: 'injury', stacks: 1, rounds: 144, ...(bytes.minute !== null && bytes.minute >= 0 ? { at: bytes.minute } : {}) });
+            : { kind: 'injury', stacks: 1, rounds: indexOfCtx(ctx).constants.injuryMinutes / FIGHT_LEFT_MINUTES, ...(bytes.minute !== null ? { at: bytes.minute } : {}) });
         delete ctx.draft('progress').carried?.[member.id];
     }
 }
 
 /** Records the whole ordered decision/outbox before any owner effect. Caller owns the root guard. */
 export function sealDeath(ctx, env, batch, plan, recorded) {
+    for (const actor of plan.actors) knownNative(ctx, actor.npcId);
     const bytes = resultBytes(env, batch, plan, recorded);
     if (!resultOK(bytes)) ctx.fail('FAILED', 'The death result is not a closed B6 record.');
     const sealed = seal(bytes);
