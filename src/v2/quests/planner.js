@@ -1,3 +1,4 @@
+import { effectiveEvidence } from './proofs.js';
 // Pure quest settlement planning. Inputs are public projections; only SD/SB/RB owners commit
 // the result. Missing owner validation holds settlement rather than treating text as proof.
 
@@ -78,7 +79,7 @@ export function objectiveProgress(thread, { proofs, items, activeActors, validat
         } else {
             if (typeof validateProof !== 'function') return refuse('DEPENDENCY_UNAVAILABLE', 'The B3 objective proof validator is not available.');
             const seen = new Set();
-            for (const evidence of Object.values(quest.evidence)) {
+            for (const evidence of effectiveEvidence(quest, proofs, acceptance)) {
                 if (evidence.objective !== objective.id || seen.has(evidence.proof)) continue;
                 const proof = proofs.find(proof => proof.id === evidence.proof);
                 if (!proof || !count(evidence.amount) || evidence.amount > 999) continue;

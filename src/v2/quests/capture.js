@@ -46,7 +46,7 @@ export function createCapture({ settleQuest = null, captureObjective = null, gua
             return { summary: `Turn-in proposed for ${thread.key}.`, narrate: false, data: { quest: thread.id, intent, reply: ctx.reply.sid } };
         }
         if (line.op === '~') {
-            if (line.labels?.met && typeof captureObjective === 'function') return captureObjective(ctx, thread, line);
+            if (Object.hasOwn(line.labels ?? {}, 'met') && typeof captureObjective === 'function') return captureObjective(ctx, thread, line);
             // A progress note or "met" by itself supplies no B3 proof and never changes the reward.
             return { summary: `Progress proposed for ${thread.key}; validated objective evidence is required.`, narrate: false,
                 data: { quest: thread.id, held: true, reply: ctx.reply?.sid ?? null } };

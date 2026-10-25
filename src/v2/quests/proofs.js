@@ -27,7 +27,8 @@ const whole = (value, min, max) => Number.isSafeInteger(value) && value >= min &
 export function payloadProblem(objectiveKind, payload) {
     if (!Object.hasOwn(EXTRA, objectiveKind ?? '')) return 'That objective is not proved by a proof.';
     if (!isObject(payload)) return 'An objective proof is a record.';
-    const keys = [...COMMON, ...EXTRA[objectiveKind]];
+    const keys = [...COMMON, ...EXTRA[objectiveKind], ...(objectiveKind === 'story' && Object.hasOwn(payload, 'undo') ? ['undo'] : [])];
+    if (Object.hasOwn(payload, 'undo') && !isRecordId(payload.undo)) return 'A retraction names its exact evidence proof.';
     if (Object.keys(payload).length !== keys.length || keys.some(key => !Object.hasOwn(payload, key))) return `A ${objectiveKind} proof is exactly { ${keys.join(', ')} }.`;
     if (!isRecordId(payload.thread) || !whole(payload.instance, 1, 1000000) || !isId(payload.objective) || payload.objectiveKind !== objectiveKind || !isRecordId(payload.acceptance)) {
         return 'An objective proof names its thread, instance, objective, kind and acceptance.';
@@ -73,10 +74,25 @@ export function objectiveProofProblem({ objective, quest, acceptance, proof, amo
     } else {
         if (objective.kind === 'story' && said.text !== objective.text) return 'That proof is for another objective text.';
         if (objective.kind === 'visit' && said.place !== objective.place) return 'That proof is for another place.';
-        if (amount !== undefined && amount !== 1) return 'The evidence does not say what the proof says.';
+        if (amount !== undefined && amount !== (said.undo ? 0 : 1)) return 'The evidence does not say what the proof says.';
     }
     return '';
 }
 
 /** The planner's handoff (`validateProof({ objective, quest, acceptance, proof, evidence })`). */
 export const validateObjectiveProof = ({ objective, quest, acceptance, proof, evidence }) => objectiveProofProblem({ objective, quest, acceptance, proof, amount: evidence?.amount }) === '';
+
+/** Append-only retractions annul exactly one story row; deleting the retraction restores that row. */
+export function effectiveEvidence(quest, proofs, acceptance) {
+    const rows = Object.values(quest.evidence);
+    const retired = new Set();
+    for (const row of rows) {
+        const proof = proofs.find(p => p.id === row.proof);
+        const objective = quest.objectives.find(o => o.id === row.objective);
+        if (!proof?.payload?.undo || objective?.kind !== 'story'
+            || objectiveProofProblem({ objective, quest, acceptance, proof, amount: row.amount })) continue;
+        const parent = rows.find(r => r.proof === proof.payload.undo && r.objective === row.objective && r.amount === 1);
+        if (parent) retired.add(parent.proof);
+    }
+    return rows.filter(row => row.amount > 0 && !retired.has(row.proof));
+}

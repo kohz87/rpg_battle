@@ -11,7 +11,7 @@
 // other query. One plan answers the command and the guard, so a block is stored only if its guard will hold.
 
 import { acceptanceOf } from './planner.js';
-import { objectivePayload, objectiveProofProblem, payloadProblem, proofKindOf } from './proofs.js';
+import { objectivePayload, objectiveProofProblem, payloadProblem, proofKindOf, effectiveEvidence } from './proofs.js';
 import { ask, boundary, call, copy, fail, pinned, stateEpoch, writeId } from './seams.js';
 import { sealedProblem } from '../fight/batch.js';
 import { indexOfCtx, indexOfState } from '../rules/graph.js';
@@ -100,9 +100,17 @@ export function planObjective(facts, request) {
     } else if (objective.kind === 'story') {
         if (typeof facts.line !== 'string') return refuse('REFUSED', 'A story objective is met by a line of the story.');
         payload = objectivePayload(quest, objective, acceptance.id, { line: facts.line });
-        amount = 1;
+        if (request.undo) {
+            const row = effectiveEvidence(quest, facts.proofs(Object.values(quest.evidence).map(row => row.proof)), mine)
+                .find(row => row.proof === request.undo && row.objective === objective.id);
+            if (!row) return refuse('REFUSED', 'That story evidence is no longer met.');
+            payload.undo = request.undo;
+        }
+        amount = request.undo ? 0 : 1;
         source = { line: facts.line };
-        claims = [objectiveClaim(epoch, thread.id, quest, objective.id)];
+        const previous = rows.at(-1)?.proof;
+        claims = [request.undo ? `rb:${epoch}:objective:undo:${request.undo}`
+            : `${objectiveClaim(epoch, thread.id, quest, objective.id)}${previous ? `:${previous}` : ''}`];
     } else {
         if (typeof facts.place !== 'string' || facts.place !== objective.place) return refuse('REFUSED', 'The party is not at that place.');
         if (typeof facts.scene !== 'string' || !facts.scene) return refuse('REFUSED', 'The scene names no place.');
@@ -121,7 +129,7 @@ export function planObjective(facts, request) {
 }
 
 const operationOf = (thread, request) => ({ thread, objective: request.objective,
-    ...(request.proof !== undefined ? { proof: request.proof } : {}), ...(request.fight !== undefined ? { fight: request.fight } : {}) });
+    ...(request.undo ? { undo: request.undo } : {}), ...(request.proof !== undefined ? { proof: request.proof } : {}), ...(request.fight !== undefined ? { fight: request.fight } : {}) });
 
 export function createObjectives(policy = {}) {
     const buildGuard = policy.buildGuard ?? sharedBuildGuard;
@@ -171,14 +179,23 @@ export function createObjectives(policy = {}) {
 
     /** `~ quest Name | met: yes [| objective: <id>]`: the story says its own objective is done; the line is the validated action. */
     function captureObjective(ctx, thread, line) {
+        const met = line.labels?.met;
+        if (met !== 'yes' && met !== 'no') return ctx.fail('INVALID_MET', 'met takes exactly yes or no.');
         const quest = thread.rpg;
+        const proofs = ctx.query('story.evidence', {});
+        const acceptance = acceptanceOf(thread, proofs);
+        const evidence = effectiveEvidence(quest, proofs, acceptance);
         const wanted = typeof line.labels?.objective === 'string' ? line.labels.objective.trim() : '';
         const open = quest.state === 'active' ? quest.objectives.filter(row => row.kind === 'story'
-            && !Object.values(quest.evidence).some(evidence => evidence.objective === row.id)) : [];
-        const objective = wanted ? open.find(row => row.id === wanted) : open[0];
+            && (met === 'no' || !evidence.some(e => e.objective === row.id))) : [];
+        const choices = wanted ? open.filter(row => row.id === wanted) : open;
+        if (choices.length > 1) return ctx.fail('AMBIGUOUS', 'Name the exact story objective.');
+        const objective = choices[0];
         if (!objective) return { summary: `No open story objective for ${thread.key}.`, narrate: false, data: { quest: thread.id, held: true, reply: ctx.reply?.sid ?? null } };
+        const undo = met === 'no' ? evidence.find(row => row.objective === objective.id)?.proof : null;
+        if (met === 'no' && !undo) return { summary: 'This objective is not met.', narrate: false };
         const seen = ctx.hash({ op: line.op, name: line.name, text: line.text ?? '', labels: line.labels ?? {} });
-        return recordObjective(ctx, thread, { objective: objective.id }, { line: seen });
+        return recordObjective(ctx, thread, { objective: objective.id, ...(undo ? { undo } : {}) }, { line: seen });
     }
 
     /** hooks.replayGuard for kind quest.objective (undefined for any other kind). */
@@ -198,7 +215,7 @@ export function createObjectives(policy = {}) {
         if (typeof external.scene === 'string' && state?.domains?.scene?.place?.name !== external.scene) return off('The party is no longer at that place.');
         const facts = { hash, ix: indexOfState(state), thread, epoch: guard.epoch, threads, combat: state?.domains?.combat, progress: state?.domains?.progress,
             clock: state?.domains?.director?.time?.minutes ?? null, proofs: ids => (ids.length ? query('story.evidence', { ids }) : []), ...external };
-        const plan = planObjective(facts, { objective: payload.objective, ...(payload.proof !== undefined ? { proof: payload.proof } : {}), ...(payload.fight !== undefined ? { fight: payload.fight } : {}) });
+        const plan = planObjective(facts, { objective: payload.objective, ...(payload.undo ? { undo: payload.undo } : {}), ...(payload.proof !== undefined ? { proof: payload.proof } : {}), ...(payload.fight !== undefined ? { fight: payload.fight } : {}) });
         if (!plan.ok) return off(plan.message);
         const expected = buildGuard({ hash, owner: guard.owner, epoch: guard.epoch, source: info.source, rulesHash: pin.hash, kind: 'quest.objective', payload, inputs: plan.inputs });
         return expected.inputHash === guard.inputHash ? { ok: true } : off();
