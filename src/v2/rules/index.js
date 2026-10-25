@@ -1,7 +1,8 @@
 // RPG Battle v2, part **rules** (contract §3, §4, §7): the `rules` domain that pins one resolved ruleset to the
 // character timeline, `rules.progress` (the progression view), the lookups the screens read (`rules.identity`,
 // `rules.classes`, `rules.names`, `rules.sheet`, `rules.party`; ./queries.js; `rules.training` is the training part's), the inputs other tracks read (`rules.flags`, `rules.item`), and the
-// commands `rules.settle` (the host's step that credits paid attempts and runs training), `rules.flagSet` and `rules.registerItem`. Not registered by module.js yet; see ../progress/index.js.
+// commands `rules.settle` (the host's step that credits paid attempts and runs training), `rules.flagSet` and `rules.registerItem`.
+// module.js registers these with progress/training; selection.js supplies Setup's deferred rules.pin bootstrap.
 
 import { initialRules, rulesProblems } from './pin.js';
 import { commands } from '../progress/commands.js';

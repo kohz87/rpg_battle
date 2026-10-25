@@ -165,13 +165,14 @@ export function guardProblem(guard) {
     if (guard.rulesHash !== null && !isHash(guard.rulesHash)) return 'a guard\'s rulesHash is null or a 64-character hash';
     if (!isHash(guard.inputHash)) return 'a guard\'s inputHash is a 64-character hash';
     if (!Object.hasOwn(guard, 'predicate') || !isPlainJson(guard.predicate)) return 'a guard\'s predicate is plain JSON';
+    if (guard.replyBound !== undefined && typeof guard.replyBound !== 'boolean') return 'a guard\'s replyBound is true or false';
     return '';
 }
 
 /** True for a span written by a guarded transaction (a legacy span is `{ n, story }` only). */
 export const isMetaSpan = span => isObject(span) && typeof span.id === 'string';
 
-function cursorProblem(cursor) {
+export function cursorProblem(cursor) {
     if (!isObject(cursor)) return 'a boundary has no cursor';
     if (!isRecordId(cursor.sid) || !isRecordId(cursor.swipeKey) || !isRecordId(cursor.block)) return 'a boundary cursor names no source or block';
     if (!Number.isInteger(cursor.op) || cursor.op < 0 || !Number.isInteger(cursor.rev) || cursor.rev < 0) return 'a boundary cursor has no op or rev';

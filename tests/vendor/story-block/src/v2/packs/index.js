@@ -96,7 +96,8 @@ export function createPacksPart({ settings, readLorebook = async () => ({ charac
         queries: {
             'packs.list': () => packs.list(),
             'packs.content': (_state, { kind, pack = null } = {}) => contentOf(packs.packs(), kind, { pack }),
-            'packs.rules': (_state, { pack = null } = {}) => rulesOf(packs.packs(), { pack }),
+            'packs.rules': (_state, { pack = null, resolve = false } = {}) => rulesOf(packs.packs(), { pack })
+                .map(entry => resolve ? { ...entry, pin: packs.rules(entry.pack) } : entry),
             'packs.item': (_state, { name } = {}) => resolveItem(name),
             // The enabled packs' items as inventory defs by definition ID, ID-sorted (content.js itemDefsIn): what a
             // rules module freezes with inventory.registerDefinition. `ids` narrows to those IDs.

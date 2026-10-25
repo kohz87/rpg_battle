@@ -3,9 +3,9 @@
 // rule, with every credit and choice guarded so a swipe, delete or Re-read that removes a prerequisite removes
 // what depended on it. See domain.js for the records, offers.js for the rules, guard.js for the replay.
 //
-// This part is **not registered** by module.js yet (the lead wires it, behind the host's lifecycle: a chat is
-// a rules-v2 chat only when its `rules` slice says so, contract §9). Until then no existing chat, pack or
-// command changes. A registered part adds the `progress` domain, `class.choose` and `path.choose`, and answers
+// module.js reserves this part with deferred domains/APIs on a compatible host. Only rules.pin initializes
+// it for a new character timeline; an unpinned chat keeps its old bytes (contract §9). The part supplies
+// the `progress` domain, `class.choose` and `path.choose`, and answers
 // `hooks.replayGuard` for its own guards (`GUARD_KINDS`) and `afterCapture` (it asks the host for
 // `rules.settle` once a reply has attempts waiting for a credit). The `rules` part (../rules/index.js) holds
 // the pinned ruleset, `rules.progress` and `rules.settle`.
