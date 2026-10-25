@@ -4,6 +4,7 @@
 // only if the guard will accept it on the same story. Pure over the pinned index, the progress slice and the
 // queries it is given (`party.actor` for the level, `director.time` for the clock).
 
+import { canRescue } from './rescue-effect.js';
 import { evaluateClass, evaluatePath, standing } from './offers.js';
 import { pendingOf, planSettlement } from './credit.js';
 import { foldInputs, planFold } from './fold.js';
@@ -161,11 +162,11 @@ function assessRescue(env, payload) {
     const pc = durable.find(item => item.kind === 'pc');
     if (!activeIds(progress.roster, durable, pc?.id ?? null).includes(payload.rescuer)) return { ok: false, code: 'REFUSED', why: `${member.name} is not an active member of the party.` };
     const effect = ix.form(payload.form)?.effects?.[payload.effect];
-    if (!effect || !RESCUE_OPS.includes(effect.op)) return { ok: false, code: 'REFUSED', why: 'That effect of the form does not mend or ward an ally.' };
+    if (!canRescue(effect, payload.rescuer, payload.actor)) return { ok: false, code: 'REFUSED', why: 'That effect of the form does not mend or ward an ally.' };
     const use = assessUse(env, { actor: payload.rescuer, skill: payload.skill, form: payload.form, paid: payload.paid });
     if (!use.ok) return use;
     return { ok: true, member, use, inputs: { event: payload.event, batch: { id: payload.batch.id, hash: payload.batch.hash }, actor: payload.actor,
-        rescuer: payload.rescuer, skill: payload.skill, form: payload.form, effect: payload.effect, op: effect.op, use: use.inputs } };
+        rescuer: payload.rescuer, skill: payload.skill, form: payload.form, effect: payload.effect, op: effect.op, target: effect.target, use: use.inputs } };
 }
 
 /**
