@@ -1,8 +1,11 @@
 // The track C screens as definitions (SPEC §13.1), and the fixtures against the contract: every screen valid by Story Block's
 // validator, scoped CSS within its limit, every command and widget a template names one that exists, every query the views
-// ask one the contract names (or a stand-in listed in PENDING), the fixtures shaped as §3 says, and nothing in the screens
+// ask one the contract names (or a stand-in listed in CONTRACTS), the fixtures shaped as §3 says, and nothing in the screens
 // folder computing a rule or reading markup.
 
+import { createModule } from '../../../../src/v2/module.js';
+import { rulesParts } from '../../../../src/v2/rules/index.js';
+import { REAL_API, PENDING, c18 } from './fixtures.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -14,12 +17,12 @@ import { isAreaTier, isParty, isProgress, isQuestView, isSheet } from '../../../
 import { scopeCss, validateScreen } from '../helpers/runtime.js';
 import { WIDGET_NAMES } from '../helpers/render.js';
 import {
-    C13, CLASS_VIEWS, H, PENDING, QF, SHIPPED_QUERIES, answers, c02, c04, c05, c08, c09, hashOf, seed, smallRulesPack, sheetOf,
+    C13, CLASS_VIEWS, H, CONTRACTS, QF, SHIPPED_QUERIES, answers, c02, c04, c05, c08, c09, hashOf, seed, smallRulesPack, sheetOf,
 } from './fixtures.js';
 
 const OWN_WIDGETS = ['rpg-battle.permanent-choice', 'rpg-battle.class-pick', 'rpg-battle.command-input', 'rpg-battle.command-button',
     'rpg-battle.member-toggle', 'rpg-battle.equipment', 'rpg-battle.create-character'];
-// Commands a template names that another module owns; the pending ones are in PENDING.
+// Commands a template names that another module owns; the pending ones are in CONTRACTS.
 const TEMPLATE_COMMANDS = ['quest.take', 'quest.finish', 'quest.abandon', 'skill.train'];
 const SRC = new URL('../../../../src/v2/screens/rules/', import.meta.url);
 const sourceOf = file => readFileSync(new URL(file, SRC), 'utf8');
@@ -35,7 +38,7 @@ test('five screens, unique ids, tab and screen mounts, each gated by rulesActive
         for (const { query } of Object.values(screen.data)) assert.equal(typeof rulesQueries[query], 'function', `${screen.id} reads ${query}`);
     }
     assert.deepEqual(Object.keys(rulesQueries).sort(), [
-        'rpg-battle.classPicker', 'rpg-battle.linksView', 'rpg-battle.progressView', 'rpg-battle.questsView', 'rpg-battle.rosterView', 'rpg-battle.rulesDeps', 'rpg-battle.setupView']);
+        'rpg-battle.classPicker', 'rpg-battle.linksView', 'rpg-battle.offers', 'rpg-battle.progressView', 'rpg-battle.questsView', 'rpg-battle.rosterView', 'rpg-battle.rulesDeps', 'rpg-battle.setupView']);
 });
 
 test('rulesActive: the pages exist only while RPG Battle\'s rules queries are registered (an old host or save shows none)', () => {
@@ -64,31 +67,31 @@ test('every command a template names is one that exists or is pending; every wid
             assert.ok(WIDGET_NAMES.includes(name) || OWN_WIDGETS.includes(name), `${screen.id}: ${name}`);
         }
     }
-    for (const command of TEMPLATE_COMMANDS) assert.ok(PENDING[command], `${command} is listed as pending`);
+    for (const command of TEMPLATE_COMMANDS) assert.ok(CONTRACTS[command], `${command} is listed as pending`);
     assert.deepEqual(Object.keys(rulesWidgets).sort(), OWN_WIDGETS.slice(0, 4).sort());
 });
 
-test('commands the views build into buttons are all listed in PENDING with an owner', () => {
+test('commands the views build into buttons are all listed in CONTRACTS with an owner', () => {
     const sources = FILES.map(sourceOf).join('\n');
     const named = new Set([...sources.matchAll(/btn\(\s*'([a-z]+\.[a-zA-Z]+)'/g)].map(match => match[1]));
     for (const [, command] of sources.matchAll(/command: '([a-z]+\.[a-zA-Z]+)'/g)) named.add(command);
     assert.ok(named.size >= 12, [...named].join());
     for (const command of named) {
         if (command === 'item.unequip') continue;
-        assert.ok(PENDING[command], `${command} needs an owner in PENDING`);
+        assert.ok(CONTRACTS[command], `${command} needs an owner in CONTRACTS`);
     }
-    for (const [command, entry] of Object.entries(PENDING)) assert.ok(['A', 'B', 'E'].includes(entry.owner), `${command}: owner`);
+    for (const [command, entry] of Object.entries(CONTRACTS)) assert.ok(['A', 'B', 'E'].includes(entry.owner), `${command}: owner`);
 });
 
-test('every query the views ask is one the contract names, a shipped one, or a stand-in that PENDING marks as a gap', () => {
+test('every query the views ask is one the contract names, a shipped one, or a stand-in that CONTRACTS marks as a gap', () => {
     const asked = new Set();
     for (const file of FILES) for (const match of sourceOf(file).matchAll(/ask\(\s*tools,\s*'([a-zA-Z.]+)'/g)) asked.add(match[1]);
     assert.ok(asked.size >= 20, [...asked].join());
-    const known = new Set([...Object.keys(PENDING), ...SHIPPED_QUERIES]);
+    const known = new Set([...Object.keys(CONTRACTS), ...SHIPPED_QUERIES]);
     assert.deepEqual([...asked].filter(name => !known.has(name)).sort(), []);
-    const gaps = Object.entries(PENDING).filter(([, entry]) => entry.shape === 'gap').map(([name]) => name).sort();
-    assert.deepEqual(gaps, ['atlas.candidates', 'rules.classes', 'rules.identity', 'rules.item', 'rules.names', 'rules.training']);
-    for (const name of gaps) assert.ok(PENDING[name].note.length > 20, `${name} says what it is`);
+    const gaps = Object.entries(CONTRACTS).filter(([, entry]) => entry.shape === 'gap').map(([name]) => name).sort();
+    assert.deepEqual(gaps, ['atlas.candidates']);
+    for (const name of gaps) assert.ok(CONTRACTS[name].note.length > 20, `${name} says what it is`);
 });
 
 test('nothing in the rules screens computes a rule or reads markup: imports are the screens\' own, and no innerHTML or eval', () => {
@@ -135,4 +138,18 @@ test('every dependency scenario is a complete answers table (nothing a view asks
         const table = make();
         assert.ok(Object.keys(table).length >= 20, name);
     }
+});
+
+
+test('the former track B stand-ins name real registered query/command handlers and use their wire shapes', () => {
+    const base = createModule();
+    const registered = Object.assign({}, base.commands, base.queries, ...rulesParts.flatMap(([, p]) => [p.commands ?? {}, p.queries ?? {}]));
+    for (const name of REAL_API.filter(name => !name.startsWith('inventory.') && !name.startsWith('savepoint.'))) {
+        assert.equal(typeof registered[name], 'function', name);
+        assert.equal(PENDING[name], undefined, `${name} is implemented`);
+    }
+    assert.deepEqual(answers()['rules.identity'], { hash: H, packId: 'fixture', version: '2.0.0' });
+    assert.ok(CLASS_VIEWS.every(c => c.skills.every(s => typeof s === 'string')));
+    assert.equal('frozen' in c18().answers['rules.item']({ def: 'craft/iron-blade' }), false);
+    assert.equal(c08().party.active.length + c08().party.reserve.length - 1, 4);
 });

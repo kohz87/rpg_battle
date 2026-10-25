@@ -39,7 +39,7 @@ test('the part exports the five default screens under the new `screens` key, its
         'rpg-battle/progress', 'rpg-battle/quests', 'rpg-battle/roster', 'rpg-battle/links', 'rpg-battle/setup']);
     assert.equal(byId['rpg-battle/items'], undefined);
     assert.equal(part.screens, screens);
-    assert.deepEqual(Object.keys(part.queries).sort(), ['rpg-battle.cards', 'rpg-battle.carry', 'rpg-battle.classPicker', 'rpg-battle.crafting', 'rpg-battle.heroes', 'rpg-battle.hud', 'rpg-battle.itemDetail', 'rpg-battle.linksView', 'rpg-battle.progressView', 'rpg-battle.questsView', 'rpg-battle.rosterView', 'rpg-battle.rulesDeps', 'rpg-battle.setupView', 'rpg-battle.trade']);
+    assert.deepEqual(Object.keys(part.queries).sort(), ['rpg-battle.cards', 'rpg-battle.carry', 'rpg-battle.classPicker', 'rpg-battle.crafting', 'rpg-battle.heroes', 'rpg-battle.hud', 'rpg-battle.itemDetail', 'rpg-battle.linksView', 'rpg-battle.offers', 'rpg-battle.progressView', 'rpg-battle.questsView', 'rpg-battle.rosterView', 'rpg-battle.rulesDeps', 'rpg-battle.setupView', 'rpg-battle.trade']);
     assert.deepEqual(Object.keys(part.widgets).sort(), ['rpg-battle.character-file', 'rpg-battle.class-pick', 'rpg-battle.command-button', 'rpg-battle.command-input', 'rpg-battle.equipment', 'rpg-battle.item-detail', 'rpg-battle.member-toggle', 'rpg-battle.permanent-choice', 'rpg-battle.skill-tree']);
     for (const widget of Object.values(part.widgets)) {
         assert.equal(typeof widget.render, 'function');
@@ -91,7 +91,7 @@ test('mounts: party, trade and crafting are tabs and game screens; the HUD is a 
 });
 
 test('data bindings name the view queries; the status card reads the reply\'s own state', () => {
-    assert.deepEqual(byId['rpg-battle/party'].data, { cards: { query: 'rpg-battle.cards' }, offers: { query: 'party.offers' }, carry: { query: 'rpg-battle.carry' }, ret: { query: 'return.status' } });
+    assert.deepEqual(byId['rpg-battle/party'].data, { cards: { query: 'rpg-battle.cards' }, offers: { query: 'rpg-battle.offers' }, carry: { query: 'rpg-battle.carry' }, ret: { query: 'return.status' } });
     assert.deepEqual(byId['rpg-battle/crafting'].data, { craft: { query: 'rpg-battle.crafting' } });
     assert.deepEqual(byId['rpg-battle/trade'].data, { trade: { query: 'rpg-battle.trade' } });
     assert.deepEqual(byId['rpg-battle/hud'].data, { hud: { query: 'rpg-battle.hud' } });

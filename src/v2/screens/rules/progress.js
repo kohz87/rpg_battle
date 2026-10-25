@@ -1,8 +1,8 @@
 // RPG Battle v2, screens for the rules-v2 views (track C): the Progress page's view query, `rpg-battle.progressView`.
 //
 // From the contract's projections only (RB_PHASE0 §3): rules.party (every member's SheetView), rules.progress (the
-// checklist, promotions and pathways), rules.training (pending B3: see fixtures), rules.identity (the rules hash a
-// class or path choice must carry, pending B), rules.classes (the basic picker, pending B) and rules.names. It shows
+// checklist, promotions and pathways), rules.training, rules.identity (the rules hash a
+// class or path choice must carry), rules.classes (the basic picker) and rules.names. It shows
 // what the queries say and builds the exact command payloads a choice sends; whether a choice is open, which options it
 // has and why one is waiting are the query's words, never worked out here.
 //
@@ -21,7 +21,7 @@ export const MASTERY_TOP = 5;
 
 const isIdentity = value => isRecord(value) && isHash(value.hash);
 const isClassView = value => isRecord(value) && isText(value.id) && isText(value.name) && Array.isArray(value.skills) && value.skills.length === 3
-    && value.skills.every(item => isRecord(item) && isText(item.name));
+    && value.skills.every(isText);
 const isTraining = value => isRecord(value) && isText(value.actor) && (value.session === null || isRecord(value.session))
     && isRecord(value.caps) && Array.isArray(value.offers);
 
@@ -43,16 +43,16 @@ function xpText(sheet) {
     return `XP ${sheet.xp}. ${sheet.xpToNext} to the next level.`;
 }
 
-// ---- training (pending B3 handoff: the stand-in shape is documented in tests/v2/screens/rules/fixtures.js) ----------
+// ---- training (rules.training's public projection) ----------------------------------------------------------------
 
-function trainingModel(actorId, answer, minutes, names) {
+function trainingModel(answer, minutes, names) {
     if (answer.status !== ASK.OK) return { state: 'unavailable', headline: '', lines: [], offers: [], caps: '', held: false };
     const { session, caps, offers } = answer.value;
     const lines = [];
     let state = 'none';
     let headline = '';
     if (session) {
-        state = ['requested', 'running', 'completed', 'interrupted'].includes(session.status) ? session.status : 'none';
+        state = ['requested', 'running', 'completed', 'interrupted', 'refused'].includes(session.status) ? session.status : 'none';
         const what = `${names(session.skill)}${session.form ? ` (${names(session.form)})` : ''}`;
         if (state === 'requested') {
             headline = `Training requested: ${what}.`;
@@ -69,27 +69,30 @@ function trainingModel(actorId, answer, minutes, names) {
             if (Number.isSafeInteger(session.startMinute) && Number.isSafeInteger(session.endMinute)) lines.push(`From ${clockLabel(session.startMinute)} to ${clockLabel(session.endMinute)}.`);
             lines.push(`Credits: ${session.creditsAwarded ?? 0} of ${session.credits ?? 0}.`);
             if (session.reason === 'mastered') lines.push('No mastery gained: already mastered. XP still counts.');
-            else if (session.reason === 'cap') lines.push('No mastery gained: the daily limit was reached.');
+            else if (['skill-day', 'actor-day', 'skill-reply', 'actor-reply'].includes(session.reason)) lines.push('No mastery gained: the daily limit was reached.');
             if (Number.isSafeInteger(session.capDay)) lines.push(`Counted on Day ${session.capDay}.`);
         } else if (state === 'interrupted') {
             headline = `Training interrupted: ${what}.`;
             lines.push('No credit was given and the fee is not refunded.');
+        } else if (state === 'refused') {
+            headline = `Training refused: ${what}.`;
+            lines.push(clip(session.reason || 'The lesson could not start. No fee or time was spent.', 240));
         }
-        if (session.event && typeof session.event.text === 'string' && session.event.text) lines.push(`Something happened: ${clip(session.event.text, 240)}`);
+        if (session.event?.template) lines.push(`Training event: ${clip(session.event.template, 240)}`);
     }
     const capParts = [];
     if (Number.isSafeInteger(caps.day)) capParts.push(`Day ${caps.day}`);
     if (isRecord(caps.skill)) capParts.push(`this skill ${ratioText(caps.skill.used, caps.skill.max)}`);
     if (isRecord(caps.actor)) capParts.push(`all skills ${ratioText(caps.actor.used, caps.actor.max)}`);
     const clockHold = minutes === null;
-    const open = state === 'none' || state === 'completed' || state === 'interrupted';
+    const open = state === 'none' || state === 'completed' || state === 'interrupted' || state === 'refused';
     const offerRows = open ? offers.filter(isRecord).map(offer => ({
         key: `${offer.skill}|${offer.form}|${offer.trainer}`,
         text: `${names(offer.skill)} with ${clip(offer.name || names(offer.trainer), 80)}`,
         detail: [Number.isSafeInteger(offer.fee) ? `fee ${offer.fee}` : '', Number.isSafeInteger(offer.minutes) ? spanLabel(offer.minutes) : ''].filter(Boolean).join(', '),
         blocked: (Array.isArray(offer.blocked) ? offer.blocked : []).filter(isText).map(item => clip(item, 240)),
         canAsk: !clockHold && !(Array.isArray(offer.blocked) && offer.blocked.length),
-        payload: { actor: actorId, skill: offer.skill, form: offer.form, trainer: offer.trainer, session: offer.session },
+        payload: { ...offer.payload },
     })) : [];
     return { state, headline, lines, offers: offerRows, caps: capParts.length ? `Limits: ${capParts.join(' · ')}.` : '', held: clockHold };
 }
@@ -152,7 +155,7 @@ function memberModel(sheet, progress, training, ctx) {
         checklist, checklistText: `${done} of ${checklist.length} forms at ${MASTERY_TOP} / ${MASTERY_TOP}`, checklistDone: done,
         progress: progress.status === ASK.OK ? 'ok' : progress.status,
         promotions, pathways,
-        training: trainingModel(sheet.id, training, minutes, names),
+        training: trainingModel(training, minutes, names),
     };
 }
 
@@ -162,8 +165,9 @@ export function pickerModel(tools) {
     const found = ask(tools, 'rules.classes', { tier: 0 }, value => isList(value, isClassView));
     if (found.status === ASK.MISSING || found.status === ASK.EMPTY) return { state: 'unavailable', classes: [] };
     if (found.status === ASK.MALFORMED) return { state: 'mismatch', classes: [] };
+    const names = namesFor(tools, found.value.flatMap(item => item.skills));
     const classes = found.value.filter(item => item.tier === undefined || item.tier === 0).map(item => ({
-        id: item.id, label: clip(item.name, 80), sub: item.skills.map(skill => clip(skill.name, 80)).join(' · '),
+        id: item.id, label: clip(item.name, 80), sub: item.skills.map(names).join(' · '),
     }));
     return { state: classes.length ? 'ready' : 'empty', classes };
 }
@@ -206,7 +210,10 @@ export function progressView(state, args, tools) {
     const classSkills = new Map();
     if (wanted.some(sheet => progress.get(sheet.id).status === ASK.OK && progress.get(sheet.id).value.promotions.some(row => row.choices.length))) {
         const classes = ask(tools, 'rules.classes', {}, value => isList(value, isClassView));
-        if (classes.status === ASK.OK) for (const item of classes.value) classSkills.set(item.id, item.skills.map(skill => clip(skill.name, 80)).join(' · '));
+        if (classes.status === ASK.OK) {
+            const skillNames = namesFor(tools, classes.value.flatMap(item => item.skills));
+            for (const item of classes.value) classSkills.set(item.id, item.skills.map(skillNames).join(' · '));
+        }
     }
     const time = ask(tools, 'director.time', {});
     const minutes = time.status === ASK.OK && Number.isSafeInteger(time.value.minutes) ? time.value.minutes : null;
@@ -217,4 +224,21 @@ export function progressView(state, args, tools) {
         party: members.map(member => ({ id: member.id, name: member.name, you: member.you, text: member.checklistText, done: member.checklistDone, total: member.checklist.length, complete: member.checklistDone === member.checklist.length })),
         picker: null, hashKnown: hash !== null, clockSet: minutes !== null,
     };
+}
+
+/** party.offers with the basic-class choice required when accepting a pinned join. */
+export function offersView(state, args, tools) {
+    const offers = ask(tools, 'party.offers', {}, Array.isArray);
+    if (offers.status !== ASK.OK) return [];
+    const identity = ask(tools, 'rules.identity', {}, isIdentity);
+    const pinned = identity.status === ASK.OK;
+    const picker = pinned ? pickerModel(tools) : null;
+    return offers.value.map(offer => ({
+        ...offer,
+        needsClass: pinned && offer.kind === 'join',
+        pick: pinned && offer.kind === 'join' ? {
+            command: 'party.acceptOffer', field: 'class', label: 'Basic class for this companion', confirm: 'Accept',
+            base: { offer: offer.id }, options: picker.classes,
+        } : null,
+    }));
 }

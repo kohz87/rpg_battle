@@ -6,7 +6,7 @@
 //
 // RB_PHASE0 §10 track C: query projections and commands only. Nothing in this folder computes a rule.
 
-import { progressView } from './progress.js';
+import { progressView, offersView } from './progress.js';
 import { questsView } from './quests.js';
 import { rosterView } from './roster.js';
 import { linksView } from './links.js';
@@ -28,6 +28,7 @@ export { linksScreen, progressScreen, questsScreen, rosterScreen, rulesActive, r
 
 export const rulesQueries = Object.freeze({
     'rpg-battle.progressView': progressView,
+    'rpg-battle.offers': offersView,
     'rpg-battle.questsView': questsView,
     'rpg-battle.rosterView': rosterView,
     'rpg-battle.linksView': linksView,

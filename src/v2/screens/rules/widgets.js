@@ -170,7 +170,7 @@ export function renderClassPick(el, props = {}, api = {}) {
         const draft = draftApi(api);
         if (!draft) return;
         picked = picked === id ? '' : id;
-        try { draft.set(str(spec.field, 40) || 'class', picked); } catch { /* the dialog reports its own problems */ }
+        try { draft.set(str(spec.field, 40) || 'class', spec.field === 'checkActor' && !picked ? null : picked); } catch { /* the dialog reports its own problems */ }
         draw();
     }
 

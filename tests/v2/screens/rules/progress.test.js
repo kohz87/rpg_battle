@@ -12,7 +12,7 @@ import { renderClassPick } from '../../../../src/v2/screens/rules/widgets.js';
 import { clockLabel } from '../../../../src/v2/screens/rules/format.js';
 import { installDom } from '../helpers/dom.js';
 import {
-    C01, MIDNIGHT, MISSING, NAMES, PC, PENDING, QF, SHIPPED_QUERIES, answers, c02, c03, c04, c05, c06, companionOf, partyOf, progressOf, ref, sheetOf, skillView, skillsOf, trainOffer, trainingOf, LYRA, H,
+    C01, MIDNIGHT, MISSING, NAMES, PC, CONTRACTS, QF, SHIPPED_QUERIES, answers, c02, c03, c04, c05, c06, companionOf, partyOf, progressOf, ref, sheetOf, skillView, skillsOf, trainOffer, trainingOf, LYRA, H,
 } from './fixtures.js';
 import { all, drawOver, names, settle, skip, text, toolsOf, viewOf, widgetsIn } from './helpers.js';
 
@@ -297,7 +297,7 @@ test('C06 training midnight: drawn, the same session moves from running to compl
     assert.deepEqual(lines(), ['From Day 4, 23:30 to Day 5, 00:30.', 'This crosses midnight into Day 5.', 'Credit counts toward Day 5\'s limit.']);
     Object.assign(table, c06('interrupted').answers);
     d.rerender();
-    assert.ok(lines().includes('Something happened: A <b>storm</b> ended the lesson early.'));
+    assert.ok(lines().includes('Training event: A <b>storm</b> ended the lesson early.'));
     assert.equal(all(d.el, 'b').filter(node => node.parentNode.classList.contains('train-lines')).length, 0, 'no element from the marker');
     Object.assign(table, c06('requested').answers);
     d.rerender();
@@ -365,7 +365,7 @@ test('Progress: the rules not answering, or answering in a form this version doe
 test('Progress: queries asked are only the contract\'s public ones', { skip }, () => {
     const log = [];
     drawn(c05().answers, { log });
-    const allowed = new Set([...Object.keys(PENDING), ...SHIPPED_QUERIES]);
+    const allowed = new Set([...Object.keys(CONTRACTS), ...SHIPPED_QUERIES]);
     const asked = names(log).filter(name => !name.startsWith('rpg-battle.'));
     assert.deepEqual(asked.filter(name => !allowed.has(name)), [], 'every query is one the contract names');
     assert.ok(asked.includes('rules.progress') && asked.includes('rules.party'));

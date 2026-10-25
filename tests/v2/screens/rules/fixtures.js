@@ -1,12 +1,13 @@
 // Track C fixtures (RB_PHASE0 §10 "C: query/payload fixtures"): the golden seed and the constructors the contract gives,
 // extended with the explicit C01-C19 mutations as plain query answers and command payloads. Built from public projections
-// only; they do not claim that B's private records, A's quest planner or E's host exist yet.
+// only. Real-module coverage is in real-module.test.js; peer contracts absent from this checkout stay in PENDING.
 //
-// Every query a screen reads and that its owner has not built is a STUB here with the exact §3 payload shape. PENDING lists
+// Projection unit fixtures also describe peer queries that this checkout cannot implement. PENDING lists
 // each one: who builds it (A, B or E; the owning module in brackets), and whether its shape is the contract's (`§3`) or
 // something the contract left open that C had to make up (`gap`). A `gap` shape is a request to the lead, not a decision.
 
 import { createHash } from 'node:crypto';
+import { listItems } from '../../../vendor/story-block/src/v2/domains/inventory.js';
 import { makeState } from '../helpers/state.js';
 
 export const sha256 = text => createHash('sha256').update(text).digest('hex');
@@ -118,23 +119,23 @@ export const H = hashOf({ pack: smallRulesPack(), schema: 2, constants: CONSTANT
 export const seed = goldenSeed(H, sha256('fixture-payload'), sha256('fixture-lineage'));
 export const QF = queryFixtures(seed);
 
-// ---- what is stubbed, and who owes it ------------------------------------------------------------------------------------
+// ---- public contracts and the remaining peer seams ------------------------------------------------------------------------------------
 
 /**
- * Every query and command the screens use that does not exist yet. `owner` is the track (A, B, E) that builds it, with the
+ * Public queries and commands consumed by the screens. REAL_API names the implemented RB seams; PENDING retains peer handoffs. `owner` is the track (A, B, E) that builds it, with the
  * module that answers in brackets; `shape` says whether the contract gives the payload (`§3`, `§10`, `appendix`) or left it
  * open (`gap`: C made a minimal one up and needs the lead's decision).
  */
-export const PENDING = Object.freeze({
+export const CONTRACTS = Object.freeze({
     // queries
     'rules.party': { owner: 'B', shape: '§3 PartyView' },
     'rules.progress': { owner: 'B', shape: '§3 ProgressView' },
-    'rules.identity': { owner: 'B', shape: 'gap', note: 'class.choose/path.choose need rulesHash; no §3 query returns it. Stub: {hash, ...RulesIdentity}' },
-    'rules.classes': { owner: 'B', shape: 'gap', note: 'the basic picker and promotion choices need names and the three skills per class. Stub: ({tier?}) -> {id,name,tier,skills:[{skill,name,form}x3]}[]' },
-    'rules.names': { owner: 'B', shape: 'gap', note: 'promotion choices and path options are Ref only. Stub: ({refs}) -> Record<Ref,Text80>' },
-    'rules.training': { owner: 'B', shape: 'gap', note: '"B3 handoff to C" has no payload. Stub: {actor,session,caps,offers}' },
+    'rules.identity': { owner: 'B', shape: '{hash, packId, version}' },
+    'rules.classes': { owner: 'B', shape: '({tier?}) -> {id,name,tier,parent,skills:Ref[3]}[]' },
+    'rules.names': { owner: 'B', shape: '({refs}) -> Record<Ref,Text80>' },
+    'rules.training': { owner: 'B', shape: '{actor,session,caps,offers}; offers carry skill.train payloads' },
     'rules.flags': { owner: 'B', shape: '§3 {values,hash}' },
-    'rules.item': { owner: 'B', shape: 'gap', note: 'ItemRule is not defined in §3/§4. Screens only test non-null.' },
+    'rules.item': { owner: 'B', shape: 'ItemRule|null' },
     'rules.quests': { owner: 'A', shape: '§3 QuestView[]' },
     'rules.equipPlan': { owner: 'A', shape: '§3 {ok,plan}|Failure' },
     'items.slots': { owner: 'A', shape: '§3 {slots:[{key,label,blockedBy}]} plus compat counts' },
@@ -151,7 +152,7 @@ export const PENDING = Object.freeze({
     'savepoint.list': { owner: 'E', module: 'SB', shape: '§3 Snapshot[]' },
     'inventory.definitions': { owner: 'E', module: 'SB', shape: '§3 ItemDef[]' },
     // commands (payload fixtures; the command itself belongs to its owner)
-    'class.choose': { owner: 'B', shape: '§3' }, 'path.choose': { owner: 'B', shape: '§3' }, 'skill.train': { owner: 'B', shape: '§3', note: '`session` has no id source in the UI; stub offers carry it' },
+    'class.choose': { owner: 'B', shape: '§3' }, 'path.choose': { owner: 'B', shape: '§3' }, 'skill.train': { owner: 'B', shape: '§3; rules.training offers carry the session ID' },
     'quest.take': { owner: 'A', shape: '§3' }, 'quest.abandon': { owner: 'A', shape: '§3' }, 'quest.finish': { owner: 'A', shape: '§3' },
     'party.setActive': { owner: 'B', shape: '§3' }, 'summon.end': { owner: 'B', shape: '§3' },
     'item.equip': { owner: 'A', shape: '§3 targetSlot' },
@@ -161,13 +162,18 @@ export const PENDING = Object.freeze({
     'atlas.dangerSet': { owner: 'B', module: 'SD', shape: '§3 P24 (UI omits `write`)' }, 'atlas.placeBind': { owner: 'B', module: 'SD', shape: '§3 P24 (UI omits `write`)' },
     'savepoint.make': { owner: 'E', module: 'SB', shape: '§3' },
     'creation.finish': { owner: 'B', shape: '§3 class:Ref + checkActor?:RecordId' },
+    'party.acceptOffer': { owner: 'B', shape: '{offer,class?}; pinned joins require a reader-selected class' },
 });
+
+export const REAL_API = Object.freeze(['rules.party', 'rules.progress', 'rules.identity', 'rules.classes', 'rules.names', 'rules.training',
+    'rules.flags', 'rules.item', 'class.choose', 'path.choose', 'skill.train', 'party.setActive', 'summon.end', 'creation.finish', 'party.acceptOffer', 'savepoint.list', 'savepoint.make', 'inventory.definitions']);
+export const PENDING = Object.freeze(Object.fromEntries(Object.entries(CONTRACTS).filter(([name]) => !REAL_API.includes(name))));
 
 // ---- names, refs and sheets ----------------------------------------------------------------------------------------------
 
 export const ref = x => `pack.fixture/${x}`;
 /** Shipped queries the views also read (not pending anything). */
-export const SHIPPED_QUERIES = Object.freeze(['director.time', 'director.threads', 'chronicle.day', 'items.gear', 'items.condition']);
+export const SHIPPED_QUERIES = Object.freeze(['director.time', 'director.threads', 'chronicle.day', 'items.gear', 'items.condition', 'inventory.items', 'party.offers']);
 export const PC = seed.actor.id;
 export const LYRA = seed.friend.id;
 export const BRAM = 'ac_00000003';
@@ -194,6 +200,7 @@ export const NAMES = (() => {
         });
     });
     for (const [key, name] of Object.entries({ 'story/walk': 'Walk', 'pack.fixture/next': 'The next job', 'pack.fixture/mill': 'Mill', 'pack.fixture/haven': 'Haven', 'pack.fixture/wolf': 'Wolf', 'pack.fixture/pelt': 'Wolf pelt' })) table[key] = name;
+    ['Track', 'Snare', 'Dash'].forEach((name, n) => { table[ref(`s0x${n}`)] = name; });
     return table;
 })();
 
@@ -240,8 +247,8 @@ export const MISSING = Symbol('missing query');
 
 /** The classes the picker lists: the pack's, plus one more basic class so the picker has a choice. */
 export const CLASS_VIEWS = [
-    ...[0, 1, 2, 3].map(tier => ({ id: ref(`c${tier}`), name: CLASS_NAMES[tier], tier, skills: [0, 1, 2].map(n => ({ skill: ref(`s${tier}${n}`), name: NAMES[ref(`s${tier}${n}`)], form: ref(`s${tier}${n}-base`) })) })),
-    { id: ref('c0x'), name: 'Scout', tier: 0, skills: ['Track', 'Snare', 'Dash'].map((name, n) => ({ skill: ref(`s0x${n}`), name, form: ref(`s0x${n}-base`) })) },
+    ...[0, 1, 2, 3].map(tier => ({ id: ref(`c${tier}`), name: CLASS_NAMES[tier], tier, parent: tier ? ref(`c${tier - 1}`) : null, skills: [0, 1, 2].map(n => ref(`s${tier}${n}`)) })),
+    { id: ref('c0x'), name: 'Scout', tier: 0, parent: null, skills: [0, 1, 2].map(n => ref(`s0x${n}`)) },
 ];
 
 /** The default answers: a ready world, day 10 at Haven, one fresh character. Overrides replace by query name. */
@@ -251,7 +258,7 @@ export function answers(overrides = {}) {
         'director.time': { minutes: 14400, text: 'Day 10 start' },
         'director.contract': { api: 2, enabled: true, clock: true, tiers: true, threads: true, journal: true, checks: true },
         'savepoint.contract': { api: 2, snapshots: true, retainedChatRestore: true, participantsReady: true },
-        'rules.identity': { hash: H, packKey: 'fixture', packVersion: '2.0.0', packHash: H, schema: 2, engine: 'rb-rules-2', constantsHash: hashOf(CONSTANTS) },
+        'rules.identity': { hash: H, packId: 'fixture', version: '2.0.0' },
         'rules.names': ({ refs }) => Object.fromEntries((Array.isArray(refs) ? refs : []).filter(r => NAMES[r]).map(r => [r, NAMES[r]])),
         'rules.classes': ({ tier } = {}) => CLASS_VIEWS.filter(item => tier === undefined || item.tier === tier),
         'rules.party': partyOf({ active: [sheet] }),
@@ -300,16 +307,19 @@ export function slotsDescriptor(actor, blocked) {
     return { accessory: 2, worn: 4, slots: SLOT_KEYS.map((key, index) => ({ key, label: labels[index], blockedBy: blocked?.[actor]?.[key] ?? null })) };
 }
 
-// ---- training (stub: gap) ------------------------------------------------------------------------------------------------
+// ---- training projections ------------------------------------------------------------------------------------------------
 
 export function trainingOf(overrides = {}) {
     return {
         actor: PC, session: null, caps: { day: null, skill: { used: 0, max: 10 }, actor: { used: 0, max: 30 } }, offers: [], ...overrides,
     };
 }
-export const trainOffer = (overrides = {}) => ({
+export const trainOffer = (overrides = {}) => {
+    const offer = {
     trainer: ref('mentor'), name: 'Old Brann', skill: ref('s00'), form: ref('s00-base'), fee: 20, minutes: 60, session: 'tr_00000001', blocked: [], ...overrides,
-});
+    };
+    return { ...offer, payload: { actor: PC, skill: offer.skill, form: offer.form, trainer: offer.trainer, session: offer.session } };
+};
 
 // ---- the C01-C19 states ---------------------------------------------------------------------------------------------------
 
@@ -396,8 +406,8 @@ export function c06(stage = 'running') {
         completed: { time: MIDNIGHT.end, training: trainingOf({ session: { ...base, status: 'completed', startMinute: MIDNIGHT.start, endMinute: MIDNIGHT.end, creditsAwarded: 2, reason: '', event: null, capDay: 5 },
             caps: { day: 5, skill: { used: 2, max: 10 }, actor: { used: 2, max: 30 } } }) },
         interrupted: { time: MIDNIGHT.end, training: trainingOf({ session: { ...base, status: 'interrupted', startMinute: MIDNIGHT.start, endMinute: MIDNIGHT.end, creditsAwarded: 0, reason: '', capDay: 5,
-            event: { id: 'ev_00000003', text: 'A <b>storm</b> ended the lesson early.' } } }) },
-        capped: { time: MIDNIGHT.end, training: trainingOf({ session: { ...base, status: 'completed', startMinute: MIDNIGHT.start, endMinute: MIDNIGHT.end, creditsAwarded: 0, reason: 'cap', event: null, capDay: 5 },
+            event: { die: 2, template: 'A <b>storm</b> ended the lesson early.' } } }) },
+        capped: { time: MIDNIGHT.end, training: trainingOf({ session: { ...base, status: 'completed', startMinute: MIDNIGHT.start, endMinute: MIDNIGHT.end, creditsAwarded: 0, reason: 'skill-day', event: null, capDay: 5 },
             caps: { day: 5, skill: { used: 10, max: 10 }, actor: { used: 10, max: 30 } } }) },
     };
     const chosen = stages[stage];
@@ -466,6 +476,7 @@ export function c09(held = 'two-handed') {
         sheet, held, state,
         answers: answers({
             'rules.party': partyOf({ active: [sheet] }), 'rules.progress': ({ actor }) => (actor === PC ? progressOf(sheet) : null),
+            'inventory.items': () => listItems(state.domains.inventory),
             'items.slots': ({ actor }) => slotsDescriptor(actor, twoHanded ? { [PC]: { offhand: GREAT } } : {}),
             'items.gear': () => gear,
             'items.condition': ({ stack }) => (stack === heldStack ? { stack, band: 'good', cur: 90, max: 100, refine: 0, name: twoHanded ? 'Greatsword' : 'Sword', factor: 1 } : null),
@@ -575,7 +586,7 @@ export function c18(overrides = {}) {
     return { defs, flags, calls, answers: answers({
         'inventory.definitions': ({ ids } = {}) => { calls.push(['inventory.definitions', ids]); return defs; },
         'rules.flags': ({ keys } = {}) => { calls.push(['rules.flags', keys]); return flags; },
-        'rules.item': ({ def }) => { calls.push(['rules.item', def]); return def === 'craft/iron-blade' || def === 'story/bone-charm' ? { def, frozen: true } : null; },
+        'rules.item': ({ def }) => { calls.push(['rules.item', def]); return def === 'craft/iron-blade' || def === 'story/bone-charm' ? { def, allowedSlots: ['weapon'], hands: 1, requires: {}, weight: 1, unique: false } : null; },
         ...(overrides.answers ?? {}),
     }) };
 }

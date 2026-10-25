@@ -222,3 +222,15 @@ test('command-button: label and title are text, however they are written', () =>
     assert.equal(host.querySelectorAll('b').length, 0);
     assert.equal(text(host.querySelector('.rpg-cb-go')), '<b>Go</b>');
 });
+
+
+test('clearing the optional check actor writes null, which creation.finish accepts as the default', () => {
+    const { host } = setup();
+    const writes = [];
+    renderClassPick(host, { value: { field: 'checkActor', options: [{ id: 'ca_00000001', label: 'Astra' }] } }, {
+        draft: { set: (key, value) => writes.push([key, value]) },
+    });
+    host.querySelector('button').dispatch('click');
+    host.querySelector('button').dispatch('click');
+    assert.deepEqual(writes, [['checkActor', 'ca_00000001'], ['checkActor', null]]);
+});

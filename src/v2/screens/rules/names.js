@@ -1,9 +1,7 @@
 // RPG Battle v2, screens for the rules-v2 views (track C): the names of classes, skills and forms.
 //
-// The contract's views carry definition ids where a screen needs a name (a promotion's `choices: Ref[]`, a path
-// step's `options`). The contract names no query for them, so this reads one stand-in, `rules.names({ refs })`, which
-// answers { [ref]: name } and leaves out what it does not know (CONTRACT GAP, pending B: see tests/v2/screens/rules/
-// fixtures.js). Without it, or for a ref it does not know, the tail of the id is shown, never a made-up name.
+// The views carry definition ids for promotion choices and path options. rules.names({ refs }) returns their names
+// from the pinned class/skill/form graph and leaves unknown refs out. A missing name displays the tail of the id.
 
 import { ASK, ask, isRecord } from './ask.js';
 import { clip, refTail } from './format.js';

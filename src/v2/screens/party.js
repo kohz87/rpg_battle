@@ -49,7 +49,8 @@ const template = `
         <div class="ss-listcard-item">
           <span class="ss-listcard-main"><span class="ss-listcard-title">{{ o.text }}</span></span>
           <span class="acts">
-            <button class="ss-button ss-button-primary" data-command="party.acceptOffer" data-payload='{"offer":"{{ o.id }}"}'>Accept</button>
+            <ss-widget data-if="o.needsClass" name="rpg-battle.permanent-choice" data-props='{"bind":"o.pick"}'></ss-widget>
+            <button data-if="!o.needsClass" class="ss-button ss-button-primary" data-command="party.acceptOffer" data-payload='{"offer":"{{ o.id }}"}'>Accept</button>
             <button class="ss-button ss-button-quiet" data-command="party.dismissOffer" data-payload='{"offer":"{{ o.id }}"}'>Dismiss</button>
           </span>
         </div>
@@ -206,7 +207,7 @@ export const partyScreen = Object.freeze({
     mounts: Object.freeze(['tab', 'screen']),
     data: Object.freeze({
         cards: Object.freeze({ query: 'rpg-battle.cards' }),
-        offers: Object.freeze({ query: 'party.offers' }),
+        offers: Object.freeze({ query: 'rpg-battle.offers' }),
         carry: Object.freeze({ query: 'rpg-battle.carry' }),
         // The return card's own answer (return part): drawn again when your character dies or comes back.
         ret: Object.freeze({ query: 'return.status' }),

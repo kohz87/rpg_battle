@@ -1,14 +1,14 @@
 // RPG Battle v2, screens for the rules-v2 views (track C): the basic-class step of character creation, as a fragment.
 //
 // `creation.finish` gains a required `class:Ref` and an optional `checkActor:RecordId` (RB_PHASE0 §3). The wizard
-// (src/v2/creation/screen.js) is the creation engine's and is not edited here: this is the step it can mount, with the
+// (src/v2/creation/screen.js) mounts this fragment on its Start step, with the
 // query that feeds it (`rpg-battle.classPicker`) and a test that proves what it writes into the draft.
 //
 //   draft.class        the basic class the reader pressed (nothing is chosen at the start; finish refuses without one)
-//   draft.checkActor   the Story Director check actor to link, or '' for the default behaviour: the existing default
+//   draft.checkActor   the Story Director check actor to link, or null for the default behaviour: the existing default
 //                      actor, else a new one made with the character (the query says which)
 //
-// The query reads rules.classes (pending B) and checks.policy (pending B/SD); either may be missing, and the step says so.
+// The query reads rules.classes and checks.policy (SD); either may be missing, and the step says so.
 
 import { ASK, ask, isHash, isRecord, isText } from './ask.js';
 import { clip } from './format.js';
