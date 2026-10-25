@@ -25,6 +25,7 @@ import { assistSections, continuation, cutLine, defangMarker, extractBlock, gram
 import { notWritten } from './assist/extractor.js';
 import { refusedWhy } from './assist/safety.js';
 import { displayLines, readDisplayLine } from './extras.js';
+import { occurrenceOf, operationKey, replacedProofs, reusePlan } from './evidence.js';
 import { hash, readRecord, swipeLoading } from './persist.js';
 import { CAPTURE_PREFIX, HOST_MODULE } from './registry.js';
 import { STATIC_MARKER, assemble, contextNotice, estimateTokens } from './prompt.js';
@@ -332,8 +333,8 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
         const reply = own ?? (at !== null && store.carrierSid?.(at) ? { index: at, sid: store.carrierSid(at) } : null);
         const ordinal = info?.span?.source?.ordinal;
         // The proof of the block being planned again may be given again: the step keeps its ids.
-        const replacing = (info?.span?.evidence ?? []).map(proof => proof?.id).filter(Boolean);
-        return bus.run(plan.type, plan.payload ?? {}, { cause: 'system', state, seed: plan.seed, replacing, ...(reply ? { reply: Number.isInteger(ordinal) ? { ...reply, ordinal } : reply } : {}) });
+        const replacing = Array.isArray(info?.span?.evidence) ? info.span.evidence : [];
+        return bus.run(plan.type, plan.payload ?? {}, { cause: 'system', state, seed: plan.seed, replacing, reusing: typeof info?.span?.id === 'string' ? info.span : null, ...(Number.isInteger(info?.occurrence) ? { occurrence: info.occurrence } : {}), ...(reply ? { reply: { ...reply, ...(Number.isInteger(ordinal) ? { ordinal } : {}), ...(Number.isInteger(info?.opsBefore) ? { opsBefore: info.opsBefore } : {}) } } : {}) });
     }
 
     // After a delete or swipe (REPLAY.md "Reconciling"): the guarded steps that carry a `replan` are planned again
@@ -347,6 +348,7 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
             if (!done.changed) return;
             store.scheduleSave?.();
             const parts = [done.planned ? `${done.planned} planned again` : '', done.removed ? `${done.removed} taken back` : ''].filter(Boolean).join(', ');
+            if (!parts) return;     // (revs numbered on, nothing the reader needs told)
             problem({ code: 'REPLANNED', quiet: true, message: `The story before some steps changed, so ${parts || 'steps'} (their changes follow what is there now).` });
         } catch (error) {
             problem({ code: 'FAILED', message: `Steps that follow the change could not be planned again: ${error?.message ?? error}` });
@@ -781,7 +783,8 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
             for (const command of Array.isArray(out?.commands) ? out.commands : []) {
                 const payload = command?.payload ?? {};
                 const seed = seeds?.(command?.type);
-                const result = bus.run(command?.type, payload, { cause: 'system', state: live ? store.head() : now, ...(reply ? { reply: plan ? { ...reply, pending: plan.pending } : reply } : {}), ...(plan ? { planned: planned(), replacing: plan.replacing } : {}), ...(seed === undefined ? {} : { seed }) });
+                const taking = plan ? occurrenceFor(plan, command?.type, payload) : null;
+                const result = bus.run(command?.type, payload, { cause: 'system', state: live ? store.head() : now, ...(reply ? { reply: plan ? { ...reply, ...(taking.span && occurrenceOf(taking.span) === null ? { ordinal: taking.span.source.ordinal } : {}), pending: plan.pending, opsBefore: plan.blocks.reduce((sum, piece) => sum + (Number.isInteger(piece.n) ? piece.n : 0), 0) + steps.reduce((sum, step) => sum + (Array.isArray(step.ops) ? step.ops.length : 0), 0) } : reply } : {}), ...(plan ? { planned: planned(), replacing: plan.replacing, reusing: taking.span, ...(Number.isInteger(taking.value) ? { occurrence: taking.value } : {}) } : {}), ...(seed === undefined ? {} : { seed }) });
                 if (!result?.ok) {
                     problems.push(problem({ module: moduleId, index, code: result?.code ?? 'FAILED', message: `The step "${command?.type}" after the reply's lines was not run: ${result?.message ?? 'unknown error'}` }));
                     continue;
@@ -795,12 +798,23 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
                     events?.emit('committed', { receipt });
                 } else {
                     now = result.state;
-                    if (result.block && plan) plan.pending += 1;
+                    if (result.block && plan) {
+                        plan.pending += 1;
+                        if (taking.key) plan.reuse.commit(taking.key, result.block.occurrence);
+                    }
                 }
                 steps.push({ ops: result.ops, receipt, ...(result.block ? { block: result.block } : {}) });
             }
         }
         return steps;
+    }
+
+    // The occurrence a block of a Re-read that does `type` with `payload` takes (evidence.js reusePlan): the number of a block it replaces, else the next unused.
+    function occurrenceFor(plan, type, payload) {
+        try {
+            const key = operationKey(type, payload);
+            return { key, value: plan.reuse.peek(key), span: plan.reuse.span(key) };
+        } catch { return { key: null, value: undefined }; }
     }
 
     // For a Re-read: each afterCapture step run again gets the seed of the old one of its type, in order.
@@ -870,7 +884,9 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
             }
             let result;
             try {
-                const run = opts => bus.run(`${CAPTURE_PREFIX}${entry.kind}`, { ...line, kind: entry.kind, word: line.kind }, { cause: 'story', state, capture: entry, carrier: plan ? { ...carrier, pending: plan.pending } : carrier, chat, standing, ...(plan ? { planned: plan.blocks.flatMap(piece => piece.block?.evidence ?? []), replacing: plan.replacing } : {}), ...(seed === undefined ? {} : { seed }), ...opts });
+                const operation = { type: `${CAPTURE_PREFIX}${entry.kind}`, payload: { ...line, kind: entry.kind, word: line.kind } };
+                const taking = plan ? occurrenceFor(plan, operation.type, operation.payload) : null;
+                const run = opts => bus.run(operation.type, operation.payload, { cause: 'story', state, capture: entry, carrier: plan ? { ...carrier, ...(taking.span && occurrenceOf(taking.span) === null ? { ordinal: taking.span.source.ordinal } : {}), pending: plan.pending, opsBefore: plan.blocks.reduce((sum, piece) => sum + (Number.isInteger(piece.n) ? piece.n : 0), 0) } : carrier, chat, standing, ...(plan ? { planned: plan.blocks.flatMap(piece => piece.block?.evidence ?? []), replacing: plan.replacing, reusing: taking.span, ...(Number.isInteger(taking.value) ? { occurrence: taking.value } : {}) } : {}), ...(seed === undefined ? {} : { seed }), ...opts });
                 result = entry.off ? await run({ capture: { ...entry, off: false }, again: true }) : await run();
                 // Refused by a feature that is off (a command it called, ctx.feature): run as it ran before.
                 if (again && !entry.off && result?.code === 'FEATURE_OFF') result = await run({ again: true });
@@ -881,7 +897,10 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
                     collected.push(...result.ops);
                     if (plan) {
                         plan.blocks.push({ n: result.ops.length, receipt: result.receipt, ...(result.block ? { block: result.block } : {}) });
-                        if (result.block) plan.pending += 1;
+                        if (result.block) {
+                            plan.pending += 1;
+                            if (taking.key) plan.reuse.commit(taking.key, result.block.occurrence);
+                        }
                     }
                 } else if (result?.ok) store.append({ ops: result.ops, receipt: result.receipt, ...(result.block ? { block: result.block } : {}) });
             } catch (error) {
@@ -966,15 +985,6 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
         return { code: life?.status === 'restore-pending' ? 'RESTORE_PENDING' : 'DEPENDENCY_UNAVAILABLE', name: registry.module?.(id)?.name ?? id, reason: life?.reason ?? 'It is not running.' };
     }
 
-    // The proof ids on the blocks a Re-read replaces: its story lines' and its planned steps' (spans marked `story` or `replan`).
-    function replacedProof(record) {
-        const ids = new Set();
-        for (const span of Array.isArray(record?.spans) ? record.spans : []) {
-            if (span && (span.story === true || span.replan)) for (const proof of Array.isArray(span.evidence) ? span.evidence : []) if (typeof proof?.id === 'string') ids.add(proof.id);
-        }
-        return ids;
-    }
-
     async function reread(index) {
         const chat = ctx?.chat ?? [];
         const message = Number.isInteger(index) ? chat[index] : undefined;
@@ -1005,24 +1015,42 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
         let ops;
         let off = [];
         let steps = [];
-        // `replacing`: the proof ids of the blocks this Re-read replaces (the story lines and the steps), free to be given
-        // again, so a line that reads as it did keeps its ids and what the reader built on them.
-        const plan = { blocks: [], pending: 0, replacing: replacedProof(readRecord(message)) };
+        // `replacing`: the proof of the blocks this Re-read replaces (its story lines and its steps): ids of them may be held again by the blocks that replace
+        // them. `reuse`: the occurrences those blocks have, given again per operation while the number of blocks of the operation is unchanged.
+        let plan = null;
+        const problemsFrom = problems.length;
+        const reply = store.carrierSid?.(index) ? { index, sid: store.carrierSid(index) } : null;
         try {
             let after;
-            const seeds = storySeeds(readRecord(message));
-            ({ ops, off, state: after } = await captureEach(index, lines, receipts, problems, base, seeds, new Map(), null, plan));
-            for (const mark of [LATE, NOW]) {
-                const group = extra.filter(item => item.mark === mark).map(item => item.line);
-                if (!group.length) continue;
-                const more = await captureEach(index, group, receipts, problems, after, seeds, new Map(), mark, plan);
-                ops = [...ops, ...more.ops];
-                off = [...new Set([...off, ...more.off])];
-                after = more.state;
+            // The Re-read is planned; when an operation has more or fewer blocks than it replaces it is planned again with none of that
+            // operation's old occurrences given back (evidence.js reusePlan), and again while a plan finds another operation changed (the
+            // retired set only grows). Every pass starts from the same inputs but that set: seeds, steps' seeds, plan and outputs are made anew.
+            let retire = new Set();
+            const bound = 32;     // (each pass retires at least one more operation, so a reply ends well before; a plan that does not is not stored)
+            let settled = false;
+            for (let pass = 0; pass <= bound; pass += 1) {
+                receipts.length = 0;
+                problems.length = problemsFrom;
+                steps = [];
+                const seeds = storySeeds(readRecord(message));
+                plan = { blocks: [], pending: 0, replacing: replacedProofs(readRecord(message)), reuse: reusePlan(readRecord(message), retire) };
+                ({ ops, off, state: after } = await captureEach(index, lines, receipts, problems, base, seeds, new Map(), null, plan));
+                for (const mark of [LATE, NOW]) {
+                    const group = extra.filter(item => item.mark === mark).map(item => item.line);
+                    if (!group.length) continue;
+                    const more = await captureEach(index, group, receipts, problems, after, seeds, new Map(), mark, plan);
+                    ops = [...ops, ...more.ops];
+                    off = [...new Set([...off, ...more.off])];
+                    after = more.state;
+                }
+                // The reply's afterCapture steps, run again after its new story lines (none when none was kept).
+                if (receipts.length) steps = await afterCapture(index, { type: 'reread', problems, state: after, reply, seeds: stepSeeds(readRecord(message)), plan });
+                const unsure = plan.reuse.ambiguous([...plan.blocks, ...steps]);
+                if (!unsure.length) { settled = true; break; }
+                retire = new Set([...retire, ...unsure]);
             }
-            // The reply's afterCapture steps, run again after its new story lines (none when none was kept).
-            const reply = store.carrierSid?.(index) ? { index, sid: store.carrierSid(index) } : null;
-            if (receipts.length) steps = await afterCapture(index, { type: 'reread', problems, state: after, reply, seeds: stepSeeds(readRecord(message)), plan });
+            // A plan that still reports a changed operation is never stored.
+            if (!settled) return refusal('CONFLICT', 'The reply could not be read again without taking blocks for ones that went; nothing was changed.');
             // B-b2-timeline-r2: the lines ran while the reader could act (a capture handler may wait). A
             // message deleted, another chat opened, the reply swiped or edited, or a reply begun in that
             // time: what was read is no longer this reply's, so nothing is stored (not even on the

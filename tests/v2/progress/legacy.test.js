@@ -9,6 +9,7 @@
 //   * with a rules pack pinned, the real party's level is what rules.progress and the guards read.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { part as progressPart } from '../../../src/v2/progress/index.js';
 import { PARTS, createModule } from '../../../src/v2/module.js';
 import { createHost } from '../../vendor/story-block/testkit/index.js';
 import { MODULE_ID } from '../../../src/v2/module.js';
@@ -161,7 +162,7 @@ test('with a rules pack pinned the real party\'s level is what rules.progress sh
     await seeded(3, async () => {
         // One module, as the real one is: Story Block answers a replay guard only its owner's own queries.
         const host = await mergedHost({ modules: [CLOCK] });
-                try {
+        try {
             assert.equal((await host.cmd('party.create', { name: 'Ren', preset: 'fighter' })).ok, true);
             const pc = host.q('party.pc').id;
             await host.send('Dawn.', host.reply('The road.'));
