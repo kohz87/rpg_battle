@@ -5,12 +5,44 @@ generation bounds), `src/v2/progress/` (choices, offers, credits, guards, comman
 `src/v2/training/` (the clock, the request, the host's step, the offers). Tests: `tests/v2/progress/`,
 `tests/v2/rules/`, `tests/v2/training/`. Contract: `RB_CONTRACT` §3–§7, B3 and B5 in the track B design.
 
-The parts (`rules/index.js`, `progress/index.js`) are one unit: `rulesParts` (exported by `rules/index.js`) lists
-`['rules', part]` and `['progress', part]`, registered together or not at all (`rules.settle` writes `progress`; every
-`progress` guard reads the `rules` pin). `module.js` puts them in `PARTS` but registers them only when the host's preflight
-allows it: `createModule` activates from a checked frozen pack (`rules`) or resumes a chat whose preflight says it is already
-on rules v2 with a matching hash. The `rules` slice's root is the rules-v2 marker `sdk.preflight` reads, so a legacy chat
-stays legacy: no existing chat, pack or command changes (`tests/v2/progress/legacy.test.js`).
+The rules, progression and training parts register together. On a host advertising
+`preflight.deferredDomains`, their domains remain absent until Setup's guarded `rules.pin` command;
+their command/query dispatch and skill-use prompt grammar also remain absent until a pin exists.
+`rules.identity` stays available as a null-or-identity probe. The older checked `rules` activation
+argument and existing-pin resume path remain supported. Production `boot()` passes live preflight
+and query access; it needs no injected rules argument.
+
+## Stage 5: choosing the timeline's rules
+
+At character creation, `rules.selection({})` projects the enabled, checked `packs.rules` offers.
+One pack is offered explicitly; several packs each have a reader-selected Pin button. None leaves
+the chat legacy. The normal creation opener and start card lead to track C's Setup before the
+class picker; direct finish/create/import commands cannot bypass an offered choice. Pin buttons
+use the existing `rpg-battle.command-button`, including its refusal message.
+
+`rules.pin { pack, version, rulesHash, packHash }` is a direct player UI command, accepted only
+before any actor exists and before a pin exists. It resolves the selected pack through
+`packs.rules({ pack, resolve: true })`, verifies both hashes and the version, validates the stored
+shape, and atomically writes rules/progress/training plus frozen inventory definitions. A stale,
+disabled, changed or conflicting definition refuses the whole transaction. The saved rules slice
+contains the complete resolved ruleset, hashes, pack ID/version, constants/progression and item
+definitions. Once pinned, selection and mechanics use those bytes exclusively. Reinstalling the
+same version, disabling or removing the pack cannot change the running timeline. Repinning is
+refused even before character creation; a new character timeline may choose again.
+
+The pin is **reply-bound**, as character creation and other commands are. Its guard carries
+`replyBound: true`: deleting or swiping away its reply retracts the pin, definitions and dependent
+creation/choices. This includes deletion of the first reply: the host omits this guarded setup
+from the state it otherwise carries forward from a deleted prefix. A pin should not silently
+survive while its creation prerequisites disappear. The saved pin is replayed as stored ops;
+rebuild never runs the command or resolves an installed pack again. As with the host's existing
+history contract, a prefix deleted outside a session that saw it can require explicit history
+repair; no replacement pack is substituted.
+
+Host dependency: Story Block `49675e4bfcc7ce2f11916ab31767b40e29779936` or a descendant,
+vendored by sync-testkit. P01's additive transport/lifecycle contracts are documented in SB
+PACKS.md (`resolve: true` and its `pin` transport), LIFECYCLE.md (deferred domains and API
+presence) and REPLAY.md (`replyBound`). These are coordinated host changes, not missing seams.
 
 ## Records
 
@@ -284,8 +316,8 @@ this slice, and `engine-unchanged.test.js` plays them again; `pinned.test.js` pl
 
 ## Code that production does not reach yet
 
-`pinRules` and `registerPackDefs` (activation) run only on a checked activation or a resumed rules-v2 chat (`createModule` registers `rulesParts`
-then, not on a legacy chat). Everything else above is reached through the commands and queries once the parts are registered.
+`pinRules` and `registerPackDefs` are reached by production Setup pinning, as well as the older checked activation path.
+The guarded `rules.pin` transaction initializes the deferred parts; subsequent commands use only the surviving stored pin.
 
 ## Rescue proofs (track A, B3)
 

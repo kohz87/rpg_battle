@@ -34,3 +34,18 @@ Lead-owned commits: 3648da3 (replay declarations); earlier branch commit e2d1cd4
 No protected source folder was changed in this resume except the authorized SD dead-board
 export removal. The earlier permitted RB hook retirement is party/commands.js:654 and
 combat/quest.js. Full resume file lists are in track-a-files.md.
+
+## Stage 5: production rules pinning
+
+Production bare boot now reserves the rules/progress/training parts with deferred domains and API
+presence on the coordinated host. Setup offers enabled rules packs before character creation;
+`rules.pin` checks the selected version, rulesHash and packHash, then freezes the resolved rules
+and complete definitions once. The existing command-button widget reports every refusal. The
+normal creation entrances lead to Setup; a running legacy or pinned character cannot change rules.
+No pack means the old chat, domain and prompt bytes, including item capture/equip, are unchanged.
+
+The pin is reply-bound, including when its first reply is deleted. Dependent guarded creation and
+choices retract with it. A new timeline may choose again. Rebuild/reload and same-version pack
+replacement/removal are covered through the actual bare entry point, without a test pin command.
+Host changes and their dependency commit are recorded in progress.md. The testkit is synced from
+that host, including the intervening upstream E6b history changes; no vendor source is edited by hand.

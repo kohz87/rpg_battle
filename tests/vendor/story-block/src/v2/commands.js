@@ -154,7 +154,7 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
         }
         for (const def of registry.modules?.() ?? []) {
             const fn = def?.queries?.[name];
-            if (typeof fn === 'function') return fn;
+            if (typeof fn === 'function' && fn.enabled !== false) return fn;
         }
         return null;
     }

@@ -33,3 +33,14 @@ M	tests/v2/quests/helpers/host.js
 M	tests/v2/quests/settlement-replay.test.js
 M	tests/v2/quests/settlement-runtime.test.js
 ```
+
+## Stage 5 files
+
+- Entry/registration: `index.js`, `src/v2/module.js`.
+- Creation/Setup: `src/v2/creation/open.js`, `src/v2/screens/rules/setup.js`, `screens.js`.
+- Pinning: new `src/v2/rules/selection.js`; rules/progress/training index comments updated.
+- Evidence: new `tests/v2/rules/selection.test.js`; progress.md and track-a*.md notes.
+- Host dependency: tests/vendor/story-block synced from SB 49675e4 (177 files, matrix 1), including
+  resolved pack transport, deferred API/domain activation and reply-bound prefix handling.
+- Coordinated SB source: packs/index.js, packs/installed.js, registry.js, sdk.js, commands.js,
+  replay.js, store.js; PACKS/LIFECYCLE/REPLAY docs; pack transport, deferred-domain and preflight tests.

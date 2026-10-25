@@ -56,7 +56,7 @@ const KNOWN_KEYS = ['id', 'name', 'version', 'description', 'requires', 'domains
 const CONTEXT_KEYS = ['static', 'tail', 'budget', 'feature', 'parts'];
 // What `requires` may name: the Story Block it needs, and the peers (modules) it needs registered.
 const REQUIRES_KEYS = ['storyBlock', 'peers'];
-const COMMAND_KEYS = ['handler', 'internal', 'feature'];
+const COMMAND_KEYS = ['handler', 'internal', 'feature', 'enabled'];
 export const FIELD_TYPES = Object.freeze(['bool', 'int', 'choice', 'text', 'list', 'profile']);
 
 const MODULE_ID = /^[a-z0-9][a-z0-9._-]*$/;
@@ -723,7 +723,7 @@ export function createRegistry({ hostVersion = null, warn = message => console.w
         const owner = owners.command.get(name);
         if (owner && held(owner)) return null;
         const entry = commandEntry(name);
-        return entry ? (isObject(entry) ? entry.handler : entry) : null;
+        return entry && entry.enabled !== false ? (isObject(entry) ? entry.handler : entry) : null;
     }
 
     function commandEntry(name) {
@@ -805,6 +805,7 @@ export function createRegistry({ hostVersion = null, warn = message => console.w
             const owner = owners.query.get(name);
             if (!owner) return null;
             const fn = defs.get(owner).queries[name];
+            if (fn.enabled === false) return null;
             return off(fn) || held(owner) ? offQuery : fn;
         },
         initialState,
