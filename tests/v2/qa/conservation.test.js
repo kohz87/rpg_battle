@@ -4,7 +4,7 @@
 // a fight's loot is exactly what its receipt lists, a draught drunk in a fight leaves the
 // inventory when it is drunk. Known leaks are `todo`.
 import assert from 'node:assert/strict';
-import { bytes, fightOut, holdings, stacksOf, storyCoin, storyItem, winFight, withHero, each } from './helpers/harness.js';
+import { bytes, fightOut, holdings, stacksOf, storyCoin, storyItem, winFight, withHero, each, equipsOnInt } from './helpers/harness.js';
 
 const stackOf = (h, defId) => stacksOf(h, defId)[0]?.stack;
 
@@ -77,7 +77,7 @@ each('craft.commission takes the materials and the fee; craft.collect gives exac
     assert.equal(again.ok, false, 'collected once only');
 });
 
-each('item.use takes exactly one dose; item.give, item.equip, item.unequip move nothing in or out', () => {
+each('item.use takes exactly one dose; item.give, item.equip, item.unequip move nothing in or out', equipsOnInt, () => {
     const { h, pc } = withHero();
     const lyra = h.command('party.addCompanion', { name: 'Lyra', role: 'archer' }, { cause: 'system' }).receipt.data.actor;
     const pot = storyItem(h, 'Minor Healing Draught', 3);

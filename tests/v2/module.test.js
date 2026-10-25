@@ -15,7 +15,11 @@ test('the merged module is a valid Story Block module with every part\'s pieces'
     assert.deepEqual(Object.keys(module.domains).sort(), ['bestiary', 'checks', 'combat', 'craft', 'creation', 'effects', 'gear', 'party', 'trade']);
     for (const [, part] of PARTS.filter(([id]) => !['rules', 'progress', 'training'].includes(id))) {
         for (const type of Object.keys(part.commands ?? {})) assert.equal(typeof module.commands[type], 'function', type);
-        for (const name of Object.keys(part.queries ?? {})) assert.equal(typeof module.queries[name], 'function', name);
+        for (const name of Object.keys(part.queries ?? {})) {
+            // What a part lists in pinnedQueries answers only on a pinned chat, as the rules parts do (legacy.test.js).
+            if (part.pinnedQueries?.includes(name)) assert.equal(Object.hasOwn(module.queries, name), false, `${name} awaits pinned preflight`);
+            else assert.equal(typeof module.queries[name], 'function', name);
+        }
         for (const name of Object.keys(part.widgets ?? {})) assert.ok(module.widgets[name], name);
         for (const screen of part.screens ?? []) assert.ok(module.screens.includes(screen), screen.id);
     }

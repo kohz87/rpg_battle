@@ -2,7 +2,7 @@
 // limit, not ready — and INVALID for a malformed payload), and every rejection leaves the state
 // byte-identical (SPEC §3.2: any throw rejects the whole command).
 import assert from 'node:assert/strict';
-import { bytes, stacksOf, storyCoin, storyItem, withHero, each } from './helpers/harness.js';
+import { bytes, stacksOf, storyCoin, storyItem, withHero, each, equipsOnInt } from './helpers/harness.js';
 
 const stackOf = (h, defId) => stacksOf(h, defId)[0]?.stack;
 
@@ -21,15 +21,20 @@ each('item.use at full HP with nothing to cure: REFUSED, nothing spent', () => {
     assert.equal(rejected(h, 'item.use', { stack: stackOf(h, pot) }).code, 'REFUSED');
 });
 
-each('item.equip past the rules\' worn-piece limit: REFUSED', () => {
+each('item.equip of a piece with a generic old slot (a worn hood): REFUSED with the choice until the reader names a slot', equipsOnInt, () => {
     const { h } = withHero();
-    const boots = storyItem(h, 'Leather Boots', 1, 'AGI +1');
+    const boots = storyItem(h, 'Leather Boots', 1, 'AGI +1, slot: feet');
     const hood = storyItem(h, 'Hood', 1, 'worn, DEF +1');
     assert.equal(h.command('item.equip', { stack: stackOf(h, boots) }).ok, true);
-    assert.equal(rejected(h, 'item.equip', { stack: stackOf(h, hood) }).code, 'REFUSED');
+    const before = bytes(h.state());
+    const refused = rejected(h, 'item.equip', { stack: stackOf(h, hood) });
+    assert.equal(refused.code, 'REFUSED');
+    assert.match(refused.message, /Choose where to wear it: Head, Body, Legs or Feet/);
+    assert.equal(bytes(h.state()), before);
+    assert.equal(h.command('item.equip', { stack: stackOf(h, hood), targetSlot: 'head' }).ok, true);
 });
 
-each('item.equip of an off-hand beside a two-handed weapon: REFUSED', () => {
+each('item.equip of an off-hand beside a two-handed weapon: REFUSED', equipsOnInt, () => {
     const { h } = withHero();
     const great = storyItem(h, 'Greatsword', 1, 'ATK +5, two-handed');
     const shield = storyItem(h, 'Wooden Shield', 1, 'DEF +2');

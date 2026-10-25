@@ -140,8 +140,11 @@ test('party card: EQUIPMENT is the heading and the tiles, all inside the part th
         assert.equal(all(card, 'ss-widget[name="ss.hero"]').length, 1, 'the compact card (the hero) once');
     }
     const [ren, lyra] = all(drawn.el, 'article.actor');
-    assert.equal(tilesOf(ren).length, 6, 'Main hand, Off hand, Body, Worn, Accessory 1, Accessory 2');
-    assert.deepEqual(tilesOf(ren).map(tile => tile.label), ['Main hand', 'Off hand', 'Body', 'Worn', 'Accessory 1', 'Accessory 2']);
+    // items.slots now answers the contract's compatibility counts (worn: 4, accessory: 2, §3). This six-slot card
+    // reads `worn` as the pieces beside the Body tile, so it draws four Worn tiles until the eight-slot equipment
+    // widget (track C, draft #139, which reads the slots list) replaces it.
+    assert.equal(tilesOf(ren).length, 9, 'Main hand, Off hand, Body, 4 x Worn, Accessory 1, Accessory 2');
+    assert.deepEqual(tilesOf(ren).map(tile => tile.label), ['Main hand', 'Off hand', 'Body', 'Worn', 'Worn', 'Worn', 'Worn', 'Accessory 1', 'Accessory 2']);
     assert.equal(tilesOf(ren).filter(tile => tile.filled).length, 1, 'Ren has one piece on');
     assert.equal(tilesOf(lyra).filter(tile => tile.filled).length, 0, 'Lyra wears nothing');
     assert.equal(all(drawn.el, '.gear').length, 0);

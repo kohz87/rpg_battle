@@ -51,7 +51,11 @@ const KINDS = [
     },
 ].map(kind => ({ ...kind, pattern: new RegExp(`(?:${kind.words.join('|')})s?\\b`, 'i') }));
 
-const MAIN_BY_SLOT = { weapon: 'ATK', offhand: 'DEF', armour: 'DEF', worn: 'DEF', accessory: 'LUK' };
+// The v2 slots (P07) take the numbers of the old word they fold into: head/legs/feet worn, body armour.
+const MAIN_BY_SLOT = {
+    weapon: 'ATK', offhand: 'DEF', armour: 'DEF', worn: 'DEF', accessory: 'LUK',
+    head: 'DEF', body: 'DEF', legs: 'DEF', feet: 'DEF', 'accessory-1': 'LUK', 'accessory-2': 'LUK',
+};
 
 // ---------------------------------------------------------------------------------------
 // Text helpers shared by reading and writing.
@@ -474,10 +478,14 @@ export function capItem(item, level, rules = DEFAULT_RULES) {
     return { stats, capped: true, budget, cost };
 }
 
-/** How many worn pieces and accessories count (the reader's rules.gear), whole and at least 0. */
+/**
+ * How many worn pieces and accessories count: fixed by the eight slots (P07), one piece to a slot:
+ * head, legs and feet are the worn pieces (the body is the armour), accessory-1 and -2 the accessories.
+ * An older rules file's `gear` numbers no longer change it. `rules` is kept for the callers' sake.
+ */
 export function gearLimits(rules = DEFAULT_RULES) {
-    const limit = (value, fallback) => (Number.isFinite(Number(value)) ? Math.max(0, Math.min(9, Math.round(Number(value)))) : fallback);
-    return { worn: limit(rules?.gear?.worn, 1), accessory: limit(rules?.gear?.accessories, 2) };
+    void rules;
+    return { worn: 3, accessory: 2 };
 }
 
 const SLOT_NAMES = { weapon: 'weapon', offhand: 'off-hand', armour: 'armour', worn: 'worn piece', accessory: 'accessory' };

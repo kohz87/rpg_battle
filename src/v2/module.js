@@ -6,6 +6,9 @@
 //
 // - domains, commands and queries are put together as they are; a name two parts claim is a
 //   mistake, refused here before Story Block ever sees it.
+// - pinned preflight: the rules parts (rules, progress, training) and the queries a part lists in `pinnedQueries` (the items
+//   part's `rules.equipPlan`) are registered only on a chat the host's preflight says is rules v2; any other chat gets none
+//   of them and Story Block keeps its own storage (contract §9). `rules.sheet` is the rules part's alone.
 // - capture: every part's kinds, each line handed to the part that owns its kind. One kind is
 //   taken over on purpose: `check` is the checks part's (a pending check the reader rolls), not
 //   the party part's (which keeps its check.resolve command for compatibility).
@@ -133,7 +136,8 @@ export function createModule({ settings = null, query = null, parts = [], rules 
         activation = slice;
     }
     const ruleIds = new Set(rulesParts.map(([id]) => id));
-    const registered = [...PARTS.filter(([id]) => activation || resumed || !ruleIds.has(id)), ...parts];
+    const pinned = Boolean(activation || resumed);
+    const registered = [...PARTS.filter(([id]) => pinned || !ruleIds.has(id)), ...parts];
     const defaults = {};
     const schema = {};
     for (const [id, part] of registered) {
@@ -241,6 +245,8 @@ export function createModule({ settings = null, query = null, parts = [], rules 
             }, handler);
         }
         for (const [name, fn] of Object.entries(part.queries ?? {})) {
+            // A query that answers only where rules v2 does (the items part's `rules.equipPlan`) is left out of a chat that pins none.
+            if (!pinned && part.pinnedQueries?.includes(name)) continue;
             claim(owners.query, name, id, 'query');
             // The settings (with the terms, which ask the packs) are worked out only when the query reads them.
             queries[name] = withFeature((state, args, tools) => fn(state, args, tools ? lazySettings(tools, () => withTerms(partSettings(moduleSettings(), id), typeof tools.query === 'function' ? tools.query : null)) : localTools(state, id)), fn);

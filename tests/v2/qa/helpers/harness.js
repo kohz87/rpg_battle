@@ -35,6 +35,7 @@ import { part as items } from '../../../../src/v2/items/index.js';
 import { part as combat } from '../../../../src/v2/combat/index.js';
 import { part as trade } from '../../../../src/v2/trade/index.js';
 import { sessionOf } from '../../../../src/v2/combat/stored.js';
+import { EQUIP_PARTS } from '../../items/helpers/equip-parts.js';
 
 const { deepFreeze } = sbOps;
 const makeRng = sbRng.rng;
@@ -67,6 +68,12 @@ export function each(name, options, fn) {
         });
     }
 }
+
+/**
+ * `each` options for a test that wears something: item.equip is Story Block's `inventory.equipOn` asking this
+ * module's `rules.equipPlan` (P07, E4), which the 'sb' host (alpha.2, kept for the older bus) does not have.
+ */
+export const equipsOnInt = host => (host === 'sb' ? { skip: 'item.equip needs the E4 host (inventory.equipOn with rules.equipPlan); the alpha.2 host has neither' } : {});
 
 const isObject = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
@@ -139,7 +146,7 @@ const base36 = (n, width = 8) => {
  * }. `settings` are RPG Battle's module settings (namespaced as module.js keeps them:
  * `combat.hitBase`), `coreSettings` Story Block's (currency).
  */
-export function createHarness({ host = defaultHost, shim = true, settings = {}, coreSettings = {}, seed = 1, queryOverrides = {} } = {}) {
+export function createHarness({ host = defaultHost, shim = true, settings = {}, coreSettings = {}, seed = 1, queryOverrides = {}, equip = true } = {}) {
     const runtime = RUNTIMES[host];
     if (!runtime) throw new Error(`No host ${host}.`);
     const registry = runtime.registry.createRegistry();
@@ -168,7 +175,8 @@ export function createHarness({ host = defaultHost, shim = true, settings = {}, 
     let rbDefaults = {};
     const settingsOf = id => (id === RB_ID ? { ...rbDefaults, ...settings } : id === CORE_ID ? { currency: 'gold', currencyShort: '', ...coreSettings } : {});
     const core = wrapModule(runtime.core.createCoreModule({ hooks: name => registry.hooks(name), settings: () => settingsOf(CORE_ID) }));
-    const rb = wrapModule(createModule({ settings: () => settingsOf(RB_ID) }));
+    // `equip` (default): the planner and a stand-in rules.sheet, which a chat that pins no rules does not have (equip-parts.js); the harness wears things.
+    const rb = wrapModule(createModule({ settings: () => settingsOf(RB_ID), ...(equip ? { parts: [...EQUIP_PARTS] } : {}) }));
     Object.assign(rb.queries, queryOverrides);
     rbDefaults = rb.settings.defaults;
     registry.register(core);

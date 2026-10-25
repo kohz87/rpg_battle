@@ -2,7 +2,7 @@
 //
 // Who is in the party (rules.party: PC plus two active, the rest in reserve, summons and pets as temporary units), what
 // each wears in the eight slots (items.slots, with the SheetView's gear), what a bag piece would do on them
-// (items.canWear and rules.equipPlan, both read-only, both pending A) and whether a companion's dossier is still found
+// (items.canWear and rules.equipPlan, both read-only and track A's; the planner answers once rules are pinned) and whether a companion's dossier is still found
 // (npc.identity, pending NSD). The page asks and shows. The slot a piece takes, what it displaces and why it is refused
 // are the answers' words; the page never adds a piece's own bonuses to its requirement, never picks a slot the reader
 // did not ask for, and never sends rules.registerItem or rules.flagSet.

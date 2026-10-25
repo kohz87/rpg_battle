@@ -243,7 +243,13 @@ test('C09 Roster reads inventory.items only, with poisoned state and real item d
     ok(await w.internal('inventory.grant', { def: ref('sword'), qty: 1, to: 'party' }));
     const r = model(w, rosterView);
     assert.equal(r.active[0].bag[0].name, 'Iron Sword');
-    assert.equal(r.active[0].bag[0].blocked.length > 0, true, 'missing track A plan is shown as a hold');
+    // Track A answers items.canWear and rules.equipPlan: the piece is wearable and the row carries the plan's slot and the
+    // press that sends it (a hold would be the refusal's own words, never a missing-plan note).
+    const [row] = r.active[0].bag;
+    assert.equal(row.blocked, '');
+    assert.equal(row.default.slot, 'weapon');
+    assert.deepEqual(row.default.payload, { stack: row.stack, to: r.active[0].id });
+    assert.equal(row.default.button.command, 'item.equip');
     assert.deepEqual(w.problems(), []);
 });
 
