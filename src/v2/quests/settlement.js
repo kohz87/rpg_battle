@@ -46,7 +46,7 @@ function assess(query, pin, thread, outcome, policy, reply = null, recorded = {}
         ...(thread.rpg.turnInPlace !== null ? { place: inputs.place } : {}),
         ...(thread.rpg.giver !== null ? { giver: inputs.giverPresent === true } : {}),
         ...(thread.rpg.requirements.length && plan.outcome === 'done' ? { prerequisites: { ok: true } } : {}),
-        proofs: inputs.proofs.filter(proof => plan.proofs.some(pin => pin.id === proof.id)), plan, follow }) };
+        proofs: inputs.proofs.filter(proof => plan.proofs.some(pin => pin.id === proof.id)).sort((a, b) => a.id.localeCompare(b.id)), plan, follow }) };
 }
 
 function takeInputs(thread, inputs, pin, policy) {
@@ -229,6 +229,9 @@ export function createSettlement(policy = {}) {
         if (!thread?.rpg) return off();
         const checked = assess(query, pin, thread, payload.outcome, policy, payload.reply ?? null, info.recorded?.external ?? {});
         if (!checked.ok) return off();
+        // Older guards retained proof iteration order. Reuse that order after verifying the same proof set.
+        const proofOrder = new Map((info.recorded?.inputs?.proofs ?? []).map((p, n) => [p.id, n]));
+        checked.inputs.proofs.sort((a, b) => (proofOrder.get(a.id) ?? Infinity) - (proofOrder.get(b.id) ?? Infinity));
         const expected = buildGuard({ hash, owner: 'rpg-battle', epoch: info.guard.epoch, source: info.source,
             rulesHash: pin.hash, kind: 'quest.settlement', payload, inputs: guardInputs(checked.inputs) });
         return expected.inputHash === info.guard.inputHash && hash(guardInputs(info.recorded?.inputs ?? {})) === hash(guardInputs(checked.inputs))

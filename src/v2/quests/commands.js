@@ -1,4 +1,5 @@
 // Retained quest command payloads; all thread changes go through SD's P23 writers.
+import { openingPlan, commitOpening } from './opening.js';
 import { offeredQuest } from './outcomes.js';
 import { OBJECTIVE_FIELDS } from './objectives.js';
 import { ask, boundary, call, copy, fail, freshThreadId, pinned, questInputs, templateOf, threadOf, writeId } from './seams.js';
@@ -20,6 +21,15 @@ export function offerQuest(ctx, template, options = {}) {
 }
 
 export function createCommands({ settleQuest, evaluateRequirements = null, guardTake = null, recordObjective = null, attributeCoin = null } = {}) {
+    function open(ctx, payload = {}) {
+        if (ctx.cause !== 'ui' || ctx.caller) return ctx.fail('REFUSED', 'Make this a quest is a reader action.');
+        if (!payload || Object.keys(payload).some(k => !['id', 'template', 'text', 'foe', 'place', 'item'].includes(k))) return ctx.fail('INVALID', 'Use an existing goal and an explicit open template binding.');
+        const { id, ...binding } = payload;
+        const thread = threadOf(ctx.query, { id });
+        if (!thread) return ctx.fail('NOT_FOUND', 'There is no such goal.');
+        const plan = openingPlan(ctx, binding, thread);
+        return commitOpening(ctx, binding, thread, plan);
+    }
     function take(ctx, payload = {}) {
         if (payload.by !== undefined || payload.credit !== undefined || payload.reason !== undefined) return ctx.fail('INVALID', 'Taking a quest uses id or key.');
         if (ctx.caller && !['story-director', 'rpg-battle'].includes(ctx.caller)) return ctx.fail('REFUSED', 'Quest acceptance requires the reader or validated player intent.');
@@ -27,7 +37,7 @@ export function createCommands({ settleQuest, evaluateRequirements = null, guard
         const pin = pinned(ctx.read('rules'));
         if (!pin) return ctx.fail('RULES_MISMATCH', 'No frozen quest rules are pinned.');
         const template = templateOf(pin, thread.rpg?.template ?? thread.key);
-        if (!template) return ctx.fail('RULES_MISMATCH', 'This goal has no frozen quest template.');
+        if (!template || !thread.rpg && template.open) return ctx.fail('RULES_MISMATCH', 'This goal needs an explicit quest binding.');
         const { cursor } = boundary(ctx);
         const quest = thread.rpg ? copy(thread.rpg) : offeredQuest(template, thread.id);
         const inputs = questInputs(ctx.query, { ...thread, rpg: quest });
@@ -103,5 +113,5 @@ export function createCommands({ settleQuest, evaluateRequirements = null, guard
         const { id: _id, key: _key, ...request } = payload;
         return recordObjective(ctx, thread, request);
     }
-    return { 'quest.attributeCoin': attributeCoin, 'quest.take': take, 'quest.abandon': abandon, 'quest.finish': finish, 'quest.payOwed': payOwed, 'quest.objective': objective };
+    return { 'quest.open': open, 'quest.attributeCoin': attributeCoin, 'quest.take': take, 'quest.abandon': abandon, 'quest.finish': finish, 'quest.payOwed': payOwed, 'quest.objective': objective };
 }

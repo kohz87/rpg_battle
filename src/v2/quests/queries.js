@@ -65,6 +65,7 @@ export function createQueries(policy = {}) {
         return { active, finished: finished.slice(0, 20), finishedCount: finished.length, hasActive: active.length > 0, hasFinished: finished.length > 0 };
     }
     return {
+        'quest.openTemplates': state => Object.values(pinned(state?.domains?.rules)?.resolved?.quests ?? {}).filter(t => t.open).map(t => ({ id: t.id, name: t.name, kinds: t.objectives.map(o => o.kind) })),
         'quest.replayInputs': replayInputs,
         'quest.progress': progress, 'quest.details': details, 'quest.ranks': (state, _args, tools) => pinned(state?.domains?.rules) ? ranksOf(queryOf(tools)) : [],
         'quest.owed': (_state, _args, tools) => all(queryOf(tools)).map(owedOf).filter(Boolean),

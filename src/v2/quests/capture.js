@@ -1,6 +1,7 @@
 // RB owns quest lines. Narration proposes offers/progress/turn-ins; code owns acceptance and rewards.
+import { openingPlan, commitOpening } from './opening.js';
 import { offerQuest } from './commands.js';
-import { ask, boundary, call, pinned, templateOf, threadOf } from './seams.js';
+import { ask, boundary, call, pinned, templateOf, threadOf, freshThreadId, writeId } from './seams.js';
 
 import { turnInKey } from './credit.js';
 
@@ -12,11 +13,27 @@ export function createCapture({ settleQuest = null, captureObjective = null, gua
         if (thread && !thread.rpg && thread.kind === 'quest' && !thread.acceptance) {
             return { summary: 'Quest from an earlier version (read only).', narrate: false, data: { quest: thread.id } };
         }
+        if (line.op === '+' && Object.hasOwn(line.labels ?? {}, 'like') && pinned(ctx.read('rules'))) {
+            const labels = line.labels ?? {};
+            const binding = { template: labels.like, text: labels.text,
+                ...Object.fromEntries(['foe', 'place', 'item'].filter(k => Object.hasOwn(labels, k)).map(k => [k, labels[k]])) };
+            let plan = openingPlan(ctx, binding, thread);
+            if (Object.keys(labels).some(k => !['like', 'text', 'foe', 'place', 'item'].includes(k))) plan = { ok: false, code: 'INVALID', message: 'An open offer cannot supply numbers or extra objective kinds.' };
+            if (plan.ok) return commitOpening(ctx, binding, thread, plan, key);
+            if (!thread) {
+                const id = freshThreadId(ctx);
+                call(ctx, 'threads.offer', { write: writeId(ctx, `goal:${id}`), thread: id, kind: 'hook', key,
+                    summary: typeof labels.text === 'string' ? labels.text.slice(0, 240) : key, fields: {}, expectedHash: null });
+                thread = threadOf(ctx.query, { id });
+            }
+            return { summary: `Quest refused: ${plan.message}`, problem: `Quest refused: ${plan.message}`, narrate: false,
+                data: { quest: thread.id, code: plan.code, message: plan.message, refused: true } };
+        }
         if (line.op === '+') {
             if (!thread) {
                 const pin = pinned(ctx.read('rules'));
                 const template = templateOf(pin, key);
-                if (!template) return ctx.fail('RULES_MISMATCH', 'This offer has no frozen quest template.');
+                if (!template || template.open) return ctx.fail('RULES_MISMATCH', 'This offer has no frozen quest template.');
                 const id = offerQuest(ctx, template);
                 return { summary: `Offered ${template.name}.`, narrate: false, data: { quest: id } };
             }

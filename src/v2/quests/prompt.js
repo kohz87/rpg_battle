@@ -15,6 +15,7 @@ function listText(names) {
 
 export function questTail(view) {
     const lines = [];
+    if (view?.state?.domains?.rules?.rulesHash) lines.push('Open quest: + quest Name | like: <open template slug> | text: <objective text> [| foe: <canonical ref>] [| place: <canonical ref>] [| item: <canonical ref>]. Code fixes rewards. Variant fight: ! encounter Variant name | like: <pack foe slug>.');
     const optional = [];
     if (typeof view?.query !== 'function') return { lines, optional };
     const quests = view.query('rules.quests', {}) ?? [];

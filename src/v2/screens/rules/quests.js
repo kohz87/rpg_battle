@@ -87,7 +87,7 @@ function questRow(quest, names, minutes) {
     };
 }
 
-function threadRow(thread) {
+function threadRow(thread, templates = []) {
     let label = 'In progress';
     let tone = 'info';
     if (thread.offer) { label = 'Offered'; tone = 'accent'; } else if (thread.status === 'resolved') {
@@ -98,6 +98,8 @@ function threadRow(thread) {
     return {
         id: thread.id, title: clip(thread.key, 120), summary: clip(thread.summary, 600), stateLabel: label, tone, offer: thread.offer,
         needsRpg: isRecord(thread.rpg),
+        ...(templates.length ? { canMakeQuest: !thread.rpg && thread.status === 'active',
+            binding: { id: thread.id, text: clip(thread.summary || thread.fields?.goal || thread.key, 240), templates } } : {}),
     };
 }
 
@@ -108,7 +110,8 @@ export function questsView(state, args, tools) {
     const clock = { set: minutes !== null, text: minutes !== null ? clockLabel(minutes) : '' };
     const quests = ask(tools, 'rules.quests', {}, value => isList(value, isQuestView));
     const threads = ask(tools, 'director.threads', {}, value => isList(value, isThread));
-    const goals = threads.status === ASK.OK ? threads.value.map(threadRow) : [];
+    const openTemplates = quests.status === ASK.OK ? ask(tools, 'quest.openTemplates', {}, value => isList(value, row => isRecord(row) && isText(row.id) && isText(row.name) && Array.isArray(row.kinds))).value ?? [] : [];
+    const goals = threads.status === ASK.OK ? threads.value.map(thread => threadRow(thread, openTemplates)) : [];
 
     if (quests.status === ASK.OK) {
         const refs = [];
