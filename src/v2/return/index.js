@@ -19,6 +19,8 @@
 
 import { cueClaim, cueText, cleanPlace, findReturnPoint, isDead, isFightId, logFromChat } from './point.js';
 import { renderReturnCard, validateCardProps } from './card.js';
+import { indexOfCtx, indexOfState } from '../rules/graph.js';
+import { cue as rulesCue, returnStatus } from '../death/return.js';
 
 export { cueText, findReturnPoint, isDead, logFromChat } from './point.js';
 
@@ -60,6 +62,7 @@ export function canGenerate(view) {
  * (CLAIMED after); refused where your character is still dead (the return did not happen).
  */
 function cue(ctx, payload = {}) {
+    if (indexOfCtx(ctx)) return rulesCue(ctx, payload);
     if (!isFightId(payload?.fight)) ctx.fail('INVALID', 'That is not a fight to return from.');
     if (payload.place !== undefined && typeof payload.place !== 'string') ctx.fail('INVALID', 'A place is a name.');
     if (isDead({ domains: { party: ctx.read('party') } })) ctx.fail('REFUSED', 'Your character is still dead here: the return did not happen.');
@@ -78,6 +81,9 @@ export async function returnInTime(sdk) {
         return { ok: false, code: 'UNSUPPORTED', message: 'Story Block is not ready. Swipe or delete back instead.' };
     }
     let point;
+    try {
+        if (sdk.query('rules.identity', {})?.hash) return { ok: false, code: 'DEPENDENCY_UNAVAILABLE', message: 'RB needs the host-authenticated timeline return adapter.' };
+    } catch { /* Legacy hosts do not have rules.identity. */ }
     try {
         point = sdk.query('return.point');
     } catch (error) {
@@ -115,16 +121,18 @@ export function createReturnPart({ host = defaultHost } = {}) {
         commands: { 'return.cue': cue },
         queries: {
             /** → { index, beforeRev, place, fight } | null (null while your character lives). */
-            'return.point': (state, args, tools) => findReturnPoint(state, logOf(tools) ?? logOf(sdk()) ?? []),
+            'return.point': (state, args, tools) => indexOfState(state) ? returnStatus(state).point : findReturnPoint(state, logOf(tools) ?? logOf(sdk()) ?? []),
             /**
              * → { dead, point } (point: return.point's answer): what the return card is drawn from, bound by
              * the screens that place it (the Fight screen, the Party screen), so it is drawn again when it changes.
              */
             'return.status': (state, args, tools) => {
+                if (indexOfState(state)) return returnStatus(state);
                 const dead = isDead(state);
                 return { dead, point: dead ? findReturnPoint(state, logOf(tools) ?? logOf(sdk()) ?? []) : null };
             },
         },
+        replayQueries: ['return.status'],
         hooks: { canGenerate },
         widgets: {
             [WIDGET]: {

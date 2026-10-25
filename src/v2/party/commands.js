@@ -25,6 +25,7 @@ import { filledBy, fitActor, fitParty, fitPool, storedPool } from './pools.js';
 import { foldStoryTime } from './recovery.js';
 import { actorFrom, actorsInOrder, attempt, cleanName, cleanRole, fail, nameKey, newId, offersRecord, revOf, waitingOffers } from './util.js';
 import { startRulesClass } from '../progress/start.js';
+import { deathEnabled } from '../death/fight.js';
 
 // Skills learned onto a built sheet, in order (v1 newSheet's own loop, for a sheet made from final stats).
 const newSheetSkills = (sheet, skills, rules) => skills.reduce((out, skill) => learnV1(out, skill, { rules }), sheet);
@@ -629,7 +630,7 @@ function applyResult(ctx, payload = {}) {
         const actor = party.actors[id];
         const applied = applyResultV1(toSheet(actor), id, result, rules);
         let sheet = applied.sheet;
-        if (id === party.pc && (payload.stakes ?? result.stakes) === 'death' && (result.outcome === 'defeat' || result.outcome === 'lost')) {
+        if (!deathEnabled(ctx) && id === party.pc && (payload.stakes ?? result.stakes) === 'death' && (result.outcome === 'defeat' || result.outcome === 'lost')) {
             sheet = { ...sheet, hp: { ...sheet.hp, cur: 0 }, conditions: [{ name: 'dead', rounds: null }] };
         }
         // What the fight left keeps its rounds and the story minute it ended (sheets.js conditionRecord).
@@ -638,7 +639,7 @@ function applyResult(ctx, payload = {}) {
         if (applied.masteryGained.length) mastery[id] = applied.masteryGained;
     }
     // MODULES §F26: in a fight to the death, a companion who went down died.
-    const toTheDeath = (payload.stakes ?? result.stakes) === 'death';
+    const toTheDeath = !deathEnabled(ctx) && (payload.stakes ?? result.stakes) === 'death';
     const fallen = toTheDeath
         ? ids.filter(id => id !== party.pc && party.actors[id]?.kind === 'companion' && result.party.some(entry => entry.memberId === id && (entry.down || entry.hp?.cur === 0)))
         : [];

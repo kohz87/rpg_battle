@@ -80,6 +80,7 @@ export function rulesModifier(state, args, tools) {
     if (!isObject(member)) return null;
     const found = modifiersFor(memberOf(query, member, state?.domains?.inventory?.defs ?? {}), args.skill ?? '', args.stat, rulesFor(null));
     const parts = found.map(part => ({ source: part.source === 'effect' && part.reason === 'Encumbered' ? 'encumbrance' : part.source, ref: null, reason: String(part.reason).slice(0, 120), amount: part.amount }));
+    if (['STR', 'AGI'].includes(args.stat) && member.conditions?.some(c => c.kind === 'injury')) parts.push({ source: 'effect', ref: null, reason: 'Injury', amount: ix.constants.injuryCheckPenalty });
     const amount = parts.reduce((sum, part) => sum + part.amount, 0);
     if (!Number.isSafeInteger(amount) || Math.abs(amount) > 30 || parts.some(part => Math.abs(part.amount) > 30)) return null;
     return { actor: args.actor, stat: args.stat, amount, parts };
