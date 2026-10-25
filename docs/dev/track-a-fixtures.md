@@ -24,3 +24,5 @@ restore barriers, durable frozen rules/definitions, same-version replacement/rem
 atomic definition conflicts, and pin-reply swipe/delete with guarded creation on a later reply.
 The existing C02–C06 progression/training fixtures remain the mechanics coverage after activation.
 The coordinated host adds pack transport and deferred/reply-bound lifecycle boundary tests.
+The Ersveil test reads Story Block's own `examples/packs/ersveil-bluewatch/pack.json` from `$STORY_BLOCK` or the sibling
+`../Story_block` and is skipped when neither exists; no copy of the pack is kept here.

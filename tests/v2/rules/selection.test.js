@@ -1,6 +1,8 @@
 // Production boot (no injected rules), installed packs, Setup's real command widget and the real host.
 import test from 'node:test';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { randomId } from '../../vendor/story-block/src/id.js';
 import { createHost } from '../../vendor/story-block/testkit/index.js';
@@ -243,10 +245,12 @@ test('definition conflicts roll back the whole pin transaction', async t => {
     assert.equal(h.head().domains.training, undefined);
 });
 
-// Story Block's example pack (examples/packs/ersveil-bluewatch, a real rules pack), copied unchanged.
-const ersveil = () => JSON.parse(readFileSync(new URL('./fixtures/ersveil-bluewatch-rules.pack.json', import.meta.url), 'utf8'));
+// Story Block's example pack (examples/packs/ersveil-bluewatch, a real rules pack), read from the sibling checkout
+// ($STORY_BLOCK, else ../Story_block) so a copy here cannot drift. Without it the test is skipped, as the sibling-module tests are.
+const ersveilFile = join(process.env.STORY_BLOCK ?? fileURLToPath(new URL('../../../../Story_block', import.meta.url)), 'examples/packs/ersveil-bluewatch/pack.json');
+const ersveil = () => JSON.parse(readFileSync(ersveilFile, 'utf8'));
 
-test('Ersveil, end to end through the real module: Setup offers it, the pin turns rules v2 on, and reload, rebuild and a same-version reinstall leave the timeline alone', async t => {
+test('Ersveil, end to end through the real module: Setup offers it, the pin turns rules v2 on, and reload, rebuild and a same-version reinstall leave the timeline alone', { skip: existsSync(ersveilFile) ? false : 'no Story Block checkout beside this one (set STORY_BLOCK)' }, async t => {
     const h = await world(t, { packs: [ersveil()] });
     assert.equal(h.q('rules.identity'), null, 'a fresh chat is not pinned');
     const offers = h.selection();
