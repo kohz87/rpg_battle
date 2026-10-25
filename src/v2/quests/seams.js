@@ -1,4 +1,8 @@
-// Quest inputs are public owner projections. The only raw slice read here is RB's own pinned rules.
+// Public owner projections at planning time; replay uses the state-only projection below.
+import { indexOfState } from '../rules/graph.js';
+import { partyView, activeIds } from '../rules/sheet.js';
+import { actors as partyActors } from '../party/queries.js';
+import { rulesFlags } from '../rules/flags.js';
 export const copy = value => structuredClone(value);
 export const ask = (query, name, args = {}) => { try { return query(name, args) ?? null; } catch { return null; } };
 export const resultData = out => out?.receipt?.data ?? out?.data ?? out;
@@ -45,38 +49,82 @@ export function boundary(ctx) {
     return { cursor, source: ctx.source, epoch: ctx.epoch };
 }
 
-export function questInputs(query) {
+export function questInputs(query, thread = null) {
     const party = ask(query, 'rules.party');
     const items = ask(query, 'inventory.items');
     const proofs = ask(query, 'story.evidence');
     const clock = ask(query, 'director.time');
     const place = ask(query, 'atlas.canonical');
-    return { party, items, proofs, clock, place,
+    return { party, items, proofs, clock, place, threads: ask(query, 'director.threads'), flags: ask(query, 'rules.flags'),
+        ...recordQuestInputs(query, thread),
         activeActors: Array.isArray(party?.active) ? party.active.filter(a => ['pc', 'companion'].includes(a.kind)).map(a => a.id) : null };
+}
+
+/** Foreign place/presence and carry settings are read once, while planning, never by a guard. */
+export function recordQuestInputs(query, thread) {
+    const quest = thread?.rpg;
+    if (!quest) return {};
+    const out = {};
+    if (quest.turnInPlace !== null || quest.requirements.some(row => row.kind === 'place')) out.place = ask(query, 'atlas.canonical');
+    if (quest.giver !== null) {
+        const identity = ask(query, 'npc.identity', { id: quest.giver });
+        const present = ask(query, 'scene.present');
+        out.giverPresent = !!identity && identity.id === quest.giver && Array.isArray(present) && present.includes(identity.name);
+    }
+    if (quest.reward.items.length) {
+        const party = ask(query, 'rules.party');
+        const defs = ask(query, 'inventory.definitions');
+        const items = ask(query, 'inventory.items');
+        const carry = ask(query, 'items.carry');
+        if (!Array.isArray(party?.active) || !Array.isArray(defs) || !Array.isArray(items) || !carry) return { ...out, carry: null };
+        const active = party.active.filter(actor => ['pc', 'companion'].includes(actor.kind));
+        const owners = new Set(['party', ...active.map(actor => actor.id)]);
+        const frozen = {};
+        for (const def of defs) {
+            const rule = ask(query, 'rules.item', { def: def.id });
+            if (Number.isSafeInteger(rule?.weight) && rule.weight >= 0) frozen[def.id] = { ...def, weight: rule.weight };
+        }
+        const stacks = items.filter(item => owners.has(item.owner));
+        out.carry = stacks.some(item => !frozen[item.def?.id ?? item.def]) ? null : {
+            inventory: { defs: frozen, stacks: Object.fromEntries(stacks.map(item => [item.stack, {
+                id: item.stack, def: item.def?.id ?? item.def, qty: item.qty, owner: item.owner, equipped: item.equipped ?? null,
+            }])) },
+            party: { order: active.map(actor => actor.id), actors: Object.fromEntries(active.map(actor => [actor.id, actor])) },
+            settings: { carryLimit: carry.on, carrySize: carry.size, carryItems: (carry.bonuses ?? []).map(bonus => ({
+                item: frozen[items.find(item => item.stack === bonus.stack)?.def]?.name ?? '', carry: bonus.carry,
+            })).filter(entry => entry.item) },
+        };
+    }
+    return out;
 }
 
 /** E1 guard projection. Reads prefix state only; never settings, receipts or another query.
  * Raw cross-owner reads are confined to this replay seam (the E1 exception).
- * Canonical place/giver and requirements await B3's state projections.
+ * Foreign place/giver/carry inputs ride with the block. No settings or live query is read here.
  */
 export function replayInputs(state, { reply = null } = {}) {
     const domains = state?.domains ?? {};
     const threads = Object.values(domains.director?.threads ?? {}).map(({ track: _track, ...thread }) => copy(thread));
-    const party = domains.party ?? null;
-    const active = party?.active ?? party?.order ?? [];
-    const activeActors = active.filter(id => ['pc', 'companion'].includes(party?.actors?.[id]?.kind));
+    const members = partyActors(state).filter(actor => ['pc', 'companion'].includes(actor.kind));
+    const active = activeIds(domains.progress?.roster, members, domains.party?.pc);
+    let party = { pc: domains.party?.pc ?? null, active: members.filter(actor => active.includes(actor.id)) };
+    // The pin's sheet adapter derives current class and fitted level; no gear can qualify a base stat.
+    if (domains.rules?.pin?.resolved?.manifest) party = partyView(indexOfState(state), state,
+        name => name === 'party.actors' ? members : []);
+    const activeActors = party?.active?.map(actor => actor.id) ?? [];
     const items = Object.values(domains.inventory?.stacks ?? {})
         .filter(stack => domains.inventory?.defs?.[stack.def])
-        .map(stack => ({ stack: stack.id, def: stack.def, qty: stack.qty, owner: stack.owner }));
+        .map(stack => ({ stack: stack.id, def: stack.def, qty: stack.qty, owner: stack.owner, equipped: stack.equipped ?? null }));
     const tally = reply ? domains.inventory?.perReply?.[reply] : null;
     const storyCoin = reply ? { reply, coin: tally?.coin ?? 0, vouched: tally?.vouched ?? 0, claimed: state?.meta?.claims?.[`storycoin:${reply}`] === true } : null;
-    return { storyCoin, threads, party: copy(party), activeActors, items,
+    const flags = domains.rules?.pin?.resolved?.manifest ? rulesFlags(state, {}) : null;
+    return { storyCoin, threads, party: copy(party), flags, activeActors, items,
         clock: { minutes: domains.director?.time?.minutes ?? null }, place: null };
 }
 
-export function guardQuestInputs(query, reply = null) {
+export function guardQuestInputs(query, reply = null, recorded = {}) {
     const inputs = query('quest.replayInputs', { reply });
-    return { ...inputs, proofs: query('story.evidence', {}) };
+    return { ...inputs, ...recorded, proofs: query('story.evidence', {}) };
 }
 
 // B's epochOf uses this genesis epoch until the host savepoints domain is installed.

@@ -40,6 +40,18 @@ export function repeatedThreads(state, tools) {
 export const repeatedCoin = (state, _args, tools) => ({ amount: repeatedThreads(state, tools)[0]?.rpg.settlement.coinPaid ?? 0 });
 
 export function questCreditHook(view) {
-    const ids = [...new Set([...view.query('quest.autoTurnIns', {}), ...view.query('quest.owedCredits', {})])];
+    const ids = [...new Set([...expiredQuests(view), ...view.query('quest.autoTurnIns', {}), ...view.query('quest.owedCredits', {})])];
     return ids.length ? { lines: [], commands: ids.map(id => ({ type: 'quest.payOwed', payload: { id, credit: true } })) } : undefined;
+}
+
+function expiredQuests(view) {
+    const minute = ask(view.query, 'director.time')?.minutes;
+    if (!Number.isSafeInteger(minute)) return [];
+    return (ask(view.query, 'director.threads') ?? []).filter(thread => thread.rpg?.state === 'active'
+        && thread.rpg.deadline !== null && minute >= thread.rpg.deadline).map(thread => thread.id);
+}
+
+export function questExpiryHook(view) {
+    const ids = expiredQuests(view);
+    return ids.length ? { commands: ids.map(id => ({ type: 'quest.payOwed', payload: { id } })) } : undefined;
 }

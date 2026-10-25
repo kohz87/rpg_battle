@@ -1,37 +1,35 @@
 // One guarded root owns quest costs, rewards, closure, journal and fresh repeat/chain offers.
-// B owns the guard envelope. Its unmerged export is optional only to keep legacy readers bootable;
-// a quest mutation fails closed until that dependency is integrated.
+// B owns the shared envelope. Guards read only declared pure queries and recorded inputs.
+import { buildGuard as sharedBuildGuard } from '../progress/index.js';
 import { planQuestSettlement, settlementKey, acceptanceOf } from './planner.js';
 import { nextOffers, terminalQuest } from './outcomes.js';
 import { creditFor, creditKey } from './credit.js';
 import { offerQuest } from './commands.js';
-import { boundary, call, copy, fail, pinned, guardQuestInputs, stateEpoch, templateOf, templates, writeId } from './seams.js';
+import { boundary, call, copy, fail, pinned, guardQuestInputs, recordQuestInputs, stateEpoch, templateOf, templates, writeId } from './seams.js';
 
-// TODO: replace with a static import of buildGuard when B's progress export is integrated.
-const progress = await import('../progress/index.js').catch(() => null);
 const zero = () => ({ coin: 0, xp: 0, items: [] });
 const held = message => ({ ok: false, code: 'REFUSED', message });
 
 function terminalPlan(thread, inputs, outcome, policy) {
     if (outcome === 'done') return planQuestSettlement(thread, inputs, policy);
-    if (!['abandoned', 'failed'].includes(outcome) || thread.status !== 'active'
+    if (!['abandoned', 'failed', 'expired'].includes(outcome) || thread.status !== 'active'
         || thread.rpg?.state !== 'active' || thread.rpg.settlement) return held('This quest is not active.');
     const proof = acceptanceOf(thread, inputs.proofs ?? []);
     if (!proof) return held('The original reader acceptance proof is not active.');
     if (thread.rpg.deadline !== null && !Number.isSafeInteger(inputs.clock?.minutes)) return { ok: false, code: 'CLOCK_UNSET', message: 'The quest deadline needs the story clock.' };
+    if (outcome === 'expired' && (thread.rpg.deadline === null || inputs.clock.minutes < thread.rpg.deadline)) return held('The quest has not expired.');
     return { ok: true, outcome: thread.rpg.deadline !== null && inputs.clock.minutes >= thread.rpg.deadline ? 'expired' : outcome,
         consumed: [], payout: zero(), proofs: [{ id: proof.id, payloadHash: proof.payloadHash }] };
 }
 
 /** The closed prerequisites, not the entire party, inventory or formatted calendar. */
-function assess(query, pin, thread, outcome, policy, reply = null) {
-    const inputs = guardQuestInputs(query, reply);
+function assess(query, pin, thread, outcome, policy, reply = null, recorded = {}) {
+    const inputs = guardQuestInputs(query, reply, recorded);
     const credited = copy(thread);
     const tally = inputs.storyCoin;
     const coin = outcome === 'done' && tally && !tally.claimed ? creditFor(thread, Math.max(0, tally.coin - tally.vouched)) : 0;
     const credit = coin ? { reply, coin, claim: creditKey(reply) } : null;
     if (credit) { credited.rpg.storyCredit.coin += coin; credited.rpg.storyCredit.claims.push(credit.claim); }
-    if (thread.rpg.requirements.length) return { ok: false, code: 'DEPENDENCY_UNAVAILABLE', message: 'B3 requirement replay inputs are unavailable.' };
     const plan = terminalPlan(credited, inputs, outcome, policy);
     if (!plan.ok) return plan;
     if (thread.rpg.repeat && !Number.isSafeInteger(inputs.clock?.minutes)) return { ok: false, code: 'CLOCK_UNSET', message: 'A repeat cooldown needs the story clock.' };
@@ -42,17 +40,20 @@ function assess(query, pin, thread, outcome, policy, reply = null) {
         ...(thread.rpg.deadline !== null || thread.rpg.repeat ? { clock: inputs.clock } : {}),
         ...(thread.rpg.turnInPlace !== null ? { place: inputs.place } : {}),
         ...(thread.rpg.giver !== null ? { giver: inputs.giverPresent === true } : {}),
+        ...(thread.rpg.requirements.length && plan.outcome === 'done' ? { prerequisites: { ok: true } } : {}),
         proofs: inputs.proofs.filter(proof => plan.proofs.some(pin => pin.id === proof.id)), plan, follow }) };
 }
 
-function takeInputs(thread, inputs, pin) {
+function takeInputs(thread, inputs, pin, policy) {
     const template = templateOf(pin, thread.rpg?.template ?? thread.key);
+    const requirements = thread.rpg?.requirements ?? template?.requirements ?? [];
+    if (requirements.length && policy.evaluateRequirements?.(requirements, inputs)?.ok !== true) return null;
     const previous = template?.chain?.previous;
     return guardInputs({ thread: copy(thread),
-        ...(template?.durationMinutes !== null || thread.rpg?.repeat?.nextOfferAt != null ? { clock: inputs.clock } : {}),
+        ...(template?.durationMinutes != null || thread.rpg?.repeat?.nextOfferAt != null ? { clock: inputs.clock } : {}),
         acceptance: thread.acceptance ? inputs.proofs?.filter(proof => proof.id === thread.acceptance.proof) ?? [] : [],
         previous: previous ? inputs.threads.filter(t => t.rpg?.template === previous && t.rpg.state === 'done' && t.rpg.settlement) : [],
-        prerequisites: null });
+        prerequisites: requirements.length ? { ok: true } : null });
 }
 
 // Re-read can renumber transport ordinals/revisions without changing the accepted action.
@@ -98,7 +99,7 @@ function repeatedAssessment(query, thread, reply, source) {
 }
 
 export function createSettlement(policy = {}) {
-    const buildGuard = policy.buildGuard ?? progress?.buildGuard;
+    const buildGuard = policy.buildGuard ?? sharedBuildGuard;
     function settleQuest(ctx, thread, payload, outcome) {
         const { epoch, source } = boundary(ctx);
         const pin = pinned(ctx.read('rules'));
@@ -107,14 +108,15 @@ export function createSettlement(policy = {}) {
         const key = settlementKey(epoch, thread.rpg);
         if (thread.rpg.settlement) return ctx.fail('CLAIMED', 'This quest settlement is already complete.');
         const reply = payload.credit === true && ctx.cause === 'system' ? ctx.reply?.sid : null;
-        const checked = assess(ctx.query, pin, thread, outcome, policy, reply);
+        const external = recordQuestInputs(ctx.query, thread);
+        const checked = assess(ctx.query, pin, thread, outcome, policy, reply, external);
         const threadHash = ctx.query('threads.hash', { thread: thread.id });
         if (!checked.ok) return fail(ctx, checked);
         const progressView = ctx.query('quest.progress', { id: thread.id });
         const operation = { thread: thread.id, outcome, reason: payload.reason ?? outcome, ...(reply ? { reply } : {}) };
         const guard = buildGuard({ hash: ctx.hash, owner: 'rpg-battle', epoch, source, rulesHash: pin.hash,
             kind: 'quest.settlement', payload: operation, inputs: guardInputs(checked.inputs) });
-        ctx.replayGuard(guard, { inputs: checked.inputs });
+        ctx.replayGuard(guard, { inputs: checked.inputs, external });
         if (checked.inputs.credit && !ctx.claim(checked.inputs.credit.claim)) return ctx.fail('CLAIMED', 'This reply already credited another quest.');
         const terminal = terminalQuest(checked.quest, { outcome: checked.plan.outcome, id: ctx.id('st'), source, epoch,
             minute: checked.inputs.clock?.minutes, payout: checked.plan.payout });
@@ -162,11 +164,13 @@ export function createSettlement(policy = {}) {
         const { epoch, source } = boundary(ctx);
         const pin = pinned(ctx.read('rules'));
         if (typeof buildGuard !== 'function') return ctx.fail('DEPENDENCY_UNAVAILABLE', 'The shared B5 guard builder is unavailable.');
-        if (thread.rpg?.requirements.length || templateOf(pin, thread.rpg?.template ?? thread.key)?.requirements.length) return ctx.fail('DEPENDENCY_UNAVAILABLE', 'B3 requirement replay inputs are unavailable.');
         const operation = { thread: thread.id };
-        const facts = takeInputs(thread, guardQuestInputs(ctx.query), pin);
+        const template = templateOf(pin, thread.rpg?.template ?? thread.key);
+        const external = recordQuestInputs(ctx.query, thread.rpg ? thread : { ...thread, rpg: template });
+        const facts = takeInputs(thread, guardQuestInputs(ctx.query, null, external), pin, policy);
+        if (!facts) return ctx.fail('REFUSED', 'The quest requirements are not met.');
         ctx.replayGuard(buildGuard({ hash: ctx.hash, owner: 'rpg-battle', epoch, source, rulesHash: pin.hash,
-            kind, payload: operation, inputs: guardInputs(facts) }), { inputs: facts });
+            kind, payload: operation, inputs: guardInputs(facts) }), { inputs: facts, external });
     }
     function replayGuard({ state, query, hash }, info) {
         if (info.guard?.predicate?.kind === 'quest.storyCredit') {
@@ -184,10 +188,11 @@ export function createSettlement(policy = {}) {
         }
         if (['quest.take', 'quest.turnIn'].includes(info.guard?.predicate?.kind)) {
             const pin = pinned(state?.domains?.rules);
-            const facts = guardQuestInputs(query);
+            const facts = guardQuestInputs(query, null, info.recorded?.external ?? {});
             const thread = facts.threads.find(t => t.id === info.guard.predicate.payload?.thread);
             if (!pin || pin.hash !== info.guard.rulesHash || info.guard.version !== 2 || info.guard.epoch !== stateEpoch(state) || !thread || !buildGuard) return { ok: false, reason: 'The accepted quest offer or rules changed.' };
-            const inputs = takeInputs(thread, facts, pin);
+            const inputs = takeInputs(thread, facts, pin, policy);
+            if (!inputs) return { ok: false, reason: 'The quest requirements are no longer met.' };
             const expected = buildGuard({ hash, owner: 'rpg-battle', epoch: info.guard.epoch, source: info.source,
                 rulesHash: pin.hash, kind: info.guard.predicate.kind, payload: info.guard.predicate.payload, inputs: guardInputs(inputs) });
             return expected.inputHash === info.guard.inputHash ? { ok: true } : { ok: false, reason: 'The accepted quest offer or requirements changed.' };
@@ -200,7 +205,7 @@ export function createSettlement(policy = {}) {
         const payload = info.guard.predicate.payload;
         const thread = query('quest.replayInputs', {}).threads.find(t => t.id === payload?.thread);
         if (!thread?.rpg) return off();
-        const checked = assess(query, pin, thread, payload.outcome, policy, payload.reply ?? null);
+        const checked = assess(query, pin, thread, payload.outcome, policy, payload.reply ?? null, info.recorded?.external ?? {});
         if (!checked.ok) return off();
         const expected = buildGuard({ hash, owner: 'rpg-battle', epoch: info.guard.epoch, source: info.source,
             rulesHash: pin.hash, kind: 'quest.settlement', payload, inputs: guardInputs(checked.inputs) });

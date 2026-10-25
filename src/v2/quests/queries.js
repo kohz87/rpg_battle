@@ -20,7 +20,7 @@ export function createQueries(policy = {}) {
         if (legacy(thread)) return { have: 0, need: thread.target?.count ?? 0, met: false, ready: false, countable: false,
             source: null, noun: thread.target?.noun ?? '', label: '', reason: historyText, finish: { ok: false, reason: historyText },
             ...(args.closing === true ? { refusal: historyText, place: false } : {}) };
-        const inputs = questInputs(query);
+        const inputs = questInputs(query, thread);
         const result = objectiveProgress(thread, { ...inputs, validateProof: policy.validateProof });
         const plan = planQuestSettlement(thread, inputs, policy);
         const first = thread.rpg.objectives[0];

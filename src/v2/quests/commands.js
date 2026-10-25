@@ -28,8 +28,8 @@ export function createCommands({ settleQuest, evaluateRequirements = null, guard
         const template = templateOf(pin, thread.rpg?.template ?? thread.key);
         if (!template) return ctx.fail('RULES_MISMATCH', 'This goal has no frozen quest template.');
         const { cursor } = boundary(ctx);
-        const inputs = questInputs(ctx.query);
         const quest = thread.rpg ? copy(thread.rpg) : offeredQuest(template, thread.id);
+        const inputs = questInputs(ctx.query, { ...thread, rpg: quest });
         if (thread.status !== 'active' || quest.settlement) return ctx.fail('REFUSED', 'This quest is already over.');
         if (quest.state === 'active') return ctx.fail('REFUSED', 'This quest is already taken on.');
         if (!thread.offer && (!thread.taken || !thread.acceptance)) return ctx.fail('REFUSED', 'The original reader acceptance proof is missing.');
@@ -86,7 +86,11 @@ export function createCommands({ settleQuest, evaluateRequirements = null, guard
             if (payload.credit === true && settleCredit) return settleCredit(ctx, thread);
             return ctx.fail('CLAIMED', 'This quest settlement is already complete.');
         }
-        const out = settleQuest(ctx, thread, { ...payload, by: 'story' }, 'done');
+        const expired = thread.rpg.deadline !== null && Number.isSafeInteger(ctx.time()) && ctx.time() >= thread.rpg.deadline;
+        if (!expired && !(ask(ctx.query, 'quest.autoTurnIns') ?? []).includes(thread.id)) {
+            return ctx.fail('NO_LONGER_DONE', 'This quest has neither expired nor a surviving turn-in intent.');
+        }
+        const out = settleQuest(ctx, thread, { ...payload, by: 'story' }, expired ? 'expired' : 'done');
         return { ...out, replan: true };
     }
     return { 'quest.take': take, 'quest.abandon': abandon, 'quest.finish': finish, 'quest.payOwed': payOwed };
