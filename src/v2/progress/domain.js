@@ -18,6 +18,7 @@
 import { KINDS, REASONS } from './credit.js';
 import { int, isActorId, isDefId, isHash, isObject } from '../rules/ids.js';
 import { MAX_BATCHES, isBatchId } from '../fight/batch.js';
+import { deathResultProblem } from '../death/records.js';
 
 /** The most attempts the ledger holds at once (fold.js keeps it far below; a payer past it drops the attempt, it never fails). */
 export const MAX_ATTEMPTS = 4000;
@@ -98,8 +99,9 @@ export function progressProblems(slice) {
     const sealed = slice.sealed;
     if (!isObject(sealed) || !isObject(sealed.forms) || !isObject(sealed.days) || !int(sealed.folded, 0)) return ['progress: sealed is { forms, days, folded }'];
     // The sealed results of fights (fight/batch.js): { hash, bytes, seq }, the newest few of each kind. (The hash is checked where the bytes are read.)
-    if (!isObject(slice.batches) || Object.keys(slice.batches).length > MAX_BATCHES + 64) return ['progress: batches is a record of the newest sealed results'];
+    if (!isObject(slice.batches) || Object.values(slice.batches).filter(e => (e?.bytes?.kind ?? 'fight') === 'fight').length > MAX_BATCHES) return ['progress: batches is a record of the newest sealed fight results and retained death results'];
     for (const [id, entry] of Object.entries(slice.batches)) if (!isBatchId(id) || !isObject(entry) || !isHash(entry.hash) || !isObject(entry.bytes) || !int(entry.seq, 1)) return [`progress: the sealed result ${id.slice(0, 20)} is not { hash, bytes, seq }`];
+    for (const entry of Object.values(slice.batches)) if (entry.bytes.kind === 'death' && deathResultProblem(entry)) return ['progress: invalid sealed death result'];
     // What each member carries out of its last fight (fight/index.js settleEnd): a strength the party record does not keep.
     if (slice.carried !== undefined) {
         if (!isObject(slice.carried) || Object.keys(slice.carried).length > 64) return ['progress: carried is a record of the strengths members carry out of a fight'];

@@ -17,6 +17,10 @@
 // `rpg-battle.item-detail` in its rows for what only RPG Battle knows (slot and stats, condition,
 // refinement, whom a draught would help).
 //
+// Track C adds five screens for the rules-v2 views (rules/): rpg-battle/progress, quests, roster, links and setup. Each carries
+// `active`, so it is offered only while RPG Battle's rules queries exist; on a host or a save without them nothing new appears
+// and the screens above draw as before.
+//
 // Screens and widgets a feature owns (MODULES §F100) carry `feature: <id>`; a host without the
 // Features API ignores the key (an unknown screen field is not checked).
 //
@@ -31,13 +35,14 @@ import { statusCardScreen } from './status-card.js';
 import { tradeScreen } from './trade.js';
 import { viewQueries } from './view.js';
 import { screenWidgets } from './widgets.js';
+import { rulesQueries, rulesScreens, rulesWidgets } from './rules/index.js';
 
-export const screens = Object.freeze([partyScreen, tradeScreen, craftingScreen, hudScreen, statusCardScreen]);
+export const screens = Object.freeze([partyScreen, tradeScreen, craftingScreen, hudScreen, statusCardScreen, ...rulesScreens]);
 
 export const part = {
     domains: {},
     commands: {},
-    queries: { ...viewQueries },
+    queries: { ...viewQueries, ...rulesQueries },
     kinds: {},
     context: { static: () => '', tail: () => ({ lines: [], optional: [] }), budget: 0 },
     hooks: {},
@@ -47,11 +52,12 @@ export const part = {
         schema: { cardOnlyChanged: { type: 'bool', label: 'Cards under replies show only what that reply changed' } },
     },
     tabs: [],
-    widgets: { ...screenWidgets },
+    widgets: { ...screenWidgets, ...rulesWidgets },
     screens,
 };
 
 export { craftingScreen, hudScreen, partyScreen, statusCardScreen, tradeScreen };
+export { linksScreen, progressScreen, questsScreen, rosterScreen, rulesScreens, setupScreen } from './rules/index.js';
 export {
     BANDS, actorCard, cards, carry, carryText, conditionBadge, conditionStatus, conditionView, crafting, effectBadge, heroOf, heroes, hud, itemDetail, skillNodes, trade, tryQuery, viewQueries,
 } from './view.js';

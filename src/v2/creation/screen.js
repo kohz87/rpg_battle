@@ -18,6 +18,8 @@
 //
 // Data, not code: a pack or card may restyle or replace this screen by its id (SPEC §13.7).
 
+import { CLASS_STEP_TEMPLATE } from '../screens/rules/class-step.js';
+
 export const CREATE_SCREEN_ID = 'rpg-battle/create';
 /** The longest portrait address the wizard takes (the same limit the Portrait field's own maxlength shows). */
 export const PORTRAIT_URL_MAX = 2048;
@@ -42,6 +44,7 @@ const REGISTER = (body, { optional = false } = {}) => `
 
 const START = `
 <section class="cc-step cc-start">
+  <div data-if="q.k.classes.state == 'ready'">${CLASS_STEP_TEMPLATE.replaceAll('q.c.', 'q.k.')}</div>
   <ss-widget class="cc-draft-start" name="rpg-battle.draft-start" data-props='{}'></ss-widget>
   <p class="cc-none" data-if="!q.c.hasPresets">This story has no ready-made characters. Go on to make your own.</p>
   <div data-if="q.c.hasPresets">
@@ -260,7 +263,7 @@ export const createScreen = Object.freeze({
     title: 'New character',
     icon: 'fa-user-plus',
     mounts: Object.freeze(['dialog']),
-    data: Object.freeze({ c: Object.freeze({ query: 'creation.content' }) }),
+    data: Object.freeze({ c: Object.freeze({ query: 'creation.content' }), k: Object.freeze({ query: 'rpg-battle.classPicker' }) }),
     template: `<div class="cc-one">${CREATE_STEPS.map(step => step.template).join('\n')}</div>`,
     css: CSS.trim(),
     steps: CREATE_STEPS,

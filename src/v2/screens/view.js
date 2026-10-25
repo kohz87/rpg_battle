@@ -466,7 +466,7 @@ function effectText(effect) {
     return parts.join(' · ');
 }
 
-const statText = stats => (isRecord(stats) ? Object.entries(stats).filter(([, value]) => Number.isFinite(value) && value !== 0).map(([key, value]) => `${key} ${value > 0 ? '+' : ''}${value}`).join(', ') : '');
+export const statText = stats => (isRecord(stats) ? Object.entries(stats).filter(([, value]) => Number.isFinite(value) && value !== 0).map(([key, value]) => `${key} ${value > 0 ? '+' : ''}${value}`).join(', ') : '');
 const helpsNow = effect => isRecord(effect) && (int(effect.heal) > 0 || int(effect.mp) > 0 || (Array.isArray(effect.cure) && effect.cure.length > 0));
 
 /** How each wear band reads (the gear part's `items.condition` names the band; code set it). */

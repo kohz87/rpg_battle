@@ -37,7 +37,16 @@ export const EPOCH_FALLBACK = 'ep_00000000';
 export function epochOf(from) {
     if (RECORD_ID.test(from?.epoch ?? '')) return from.epoch;
     const saved = from?.domains?.savepoints?.epoch;
-    return RECORD_ID.test(saved ?? '') ? saved : EPOCH_FALLBACK;
+    if (RECORD_ID.test(saved ?? '')) return saved;
+    // E6a's ctx does not expose epoch yet. The host-owned epoch is the sole value read here;
+    // callers never draft savepoints or mint an epoch when the first restore changed it.
+    if (typeof from?.read === 'function') {
+        try {
+            const epoch = from.read('savepoints')?.epoch;
+            if (RECORD_ID.test(epoch ?? '')) return epoch;
+        } catch { /* A chat that never used the timeline has no savepoints slice. */ }
+    }
+    return EPOCH_FALLBACK;
 }
 
 const BASE36 = '0123456789abcdefghijklmnopqrstuvwxyz';
