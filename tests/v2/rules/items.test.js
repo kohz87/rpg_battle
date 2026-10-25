@@ -295,3 +295,11 @@ test('C18: queries never assign ids or write anything: reading flags, rules, def
     for (const [name, args] of [['rules.item', { def: 'craft/iron-blade' }], ['rules.flags', {}], ['inventory.definitions', {}], ['rules.training', { actor: w.pc }], ['rules.party', {}], ['rules.progress', {}], ['rules.identity', {}]]) w.q(name, args);
     assert.equal(JSON.stringify(w.head()), before);
 });
+
+test('an older free-text slot label on a pack item is not held to the rule; a standard slot still is', () => {
+    const cloak = (slot, over = {}) => def('pack.fixture/cloak', { name: 'Cloak', kind: 'equipment', stack: false, slot, ...over });
+    const rule = { def: 'pack.fixture/cloak', allowedSlots: ['accessory-1', 'accessory-2'], hands: 0, requires: {}, weight: 1 };
+    for (const label of ['worn', 'armour', 'ring']) assert.deepEqual(bounds.ruleProblems(rule, cloak(label)), [], label);
+    assert.deepEqual(bounds.ruleProblems(rule, cloak('accessory-2')), []);
+    assert.match(bounds.ruleProblems(rule, cloak('head')).join(' '), /slot is not one of the rule's slots/);
+});

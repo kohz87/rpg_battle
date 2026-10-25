@@ -120,7 +120,9 @@ export function ruleProblems(rule, def) {
     if (hand && rule.hands === 0) errors.push('A weapon or off-hand piece is held in one or two hands.');
     if (!hand && rule.hands !== 0) errors.push('Only a weapon or off-hand piece is held in hands.');
     if (rule.hands === 2 && !(slots.length === 1 && slots[0] === 'weapon')) errors.push('Only a weapon is held in two hands.');
-    if (!slots.includes(def.slot)) errors.push('The definition\'s slot is not one of the rule\'s slots.');
+    // Only a standard slot on the definition is held to the rule (Story Block's own check). An older free-text label
+    // ("worn", "armour") stays the definition's label; the rule's slots decide where the piece fits.
+    if (SLOTS.includes(def.slot) && !slots.includes(def.slot)) errors.push('The definition\'s slot is not one of the rule\'s slots.');
     return errors;
 }
 
