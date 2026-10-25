@@ -102,7 +102,7 @@ test('the end guard retracts a wipe/outbox when a native fighter link changes', 
     assert.equal(replayGuard(view(before), info).ok, false);
 }));
 
-test('F3: an injury recorded with no clock is anchored by the first fold that sees one, and then ends, also after reload and rebuild', async t => seeded(71, async () => {
+test('F3: an injury recorded with no clock is anchored by the first reply that ends with one, and then ends, also after reload and rebuild', async t => seeded(71, async () => {
     const w = await world(t);
     assert.equal(w.q('director.time').minutes, null, 'no clock yet');
     await injure(w);
@@ -113,8 +113,8 @@ test('F3: an injury recorded with no clock is anchored by the first fold that se
     assert.equal(injury().at, undefined, 'nothing to anchor it on yet');
     assert.equal(penalty(), -2);
     await w.say('<Changes>\n~ time 5000\n</Changes>');
-    await w.say('The next reply folds the clock in.');
-    assert.equal(injury().at, 5000, 'anchored at the first clock a fold saw');
+    assert.equal(injury().at, 5000, 'anchored by the step after the reply that set the clock');
+    await w.say('The next reply leaves it where it is.');
     assert.equal(injury().rounds, 144);
     await w.say('<Changes>\n~ time 6439\n</Changes>');
     assert.equal(lifeOf(w.q('party.actor', { id: w.friend })), 'gravely-injured');
@@ -139,18 +139,68 @@ test('F3: an injury recorded with no clock is anchored by the first fold that se
     assert.deepEqual(w.problems(), []);
 }));
 
-test('F3: an XP rewrite or a rest that sees a clock anchors an injury recorded without one, once', async t => seeded(72, async () => {
+test('F3: an XP rewrite or a rest never invents or moves the anchor', async t => seeded(72, async () => {
     const w = await world(t);
     await injure(w);
     const injury = () => w.q('party.actor', { id: w.friend }).conditions.find(c => c.kind === 'injury');
     ok(w.command('party.grantXp', { actor: w.friend, amount: 10, claim: 'no-clock' }));
-    assert.equal(injury().at, undefined, 'still no clock to anchor on');
+    ok(w.command('party.rest', { kind: 'long' }, 'story'));
+    assert.equal(injury().at, undefined, 'no clock, so nothing to anchor on, and a rewrite does not make one up');
     await w.say('<Changes>\n~ time 3000\n</Changes>');
-    ok(w.command('party.grantXp', { actor: w.friend, amount: 10, claim: 'with-clock' }));
     assert.equal(injury().at, 3000);
     assert.equal(injury().rounds, 144);
     await w.say('<Changes>\n~ time 3100\n</Changes>');
     ok(w.command('party.grantXp', { actor: w.friend, amount: 10, claim: 'later' }));
     assert.equal(injury().at + injury().rounds * 10, 3000 + 1440, 'a clock read later never moves the anchor');
+    assert.deepEqual(w.problems(), []);
+}));
+
+test('F3a: deleting the reply of the injury retracts its anchor and penalty, live and after a rebuild', async t => seeded(71, async () => {
+    const w = await world(t);
+    await w.say('Lethal reply.');
+    await injure(w);
+    const injury = () => w.q('party.actor', { id: w.friend }).conditions.find(c => c.kind === 'injury');
+    const penalty = () => w.q('rules.modifier', { actor: w.friend, stat: 'AGI' }).parts.find(p => p.reason === 'Injury')?.amount;
+    await w.say('<Changes>\n~ time 5000\n</Changes>');
+    await w.say('Fold reply.');
+    assert.equal(injury().at, 5000);
+    assert.equal(penalty(), -2);
+    const spans = w.host.ctx.chat.flatMap(m => m.extra?.storySuite?.spans ?? []);
+    assert.ok(spans.some(x => x.guard?.predicate?.kind === 'injury.anchor'), 'the anchor is a guarded block');
+    const index = w.host.ctx.chat.findIndex(m => !m.is_user && String(m.mes ?? '').includes('Lethal reply.'));
+    await w.host.st.deleteMessage(index);
+    await w.host.st.deleteMessage(index - 1);
+    for (const phase of ['live', 'rebuilt']) {
+        if (phase === 'rebuilt') w.host.store.rebuild();
+        assert.equal(injury(), undefined, `${phase}: no injury`);
+        assert.equal(penalty(), undefined, `${phase}: no penalty`);
+        assert.equal(lifeOf(w.q('party.actor', { id: w.friend })), 'alive', phase);
+        assert.deepEqual(w.problems(), [], phase);
+    }
+    assertFullReplay(w);
+}));
+
+test('F3a: deleting the clock reply an anchor was read from leaves the state a full replay gives, live and rebuilt', async t => seeded(73, async () => {
+    const w = await world(t);
+    await injure(w);
+    const injury = () => w.q('party.actor', { id: w.friend }).conditions.find(c => c.kind === 'injury');
+    await w.say('First clock.\n\n<Changes>\n~ time 5000\n</Changes>');
+    await w.say('Second clock.\n\n<Changes>\n~ time 5100\n</Changes>');
+    await w.say('Later.');
+    assert.equal(injury().at + injury().rounds * 10, 6440, 'anchored on the first clock, 5000');
+    const index = w.host.ctx.chat.findIndex(m => !m.is_user && String(m.mes ?? '').includes('First clock.'));
+    await w.host.st.deleteMessage(index);
+    await w.host.st.deleteMessage(index - 1);
+    const view = () => structuredClone({ injury: injury() ?? null, party: w.head().domains.party, claims: w.head().meta.claims });
+    const live = view();
+    // The anchor went with the clock it was read from; no earlier clock is invented, and nothing stale is left behind.
+    assert.equal(live.injury.at, undefined, 'unanchored until a reply ends with a clock');
+    w.host.store.rebuild();
+    assert.deepEqual(view(), live, 'live state is the state of a full replay');
+    await w.host.st.loadChat(JSON.parse(JSON.stringify(w.host.ctx.chat)));
+    assert.deepEqual(view(), live, 'and after a reload');
+    await w.say('<Changes>\n~ time 5200\n</Changes>');
+    assert.equal(injury().at, 5200, 'the next reply that ends with a clock gives it its anchor (the end moves with it)');
+    assertFullReplay(w);
     assert.deepEqual(w.problems(), []);
 }));

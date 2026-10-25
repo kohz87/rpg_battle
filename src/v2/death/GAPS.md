@@ -132,3 +132,15 @@ Open gaps (review round)
 | Gap | Tag | Today | Closes with |
 |---|---|---|---|
 | Native mismatch is a dead end: a companion's death was delivered (the dossier is dead), then the lethal reply was deleted. The story has the companion alive, the generation hold stays, and `recover()` answers DEPENDENCY_UNAVAILABLE with no way out inside the story. | must close before release | RB refuses generation and delivery with a player-facing reason (selection.js) and the one remedy that works today: restore a save point from before the death, or put the reply back. | Stage-5 integration with E6b's native checkpoint selection: the host reselects the matching native checkpoint when a history change removes a death's evidence, before a scan, read or generation. |
+
+Injury anchor (review round 2)
+
+- An injury written while the story clock is unset has no `at`. The first reply that ends with a clock gives it one through
+  `death.anchor` (anchor.js), a guarded system step after the reply's lines (the death part's afterCapture). The party's
+  conditions are never rewritten for it without that guard, which binds the injury as it stands, the sealed death result it came
+  from (none for a fight settlement's injury) and the minute. Deleting the injury's cause retracts the anchor and the penalty with it.
+- The anchor follows a full replay, not the first reading. Deleting the clock reply an anchor was read from removes that anchor
+  with it; the injury is unanchored again (it waits, like any condition with no clock) until the next reply that ends with a
+  clock, which anchors it there. The earlier clock is not looked up again, and the later replies do not re-anchor it by
+  themselves: live state after the delete equals the state a rebuild gives (tests/v2/death/recovery.test.js). The end of the
+  injury (`at` plus its rounds) moves with the anchor; this is intended, not a bug.

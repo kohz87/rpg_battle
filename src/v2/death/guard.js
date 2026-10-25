@@ -3,6 +3,7 @@ import { epochOf } from '../rules/ids.js';
 import { indexOfState } from '../rules/graph.js';
 import { assessDeath, clockMinute, fightDeaths } from './plan.js';
 import { replayWake } from './return.js';
+import { anchorInputs } from './anchor.js';
 import { buildEnd } from '../fight/guards.js';
 import { attachGuard } from '../progress/guard.js';
 
@@ -43,7 +44,7 @@ export function replayGuard(view, info) {
     if (wake !== undefined) return wake;
     const g = info?.guard;
     const kind = g?.predicate?.kind;
-    if (!DEATH_GUARDS.includes(kind) && kind !== 'death.fight-end') return undefined;
+    if (!DEATH_GUARDS.includes(kind) && kind !== 'death.fight-end' && kind !== 'injury.anchor') return undefined;
     const off = reason => ({ ok: false, reason: `The earlier prerequisite was removed. ${reason}` });
     const ix = indexOfState(view.state);
     if (!ix || g.version !== 2 || g.rulesHash !== ix.rulesHash || g.epoch !== epochOf(view.state)) return off('The rules or epoch changed.');
@@ -55,12 +56,15 @@ export function replayGuard(view, info) {
     const fightEnd = kind === 'death.fight-end';
     let answer;
     try {
-        answer = fightEnd ? fightInputs({ ...env, combat: view.state.domains.combat, party: view.state.domains.party, recorded: info.recorded }, g.predicate.payload)
+        // The anchor reads state alone: the injury before the block, the sealed result it came from, the clock in the state.
+        answer = kind === 'injury.anchor' ? anchorInputs({ party: view.state.domains.party, death: env.death, progress: env.progress, minute: env.minute }, g.predicate.payload)
+            : fightEnd ? fightInputs({ ...env, combat: view.state.domains.combat, party: view.state.domains.party, recorded: info.recorded }, g.predicate.payload)
             : assessDeath(kind, env, g.predicate.payload, info.recorded);
     } catch (error) { return off(error.message); }
     if (!answer.ok) return off(answer.why);
     if (fightEnd && !answer.inputs) return off('This fight no longer downs anyone, so its death settlement does not stand.');
     const expected = buildGuard({ hash: view.hash, owner: g.owner, epoch: g.epoch, source: info.source, rulesHash: ix.rulesHash, kind, payload: g.predicate.payload, inputs: answer.inputs });
     if (expected.inputHash === g.inputHash) return { ok: true };
+    if (kind === 'injury.anchor') return off('The injury this clock was set for, or the clock itself, is not what it was.');
     return off(fightEnd ? 'The fight ended differently: who it downed, or the story time it was settled at, is not what this settlement was made on.' : 'The lethal batch changed.');
 }
