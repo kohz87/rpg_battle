@@ -10,7 +10,8 @@
 // `acceptance` is the id of the reader's acceptance proof and the proof's only parent: the objective cannot outlive the
 // acceptance it stands on, and nothing before the acceptance can be bound to it. Pure.
 
-import { isDefId, isId, isHash, isObject, isRecordId } from '../rules/ids.js';
+import { isFoeRef } from '../fight/foes.js';
+import { isId, isHash, isObject, isRecordId } from '../rules/ids.js';
 
 export const OBJECTIVE_OWNER = 'rpg-battle';
 
@@ -34,7 +35,7 @@ export function payloadProblem(objectiveKind, payload) {
         return 'An objective proof names its thread, instance, objective, kind and acceptance.';
     }
     if (objectiveKind === 'kill') {
-        if (!isDefId(payload.foe) || !isRecordId(payload.fight) || !whole(payload.count, 1, 999)) return 'A kill proof names the foe, the fight and how many fell.';
+        if (!isFoeRef(payload.foe) || !isRecordId(payload.fight) || !whole(payload.count, 1, 999)) return 'A kill proof names the foe, the fight and how many fell.';
         if (!isObject(payload.batch) || Object.keys(payload.batch).sort().join() !== 'hash,id' || !isRecordId(payload.batch.id) || !isHash(payload.batch.hash)) return 'A kill proof names the sealed result it stands on.';
     } else if (objectiveKind === 'story') {
         if (!text(payload.text, 240) || !isHash(payload.line)) return 'A story proof names the objective text and the line that said it.';

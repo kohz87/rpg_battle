@@ -17,7 +17,7 @@ import { indexOfCtx } from '../rules/graph.js';
 import { areaNow, areaPolicyNow, plainRule, registrable } from '../rules/items.js';
 import { defineItem } from '../items/define.js';
 import { formSkill } from './forms.js';
-import { foeToEngine } from './foes.js';
+import { foeToEngine, foeVariant } from './foes.js';
 import { attachGuard } from '../progress/guard.js';
 import { recordCombatUses } from '../progress/record.js';
 import { buildAct, buildEnd, buildStart, fightForms } from './guards.js';
@@ -97,11 +97,11 @@ export function restoreStrengths(ctx, combatant, rules = DEFAULT_RULES) {
  * The stored setup of a pinned fight: it names its ruleset, draws by action and levels by the pin's xpPerLevel (the foes' XP is a share of
  * a level, fightRules reads `xpBase` when the setup has it; a v1 setup has none and is unchanged).
  */
-export function pinnedSetup(ctx, setup) {
+export function pinnedSetup(ctx, setup, offer = null) {
     const ix = pinnedOf(ctx);
     if (!ix) return setup;
     const pinned = { ...setup, ruleset: ix.rulesHash, draws: 'action', xpBase: ix.constants.xpPerLevel };
-    return packFoes(ctx, ix, pinned);
+    return packFoes(ctx, ix, pinned, offer);
 }
 
 /**
@@ -110,10 +110,20 @@ export function pinnedSetup(ctx, setup) {
  * foe (no tier, not allowed, not in the pack) stays what the v1 projection made of it, so a fight never fails to start for want of one.
  * The foe keeps its id, its letter ("Wolf A"), its wave and its row's threat word.
  */
-export function packFoes(ctx, ix, setup) {
-    const area = areaPolicyNow((name, args) => ctx.query(name, args));
+export function packFoes(ctx, ix, setup, offer = null) {
+    const area = offer?.area ?? areaPolicyNow((name, args) => ctx.query(name, args));
     const rules = fightRules(setup);
     const swap = enemy => {
+        const binding = offer?.foes?.find(row => row.name === (enemy.questName ?? enemy.name));
+        if (binding?.variant) {
+            const made = foeVariant(ix.foe(binding.variant.base), binding.variant.name, area);
+            if (!made.ok) return ctx.fail(made.code, made.why);
+            const adapted = foeToEngine(made.foe, { rules, forms: ix, items: ref => ix.itemDef(ref), area, ordinal: Number(String(enemy.id).slice(3)) });
+            if (!adapted.ok) return ctx.fail(adapted.code, adapted.why);
+            return { ...adapted.enemy, foeRef: made.foe.id, id: enemy.id, name: enemy.name,
+                ...(enemy.questName ? { questName: enemy.questName } : {}), ...(enemy.wave ? { wave: enemy.wave } : {}), ...(enemy.threat ? { threat: enemy.threat } : {}) };
+        }
+
         // An offer's foe that names a ref is that foe (an unknown ref is none); one that names only a name is the pack's one foe of that name.
         const foe = typeof enemy.ref === 'string' ? ix.foe(enemy.ref) : ix.foeNamed(enemy.questName ?? enemy.name);
         enemy = { ...enemy, foeRef: foe?.id ?? null };
@@ -130,9 +140,28 @@ export function packFoes(ctx, ix, setup) {
     };
     return {
         ...setup,
+        ...(offer?.area ? { area: structuredClone(area) } : {}),
         enemies: setup.enemies.map(swap),
         ...(setup.waves ? { waves: setup.waves.map(wave => ({ ...wave, enemies: wave.enemies.map(swap) })) } : {}),
     };
+}
+
+/** Bind the capture's literal foe names to pinned records. A like label binds one variant name only. */
+export function bindEncounter(ctx, rows, like) {
+    const ix = pinnedOf(ctx);
+    if (!ix || like === undefined) return null;
+    const area = areaPolicyNow(ctx.query);
+    if (typeof like !== 'string' || !like.trim() || new Set(rows.map(row => row.name)).size !== 1) return ctx.fail('FOE', 'like binds exactly one variant name to one pack foe slug.');
+    const base = Object.values(ctx.read('rules').pin.resolved.foes).find(foe => foe.id === like || foe.slug === like);
+    if (!base) return ctx.fail('FOE', 'The variant needs an explicit frozen base foe slug.');
+    const foes = rows.map(row => {
+        const made = foeVariant(base, row.name, area);
+        if (!made.ok) return ctx.fail(made.code, made.why);
+        const checked = foeToEngine(made.foe, { rules: DEFAULT_RULES, forms: ix, items: ref => ix.itemDef(ref), area, ordinal: 1 });
+        if (!checked.ok) return ctx.fail(checked.code, checked.why);
+        return { ...row, ref: made.foe.id, variant: { base: base.id, name: row.name } };
+    });
+    return { foes, area };
 }
 
 /** Whether a stored fight is one on a pinned ruleset: the fight decides, not the chat's pin of the moment (a session begun before the pin is v1's). */
