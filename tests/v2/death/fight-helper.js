@@ -15,4 +15,3 @@ export async function wipe(w) {
     assert.equal(v.status, 'lost');
     return ok(w.command('combat.end', { session: v.id }, 'ui'));
 }
-

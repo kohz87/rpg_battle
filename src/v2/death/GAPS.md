@@ -95,3 +95,34 @@ and 14 skips; npm run check and git diff --check pass. Expanded death fuzz: seed
 fixes temporarily removed and failed, then restored. The old active-roster fixture was aligned
 with B6's dead-member exclusion. An unseeded legacy foe-rank-tail test failed once through a
 random immediate defeat; its isolated file and the final full suite passed. It was not changed.
+
+Resume 2: main and replay audit
+
+- Merged RB main febdef5 with a real merge. Only the vendored host conflicted; main's
+  version resolved those conflicts, followed by a vendor-only sync from exact SB main
+  fa1853d3ea0a83d1cbe37193741f19afa2c8d9d9. tests/v2/qa/vendor is unchanged.
+- Audited every B6 predicate against 027-resume3 step 0. lethal reads declared party.actor
+  and host-safe story.evidence. intervention additionally reads the progress/death state
+  for its rescuer/form/payment. death.resolve reads the same queries, the state clock,
+  and recorded snapshot/checks. death.fight-end reads the combat prefix, declared party.actor,
+  the state clock and recorded area. return.cue reads declared return.status; on a pinned
+  chat that projection reads state alone. No new query declaration or runtime fix was needed.
+  Live native identity, snapshot availability, place and purse queries remain plan/delivery
+  reads, outside guard replay. No additional lead-owned file was edited.
+- tests/v2/death/real-module.test.js composes the real module and B6 part under their single
+  rpg-battle owner, without replacing replay queries. It covers all five guard kinds, pending
+  death, paid intervention, permanent companion death, wipe, authenticated return, one wake,
+  reward erasure/re-earning and reload/full replay with no Problems. Its declarations check
+  verifies owner/query identity. Replacing the guard's state clock with director.time made
+  both scenario tests fail at the real host's replay gate; the safe implementation was restored.
+  Removing return.status from the composed allowlist also failed the declaration check and
+  the complete-return scenario. Main's progression real-module assertion now includes the
+  existing return part's declarations; its omission was the only non-TODO full-suite failure.
+- This pin still has E6a's native-selection and intra-reply history limitations described
+  above. Real NSD participation and production coordinator/registration remain integration
+  work; no four-module or E6b acceptance is claimed by these tests.
+- Final validation: syntax check passes; 1993 tests, 1973 pass, zero failures, six existing
+  TODOs and 14 integration skips. All 51 B6 tests and 16 module tests pass. Expanded fuzz
+  seeds 33/91/217 ran 200 steps each (600 B6 steps); the fight/progression entry fuzzes
+  also passed at 200 steps per seed. After the assertion fix, the full suite passed with
+  its default fuzz lengths. Both whitespace checks pass, including origin/main to HEAD.

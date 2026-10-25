@@ -42,6 +42,9 @@ export function replayGuard(view, info) {
     const off = reason => ({ ok: false, reason: `The earlier prerequisite was removed. ${reason}` });
     const ix = indexOfState(view.state);
     if (!ix || g.version !== 2 || g.rulesHash !== ix.rulesHash || g.epoch !== epochOf(view.state)) return off('The rules or epoch changed.');
+    // E1: party queries are declared by the part; story.evidence is host-safe. Read the
+    // clock from state and the sealed checks/snapshot/area from info.recorded. Replay
+    // must never query live place, purse, native identity or snapshot availability.
     const env = { ix, death: view.state.domains.death, progress: view.state.domains.progress, query: view.query, minute: view.state.domains.director?.time?.minutes ?? null };
     if (!env.death) return off('The death records are missing.');
     let answer;
