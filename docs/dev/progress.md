@@ -15,8 +15,8 @@ and query access; it needs no injected rules argument.
 ## Stage 5: choosing the timeline's rules
 
 At character creation, `rules.selection({})` projects the enabled, checked `packs.rules` offers.
-One pack is offered explicitly; several packs each have a reader-selected Pin button. Offers stay
-visible while Story Director starts; pinning waits for the compatible dependency. None leaves
+One pack is offered explicitly; several packs each have a reader-selected Pin button. Story Director
+is a required peer: Setup offers become available when that dependency is ready. None leaves
 the chat legacy. The normal creation opener and start card lead to track C's Setup before the
 class picker; direct finish/create/import commands cannot bypass an offered choice. Pin buttons
 use the existing `rpg-battle.command-button`, including its refusal message.
@@ -40,7 +40,7 @@ rebuild never runs the command or resolves an installed pack again. As with the 
 history contract, a prefix deleted outside a session that saw it can require explicit history
 repair; no replacement pack is substituted.
 
-Host dependency: Story Block `c85ead118766b9904f82432e897b3be3592c851e` or a descendant,
+Host dependency: Story Block `09a98fd49af968b7b52807bc8109774f2967b501` or a descendant,
 vendored by sync-testkit. P01's additive transport/lifecycle contracts are documented in SB
 PACKS.md (`resolve: true` and its `pin` transport), LIFECYCLE.md (deferred domains and API
 presence) and REPLAY.md (`replyBound`). These are coordinated host changes, not missing seams.

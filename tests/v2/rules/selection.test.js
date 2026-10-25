@@ -167,12 +167,16 @@ test('an existing legacy character cannot pin when a pack is installed later', a
     assert.equal(JSON.stringify(h.head()), before);
 });
 
-test('late Story Director enables the same Setup offer; a restore barrier prevents pinning', async t => {
+test('late Story Director activates Setup offers; a restore barrier prevents pinning', async t => {
     const h = await world(t, { sd: false });
-    assert.equal(h.selection().state, 'offered', 'Setup still names the pack while its dependency starts');
-    assert.equal((await h.pin()).code, 'DEPENDENCY_UNAVAILABLE');
+    assert.equal(h.selection(), null, 'the required peer keeps all RB queries dormant');
+    assert.equal(h.sdk.modules().find(module => module.id === 'rpg-battle').status, 'dormant');
+    const pin = h.q('packs.rules', { resolve: true })[0].pin;
+    const choice = { pack: pin.packKey, version: pin.packVersion, rulesHash: pin.rulesHash, packHash: pin.packHash };
+    assert.equal((await h.sdk.command('rules.pin', choice)).code, 'DEPENDENCY_UNAVAILABLE');
     assert.equal(h.head().domains.rules, undefined);
     await h.sdk.registerModule(director);
+    assert.equal(h.sdk.modules().find(module => module.id === 'rpg-battle').status, 'ready');
     const offer = h.selection().offers[0];
     assert.ok(offer);
     h.registry.setRestore('pending');
