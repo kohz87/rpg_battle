@@ -32,7 +32,7 @@ function invariants(h, when) {
             assert.ok(proof, `${when}: evidence ${key} has no surviving proof`);
             assert.equal(proof.owner, 'rpg-battle', when);
             assert.deepEqual([proof.payload.thread, proof.payload.instance, proof.payload.objective], [thread.id, quest.instance, row.objective], `${when}: the proof is bound to its objective`);
-            assert.ok(h.head().meta.claims[`rb:ep_00000000:objective:${thread.id}:${quest.instance}:${row.objective}`], `${when}: the evidence holds its claim`);
+            assert.ok(h.head().meta.claims[`rb:ep_00000000:objective:proof:${row.proof}`], `${when}: the evidence holds its proof claim`);
         }
         const settled = h.head().meta.claims[`rb:ep_00000000:quest:${thread.id}:${quest.instance}:settled`] === true;
         assert.equal(settled, quest.settlement !== null, `${when}: the settlement and its claim go together`);
@@ -51,11 +51,17 @@ for (const seed of SEEDS) test(`objective evidence fuzz, seed ${seed}: replay eq
     for (let step = 0; step < STEPS; step += 1) {
         const thread = h.sdk.query('director.thread', { key: 'Mill job' });
         const count = h.ctx.chat.length;
-        const op = pick(['offer', 'take', 'met', 'met', 'finish', 'reply', 'delete', 'reread']);
+        const op = pick(['offer', 'take', 'met', 'met', 'undo', 'invalid', 'coin', 'finish', 'reply', 'continue', 'swipe', 'delete', 'reload', 'reread']);
         log.push(op);
         if (op === 'offer' && !thread) await h.send('Work?', '<Changes>\n+ quest Mill job\n</Changes>');
         else if (op === 'take' && thread?.rpg?.state === 'offered') await h.sdk.command('quest.take', { id: thread.id });
         else if (op === 'met') await h.send('I do the work.', `<Changes>\n~ quest Mill job | met: yes${r() < 0.5 ? ` | objective: ${pick(story).id}` : ''}\n</Changes>`);
+        else if (op === 'undo') await h.send('That work is undone.', `<Changes>\n~ quest Mill job | met: no | objective: ${pick(story).id}\n</Changes>`);
+        else if (op === 'invalid') await h.send('Unclear.', '<Changes>\n~ quest Mill job | met: maybe\n</Changes>');
+        else if (op === 'coin' && thread?.rpg?.state === 'active') await h.send('Reward.', '<Changes>\n+ coin 30\n- quest Mill job — done\n</Changes>');
+        else if (op === 'continue' && thread?.rpg?.settlement?.source.sid === h.ctx.chat.at(-1)?.extra?.storySuite?.source?.logical) await h.cont('<Changes>\n+ coin 30\n</Changes>');
+        else if (op === 'swipe' && count > 3 && !h.ctx.chat.at(-1)?.is_user) await h.swipe('The work is still ahead.');
+        else if (op === 'reload') await h.st.loadChat(structuredClone(h.ctx.chat));
         else if (op === 'finish' && thread?.rpg?.state === 'active') await h.sdk.command('quest.finish', { id: thread.id });
         else if (op === 'reply') await h.send('Go on.', 'The day passes.');
         else if (op === 'delete' && count > 4) await h.st.deleteMessage(2 + Math.floor(r() * (count - 2)));
