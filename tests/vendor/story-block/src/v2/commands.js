@@ -46,7 +46,7 @@
 import { apply, checkOps, clone, counterInside, deepFreeze, diff, escapeKey, frozenCopy, isCounterPath, isDeepFrozen, isJson, valueAt } from './ops.js';
 import { isSeed, rng as makeRng, roll as rollDice, seed as freshSeed } from './rng.js';
 import { guardProblem, hashJson, isPlainJson } from './replay.js';
-import { newRoot, receiptEvidence, submitProof } from './evidence.js';
+import { newRoot, operationKey, receiptEvidence, submitProof } from './evidence.js';
 
 export const MAX_DEPTH = 8;
 const CAUSES = ['ui', 'story', 'system'];
@@ -165,6 +165,36 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
         return null;
     }
 
+    // The context a guard is asked in on replay (REPLAY.md "Guards are pure"): the state before its block and what it recorded,
+    // nothing else. `query` answers only the queries its owner module declares as replay-safe (`replayQueries: [names]`: they
+    // depend on the state and their arguments alone, not on settings, the clock or other messages); anything else, and
+    // `receipts()` (the chat after the block is not part of what it was recorded over), throws, which fails the guard closed.
+    // What a guard needs from outside (a setting, a currency rule) is read when the block is planned and handed to
+    // `ctx.replayGuard(guard, recorded)`, and comes back from the record.
+    // `story.evidence` is the host's own and is always allowed: it reads the state's pins and the proof of the blocks that applied
+    // before the block (the prefix), and nothing else (docs/v2/EVIDENCE.md).
+    function replayQuery(owner, name) {
+        if (name === 'story.evidence') return findQuery(name);
+        for (const def of registry.modules?.() ?? []) {
+            if (def?.id === owner && typeof def.queries?.[name] === 'function' && Array.isArray(def.replayQueries) && def.replayQueries.includes(name)) return def.queries[name];
+        }
+        return null;
+    }
+    function replayTools(owner, state) {
+        const tools = Object.freeze({
+            reply: null,
+            query(name, args) {
+                const fn = replayQuery(owner, name);
+                if (!fn) throw new Error(`"${name}" is not a query a guard may ask on replay: ${owner} lists the ones that depend on the state alone in replayQueries; anything else it needs it records`);
+                return frozenCopy(fn(state, deepFreeze(clone(args)), tools));
+            },
+            receipts() {
+                throw new Error('a guard does not see receipts on replay: only the state before its block and what it recorded');
+            },
+        });
+        return tools;
+    }
+
     // What the store asks on replay: `hooks.replayGuard({ state, query, hash }, { guard, source, block,
     // operation, recorded, payload: { saved, current } })` of the guard's owner, on the state before the block. { ok: true } or { ok: false,
     // reason }; no hook, a throw, a promise or a malformed answer is { ok: false } (fails closed).
@@ -177,7 +207,7 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
         if (registry.held?.(owner) === true) return { ok: false, reason: `${owner} is not ready` };
         let answer;
         try {
-            const tools = queryTools({ reply: null }, state);
+            const tools = replayTools(owner, state);
             const view = Object.freeze({ state, query: tools.query, hash: hashJson });
             answer = hook(view, deepFreeze(clone({ guard: info.guard, source: info.source, block: info.block, operation: info.operation, recorded: info.recorded ?? null, payload: info.payload ?? null })));
         } catch (error) {
@@ -196,8 +226,9 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
     // its guarded blocks.
     // A checkpoint over guarded blocks keeps the mark it was made under (store.js chain): a different owner set, or a new
     // version of an owner (its guard code may answer otherwise), makes it fail and the prefix replays with the guards asked.
+    // (the host's own hook, `hostOwned`, answers from the story alone, whoever is ready: it is no owner whose readiness changes an answer)
     const guardMark = () => (registry.modules?.() ?? [])
-        .filter(def => typeof def?.hooks?.replayGuard === 'function' && registry.held?.(def.id) !== true).map(def => `${def.id}@${def.version ?? ''}`).join(',');
+        .filter(def => typeof def?.hooks?.replayGuard === 'function' && def.hooks.replayGuard.hostOwned !== true && registry.held?.(def.id) !== true).map(def => `${def.id}@${def.version ?? ''}`).join(',');
     if (typeof store.attachGuard === 'function') store.attachGuard(replayGuardCheck, guardMark);
 
     // The Source this transaction's block will carry: its reply's canonical pair and ordinal (store.sourceAt).
@@ -210,6 +241,24 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
             tx.source = found ? Object.freeze(found) : null;
         }
         return tx.source;
+    }
+
+    // What a block is for the ids of its proof: its command and line, and its occurrence among the blocks of its reply that did the same
+    // (given once and kept in the block's span: the caller that plans a block again passes the one it has, else the reply's next unused
+    // one). Two blocks of a reply differ in it.
+    function originOf(tx) {
+        if (tx.origin === null) {
+            try { tx.operation = operationKey(tx.call.type, tx.call.payload); } catch { tx.operation = null; }
+            // (never invented here: the caller that plans a block gives it, else the store's allocator does; with neither the proof is refused)
+            let rank = tx.occurrence;
+            if (rank === null) {
+                try { rank = Number.isInteger(tx.reply?.index) && tx.operation ? store.allocateOccurrence?.(tx.reply.index, tx.operation) : null; } catch { rank = null; }
+            }
+            if (!Number.isInteger(rank) || rank < 0) throw new Error('No occurrence could be given to this proof.');
+            tx.rank = rank;
+            tx.origin = `${tx.operation}:${rank}`;
+        }
+        return tx.origin;
     }
 
     // ---- one transaction ----------------------------------------------------------------------
@@ -402,8 +451,8 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
             proof(spec) {
                 open();
                 const made = submitProof(spec, {
-                    who: moduleId, cause: tx.cause, chat: tx.chat, source: sourceOf(tx), state: () => currentState(tx),
-                    stored: () => store.proofs?.() ?? [], planned: tx.planned, root: tx.proofs, fail, free: tx.replacing,
+                    who: moduleId, cause: tx.cause, chat: tx.chat, source: sourceOf(tx), origin: originOf(tx), state: () => currentState(tx),
+                    stored: () => store.proofs?.() ?? [], taken: () => store.proofs?.({ all: true }) ?? [], planned: tx.planned, root: tx.proofs, fail, replacing: tx.replacing,
                 });
                 if (made.created) {
                     const meta = metaOf(tx);
@@ -543,7 +592,7 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
     }
 
     // Runs one command against `head` and returns { ok, ops, receipt, state } without storing anything.
-    function transact(head, type, payload, { cause, seed: seedValue, receiptId, capture, carrier = null, chat = null, again = false, standing = null, reply = null, planned = null, replacing = null }) {
+    function transact(head, type, payload, { cause, seed: seedValue, receiptId, capture, carrier = null, chat = null, again = false, standing = null, reply = null, planned = null, replacing = null, occurrence = null }) {
         let tx = null;
         try {
             if (!CAUSES.includes(cause)) fail('INVALID', `"${cause}" is not a cause (ui, story or system).`);
@@ -567,9 +616,12 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
                 guard: null, recorded: null, source: undefined, pending: 0, ordinal: undefined, proofs: newRoot(),
                 // The proof a Re-read's earlier lines gave (planned, not stored yet), for parents and story.evidence.
                 planned: Array.isArray(planned) ? planned : [],
-                // The ids of the proof of blocks being replaced (a Re-read's lines and steps, a step planned again): free to be given again.
-                replacing: replacing instanceof Set ? replacing : new Set(Array.isArray(replacing) ? replacing : []),
+                // The proof of the blocks being replaced (a Re-read's lines and steps, a step planned again): a proof of the same kind and key, at the same place among those, keeps the id.
+                replacing: Array.isArray(replacing) ? replacing : [],
+                // What this root is (its command and line) and its rank among blocks of the reply that did the same: its proof ids come from it.
+                origin: null, rank: null, operation: null, occurrence: Number.isInteger(occurrence) && occurrence >= 0 ? occurrence : null,
             };
+            tx.call = { type, payload };
             // `reply` (run, a system step only): the reply a Re-read's step is kept on, which need not be the head.
             const given = cause === 'system' && isRecord(reply) ? replyOf(reply.index, reply.sid) : null;
             tx.reply = tx.carrier ? replyOf(tx.carrier.index, tx.carrier.sid ?? tx.carrier.key) : given ?? headReply(store);
@@ -605,7 +657,7 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
                 block = {
                     module: target.moduleId, source, guard: tx.guard ?? null, operation: { type, payload: clone(operation) }, recorded: tx.recorded,
                     result: Object.hasOwn(data.v2, 'result') ? clone(data.v2.result) : clone(data),
-                    ...(proofs.length ? { evidence: clone(proofs) } : {}),
+                    ...(proofs.length ? { evidence: clone(proofs), occurrence: tx.rank } : {}),
                 };
                 // The receipt shows the proof too (contract Receipt.data.v2.evidence); the span's is what the host reads.
                 if (proofs.length) data = { ...data, v2: { ...data.v2, evidence: receiptEvidence(proofs) } };
@@ -761,11 +813,11 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
          * `carrier` and `reply` may also say `pending` (guarded blocks a Re-read has planned before this one) or
          * `ordinal` (this block's own, when it is planned again): only ctx.source's ordinal follows them. `planned`
          * (the Proofs the lines of a Re-read have given so far): parents and story.evidence see them like stored ones.
-         * `replacing` (proof ids of the blocks being replaced): they may be given again, so a line read again keeps its ids.
+         * `replacing` (the proof of the blocks being replaced): a proof of the same kind and key at the same place among those keeps the id of its old one.
          * A guarded transaction's result has a `block` too (REPLAY.md), which store.append or replaceStory keeps.
          */
-        run(type, payload, { cause = 'story', seed: seedValue, state, capture, carrier = null, chat = null, again = false, standing = null, reply = null, planned = null, replacing = null } = {}) {
-            return guarded(() => transact(state ?? store.head(), type, payload, { ...fresh(cause, seedValue), capture, carrier, chat, again: again === true && cause === 'story', standing, reply, planned, replacing }));
+        run(type, payload, { cause = 'story', seed: seedValue, state, capture, carrier = null, chat = null, again = false, standing = null, reply = null, planned = null, replacing = null, occurrence = null } = {}) {
+            return guarded(() => transact(state ?? store.head(), type, payload, { ...fresh(cause, seedValue), capture, carrier, chat, again: again === true && cause === 'story', standing, reply, planned, replacing, occurrence }));
         },
     };
 }
