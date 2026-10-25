@@ -11,16 +11,16 @@ import { golden, slice, basic } from './helpers/states.js';
 const rosterOf = w => w.q('rules.party', {});
 const ids = sheets => sheets.map(sheet => sheet.id);
 
-// (The party part allows three companions by default, so one is in reserve here; C08's two reserves need the setting raised.)
+// C08 has four companions: raise the reader setting so PC+2 are active and two wait in reserve.
 test('C08 roster: the PC and two companions active, the rest in reserve, temporary units beside, each a SheetView', async t => {
-    const w = await realWorld(t, { companions: ['Lyra', 'Bram', 'Cass'] });
+    const w = await realWorld(t, { companions: ['Lyra', 'Bram', 'Cass', 'Dov'], reader: { 'party.maxCompanions': 4 } });
     w.host.bus.command('test.unit', { id: 'ac_wolf0001' }, { cause: 'ui' });
     w.host.bus.command('test.unit', { id: 'ac_spark001', kind: 'pet', name: 'Spark' }, { cause: 'ui' });
     const party = rosterOf(w);
     assert.equal(party.pc, w.pc);
     assert.equal(party.activeLimit, 3);
     assert.deepEqual(ids(party.active), [w.pc, w.mates[0], w.mates[1]]);
-    assert.deepEqual(ids(party.reserve), [w.mates[2]]);
+    assert.deepEqual(ids(party.reserve), [w.mates[2], w.mates[3]]);
     assert.deepEqual(party.temporary.map(sheet => [sheet.id, sheet.kind, sheet.name]), [['ac_wolf0001', 'summon', 'Grey wolf'], ['ac_spark001', 'pet', 'Spark']]);
     const [astra] = party.active;
     assert.deepEqual(Object.keys(astra).sort(), ['background', 'class', 'conditions', 'control', 'gear', 'hp', 'id', 'kind', 'level', 'life', 'mp', 'name', 'npcId', 'origin', 'portrait', 'role', 'skills', 'sp', 'stats', 'tier', 'unspent', 'xp', 'xpToNext'].sort());
