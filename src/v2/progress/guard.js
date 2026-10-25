@@ -46,7 +46,10 @@ export function buildGuard({ hash, owner, epoch, source, rulesHash, kind, payloa
  * hooks.replayGuard({ state, query, hash }, { guard, source, … }) → { ok } | { ok: false, reason } | undefined.
  * undefined for a guard that is not this file's (another part may answer); the host fails closed on no answer.
  */
-export function replayGuard({ state, query, hash }, info) {
+export function replayGuard({ state, query: asked, hash }, info) {
+    // Story Block answers a guard only the queries its owner lists as replay-safe (REPLAY.md): the story clock is read as data from the state
+    // (Story Director's `director.time`), never asked.
+    const query = (name, args) => (name === 'director.time' ? (state?.domains?.director?.time ?? null) : asked(name, args));
     const guard = info?.guard;
     const kind = guard?.predicate?.kind;
     if (!GUARD_KINDS.includes(kind)) return undefined;

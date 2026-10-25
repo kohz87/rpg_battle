@@ -37,4 +37,7 @@ export const part = {
     domains: { progress: { initial: initialProgress, validate: progressProblems } },
     commands: { 'class.choose': commands['class.choose'], 'path.choose': commands['path.choose'] },
     hooks: { replayGuard, afterCapture },
+    // The queries its replay guards ask (Story Block REPLAY.md: a guard may ask only its owner module's own queries listed here, and they must
+    // depend on the state and their arguments alone). They are the party part's; module.js unions this list into the module's.
+    replayQueries: ['party.actor', 'party.actors'],
 };

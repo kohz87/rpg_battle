@@ -85,7 +85,10 @@ test('the settlement guard names the whole plan: another plan on the state befor
     const withClock = minute => (name) => (name === 'director.time' ? { minutes: minute, text: '' } : null);
     const plan = clock => assess('rules.settle', { ix, progress, query: withClock(clock) }, {});
     const guard = buildGuard({ hash: hashJson, owner: 'rpg-battle', epoch: EPOCH, source: SOURCE, rulesHash: ix.rulesHash, kind: 'rules.settle', payload: {}, inputs: plan(600).inputs });
-    const hook = clock => replayGuard({ state: stateOf(progress), query: withClock(clock), hash: hashJson }, { guard, source: SOURCE });
+    // On replay Story Block gives a guard no query of Story Director's: the clock is read from the state before the block.
+    const refusing = () => { throw new Error('not a query a guard may ask on replay'); };
+    const clocked = (base, clock) => ({ ...base, domains: { ...base.domains, director: { time: { minutes: clock, text: '' } } } });
+    const hook = clock => replayGuard({ state: clocked(stateOf(progress), clock), query: refusing, hash: hashJson }, { guard, source: SOURCE });
     assert.deepEqual(hook(600), { ok: true });
     assert.deepEqual(hook(900), { ok: true }, 'the same day: a minute edited within it moves no settlement (the guard hashes the day, the row keeps the minute)');
     assert.equal(plan(600).plan[0].minute, 600);
@@ -96,7 +99,7 @@ test('the settlement guard names the whole plan: another plan on the state befor
     assert.deepEqual([plan(null).ok, plan(null).code], [false, 'CLOCK_UNSET'], 'held, not zeroed');
     const done = { ...progress, credits: { at_00000001: plan(600).plan[0] } };
     assert.equal(assess('rules.settle', { ix, progress: done, query: withClock(600) }, {}).code, 'NO_LONGER_DONE');
-    assert.equal(replayGuard({ state: stateOf(done), query: withClock(600), hash: hashJson }, { guard, source: SOURCE }).ok, false, 'nothing left to settle: the block is off');
+    assert.equal(replayGuard({ state: clocked(stateOf(done), 600), query: refusing, hash: hashJson }, { guard, source: SOURCE }).ok, false, 'nothing left to settle: the block is off');
 });
 
 test('the hook names the epoch: a guard of another epoch is off, and the hash is taken with the guard\'s own', () => {

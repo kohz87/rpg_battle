@@ -128,7 +128,11 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
 
 /** A host with the stand-ins and the module; `ui(type, payload)` is the reader's click. */
 export async function world(t, { given, modules = [] } = {}) {
-    const host = await createHost({ modules: [CLOCK, PARTY, rulesModule({ given }), ...modules], core: false });
+    // The party stand-in's queries live in the rules module: Story Block answers a replay guard only its owner's own listed queries, as the real module's.
+    const rules = rulesModule({ given });
+    rules.queries = { ...rules.queries, ...PARTY.queries };
+    rules.replayQueries = progressPart.replayQueries.filter(name => Object.hasOwn(rules.queries, name));
+    const host = await createHost({ modules: [CLOCK, { ...PARTY, queries: {} }, rules, ...modules], core: false });
     t.after(() => host.close());
     t.mock.method(console, 'warn', () => {});
     const w = {
@@ -185,3 +189,20 @@ export async function started(t, options = {}) {
 }
 
 export { ACTOR, FRIEND, fixturePin, ref };
+
+/** The real RPG Battle module with the rules-v2 module's pieces merged into it, as module.js will register them: one module id, so a guard's own queries are the party's. */
+export function mergeInto(base, extra) {
+    return {
+        ...base,
+        domains: { ...base.domains, ...extra.domains },
+        commands: { ...base.commands, ...extra.commands },
+        queries: { ...base.queries, ...extra.queries },
+        replayQueries: [...new Set([...(base.replayQueries ?? []), ...(extra.replayQueries ?? [])])],
+        capture: {
+            ...base.capture,
+            kinds: { ...base.capture.kinds, ...extra.capture.kinds },
+            apply(ctx, line) { return Object.hasOwn(extra.capture.kinds, line?.kind) ? extra.capture.apply(ctx, line) : base.capture.apply(ctx, line); },
+        },
+        hooks: { ...base.hooks, ...extra.hooks },
+    };
+}
