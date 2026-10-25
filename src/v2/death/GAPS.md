@@ -127,11 +127,16 @@ Resume 2: main and replay audit
   also passed at 200 steps per seed. After the assertion fix, the full suite passed with
   its default fuzz lengths. Both whitespace checks pass, including origin/main to HEAD.
 
-Open gaps (review round)
+Release gap (closed)
 
 | Gap | Tag | Today | Closes with |
 |---|---|---|---|
-| Native mismatch is a dead end: a companion's death was delivered (the dossier is dead), then the lethal reply was deleted. The story has the companion alive, the generation hold stays, and `recover()` answers DEPENDENCY_UNAVAILABLE with no way out inside the story. | must close before release | RB refuses generation and delivery with a player-facing reason (selection.js) and the one remedy that works today: restore a save point from before the death, or put the reply back. | Stage-5 integration with E6b's native checkpoint selection: the host reselects the matching native checkpoint when a history change removes a death's evidence, before a scan, read or generation. |
+| Native mismatch after a delivered companion death leaves the story. | closed — must close before release | E6b's native-event journal already publishes before/after checkpoints. Delete, swipe and Re-read select the matching native checkpoint; RB honors `savepoint.contract().participantsReady` after recovery, retaining its visible remedy if selection cannot finish. | Real SB + RB + NSD tests cover both alive after removal, both dead after swipe back, unchanged Re-read, reload/full rebuild, a held activation and missing native bytes. No earlier save point is required. |
+
+The E6a limitations and synthetic-only evidence above are historical. The current tests vendor E6b. The real-module
+native-selection tests use NSD's shipped adapter, identity and participant with in-memory storage and DOM ports, not
+an NSD-shaped participant. SB also preserves reused Sources on unchanged Re-read after native work was published,
+so ordinal allocation alone cannot invalidate a delivered death's exact prefix. No NSD runtime change is needed.
 
 Injury anchor (review round 2)
 

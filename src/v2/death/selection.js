@@ -1,6 +1,8 @@
-// E6a journals native changes but cannot reselect them after a swipe/delete. Refuse RB generation/delivery
-// when that missing host step would expose mismatched state. This does not claim to implement E6b's scan barrier.
-export function historySelectionProblem(state, journal) {
+// The host's participant barrier owns native selection. Historical deliveries stay in its audit journal
+// after their evidence leaves the story; they are not a mismatch once the host confirms the selected head.
+// Keep the visible remedy for an unavailable checkpoint or a host without head-selection support.
+export function historySelectionProblem(state, journal, contract = null) {
+    if (contract?.api === 2 && contract.participantsReady === true) return null;
     const lastRestore = journal.findLast(e => e.kind === 'restore' && Object.keys(e.participants ?? {}).length && ['complete', 'retracted', 'committed', 'participants-pending', 'acked'].includes(e.phase));
     if (lastRestore && !state.domains.savepoints?.returns?.[lastRestore.return]) return 'A return was recorded, but this chat has changed since and the companions\' records no longer match it. To go on, restore a save point from before that return, or put the changed reply back.';
     const after = lastRestore ? journal.indexOf(lastRestore) : -1;
@@ -9,13 +11,14 @@ export function historySelectionProblem(state, journal) {
     return null;
 }
 
-export function generationProblem(state, host) {
+export function generationProblem(state, host, contract = null) {
     const outboxes = Object.values(state.domains.death?.outbox ?? {});
     const pending = outboxes.flatMap(o => o.native);
     if (!host) return pending.length ? 'The native death awaits the authenticated host coordinator.' : null;
     const journal = host.journal();
-    const changed = historySelectionProblem(state, journal);
+    const changed = historySelectionProblem(state, journal, contract);
     if (changed) return changed;
+    if (contract?.api === 2 && contract.participantsReady === false) return 'The companions\' records are catching up with the selected story. Please wait; if this continues, restore a save point from before the death, or put that reply back.';
     const undelivered = pending.some(n => !journal.some(e => e.kind === 'native-event' && e.phase === 'done' && e.event === n.event && e.npc === n.npc));
     return undelivered ? 'The native death awaits its durable acknowledgment.' : null;
 }

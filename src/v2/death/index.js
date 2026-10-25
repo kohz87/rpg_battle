@@ -29,7 +29,7 @@ export function createDeathPart({ host = () => null } = {}) { return {
     hooks: { replayGuard, afterCapture,
         canGenerate(view) {
             if (!indexOfState(view.state)) return { ok: true };
-            const reason = generationProblem(view.state, host());
+            const reason = generationProblem(view.state, host(), view.query('savepoint.contract', {}));
             return reason ? { ok: false, reason, action: false } : { ok: true };
         },
     },

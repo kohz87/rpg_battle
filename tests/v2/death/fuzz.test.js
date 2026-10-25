@@ -1,5 +1,4 @@
-// A rules-side death/return fuzzer. Native readiness is tested through a synthetic participant. When E6a
-// cannot select its native prefix after a history edit, RB must refuse generation (the E6b gap is explicit).
+// A rules-side death/return fuzzer. The real E6b host selects checkpoints of a synthetic native participant.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { savedWorld, coordinator } from './return-helper.js';
@@ -21,7 +20,7 @@ for (const seed of seeds) test(`B6 death/wipe/return fuzz ${seed}: rewards, nati
     const trace = [];
     const selected = () => lifeOf(w.q('party.actor', { id: w.pc }));
     const snapshot = () => structuredClone({ domains: w.head().domains, claims: w.head().meta.claims });
-    const ready = () => !generationProblem(w.head(), w.host.timeline.host);
+    const ready = () => !generationProblem(w.head(), w.host.timeline.host, w.q('savepoint.contract'));
     await w.say('<Changes>\n~ time 15840\n</Changes>');
     let deaths = 0, returns = 0, holds = 0;
     for (let i = 0; i < steps; i++) {
@@ -78,7 +77,7 @@ for (const seed of seeds) test(`B6 death/wipe/return fuzz ${seed}: rewards, nati
             assert.ok(w.q('party.actor', { id: w.pc }).xp <= 25, 'a retained duplicate XP reward');
             const wakes = Object.values(w.slice('death').wakes);
             assert.equal(new Set(wakes.map(r => r.cue)).size, wakes.length);
-            const reason = generationProblem(w.head(), w.host.timeline.host);
+            const reason = generationProblem(w.head(), w.host.timeline.host, w.q('savepoint.contract'));
             if (reason) {
                 holds++;
                 const blocked = await w.host.st.generate('normal', { reply: 'The story must wait for native recovery.' });

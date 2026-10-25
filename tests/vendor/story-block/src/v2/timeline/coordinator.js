@@ -1502,6 +1502,8 @@ export function createTimeline({ store, registry, metadata, chat = () => [], bar
         /** A chat was opened: what belongs to the one before it is dropped (the host calls it before it recovers). */
         settle,
         available: hash => archive.hasPayload(hash),
+        /** Internal turn hint: unchanged roots must keep Sources once native checkpoints depend on their prefixes. */
+        hasNativeChanges: () => archive.entries().some(entry => ['native-event', 'native-mutation'].includes(entry.kind)),
         /** Whether the journal holds work no operation owns (a crashed make, a restore left half way): the host recovers it. */
         needsRecovery: () => runningIn(archive.holder()) === 0 && ((archive.exists() && (archive.entries().some(entry => !settled(entry)) || selectionNeeded())) || unmaterializedMarkers().length > 0
             || (barrierOwner !== null && barrierOwner === archive.holder())),
