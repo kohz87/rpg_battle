@@ -1,10 +1,10 @@
 // The complete Stage 5 path: real SB + SD + RB, including the replay boundary.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHost } from '../../../../Story_block/testkit/index.js';
-import { createModule as director } from '../../../../Story_director/src/v2/module.js';
-import { createModule as battle } from '../../../../rpg_battle/src/v2/module.js';
-import { pinFor, smallRulesPack } from '../../../../rpg_battle/tests/v2/progress/helpers/fixture.js';
+import { createHost } from '../../vendor/story-block/testkit/index.js';
+import { createModule as director } from '../../vendor/story-director/src/v2/module.js';
+import { createModule as battle } from '../../../src/v2/module.js';
+import { pinFor, smallRulesPack } from '../progress/helpers/fixture.js';
 
 const reply = lines => `The attempt.\n<Changes>\n${lines.join('\n')}\n</Changes>`;
 const check = (skill = 'Stealth', dc = 20) => `? check ${skill} — an attempt | dc: ${dc} | result: impossible`;

@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { withPc } from '../party/helpers/fake-ctx.js';
 import { rollCheck } from '../party/helpers/check.js';
-import { outcomeOf } from '../../../../Story_director/src/v2/checks/words.js';
+import { outcomeOf } from '../../vendor/story-director/src/v2/checks/words.js';
 import { TOPIC_NAMES } from '../../../src/v2/rules/modifiers.js';
 
 for (const skill of TOPIC_NAMES) test(`checks flip: ${skill}, all difficulties and seeded dice agree with the rule`, () => {

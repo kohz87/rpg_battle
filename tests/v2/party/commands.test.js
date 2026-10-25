@@ -376,7 +376,7 @@ test('SD rolls a d20 + the stat modifier, deterministic per seed', () => {
 });
 
 test('SD outcomes follow the dice rules', async () => {
-    const { outcomeOf, dcOf } = await import('../../../../Story_director/src/v2/checks/words.js');
+    const { outcomeOf, dcOf } = await import('../../vendor/story-director/src/v2/checks/words.js');
     const { statForCheck } = await import('../../../src/v2/rules/check-words.js');
     assert.equal(outcomeOf(20, -3, 30), 'crit');
     assert.equal(outcomeOf(1, 10, 5), 'critfail');

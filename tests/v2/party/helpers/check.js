@@ -1,9 +1,9 @@
 // The real SD roller with RB's real modifier projection. No RB check handler or table is involved.
 import { makeCtx, Rejection } from './fake-ctx.js';
 import { rulesModifier } from '../../../../src/v2/rules/queries.js';
-import { commands } from '../../../../../Story_director/src/v2/checks/commands.js';
-import { dcOf } from '../../../../../Story_director/src/v2/checks/words.js';
-import { hashJson } from '../../../../../Story_director/src/v2/hash.js';
+import { commands } from '../../../vendor/story-director/src/v2/checks/commands.js';
+import { dcOf } from '../../../vendor/story-director/src/v2/checks/words.js';
+import { hashJson } from '../../../vendor/story-director/src/v2/hash.js';
 
 export function rollCheck(state, payload, options = {}) {
     const working = structuredClone(state);

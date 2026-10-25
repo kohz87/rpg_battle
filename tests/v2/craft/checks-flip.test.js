@@ -1,7 +1,7 @@
 // The recipe modifier, the actual SD result and RB's quality decision must agree.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createModule as director } from '../../../../Story_director/src/v2/module.js';
+import { createModule as director } from '../../vendor/story-director/src/v2/module.js';
 import { craftHost, PACK, qtyOf } from './helpers.js';
 import { qualityOf, statsModifier } from '../../../src/v2/craft/rules.js';
 

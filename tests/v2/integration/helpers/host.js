@@ -8,8 +8,8 @@
 import { createHost } from '../../../vendor/story-block/testkit/index.js';
 import { MODULE_ID, createModule } from '../../../../src/v2/module.js';
 import { EQUIP_PARTS } from '../../items/helpers/equip-parts.js';
-import { createModule as createDirector } from '../../../../../Story_director/src/v2/module.js';
-import { part as checks } from '../../../../../Story_director/src/v2/checks/index.js';
+import { createModule as createDirector } from '../../../vendor/story-director/src/v2/module.js';
+import { part as checks } from '../../../vendor/story-director/src/v2/checks/index.js';
 import { withDirector } from './peer.js';
 
 // splitmix32 over a counter: plenty for test dice, the same every run.
