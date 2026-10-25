@@ -112,10 +112,14 @@ function claim(table, name, partId, what) {
  * Block keeps them (`sdk.settings('rpg-battle')`); without it, the host's when it is up, else the
  * defaults. Used where no ctx or view carries them (queries, the item.define hook).
  */
-export function createModule({ settings = null, query = null } = {}) {
+export function createModule({ settings = null, query = null, parts = [] } = {}) {
+    // `parts`: [id, part] pairs registered after PARTS, in order, by whoever wires more of them in (the rules-v2 parts and the death
+    // part are not in PARTS yet, the lead adds them at integration). Tests compose them through this, so they meet the one
+    // merge the real module uses. Empty by default: the module is as PARTS make it.
+    const registered = [...PARTS, ...parts];
     const defaults = {};
     const schema = {};
-    for (const [id, part] of PARTS) {
+    for (const [id, part] of registered) {
         const own = part.settings;
         if (!own) continue;
         const title = typeof own.section === 'string' && own.section.trim() ? own.section.trim() : id;
@@ -205,7 +209,7 @@ export function createModule({ settings = null, query = null } = {}) {
         settings: partSettings(moduleSettings(), partId),
     });
 
-    for (const [id, part] of PARTS) {
+    for (const [id, part] of registered) {
         for (const [name, domain] of Object.entries(part.domains ?? {})) {
             claim(owners.domain, name, id, 'domain');
             domains[name] = domain;
