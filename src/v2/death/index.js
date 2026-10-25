@@ -3,7 +3,7 @@ import { commands as deathCommands, recordLethal, intervene } from './commands.j
 import { anchor, anchorSteps } from './anchor.js';
 import { replayGuard } from './guard.js';
 import { indexOfState } from '../rules/graph.js';
-import { generationProblem } from './selection.js';
+import { generationProblem, nativeSelection } from './selection.js';
 
 export { recordLethal, intervene };
 export { initialDeath, deathProblems };
@@ -26,7 +26,7 @@ export function createDeathPart({ host = () => null } = {}) { return {
         lethal: { grammar: '! lethal <actor ID> | cause: narrative|execution | evidence: <comma-separated IDs>', apply: (ctx, line) => recordLethal(ctx, { actor: line.name, cause: line.labels?.cause, evidence: String(line.labels?.evidence ?? '').split(',').map(s => s.trim()) }) },
         intervention: { grammar: '! intervention <event ID> | evidence: <ID>', apply: (ctx, line) => intervene(ctx, { event: line.name, evidence: line.labels?.evidence }) },
     },
-    hooks: { replayGuard, afterCapture,
+    hooks: { replayGuard, afterCapture, nativeSelection,
         canGenerate(view) {
             if (!indexOfState(view.state)) return { ok: true };
             const reason = generationProblem(view.state, host(), view.query('savepoint.contract', {}));

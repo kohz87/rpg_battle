@@ -136,7 +136,9 @@ Release gap (closed)
 The E6a limitations and synthetic-only evidence above are historical. The current tests vendor E6b. The real-module
 native-selection tests use NSD's shipped adapter, identity and participant with in-memory storage and DOM ports, not
 an NSD-shaped participant. SB also preserves reused Sources on unchanged Re-read after native work was published,
-so ordinal allocation alone cannot invalidate a delivered death's exact prefix. No NSD runtime change is needed.
+so ordinal allocation alone cannot invalidate a delivered death's exact prefix. RB registers a native-selection
+dependency with the host; NSD's `npc.dossier({id: np_})` read confirms even archived terminal-death dossiers. A surviving
+death without a matching native checkpoint remains held before the host can announce readiness.
 
 Injury anchor (review round 2)
 

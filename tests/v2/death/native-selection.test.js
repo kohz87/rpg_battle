@@ -65,6 +65,7 @@ async function story(t, saved = null, { withSave = true } = {}) {
         }
         assert.ok(identity?.id);
         ok(w.command('test.linkNpc', { actor: w.friend, npc: identity.id }));
+        await w.say('An unrelated earlier scene.');
         await w.say('<Changes>\n~ time 15840\n</Changes>');
         const evidence = w.proof('story', { actor: w.friend, cause: 'execution', lethal: true });
         // Capture and settle through the real module's afterCapture, with deterministic command entropy.
@@ -97,7 +98,7 @@ async function reloadAndRebuild(t, w, dead) {
     assertFullReplay(w);
     await agrees(w, dead);
     await w.host.store.flush();
-    const image = structuredClone({ chat: w.host.ctx.chat, metadata: w.host.ctx.chatMetadata });
+    const image = structuredClone({ chat: w.host.ctx.chat, metadata: w.host.ctx.chatMetadata, pc: w.pc, friend: w.friend });
     w.host.close();
     const next = await story(t, { live: w.live, vault: w.vault, image });
     await agrees(next, dead);
@@ -154,7 +155,21 @@ test('real SB + RB + NSD: a missing living checkpoint keeps the barrier and visi
     const reason = generationProblem(w.head(), w.host.timeline.host, w.q('savepoint.contract'));
     assert.match(reason, /put that reply back/);
     assert.equal((await w.host.st.generate('normal', { reply: 'Must wait.' })).aborted, true);
+    assert.match(w.host.st.notices.at(-1).reason, /restore a save point.*put the changed reply back/i);
     assert.ok((await w.host.turn.blockers()).length);
+}));
+
+test('real SB + RB + NSD: a surviving death without a matching native prefix remains visibly held', options, async t => seeded(17, async () => {
+    const w = await story(t);
+    await agrees(w, true);
+    const at = w.host.ctx.chat.findIndex(m => m.mes === 'An unrelated earlier scene.');
+    await w.host.st.deleteMessage(at);
+    const recovered = await w.coordinator.recover();
+    assert.equal(recovered.code, 'SNAPSHOT_UNAVAILABLE');
+    assert.equal(w.host.registry.restore().state, 'pending');
+    assert.equal(w.q('savepoint.contract').participantsReady, false);
+    assert.equal((await w.host.st.generate('normal', { reply: 'Must wait.' })).aborted, true);
+    assert.match(w.host.st.notices.at(-1).reason, /restore a save point from before the death/);
 }));
 
 test('real SB + RB + NSD: generation stays held until the selected native checkpoint is installed', options, async t => seeded(17, async () => {

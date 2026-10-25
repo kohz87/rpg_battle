@@ -14,9 +14,12 @@ export function createDeathCoordinator({ timeline, host, state, command, query, 
     // Recovery failures retain the host's code and RB's player-facing remedy. Only the host can settle its barrier.
     async function recoverSelection() {
         const recovered = await host.recover();
+        if (!recovered.ok) {
+            const selection = historySelectionProblem(state(), host.journal());
+            return selection ? { ...recovered, message: selection } : recovered;
+        }
+        if (recovered.state !== 'idle') return fail('RESTORE_PENDING', 'The host must finish the prepared native selection before delivery.');
         const selection = selectionProblem();
-        if (!recovered.ok) return selection ? { ...recovered, message: selection } : recovered;
-        if (recovered.state !== 'idle') return fail('RESTORE_PENDING', selection ?? 'The host must finish the prepared native selection before delivery.');
         return selection ? fail('DEPENDENCY_UNAVAILABLE', selection) : recovered;
     }
     const tell = async id => {
