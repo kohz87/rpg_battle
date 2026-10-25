@@ -45,8 +45,8 @@
 
 import { apply, checkOps, clone, counterInside, deepFreeze, diff, escapeKey, frozenCopy, isCounterPath, isDeepFrozen, isJson, valueAt } from './ops.js';
 import { isSeed, rng as makeRng, roll as rollDice, seed as freshSeed } from './rng.js';
-import { guardProblem, hashJson, isPlainJson } from './replay.js';
-import { newRoot, operationKey, receiptEvidence, submitProof } from './evidence.js';
+import { blockIdOf, epochOf, guardProblem, hashJson, isPlainJson } from './replay.js';
+import { newRoot, occurrenceOf, operationKey, receiptEvidence, submitProof } from './evidence.js';
 
 export const MAX_DEPTH = 8;
 const CAUSES = ['ui', 'story', 'system'];
@@ -261,6 +261,28 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
         return tx.origin;
     }
 
+    // The Cursor this transaction's block starts at (ctx.cursor): who the block is (the reply's canonical pair and the id named by its operation and its
+    // occurrence, which is the one the host stamps: replay.js blockIdOf) and where it sits now (the changes before it on the reply, the rev before it).
+    // A block the reply holds already (a step planned again: its ordinal) is told by the id it has.
+    function cursorOf(tx) {
+        if (tx.cursor === undefined) {
+            let found = null;
+            const source = sourceOf(tx);
+            if (source && Number.isInteger(tx.reply?.index)) {
+                try {
+                    originOf(tx);
+                    const held = Number.isInteger(tx.ordinal) ? store.blockAt?.(tx.reply.index, tx.ordinal) ?? null : null;
+                    const block = tx.reusing ? tx.reusing.id : held ? held.block : tx.operation ? blockIdOf({ sid: source.sid, swipeKey: source.swipeKey, key: tx.operation, rank: tx.rank }) : null;
+                    const op = Number.isInteger(tx.opsBefore) ? tx.opsBefore : held ? held.op : store.opsAt(tx.reply.index).length;
+                    if (block) found = { sid: source.sid, swipeKey: source.swipeKey, block, op, rev: Math.max(0, tx.rev - 1) };
+                } catch { found = null; }
+            }
+            tx.cursor = found ? Object.freeze(found) : null;
+        }
+        if (!tx.cursor) fail('FAILED', 'There is no reply yet to hold a block, so it has no cursor.');
+        return tx.cursor;
+    }
+
     // ---- one transaction ----------------------------------------------------------------------
 
     function draftOf(tx, domain) {
@@ -336,6 +358,14 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
             module: moduleId,
             caller,
             rev: tx.rev,
+            // The epoch of the timeline this block is made in: the savepoints domain's, else the genesis epoch (a pure function of the state before it).
+            epoch: epochOf(tx.head),
+            // The Cursor (RB contract) the block of this command starts at: { sid, swipeKey, block, op, rev }, the same the host stamps as the block's
+            // first boundary, and the same when the command is run again by a Re-read of an unchanged line. A function: it reads the chat.
+            cursor() {
+                open();
+                return cursorOf(tx);
+            },
             carrier: tx.carrier,
             chat: tx.chat,
             reply: tx.reply,
@@ -592,7 +622,7 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
     }
 
     // Runs one command against `head` and returns { ok, ops, receipt, state } without storing anything.
-    function transact(head, type, payload, { cause, seed: seedValue, receiptId, capture, carrier = null, chat = null, again = false, standing = null, reply = null, planned = null, replacing = null, occurrence = null }) {
+    function transact(head, type, payload, { cause, seed: seedValue, receiptId, capture, carrier = null, chat = null, again = false, standing = null, reply = null, planned = null, replacing = null, occurrence = null, reusing = null }) {
         let tx = null;
         try {
             if (!CAUSES.includes(cause)) fail('INVALID', `"${cause}" is not a cause (ui, story or system).`);
@@ -613,7 +643,7 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
                 rev: headRev + 1, carrier: carrierOf(carrier), chat: chatOf(chat), again: again === true && cause === 'story',
                 standing: cause === 'story' && isRecord(standing) ? (isDeepFrozen(standing) ? standing : deepFreeze(clone(standing))) : null,
                 drafts: new Map(), meta: null, failure: null, closed: false, absolute: new Set(), within: new Set(),
-                guard: null, recorded: null, source: undefined, pending: 0, ordinal: undefined, proofs: newRoot(),
+                guard: null, recorded: null, source: undefined, pending: 0, ordinal: undefined, proofs: newRoot(), cursor: undefined, opsBefore: null, reusing,
                 // The proof a Re-read's earlier lines gave (planned, not stored yet), for parents and story.evidence.
                 planned: Array.isArray(planned) ? planned : [],
                 // The proof of the blocks being replaced (a Re-read's lines and steps, a step planned again): a proof of the same kind and key, at the same place among those, keeps the id.
@@ -630,6 +660,8 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
             const place = tx.carrier ? carrier : given ? reply : null;
             if (Number.isInteger(place?.pending) && place.pending > 0) tx.pending = place.pending;
             if (Number.isInteger(place?.ordinal) && place.ordinal >= 0) tx.ordinal = place.ordinal;
+            // Where the block sits, for ctx.cursor: in a Re-read, the changes of the blocks planned before this one (the store has not stored them yet).
+            if (Number.isInteger(place?.opsBefore) && place.opsBefore >= 0) tx.opsBefore = place.opsBefore;
             const out = invoke(tx, type, target, payload, 0);
             if (tx.failure) throw tx.failure;
             const done = resultOf(type, out, cause);
@@ -639,6 +671,8 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
             // A guarded transaction: the receipt's data.v2 carries the host's Source and the guard (the owner's
             // own fields stay, but never a source or guard of its own making), and the store gets the block.
             let block = null;
+            // A cursor names a block that is stored: a command that read one makes a guarded block (or one that gives proof) or it fails (no id is handed out that is never used).
+            if (tx.cursor && !tx.guard && !tx.proofs.list.length) fail('FAILED', `${type} read its cursor but made no guarded block (ctx.replayGuard), so there is no block for it to name.`);
             if (tx.guard || tx.proofs.list.length) {
                 const source = sourceOf(tx);
                 if (!source) fail('FAILED', 'There is no reply yet to hold a guarded block.');
@@ -657,7 +691,14 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
                 block = {
                     module: target.moduleId, source, guard: tx.guard ?? null, operation: { type, payload: clone(operation) }, recorded: tx.recorded,
                     result: Object.hasOwn(data.v2, 'result') ? clone(data.v2.result) : clone(data),
-                    ...(proofs.length ? { evidence: clone(proofs), occurrence: tx.rank } : {}),
+                    ...(proofs.length ? { evidence: clone(proofs) } : {}),
+                    // The occurrence the block takes among the reply's blocks of its operation: given once, kept in its span, and what its id (and its proofs') come from.
+                    // A supported old proofless span keeps its bytes, including its absent occurrence. If it starts giving proof,
+                    // originOf uses the plan's shared allocator, just as a new block does.
+                    ...(reusing && occurrenceOf(reusing) === null && !proofs.length ? {} : { occurrence: (originOf(tx), tx.rank) }),
+                    ...(reusing ? { id: reusing.id } : {}),
+                    // A cursor the command read is the one its block is stored at: the host stamps that id and checks the rest.
+                    ...(tx.cursor ? { id: tx.cursor.block, cursor: tx.cursor } : {}),
                 };
                 // The receipt shows the proof too (contract Receipt.data.v2.evidence); the span's is what the host reads.
                 if (proofs.length) data = { ...data, v2: { ...data.v2, evidence: receiptEvidence(proofs) } };
@@ -816,8 +857,8 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
          * `replacing` (the proof of the blocks being replaced): a proof of the same kind and key at the same place among those keeps the id of its old one.
          * A guarded transaction's result has a `block` too (REPLAY.md), which store.append or replaceStory keeps.
          */
-        run(type, payload, { cause = 'story', seed: seedValue, state, capture, carrier = null, chat = null, again = false, standing = null, reply = null, planned = null, replacing = null, occurrence = null } = {}) {
-            return guarded(() => transact(state ?? store.head(), type, payload, { ...fresh(cause, seedValue), capture, carrier, chat, again: again === true && cause === 'story', standing, reply, planned, replacing, occurrence }));
+        run(type, payload, { cause = 'story', seed: seedValue, state, capture, carrier = null, chat = null, again = false, standing = null, reply = null, planned = null, replacing = null, occurrence = null, reusing = null } = {}) {
+            return guarded(() => transact(state ?? store.head(), type, payload, { ...fresh(cause, seedValue), capture, carrier, chat, again: again === true && cause === 'story', standing, reply, planned, replacing, occurrence, reusing }));
         },
     };
 }

@@ -25,7 +25,7 @@ import { assistSections, continuation, cutLine, defangMarker, extractBlock, gram
 import { notWritten } from './assist/extractor.js';
 import { refusedWhy } from './assist/safety.js';
 import { displayLines, readDisplayLine } from './extras.js';
-import { operationKey, replacedProofs, reusePlan } from './evidence.js';
+import { occurrenceOf, operationKey, replacedProofs, reusePlan } from './evidence.js';
 import { hash, readRecord, swipeLoading } from './persist.js';
 import { CAPTURE_PREFIX, HOST_MODULE } from './registry.js';
 import { STATIC_MARKER, assemble, contextNotice, estimateTokens } from './prompt.js';
@@ -334,7 +334,7 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
         const ordinal = info?.span?.source?.ordinal;
         // The proof of the block being planned again may be given again: the step keeps its ids.
         const replacing = Array.isArray(info?.span?.evidence) ? info.span.evidence : [];
-        return bus.run(plan.type, plan.payload ?? {}, { cause: 'system', state, seed: plan.seed, replacing, ...(Number.isInteger(info?.occurrence) ? { occurrence: info.occurrence } : {}), ...(reply ? { reply: Number.isInteger(ordinal) ? { ...reply, ordinal } : reply } : {}) });
+        return bus.run(plan.type, plan.payload ?? {}, { cause: 'system', state, seed: plan.seed, replacing, reusing: typeof info?.span?.id === 'string' ? info.span : null, ...(Number.isInteger(info?.occurrence) ? { occurrence: info.occurrence } : {}), ...(reply ? { reply: { ...reply, ...(Number.isInteger(ordinal) ? { ordinal } : {}), ...(Number.isInteger(info?.opsBefore) ? { opsBefore: info.opsBefore } : {}) } } : {}) });
     }
 
     // After a delete or swipe (REPLAY.md "Reconciling"): the guarded steps that carry a `replan` are planned again
@@ -784,7 +784,7 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
                 const payload = command?.payload ?? {};
                 const seed = seeds?.(command?.type);
                 const taking = plan ? occurrenceFor(plan, command?.type, payload) : null;
-                const result = bus.run(command?.type, payload, { cause: 'system', state: live ? store.head() : now, ...(reply ? { reply: plan ? { ...reply, pending: plan.pending } : reply } : {}), ...(plan ? { planned: planned(), replacing: plan.replacing, ...(Number.isInteger(taking.value) ? { occurrence: taking.value } : {}) } : {}), ...(seed === undefined ? {} : { seed }) });
+                const result = bus.run(command?.type, payload, { cause: 'system', state: live ? store.head() : now, ...(reply ? { reply: plan ? { ...reply, ...(taking.span && occurrenceOf(taking.span) === null ? { ordinal: taking.span.source.ordinal } : {}), pending: plan.pending, opsBefore: plan.blocks.reduce((sum, piece) => sum + (Number.isInteger(piece.n) ? piece.n : 0), 0) + steps.reduce((sum, step) => sum + (Array.isArray(step.ops) ? step.ops.length : 0), 0) } : reply } : {}), ...(plan ? { planned: planned(), replacing: plan.replacing, reusing: taking.span, ...(Number.isInteger(taking.value) ? { occurrence: taking.value } : {}) } : {}), ...(seed === undefined ? {} : { seed }) });
                 if (!result?.ok) {
                     problems.push(problem({ module: moduleId, index, code: result?.code ?? 'FAILED', message: `The step "${command?.type}" after the reply's lines was not run: ${result?.message ?? 'unknown error'}` }));
                     continue;
@@ -800,7 +800,7 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
                     now = result.state;
                     if (result.block && plan) {
                         plan.pending += 1;
-                        if (taking.key && Number.isInteger(result.block.occurrence)) plan.reuse.commit(taking.key, result.block.occurrence);
+                        if (taking.key) plan.reuse.commit(taking.key, result.block.occurrence);
                     }
                 }
                 steps.push({ ops: result.ops, receipt, ...(result.block ? { block: result.block } : {}) });
@@ -813,7 +813,7 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
     function occurrenceFor(plan, type, payload) {
         try {
             const key = operationKey(type, payload);
-            return { key, value: plan.reuse.peek(key) };
+            return { key, value: plan.reuse.peek(key), span: plan.reuse.span(key) };
         } catch { return { key: null, value: undefined }; }
     }
 
@@ -886,7 +886,7 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
             try {
                 const operation = { type: `${CAPTURE_PREFIX}${entry.kind}`, payload: { ...line, kind: entry.kind, word: line.kind } };
                 const taking = plan ? occurrenceFor(plan, operation.type, operation.payload) : null;
-                const run = opts => bus.run(operation.type, operation.payload, { cause: 'story', state, capture: entry, carrier: plan ? { ...carrier, pending: plan.pending } : carrier, chat, standing, ...(plan ? { planned: plan.blocks.flatMap(piece => piece.block?.evidence ?? []), replacing: plan.replacing, ...(Number.isInteger(taking.value) ? { occurrence: taking.value } : {}) } : {}), ...(seed === undefined ? {} : { seed }), ...opts });
+                const run = opts => bus.run(operation.type, operation.payload, { cause: 'story', state, capture: entry, carrier: plan ? { ...carrier, ...(taking.span && occurrenceOf(taking.span) === null ? { ordinal: taking.span.source.ordinal } : {}), pending: plan.pending, opsBefore: plan.blocks.reduce((sum, piece) => sum + (Number.isInteger(piece.n) ? piece.n : 0), 0) } : carrier, chat, standing, ...(plan ? { planned: plan.blocks.flatMap(piece => piece.block?.evidence ?? []), replacing: plan.replacing, reusing: taking.span, ...(Number.isInteger(taking.value) ? { occurrence: taking.value } : {}) } : {}), ...(seed === undefined ? {} : { seed }), ...opts });
                 result = entry.off ? await run({ capture: { ...entry, off: false }, again: true }) : await run();
                 // Refused by a feature that is off (a command it called, ctx.feature): run as it ran before.
                 if (again && !entry.off && result?.code === 'FEATURE_OFF') result = await run({ again: true });
@@ -899,7 +899,7 @@ export function createTurn({ ctx, live = () => ctx, store, bus, registry, settin
                         plan.blocks.push({ n: result.ops.length, receipt: result.receipt, ...(result.block ? { block: result.block } : {}) });
                         if (result.block) {
                             plan.pending += 1;
-                            if (taking.key && Number.isInteger(result.block.occurrence)) plan.reuse.commit(taking.key, result.block.occurrence);
+                            if (taking.key) plan.reuse.commit(taking.key, result.block.occurrence);
                         }
                     }
                 } else if (result?.ok) store.append({ ops: result.ops, receipt: result.receipt, ...(result.block ? { block: result.block } : {}) });
