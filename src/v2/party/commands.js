@@ -621,7 +621,9 @@ function applyResult(ctx, payload = {}) {
     const rules = rulesFor(ctx);
     const raw = Array.isArray(payload.actors) ? resultFromActors(payload) : payload.result;
     if (!raw || typeof raw !== 'object' || !Array.isArray(raw.party)) fail(ctx, 'INVALID', 'That is not a fight result.');
-    const result = { ...normalResult(raw, party.pc), xp: {} };
+    const result = normalResult(raw, party.pc);
+    // Pinned progression owns its XP records; legacy raw results retain the original award.
+    if (rulesSliceOf(ctx)) result.xp = {};
     const named = new Set([...result.party.map(entry => entry.memberId), ...Object.keys(result.xp), ...Object.keys(result.uses)]);
     const ids = party.order.filter(id => named.has(id));
     if (!ids.length) fail(ctx, 'NOT_FOUND', 'That fight result names nobody in the party.');
