@@ -68,7 +68,14 @@ export function nextStep(h, p) {
     }
     const roll = p.int(100);
     if (roll < 8) return ['item.use', { stack: ids.stack(), ...(p.chance(0.5) ? { target: ids.actor() } : {}) }];
-    if (roll < 14) return ['item.equip', { stack: ids.stack() }];
+    // targetSlot on about a third of the equips: a canonical slot, or a word that is no slot (old words are never accepted in a
+    // command). Taken from the stack id, so the stream of random draws is the one it was before.
+    if (roll < 14) {
+        const stack = ids.stack();
+        const code = typeof stack === 'string' ? stack.charCodeAt(stack.length - 1) : 0;
+        const slots = ['weapon', 'offhand', 'head', 'body', 'legs', 'feet', 'accessory-1', 'accessory-2', 'worn', 'armour'];
+        return ['item.equip', { stack, ...(code % 3 === 0 ? { targetSlot: slots[code % slots.length] } : {}) }];
+    }
     if (roll < 17) return ['item.unequip', { stack: ids.stack() }];
     if (roll < 22) return ['item.give', { stack: ids.stack(), to: ids.actor(), ...(p.chance(0.6) ? { qty: ids.qty() } : {}) }];
     if (roll < 28) return ['trade.sell', { stack: ids.stack(), qty: ids.qty() }];

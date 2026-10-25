@@ -118,12 +118,11 @@ test('item.equip swaps the weapon, with the stats it gives at the wearer\'s leve
     const result = h.run('item.equip', { stack: 'it_blade001' });
     assert.equal(result.ok, true);
     assert.equal(result.receipt.summary, 'Ren equips the Steel Blade (ATK +4, DEX +1, capped from ATK +6, DEX +1 at level 3); puts away the Iron Dagger.');
-    assert.deepEqual(h.calls, [
-        { type: 'inventory.unequip', payload: { stack: 'it_dagger01' } },
-        { type: 'inventory.equip', payload: { stack: 'it_blade001', slot: 'weapon' } },
-    ]);
+    assert.deepEqual(h.calls, [{ type: 'inventory.equipOn', payload: { stack: 'it_blade001', actor: PC } }], 'one step: the inventory asks the plan and applies it');
     const stacks = h.state().domains.inventory.stacks;
     assert.equal(stacks.it_blade001.equipped, 'weapon');
+    assert.equal(result.receipt.data.slot, 'weapon');
+    assert.equal(result.receipt.data.key, 'weapon');
     assert.equal(stacks.it_dagger01.equipped, null);
     assert.deepEqual(result.receipt.data.removed, ['it_dagger01']);
 });
@@ -144,22 +143,43 @@ test('item.equip: a two-handed weapon puts the off-hand away; an off-hand beside
     assert.deepEqual(result.receipt.data.removed, ['it_buckle01', 'it_dagger01']);
     const stacks = h.state().domains.inventory.stacks;
     assert.equal(stacks.it_buckle01.equipped, null);
-    refused(h, 'item.equip', { stack: 'it_buckle01' }, 'REFUSED', 'The Greatsword is two-handed: put it away before taking up the Oak Buckler.');
+    refused(h, 'item.equip', { stack: 'it_buckle01' }, 'REFUSED', 'A two-handed weapon blocks offhand.');
 });
 
-test('item.equip keeps to the rules\' limits for accessories and worn pieces (v1 gearLimits)', () => {
+test('item.equip: one piece to each of the eight slots; a second for a slot takes the first one off', () => {
     const h = harness();
-    refused(h, 'item.equip', { stack: 'it_charm001' }, 'REFUSED', 'For Ren only 2 accessories count: take one off first.');
-    refused(h, 'item.equip', { stack: 'it_helm0001' }, 'REFUSED', 'For Ren only 1 worn piece counts: take one off first.');
-    // Taking a ring off makes room.
-    assert.equal(h.run('item.unequip', { stack: 'it_ring0002' }).ok, true);
-    assert.equal(h.run('item.equip', { stack: 'it_charm001' }).ok, true);
-    // The reader's own limits.
-    const roomy = harness(makeState(), { gear: { worn: 2, accessories: 3 } });
-    assert.equal(roomy.run('item.equip', { stack: 'it_charm001' }).ok, true);
-    assert.equal(roomy.run('item.equip', { stack: 'it_helm0001' }).ok, true);
-    const none = harness(makeState(), { rules: { gear: { accessories: 0 } } });
-    refused(none, 'item.equip', { stack: 'it_charm001' }, 'REFUSED', 'In this chat\'s rules no accessories count.');
+    // The charm is an accessory-1 piece: it replaces the Silver Ring there and leaves the Jade Ring in accessory-2.
+    const charm = h.run('item.equip', { stack: 'it_charm001' });
+    assert.equal(charm.ok, true, charm.message);
+    assert.equal(charm.receipt.data.slot, 'accessory-1');
+    assert.deepEqual(charm.receipt.data.removed, ['it_ring0001']);
+    assert.match(charm.receipt.summary, /; puts away the Silver Ring\.$/);
+    // The helm goes on the empty head slot: nothing comes off; the boots are in feet and stay.
+    const helm = h.run('item.equip', { stack: 'it_helm0001' });
+    assert.equal(helm.ok, true, helm.message);
+    assert.equal(helm.receipt.data.slot, 'head');
+    assert.deepEqual(helm.receipt.data.removed, []);
+    const stacks = h.state().domains.inventory.stacks;
+    assert.deepEqual(['it_charm001', 'it_ring0002', 'it_helm0001', 'it_boots001'].map(id => stacks[id].equipped), ['accessory-1', 'accessory-2', 'head', 'feet']);
+    assert.equal(stacks.it_ring0001.equipped, null);
+});
+
+test('item.equip { targetSlot }: the reader picks the slot; a slot the piece cannot use, or a word that is no slot, is refused', () => {
+    const h = harness();
+    assert.equal(h.run('item.unequip', { stack: 'it_buckle01' }).ok, true);
+    const shield = h.run('item.equip', { stack: 'it_buckle01', targetSlot: 'offhand' });
+    assert.equal(shield.ok, true, shield.message);
+    assert.equal(shield.receipt.data.targetSlot, 'offhand');
+    assert.deepEqual(h.calls, [{ type: 'inventory.equipOn', payload: { stack: 'it_buckle01', actor: PC, targetSlot: 'offhand' } }]);
+    assert.equal(h.run('item.unequip', { stack: 'it_buckle01' }).ok, true);
+    refused(h, 'item.equip', { stack: 'it_buckle01', targetSlot: 'weapon' }, 'REFUSED', 'This item cannot use the requested slot.');
+    // Only the canonical IDs are slots in a command; an older word is for reading old records, not for new ones.
+    refused(h, 'item.equip', { stack: 'it_buckle01', targetSlot: 'off-hand' }, 'INVALID');
+    refused(h, 'item.equip', { stack: 'it_buckle01', targetSlot: 'worn' }, 'INVALID');
+    // No plan, token or bypass can be passed along; nothing but the four fields is read.
+    for (const claim of ['plan', 'token', 'bypass', 'force', 'rulesHash', 'unequip', 'move']) {
+        refused(h, 'item.equip', { stack: 'it_buckle01', [claim]: true }, 'INVALID');
+    }
 });
 
 test('item.equip refuses what is not gear, is already worn, is someone else\'s, or is gone', () => {
@@ -169,16 +189,16 @@ test('item.equip refuses what is not gear, is already worn, is someone else\'s, 
     refused(h, 'item.equip', { stack: 'it_blade001', actor: LYRA }, 'REFUSED', 'Ren carries the Steel Blade: give it to Lyra first.');
     refused(h, 'item.equip', { stack: 'it_blade001', actor: 'ac_nobody01' }, 'NOT_FOUND', 'That companion is not in the party.');
     refused(h, 'item.equip', { stack: 'it_nothing1' }, 'NOT_FOUND');
+    // The slot it is in already: asking for that slot again is the same refusal; another slot is a move.
+    refused(h, 'item.equip', { stack: 'it_dagger01', targetSlot: 'weapon' }, 'REFUSED', 'Ren already has the Iron Dagger on.');
 });
 
 test('item.equip { stack, to }: a companion wears a piece of the bag (UI 8f): moved to them, checked, then worn', () => {
     const h = harness();
     const result = h.run('item.equip', { stack: 'it_blade001', to: LYRA });
     assert.equal(result.ok, true, result.message);
-    assert.deepEqual(h.calls, [
-        { type: 'inventory.transfer', payload: { stack: 'it_blade001', to: LYRA, qty: 1 } },
-        { type: 'inventory.equip', payload: { stack: 'it_blade001', slot: 'weapon' } },
-    ], 'the move and the wear are the inventory\'s own commands, so a swipe or a rollback undoes both');
+    assert.deepEqual(h.calls, [{ type: 'inventory.equipOn', payload: { stack: 'it_blade001', actor: LYRA } }],
+        'the move and the wear are one inventory command (equipOn), so a swipe or a rollback undoes both');
     const stacks = h.state().domains.inventory.stacks;
     assert.equal(stacks.it_blade001.owner, LYRA);
     assert.equal(stacks.it_blade001.equipped, 'weapon');
@@ -195,17 +215,20 @@ test('item.equip { to } for the main character: a piece the party holds needs no
     assert.equal(b.ok, true);
     assert.deepEqual(asked.calls, plain.calls);
     assert.equal(b.receipt.summary, a.receipt.summary);
+    assert.equal(a.ok, true);
     assert.equal(b.receipt.data.moved, undefined);
 });
 
-test('item.equip { to } refuses a stranger, a piece not worn by anyone, a piece worn already, and a taker who cannot carry it', () => {
+test('item.equip { to } refuses a stranger, a non-gear item and a piece someone wears; the carry limit is the inventory\'s step', () => {
     const h = harness();
     refused(h, 'item.equip', { stack: 'it_blade001', to: 'ac_nobody01' }, 'NOT_FOUND', 'That companion is not in the party.');
     refused(h, 'item.equip', { stack: 'it_draught1', to: LYRA }, 'REFUSED', 'The Minor Healing Draught is not something to wear or wield.');
     refused(h, 'item.equip', { stack: 'it_dagger01', to: LYRA }, 'REFUSED', 'Ren already has the Iron Dagger on.');
-    const heavy = harness(makeState(), { carryLimit: true, carrySize: 5 });
-    refused(heavy, 'item.equip', { stack: 'it_blade001', to: LYRA }, 'REFUSED', 'Lyra cannot carry that: 1 of 4 carried, and the Steel Blade weighs 4.');
-    assert.equal(heavy.state().domains.inventory.stacks.it_blade001.owner, 'party', 'refused: it stays in the bag');
+    // A piece another member carries is not taken from them by wearing it: hand it over first.
+    const state = makeState();
+    state.domains.inventory.stacks.it_blade001.owner = LYRA;
+    const carried = harness(state);
+    refused(carried, 'item.equip', { stack: 'it_blade001', to: PC }, 'REFUSED', 'Another member carries this piece: hand it over first.');
 });
 
 test('item.unequip takes a piece off; refuses one not worn', () => {

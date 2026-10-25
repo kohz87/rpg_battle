@@ -1,7 +1,7 @@
 // Old saves and old (v1) packs keep working exactly as today. The rules-v2 parts are new files; nothing that
 // exists was edited, and module.js does not register them yet (the lead wires them behind the host's lifecycle,
 // contract §9). These tests hold that down:
-//   * the merged module's surface is what it was: no rules-v2 name in it, the same parts in the same order;
+//   * the quest part is registered, while B's rules-v2 domains and commands await lifecycle wiring;
 //   * a chat that pins no rules is left alone by the parts when they are loaded next to the real module: they
 //     answer null or refuse, run nothing after a reply, and write nothing;
 //   * a chat recorded by the real module replays the same with them loaded (their hook is never asked about a
@@ -20,20 +20,21 @@ import { ref } from './helpers/fixture.js';
 const NEW_NAMES = {
     domains: ['rules', 'progress', 'training'],
     commands: ['class.choose', 'path.choose', 'rules.settle', 'skill.train', 'skill.use', 'party.setActive', 'summon.end', 'rules.flagSet', 'rules.registerItem'],
-    queries: ['rules.progress', 'rules.identity', 'rules.classes', 'rules.names', 'rules.training', 'rules.sheet', 'rules.party', 'rules.quests', 'rules.flags', 'rules.item'],
-    hooks: ['replayGuard'],
+    queries: ['rules.progress', 'rules.identity', 'rules.classes', 'rules.names', 'rules.training', 'rules.sheet', 'rules.party', 'rules.flags', 'rules.item'],
 };
 const SLICE = 'rb-rules-slice';
 const json = value => JSON.stringify(value);
 
-test('module.js is as it was: the same ten parts in the same order, and no rules-v2 domain, command, query or hook in the merged module', () => {
-    assert.deepEqual(PARTS.map(([id]) => id), ['party', 'creation', 'checks', 'items', 'combat', 'board', 'return', 'trade', 'craft', 'screens']);
+test('module.js registers the quest part while rules-v2 domains await pinned preflight', async () => {
+    assert.deepEqual(PARTS.map(([id]) => id), ['rules', 'progress', 'training', 'party', 'creation', 'checks', 'quests', 'items', 'combat', 'board', 'return', 'trade', 'craft', 'screens']);
     const module = createModule({ settings: () => ({}), query: () => [] });
     for (const name of NEW_NAMES.domains) assert.equal(Object.hasOwn(module.domains, name), false, `domain ${name}`);
     for (const name of NEW_NAMES.commands) assert.equal(Object.hasOwn(module.commands, name), false, `command ${name}`);
     for (const name of NEW_NAMES.queries) assert.equal(Object.hasOwn(module.queries, name), false, `query ${name}`);
-    for (const name of NEW_NAMES.hooks) assert.equal(Object.hasOwn(module.hooks, name), false, `hook ${name}`);
-    assert.equal(Object.hasOwn(module.hooks, 'afterCapture'), false, 'the real module asks for no step after a reply, so none can be added by accident');
+    for (const type of ['quest.take', 'quest.finish', 'quest.abandon', 'quest.payOwed']) assert.equal(typeof module.commands[type], 'function', type);
+    assert.equal(typeof module.queries['rules.quests'], 'function');
+    assert.equal(module.hooks.replayGuard({ state: { domains: {} } }, { guard: { predicate: { kind: 'class.choose' } } }), undefined, 'the quest guard does not handle B choices');
+    assert.deepEqual(await module.hooks.afterCapture({ query: () => [] }), { commands: [] }, 'an unpinned legacy chat schedules no quest settlement');
 });
 
 test('a chat that pins no rules: the parts answer null or refuse, add no step after a reply and write nothing', async t => {

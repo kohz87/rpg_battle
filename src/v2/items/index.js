@@ -16,6 +16,7 @@ import { clipped } from '../lines.js';
 import { itemsTab } from './page.js';
 import { DEFAULTS as CARRY_DEFAULTS } from './carry.js';
 import { canWear, carry, condition, gear, slots, usable, useOn } from './queries.js';
+import { rulesEquipPlan } from './equip-query.js';
 import { REFINE_FEATURE, WEAR_FEATURE, initialGear, validateGear } from './condition.js';
 import { fightWear, storyWear } from './wear.js';
 import { gearTail } from './gear-tail.js';
@@ -71,10 +72,19 @@ export const part = {
         'items.gear': (state, args, tools) => gear(state, args ?? {}, tools),
         'items.carry': (state, args, tools) => carry(state, args ?? {}, tools),
         'items.condition': (state, args, tools) => condition(state, args ?? {}, tools),
-        // Story Block's Equip on… picker (SB #104): slot counts and who can wear a piece, by these rules.
+        // The eight slots (P07) and who can wear a piece, by the planner (also Story Block's Equip on… picker).
         'items.slots': (state, args, tools) => slots(state, args ?? {}, tools),
         'items.canWear': (state, args, tools) => canWear(state, args ?? {}, tools),
+        // Contract §3: the one planner every equip route asks (Story Block's inventory.equip, equipOn and item
+        // capture check its plan and apply it); pure, never writes. Its rules come from the seams (rules.identity,
+        // rules.sheet, rules.item) or, until B3's frozen rules land, the named interim binding (equip-query.js).
+        'rules.equipPlan': (state, args, tools) => rulesEquipPlan(state, args, tools),
     },
+    // Queries module.js registers only on a chat that pins rules (behind the host's pinned preflight, with the rules parts).
+    // Story Block takes a module that answers `rules.equipPlan` as a ready rules module: it plans every equip through it and
+    // checks the wearer's `rules.sheet`, which only the rules parts answer. Without it Story Block keeps storing equipment
+    // as it always did (contract §9), so a chat with no pin has no planner.
+    pinnedQueries: ['rules.equipPlan'],
     // A story's use (MODULES §F96): `! use <item> | on: Name`, applied by code (story-use.js).
     kinds: {
         use: { grammar: USE_GRAMMAR, apply: clipped(applyUse) },
@@ -116,3 +126,6 @@ export { applyWear, fightWear, pieceNamed, recordEvent, repairOf, storyWear, use
 export { REPAIR_MAX, REPAIR_WORTH, repairKitAmount } from './define.js';
 export { canCarry, capacityOf, carrySettings, carryView, weightOf, WEIGHTS } from './carry.js';
 export { renderItems, itemsTab } from './page.js';
+export { EQUIP_SLOTS, SLOT_LABELS, normalizeSlot, readSlot, slotsForLegacy } from './slots.js';
+export { INTERIM_BINDING, INTERIM_RULES_HASH, canWearQuery, equipEnv, interimItemRule, interimSheet, interimSheetQuery, rulesEquipPlan, slotsQuery } from './equip-query.js';
+export { equipPlan, equipmentSlots } from './equip-plan.js';

@@ -30,10 +30,10 @@ test('items.usable lists what helps outside a fight, and whether a dose would he
     assert.deepEqual(part.queries['items.usable'](state, { actor: 'ac_nobody01' }), []);
 });
 
-test('items.gear: what is worn, capped at the wearer\'s level, with the rules\' limits', () => {
+test('items.gear: what is worn, capped at the wearer\'s level, one piece to a slot', () => {
     const state = makeState();
     state.domains.inventory.stacks.it_stars001.equipped = 'weapon';
-    state.domains.inventory.stacks.it_charm001.equipped = 'accessory';
+    state.domains.inventory.stacks.it_charm001.equipped = 'accessory-1';
     deepFreeze(state);
     const gear = part.queries['items.gear'](state, { settings: {} });
     assert.equal(gear.actor, PC);
@@ -47,8 +47,8 @@ test('items.gear: what is worn, capped at the wearer\'s level, with the rules\' 
     assert.equal(gear.bonuses.ATK, dagger.stats.ATK);
     assert.equal(part.queries['items.gear'](state, { actor: LYRA, settings: {} }).counted.length, 0);
     assert.equal(part.queries['items.gear'](state, { actor: 'ac_nobody01', settings: {} }), null);
-    // More accessories allowed: the Jade Ring counts too.
-    assert.equal(part.queries['items.gear'](state, { settings: { gear: { accessories: 3 } } }).unused.length, 1);
+    // The eight slots fix what counts: a rules file's old `gear` numbers change nothing.
+    assert.equal(part.queries['items.gear'](state, { settings: { gear: { accessories: 3 } } }).unused.length, 2);
 });
 
 test('after a command the queries see the new head state', () => {

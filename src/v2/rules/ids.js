@@ -22,6 +22,7 @@ export const isObject = value => value !== null && typeof value === 'object' && 
 export const isActorId = value => typeof value === 'string' && ACTOR_ID.test(value);
 export const isRecordId = value => typeof value === 'string' && RECORD_ID.test(value);
 export const isDefId = value => typeof value === 'string' && DEF_ID.test(value);
+export const isId = value => isRecordId(value) || isDefId(value);
 export const isHash = value => typeof value === 'string' && HASH.test(value);
 
 /** A whole number in a range (safe integers only). */

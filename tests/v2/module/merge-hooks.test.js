@@ -26,8 +26,8 @@ test('afterCapture: the arguments reach every part, and a throwing part is a fai
     await assert.rejects(make([['x', spy('x')], ['bad', bad]]).hooks.afterCapture({}, {}), /boom/);
 });
 
-test('no part with afterCapture: the module has no such hook (a chat that registers none adds no step)', () => {
-    assert.equal(Object.hasOwn(make([['x', { hooks: {} }]]).hooks, 'afterCapture'), false);
+test('dormant quest hooks add no step when no active part has work', async () => {
+    assert.deepEqual(await make([['x', { hooks: {} }]]).hooks.afterCapture({ state: { domains: {} } }), { commands: [] });
 });
 
 test('canGenerate: every part must allow; the first no is the answer', async () => {

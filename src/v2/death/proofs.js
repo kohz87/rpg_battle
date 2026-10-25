@@ -1,3 +1,4 @@
+import { canRescue } from '../progress/rescue-effect.js';
 // Owner-validated lethal proof: story {actor,cause,lethal:true}; generic narration is never a lethal proof.
 // Rescue proof: rescue {event,batch,actor,rescuer,skill,form,effect,payment}, parented by a surviving paid use.
 // Its form's selected effect must heal; the user cannot supply an outcome, a die or a save.
@@ -27,7 +28,7 @@ export function rescueProof(env, event, id) {
     const rescuer = env.query('party.actor', { id: p.rescuer });
     if (!rescuer || lifeOf(rescuer) !== 'alive') throw new Error('The rescuer is not alive.');
     const skill = standing(env.ix, env.progress, p.rescuer).skills.find(s => s.skill === p.skill && s.form === p.form);
-    if (!skill || !Number.isInteger(p.effect) || env.ix.form(p.form)?.effects[p.effect]?.op !== 'heal') throw new Error('The rescuer does not hold that healing effect.');
+    if (!skill || !Number.isInteger(p.effect) || !canRescue(env.ix.form(p.form)?.effects[p.effect], p.rescuer, event.actor)) throw new Error('The rescuer does not hold that healing effect.');
     const paid = proofsOf(env.query, [p.payment])[0];
     if (paid.owner !== 'rpg-battle' || paid.kind !== 'use' || paid.payload?.actor !== p.rescuer || paid.payload?.skill !== p.skill || paid.payload?.form !== p.form || !proof.parents.includes(p.payment)) throw new Error('The rescue has no surviving paid parent action.');
     return { proof: proof.id, payloadHash: proof.payloadHash, payment: p.payment, paymentHash: paid.payloadHash };

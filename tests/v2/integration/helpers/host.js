@@ -7,6 +7,7 @@
 
 import { createHost } from '../../../vendor/story-block/testkit/index.js';
 import { MODULE_ID, createModule } from '../../../../src/v2/module.js';
+import { EQUIP_PARTS } from '../../items/helpers/equip-parts.js';
 
 // splitmix32 over a counter: plenty for test dice, the same every run.
 function source(seed) {
@@ -59,9 +60,13 @@ const CALLER = {
 };
 
 export async function rpgHost(options = {}) {
+    const { tweak = null, equip = false, ...hostOptions } = options;
     let sdk = null;
-    const module = createModule({ settings: () => sdk?.settings(MODULE_ID) ?? {} });
-    const host = await createHost({ ...options, modules: [module, CALLER, ...(options.modules ?? [])] });
+    // `equip`: the planner and a stand-in rules.sheet beside the plain module (a chat that pins no rules has neither; tests/v2/items/helpers/equip-parts.js).
+    const module = createModule({ settings: () => sdk?.settings(MODULE_ID) ?? {}, ...(equip ? { parts: [...EQUIP_PARTS] } : {}) });
+    // `tweak(module)`: a test's change to the module before it registers (a query wrapped to misbehave).
+    if (typeof tweak === 'function') tweak(module);
+    const host = await createHost({ ...hostOptions, modules: [module, CALLER, ...(options.modules ?? [])] });
     sdk = host.sdk;
     const saved = globalThis.StoryBlock;
     globalThis.StoryBlock = { apiVersion: 2, ready: Promise.resolve(sdk), sdk };

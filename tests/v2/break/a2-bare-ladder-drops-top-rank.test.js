@@ -8,6 +8,7 @@
 // only. Drop into rpg_battle/tests/v2/break/.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { ranksOf } from '../../../src/v2/quests/ranks.js';
 // Needs the four Story Suite checkouts side by side (helpers/suite.js); skipped otherwise (CI checks out
 // this repo alone; the rule is also tested on its own in tests/v2/break/a2-rules.test.js).
 let suite = null;
@@ -23,7 +24,8 @@ test('a2-ladder-bare: every rank of a 12-line ladder (Levels per rank 0) is on R
     assert.equal((await host.cmd('party.create', { name: 'Wessel', preset: 'fighter' })).ok, true);
     await host.send('In.', host.reply('Town.', ['~ place Bluewatch Village | kind: settlement']));
     const rb = host.q('party.ranks');
-    const sd = host.q('quest.ranks');
+    assert.deepEqual(host.q('quest.ranks'), [], 'unpinned chats do not enable RPG budget policy');
+    const sd = ranksOf((name, args) => host.q(name, args));
     assert.equal(rb.length, 12, `RPG Battle's ladder: ${rb.map(rank => `${rank.id} ${rank.levels.join('-')}`).join(', ')}`);
-    assert.deepEqual(sd.map(rank => rank.levels), rb.map(rank => rank.levels), 'Story Director\'s quest ranks band the ladder as RPG Battle does');
+    assert.deepEqual(sd.map(rank => rank.levels), rb.map(rank => rank.levels), 'the transferred quest adapter keeps the same rank bands');
 });

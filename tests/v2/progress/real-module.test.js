@@ -4,10 +4,8 @@
 // session earned: no block turned off, no Problem stored.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createModule } from '../../../src/v2/module.js';
-import { part as partyPart } from '../../../src/v2/party/index.js';
-import { part as progressPart } from '../../../src/v2/progress/index.js';
-import { part as returnPart } from '../../../src/v2/return/index.js';
+import { createModule, PARTS } from '../../../src/v2/module.js';
+
 import { rulesParts } from '../../../src/v2/rules/index.js';
 import { seeded } from '../integration/helpers/host.js';
 import { DAY, realWorld } from './helpers/world.js';
@@ -19,7 +17,8 @@ const snap = w => JSON.stringify({ progress: w.slice('progress'), training: w.sl
 
 test('module.js lists the party, progress and return parts\' replay queries once each, and every one is a query of the module', () => {
     const def = createModule();
-    const wanted = new Set([...partyPart.replayQueries, ...progressPart.replayQueries, ...returnPart.replayQueries, ...rulesParts.flatMap(([, part]) => part.replayQueries ?? [])]);
+    const wanted = new Set([...PARTS, ...rulesParts].flatMap(([, part]) => part.replayQueries ?? []));
+
     assert.deepEqual([...def.replayQueries].sort(), [...wanted].sort(), 'nothing missing, nothing extra');
     assert.equal(new Set(def.replayQueries).size, def.replayQueries.length, 'no duplicates');
     for (const name of def.replayQueries) assert.equal(typeof def.queries[name], 'function', `${name} is a query of the module`);

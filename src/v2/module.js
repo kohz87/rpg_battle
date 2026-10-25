@@ -6,6 +6,9 @@
 //
 // - domains, commands and queries are put together as they are; a name two parts claim is a
 //   mistake, refused here before Story Block ever sees it.
+// - pinned preflight: the rules parts (rules, progress, training) and the queries a part lists in `pinnedQueries` (the items
+//   part's `rules.equipPlan`) are registered only on a chat the host's preflight says is rules v2; any other chat gets none
+//   of them and Story Block keeps its own storage (contract §9). `rules.sheet` is the rules part's alone.
 // - capture: every part's kinds, each line handed to the part that owns its kind. One kind is
 //   taken over on purpose: `check` is the checks part's (a pending check the reader rolls), not
 //   the party part's (which keeps its check.resolve command for compatibility).
@@ -39,6 +42,8 @@
 import { part as party } from './party/index.js';
 import { part as creation } from './creation/index.js';
 import { part as checks } from './checks/index.js';
+import { rulesParts, initialRules, pinRules, registerPackDefs } from './rules/index.js';
+import { part as quests } from './quests/index.js';
 import { part as items } from './items/index.js';
 import { part as combat } from './combat/index.js';
 import { part as board } from './board/index.js';
@@ -57,7 +62,7 @@ export const VERSION = '2.0.0-beta.2';
 
 /** The parts in their order: [part id, part]. */
 export const PARTS = Object.freeze([
-    ['party', party], ['creation', creation], ['checks', checks], ['items', items], ['combat', combat],
+    ...rulesParts, ['party', party], ['creation', creation], ['checks', checks], ['quests', quests], ['items', items], ['combat', combat],
     ['board', board], ['return', returnPart], ['trade', trade], ['craft', craft], ['screens', screens],
 ]);
 
@@ -113,11 +118,26 @@ function claim(table, name, partId, what) {
  * Block keeps them (`sdk.settings('rpg-battle')`); without it, the host's when it is up, else the
  * defaults. Used where no ctx or view carries them (queries, the item.define hook).
  */
-export function createModule({ settings = null, query = null, parts = [] } = {}) {
-    // `parts`: [id, part] pairs registered after PARTS, in order, by whoever wires more of them in (the rules-v2 parts and the death
-    // part are not in PARTS yet, the lead adds them at integration). Tests compose them through this, so they meet the one
-    // merge the real module uses. Empty by default: the module is as PARTS make it.
-    const registered = [...PARTS, ...parts];
+export function createModule({ settings = null, query = null, parts = [], rules = null, preflight = null } = {}) {
+    // Activate only from a checked frozen pack or the host's surviving pinned timeline; a legacy chat gets no marker.
+    const peer = preflight?.peers?.find(peer => peer.module === 'story-director');
+    const compatible = preflight?.hostApi === 2 && preflight.restore === 'idle' && peer?.enabled
+        && /^2\./.test(peer.version ?? '');
+    const resumed = compatible && preflight.classification === 'current' && preflight.rulesVersion === 2
+        && /^[0-9a-f]{64}$/.test(preflight.rulesHash ?? '');
+    let activation = null;
+    if (rules !== null) {
+        const slice = initialRules();
+        const problem = pinRules(slice, rules);
+        if (problem) throw new Error(problem);
+        if (!compatible || !(preflight.classification === 'empty' || resumed && preflight.rulesHash === slice.rulesHash)) {
+            throw new Error('Rules v2 activation requires a compatible preflight and Story Director.');
+        }
+        activation = slice;
+    }
+    const ruleIds = new Set(rulesParts.map(([id]) => id));
+    const pinned = Boolean(activation || resumed);
+    const registered = [...PARTS.filter(([id]) => pinned || !ruleIds.has(id)), ...parts];
     const defaults = {};
     const schema = {};
     for (const [id, part] of registered) {
@@ -186,10 +206,10 @@ export function createModule({ settings = null, query = null, parts = [] } = {})
     const domains = {};
     const commands = {};
     const queries = {};
+    const replayQueries = new Set();
     const kinds = {};
     const owners = { domain: {}, command: {}, query: {}, kind: {}, tab: {}, widget: {}, screen: {}, feature: {} };
     const hooks = {};
-    const replayQueries = [];
     const tabs = [];
     const cards = {};
     const widgets = {};
@@ -211,21 +231,26 @@ export function createModule({ settings = null, query = null, parts = [] } = {})
     });
 
     for (const [id, part] of registered) {
+        for (const name of part.replayQueries ?? []) replayQueries.add(name);
         for (const [name, domain] of Object.entries(part.domains ?? {})) {
             claim(owners.domain, name, id, 'domain');
-            domains[name] = domain;
+            domains[name] = name === 'rules' && activation ? { ...domain, initial: () => structuredClone(activation) } : domain;
         }
         for (const [type, handler] of Object.entries(part.commands ?? {})) {
             claim(owners.command, type, id, 'command');
-            commands[type] = withFeature((ctx, payload) => handler(ctxFor(ctx, id), payload), handler);
+            commands[type] = withFeature((ctx, payload) => {
+                const own = ctxFor(ctx, id);
+                if ((activation || resumed) && ['party.create', 'creation.finish'].includes(type)) registerPackDefs(own);
+                return handler(own, payload);
+            }, handler);
         }
         for (const [name, fn] of Object.entries(part.queries ?? {})) {
+            // A query that answers only where rules v2 does (the items part's `rules.equipPlan`) is left out of a chat that pins none.
+            if (!pinned && part.pinnedQueries?.includes(name)) continue;
             claim(owners.query, name, id, 'query');
             // The settings (with the terms, which ask the packs) are worked out only when the query reads them.
             queries[name] = withFeature((state, args, tools) => fn(state, args, tools ? lazySettings(tools, () => withTerms(partSettings(moduleSettings(), id), typeof tools.query === 'function' ? tools.query : null)) : localTools(state, id)), fn);
         }
-        // The queries a replay guard may ask (Story Block REPLAY.md): each part names the ones that read the state and their arguments alone.
-        for (const name of part.replayQueries ?? []) if (!replayQueries.includes(name)) replayQueries.push(name);
         for (const [kind, spec] of Object.entries(part.kinds ?? {})) {
             if (KIND_OVERRIDES[kind] && Object.hasOwn(owners.kind, kind) && KIND_OVERRIDES[kind] === id) delete owners.kind[kind];
             if (KIND_OVERRIDES[kind] && Object.hasOwn(owners.kind, kind) && KIND_OVERRIDES[kind] !== id) continue;
@@ -316,7 +341,7 @@ export function createModule({ settings = null, query = null, parts = [] } = {})
         domains,
         commands,
         queries,
-        replayQueries,
+        replayQueries: [...replayQueries],
         capture: {
             kinds: Object.fromEntries(Object.entries(kinds).map(([kind, spec]) => [kind, grammarOf(spec, () => withTerms(partSettings(moduleSettings(), spec.part), staticQuery))])),
             apply(ctx, line) {
