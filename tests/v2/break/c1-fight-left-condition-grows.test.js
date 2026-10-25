@@ -50,7 +50,7 @@ test('B-c1-1: any rest ends what a fight left; a story\'s condition waits for a 
     const state = withPc();
     const ren = pcOf(state);
     Object.assign(ren, { hp: { cur: 10, max: ren.hp.max, lost: ren.hp.max - 10 }, conditions: [{ kind: 'bleeding', stacks: 1, rounds: 1, at: 5 }, { kind: 'cursed', stacks: 1 }] });
-    const out = run(state, 'party.rest', { kind: 'short' });
+    const out = run(state, 'party.rest', { kind: 'short' }, { time: 0 });
     assert.ok(out.ok, out.message);
     assert.deepEqual(pcOf(out.state).conditions, [{ kind: 'cursed', stacks: 1 }]);
 });

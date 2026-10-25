@@ -1,0 +1,427 @@
+{
+  "provenance": "Saved by the six-slot runtime (this repo at 9c1aea7, before the eight-slot planner): the QA harness on the vendored Story Block runtime played party.create, party.addCompanion, story items, item.equip, item.give and item.equip { actor }. Nothing in it was edited by hand; the inventory and party slices are exactly what the old runtime saved.",
+  "pc": "ac_wil6g89x",
+  "lyra": "ac_yhe78lh6",
+  "domains": {
+    "inventory": {
+      "defs": {
+        "story/iron-sword": {
+          "id": "story/iron-sword",
+          "name": "Iron Sword",
+          "kind": "equipment",
+          "rarity": "uncommon",
+          "value": 60,
+          "stack": false,
+          "slot": "weapon",
+          "stats": {
+            "ATK": 4
+          },
+          "effect": {},
+          "tags": [],
+          "note": "ATK +4, uncommon"
+        },
+        "story/wooden-shield": {
+          "id": "story/wooden-shield",
+          "name": "Wooden Shield",
+          "kind": "equipment",
+          "rarity": "common",
+          "value": 20,
+          "stack": false,
+          "slot": "offhand",
+          "stats": {
+            "DEF": 2
+          },
+          "effect": {},
+          "tags": [],
+          "note": "DEF +2"
+        },
+        "story/chain-shirt": {
+          "id": "story/chain-shirt",
+          "name": "Chain Shirt",
+          "kind": "equipment",
+          "rarity": "common",
+          "value": 20,
+          "stack": false,
+          "slot": "armour",
+          "stats": {
+            "DEF": 3
+          },
+          "effect": {},
+          "tags": [],
+          "note": "armour DEF +3"
+        },
+        "story/iron-helm": {
+          "id": "story/iron-helm",
+          "name": "Iron Helm",
+          "kind": "equipment",
+          "rarity": "common",
+          "value": 20,
+          "stack": false,
+          "slot": "worn",
+          "stats": {
+            "DEF": 2
+          },
+          "effect": {},
+          "tags": [],
+          "note": "DEF +2"
+        },
+        "story/leather-boots": {
+          "id": "story/leather-boots",
+          "name": "Leather Boots",
+          "kind": "equipment",
+          "rarity": "common",
+          "value": 10,
+          "stack": false,
+          "slot": "worn",
+          "stats": {
+            "DEF": 1
+          },
+          "effect": {},
+          "tags": [],
+          "note": "DEF +1"
+        },
+        "story/silver-ring": {
+          "id": "story/silver-ring",
+          "name": "Silver Ring",
+          "kind": "equipment",
+          "rarity": "common",
+          "value": 20,
+          "stack": false,
+          "slot": "accessory",
+          "stats": {
+            "LUK": 2
+          },
+          "effect": {},
+          "tags": [],
+          "note": "LUK +2"
+        },
+        "story/jade-ring": {
+          "id": "story/jade-ring",
+          "name": "Jade Ring",
+          "kind": "equipment",
+          "rarity": "common",
+          "value": 20,
+          "stack": false,
+          "slot": "accessory",
+          "stats": {
+            "LUK": 1
+          },
+          "effect": {},
+          "tags": [],
+          "note": "LUK +1"
+        },
+        "story/bone-charm": {
+          "id": "story/bone-charm",
+          "name": "Bone Charm",
+          "kind": "equipment",
+          "rarity": "common",
+          "value": 20,
+          "stack": false,
+          "slot": "accessory",
+          "stats": {
+            "MDEF": 2
+          },
+          "effect": {},
+          "tags": [],
+          "note": "MDEF +2"
+        },
+        "story/hunting-knife": {
+          "id": "story/hunting-knife",
+          "name": "Hunting Knife",
+          "kind": "equipment",
+          "rarity": "common",
+          "value": 20,
+          "stack": false,
+          "slot": "weapon",
+          "stats": {
+            "ATK": 2
+          },
+          "effect": {},
+          "tags": [],
+          "note": "ATK +2"
+        },
+        "story/traveller-cloak": {
+          "id": "story/traveller-cloak",
+          "name": "Traveller Cloak",
+          "kind": "equipment",
+          "rarity": "common",
+          "value": 10,
+          "stack": false,
+          "slot": "armour",
+          "stats": {
+            "MDEF": 1
+          },
+          "effect": {},
+          "tags": [],
+          "note": "armour MDEF +1"
+        },
+        "story/minor-healing-draught": {
+          "id": "story/minor-healing-draught",
+          "name": "Minor Healing Draught",
+          "kind": "consumable",
+          "rarity": "common",
+          "value": 10,
+          "stack": true,
+          "slot": null,
+          "stats": {},
+          "effect": {
+            "heal": 20,
+            "mp": 0,
+            "cure": []
+          },
+          "tags": [],
+          "note": ""
+        }
+      },
+      "stacks": {
+        "it_cmtbqj4u": {
+          "id": "it_cmtbqj4u",
+          "def": "story/iron-sword",
+          "qty": 1,
+          "owner": "party",
+          "equipped": "weapon",
+          "note": "ATK +4, uncommon",
+          "from": "rc_00000004",
+          "story": true
+        },
+        "it_7qkc6tx0": {
+          "id": "it_7qkc6tx0",
+          "def": "story/wooden-shield",
+          "qty": 1,
+          "owner": "party",
+          "equipped": "offhand",
+          "note": "DEF +2",
+          "from": "rc_00000005",
+          "story": true
+        },
+        "it_hm7ehhit": {
+          "id": "it_hm7ehhit",
+          "def": "story/chain-shirt",
+          "qty": 1,
+          "owner": "party",
+          "equipped": "armour",
+          "note": "armour DEF +3",
+          "from": "rc_00000006",
+          "story": true
+        },
+        "it_e01crp3z": {
+          "id": "it_e01crp3z",
+          "def": "story/iron-helm",
+          "qty": 1,
+          "owner": "party",
+          "equipped": "worn-1",
+          "note": "DEF +2",
+          "from": "rc_00000007",
+          "story": true
+        },
+        "it_dwr6su34": {
+          "id": "it_dwr6su34",
+          "def": "story/leather-boots",
+          "qty": 1,
+          "owner": "party",
+          "equipped": null,
+          "note": "DEF +1",
+          "from": "rc_00000008",
+          "story": true
+        },
+        "it_fet8jeyv": {
+          "id": "it_fet8jeyv",
+          "def": "story/silver-ring",
+          "qty": 1,
+          "owner": "party",
+          "equipped": "accessory-1",
+          "note": "LUK +2",
+          "from": "rc_00000009",
+          "story": true
+        },
+        "it_igzyo2bh": {
+          "id": "it_igzyo2bh",
+          "def": "story/jade-ring",
+          "qty": 1,
+          "owner": "party",
+          "equipped": "accessory-2",
+          "note": "LUK +1",
+          "from": "rc_0000000a",
+          "story": true
+        },
+        "it_nu0g6v4l": {
+          "id": "it_nu0g6v4l",
+          "def": "story/bone-charm",
+          "qty": 1,
+          "owner": "party",
+          "equipped": null,
+          "note": "MDEF +2",
+          "from": "rc_0000000b",
+          "story": true
+        },
+        "it_ajiuays5": {
+          "id": "it_ajiuays5",
+          "def": "story/hunting-knife",
+          "qty": 1,
+          "owner": "ac_yhe78lh6",
+          "equipped": "weapon",
+          "note": "ATK +2",
+          "from": "rc_0000000j",
+          "story": true
+        },
+        "it_oaqv081q": {
+          "id": "it_oaqv081q",
+          "def": "story/traveller-cloak",
+          "qty": 1,
+          "owner": "ac_yhe78lh6",
+          "equipped": "armour",
+          "note": "armour MDEF +1",
+          "from": "rc_0000000k",
+          "story": true
+        },
+        "it_f5i5xnin": {
+          "id": "it_f5i5xnin",
+          "def": "story/minor-healing-draught",
+          "qty": 2,
+          "owner": "party",
+          "equipped": null,
+          "note": "",
+          "from": "rc_0000000l",
+          "story": true
+        }
+      },
+      "wallets": {},
+      "aliases": {
+        "iron sword": "story/iron-sword",
+        "wooden shield": "story/wooden-shield",
+        "chain shirt": "story/chain-shirt",
+        "iron helm": "story/iron-helm",
+        "leather boots": "story/leather-boots",
+        "silver ring": "story/silver-ring",
+        "jade ring": "story/jade-ring",
+        "bone charm": "story/bone-charm",
+        "hunting knife": "story/hunting-knife",
+        "traveller cloak": "story/traveller-cloak",
+        "minor healing draught": "story/minor-healing-draught"
+      }
+    },
+    "party": {
+      "pc": "ac_wil6g89x",
+      "order": [
+        "ac_wil6g89x",
+        "ac_yhe78lh6"
+      ],
+      "actors": {
+        "ac_wil6g89x": {
+          "id": "ac_wil6g89x",
+          "kind": "pc",
+          "control": "player",
+          "role": "",
+          "npc": null,
+          "portrait": null,
+          "earned": 0,
+          "name": "Ren",
+          "level": 1,
+          "xp": 0,
+          "points": 0,
+          "hp": {
+            "cur": 90,
+            "max": 90
+          },
+          "mp": {
+            "cur": 32,
+            "max": 32
+          },
+          "sp": {
+            "cur": 39,
+            "max": 39
+          },
+          "stats": {
+            "STR": 9,
+            "VIT": 7,
+            "AGI": 7,
+            "DEX": 7,
+            "INT": 5,
+            "LUK": 5,
+            "CHA": 5
+          },
+          "skills": [
+            {
+              "name": "Power Strike",
+              "level": 1,
+              "uses": 0,
+              "active": true
+            },
+            {
+              "name": "Sweep",
+              "level": 1,
+              "uses": 0,
+              "active": true
+            },
+            {
+              "name": "Second Wind",
+              "level": 1,
+              "uses": 0,
+              "active": true
+            }
+          ],
+          "conditions": []
+        },
+        "ac_yhe78lh6": {
+          "id": "ac_yhe78lh6",
+          "kind": "companion",
+          "control": "auto",
+          "growth": "auto",
+          "role": "ranger",
+          "npc": null,
+          "portrait": null,
+          "earned": 0,
+          "name": "Lyra",
+          "level": 1,
+          "xp": 0,
+          "points": 0,
+          "hp": {
+            "cur": 74,
+            "max": 74
+          },
+          "mp": {
+            "cur": 32,
+            "max": 32
+          },
+          "sp": {
+            "cur": 32,
+            "max": 32
+          },
+          "stats": {
+            "STR": 5,
+            "VIT": 5,
+            "AGI": 9,
+            "DEX": 11,
+            "INT": 5,
+            "LUK": 5,
+            "CHA": 5
+          },
+          "skills": [
+            {
+              "name": "Venom Edge",
+              "level": 1,
+              "uses": 0,
+              "active": true
+            },
+            {
+              "name": "Volley",
+              "level": 1,
+              "uses": 0,
+              "active": true
+            },
+            {
+              "name": "Firebolt",
+              "level": 1,
+              "uses": 0,
+              "active": true
+            }
+          ],
+          "conditions": []
+        }
+      },
+      "custom": {},
+      "offers": {},
+      "rested": null
+    }
+  }
+}

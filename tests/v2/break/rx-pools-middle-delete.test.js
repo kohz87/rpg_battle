@@ -4,12 +4,13 @@
 // XP, points and stats are counts too; readers fit them (a pool held to 0…max). Old chats, whose
 // records wrote whole values, still load. RPG Battle alone (no Story Director).
 import test from 'node:test';
+import { DIRECTOR_CLOCK } from '../integration/helpers/peer.js';
 import assert from 'node:assert/strict';
 import { rpgHost, seeded } from '../integration/helpers/host.js';
 import { PARTY_COUNTERS } from '../../../src/v2/party/pools.js';
 
 async function hero() {
-    const h = await rpgHost();
+    const h = await rpgHost({ modules: [DIRECTOR_CLOCK] });
     assert.equal((await h.cmd('party.create', { name: 'Ren', preset: 'fighter' })).ok, true);
     await h.send('We set out.', h.reply('Bluewatch Town.', ['~ place Bluewatch Town | kind: settlement']));
     h.pc = () => h.q('party.pc');

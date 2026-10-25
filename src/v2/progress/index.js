@@ -13,6 +13,7 @@
 import { commands } from './commands.js';
 import { commands as rosterCommands } from './roster.js';
 import { commands as useCommands, kinds as useKinds } from './use.js';
+import { commands as rescueCommands } from './rescue.js';
 import { initialProgress, progressProblems } from './domain.js';
 import { replayGuard } from './guard.js';
 import { pendingOf } from './credit.js';
@@ -46,7 +47,10 @@ export function afterCapture(view) {
 
 export const part = {
     domains: { progress: { initial: initialProgress, validate: progressProblems } },
-    commands: { 'class.choose': commands['class.choose'], 'path.choose': commands['path.choose'], ...rosterCommands, ...useCommands },
+    commands: { 'class.choose': commands['class.choose'], 'path.choose': commands['path.choose'], ...rosterCommands, ...useCommands, ...rescueCommands },
     kinds: { ...useKinds },
     hooks: { replayGuard, afterCapture },
+    // The queries its replay guards ask (Story Block REPLAY.md: a guard may ask only its owner module's own queries listed here, and they must
+    // depend on the state and their arguments alone). They are the party part's; module.js unions this list into the module's.
+    replayQueries: ['party.actor', 'party.actors'],
 };

@@ -26,6 +26,7 @@ import { standardWidgets } from '../view/widgets/index.js';
 import { screens as defaultScreens } from '../screens/index.js';
 import { createPacksPart, packs as liveInstalled, part as livePart, resolveItem as liveResolve, startState as liveStart } from '../packs/index.js';
 import { firstPackRanks, readerRanks } from '../packs/ranks.js';
+import { createTimelinePart } from '../timeline/part.js';
 
 // The packs part bound to SillyTavern (src/v2/packs/index.js), in createPacksPart()'s shape.
 const livePacks = Object.freeze({ part: livePart, packs: liveInstalled, resolveItem: liveResolve, startState: liveStart });
@@ -301,13 +302,13 @@ export function readerLadder(hooks) {
     return null;
 }
 
-export function createCoreModule({ hooks = () => [], settings = () => ({}), version = '2.0.0-alpha.1', packs = livePacks, command, query, assist = null, hookEntries = null, problem = null, extras = null } = {}) {
+export function createCoreModule({ hooks = () => [], settings = () => ({}), version = '2.0.0-alpha.1', packs = livePacks, command, query, assist = null, hookEntries = null, problem = null, extras = null, timeline = () => null } = {}) {
     const core = createCorePart({ hooks, settings, hookEntries, problem, query, economy: () => (typeof packs.economy === 'function' ? packs.economy() : null) });
     const events = createEventsPart({
         ...(command ? { command } : {}),
         ...(query ? { query } : {}),
     });
-    const merged = mergeParts([core, packs.part, events, assist ?? createAssistPart({ settings: () => settings() })]);
+    const merged = mergeParts([core, packs.part, events, assist ?? createAssistPart({ settings: () => settings() }), createTimelinePart({ timeline })]);
     // The reader's rank ladder answers packs.content's ranks in place of the packs', with the first pack's
     // numbers at each place (packs/ranks.js); a call for one pack's own ranks (`pack`) is the pack's as
     // before. The ladder is a module's setting (RPG Battle's Terms: Rank ladder and Levels per rank),

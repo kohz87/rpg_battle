@@ -5,12 +5,12 @@ generation bounds), `src/v2/progress/` (choices, offers, credits, guards, comman
 `src/v2/training/` (the clock, the request, the host's step, the offers). Tests: `tests/v2/progress/`,
 `tests/v2/rules/`, `tests/v2/training/`. Contract: `RB_CONTRACT` §3–§7, B3 and B5 in the track B design.
 
-The parts (`rules/index.js`, `progress/index.js`) are **not registered** by `module.js`. They are one unit: `rulesParts`
-(exported by `rules/index.js`) lists `['rules', part]` and `['progress', part]`, to register together or not at all
-(`rules.settle` writes `progress`; every `progress` guard reads the `rules` pin). Registering them on a chat
-adds the `rules` slice, whose root is the rules-v2 marker `sdk.preflight` reads, so the lead gates it on the host's
-preflight (a legacy chat must stay legacy). Until then no existing chat, pack or command changes
-(`tests/v2/progress/legacy.test.js`).
+The parts (`rules/index.js`, `progress/index.js`) are one unit: `rulesParts` (exported by `rules/index.js`) lists
+`['rules', part]` and `['progress', part]`, registered together or not at all (`rules.settle` writes `progress`; every
+`progress` guard reads the `rules` pin). `module.js` puts them in `PARTS` but registers them only when the host's preflight
+allows it: `createModule` activates from a checked frozen pack (`rules`) or resumes a chat whose preflight says it is already
+on rules v2 with a matching hash. The `rules` slice's root is the rules-v2 marker `sdk.preflight` reads, so a legacy chat
+stays legacy: no existing chat, pack or command changes (`tests/v2/progress/legacy.test.js`).
 
 ## Records
 
@@ -209,7 +209,7 @@ this slice, and `engine-unchanged.test.js` plays them again; `pinned.test.js` pl
 
 **Gaps and differences (written down, not decided):**
 
-- Death, return and wipe batches (B6) are not here (they wait for the timeline's merge). `BatchResult` v1 is the fight's own kind. Story Director
+- Death, return and wipe batches (B6) are on branch `track-b/death-return`: `src/v2/death/` (its open gaps, and what is waiting on the host, are in `src/v2/death/GAPS.md`). `BatchResult` v1 is the fight's own kind. Story Director
   checks and danger are slice 4 (below).
 - `batchResults.resolve` is wired by the lead at integration, one resolver for fight and death batches; until then nothing in Story Block reads
   `progress.batches`.
@@ -238,7 +238,7 @@ this slice, and `engine-unchanged.test.js` plays them again; `pinned.test.js` pl
 - The full resolved pin rides in every checkpoint (583 KB for a big pack); B3/E6 will store `resolved` once, keyed by `rulesHash`.
 - Story Block must expose `resolved`, `rulesHash`, `packHash` and `RULES_V2_PROGRESSION` to the activation: `packs.rules` returns
   only the manifest today. That is an E/D task before activation.
-- Slice 4 and later: death and return.
+- Death and return (B6): `src/v2/death/`, see `src/v2/death/GAPS.md`. The native mismatch after a deleted death reply is a dead end today and must close before release.
 
 ## Slice 4: the RB side of Story Director's checks and danger
 
@@ -284,8 +284,18 @@ this slice, and `engine-unchanged.test.js` plays them again; `pinned.test.js` pl
 
 ## Code that production does not reach yet
 
-`pinRules` and `registerPackDefs` (activation), and the parts themselves (`rulesParts`, not registered by `module.js`). Everything
-else above is reached through the commands and queries once the parts are registered.
+`pinRules` and `registerPackDefs` (activation) run only on a checked activation or a resumed rules-v2 chat (`createModule` registers `rulesParts`
+then, not on a legacy chat). Everything else above is reached through the commands and queries once the parts are registered.
+
+## Rescue proofs (track A, B3)
+
+`rescue.use { event, batch: { id, hash }, actor, rescuer, skill, form, effect, paid? }` (`progress/rescue.js`; the guard kind `rescue.use` asks `assess.js`
+`assessRescue`). Only Story Director's event adapter or this module may ask. The sealed death result is read from `progress.batches` as
+`{ kind: 'death', events: [{ id, actor }] }`, which is this slice's assumption until B6 writes its records (a contract gap): the lethal event must be in it
+and must have struck `actor`; the rescuer is another, alive, active durable member holding the skill in that form; the form's frozen effect at `effect` is a
+`heal` or `shield`. The cost is paid in the same root (a `use` proof) or cited from one surviving paid use, as `skill.use` does (`applyUse`, the same function,
+no guard of its own). The `rescue` proof binds all of it with the use as its only parent; the claim `rb:<epoch>:rescue:<event>:<actor>` consumes the rescue once.
+Taking back the paid use, the sealed result or the rescuer's place turns the block off with its claims.
 
 ## The checks flip (branch `track-b/checks-flip`, unmerged; the lead's single release)
 

@@ -23,7 +23,7 @@ const WEAR_ROUTE = {
 const quiet = t => t.mock.method(console, 'warn', () => {});
 
 async function hero(seed = 1, { lines = [] } = {}) {
-    const host = await rpgHost({ modules: [WEAR_ROUTE] });
+    const host = await rpgHost({ equip: true, modules: [WEAR_ROUTE] });
     assert.equal((await host.cmd('party.create', { name: 'Ren', preset: 'fighter' })).ok, true);
     await host.send('We set out.', host.reply('Bluewatch Town.', [
         '~ place Bluewatch Town | kind: settlement', '+ coin 900',
@@ -99,7 +99,7 @@ test('the story\'s wear word: code\'s number, one per piece per reply (by sid), 
             const gear = host.q('items.gear', {});
             assert.equal(gear.counted.some(row => row.name === 'Chain Shirt'), false);
             assert.equal(gear.unused.find(row => row.name === 'Chain Shirt').why, 'broken');
-            assert.equal(host.q('inventory.items', {}).find(item => item.name === 'Chain Shirt').equipped, 'armour');
+            assert.equal(host.q('inventory.items', {}).find(item => item.name === 'Chain Shirt').equipped, 'body');
             await story(host);
             assert.match(host.tails().at(-1), /\[Gear\] Not in good repair: Ren's Chain Shirt \(broken: gives nothing\)/);
         } finally {
@@ -413,12 +413,14 @@ test('a repair never costs more than 90% of the piece new here; what it adds to 
     });
 });
 
-test('items.slots and items.canWear on the host: two accessories and one worn piece by default', async t => {
+test('items.slots and items.canWear on the host: the eight slots, and a piece the member wears can be worn', async t => {
     quiet(t);
     await seeded(13, async () => {
         const host = await hero();
         try {
-            assert.deepEqual(host.q('items.slots'), { accessory: 2, worn: 1 });
+            const view = host.q('items.slots');
+            assert.deepEqual(view.slots.map(slot => slot.key), ['weapon', 'offhand', 'head', 'body', 'legs', 'feet', 'accessory-1', 'accessory-2']);
+            assert.deepEqual([view.accessory, view.worn], [2, 4]);
             const pc = host.q('party.pc').id;
             assert.deepEqual(host.q('items.canWear', { actor: pc, stack: host.stackOf('Chain Shirt') }), { ok: true });
             assert.equal(host.q('items.canWear', { actor: pc, stack: host.stackOf('Iron Ore') }).ok, false);

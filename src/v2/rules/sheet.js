@@ -68,9 +68,9 @@ export function unitView(unit) {
 
 /** The ids of the active members: the stored roster kept to members that exist, the PC first, three at most; none stored: the first three. */
 export function activeIds(roster, members, pc) {
-    const alive = new Set(members.map(member => member.id));
+    const alive = new Set(members.filter(member => member.id === pc || lifeOf(member) !== 'dead').map(member => member.id));
     const stored = Array.isArray(roster?.active) ? roster.active.filter((id, i, all) => alive.has(id) && all.indexOf(id) === i) : null;
-    const chosen = stored ?? members.map(member => member.id);
+    const chosen = stored ?? members.map(member => member.id).filter(id => alive.has(id));
     const list = pc && alive.has(pc) ? [pc, ...chosen.filter(id => id !== pc)] : chosen;
     return list.slice(0, ACTIVE_LIMIT);
 }

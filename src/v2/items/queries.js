@@ -1,9 +1,11 @@
 // RPG Battle v2, items part: read-only views of the party's things (MODULES §B2). Pure: each
 // takes the State and returns plain copies.
 
-import { capItem, equipped, gearBonuses, gearLimits } from '../../items.js';
+import { capItem, equipped, gearBonuses } from '../../items.js';
 import { useItemOutside } from '../../recovery.js';
 import { canCarry, carryView } from './carry.js';
+import { canWearQuery, slotsQuery } from './equip-query.js';
+import { SLOT_CATEGORY, SLOT_LABELS, normalizeSlot, unplacedWhy } from './slots.js';
 import { helpsOutside, hostSettings, inventoryOf, itemOf, partyOf, rulesFrom, sheetOf, stackIds, wearerOf } from './shared.js';
 import { gearFeatures, pieceName, pieceOf, scaleStats } from './condition.js';
 import { RARITIES } from '../../rules.js';
@@ -60,12 +62,16 @@ export function useOn(state) {
 
 /**
  * `items.gear({ actor })` (the main character when none is named): what they wear and what it
- * gives at their level, by v1's rules. { actor, level, counted: [{ stack, name, slot, rarity,
- * stats, capped, from }], unused: [{ stack, name, slot, rarity, why }], bonuses } — `stats` are
- * capped by rarity and level (capItem), `from` what the piece says when that was more; `unused`
- * are pieces past the rules' limits (gearLimits) or an off-hand beside a two-handed weapon;
+ * gives at their level, by v1's rules. { actor, level, counted: [{ stack, name, slot, key, slotLabel,
+ * rarity, stats, capped, from }], unused: [{ stack, name, slot, rarity, why }], bonuses } — `key` is
+ * the piece's v2 slot (weapon, offhand, head, body, legs, feet, accessory-1, accessory-2; an older
+ * `armour` key reads as body, §9) and `slot` the v1 category the shared stat counting reads (head,
+ * legs, feet count as `worn`, the body as `armour`); `stats` are capped by rarity and level
+ * (capItem), `from` what the piece says when that was more; `unused` are pieces that give nothing:
+ * broken ones, an off-hand beside a two-handed weapon, and pieces whose stored key names no single v2
+ * slot (an old `worn-1`: kept exactly as stored, never guessed, until the reader picks a slot);
  * `bonuses` the summed stats, tags and on-hit elements (gearBonuses). Null for no such actor.
- * `settings` (RPG Battle's, for the rules' limits) defaults to the host's.
+ * `settings` (RPG Battle's, for the rarity budgets) defaults to the host's.
  */
 export function gear(state, { actor = null, settings } = {}, tools = null) {
     const inventory = inventoryOf(state);
@@ -77,10 +83,16 @@ export function gear(state, { actor = null, settings } = {}, tools = null) {
     const level = Math.max(1, Math.round(Number(who.level) || 1));
     const features = gearFeatures(tools);
     const gearSlice = state?.domains?.gear ?? null;
-    const items = stackIds(inventory)
-        .map(stackId => inventory.stacks[stackId])
-        .filter(stack => stack.equipped && stack.qty > 0 && wearerOf(stack, party) === id)
-        .map(stack => itemOf(stack, inventory.defs?.[stack.def]));
+    const items = [];
+    const unplaced = [];
+    for (const stackId of stackIds(inventory)) {
+        const stack = inventory.stacks[stackId];
+        if (!stack.equipped || !(stack.qty > 0) || wearerOf(stack, party) !== id) continue;
+        const key = normalizeSlot(stack.equipped);
+        const item = itemOf(stack, inventory.defs?.[stack.def]);
+        if (key === null) unplaced.push({ stack: stack.id, name: item.name, slot: item.slot, rarity: item.rarity, why: unplacedWhy(stack.equipped) });
+        else items.push({ ...item, slot: SLOT_CATEGORY[key], key });
+    }
     const worn = equipped(items, rules);
     const counted = [];
     const broken = [];
@@ -88,9 +100,10 @@ export function gear(state, { actor = null, settings } = {}, tools = null) {
         const piece = pieceOf(inventory, gearSlice, item.stack, features);
         const name = pieceName(item.name, piece.refine);
         const look = { cond: piece.cond, max: piece.max, band: piece.band, refine: piece.refine };
+        const where = { key: item.key, slotLabel: SLOT_LABELS[item.key] };
         // A broken piece stays on but gives nothing: it is not counted (its stats, its elements).
         if (piece.factor === 0) {
-            broken.push({ stack: item.stack, name, slot: item.slot, rarity: item.rarity, why: 'broken', ...look });
+            broken.push({ stack: item.stack, name, slot: item.slot, ...where, rarity: item.rarity, why: 'broken', ...look });
             continue;
         }
         const result = capItem(item, level, rules);
@@ -100,11 +113,14 @@ export function gear(state, { actor = null, settings } = {}, tools = null) {
         // `final`: the stats are what the piece gives (capped at the wearer's level, then its
         // condition and refinement), to be counted as they are, never capped again.
         counted.push({
-            stack: item.stack, name, slot: item.slot, rarity: item.rarity, stats, capped: result.capped,
+            stack: item.stack, name, slot: item.slot, ...where, rarity: item.rarity, stats, capped: result.capped,
             from: result.capped ? { ...item.stats } : null, tags: [...item.tags], final: true, ...look,
         });
     }
-    const unused = [...worn.unused.map(({ item, why }) => ({ stack: item.stack, name: item.name, slot: item.slot, rarity: item.rarity, why })), ...broken];
+    const unused = [
+        ...worn.unused.map(({ item, why }) => ({ stack: item.stack, name: item.name, slot: item.slot, key: item.key, slotLabel: SLOT_LABELS[item.key], rarity: item.rarity, why })),
+        ...broken, ...unplaced,
+    ];
     const bonuses = sumBonuses(counted, items);
     return copy({ actor: id, level, counted, unused, bonuses });
 }
@@ -182,42 +198,17 @@ export function wornGear(state, actor, { settings, tools = null } = {}) {
     return (view?.counted ?? []).map(row => ({ name: row.name, qty: 1, slot: row.slot, rarity: row.rarity, stats: { ...row.stats }, tags: [...(row.tags ?? [])], equipped: true, final: true, stack: row.stack }));
 }
 
-const clampSlots = value => Math.max(0, Math.min(3, Math.round(Number(value) || 0)));
+/**
+ * `items.slots({ actor? })` (§3, P07; also Story Block's Equip on… picker): the eight slots in the fixed
+ * order with what blocks each, plus the compatibility counts: { accessory: 2, worn: 4, slots: [{ key,
+ * label, blockedBy }] }. `blockedBy` is the stack id of the two-handed weapon that blocks the off-hand.
+ * The counts are fixed by the eight slots, not a setting. Never writes (equip-query.js).
+ */
+export const slots = slotsQuery;
 
 /**
- * `items.slots()` (Story Block's Equip on… picker): how many accessories and worn pieces count at
- * once, by the rules in force (v1 gearLimits, the reader's `gear` settings): { accessory, worn }, 0–3.
+ * `items.canWear({ actor, stack | defId, targetSlot? })` -> { ok, why? }: whether the planner would give
+ * a plan for that member now (a living member, a piece of theirs or the bag's, a slot, the base-stat
+ * requirement, an off-hand beside a two-handed weapon), in the planner's words. Never writes.
  */
-export function slots(state, args = {}, tools = null) {
-    const rules = rulesFrom(args?.settings ?? tools?.settings ?? hostSettings());
-    const limits = gearLimits(rules);
-    return { accessory: clampSlots(limits.accessory), worn: clampSlots(limits.worn) };
-}
-
-/**
- * `items.canWear({ actor, stack | defId })`: whether that party member could put the piece on, by
- * the same rules item.equip keeps: { ok, why? }. Not equipment or no slot: no. A slot of many
- * (accessories, worn pieces) the rules allow none of: no. An off-hand beside their two-handed weapon:
- * no. Otherwise yes (a full slot of one is swapped, a full slot of many is the picker's to say).
- */
-export function canWear(state, args = {}, tools = null) {
-    const inventory = inventoryOf(state);
-    const party = partyOf(state);
-    const actor = party.actors?.[args?.actor] ?? null;
-    if (!actor) return { ok: false, why: 'That is not someone in the party.' };
-    const stack = typeof args?.stack === 'string' ? inventory.stacks?.[args.stack] : null;
-    const def = inventory.defs?.[stack?.def ?? args?.defId ?? args?.def] ?? null;
-    if (!def) return { ok: false, why: 'That item is not known.' };
-    if (def.kind !== 'equipment' || !def.slot) return { ok: false, why: `The ${def.name} is not something to wear or wield.` };
-    const rules = rulesFrom(args?.settings ?? tools?.settings ?? hostSettings());
-    const limits = gearLimits(rules);
-    if ((def.slot === 'accessory' || def.slot === 'worn') && !(limits[def.slot] > 0)) {
-        return { ok: false, why: `In this chat's rules no ${def.slot === 'accessory' ? 'accessories' : 'worn pieces'} count.` };
-    }
-    if (def.slot === 'offhand') {
-        const weapon = stackIds(inventory).map(id => inventory.stacks[id])
-            .find(row => row.equipped === 'weapon' && wearerOf(row, party) === actor.id && inventory.defs?.[row.def]?.tags?.includes('two-handed'));
-        if (weapon) return { ok: false, why: `${actor.name}'s ${inventory.defs[weapon.def].name} is two-handed.` };
-    }
-    return { ok: true };
-}
+export const canWear = canWearQuery;

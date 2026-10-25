@@ -3,7 +3,7 @@
 // (level cap, stat cap, the points a character of that level can have, the skills), and grants
 // what was carried through inventory.grant. Through Story Block's real bus, on both hosts.
 import assert from 'node:assert/strict';
-import { bytes, createHarness, holdings, stacksOf, storyCoin, storyItem, withHero, each } from './helpers/harness.js';
+import { bytes, createHarness, holdings, stacksOf, storyCoin, storyItem, withHero, each, equipsOnInt } from './helpers/harness.js';
 
 /** A level-3 Ren with a worn sword, three draughts, coin, and a story-taught skill. */
 function travelled() {
@@ -25,7 +25,7 @@ function exported(h) {
     return r.receipt.data.character;
 }
 
-each('party.export: the file in the receipt\'s data; nothing in the state changes', () => {
+each('party.export: the file in the receipt\'s data; nothing in the state changes', equipsOnInt, () => {
     const { h, pc } = travelled();
     const domains = JSON.stringify(h.state().domains);
     const r = h.command('party.export', {});
@@ -49,7 +49,7 @@ each('party.export: the file in the receipt\'s data; nothing in the state change
     assert.equal(none.code, 'NOT_FOUND');
 });
 
-each('creation.import: the same character in a new chat, rested, with their things, worn gear and purse', () => {
+each('creation.import: the same character in a new chat, rested, with their things, worn gear and purse', equipsOnInt, () => {
     const { h, pc } = travelled();
     const file = exported(h);
     const old = h.state().domains.party.actors[pc];
@@ -67,14 +67,27 @@ each('creation.import: the same character in a new chat, rested, with their thin
     assert.equal(party.custom['Tide Cut'].type, 'physical');
     assert.equal(party.custom['Tide Cut'].description, 'A cut like a cold current.');
     const items = fresh.query('inventory.items');
-    assert.deepEqual(items.map(row => [row.name, row.qty, row.owner, row.equipped]).sort(), [['Iron Sword', 1, 'party', 'weapon'], ['Minor Healing Draught', 3, 'party', null]]);
+    // The worn sword is the character's own now (equipping hands a piece of the bag to its wearer, P07).
+    assert.deepEqual(items.map(row => [row.name, row.qty, row.owner, row.equipped]).sort(), [['Iron Sword', 1, party.pc, 'weapon'], ['Minor Healing Draught', 3, 'party', null]]);
     assert.ok(items.every(row => row.from === r.receipt.id), 'granted by this receipt');
     assert.equal(holdings(fresh.state()).money, 120);
     // The new chat can generate: there is a character.
     assert.equal(fresh.command('creation.import', { character: file }).code, 'REFUSED', 'only once');
 });
 
-each('creation.import checks the file by this chat\'s rules; nothing is saved when it refuses', () => {
+each('creation.import on a chat that pins no rules (no equipment planner registered) still puts the worn gear on, by the same planner read in place', equipsOnInt, () => {
+    const { h } = travelled();
+    const file = exported(h);
+    const fresh = createHarness({ equip: false });
+    assert.throws(() => fresh.query('rules.equipPlan', {}), /No query rules\.equipPlan/);
+    const r = fresh.command('creation.import', { character: file, name: 'Ren' });
+    assert.equal(r.ok, true, `${r.code}: ${r.message}`);
+    assert.match(r.receipt.summary, /wearing Iron Sword/);
+    const party = fresh.state().domains.party;
+    assert.deepEqual(fresh.query('inventory.items').map(row => [row.name, row.owner, row.equipped]).sort(), [['Iron Sword', party.pc, 'weapon'], ['Minor Healing Draught', 'party', null]]);
+});
+
+each('creation.import checks the file by this chat\'s rules; nothing is saved when it refuses', equipsOnInt, () => {
     const { h } = travelled();
     const file = exported(h);
     const cases = [
@@ -103,7 +116,7 @@ each('creation.import checks the file by this chat\'s rules; nothing is saved wh
     assert.equal(blank.code, 'INVALID');
 });
 
-each('party.import is creation\'s: a click cannot make a character from a file past the wizard', () => {
+each('party.import is creation\'s: a click cannot make a character from a file past the wizard', equipsOnInt, () => {
     const { h } = travelled();
     const file = exported(h);
     const fresh = createHarness();
@@ -111,7 +124,7 @@ each('party.import is creation\'s: a click cannot make a character from a file p
     assert.equal(r.code, 'REFUSED');
 });
 
-each('a file made in a chat with more companions keeps only your character: companions do not travel', () => {
+each('a file made in a chat with more companions keeps only your character: companions do not travel', equipsOnInt, () => {
     const { h } = travelled();
     const lyra = h.command('party.addCompanion', { name: 'Lyra', role: 'archer' }, { cause: 'system' }).receipt.data.actor;
     const pelt = storyItem(h, 'Wolf Pelt', 2);

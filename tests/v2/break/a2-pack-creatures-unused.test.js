@@ -28,20 +28,10 @@ test('a2-pack-creatures: a pack creature written in an encounter is fought with 
     assert.ok(loot.includes('River Drake Scale'), `the River Drake's loot: ${loot.join(', ')} (the pack's is River Drake Scale, Small Monster Core)`);
 });
 
-test('a2-pack-creatures: a quest-sized fight for a pack material quest drops what the quest counts', { skip }, async t => {
-    t.mock.method(console, 'warn', () => {});
+test('a2-pack-creatures: an unpinned legacy quest cannot become a reward-bearing quest', { skip }, async t => {
     const host = await started({ seed: 5 });
     t.after(() => host.close());
     await host.send('Job.', host.reply('Fenna asks.', ['+ quest Drake Scales — the tanner wants scales | goal: bring 72 River Drake Scale | reward: 10 copper | giver: Fenna']));
-    const [quest] = host.q('director.threads', { kind: 'quest', status: 'active' });
-    assert.ok(quest, 'the quest is active');
-    await host.send('Hunt.', host.reply('Drakes.', ['! encounter River Drake | tier: trivial']));
-    const offer = host.q('combat.offers').at(-1);
-    assert.equal(offer.foes.reduce((sum, foe) => sum + foe.count, 0), 24, 'sized for the quest: 24 drakes, each a sure drop');
-    assert.equal((await host.cmd('combat.start', { offer: offer.id })).ok, true);
-    assert.equal(await playOut(host), 'won');
-    assert.equal((await host.cmd('combat.end', {})).ok, true);
-    const progress = host.q('quest.progress', { id: quest.id });
-    const dropped = host.items().filter(item => /Scale/.test(item.name)).map(item => `${item.qty} ${item.name}`).join(', ');
-    assert.ok(progress.have > 0, `quest ${progress.label} after killing 24 drakes that each drop the quest's item (dropped: ${dropped})`);
+    assert.deepEqual(host.q('rules.quests'), []);
+    assert.deepEqual(host.q('director.threads').filter(t => t.rpg), []);
 });

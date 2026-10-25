@@ -15,7 +15,8 @@
 // built by v1 skillFromTemplate into party.custom).
 
 import { STATS, makeRules } from '../../rules.js';
-import { gearLimits } from '../../items.js';
+import { rulesEquipPlan } from '../items/equip-query.js';
+import { normalizeSlot } from '../items/slots.js';
 import { levelText } from '../../terms.js';
 import { buildCharacter, creationRules } from './build.js';
 import { STAT_LABELS, creationContent } from './content.js';
@@ -300,30 +301,45 @@ function skipStart(ctx) {
 // ---------------------------------------------------------------------------------------
 // A character from another story (MODULES §F66)
 
-const FIRST_SLOTS = ['weapon', 'armour', 'offhand'];
+// The order the pieces of a file go on: the weapon, the body armour, the off-hand, then the rest.
+const FIRST_SLOTS = ['weapon', 'body', 'offhand'];
 
 /**
- * The pieces a file says were worn, in the order they go on, leaving out what the rules here
- * would refuse (item.equip): an off-hand beside a two-handed weapon, more worn pieces or
- * accessories than v1 gearLimits allow. Those stay carried. [{ stack, def }] in, the same out.
+ * The plan for one piece. Where a rules module answers `rules.equipPlan` (a chat with rules pinned) its answer is the one;
+ * where none does (a chat that pins no rules: Story Block keeps its own equipment storage) the same pure planner is read in
+ * place over this transaction's records. Null when the planner cannot answer at all.
  */
-function wearable(worn, settings) {
-    const own = isRecord(settings) ? settings : {};
-    const custom = isRecord(own.rules) ? own.rules : {};
-    const limits = gearLimits(makeRules({ ...custom, ...(isRecord(own.gear) ? { gear: { ...(custom.gear ?? {}), ...own.gear } } : {}) }));
-    const rank = entry => (FIRST_SLOTS.includes(entry.def.slot) ? FIRST_SLOTS.indexOf(entry.def.slot) : FIRST_SLOTS.length);
+function planFor(ctx, args) {
+    try {
+        return ctx.query('rules.equipPlan', args);
+    } catch (error) {
+        if (error?.code !== 'NOT_FOUND' || !String(error.message).includes('rules.equipPlan')) return null;
+    }
+    try {
+        const state = { domains: { inventory: readInventory(ctx), party: readParty(ctx) } };
+        return rulesEquipPlan(state, args, { query: (name, more) => ctx.query(name, more) });
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * The pieces a file says were worn, in the order they go on. Only what the planner (rules.equipPlan, the
+ * one every equip route asks) would put into an EMPTY slot of the new character is worn; the rest stays
+ * carried: a second piece for a slot, an off-hand beside a two-handed weapon, a piece the rules would
+ * refuse, and a piece whose old slot names no single v2 slot (`worn`, a bare `accessory`: never guessed).
+ * [{ stack, def }] in, the same out; the planner is asked one piece at a time, after the ones before it.
+ */
+function wearable(ctx, worn, actor) {
+    const rank = entry => {
+        const at = FIRST_SLOTS.indexOf(normalizeSlot(entry.def.slot));
+        return at < 0 ? FIRST_SLOTS.length : at;
+    };
     const out = [];
-    const count = {};
-    let twoHanded = false;
     for (const entry of [...worn].sort((a, b) => rank(a) - rank(b))) {
-        const slot = entry.def.slot;
-        if (!slot) continue;
-        if (FIRST_SLOTS.includes(slot)) {
-            if (count[slot]) continue;
-            if (slot === 'offhand' && twoHanded) continue;
-            if (slot === 'weapon' && (entry.def.tags ?? []).includes('two-handed')) twoHanded = true;
-        } else if ((count[slot] ?? 0) >= (limits[slot] ?? 0)) continue;
-        count[slot] = (count[slot] ?? 0) + 1;
+        const answer = planFor(ctx, { stack: entry.stack, actor });
+        if (answer?.ok !== true || answer.plan.unequip.length) continue;
+        ctx.call('item.equip', { stack: entry.stack });
         out.push(entry);
     }
     return out;
@@ -336,7 +352,7 @@ function wearable(worn, settings) {
  * can have, the skills; what it carries held to a count and a worth, and the purse to a cap, for
  * its level) and makes the character; then what they carried comes into the party's
  * bag through inventory.grant (priced by this chat), the worn pieces are put on (item.equip,
- * those the rules here allow) and the purse arrives (wallet.receive). The name and background are
+ * those the planner allows into an empty slot) and the purse arrives (wallet.receive). The name and background are
  * the persona's when the opener gives them (MODULES §F22), else the file's. Nothing is saved when
  * any part refuses.
  */
@@ -380,11 +396,7 @@ function importCharacter(ctx, payload = {}) {
         const def = readInventory(ctx)?.defs?.[granted?.data?.def];
         if (entry.equipped && def?.kind === 'equipment' && stacks.length) worn.push({ stack: stacks[0], def });
     }
-    const equipped = [];
-    for (const entry of wearable(worn, settingsOf(ctx))) {
-        ctx.call('item.equip', { stack: entry.stack });
-        equipped.push(entry.def.name);
-    }
+    const equipped = wearable(ctx, worn, pc.id).map(entry => entry.def.name);
     const purse = Number.isSafeInteger(made.data.purse) ? made.data.purse : 0;
     if (purse > 0) ctx.call('wallet.receive', { owner: 'party', amount: purse, note: `${pc.name}'s purse` });
 

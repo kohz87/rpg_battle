@@ -1,0 +1,63 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { world, ok, ref } from './helpers.js';
+import { savedWorld } from './return-helper.js';
+import { seeded } from '../integration/helpers/host.js';
+import { assertFullReplay } from './replay-helper.js';
+import { lifeOf } from '../../../src/v2/rules/sheet.js';
+import { generationProblem } from '../../../src/v2/death/selection.js';
+import { wipe } from './fight-helper.js';
+
+const at = (w, text) => w.host.ctx.chat.findIndex(m => !m.is_user && m.mes.includes(text));
+
+test('deleting a paid rescue parent retracts the intervention, injury and claims without a fresh die', async t => seeded(72, async () => {
+    const w = await world(t);
+    const e = w.lethal(w.friend);
+    await w.say('The healing action.');
+    const mp = w.q('party.actor', { id: w.pc }).mp.cur;
+    ok(w.command('skill.use', { actor: w.pc, skill: ref('s00'), form: ref('s00-base') }));
+    const paid = w.q('story.evidence').find(p => p.kind === 'use').id;
+    await w.say('The intervention.');
+    const proof = w.proof('rescue', { event: e.event, batch: e.batch, actor: w.friend, rescuer: w.pc, skill: ref('s00'), form: ref('s00-base'), effect: 1, payment: paid }, [paid]);
+    ok(w.command('test.intervene', { event: e.event, evidence: proof }));
+    await w.say('The resolved event.');
+    ok(w.command('death.resolve', { event: e.event }));
+    const span = w.host.ctx.chat.at(-1).extra.storySuite.spans.find(s => s.guard?.predicate?.kind === 'death.resolve');
+    const original = structuredClone(span.recorded);
+    assert.equal(Object.values(original.checks)[0], null);
+    assert.equal(lifeOf(w.q('party.actor', { id: w.friend })), 'gravely-injured');
+    await w.host.st.deleteMessage(at(w, 'The healing action.'));
+    assert.equal(w.slice('death').batches[e.batch].status, 'pending');
+    assert.equal(w.slice('death').events[e.event].intervention, null);
+    assert.equal(w.q('party.actor', { id: w.pc }).mp.cur, mp);
+    assert.equal(lifeOf(w.q('party.actor', { id: w.friend })), 'alive');
+    assert.equal(Object.keys(w.slice('death').outbox).length, 0);
+    assert.equal(Object.keys(w.head().meta.claims).some(c => c.includes(':rescue:') || c.includes(':rescue-payment:') || c.includes(':death:')), false);
+    assert.deepEqual(span.recorded, original);
+    assertFullReplay(w);
+}));
+
+test('swiping or deleting a restored carrier retracts its wake and refuses unmatched native selection', async t => seeded(91, async () => {
+    const w = await savedWorld(t);
+    await w.say('<Changes>\n~ time 15840\n</Changes>');
+    const ref = (await wipe(w)).receipt.data.deathBatch;
+    ok(await w.coordinator.deliver(ref));
+    const record = structuredClone(w.q('return.status').lastReturn);
+    const pinned = structuredClone(w.host.timeline.host.pin(ref.id));
+    const index = w.host.ctx.chat.findLastIndex(m => !m.is_user);
+    await w.host.swipe('Another outcome.');
+    assert.equal(w.q('return.status').lastReturn, null);
+    assert.equal(Object.keys(w.slice('death').wakes).length, 0);
+    assert.ok(generationProblem(w.head(), w.host.timeline.host));
+    assert.equal((await w.coordinator.recover()).code, 'DEPENDENCY_UNAVAILABLE');
+    await w.host.st.swipeTo(index, 0);
+    assert.equal(w.q('return.status').lastReturn.id, record.id);
+    assert.equal(Object.keys(w.slice('death').wakes).length, 1);
+    assertFullReplay(w);
+    await w.host.st.deleteMessage(index);
+    assert.equal(w.q('return.status').lastReturn, null);
+    assert.equal(Object.keys(w.slice('death').wakes).length, 0);
+    assert.ok(generationProblem(w.head(), w.host.timeline.host));
+    assert.deepEqual(w.host.timeline.host.pin(ref.id).bytes, pinned.bytes, 'original wipe check/result remains archived');
+    assertFullReplay(w);
+}));

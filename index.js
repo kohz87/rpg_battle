@@ -47,7 +47,7 @@ export function showMissing(doc = globalThis.document) {
  * Waits for Story Block v2 and registers RPG Battle with it. Returns { ok: true, sdk } or
  * { ok: false, reason } (and the drawer line).
  */
-export async function boot({ global = globalThis, doc = global.document, waitMs = WAIT_MS, stepMs = STEP_MS } = {}) {
+export async function boot({ rules = null, global = globalThis, doc = global.document, waitMs = WAIT_MS, stepMs = STEP_MS } = {}) {
     const host = await findHost({ global, waitMs, stepMs });
     if (!host) {
         showMissing(doc);
@@ -60,7 +60,8 @@ export async function boot({ global = globalThis, doc = global.document, waitMs 
             const st = global.SillyTavern?.getContext?.();
             if (migrateRankLadder(st?.extensionSettings?.storySuite)) st.saveSettingsDebounced?.();
         } catch (error) { console.warn(`[${MODULE_NAME}] the rank ladder could not be moved`, error); }
-        await sdk.registerModule(createModule({ settings: () => sdk.settings(MODULE_ID) }));
+        await sdk.registerModule(createModule({ settings: () => sdk.settings(MODULE_ID), rules,
+            preflight: sdk.preflight({ module: MODULE_ID, rulesVersion: 2 }) }));
         return { ok: true, sdk };
     } catch (error) {
         console.error(`[${MODULE_NAME}] Story Block v2 did not take the module:`, error);

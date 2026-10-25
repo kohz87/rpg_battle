@@ -111,7 +111,8 @@ test('R2: an offered foe that names a ref is that foe (an unknown ref is none); 
     assert.equal(out.enemies[0].name, 'Hound', 'the offer\'s own name stays');
     const broken = { ...ix, itemDef() { throw new Error('boom'); } };
     const kept = packFoes(ctx, broken, setup);
-    assert.deepEqual(kept.enemies, setup.enemies, 'nothing swapped, nothing thrown');
+    assert.deepEqual(kept.enemies.map(({ foeRef, ...enemy }) => enemy), setup.enemies, 'numbers unchanged, nothing thrown');
+    assert.deepEqual(kept.enemies.map(enemy => enemy.foeRef), ['pack.fixture/wolf', null, 'pack.fixture/wolf']);
 });
 
 // --- the fight ----------------------------------------------------------------------------------------------------------------------

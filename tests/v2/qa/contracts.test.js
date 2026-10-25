@@ -3,7 +3,7 @@
 // that the callee does exactly what the payload asks (nothing ignored, nothing extra). Known
 // mismatches are `todo` tests: their bodies state the expected behaviour and fail today.
 import assert from 'node:assert/strict';
-import { createHarness, fightOut, holdings, patch, sent, stacksOf, storyCoin, storyItem, winFight, withHero, each } from './helpers/harness.js';
+import { createHarness, fightOut, holdings, patch, sent, stacksOf, storyCoin, storyItem, winFight, withHero, each, equipsOnInt } from './helpers/harness.js';
 
 const keys = payload => Object.keys(payload).sort();
 const stackOf = (h, defId) => stacksOf(h, defId)[0]?.stack;
@@ -59,37 +59,39 @@ each('item.use (a mana tonic) → party.restore { actor, mp }: the callee restor
     assert.equal(sent(h, 'item.use', 'party.heal').length, 0, 'no heal call for an MP-only dose');
 });
 
-each('item.equip → inventory.equip { stack, slot } and inventory.unequip { stack } when a weapon is swapped', () => {
+each('item.equip → inventory.equipOn { stack, actor } once: the inventory asks rules.equipPlan and does the swap itself', equipsOnInt, () => {
     const { h, pc } = withHero();
     const a = storyItem(h, 'Iron Sword', 1, 'a plain sword, ATK +2');
     const b = storyItem(h, 'Steel Axe', 1, 'an axe, ATK +3');
     assert.equal(h.command('item.equip', { stack: stackOf(h, a) }).ok, true);
     const r = h.command('item.equip', { stack: stackOf(h, b) });
     assert.equal(r.ok, true, r.message);
-    assert.deepEqual(sent(h, 'item.equip', 'inventory.unequip').map(keys), [['stack']]);
-    const equips = sent(h, 'item.equip', 'inventory.equip');
-    assert.deepEqual(equips.map(keys), [['slot', 'stack'], ['slot', 'stack']]);
-    assert.deepEqual(equips.map(p => p.slot), ['weapon', 'weapon']);
+    assert.equal(sent(h, 'item.equip', 'inventory.unequip').length, 0, 'no separate take-off: the plan lists what comes off');
+    assert.equal(sent(h, 'item.equip', 'inventory.equip').length, 0, 'never the unplanned direct route');
+    const equips = sent(h, 'item.equip', 'inventory.equipOn');
+    assert.deepEqual(equips.map(keys), [['actor', 'stack'], ['actor', 'stack']], 'one per item.equip');
+    assert.deepEqual(equips.map(p => p.actor), [pc, pc]);
     const worn = h.query('inventory.items').filter(row => row.equipped);
     assert.deepEqual(worn.map(row => row.def), [b], 'only the axe is wielded');
     assert.equal(r.receipt.data.actor, pc);
+    assert.equal(r.receipt.data.slot, 'weapon');
 });
 
-each('item.equip of one accessory → inventory.equip { slot: accessory-1 } (its own key per allowed copy)', () => {
-    const { h } = withHero();
-    const ring = storyItem(h, 'Silver Ring', 1, 'a ring of LUK +2');
+each('item.equip of one accessory → inventory.equipOn; it goes in the slot its def names (accessory-1)', equipsOnInt, () => {
+    const { h, pc } = withHero();
+    const ring = storyItem(h, 'Silver Ring', 1, 'a ring of LUK +2, slot: accessory-1');
     const r = h.command('item.equip', { stack: stackOf(h, ring) });
     assert.equal(r.ok, true, r.message);
-    assert.deepEqual(sent(h, 'item.equip', 'inventory.equip'), [{ stack: stackOf(h, ring), slot: 'accessory-1' }]);
-    assert.equal(r.receipt.data.slot, 'accessory');
+    assert.deepEqual(sent(h, 'item.equip', 'inventory.equipOn'), [{ stack: stackOf(h, ring), actor: pc }]);
+    assert.equal(r.receipt.data.slot, 'accessory-1');
     assert.equal(r.receipt.data.key, 'accessory-1');
 });
 
-each('item.equip: a second accessory (rules allow 2) is worn beside the first, not in its place; a third is refused', () => {
+each('item.equip: a second accessory for the other slot is worn beside the first; one for the same slot replaces it', equipsOnInt, () => {
     const { h } = withHero();
-    const silver = storyItem(h, 'Silver Ring', 1, 'a ring of LUK +2');
-    const gold = storyItem(h, 'Gold Ring', 1, 'a ring of DEX +2');
-    const jade = storyItem(h, 'Jade Ring', 1, 'a ring of INT +2');
+    const silver = storyItem(h, 'Silver Ring', 1, 'a ring of LUK +2, slot: accessory-1');
+    const gold = storyItem(h, 'Gold Ring', 1, 'a ring of DEX +2, slot: accessory-2');
+    const jade = storyItem(h, 'Jade Ring', 1, 'a ring of INT +2, slot: accessory-1');
     assert.equal(h.command('item.equip', { stack: stackOf(h, silver) }).ok, true);
     const r = h.command('item.equip', { stack: stackOf(h, gold) });
     assert.equal(r.ok, true, r.message);
@@ -99,14 +101,13 @@ each('item.equip: a second accessory (rules allow 2) is worn beside the first, n
     assert.deepEqual(worn.map(row => [row.def, row.equipped]).sort(), [[gold, 'accessory-2'], [silver, 'accessory-1']].sort());
     assert.equal(h.query('items.gear', {}).counted.length, 2, 'both count');
     const third = h.command('item.equip', { stack: stackOf(h, jade) });
-    assert.equal(third.code, 'REFUSED');
-    // Taking the first off frees its key for the next.
-    assert.equal(h.command('item.unequip', { stack: stackOf(h, silver) }).ok, true);
-    assert.equal(h.command('item.equip', { stack: stackOf(h, jade) }).ok, true);
+    assert.equal(third.ok, true, third.message);
+    assert.deepEqual(third.receipt.data.removed, [stackOf(h, silver)], 'the silver ring came off for the jade ring');
     assert.equal(h.query('inventory.items').find(row => row.def === jade).equipped, 'accessory-1');
+    assert.equal(h.query('inventory.items').find(row => row.def === silver).equipped, null);
 });
 
-each('item.equip: a weapon swapped says what came off', () => {
+each('item.equip: a weapon swapped says what came off', equipsOnInt, () => {
     const { h } = withHero();
     const a = storyItem(h, 'Iron Sword', 1, 'a plain sword, ATK +2');
     const b = storyItem(h, 'Steel Axe', 1, 'an axe, ATK +3');
@@ -214,7 +215,7 @@ each('combat.act → inventory.consume { stack, qty }: a draught drunk in the fi
     assert.equal(stacksOf(h, pot).reduce((sum, row) => sum + row.qty, 0), 1 + dropped);
 });
 
-each('combat.start reads items.gear({ actor }) → { counted: [{ stack, name, slot, rarity, stats }] }: the capped numbers', () => {
+each('combat.start reads items.gear({ actor }) → { counted: [{ stack, name, slot, rarity, stats }] }: the capped numbers', equipsOnInt, () => {
     const { h, pc } = withHero();
     const sword = storyItem(h, 'Runed Sword', 1, 'ATK +9');
     assert.equal(h.command('item.equip', { stack: stackOf(h, sword) }).ok, true);
@@ -300,11 +301,10 @@ each('craft.commission → inventory.consume per material and wallet.pay { owner
 // ---------- another module → party ----------
 
 each('Story Director → party.grantXp { quest, difficulty }: given once per quest (claim xp:quest:<id>)', () => {
-    const { h, pc } = withHero();
-    h.registry.register({
-        id: 'story-director',
+    const { h, pc } = withHero({ modules: [{
+        id: 'story-director', version: '2.0.0-beta.2',
         commands: { 'quest.finishQa': (ctx, payload) => { ctx.call('party.grantXp', { quest: payload.quest, difficulty: 'hard' }); return { summary: 'done' }; } },
-    });
+    }] });
     // As a system command: the sb bus's shim gives a caller only to RPG Battle's own handlers, and
     // party.grantXp refuses a click with no calling module (B-b3-10).
     const first = h.command('quest.finishQa', { quest: 'q_ab12cd34' }, { cause: 'system' });

@@ -10,6 +10,7 @@ import { MODULE_ID, createModule } from '../../../src/v2/module.js';
 import { CREATE_SCREEN_ID } from '../../../src/v2/creation/index.js';
 import { START_CARD_ID } from '../../../src/v2/creation/start-card.js';
 import { installDom } from '../screens/helpers/dom.js';
+import { withDirector } from '../integration/helpers/peer.js';
 
 const CARD = `${MODULE_ID}/${START_CARD_ID}`;
 
@@ -30,7 +31,7 @@ async function greetingChat({ earlier = false } = {}) {
     st.notices = [];
     let ui = null;
     const module = createModule({ settings: () => ({}) });
-    const runtime = createRuntime({ ctx: st.ctx, modules: [module], onRegister: () => ui?.syncScreens(), notify: (reason, moduleId) => st.notices.push({ reason, moduleId }) });
+    const runtime = createRuntime({ ctx: st.ctx, modules: withDirector([module]), onRegister: () => ui?.syncScreens(), notify: (reason, moduleId) => st.notices.push({ reason, moduleId }) });
     ui = mountUi({ runtime, ctx: st.ctx, doc });
     runtime.turn.install({ globalName: null });
     st.interceptor = runtime.turn.interceptor;

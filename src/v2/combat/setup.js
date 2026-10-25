@@ -21,6 +21,7 @@ import { fightRules, foeId } from './stored.js';
 import { fightSkills, pinnedOf, restoreStrengths } from '../fight/index.js';
 import { powerScale } from './power.js';
 import { nounNames } from './quest.js';
+import { activeFighters } from '../death/fight.js';
 
 // The combat settings and their bounds (v1's Combat fold, ui/settings.js COMBAT_LIMITS).
 export const COMBAT_DEFAULTS = Object.freeze({ turnOrder: 'timeline', speedOffset: 10, hitBase: 75, hitPerPoint: 3, fieldPerMember: 4, fieldMax: 9 });
@@ -160,7 +161,7 @@ const pool = (value, computed) => {
  */
 export function partyCombatants(ctx, { rules = DEFAULT_RULES } = {}) {
     const listed = tryQuery(ctx, 'party.actors', undefined, []);
-    const actors = (Array.isArray(listed) ? listed : Object.values(listed ?? {})).filter(actor => actor && typeof actor.id === 'string');
+    const actors = activeFighters(ctx, (Array.isArray(listed) ? listed : Object.values(listed ?? {})).filter(actor => actor && typeof actor.id === 'string'));
     actors.sort((a, b) => (a.kind === 'pc' ? 0 : 1) - (b.kind === 'pc' ? 0 : 1));
     const party = tryRead(ctx, 'party');
     const library = [...DEFAULT_SKILLS, ...Object.values(party?.custom ?? {})];

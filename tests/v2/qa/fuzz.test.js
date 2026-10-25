@@ -20,7 +20,7 @@ import { sessionOf } from '../../../src/v2/combat/stored.js';
 const SEQUENCES = 500;
 const STEPS = 30;
 
-each(`fuzz: ${SEQUENCES} seeded sequences × ${STEPS} steps keep every invariant`, () => {
+each(`fuzz: ${SEQUENCES} seeded sequences × ${STEPS} steps keep every invariant`, host => {
     const problems = [];
     const tally = { committed: 0, rejected: 0, byType: {} };
     const finals = [];
@@ -49,7 +49,8 @@ each(`fuzz: ${SEQUENCES} seeded sequences × ${STEPS} steps keep every invariant
         finals.push(hash(h.state()));
     }
     // Enough of each kind of step actually committed for the run to mean something.
-    for (const type of ['item.use', 'item.equip', 'item.give', 'trade.sell', 'trade.buy', 'combat.start', 'combat.act', 'combat.end', 'capture.encounter', 'capture.item', 'capture.coin', 'party.rest']) {
+    // item.equip needs the E4 host (inventory.equipOn with rules.equipPlan); the alpha.2 host has neither, so it cannot commit there.
+    for (const type of ['item.use', ...(host === 'sb' ? [] : ['item.equip']), 'item.give', 'trade.sell', 'trade.buy', 'combat.start', 'combat.act', 'combat.end', 'capture.encounter', 'capture.item', 'capture.coin', 'party.rest']) {
         assert.ok((tally.byType[type]?.ok ?? 0) > 5, `${type} committed only ${tally.byType[type]?.ok ?? 0} times: ${JSON.stringify(tally.byType[type])}`);
     }
     assert.ok(tally.rejected > 1000, `invalid payloads were tried (${tally.rejected} rejections)`);

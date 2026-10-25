@@ -5,12 +5,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { offerAndStart, playOut, seeded, started } from './helpers.js';
+import { DIRECTOR_CLOCK } from '../integration/helpers/peer.js';
 
 const foes = host => host.q('combat.session').combatants.filter(c => c.side === 'enemy');
 
 test('B4-5: creatures named in non-Latin scripts each keep their own bestiary entry and numbers', async () => {
     await seeded(81, async () => {
-        const host = await started();
+        const host = await started({ modules: [DIRECTOR_CLOCK] });
         try {
             const fight = async name => {
                 const { start } = await offerAndStart(host, `! encounter 1 ${name} | tier: even`);

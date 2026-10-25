@@ -9,14 +9,20 @@
 //   ! attempt <actor> | skill: s00 | form: s00-base | key: k1 [| kind: combat|narrative|training] [| minute: n]
 //   ~ time <minute>                              the clock
 import { createHost } from '../../../vendor/story-block/testkit/index.js';
+import { withDirector } from '../../integration/helpers/peer.js';
 import { pinOf, pinRules, registerPackDefs, rulesParts } from '../../../../src/v2/rules/index.js';
 import { recordAttempt, recordBasicClass, recordCombatUses } from '../../../../src/v2/progress/index.js';
+import { resultBytes, batchId } from '../../../../src/v2/death/plan.js';
+import { indexOfCtx } from '../../../../src/v2/rules/graph.js';
+import { epochOf } from '../../../../src/v2/rules/ids.js';
+import { seal } from '../../../../src/v2/fight/batch.js';
+import { storeBatch } from '../../../../src/v2/fight/index.js';
 
 // The module is built from `rulesParts` alone (every part of rules v2, as module.js will register them), plus the test-only pieces below.
 const PARTS_ = rulesParts.map(([, part]) => part);
 const merge = key => Object.assign({}, ...PARTS_.map(part => part[key] ?? {}));
 const rulesPart = { queries: merge('queries') };
-const progressPart = { kinds: merge('kinds'), hooks: merge('hooks') };
+const progressPart = { kinds: merge('kinds'), hooks: merge('hooks'), replayQueries: [...new Set(PARTS_.flatMap(part => part.replayQueries ?? []))] };
 import { levelFromEarned } from '../../../../src/v2/progress/level.js';
 import { storedPool } from '../../../../src/v2/party/pools.js';
 import { ACTOR, FRIEND, fixturePin, ref } from './fixture.js';
@@ -47,6 +53,7 @@ export const AREA_TIERS = {};
 export const SD = {
     ...CLOCK,
     id: 'story-director',
+    version: '2.0.0-beta.2',
     domains: { director: { initial: () => ({ time: { minutes: null }, here: null, advanced: {} }), validate: () => [], counters: ['time/minutes'] } },
     queries: {
         ...CLOCK.queries,
@@ -147,6 +154,16 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
             // A sealed result and a condition on a member, as an earlier fight would have left them.
             'test.carried'(ctx, { actor, list }) { ctx.draft('progress').carried[actor] = list; return { summary: 'Carried.', narrate: false }; },
             'test.condition'(ctx, { actor, kind, rounds, at }) { ctx.draft('party').actors[actor].conditions.push({ kind, stacks: rounds, rounds, at }); return { summary: 'Condition.', narrate: false }; },
+            // A sealed death result, as B6 will leave one: the lethal events it names are { id, actor }.
+            'test.death'(ctx, { id, events }) {
+                const source = { ...ctx.source }, epoch = epochOf(ctx), batch = { id: batchId(source, epoch), source };
+                const rows = events.map(e => ({ ...e, batch: batch.id, source, npcId: null, cause: 'narrative', intervention: null,
+                    evidence: [ctx.proof({ kind: 'story', payload: { actor: e.actor, cause: 'narrative', lethal: true } })].map(p => ({ id: p.id, payloadHash: p.payloadHash })) })).sort((a, b) => a.actor.localeCompare(b.actor));
+                const actors = rows.map(e => ({ actor: e.actor, kind: ctx.query('party.actor', { id: e.actor }).kind }));
+                const checks = Object.fromEntries(rows.map(e => [e.id, { die: 20, mod: 0, dc: 15, total: 20 }]));
+                storeBatch(ctx, id, seal(resultBytes({ ix: indexOfCtx(ctx), epoch }, batch, { events: rows, actors }, { minute: ctx.time(), checks })));
+                return { summary: 'Sealed.', narrate: false };
+            },
             'test.settleUnits'(ctx, payload) { return ctx.call('summon.settle', payload); },
             'test.begin'(ctx, payload) { return ctx.call('summon.begin', payload); },
             // A paid use some other step of this module gave proof of.
@@ -219,10 +236,10 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
 
 /** A host with the stand-ins and the module; `ui(type, payload)` is the reader's click. */
 export async function world(t, { given, modules = [] } = {}) {
-    // The party stand-in's queries live in the rules module: Story Block answers a replay guard only its owner's own listed queries (REPLAYQ), as the real module's.
+    // The party stand-in's queries live in the rules module: Story Block answers a replay guard only its owner's own listed queries, as the real module's.
     const rules = rulesModule({ given });
     rules.queries = { ...rules.queries, ...PARTY.queries };
-    rules.replayQueries = [...(rules.replayQueries ?? []), 'party.actor'];
+    rules.replayQueries = progressPart.replayQueries.filter(name => Object.hasOwn(rules.queries, name));
     const host = await createHost({ modules: [CLOCK, { ...PARTY, queries: {} }, rules, ...modules], core: false });
     t.after(() => host.close());
     t.mock.method(console, 'warn', () => {});
@@ -307,11 +324,14 @@ export function mergeInto(base, extra) {
 
 export async function realWorld(t, { companions = [], modules = [], pin = true, character = true, settings = {}, reader = null, given = undefined, sd = false } = {}) {
     const { createModule, MODULE_ID } = await import('../../../../src/v2/module.js');
+    const { PLANNER_PART } = await import('../../items/helpers/equip-parts.js');
+    // One module, as the real one is: its replay-safe queries are the real module.js's own list (the parts', party.actor among them); nothing is added here.
     const extra = rulesModule({ given });
     let sdk = null;
-    const base = createModule({ settings: () => ({ ...(sdk?.settings(MODULE_ID) ?? {}), ...settings }) });
+    // The equipment planner is what a pinned chat adds beside the rules parts (module.js leaves it out of the plain one); the merge below stands for those parts.
+    const base = createModule({ settings: () => ({ ...(sdk?.settings(MODULE_ID) ?? {}), ...settings }), parts: [PLANNER_PART] });
     const merged = mergeInto(base, extra);
-    const host = await createHost({ modules: [sd === true ? SD : sd || CLOCK, merged, CALLER, ...modules], ...(reader ? { settings: { modules: { [MODULE_ID]: reader } } } : {}) });
+    const host = await createHost({ modules: withDirector([sd === true ? SD : sd || CLOCK, merged, CALLER, ...modules]), ...(reader ? { settings: { modules: { [MODULE_ID]: reader } } } : {}) });
     sdk = host.sdk;
     const saved = globalThis.StoryBlock;
     globalThis.StoryBlock = { apiVersion: 2, ready: Promise.resolve(sdk), sdk };

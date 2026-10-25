@@ -26,6 +26,7 @@ import { playStored, rebuild } from '../combat/view.js';
 import { fightRules, unpackSetup } from '../combat/stored.js';
 import { replay } from '../../combat.js';
 import { DEFAULT_RULES } from '../../rules.js';
+import { guardFightEnd } from '../death/guard.js';
 
 export { actionProblems, isActionId } from './records.js';
 export { resolveBatch } from './batch.js';
@@ -111,18 +112,18 @@ export function pinnedSetup(ctx, setup) {
  */
 export function packFoes(ctx, ix, setup) {
     const area = areaPolicyNow((name, args) => ctx.query(name, args));
-    if (area.tier === null) return setup;
     const rules = fightRules(setup);
     const swap = enemy => {
         // An offer's foe that names a ref is that foe (an unknown ref is none); one that names only a name is the pack's one foe of that name.
         const foe = typeof enemy.ref === 'string' ? ix.foe(enemy.ref) : ix.foeNamed(enemy.questName ?? enemy.name);
+        enemy = { ...enemy, foeRef: foe?.id ?? null };
         const ordinal = Number(String(enemy.id).slice(3));
-        if (!foe || !Number.isInteger(ordinal)) return enemy;
+        if (!foe || !Number.isInteger(ordinal) || area.tier === null) return enemy;
         // A fight always starts: whatever the adapter cannot do, the foe stays what the v1 projection made of it.
         try {
             const made = foeToEngine(foe, { rules, forms: ix, items: ref => ix.itemDef(ref), area, ordinal });
             if (!made.ok) return enemy;
-            return { ...made.enemy, id: enemy.id, name: enemy.name, ...(enemy.questName ? { questName: enemy.questName } : {}), ...(enemy.wave ? { wave: enemy.wave } : {}), ...(enemy.threat ? { threat: enemy.threat } : {}) };
+            return { ...made.enemy, foeRef: foe.id, id: enemy.id, name: enemy.name, ...(enemy.questName ? { questName: enemy.questName } : {}), ...(enemy.wave ? { wave: enemy.wave } : {}), ...(enemy.threat ? { threat: enemy.threat } : {}) };
         } catch {
             return enemy;
         }
@@ -206,7 +207,8 @@ export function settleEnd(ctx, { session, fight, result }) {
     const asked = buildEnd({ ix, combat: ctx.read('combat'), query: (name, args) => ctx.query(name, args) }, { session: session.id });
     if (!asked.ok) ctx.fail('REFUSED', asked.why);
     // The area is read now and kept with the block; a replay reads it from the record (Story Block answers a guard no query of Story Director's).
-    attachGuard(ctx, ix, 'combat.end', { session: session.id }, asked.inputs, { area: asked.inputs.area });
+    if (!guardFightEnd(ctx, ix, { session: session.id }, { area: asked.inputs.area }))
+        attachGuard(ctx, ix, 'combat.end', { session: session.id }, asked.inputs, { area: asked.inputs.area });
     // The fight's units lose their combat sheets; one that went down or ran out ends, one still standing stays as a narrative presence.
     const units = fight.combatants.filter(c => c.summoned).map(c => ({ actor: c.id, reason: c.gone === 'expired' ? 'expired' : c.gone === 'down' || c.hp.cur <= 0 ? 'downed' : null }));
     if (units.length) ctx.call('summon.settle', { fight: session.id, units });
