@@ -24,7 +24,7 @@ import { applyFold } from './fold.js';
 import { indexOf } from '../rules/graph.js';
 import { pinOf } from '../rules/pin.js';
 import { fightOn } from '../party/commands.js';
-import { rollEvent } from './session-step.js';
+import { placeOf, purseOf, rollEvent } from './session-step.js';
 import { epochOf, isActorId, isDefId, isHash, isObject, isRecordId } from '../rules/ids.js';
 
 const CLASS_FIELDS = ['actor', 'milestone', 'class', 'expectedClass', 'rulesHash'];
@@ -138,6 +138,9 @@ function settle(ctx, payload = {}) {
     const source = ctx.source ?? ctx.fail('FAILED', 'There is no reply yet to hold the settlement.');
     const session = payload.session;
     const event = session ? rollEvent(ctx, ix, env.training?.sessions?.[session] ?? {}) : null;
+    // A training session depends on where the party is and what it holds: read now, kept with the block, and read back from it on replay.
+    const seen = session ? { place: placeOf(env.query), coin: purseOf(env.query) } : null;
+    if (seen) env.recorded = seen;
     const answer = assess('rules.settle', env, session ? { session } : {}, { event, source, hash: value => ctx.hash(value) });
     if (!answer.ok) ctx.fail(answer.code, answer.why);
     const progress = ctx.draft('progress');
@@ -165,7 +168,7 @@ function settle(ctx, payload = {}) {
         if (award > 0) credited.push(id);
     }
     if (answer.fold) applyFold(progress, answer.fold);
-    guard(ctx, ix, 'rules.settle', session ? { session } : {}, answer.inputs, session ? { event } : { plan: answer.plan });
+    guard(ctx, ix, 'rules.settle', session ? { session } : {}, answer.inputs, session ? { event, ...seen } : { plan: answer.plan });
     return {
         summary: session ? (started.length ? `The training ${completed.length ? 'is done' : 'was interrupted'}.` : 'The training could not start.') : (credited.length ? `${credited.length} use${credited.length === 1 ? '' : 's'} credited.` : 'No use earned a credit.'),
         narrate: false,

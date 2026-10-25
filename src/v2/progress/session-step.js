@@ -38,7 +38,8 @@ export function placeOf(query) {
 }
 
 /**
- * What settling session `id` would do on this state. `env`: { ix, progress, training, query }; `event`: { die, template } as
+ * What settling session `id` would do on this state. `env`: { ix, progress, training, query }; `env.recorded` { place, coin } is what the block recorded when it was planned (a replay reads these from the record, never from
+ * Story Director or the purse); `event`: { die, template } as
  * rolled (or recorded); `source`: the Source the step stands on; `hash`: the contract's Hash.
  * → { ok: false, code, why } (cannot be settled now) | { ok: true, outcome: 'refused', patch, plan, inputs }
  *   | { ok: true, outcome: 'ran', patch, attempts: [{ id, record }], plan, start, end, fee, inputs }.
@@ -54,10 +55,10 @@ export function planSession(env, id, event, source, hash) {
     if (!view || view.form !== session.form) return refuse('The character does not hold that skill in that form now.');
     const start = readClock(query);
     if (start === null) return { ok: false, code: 'CLOCK_UNSET', why: 'Training takes story time, and the clock is not set.' };
-    const place = placeOf(query);
+    const place = env.recorded && Object.hasOwn(env.recorded, 'place') ? env.recorded.place : placeOf(query);
     if (place === null) return { ok: false, code: 'DEPENDENCY_UNAVAILABLE', why: 'Where the party is cannot be told.' };
     if (place !== trainer.place) return refuse(`${trainer.name} is not here.`);
-    const coin = purseOf(query);
+    const coin = env.recorded && Object.hasOwn(env.recorded, 'coin') ? env.recorded.coin : purseOf(query);
     if (coin === null) return { ok: false, code: 'DEPENDENCY_UNAVAILABLE', why: 'The party\'s purse cannot be read.' };
     if (coin < trainer.fee) return refuse(`The party cannot pay ${trainer.fee}.`);
     const window = trainingWindow(start, ix.constants);

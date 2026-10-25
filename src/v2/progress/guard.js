@@ -52,7 +52,10 @@ export function attachGuard(ctx, ix, kind, payload, inputs, recorded) {
  * hooks.replayGuard({ state, query, hash }, { guard, source, … }) → { ok } | { ok: false, reason } | undefined.
  * undefined for a guard that is not this file's (another part may answer); the host fails closed on no answer.
  */
-export function replayGuard({ state, query, hash }, info) {
+export function replayGuard({ state, query: asked, hash }, info) {
+    // Story Block answers a guard only the queries its owner lists as replay-safe (REPLAY.md): the story clock is read as data from the state
+    // (Story Director's `director.time`), never asked.
+    const query = (name, args) => (name === 'director.time' ? (state?.domains?.director?.time ?? null) : asked(name, args));
     const guard = info?.guard;
     const kind = guard?.predicate?.kind;
     if (!GUARD_KINDS.includes(kind)) return undefined;
@@ -65,7 +68,7 @@ export function replayGuard({ state, query, hash }, info) {
     if (!progress || typeof progress !== 'object') return off('');
     const payload = guard.predicate.payload;
     if (payload === null || typeof payload !== 'object') return off('');
-    const answer = assess(kind, { ix, progress, training: state?.domains?.training, rules: state?.domains?.rules, query }, payload, { source: info.source, hash, event: info.recorded?.event, recorded: info.recorded });
+    const answer = assess(kind, { ix, progress, training: state?.domains?.training, rules: state?.domains?.rules, query, recorded: info.recorded ?? null }, payload, { source: info.source, hash, event: info.recorded?.event, recorded: info.recorded });
     if (!answer.ok) return off(answer.why);
     const expected = buildGuard({ hash, owner: guard.owner, epoch: guard.epoch, source: info.source, rulesHash: ix.rulesHash, kind, payload, inputs: answer.inputs });
     return expected.inputHash === guard.inputHash ? { ok: true } : off('');

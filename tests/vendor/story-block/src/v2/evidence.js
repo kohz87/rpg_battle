@@ -15,7 +15,7 @@
 
 import { isId } from './check.js';
 import { escapeKey, parsePath } from './ops.js';
-import { canonicalJson, deriveId, hashJson, isRecordId, sha256, sourceProblem, spanProblem } from './replay.js';
+import { canonicalJson, hashJson, idFromHash, isRecordId, sha256, sourceProblem, spanProblem } from './replay.js';
 
 const isObject = value => !!value && typeof value === 'object' && !Array.isArray(value);
 const utf8 = new TextEncoder();
@@ -255,13 +255,26 @@ export function pinOps(state, ops) {
     return out;
 }
 
+/**
+ * True when `path` reaches `branch` (a list of keys): it names the branch, something below it, or something that holds it, any
+ * ancestor up to the document root. A path that cannot be read counts, since nothing can say it does not; no path (`undefined`) does not.
+ * The rule for every record only some blocks may write (the proof pins here, the host's savepoints in the store).
+ */
+export function reachesBranch(path, branch) {
+    if (path === undefined) return false;
+    let keys;
+    try { keys = parsePath(path); } catch { return true; }
+    for (let at = 0; at < Math.min(keys.length, branch.length); at++) if (keys[at] !== branch[at]) return false;
+    return true;
+}
+
+const PROOF_BRANCH = ['meta', 'proofs'];
+
 // The keys of an op's path (or `from`) when it names the state's proof record or something that holds it: the document
 // root, `/meta`, `/meta/proofs` or anything under it. An unreadable path counts, since nothing can say it does not.
 function touchedKeys(path) {
-    if (path === undefined) return null;
-    let keys;
-    try { keys = parsePath(path); } catch { return []; }
-    return keys.length === 0 || (keys[0] === 'meta' && (keys.length === 1 || keys[1] === 'proofs')) ? keys : null;
+    if (!reachesBranch(path, PROOF_BRANCH)) return null;
+    try { return parsePath(path); } catch { return []; }
 }
 
 /** True when `op` changes the record of proof pins, or something that holds it (the root, /meta, /meta/proofs, below it): any op, add, replace, remove, move or copy, whole or empty. */
@@ -270,16 +283,39 @@ export const touchesProof = op => !isObject(op) || touchedKeys(op.path) !== null
 /**
  * '' when the only changes `ops` make to the record of proof pins are the pins of `owned` (a Set of proof ids): a pin
  * added (or replaced) under its own id, or the whole record written with just those. Anything else that touches it
- * (an erase, a rewrite of /meta or of the root, a pin that is not its own, a move or a copy) is why not.
+ * (an erase, a rewrite of /meta or of the root, a pin that is not its own, a move or a copy) is why not. `erases`: the
+ * host's restore may also erase single pins.
  */
-export function proofWriteProblem(ops, owned) {
+export function proofWriteProblem(ops, owned, { erases = false } = {}) {
     for (const op of Array.isArray(ops) ? ops : []) {
         if (!touchesProof(op)) continue;
+        if (!isObject(op)) return 'a change of the block is not a change at all';
         const keys = touchedKeys(op.path);
         const writes = isObject(op) && (op.op === 'add' || op.op === 'replace') && op.from === undefined && keys !== null;
         if (writes && keys.length === 3 && keys[1] === 'proofs' && owned.has(keys[2]) && typeof op.value === 'string') continue;
+        // The host's restore (docs/v2/TIMELINE.md) takes back the pins the faded story gave: an erase of one pin, nothing more.
+        if (erases && isObject(op) && op.op === 'remove' && op.from === undefined && keys !== null && keys.length === 3 && keys[1] === 'proofs') continue;
         if (writes && keys.length === 2 && keys[1] === 'proofs' && isObject(op.value) && Object.keys(op.value).length > 0 && Object.entries(op.value).every(([id, pin]) => owned.has(id) && typeof pin === 'string')) continue;
         return `it changes the record of proof pins in a way a block cannot (${isObject(op) ? `${op.op} ${op.path ?? ''}` : 'an unreadable change'})`;
+    }
+    return '';
+}
+
+const KNOWN_OPS = ['add', 'replace', 'remove'];
+
+/**
+ * '' when every change of `ops` is a change the state knows: an object with add, replace or remove, a path that reads, and
+ * a value where it adds or replaces. A block with a change that is not one is not applied and gives no proof.
+ */
+export function opShapeProblem(ops) {
+    if (!Array.isArray(ops)) return 'its changes are not a list';
+    for (const op of ops) {
+        if (!isObject(op) || !KNOWN_OPS.includes(op.op) || typeof op.path !== 'string') return 'a change of the block is not an add, replace or remove with a path';
+        // (a plain path with no escapes reads as it is)
+        if (op.path !== '' && (op.path[0] !== '/' || op.path.includes('~'))) {
+            try { parsePath(op.path); } catch { return 'a change of the block has a path that cannot be read'; }
+        }
+        if (op.op !== 'remove' && !Object.hasOwn(op, 'value')) return 'a change of the block adds or replaces with no value';
     }
     return '';
 }
@@ -292,8 +328,12 @@ export function evidenceProblem(span, ops) {
     const list = Array.isArray(span?.evidence) ? span.evidence : [];
     const pins = proofPins(ops);
     const ids = new Set();
-    const writes = proofWriteProblem(ops, new Set(list.map(proof => proof?.id)));
+    const writes = proofWriteProblem(ops, new Set(list.map(proof => proof?.id)), { erases: span?.module === 'story-block' && span?.operation?.type === 'savepoint.restore' });
     if (writes) return writes;
+    const shape = opShapeProblem(ops);
+    if (shape) return shape;
+    // A block with proof and no occurrence is from a build before proof was released: not supported, so it fails closed.
+    if (list.length && occurrenceOf(span) === null) return 'its proof has no occurrence (a block written before proof was released is not supported)';
     for (const proof of list) {
         const why = proofProblem(proof);
         if (why) return `a proof of the block is not whole: ${why}`;
@@ -454,6 +494,143 @@ export function createEvidenceQuery({ stored = () => [] } = {}) {
     };
 }
 
+/**
+ * What a root is, apart from where it stands in the reply: its command and, for a story line, the line as written (the same
+ * thing store.js calls a line's key). Two blocks of one reply that did the same thing are told apart by their rank among them.
+ */
+export function operationKey(type, payload) {
+    return hashJson({ type, line: typeof payload?.raw === 'string' ? payload.raw : payload ?? {} });
+}
+
+// ---------- occurrence ----------
+//
+// Two blocks of one reply that did exactly the same (two lines with the same text, two steps with the same command and payload) are told
+// apart by their occurrence: a whole number given to a block once, when it is first stamped, kept in its span (`span.occurrence`) and
+// never worked out again. A step planned again, a reconcile, a Re-read of text that did not change and a rebuild all use the one the
+// block has, so an earlier block that goes cannot move the later ones onto its identity. A new block takes the next number nobody
+// has used in that reply (`record.source.taken`, kept past the blocks that go, and the numbers of the blocks that stand). A block that
+// gives proof and has no number was written by a build before proof was released: it is not supported (evidenceProblem) and fails closed.
+
+const whole = value => (Number.isInteger(value) && value >= 0 ? value : null);
+
+/** The key a span's operation has (operationKey), or null. */
+export function spanOperationKey(span) {
+    try { return isObject(span?.operation) ? operationKey(span.operation.type, span.operation.payload) : null; } catch { return null; }
+}
+
+/** The occurrence a block was stamped with, or null (a block from before there was one). */
+export const occurrenceOf = span => whole(span?.occurrence);
+
+const takenKey = key => key.slice(0, 16);
+
+/** `entry` (a record's source) with the occurrences of `spans` taken: undefined when none ever was (a store with no guarded block stays as it was). */
+export function takenAfter(entry, spans) {
+    const out = isObject(entry?.taken) ? { ...entry.taken } : {};
+    for (const span of spans) {
+        const at = occurrenceOf(span);
+        const key = at === null ? null : spanOperationKey(span);
+        if (key) out[takenKey(key)] = Math.max(whole(out[takenKey(key)]) ?? 0, at + 1);
+    }
+    return Object.keys(out).length ? out : undefined;
+}
+
+/** The next occurrence nobody has used in `record` (the reply) for the operation `key`. */
+export function nextOccurrence(record, key) {
+    let next = whole(record?.source?.taken?.[takenKey(key)]) ?? 0;
+    for (const span of Array.isArray(record?.spans) ? record.spans : []) {
+        if (!isObject(span) || spanOperationKey(span) !== key) continue;
+        const at = occurrenceOf(span);
+        if (at !== null) next = Math.max(next, at + 1);
+    }
+    return next;
+}
+
+/**
+ * The one place a new occurrence is allocated. A plan (a Re-read, a reconcile of a record) works on one allocator per record: it starts from
+ * what the record holds (`nextOccurrence`: `record.source.taken` and the numbers of the blocks that stand, `also(key)`: numbers the plan has
+ * given in blocks not stored yet) and moves on after each number it gives, so two blocks of one plan never take the same one. Nothing is
+ * kept in the record until the plan is stored (the span's `occurrence` and `takenAfter` do that).
+ * → { peek(key), note(key, value), take(key) }: the next number for an operation, a number used, and both.
+ */
+export function allocator(record, also = () => 0) {
+    const given = new Map();
+    const peek = key => Math.max(nextOccurrence(record, key), also(key), given.get(key) ?? 0);
+    const note = (key, value) => given.set(key, Math.max(given.get(key) ?? 0, value + 1));
+    return { peek, note, take(key) { const value = peek(key); note(key, value); return value; } };
+}
+
+// The supported guarded spans a Re-read gives again, in record order. Old proofless spans have an id but no occurrence.
+function regeneratedSpans(record) {
+    const spans = Array.isArray(record?.spans) ? record.spans : [];
+    const receipts = Array.isArray(record?.receipts) ? record.receipts : [];
+    const out = new Map();
+    let at = 0;
+    for (const span of spans) {
+        const ops = Array.isArray(record?.ops) && Number.isInteger(span?.n) ? record.ops.slice(at, at + span.n) : [];
+        at += Number.isInteger(span?.n) ? span.n : 0;
+        if (!isObject(span) || typeof span.id !== 'string') continue;
+        const key = occurrenceOf(span) !== null || !span.evidence?.length ? spanOperationKey(span) : null;
+        if (!key) continue;
+        const rev = [...ops].reverse().find(op => op?.path === '/meta/rev' && Number.isInteger(op.value))?.value;
+        const step = !!span.replan && receipts.some(receipt => receipt?.rev === rev && receipt?.afterCapture === true);
+        if (span.story !== true && !step) continue;
+        (out.get(key) ?? out.set(key, []).get(key)).push(span);
+    }
+    return out;
+}
+
+/**
+ * The occurrences for the blocks a Re-read of `record` plans. For an operation whose blocks are as many as before, the k-th block that is
+ * given again takes the k-th number of the blocks of that operation it replaces (an unchanged Re-read gives every block its own). When
+ * the number of blocks of an operation goes up or down, which old block each new one stands for is not known, so none of that
+ * operation's old numbers is given again (`retire`, found with `ambiguous` after a first plan): every block of it takes a number
+ * nobody has used, every old proof id of it is retired and what was built on them is hidden. A block with none to take back also takes
+ * the next unused one. `peek(key)` → the number the next block of that operation would take; `commit(key, value)` once it was planned;
+ * `span(key)` → the stored identity to reuse (including old proofless spans without an occurrence);
+ * `ambiguous(planned)` → the operations (keys) whose block count differs from the one it replaces.
+ */
+export function reusePlan(record, retire = new Set()) {
+    const pool = regeneratedSpans(record);
+    const used = new Map();
+    const fresh = allocator(record);
+    const span = key => (retire.has(key) ? null : pool.get(key)?.[used.get(key) ?? 0] ?? null);
+    return {
+        span,
+        peek(key) {
+            return occurrenceOf(span(key)) ?? fresh.peek(key);
+        },
+        commit(key, value) {
+            used.set(key, (used.get(key) ?? 0) + 1);
+            if (whole(value) !== null) fresh.note(key, value);
+        },
+        ambiguous(planned) {
+            const counts = new Map();
+            for (const piece of planned) {
+                const block = piece?.block;
+                if (!isObject(block?.operation)) continue;
+                let key = null;
+                try { key = operationKey(block.operation.type, block.operation.payload); } catch { key = null; }
+                if (key) counts.set(key, (counts.get(key) ?? 0) + 1);
+            }
+            return [...counts].filter(([key, count]) => !retire.has(key) && pool.has(key) && pool.get(key).length !== count).map(([key]) => key);
+        },
+    };
+}
+
+/**
+ * The proof of the blocks of a record that a Re-read regenerates (its story lines and its planned steps), in record order. A
+ * block regenerated by a Re-read may hold these ids again (its own and nobody else's); an id any other block holds is not
+ * given to it (see submitProof).
+ */
+export function replacedProofs(record) {
+    const out = [];
+    for (const span of Array.isArray(record?.spans) ? record.spans : []) {
+        if (!isObject(span) || typeof span.id !== 'string' || !(span.story === true || span.replan)) continue;
+        for (const proof of Array.isArray(span.evidence) ? span.evidence : []) if (isObject(proof)) out.push(proof);
+    }
+    return out;
+}
+
 // ---------- ctx.proof ----------
 
 /** A new, empty set of what one root has given: by key and in order. */
@@ -463,12 +640,12 @@ export const newRoot = () => ({ byKey: new Map(), list: [] });
  * One `ctx.proof(spec)` (contract §6) for the module `who` in a command whose cause, chat, Source and state are
  * given (`state` is a function: the transaction's state as it is now, asked only when there are parents). The checks, in order: INVALID (the call's shape), REFUSED (owner or kind), INVALID (payload, parents),
  * REFUSED (reader intent the host did not see), CONFLICT (same key, other contents), NOT_FOUND (a parent), then
- * the stamped proof. `root` is the transaction's (newRoot), `stored()` the stored entries, `planned` the proofs a Re-read's earlier lines gave, `fail(code, message)`
+ * the stamped proof. `root` is the transaction's (newRoot), `stored()` the stored entries of the blocks that applied (`taken()`: of every block that could), `planned` the proofs a Re-read's earlier lines gave, `fail(code, message)`
  * throws the bus's error. `free` (a Set of proof ids): those of blocks the host is about to replace (a Re-read's
  * story lines and steps, a step planned again), so a line read again gets its own id back.
  * → { proof, pin, created }; `created: false` is an identical retry, which gives back the proof it made.
  */
-export function submitProof(spec, { who, cause, chat, source, state, stored, planned = [], root, fail, free = null }) {
+export function submitProof(spec, { who, cause, chat, source, origin = '', state, stored, taken: everyStored = null, planned = [], root, fail, replacing = [] }) {
     if (!isObject(spec) || Object.keys(spec).some(key => key !== 'kind' && key !== 'payload' && key !== 'parents')) {
         fail('INVALID', 'A proof is { kind, payload, parents? } and nothing else.');
     }
@@ -504,13 +681,16 @@ export function submitProof(spec, { who, cause, chat, source, state, stored, pla
         const missing = parents.find(id => !found.has(id));
         if (missing) fail('NOT_FOUND', `There is no visible proof ${missing} to be a parent.`);
     }
-    // Derived from the reply's evidence id and the key (so a new swipe has fresh ids, and a line read again has its
-    // own back), then salted past an id that another block holds: the second proof with the same key on a reply is
-    // the next occurrence. The ids of the blocks being replaced are not held.
-    const heldIds = indexOf(held).byId;
+    // The id is the block's own: derived from the reply's evidence id (so a new swipe has fresh ids), what the block is (`origin`:
+    // its command and line, and its rank among identical ones) and the proof's key. Two blocks differ in what they are, so they
+    // cannot give one id and nothing is matched or reserved; a block regenerated (a Re-read, a step planned again) works out the
+    // ids it had. An id another block holds (a file edited by hand) is refused; `replacing`: the proof of the blocks being replaced.
     const pendingIds = new Set(pending.map(entry => entry.proof.id));
-    const taken = { has: id => (heldIds.has(id) && !free?.has(id)) || pendingIds.has(id) };
-    const id = deriveId('pf', `${source.evidence}:${key}`, taken);
+    const id = idFromHash('pf', sha256(`pf:${source.evidence}:${origin}:${key}`));
+    const heldIds = indexOf(everyStored ? everyStored() ?? [] : held).byId;
+    if (pendingIds.has(id) || (heldIds.has(id) && !(replacing ?? []).some(old => old?.id === id))) {
+        fail('CONFLICT', `Proof ${id} belongs to another block already.`);
+    }
     const proof = Object.freeze({
         id, source: Object.freeze({ ...source }), owner, kind, payload: structuredClone(payload), payloadHash, parents: Object.freeze([...parents]),
     });
