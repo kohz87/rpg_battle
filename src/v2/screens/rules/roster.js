@@ -51,21 +51,22 @@ function wornTable(tools, actorId) {
     return table;
 }
 
-const stackName = (state, stackId) => {
-    const stack = state?.domains?.inventory?.stacks?.[stackId];
-    const def = stack ? state?.domains?.inventory?.defs?.[stack.def] : null;
-    return clip(def?.name ?? stackId, 80);
+const inventoryItems = tools => {
+    const found = ask(tools, 'inventory.items', {}, Array.isArray);
+    return found.status === ASK.OK ? found.value : [];
 };
+const stackName = (items, stackId) => clip(items.find(item => item.stack === stackId)?.name ?? stackId, 80);
 
 /**
  * The slot tiles of one member, in the shape the equipment widget draws: one per slot in order; a filled slot is the
  * stack the SheetView's gear names; an empty slot that something blocks says what blocks it.
  */
-export function slotTilesOf({ sheet, slots, worn, state, tools }) {
+export function slotTilesOf({ sheet, slots, worn, tools }) {
+    const items = inventoryItems(tools);
     return slots.map(slot => {
         const stackId = sheet.gear?.[slot.key] ?? null;
         if (!stackId) {
-            const note = slot.blockedBy ? `Blocked by ${stackName(state, slot.blockedBy)}` : '';
+            const note = slot.blockedBy ? `Blocked by ${stackName(items, slot.blockedBy)}` : '';
             return { key: slot.key, group: slot.key, label: slot.label, filled: false, empty: true, extra: false, stack: '', name: '', stats: '', why: '', cond: '', condTone: '', condBroken: false, meter: false, cur: 0, max: 0, note };
         }
         const entry = worn.get(stackId) ?? null;
@@ -74,7 +75,7 @@ export function slotTilesOf({ sheet, slots, worn, state, tools }) {
         const max = condition?.max ?? 0;
         return {
             key: slot.key, group: slot.key, label: slot.label, filled: true, empty: false, extra: false, stack: stackId,
-            name: clip(`${entry?.name ?? stackName(state, stackId)}${refine ? ` ${refine.label}` : ''}`, 80),
+            name: clip(`${entry?.name ?? stackName(items, stackId)}${refine ? ` ${refine.label}` : ''}`, 80),
             stats: clip(entry?.stats ?? '', 120), why: '', cond: condition ? condition.text : '', condTone: toneOfBand[condition?.band] ?? '',
             condBroken: condition?.band === 'broken', meter: max > 0, cur: condition?.cur ?? 0, max, note: '',
         };
@@ -86,40 +87,38 @@ export function slotTilesOf({ sheet, slots, worn, state, tools }) {
  * verdict (`ok` with the plan's slot and what it displaces, or the refusal's words) and, only when the default is legal,
  * the other slots the plan also allows, each of which sends targetSlot when the reader presses it.
  */
-export function bagRows({ state, tools, sheet, slots }) {
-    const inventory = state?.domains?.inventory;
-    if (!isRecord(inventory?.stacks)) return [];
-    const pieces = Object.values(inventory.stacks)
-        .filter(stack => isRecord(stack) && stack.owner === 'party' && !stack.equipped && stack.qty > 0 && inventory.defs?.[stack.def]?.kind === 'equipment')
-        .sort((a, b) => (a.id < b.id ? -1 : 1))
+export function bagRows({ tools, sheet, slots }) {
+    const items = inventoryItems(tools);
+    const pieces = items.filter(item => isRecord(item) && item.owner === 'party' && !item.equipped && item.qty > 0 && item.kind === 'equipment')
+        .sort((a, b) => (a.stack < b.stack ? -1 : 1))
         .slice(0, BAG_PIECES_MAX);
     const labelOf = key => slots.find(slot => slot.key === key)?.label ?? key;
     return pieces.map(stack => {
-        const name = stackName(state, stack.id);
-        const wear = ask(tools, 'items.canWear', { actor: sheet.id, stack: stack.id });
+        const name = stackName(items, stack.stack);
+        const wear = ask(tools, 'items.canWear', { actor: sheet.id, stack: stack.stack });
         const verdict = wear.status === ASK.OK ? wear.value : null;
-        const base = { stack: stack.id, name, options: [], blocked: '', default: null };
+        const base = { stack: stack.stack, name, options: [], blocked: '', default: null };
         if (!verdict) return { ...base, blocked: 'Whether this fits is not available yet.' };
         if (verdict.ok !== true) return { ...base, blocked: clip(verdict.why ?? 'It cannot be worn.', 240) };
-        const plan = ask(tools, 'rules.equipPlan', { stack: stack.id, actor: sheet.id });
+        const plan = ask(tools, 'rules.equipPlan', { stack: stack.stack, actor: sheet.id });
         if (plan.status !== ASK.OK) return { ...base, blocked: 'The slot for this piece is not available yet.' };
         if (plan.value.ok !== true) return { ...base, blocked: clip(plan.value.message ?? 'It cannot be worn.', 240) };
         const chosen = plan.value.plan;
-        const swaps = (Array.isArray(chosen.unequip) ? chosen.unequip : []).map(id => stackName(state, id));
+        const swaps = (Array.isArray(chosen.unequip) ? chosen.unequip : []).map(id => stackName(items, id));
         const row = {
             ...base,
             default: {
                 label: `Equip to ${labelOf(chosen.slot)}`, slot: chosen.slot, swapsText: swaps.length ? `Takes off ${swaps.join(', ')}.` : '',
-                payload: { stack: stack.id, to: sheet.id },
-                button: btn('item.equip', { stack: stack.id, to: sheet.id }, `Equip to ${labelOf(chosen.slot)}`, { tone: 'primary' }),
+                payload: { stack: stack.stack, to: sheet.id },
+                button: btn('item.equip', { stack: stack.stack, to: sheet.id }, `Equip to ${labelOf(chosen.slot)}`, { tone: 'primary' }),
             },
         };
         for (const slot of slots) {
             if (slot.key === chosen.slot) continue;
-            const other = ask(tools, 'rules.equipPlan', { stack: stack.id, actor: sheet.id, targetSlot: slot.key });
+            const other = ask(tools, 'rules.equipPlan', { stack: stack.stack, actor: sheet.id, targetSlot: slot.key });
             if (other.status !== ASK.OK || other.value.ok !== true) continue;
-            const displaced = (Array.isArray(other.value.plan.unequip) ? other.value.plan.unequip : []).map(id => stackName(state, id));
-            const payload = { stack: stack.id, to: sheet.id, targetSlot: slot.key };
+            const displaced = (Array.isArray(other.value.plan.unequip) ? other.value.plan.unequip : []).map(id => stackName(items, id));
+            const payload = { stack: stack.stack, to: sheet.id, targetSlot: slot.key };
             row.options.push({ slot: slot.key, label: `Put on ${slot.label}`, swapsText: displaced.length ? `Takes off ${displaced.join(', ')}.` : '', payload, button: btn('item.equip', payload, `Put on ${slot.label}`) });
         }
         return row;
@@ -141,11 +140,11 @@ export function npcModel(sheet, tools) {
 }
 
 function memberModel(sheet, ctx) {
-    const { party, state, tools, minutes, activeIds, full } = ctx;
+    const { party, tools, minutes, activeIds, full } = ctx;
     const slotInfo = slotList(ask(tools, 'items.slots', { actor: sheet.id }, isSlots));
     const you = sheet.id === party.pc;
     const worn = wornTable(tools, sheet.id);
-    const tiles = slotTilesOf({ sheet, slots: slotInfo.slots, worn, state, tools });
+    const tiles = slotTilesOf({ sheet, slots: slotInfo.slots, worn, tools });
     const isActive = activeIds.includes(sheet.id);
     const down = sheet.life === 'downed' || sheet.life === 'dead' || sheet.life === 'gravely-injured';
     return {
@@ -158,7 +157,7 @@ function memberModel(sheet, ctx) {
             statuses: (Array.isArray(sheet.conditions) ? sheet.conditions : []).map((entry, index) => conditionStatus(entry, index, minutes)),
         }),
         control: sheet.control === 'player' ? 'You lead' : 'On their own',
-        tiles, slotsKnown: slotInfo.known, bag: bagRows({ state, tools, sheet, slots: slotInfo.slots }),
+        tiles, slotsKnown: slotInfo.known, bag: bagRows({ tools, sheet, slots: slotInfo.slots }),
         npc: npcModel(sheet, tools),
         canRest: isActive && !you,
         restPayload: { actors: activeIds.filter(id => id !== sheet.id) },
@@ -182,7 +181,7 @@ export function rosterView(state, args, tools) {
     const minutes = time.status === ASK.OK && Number.isSafeInteger(time.value.minutes) ? time.value.minutes : null;
     const activeIds = party.active.map(sheet => sheet.id);
     const full = activeIds.length >= party.activeLimit;
-    const ctx = { party, state, tools, minutes, activeIds, full };
+    const ctx = { party, tools, minutes, activeIds, full };
     return {
         state: 'ready', reason: '', limit: party.activeLimit, activeCount: activeIds.length, activeText: `${activeIds.length} / ${party.activeLimit} active`, full,
         active: party.active.map(sheet => memberModel(sheet, ctx)),
