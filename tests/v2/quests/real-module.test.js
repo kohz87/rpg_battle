@@ -134,6 +134,11 @@ for (const sweep of ['afterCapture', 'beforeGenerate']) test(`real-module ${swee
     if (sweep === 'afterCapture') await h.send('Wait ten minutes.', '<Changes>\n~ time June 3, 1200, 08:10 am\n</Changes>');
     else {
         ok(h.bus.command('director.advance', { minutes: 10, cause: 'expiry-test' }, { cause: 'system' }));
+        const intercept = h.st.interceptor;
+        h.st.interceptor = async (...args) => {
+            await intercept(...args);
+            assert.equal(h.sdk.query('director.thread', { id: thread.id }).rpg.state, 'expired', 'expiry precedes the generated reply');
+        };
         await h.send('Look around.', 'The miller waits.');
     }
     const verify = host => {
