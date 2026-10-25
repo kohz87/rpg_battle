@@ -92,7 +92,7 @@ test('awards: same as v1 awardParty, companions settled the same', () => {
     }
 });
 
-test('a fight result: same as v1 applyResult then settleCompanions', () => {
+test('a fight result: legacy v1 pool, mastery and XP parity', () => {
     let state = withPc({ name: 'Ren', preset: 'fighter' });
     state = run(state, 'party.addCompanion', { name: 'Lyra', role: 'archer', level: 3, skills: ['Aimed Shot', 'Poison Dart'] }).state;
     const ids = state.domains.party.order;

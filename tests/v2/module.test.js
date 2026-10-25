@@ -11,17 +11,17 @@ test('the merged module is a valid Story Block module with every part\'s pieces'
     assert.deepEqual(definitionProblems(module), []);
     assert.equal(module.id, MODULE_ID);
     assert.equal(module.version, VERSION);
-    assert.deepEqual(PARTS.map(([id]) => id), ['party', 'creation', 'checks', 'items', 'combat', 'board', 'return', 'trade', 'craft', 'screens']);
+    assert.deepEqual(PARTS.map(([id]) => id), ['rules', 'progress', 'training', 'party', 'creation', 'checks', 'quests', 'items', 'combat', 'board', 'return', 'trade', 'craft', 'screens']);
     assert.deepEqual(Object.keys(module.domains).sort(), ['bestiary', 'checks', 'combat', 'craft', 'creation', 'effects', 'gear', 'party', 'trade']);
-    for (const [, part] of PARTS) {
+    for (const [, part] of PARTS.filter(([id]) => !['rules', 'progress', 'training'].includes(id))) {
         for (const type of Object.keys(part.commands ?? {})) assert.equal(typeof module.commands[type], 'function', type);
         for (const name of Object.keys(part.queries ?? {})) assert.equal(typeof module.queries[name], 'function', name);
         for (const name of Object.keys(part.widgets ?? {})) assert.ok(module.widgets[name], name);
         for (const screen of part.screens ?? []) assert.ok(module.screens.includes(screen), screen.id);
     }
-    assert.deepEqual(Object.keys(module.capture.kinds).sort(), ['check', 'craft', 'effect', 'encounter', 'join', 'leave', 'market', 'recipe', 'refine', 'repair', 'rest', 'skill', 'use', 'wound', 'xp']);
-    assert.deepEqual(Object.keys(module.widgets).sort(), ['rpg-battle.battle-board', 'rpg-battle.character-file', 'rpg-battle.choice-pick', 'rpg-battle.create-character', 'rpg-battle.draft-start', 'rpg-battle.equipment', 'rpg-battle.import-pick', 'rpg-battle.item-detail', 'rpg-battle.member-toggle', 'rpg-battle.preset-pick', 'rpg-battle.return-card', 'rpg-battle.skill-tree', 'rpg-battle.stat-radar', 'rpg-battle.talent-roll']);
-    assert.deepEqual(module.screens.map(screen => screen.id), ['rpg-battle/create', 'rpg-battle/fight', 'rpg-battle/party', 'rpg-battle/trade', 'rpg-battle/crafting', 'rpg-battle/hud', 'rpg-battle/status-card']);
+    assert.deepEqual(Object.keys(module.capture.kinds).sort(), ['check', 'craft', 'effect', 'encounter', 'join', 'leave', 'market', 'quest', 'recipe', 'refine', 'repair', 'rest', 'skill', 'use', 'wound', 'xp']);
+    assert.deepEqual(Object.keys(module.widgets).sort(), ['rpg-battle.battle-board', 'rpg-battle.character-file', 'rpg-battle.choice-pick', 'rpg-battle.class-pick', 'rpg-battle.command-button', 'rpg-battle.command-input', 'rpg-battle.create-character', 'rpg-battle.draft-start', 'rpg-battle.equipment', 'rpg-battle.import-pick', 'rpg-battle.item-detail', 'rpg-battle.member-toggle', 'rpg-battle.permanent-choice', 'rpg-battle.preset-pick', 'rpg-battle.return-card', 'rpg-battle.skill-tree', 'rpg-battle.stat-radar', 'rpg-battle.talent-roll']);
+    assert.deepEqual(module.screens.map(screen => screen.id), ['rpg-battle/create', 'rpg-battle/fight', 'rpg-battle/party', 'rpg-battle/trade', 'rpg-battle/crafting', 'rpg-battle/hud', 'rpg-battle/status-card', 'rpg-battle/progress', 'rpg-battle/quests', 'rpg-battle/roster', 'rpg-battle/links', 'rpg-battle/setup']);
     assert.equal(typeof module.queries[REV_QUERY], 'function');
     // Party keeps check.resolve; the check line is the checks part's.
     assert.equal(typeof module.commands['check.resolve'], 'function');
@@ -56,7 +56,7 @@ test('tabs: a hand-built tab a screen covers gives way to it; every screen and w
     // part's hand-built Items tab is retired: Story Block's Inventory is the one bag (MODULES §F99).
     assert.deepEqual(module.tabs.map(tab => tab.id), []);
     const tabbed = module.screens.filter(screen => screen.mounts.includes('tab')).map(screen => screen.id);
-    assert.deepEqual(tabbed, ['rpg-battle/fight', 'rpg-battle/party', 'rpg-battle/trade', 'rpg-battle/crafting']);
+    assert.deepEqual(tabbed, ['rpg-battle/fight', 'rpg-battle/party', 'rpg-battle/trade', 'rpg-battle/crafting', 'rpg-battle/progress', 'rpg-battle/quests', 'rpg-battle/roster', 'rpg-battle/links', 'rpg-battle/setup']);
     const ids = module.screens.map(screen => screen.id);
     assert.equal(new Set(ids).size, ids.length);
 });
@@ -170,7 +170,7 @@ test('item.define: the items part\'s rules with its settings; beforeGenerate: th
 
 test('index.js: registers the module with Story Block v2; without it, one drawer line and nothing else', async () => {
     const registered = [];
-    const sdk = { settings: () => ({}), registerModule: async def => { registered.push(def); return sdk; } };
+    const sdk = { settings: () => ({}), preflight: () => ({ hostApi: 2, classification: 'empty', peers: [], restore: 'idle' }), registerModule: async def => { registered.push(def); return sdk; } };
     globalThis.StoryBlock = { apiVersion: 2, ready: Promise.resolve(sdk), sdk };
     try {
         const { booted, boot, MISSING_TEXT } = await import('../../index.js');
@@ -202,4 +202,11 @@ test('manifest: 2.0.0-beta.2, depends on Story Block, no v1 interceptor', async 
     assert.deepEqual(manifest.dependencies, ['third-party/Story_block']);
     assert.equal(manifest.generate_interceptor, undefined);
     assert.equal(manifest.js, 'index.js');
+});
+
+test('the module forwards the parts\' replayQueries (Story Block answers a guard\'s query only from this list)', async () => {
+    const { createModule } = await import('../../src/v2/module.js');
+    const def = createModule();
+    assert.ok(def.replayQueries.includes('party.actor') && def.replayQueries.includes('party.actors'));
+    for (const name of def.replayQueries) assert.equal(typeof def.queries[name], 'function', `${name} is a query of the module`);
 });

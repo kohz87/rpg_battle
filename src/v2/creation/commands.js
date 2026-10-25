@@ -131,7 +131,7 @@ function querySettings(args, tools) {
  * hasRaces, hasTalents, hasPresets }.
  */
 export function contentQuery(state, args = {}, tools = null) {
-    const rules = creationRules(querySettings(args, tools));
+    const rules = creationRules(querySettings(args, tools), state?.domains?.rules);
     const content = creationContent(tools, { builtIn: rules.builtInChoices });
     const { rolled } = creationOf(readerOf(state));
     const cap = rules.statCap > 0 ? rules.statCap : null;
@@ -155,7 +155,7 @@ export function contentQuery(state, args = {}, tools = null) {
  * and what party.create asks to make a character with an origin.
  */
 export function buildQuery(state, args = {}, tools = null) {
-    const rules = creationRules(querySettings(args, tools));
+    const rules = creationRules(querySettings(args, tools), state?.domains?.rules);
     const content = creationContent(tools, { builtIn: rules.builtInChoices });
     const draft = isRecord(args?.draft) ? args.draft : (args ?? {});
     const { rolled } = creationOf(readerOf(state));
@@ -167,7 +167,7 @@ export function buildQuery(state, args = {}, tools = null) {
 
 /** What a command needs: rules from the module's settings, the content, what was rolled. */
 function setup(ctx) {
-    const rules = creationRules(settingsOf(ctx));
+    const rules = creationRules(settingsOf(ctx), ctx.read('rules'));
     const content = creationContent(ctx, { builtIn: rules.builtInChoices });
     const creation = creationOf(domain => ctx.read(domain));
     return { rules, content, creation };
@@ -218,6 +218,9 @@ function finish(ctx, payload = {}) {
         ...(background ? { background } : {}),
         ...(portrait.portrait ? { portrait: portrait.portrait } : {}),
         ...(withOrigin ? { origin: { race: built.race?.id ?? null, talents: built.talents.map(talent => talent.id) } } : {}),
+        // Rules v2: the wizard's class and its check actor go down to party.create, which records the milestone-0 choice once.
+        ...(draft.class !== undefined ? { class: draft.class } : {}),
+        ...(draft.checkActor !== undefined ? { checkActor: draft.checkActor } : {}),
     };
     ctx.call('party.create', create);
 
@@ -229,7 +232,6 @@ function finish(ctx, payload = {}) {
     const wrong = STATS.find(stat => pc.stats?.[stat] !== built.stats[stat]);
     if (wrong) fail(ctx, 'FAILED', `Your character could not be made with the race and talents: ${wrong} came out ${pc.stats?.[wrong]}, not ${built.stats[wrong]}.`);
     if (background && pc.background !== background) fail(ctx, 'FAILED', 'Your character could not be made with your persona\'s background.');
-
     // The ready-made character's skills, built from the pack's words by the party part's rules.
     const learned = [];
     for (const skill of preset?.skills ?? []) {
@@ -357,6 +359,8 @@ function importCharacter(ctx, payload = {}) {
         ...(name ? { name } : {}),
         ...(background ? { background } : {}),
         ...(portrait.portrait ? { portrait: portrait.portrait } : {}),
+        ...(input.class !== undefined ? { class: input.class } : {}),
+        ...(input.checkActor !== undefined ? { checkActor: input.checkActor } : {}),
     });
     const actor = made?.data?.actor;
     const party = readParty(ctx);

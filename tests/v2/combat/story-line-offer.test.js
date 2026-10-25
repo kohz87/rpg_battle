@@ -91,7 +91,7 @@ test('the user\'s reply in the whole suite with the Ersveil pack: offered, start
     const host = await suite.started();
     t.after(() => host.close());
     await offerToBoard(host);
-    assert.deepEqual(host.q('quest.board', {}).active.map(quest => quest.key), ['Watch Granary Rats'], 'the block\'s quest is read as before');
+    assert.deepEqual(host.q('quest.board', {}).active, [], 'an unpinned legacy quest line grants no RPG entitlement');
 });
 
 test('the fight instruction says the encounter line goes in <Changes>', () => {

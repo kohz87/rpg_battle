@@ -1,3 +1,4 @@
+import { preserveInjury } from '../death/injury.js';
 // HP, MP and SP that come back as story time passes (v1 recovery.recoverOverTime, DESIGN §8.5),
 // feature `rpg-battle.recovery` (MODULES §F100, on by default). The clock is Story Director's
 // (`director.time`, read only through a query that may not be there, rule 11): without it nothing
@@ -27,7 +28,7 @@
 
 import { rest as restV1 } from '../../recovery.js';
 import { POOLS, filledBy, fitPool, storedPool } from './pools.js';
-import { fromSheet, rulesFrom, settingsOf, toSheet, wornGear } from './sheets.js';
+import { fromSheet, rulesFrom, rulesSliceOf, settingsOf, toSheet, wornGear } from './sheets.js';
 import { sessionOf } from '../combat/stored.js';
 
 export const RECOVERY_FEATURE = 'rpg-battle.recovery';
@@ -127,7 +128,7 @@ export function foldStoryTime(ctx, { markOnly = false } = {}) {
         return null;
     }
     if (!party?.pc) return null;
-    const rules = rulesFrom(settingsOf(typeof ctx.settings === 'function' ? ctx.settings() : null));
+    const rules = rulesFrom(settingsOf(typeof ctx.settings === 'function' ? ctx.settings() : null), rulesSliceOf(ctx));
     const plan = planRecovery(party, minutes, { fight: Boolean(fightOf(ctx)), off, rules });
     if (!plan) return null;
     const draft = ctx.draft('party');
@@ -143,7 +144,7 @@ export function foldStoryTime(ctx, { markOnly = false } = {}) {
             // A full rest, as `! rest long` (party.rest): max first worked out with what they wear, and what a fight left ends.
             const rested = restV1(toSheet(actor), 'long', { gear: wornGear((name, args) => ctx.query(name, args), inventory, id, { pc: draft.pc }), rules });
             const next = { ...rested, conditions: (rested.conditions ?? []).filter(entry => !Number.isInteger(entry.rounds)) };
-            draft.actors[id] = fromSheet(actor, next, rules, { filled: filledBy('long') });
+            draft.actors[id] = preserveInjury(ctx, actor, fromSheet(actor, next, rules, { filled: filledBy('long') }));
         } else {
             for (const name of POOLS) {
                 const pool = fitPool(actor[name]);
@@ -198,7 +199,7 @@ export function recoveryBeforeReply(view, info = {}) {
     const party = view?.state?.domains?.party;
     if (!party?.pc) return { commands: [] };
     const minutes = clockFrom(typeof view?.query === 'function' ? (name, args) => view.query(name, args) : null);
-    const rules = rulesFrom(settingsOf(view?.settings));
+    const rules = rulesFrom(settingsOf(view?.settings), view?.state?.domains?.rules);
     const plan = planRecovery(party, minutes, { fight: Boolean(sessionOf(view?.state?.domains?.combat)), off: !recoveryOn(view), rules });
     return plan ? { commands: [{ type: 'party.recover', payload: {} }] } : { commands: [] };
 }

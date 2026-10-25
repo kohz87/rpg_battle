@@ -1,3 +1,4 @@
+import { effectiveEvidence } from './proofs.js';
 // Pure quest settlement planning. Inputs are public projections; only SD/SB/RB owners commit
 // the result. Missing owner validation holds settlement rather than treating text as proof.
 
@@ -22,7 +23,7 @@ export function settlementKey(epoch, quest) {
     return `rb:${epoch}:quest:${quest.id}:${quest.instance}:settled`;
 }
 
-function acceptanceOf(thread, proofs) {
+export function acceptanceOf(thread, proofs) {
     const acceptance = thread.acceptance;
     const quest = thread.rpg;
     const proof = proofs.find(proof => proof.id === acceptance?.proof);
@@ -78,13 +79,13 @@ export function objectiveProgress(thread, { proofs, items, activeActors, validat
         } else {
             if (typeof validateProof !== 'function') return refuse('DEPENDENCY_UNAVAILABLE', 'The B3 objective proof validator is not available.');
             const seen = new Set();
-            for (const evidence of Object.values(quest.evidence)) {
+            for (const evidence of effectiveEvidence(quest, proofs, acceptance)) {
                 if (evidence.objective !== objective.id || seen.has(evidence.proof)) continue;
                 const proof = proofs.find(proof => proof.id === evidence.proof);
                 if (!proof || !count(evidence.amount) || evidence.amount > 999) continue;
                 // The shared checker must verify thread/instance/objective, exact action and
                 // the surviving acceptance prefix. A visible line by itself is insufficient.
-                if (validateProof({ objective, quest, acceptance, proof }) !== true) continue;
+                if (validateProof({ objective, quest, acceptance, proof, evidence }) !== true) continue;
                 seen.add(proof.id);
                 used.set(proof.id, proof);
                 have += evidence.amount;
@@ -101,7 +102,7 @@ export function objectiveProgress(thread, { proofs, items, activeActors, validat
  * No drafts, claims, calls, RNG or narration. Requirements, giver identity and carry legality
  * are supplied by their rule owners, not reimplemented here. Expiry precedes all turn-ins.
  */
-export function planSettlement(thread, inputs, { evaluateRequirements, validateProof, canReceive } = {}) {
+export function planQuestSettlement(thread, inputs, { evaluateRequirements, validateProof, canReceive } = {}) {
     const quest = thread?.rpg;
     if (!quest || quest.id !== thread.id) return refuse('NOT_FOUND', 'This thread has no matching RPG quest.');
     if (quest.state !== 'active' || quest.settlement || thread.status !== 'active' || !thread.taken) {
@@ -137,14 +138,5 @@ export function planSettlement(thread, inputs, { evaluateRequirements, validateP
         const carry = canReceive(payout.items, inputs, progress.consumed);
         if (carry?.ok !== true) return carry?.ok === false ? carry : refuse('DEPENDENCY_UNAVAILABLE', 'Reward carry validation gave no valid answer.');
     }
-    return { ok: true, outcome: 'done', consumed: progress.consumed, payout, proofs: progress.proofs };
-}
-
-/** B5's canonical envelope; the caller supplies the host Source/epoch and frozen rules hash. */
-export function settlementInputs({ operation, source, epoch, rulesHash, thread, inputs, plan }) {
-    return { version: 2, operation: copy(operation), source: copy(source), rulesHash, epoch,
-        inputs: { thread: copy(thread), clock: copy(inputs.clock), place: copy(inputs.place),
-            items: copy(inputs.items), activeActors: copy(inputs.activeActors),
-            storyCredit: copy(thread.rpg.storyCredit), consumed: copy(plan.consumed), payout: copy(plan.payout) },
-        proofs: copy(plan.proofs) };
+    return { ok: true, outcome: 'done', consumed: progress.consumed, payout, proofs: progress.proofs, objectives: progress.objectives };
 }

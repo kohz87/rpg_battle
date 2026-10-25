@@ -1,7 +1,7 @@
 // Pure settlement fixtures exercise the owner handoffs without inventing host cursor/epoch APIs.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { findQuest, objectiveProgress, planSettlement, settlementKey } from '../../../src/v2/quests/planner.js';
+import { findQuest, objectiveProgress, planQuestSettlement, settlementKey } from '../../../src/v2/quests/planner.js';
 
 function fixture() {
     const source = { sid: 'sr_00000001', swipeKey: 'sw_00000001', evidence: 'ev_00000001', ordinal: 0 };
@@ -23,30 +23,30 @@ function fixture() {
 test('one pure settlement plan consumes exact stacks and credits only its own reward', () => {
     const { thread, inputs } = fixture();
     const before = structuredClone({ thread, inputs });
-    const plan = planSettlement(thread, inputs);
+    const plan = planQuestSettlement(thread, inputs);
     assert.equal(plan.ok, true);
     assert.deepEqual(plan.payout, { coin: 20, xp: 25, items: [] });
     assert.deepEqual(plan.consumed, [{ stack: 'st_00000001', qty: 2 }]);
     assert.deepEqual({ thread, inputs }, before);
-    assert.deepEqual(planSettlement(thread, inputs), plan);
+    assert.deepEqual(planQuestSettlement(thread, inputs), plan);
 });
 
 test('deadline equality expires before turn-in and unset time holds', () => {
     const { thread, inputs } = fixture();
     inputs.clock.minutes = 200;
-    assert.deepEqual(planSettlement(thread, inputs).payout, { coin: 0, xp: 0, items: [] });
-    assert.equal(planSettlement(thread, inputs).outcome, 'expired');
+    assert.deepEqual(planQuestSettlement(thread, inputs).payout, { coin: 0, xp: 0, items: [] });
+    assert.equal(planQuestSettlement(thread, inputs).outcome, 'expired');
     inputs.clock.minutes = null;
-    assert.equal(planSettlement(thread, inputs).code, 'CLOCK_UNSET');
+    assert.equal(planQuestSettlement(thread, inputs).code, 'CLOCK_UNSET');
 });
 
 test('deleted acceptance cannot authorize rewards; reserve and temporary items cannot qualify', () => {
     const { thread, inputs } = fixture();
     inputs.proofs = [];
-    assert.equal(planSettlement(thread, inputs).code, 'REFUSED');
+    assert.equal(planQuestSettlement(thread, inputs).code, 'REFUSED');
     const again = fixture();
     again.inputs.items[0].owner = 'ac_reserve1';
-    assert.equal(planSettlement(again.thread, again.inputs).code, 'NOT_ENOUGH');
+    assert.equal(planQuestSettlement(again.thread, again.inputs).code, 'NOT_ENOUGH');
 });
 
 test('one physical item cannot pay two consuming objectives', () => {
@@ -61,18 +61,18 @@ test('story text is never sufficient proof without the shared B3 checker', () =>
     const { thread, inputs } = fixture();
     thread.rpg.objectives = [{ id: 'ob_00000001', kind: 'story', text: 'Rescue the miller' }];
     thread.ready = { rev: 10 };
-    assert.equal(planSettlement(thread, inputs).code, 'DEPENDENCY_UNAVAILABLE');
-    assert.equal(planSettlement(thread, inputs, { validateProof: () => false }).code, 'NOT_ENOUGH');
+    assert.equal(planQuestSettlement(thread, inputs).code, 'DEPENDENCY_UNAVAILABLE');
+    assert.equal(planQuestSettlement(thread, inputs, { validateProof: () => false }).code, 'NOT_ENOUGH');
 });
 
 test('missing requirements/carry checker holds all payout', () => {
     const { thread, inputs } = fixture();
     thread.rpg.requirements = [{ kind: 'class', classes: ['pack.fixture/c0'] }];
-    assert.equal(planSettlement(thread, inputs).code, 'DEPENDENCY_UNAVAILABLE');
+    assert.equal(planQuestSettlement(thread, inputs).code, 'DEPENDENCY_UNAVAILABLE');
     thread.rpg.requirements = [];
     thread.rpg.reward.items = [{ def: 'pack.fixture/stone', qty: 1 }];
-    assert.equal(planSettlement(thread, inputs).code, 'DEPENDENCY_UNAVAILABLE');
-    assert.equal(planSettlement(thread, inputs, { canReceive: () => ({ ok: false, code: 'REFUSED', message: 'Too heavy.' }) }).code, 'REFUSED');
+    assert.equal(planQuestSettlement(thread, inputs).code, 'DEPENDENCY_UNAVAILABLE');
+    assert.equal(planQuestSettlement(thread, inputs, { canReceive: () => ({ ok: false, code: 'REFUSED', message: 'Too heavy.' }) }).code, 'REFUSED');
 });
 
 test('aliases resolve to the same SD thread, including an RPG extension on a hook', () => {

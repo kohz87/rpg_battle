@@ -24,3 +24,19 @@ test('fight quest adapter includes the same RPG hook and excludes neutral goals'
         ['quest.progress', { id: 'th_00000001' }],
     ]);
 });
+
+// Neutral activity must not consume the quest sizing budget.
+test('fight quest adapter filters more than fifty neutral threads before limiting quests', () => {
+    const threads = Array.from({ length: 60 }, (_, n) => ({ id: `neutral-${n}`, kind: 'hook', offer: false }));
+    threads.push({ id: 'th_00000001', kind: 'quest', offer: false });
+    threads.push({ id: 'th_00000002', kind: 'hook', rpg: { instance: 1 }, offer: false });
+    threads.unshift({ id: 'th_00000003', kind: 'quest', offer: true });
+    const queried = [];
+    const ctx = { query(name, args) {
+        if (name === 'director.threads') return threads;
+        queried.push(args.id);
+        return { need: 3, have: 1, countable: true, noun: 'wolves', source: 'fights' };
+    } };
+    assert.equal(questTargets(ctx).length, 2);
+    assert.deepEqual(queried, ['th_00000001', 'th_00000002']);
+});

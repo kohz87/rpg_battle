@@ -26,7 +26,7 @@ test('the screen definition: a dialog with five steps and the creation queries',
     assert.equal(CREATE_SCREEN_ID, 'rpg-battle/create');
     assert.deepEqual(createScreen.mounts, ['dialog']);
     assert.deepEqual(CREATE_STEPS.map(step => step.id), ['start', 'race', 'talents', 'stats', 'you']);
-    assert.deepEqual(createScreen.data, { c: { query: 'creation.content' } });
+    assert.deepEqual(createScreen.data, { c: { query: 'creation.content' }, k: { query: 'rpg-battle.classPicker' } });
     assert.ok(part.queries[createScreen.data.c.query]);
     assert.deepEqual(part.screens, [createScreen]);
     // Only the last step submits, and it submits creation.finish.

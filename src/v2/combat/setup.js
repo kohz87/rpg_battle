@@ -18,8 +18,10 @@ import { combatantFromSheet, enemiesFromRows, engagements } from '../../party.js
 import { fightCondition } from '../../combat.js';
 import { makeRng } from '../../rng.js';
 import { fightRules, foeId } from './stored.js';
+import { fightSkills, pinnedOf, restoreStrengths } from '../fight/index.js';
 import { powerScale } from './power.js';
 import { nounNames } from './quest.js';
+import { activeFighters } from '../death/fight.js';
 
 // The combat settings and their bounds (v1's Combat fold, ui/settings.js COMBAT_LIMITS).
 export const COMBAT_DEFAULTS = Object.freeze({ turnOrder: 'timeline', speedOffset: 10, hitBase: 75, hitPerPoint: 3, fieldPerMember: 4, fieldMax: 9 });
@@ -159,11 +161,12 @@ const pool = (value, computed) => {
  */
 export function partyCombatants(ctx, { rules = DEFAULT_RULES } = {}) {
     const listed = tryQuery(ctx, 'party.actors', undefined, []);
-    const actors = (Array.isArray(listed) ? listed : Object.values(listed ?? {})).filter(actor => actor && typeof actor.id === 'string');
+    const actors = activeFighters(ctx, (Array.isArray(listed) ? listed : Object.values(listed ?? {})).filter(actor => actor && typeof actor.id === 'string'));
     actors.sort((a, b) => (a.kind === 'pc' ? 0 : 1) - (b.kind === 'pc' ? 0 : 1));
     const party = tryRead(ctx, 'party');
     const library = [...DEFAULT_SKILLS, ...Object.values(party?.custom ?? {})];
     const defs = tryRead(ctx, 'inventory')?.defs ?? {};
+    const ix = pinnedOf(ctx);
     return actors.map(actor => {
         const own = inventoryRows(ctx, actor.id, defs);
         const shared = actor.kind === 'pc' ? inventoryRows(ctx, 'party', defs) : [];
@@ -189,6 +192,10 @@ export function partyCombatants(ctx, { rules = DEFAULT_RULES } = {}) {
         c.hp = pool(actor.hp, c.hp);
         c.mp = pool(actor.mp, c.mp);
         c.sp = pool(actor.sp, c.sp);
+        // (rules v2) On a pinned ruleset the fighter's skills are its class's three forms, not the v1 library's.
+        const held = ix ? fightSkills(ctx, ix, actor.id) : null;
+        if (held) c.skills = held;
+        if (ix) restoreStrengths(ctx, c, rules);
         c.gone = c.hp.cur <= 0 ? 'down' : null;
         const numbers = tryQuery(ctx, 'party.combatNumbers', { id: actor.id }, null);
         if (numbers && typeof numbers === 'object') {
