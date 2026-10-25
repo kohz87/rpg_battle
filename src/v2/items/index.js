@@ -80,6 +80,11 @@ export const part = {
         // rules.sheet, rules.item) or, until B3's frozen rules land, the named interim binding (equip-query.js).
         'rules.equipPlan': (state, args, tools) => rulesEquipPlan(state, args, tools),
     },
+    // Queries module.js registers only on a chat that pins rules (behind the host's pinned preflight, with the rules parts).
+    // Story Block takes a module that answers `rules.equipPlan` as a ready rules module: it plans every equip through it and
+    // checks the wearer's `rules.sheet`, which only the rules parts answer. Without it Story Block keeps storing equipment
+    // as it always did (contract §9), so a chat with no pin has no planner.
+    pinnedQueries: ['rules.equipPlan'],
     // A story's use (MODULES §F96): `! use <item> | on: Name`, applied by code (story-use.js).
     kinds: {
         use: { grammar: USE_GRAMMAR, apply: clipped(applyUse) },

@@ -32,9 +32,19 @@ missing rule RULES_MISMATCH). Until then `INTERIM_BINDING` ('rb-items-interim-1'
   `slotsForLegacy`); a word that names nothing gets no slot and says so;
 - sheet: the party domain's base stats and a life of alive/downed/dead.
 
-Story Block checks every plan against `rules.sheet`, so `module.js` carries a lead-owned interim `rules.sheet`
-(`interimSheetQuery`, only equipment's inputs, not a SheetView). It steps aside as soon as a part registers the
-real query; delete it and `INTERIM_*` with B3's frozen rules.
+## Where the planner is registered
+
+Story Block takes a module that answers `rules.equipPlan` as a ready rules module: it then plans, checks and applies
+every equip through it, and checks the plan against the wearer's `rules.sheet` (which only the rules parts answer).
+So the items part lists `rules.equipPlan` in `pinnedQueries`, and `module.js` registers it only behind the host's
+pinned preflight, beside the rules parts that give it `rules.sheet`, `rules.identity` and `rules.item` (the frozen path
+of `equipEnv`). A chat that pins no rules has no planner and no `rules.sheet`, and
+Story Block keeps storing its equipment as it always did (contract §9); `item.equip` there is `inventory.equipOn`'s
+own placement. The read-only `items.slots` and `items.canWear` answer either way (without the seams, from the interim
+binding above), and `creation.import` asks the same pure planner in place when no module answers it, so a file's worn
+pieces are still put on. Tests of the planner on a plain module pass `tests/v2/items/helpers/equip-parts.js`
+(`createModule({ parts })`): the planner as a part of its own and a stand-in `rules.sheet` (`interimSheetQuery`, only equipment's inputs, not
+a SheetView). Delete the stand-in and `INTERIM_*` with B3's frozen rules.
 
 ## Old saves and packs
 

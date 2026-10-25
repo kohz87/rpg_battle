@@ -75,6 +75,18 @@ each('creation.import: the same character in a new chat, rested, with their thin
     assert.equal(fresh.command('creation.import', { character: file }).code, 'REFUSED', 'only once');
 });
 
+each('creation.import on a chat that pins no rules (no equipment planner registered) still puts the worn gear on, by the same planner read in place', equipsOnInt, () => {
+    const { h } = travelled();
+    const file = exported(h);
+    const fresh = createHarness({ equip: false });
+    assert.throws(() => fresh.query('rules.equipPlan', {}), /No query rules\.equipPlan/);
+    const r = fresh.command('creation.import', { character: file, name: 'Ren' });
+    assert.equal(r.ok, true, `${r.code}: ${r.message}`);
+    assert.match(r.receipt.summary, /wearing Iron Sword/);
+    const party = fresh.state().domains.party;
+    assert.deepEqual(fresh.query('inventory.items').map(row => [row.name, row.owner, row.equipped]).sort(), [['Iron Sword', party.pc, 'weapon'], ['Minor Healing Draught', 'party', null]]);
+});
+
 each('creation.import checks the file by this chat\'s rules; nothing is saved when it refuses', equipsOnInt, () => {
     const { h } = travelled();
     const file = exported(h);

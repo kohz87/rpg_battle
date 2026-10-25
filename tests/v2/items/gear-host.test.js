@@ -23,7 +23,7 @@ const WEAR_ROUTE = {
 const quiet = t => t.mock.method(console, 'warn', () => {});
 
 async function hero(seed = 1, { lines = [] } = {}) {
-    const host = await rpgHost({ modules: [WEAR_ROUTE] });
+    const host = await rpgHost({ equip: true, modules: [WEAR_ROUTE] });
     assert.equal((await host.cmd('party.create', { name: 'Ren', preset: 'fighter' })).ok, true);
     await host.send('We set out.', host.reply('Bluewatch Town.', [
         '~ place Bluewatch Town | kind: settlement', '+ coin 900',

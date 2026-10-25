@@ -15,6 +15,7 @@
 // built by v1 skillFromTemplate into party.custom).
 
 import { STATS, makeRules } from '../../rules.js';
+import { rulesEquipPlan } from '../items/equip-query.js';
 import { normalizeSlot } from '../items/slots.js';
 import { levelText } from '../../terms.js';
 import { buildCharacter, creationRules } from './build.js';
@@ -304,6 +305,25 @@ function skipStart(ctx) {
 const FIRST_SLOTS = ['weapon', 'body', 'offhand'];
 
 /**
+ * The plan for one piece. Where a rules module answers `rules.equipPlan` (a chat with rules pinned) its answer is the one;
+ * where none does (a chat that pins no rules: Story Block keeps its own equipment storage) the same pure planner is read in
+ * place over this transaction's records. Null when the planner cannot answer at all.
+ */
+function planFor(ctx, args) {
+    try {
+        return ctx.query('rules.equipPlan', args);
+    } catch (error) {
+        if (error?.code !== 'NOT_FOUND' || !String(error.message).includes('rules.equipPlan')) return null;
+    }
+    try {
+        const state = { domains: { inventory: readInventory(ctx), party: readParty(ctx) } };
+        return rulesEquipPlan(state, args, { query: (name, more) => ctx.query(name, more) });
+    } catch {
+        return null;
+    }
+}
+
+/**
  * The pieces a file says were worn, in the order they go on. Only what the planner (rules.equipPlan, the
  * one every equip route asks) would put into an EMPTY slot of the new character is worn; the rest stays
  * carried: a second piece for a slot, an off-hand beside a two-handed weapon, a piece the rules would
@@ -317,12 +337,7 @@ function wearable(ctx, worn, actor) {
     };
     const out = [];
     for (const entry of [...worn].sort((a, b) => rank(a) - rank(b))) {
-        let answer = null;
-        try {
-            answer = ctx.query('rules.equipPlan', { stack: entry.stack, actor });
-        } catch {
-            answer = null;
-        }
+        const answer = planFor(ctx, { stack: entry.stack, actor });
         if (answer?.ok !== true || answer.plan.unequip.length) continue;
         ctx.call('item.equip', { stack: entry.stack });
         out.push(entry);

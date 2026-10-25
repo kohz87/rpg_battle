@@ -15,7 +15,7 @@ const ITEMS = [
 ];
 
 async function hero(options = {}, lines = ITEMS) {
-    const host = await rpgHost(options);
+    const host = await rpgHost({ equip: true, ...options });
     assert.equal((await host.cmd('party.create', { name: 'Ren', preset: 'fighter' })).ok, true);
     await host.send('We set out.', host.reply('Bluewatch Town.', ['~ place Bluewatch Town | kind: settlement', '+ coin 900', ...lines]));
     host.rows = () => host.q('inventory.items', {});
