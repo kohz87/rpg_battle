@@ -70,7 +70,7 @@ export function tail(view) {
     // Every member's numbers as they stand now (pools.js fitParty).
     const party = fitParty(view?.state?.domains?.party, { minutes: clockOf(view?.state) });
     if (!party) return { lines: [], optional: [] };
-    const rules = rulesFrom(settingsFrom(view));
+    const rules = rulesFrom(settingsFrom(view), view?.state?.domains?.rules);
     const lines = actorsInOrder(party).map(actor => `Party: ${actorLine(actor, { pc: actor.id === party.pc, rules })}`);
     const effects = effectsLine(view, party);
     if (effects) lines.push(effects);

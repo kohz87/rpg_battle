@@ -10,6 +10,7 @@
 // condition, which has no rounds in v1, is stacks 1, and stacks 1 reads back as no rounds: the
 // v1 rules this part calls go by a condition's name, never its rounds).
 
+import { pinnedSettings } from '../progress/level.js';
 import { DEFAULT_RULES, STATS, clampXpRate, makeRules, maxHp, maxMp, maxSp, xpToNext } from '../../rules.js';
 import { DEFAULT_SKILLS } from '../../skills.js';
 import { CONDITION_KINDS, conditionKind } from '../../combat.js';
@@ -83,8 +84,9 @@ export function settingsOf(source) {
  * v1 rules from the reader's settings: the Character fields over DEFAULT_RULES, and the XP rate
  * and display terms when another part of the module keeps them (`xpRate`, `terms`).
  */
-export function rulesFrom(settings) {
-    const s = settingsOf(settings);
+export function rulesFrom(settings, rules = null) {
+    const constants = rules?.pin?.resolved?.constants;
+    const s = settingsOf(constants ? pinnedSettings(settingsOf(settings), rules) : settings);
     const d = SETTINGS_DEFAULTS;
     return makeRules({
         character: {
@@ -94,10 +96,21 @@ export function rulesFrom(settings) {
             xpBase: whole(s.xpBase, d.xpBase, 10, 10000),
             maxLevel: whole(s.maxLevel, d.maxLevel, 1, 999),
             activeSkills: whole(s.activeSkills, d.activeSkills, 3, 12),
+            // A pinned ruleset: every level costs the same XP, from the pin's own starting stat (progress/level.js partyRules).
+            ...(constants ? { xpExponent: 0, startStat: constants.startStat } : {}),
         },
         xpRate: clampXpRate(s.xpRate ?? DEFAULT_RULES.xpRate),
         ...(s.terms && typeof s.terms === 'object' ? { terms: { ...DEFAULT_RULES.terms, ...s.terms } } : {}),
     });
+}
+
+/** The `rules` slice a command or capture context can read (null when the chat has none, or the part is not registered). */
+export function rulesSliceOf(ctx) {
+    try {
+        return typeof ctx?.read === 'function' ? ctx.read('rules') ?? null : null;
+    } catch {
+        return null;
+    }
 }
 
 /** The skills a member can know: v1's library, then the story-taught ones kept in party.custom. */

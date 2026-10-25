@@ -103,7 +103,7 @@ export const foeId = n => `fo_${String(n).padStart(8, '0')}`;
 
 /**
  * The rules a stored fight runs on: v1's defaults with only the numbers its setup began with
- * (turn system, speed, hit chance, XP rate). Nothing comes from the settings of the moment, so a
+ * (turn system, speed, hit chance, XP rate, and for a pinned fight the XP each level needs). Nothing comes from the settings of the moment, so a
  * fight rebuilt from the State is the same fight whatever the settings say later.
  */
 export function fightRules(setup) {
@@ -115,6 +115,8 @@ export function fightRules(setup) {
             ...(Number.isFinite(hit.perPoint) ? { hitPerPoint: hit.perPoint } : {}),
         },
         ...(Number.isFinite(setup?.xpRate) ? { xpRate: setup.xpRate } : {}),
+        // (rules v2) A pinned fight levels by the pin's xpPerLevel (pinnedSetup): a foe's XP is a share of the level, same at every level.
+        ...(Number.isFinite(setup?.xpBase) ? { character: { xpBase: setup.xpBase, xpExponent: 0 } } : {}),
     });
 }
 

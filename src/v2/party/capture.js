@@ -12,7 +12,7 @@ import { applyWounds, describeWound, guessSkill, parseHints, parseWounds } from 
 import { cleanFocus, guessFocus } from '../../builds.js';
 import { findSkill, DEFAULT_SKILLS } from '../../skills.js';
 import { DEFAULT_TERMS, parseLevelLabel, maxLevel, termsOf } from '../../terms.js';
-import { fromSheet, rulesFrom, settingsOf, toSheet } from './sheets.js';
+import { fromSheet, rulesFrom, rulesSliceOf, settingsOf, toSheet } from './sheets.js';
 import { COMPANION_LEVELS_ABOVE, addOffer, fightOn, handlers } from './commands.js';
 import { clipped } from '../lines.js';
 import { foldStoryTime } from './recovery.js';
@@ -46,7 +46,7 @@ export function xpGrammar(settings) {
 export const XP_AWARDS_PER_REPLY = Object.freeze({ big: 1, minor: 2 });
 const XP_SIZES = Object.freeze(['minor', 'major', 'milestone']);
 
-const rulesFor = ctx => rulesFrom(settingsOf(typeof ctx?.settings === 'function' ? ctx.settings() : null));
+const rulesFor = ctx => rulesFrom(settingsOf(typeof ctx?.settings === 'function' ? ctx.settings() : null), rulesSliceOf(ctx));
 
 function memberOf(ctx, party, name) {
     const found = resolveName(party, name);

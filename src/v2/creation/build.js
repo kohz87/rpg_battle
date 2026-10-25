@@ -35,9 +35,10 @@ const whole = (value, fallback, min, max) => {
 /**
  * The numbers creation needs from the module's settings: v1's startPoints, statCap and startStat
  * (the party part's 'Character' fields, with v1's defaults and ranges) and this part's own.
- * `settings` is a part's own (bare keys) or the module's whole (namespaced keys).
+ * `settings` is a part's own (bare keys) or the module's whole (namespaced keys). `rules`: the `rules` slice; a pinned ruleset's
+ * starting numbers replace the reader's (contract §5).
  */
-export function creationRules(settings) {
+export function creationRules(settings, rules = null) {
     let raw = settings;
     if (typeof raw === 'function') {
         try { raw = raw(); } catch { raw = null; }
@@ -48,10 +49,11 @@ export function creationRules(settings) {
     const party = key => s[`party.${key}`] ?? s[key];
     const own = key => s[`creation.${key}`] ?? s[key];
     const d = DEFAULT_RULES.character;
+    const pinned = rules?.pin?.resolved?.constants;
     return {
-        startPoints: whole(party('startPoints'), d.startPoints, 0, 60),
-        statCap: whole(party('statCap'), d.statCap, 0, 999),
-        startStat: d.startStat,
+        startPoints: pinned ? pinned.startPoints : whole(party('startPoints'), d.startPoints, 0, 60),
+        statCap: pinned ? pinned.statCap : whole(party('statCap'), d.statCap, 0, 999),
+        startStat: pinned ? pinned.startStat : d.startStat,
         maxTalents: whole(own('maxTalents'), SETTINGS_DEFAULTS.maxTalents, 0, 6),
         builtInChoices: own('builtInChoices') !== false,
     };

@@ -184,6 +184,7 @@ export function createModule({ settings = null, query = null } = {}) {
     const kinds = {};
     const owners = { domain: {}, command: {}, query: {}, kind: {}, tab: {}, widget: {}, screen: {}, feature: {} };
     const hooks = {};
+    const replayQueries = [];
     const tabs = [];
     const cards = {};
     const widgets = {};
@@ -218,6 +219,8 @@ export function createModule({ settings = null, query = null } = {}) {
             // The settings (with the terms, which ask the packs) are worked out only when the query reads them.
             queries[name] = withFeature((state, args, tools) => fn(state, args, tools ? lazySettings(tools, () => withTerms(partSettings(moduleSettings(), id), typeof tools.query === 'function' ? tools.query : null)) : localTools(state, id)), fn);
         }
+        // The queries a replay guard may ask (Story Block REPLAY.md): each part names the ones that read the state and their arguments alone.
+        for (const name of part.replayQueries ?? []) if (!replayQueries.includes(name)) replayQueries.push(name);
         for (const [kind, spec] of Object.entries(part.kinds ?? {})) {
             if (KIND_OVERRIDES[kind] && Object.hasOwn(owners.kind, kind) && KIND_OVERRIDES[kind] === id) delete owners.kind[kind];
             if (KIND_OVERRIDES[kind] && Object.hasOwn(owners.kind, kind) && KIND_OVERRIDES[kind] !== id) continue;
@@ -308,6 +311,7 @@ export function createModule({ settings = null, query = null } = {}) {
         domains,
         commands,
         queries,
+        replayQueries,
         capture: {
             kinds: Object.fromEntries(Object.entries(kinds).map(([kind, spec]) => [kind, grammarOf(spec, () => withTerms(partSettings(moduleSettings(), spec.part), staticQuery))])),
             apply(ctx, line) {
