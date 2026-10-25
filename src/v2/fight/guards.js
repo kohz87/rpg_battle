@@ -81,6 +81,8 @@ export function buildEnd(env, payload) {
     const result = summarize(fight, rules);
     return {
         ok: true,
+        // The fight's own summary, for the death settlement's guard (death/guard.js): who went down.
+        result,
         inputs: {
             version: FIGHT_VERSION,
             setup: hashJson(session.setup),

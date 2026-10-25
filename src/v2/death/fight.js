@@ -3,7 +3,7 @@
 import { indexOfCtx } from '../rules/graph.js';
 import { epochOf } from '../rules/ids.js';
 import { activeIds } from '../rules/sheet.js';
-import { batchId, eventId, sourceOf, assessDeath, selectSnapshot } from './plan.js';
+import { batchId, eventId, sourceOf, assessDeath, selectSnapshot, fightDeaths, clockMinute } from './plan.js';
 import { insertEvent, sealDeath, applyDeaths } from './commands.js';
 import { sessionOf } from '../combat/stored.js';
 
@@ -27,14 +27,13 @@ export function settleFightDeaths(ctx, { session, result }) {
     if (!deathEnabled(ctx) || session.setup.draws !== 'action') return null;
     const ix = indexOfCtx(ctx);
     const party = ctx.read('party');
-    const durable = result.party.filter(m => party.actors[m.memberId] && ['pc', 'companion'].includes(party.actors[m.memberId].kind));
-    if (!durable.length || !durable.some(m => m.memberId === party.pc)) return null;
-    const down = m => m.down || m.hp.cur <= 0 || party.actors[m.memberId].conditions.some(c => c.kind === 'dead');
+    // The same question the fight-end guard asked (death/guard.js), so what it binds is what is written.
+    const effects = fightDeaths(party, result);
+    if (!effects) return null;
     let minute = null;
-    try { minute = ctx.query('director.time', {}).minutes; } catch { /* No wall-clock fallback. */ }
-    if (!Number.isSafeInteger(minute)) minute = null;
-    if (!durable.every(down)) {
-        applyDeaths(ctx, { minute, events: durable.filter(m => m.memberId !== party.pc && down(m) && !party.actors[m.memberId].conditions.some(c => c.kind === 'dead')).map(m => ({ actor: m.memberId, outcome: 'gravely-injured' })) });
+    try { minute = clockMinute(ctx.query('director.time', {})?.minutes); } catch { /* No wall-clock fallback. */ }
+    if (!effects.wipe) {
+        applyDeaths(ctx, { minute, events: effects.downed.map(actor => ({ actor, outcome: 'gravely-injured' })) });
         return null;
     }
     const epoch = epochOf(ctx);

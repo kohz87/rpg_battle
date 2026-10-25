@@ -97,6 +97,6 @@ test('the end guard retracts a wipe/outbox when a native fighter link changes', 
     const view = state => ({ state, hash: hashJson, query: (name, args) => name === 'party.actor' ? { ...members[args.id], npcId: state.domains.party.actors[args.id].npcId } : w.q(name, args) });
     const info = { guard: span.guard, source: span.source, recorded: span.recorded };
     assert.equal(replayGuard(view(before), info).ok, true);
-    before.domains.party.actors[w.friend].npcId = 'np_00000002';
+    before.domains.party.actors[w.pc].npcId = 'np_00000002';
     assert.equal(replayGuard(view(before), info).ok, false);
 }));

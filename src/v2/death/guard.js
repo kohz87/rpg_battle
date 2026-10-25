@@ -1,33 +1,38 @@
 import { buildGuard } from '../progress/guard.js';
 import { epochOf } from '../rules/ids.js';
 import { indexOfState } from '../rules/graph.js';
-import { assessDeath } from './plan.js';
+import { assessDeath, clockMinute, fightDeaths } from './plan.js';
 import { replayWake } from './return.js';
 import { buildEnd } from '../fight/guards.js';
-import { sessionOf } from '../combat/stored.js';
-import { lifeOf } from '../rules/sheet.js';
 import { attachGuard } from '../progress/guard.js';
 
+/**
+ * The fight-end guard's inputs, or null inputs when the settlement writes no death or injury (then it keeps the plain combat.end
+ * guard, progress/guard.js, exactly as without a death domain). When it does, the guard binds the fight's terminal prefix and
+ * only what the settlement writes: who it downs, and the story minute when a result minute or an injury `at` is written. Never a
+ * fighter's hp or conditions: an earlier edit of those, or a clock line that only set the time, does not unsettle a won fight.
+ */
 function fightInputs(env, payload) {
     const end = buildEnd(env, payload);
     if (!end.ok) return end;
-    const session = env.combat.fights?.[payload.session] ?? sessionOf(env.combat);
-    const actors = session.setup.party.map(c => {
-        const member = env.query('party.actor', { id: c.memberId ?? c.id });
-        if (!member) throw new Error('A fighter is missing from this timeline.');
-        return { actor: member.id, npcId: member.npcId ?? null, kind: member.kind, life: lifeOf(member), hp: member.hp, conditions: member.conditions };
-    });
-    return { ok: true, inputs: { fight: end.inputs, death: { actors, minute: env.minute } } };
+    const effects = fightDeaths(env.party, end.result);
+    if (!effects) return { ok: true, inputs: null };
+    const minute = clockMinute(env.minute);
+    // A wipe writes the character's event with its native link, so that link is bound; an injury writes neither.
+    const pc = env.party?.actors?.[env.party.pc];
+    const death = { downed: effects.downed, wipe: effects.wipe, ...(effects.wipe ? { npcId: pc?.npcId ?? null } : {}), ...(effects.wipe || minute !== null ? { minute } : {}) };
+    return { ok: true, inputs: { fight: end.inputs, death } };
 }
 
-/** The fight's terminal prefix and the owner resets/outbox share one atomic root guard. */
+/** The fight's terminal prefix and the owner resets/outbox share one atomic root guard. False: nothing to bind here (combat.end's guard stands). */
 export function guardFightEnd(ctx, ix, payload, recorded) {
     if (ctx.read('death')?.schema !== 2) return false;
     let minute = null;
     try { minute = ctx.query('director.time', {})?.minutes ?? null; } catch { /* Unset time holds its injury anchor. */ }
-    const env = { ix, combat: ctx.read('combat'), query: (n, a) => ctx.query(n, a), recorded, minute: Number.isSafeInteger(minute) ? minute : null };
+    const env = { ix, combat: ctx.read('combat'), party: ctx.read('party'), query: (n, a) => ctx.query(n, a), recorded, minute };
     const asked = fightInputs(env, payload);
     if (!asked.ok) ctx.fail(asked.code, asked.why);
+    if (!asked.inputs) return false;
     attachGuard(ctx, ix, 'death.fight-end', payload, asked.inputs, recorded);
     return true;
 }
@@ -47,12 +52,15 @@ export function replayGuard(view, info) {
     // must never query live place, purse, native identity or snapshot availability.
     const env = { ix, death: view.state.domains.death, progress: view.state.domains.progress, query: view.query, minute: view.state.domains.director?.time?.minutes ?? null };
     if (!env.death) return off('The death records are missing.');
+    const fightEnd = kind === 'death.fight-end';
     let answer;
     try {
-        answer = kind === 'death.fight-end' ? fightInputs({ ...env, combat: view.state.domains.combat, recorded: info.recorded }, g.predicate.payload)
+        answer = fightEnd ? fightInputs({ ...env, combat: view.state.domains.combat, party: view.state.domains.party, recorded: info.recorded }, g.predicate.payload)
             : assessDeath(kind, env, g.predicate.payload, info.recorded);
     } catch (error) { return off(error.message); }
     if (!answer.ok) return off(answer.why);
+    if (fightEnd && !answer.inputs) return off('This fight no longer downs anyone, so its death settlement does not stand.');
     const expected = buildGuard({ hash: view.hash, owner: g.owner, epoch: g.epoch, source: info.source, rulesHash: ix.rulesHash, kind, payload: g.predicate.payload, inputs: answer.inputs });
-    return expected.inputHash === g.inputHash ? { ok: true } : off('The lethal batch changed.');
+    if (expected.inputHash === g.inputHash) return { ok: true };
+    return off(fightEnd ? 'The fight ended differently: who it downed, or the story time it was settled at, is not what this settlement was made on.' : 'The lethal batch changed.');
 }

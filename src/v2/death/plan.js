@@ -8,6 +8,24 @@ export const sourceOf = s => ({ sid: s.sid, swipeKey: s.swipeKey, evidence: s.ev
 export const batchId = (source, epoch, fight = null) => idFromHash('db', hashJson({ sid: source.sid, swipeKey: source.swipeKey, epoch, ...(fight ? { fight } : {}) }));
 export const eventId = (batch, actor) => idFromHash('de', hashJson({ batch, actor }));
 export const fail = (code, why) => ({ ok: false, code, why });
+/** The story minute as a result may keep it: a safe integer, else null (never a wall clock). */
+export const clockMinute = value => (Number.isSafeInteger(value) ? value : null);
+
+/**
+ * What a pinned fight's settlement writes for the party's deaths and injuries, from the party slice before it and the fight's own
+ * summary: null when it writes none; else { wipe, downed } (the ids of the durable members it downs, sorted). A wipe is every durable
+ * fighter down, which kills the character; otherwise a downed companion who is not dead is gravely injured. Pure.
+ */
+export function fightDeaths(party, result) {
+    const actors = party?.actors ?? {};
+    const durable = (result?.party ?? []).filter(m => actors[m.memberId] && ['pc', 'companion'].includes(actors[m.memberId].kind));
+    if (!durable.length || !durable.some(m => m.memberId === party.pc)) return null;
+    const dead = m => (actors[m.memberId].conditions ?? []).some(c => c.kind === 'dead');
+    const down = m => m.down || m.hp.cur <= 0 || dead(m);
+    if (durable.every(down)) return { wipe: true, downed: durable.map(m => m.memberId).sort() };
+    const hurt = durable.filter(m => m.memberId !== party.pc && down(m) && !dead(m)).map(m => m.memberId).sort();
+    return hurt.length ? { wipe: false, downed: hurt } : null;
+}
 
 export function assessDeath(kind, env, payload, recorded = {}) {
     const { death, query, ix } = env;
