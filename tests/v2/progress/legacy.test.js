@@ -89,7 +89,7 @@ async function mergedHost({ modules = [] } = {}) {
 
 async function session(modules, { merge = false } = {}) {
     return seeded(5, async () => {
-        const host = merge ? await mergedHost() : await rpgHost({ modules });
+        const host = merge ? await mergedHost() : await rpgHost({ modules: [DIRECTOR_PEER, ...modules] });
         try {
             assert.equal((await host.cmd('party.create', { name: 'Ren', preset: 'fighter' })).ok, true);
             await host.send('We walk into the village.', host.reply('Bluewatch Village.', ['~ place Bluewatch Village | kind: settlement', '+ item Rope | qty: 1']));
