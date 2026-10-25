@@ -140,6 +140,24 @@ so ordinal allocation alone cannot invalidate a delivered death's exact prefix. 
 dependency with the host; NSD's `npc.dossier({id: np_})` read confirms even archived terminal-death dossiers. A surviving
 death without a matching native checkpoint remains held before the host can announce readiness.
 
+Native-death release verification (post-fix only)
+
+- Real SB + RB + NSD: seven scenarios pass, covering delete, swipe/back, unchanged and removing Re-read,
+  reload/full rebuild, no save point, missing native bytes, a surviving death with no matching prefix, and held activation.
+  All 72 B6 tests pass. Storage/DOM ports are synthetic; production modules, participant callbacks and host selection run unchanged.
+- Final `check` (SB/RB), `validate` (NSD), and working-tree/branch `diff --check` pass.
+  `test:dot`: SB 3442 pass / 4 skip / 1 TODO; NSD 1511 pass plus compatibility/runtime smoke;
+  RB 2360 pass / 3 fail / 15 skip / 6 TODO. The three failures are outside death recovery:
+  `a2-carry-buy-second-bag` (Backpack stock), `a2-pack-creatures-unused` (River Drake loot),
+  `rx-econ-6-craft-clock-cause` (Leech-salt Pouch now requires Live Leech).
+- SB fuzz: 55/55 at `QA_FUZZ_STEPS=60`, plus replay CLI seeds 1–20 × 120 steps (2400), zero failures.
+  NSD meter/delete fuzz: 3/3. RB expanded fuzz: 35/38 at `QA_FUZZ_STEPS=200`; death seeds 33/91/217
+  pass all 600 steps, and fight/progression/entry/delete/QA fuzzes pass. The three failures are the quest
+  objective fuzzer's `paid once` wallet assertion: seed 2 step 138 and seed 3 step 104 read 210 instead of 30;
+  seed 4 step 186 reads 150 instead of 30. These extended quest assertions remain to investigate.
+- Shared real-module matrix, run once: 109 ok / 19 not applicable, no failures.
+  Both participant test vendors pin SB c54104b; NSD's native-read change is 3353259. No version bump or release merge.
+
 Injury anchor (review round 2)
 
 - An injury written while the story clock is unset has no `at`. The first reply that ends with a clock gives it one through
