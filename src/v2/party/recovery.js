@@ -27,7 +27,7 @@
 
 import { rest as restV1 } from '../../recovery.js';
 import { POOLS, filledBy, fitPool, storedPool } from './pools.js';
-import { fromSheet, rulesFrom, settingsOf, toSheet, wornGear } from './sheets.js';
+import { fromSheet, rulesFrom, rulesSliceOf, settingsOf, toSheet, wornGear } from './sheets.js';
 import { sessionOf } from '../combat/stored.js';
 
 export const RECOVERY_FEATURE = 'rpg-battle.recovery';
@@ -127,7 +127,7 @@ export function foldStoryTime(ctx, { markOnly = false } = {}) {
         return null;
     }
     if (!party?.pc) return null;
-    const rules = rulesFrom(settingsOf(typeof ctx.settings === 'function' ? ctx.settings() : null));
+    const rules = rulesFrom(settingsOf(typeof ctx.settings === 'function' ? ctx.settings() : null), rulesSliceOf(ctx));
     const plan = planRecovery(party, minutes, { fight: Boolean(fightOf(ctx)), off, rules });
     if (!plan) return null;
     const draft = ctx.draft('party');
@@ -198,7 +198,7 @@ export function recoveryBeforeReply(view, info = {}) {
     const party = view?.state?.domains?.party;
     if (!party?.pc) return { commands: [] };
     const minutes = clockFrom(typeof view?.query === 'function' ? (name, args) => view.query(name, args) : null);
-    const rules = rulesFrom(settingsOf(view?.settings));
+    const rules = rulesFrom(settingsOf(view?.settings), view?.state?.domains?.rules);
     const plan = planRecovery(party, minutes, { fight: Boolean(sessionOf(view?.state?.domains?.combat)), off: !recoveryOn(view), rules });
     return plan ? { commands: [{ type: 'party.recover', payload: {} }] } : { commands: [] };
 }

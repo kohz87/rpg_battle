@@ -102,6 +102,25 @@ export function isPlainJson(value) {
 
 const HASH = /^[0-9a-f]{64}$/;
 export const isHash = value => typeof value === 'string' && HASH.test(value);
+
+/**
+ * The id of a guarded block: the hash of the reply's canonical pair, the block's operation (`key`: the command and the line or payload it
+ * was made with) and its `rank` among the blocks of that reply made with the same operation. Nothing else goes in: no counter, no
+ * receipt, no id the chat or the process happened to hold, so the same block gets the same id whenever and wherever it is worked out
+ * (live, planned again by a Re-read, after a reload).
+ */
+export const blockIdOf = ({ sid, swipeKey, key, rank }) => idFromHash('bl', hashJson({ sid, swipeKey, key, rank }));
+
+/** The epoch of a timeline that has never been restored (the savepoints domain starts in it). */
+export const GENESIS_EPOCH = 'ep_00000000';
+/**
+ * The epoch `state` is in: the savepoints domain's, when that domain exists (it is made by the first save point), else the genesis epoch.
+ * A pure function of the state, so of the prefix it was built from (ctx.epoch).
+ */
+export function epochOf(state) {
+    const domain = state?.domains?.savepoints;
+    return isObject(domain) && typeof domain.epoch === 'string' && domain.epoch ? domain.epoch : GENESIS_EPOCH;
+}
 export const isRecordId = value => typeof value === 'string' && RECORD_ID.test(value);
 const hasPrefix = (value, prefix) => isRecordId(value) && value.startsWith(`${prefix}_`);
 

@@ -25,6 +25,7 @@
 // registers or comes back is seen at the next view, action or generation, and nothing registers twice.
 
 import { compareVersions, formatVersion, parseRange, parseVersion, satisfies } from './packs/version.js';
+import { HOST_DOMAIN } from './timeline/gate.js';
 import { NEEDS_HINT, affectsStatic, featureOf, featureProblems, featureWarnings } from './features.js';
 
 // Commands the registry makes itself, so the command bus can run them like any other:
@@ -48,10 +49,10 @@ export const STANDARD_PREFIX = 'ss.';
 
 // The settings fields this host knows, and the places a module's settings may ask for (`settings.place`,
 // or a fold's `place`): 'diagnostics' draws it as a sub-fold of Settings → Diagnostics (SPEC §6).
-const SETTINGS_KEYS = ['defaults', 'schema', 'section', 'render', 'folds', 'place'];
+const SETTINGS_KEYS = ['defaults', 'schema', 'section', 'render', 'folds', 'place', 'rules'];
 export const SETTINGS_PLACES = Object.freeze(['diagnostics']);
 const placeOf = value => (SETTINGS_PLACES.includes(value) ? value : null);
-const KNOWN_KEYS = ['id', 'name', 'version', 'description', 'requires', 'domains', 'commands', 'queries', 'replayQueries', 'capture', 'context', 'hooks', 'settings', 'tabs', 'screens', 'widgets', 'features', 'cards'];
+const KNOWN_KEYS = ['id', 'name', 'version', 'description', 'requires', 'domains', 'commands', 'queries', 'replayQueries', 'capture', 'context', 'hooks', 'settings', 'tabs', 'screens', 'widgets', 'features', 'cards', 'participant', 'batchResults'];
 const CONTEXT_KEYS = ['static', 'tail', 'budget', 'feature', 'parts'];
 // What `requires` may name: the Story Block it needs, and the peers (modules) it needs registered.
 const REQUIRES_KEYS = ['storyBlock', 'peers'];
@@ -166,6 +167,7 @@ export function definitionProblems(def) {
     if (map(def.domains, 'domains')) {
         for (const [name, domain] of Object.entries(def.domains)) {
             if (!DOMAIN.test(name)) { problems.push(`the domain name "${name}" must start with a letter and use letters, digits, "_" or "-"`); continue; }
+            if (name === HOST_DOMAIN) { problems.push(`the domain name "${name}" is the host's own (the timeline's save points); a module cannot declare it`); continue; }
             if (!isObject(domain)) { problems.push(`domain "${name}" is not an object`); continue; }
             fn(domain.initial, `domain "${name}" initial`);
             if (domain.validate !== undefined) fn(domain.validate, `domain "${name}" validate`);

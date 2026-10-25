@@ -15,7 +15,8 @@ import { rest as restV1, restAfter, useItemOutside } from '../../recovery.js';
 import { cleanFocus, guessFocus, lockedReason, suggestSkills } from '../../builds.js';
 import { COMPANION_LEVELS_ABOVE, companionStats, companionWeights, joinLevel } from './formula.js';
 import { levelText, maxLevel, xpGainText, xpLabel } from '../../terms.js';
-import { fromSheet, growthOf, wornGear, libraryOf, maxCompanionsOf, rulesFrom, settingsOf, toSheet } from './sheets.js';
+import { fromSheet, growthOf, wornGear, libraryOf, maxCompanionsOf, rulesFrom, rulesSliceOf, settingsOf, toSheet } from './sheets.js';
+import { pinnedSettings } from '../progress/level.js';
 import { exportCharacter, originIds, readCharacter } from './portable.js';
 import { defineItem } from '../items/define.js';
 import { OUTCOMES, dcOf, outcomeOf, statForCheck } from './checks.js';
@@ -23,11 +24,12 @@ import { sessionOf } from '../combat/stored.js';
 import { filledBy, fitActor, fitParty, fitPool, storedPool } from './pools.js';
 import { foldStoryTime } from './recovery.js';
 import { actorFrom, actorsInOrder, attempt, cleanName, cleanRole, fail, nameKey, newId, offersRecord, revOf, waitingOffers } from './util.js';
+import { startRulesClass } from '../progress/start.js';
 
 // Skills learned onto a built sheet, in order (v1 newSheet's own loop, for a sheet made from final stats).
 const newSheetSkills = (sheet, skills, rules) => skills.reduce((out, skill) => learnV1(out, skill, { rules }), sheet);
-const settingsFor = ctx => settingsOf(typeof ctx?.settings === 'function' ? ctx.settings() : null);
-const rulesFor = ctx => rulesFrom(settingsFor(ctx));
+const settingsFor = ctx => pinnedSettings(settingsOf(typeof ctx?.settings === 'function' ? ctx.settings() : null), rulesSliceOf(ctx));
+const rulesFor = ctx => rulesFrom(settingsFor(ctx), rulesSliceOf(ctx));
 
 function readInventory(ctx) {
     try {
@@ -219,6 +221,9 @@ function create(ctx, payload = {}) {
     }, full, rules);
     party.pc = id;
     party.order = [id, ...party.order.filter(entry => entry !== old && entry !== id)];
+    // Rules v2: the basic class of the new character, recorded here and nowhere else (a rules chat refuses a character with none;
+    // nothing at all in a chat with no rules pack). creation.finish passes the wizard's class down to this.
+    startRulesClass(ctx, { actor: id, class: payload.class, checkActor: payload.checkActor, pc: true });
     return { summary: `${name} is ready.`, data: { actor: id }, narrate: false };
 }
 
@@ -281,6 +286,8 @@ function joinParty(ctx, payload = {}) {
     const npc = payload.npc ? String(payload.npc).trim().slice(0, 80) || null : null;
     writeSheet(party, { id, kind: 'companion', control: payload.control === 'player' ? 'player' : 'auto', growth: payload.growth === 'manual' ? 'manual' : 'auto', role: member.role, npc, portrait: portraitOf(ctx, payload.portrait) }, sheet, rules);
     party.order.push(id);
+    // Rules v2: the companion's basic class, chosen by the player (nothing at all in a chat with no rules pack).
+    startRulesClass(ctx, { actor: id, class: payload.class });
     return { summary: `${name} joins the party (${levelText(level, rules)}, ${member.role}).`, data: { actor: id, level }, narrate: true };
 }
 
@@ -839,6 +846,8 @@ function importPc(ctx, payload = {}) {
     }, character.sheet, rules);
     party.pc = id;
     party.order = [id, ...party.order.filter(entry => entry !== id)];
+    // Rules v2: an arrival takes a basic class like any new character (a rules chat refuses one without).
+    startRulesClass(ctx, { actor: id, class: payload.class, checkActor: payload.checkActor, pc: true });
     return {
         summary: `${character.name} arrives from another story (${levelText(character.sheet.level, rules)}).`,
         data: { actor: id, items: character.items, purse: character.purse, cut: { ...character.cut } },
@@ -865,7 +874,7 @@ function acceptOffer(ctx, payload = {}) {
     if (offer.kind === 'join') {
         return joinParty(ctx, {
             name: offer.name, role: offer.role, level: offer.level ?? undefined, npc: offer.npc, text: offer.text, preset: offer.preset ?? null,
-            focus: payload.focus ?? offer.focus, skills: payload.skills ?? offer.skills, control: payload.control,
+            focus: payload.focus ?? offer.focus, skills: payload.skills ?? offer.skills, control: payload.control, class: payload.class,
         });
     }
     return learnSkill(ctx, { actor: offer.actor, name: offer.skill, template: offer.template, setAside: payload.setAside ?? null });

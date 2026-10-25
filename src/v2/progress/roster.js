@@ -1,0 +1,138 @@
+// RPG Battle v2, who fights beside the player (contract §3 party.setActive, summon.end; §5 "Party / summons (P11)").
+// The PC and two durable companions are active; the rest are in reserve. Summons and pets are temporary units of a
+// fight, outside that limit, and end by expiry, dismissal, going down or the fight's end.
+//
+//   party.setActive { actors }          the player, outside a fight: 1 to 3 durable living members, the PC among them
+//                                        → { actors, reserve }
+//   summon.end { actor, reason }        a temporary unit ends; the host or a rule says any reason, the player only "dismissed"
+//                                        → { actor, reason }; the same dismissal again answers the same
+//
+// The roster is stored in the progress slice (`roster.active`, `temporary`), not in the party's, so a chat that never
+// uses it keeps the party slice exactly as it was. The units themselves are made by the summon command (track B4);
+// this file only reads, lists and ends them.
+
+import { assess } from './assess.js';
+import { attachGuard } from './guard.js';
+import { indexOfCtx } from '../rules/graph.js';
+import { isActorId, isObject } from '../rules/ids.js';
+import { unitProblem } from './domain.js';
+import { fightOn } from '../party/commands.js';
+
+const REASONS = ['expired', 'dismissed', 'downed', 'fight-ended'];
+
+function closed(ctx, payload, fields, name) {
+    if (!isObject(payload)) ctx.fail('INVALID', `${name} needs { ${fields.join(', ')} }.`);
+    const extra = Object.keys(payload).find(key => !fields.includes(key));
+    if (extra) ctx.fail('INVALID', `${name} does not take "${extra}".`);
+    for (const key of fields) if (!Object.hasOwn(payload, key)) ctx.fail('INVALID', `${name} needs ${key}.`);
+}
+
+function pinned(ctx) {
+    const ix = indexOfCtx(ctx);
+    if (!ix) ctx.fail('REFUSED', 'This chat does not run a rules pack.');
+    return ix;
+}
+
+function guard(ctx, ix, kind, payload, inputs) {
+    attachGuard(ctx, ix, kind, payload, inputs);
+}
+
+function setActive(ctx, payload) {
+    closed(ctx, payload, ['actors'], 'party.setActive');
+    if (ctx.cause !== 'ui' || ctx.caller) ctx.fail('REFUSED', 'Choosing who is active is the player\'s own choice.');
+    const ix = pinned(ctx);
+    if (fightOn(ctx)) ctx.fail('REFUSED', 'Choose who is active before the fight or after it.');
+    const answer = assess('party.setActive', { ix, progress: ctx.read('progress'), query: (name, args) => ctx.query(name, args) }, payload);
+    if (!answer.ok) ctx.fail(answer.code, answer.why);
+    ctx.draft('progress').roster.active = [...answer.actors];
+    guard(ctx, ix, 'party.setActive', payload, answer.inputs);
+    return { summary: `${answer.actors.length} active, ${answer.reserve.length} in reserve.`, narrate: false, data: { v2: { key: 'roster', result: { actors: answer.actors, reserve: answer.reserve } } } };
+}
+
+function summonEnd(ctx, payload) {
+    closed(ctx, payload, ['actor', 'reason'], 'summon.end');
+    if (!REASONS.includes(payload.reason)) ctx.fail('INVALID', `A summon ends by ${REASONS.join(', ')}.`);
+    // The host or a rule of the module ends a unit for any reason; the player (a click) may only dismiss; the story never does.
+    if (ctx.cause === 'story') ctx.fail('REFUSED', 'The story does not end a summon: a rule does.');
+    if (ctx.cause === 'ui' && (ctx.caller || payload.reason !== 'dismissed')) ctx.fail('REFUSED', 'The player may dismiss a summon, and only that.');
+    const ix = pinned(ctx);
+    const answer = assess('summon.end', { ix, progress: ctx.read('progress'), query: (name, args) => ctx.query(name, args) }, payload);
+    if (!answer.ok) ctx.fail(answer.code, answer.why);
+    const result = { actor: payload.actor, reason: payload.reason };
+    if (answer.unit.ended) {
+        if (answer.unit.ended.reason !== payload.reason) ctx.fail('REFUSED', `That unit already ended (${answer.unit.ended.reason}).`);
+        return { summary: `${answer.unit.name} had already gone.`, narrate: false, data: { v2: { key: `summon:${payload.actor}`, result } } };
+    }
+    ctx.draft('progress').temporary[payload.actor].ended = { reason: payload.reason };
+    guard(ctx, ix, 'summon.end', payload, answer.inputs);
+    return { summary: `${answer.unit.name} is gone.`, narrate: false, data: { v2: { key: `summon:${payload.actor}`, result } } };
+}
+
+// --- the fight's own steps (B4: "temporary units use a separate combat roster; its cap is six") -------------------------------------
+//
+//   summon.begin { actor, owner, kind, template, fight, name, level, standing, hp, mp, sp }   a unit joined a fight (the combat part's step, never a
+//                                       click); `standing`: how many units of the fight stand now, this one included (the fight knows who is down)
+//   summon.settle { fight, units: [{ actor, reason: null | 'downed' | 'expired' }] } the fight is over: every unit of it loses its combat sheet
+//                                       (`sheet: false`); one that went down or ran out also ends. A unit that is still there stays as
+//                                       a narrative presence (ended: null) until a rule or the player ends it
+//
+// The record is the narrative presence (progress.temporary, listed by rules.party); the combat sheet is the fight's combatant and only lives
+// in the fight. Fight-end does not remove the presence; downed and expiry end it.
+
+const POOLS = ['hp', 'mp', 'sp'];
+const FIELDS = ['actor', 'owner', 'kind', 'template', 'fight', 'name', 'level', 'standing', ...POOLS];
+
+function internalOnly(ctx, name) {
+    if (ctx.caller !== 'rpg-battle') ctx.fail('REFUSED', `${name} is the fight's own step: nobody else takes it.`);
+}
+
+function summonBegin(ctx, payload) {
+    internalOnly(ctx, 'summon.begin');
+    if (!isObject(payload) || Object.keys(payload).some(key => !FIELDS.includes(key))) ctx.fail('INVALID', `summon.begin takes ${FIELDS.join(', ')}.`);
+    const ix = pinned(ctx);
+    const unit = { id: payload.actor, kind: payload.kind, owner: payload.owner, template: payload.template, fight: payload.fight, name: payload.name, level: payload.level, hp: payload.hp, mp: payload.mp, sp: payload.sp, ended: null, sheet: true };
+    const problem = unitProblem(payload.actor, unit);
+    if (problem) ctx.fail('INVALID', problem);
+    const temporary = ctx.draft('progress').temporary;
+    if (Object.hasOwn(temporary, unit.id)) return { summary: `${unit.name} was already called.`, narrate: false, data: { actor: unit.id } };
+    // The fight counts who stands (a unit that went down no longer holds a place); the record is only the narrative presence.
+    if (!Number.isSafeInteger(payload.standing) || payload.standing < 1) ctx.fail('INVALID', 'summon.begin says how many units of the fight stand, this one included.');
+    if (payload.standing > ix.constants.temporaryLimit) ctx.fail('REFUSED', `A fight holds ${ix.constants.temporaryLimit} summoned units at most.`);
+    // Room: the record is bounded and the fight is not blocked by it. The oldest go first: the ended ones, then the ones that left their
+    // fight, then the oldest of the rest (by when they were called, not by id).
+    const rank = other => [other.ended === null ? 1 : 0, other.sheet === true ? 1 : 0, other.born ?? 0, other.id];
+    const order = Object.values(temporary).sort((a, b) => {
+        const x = rank(a);
+        const y = rank(b);
+        for (let i = 0; i < 3; i += 1) if (x[i] !== y[i]) return x[i] - y[i];
+        return x[3] < y[3] ? -1 : 1;
+    });
+    while (Object.keys(temporary).length >= 24 && order.length) delete temporary[order.shift().id];
+    unit.born = Math.max(-1, ...Object.values(temporary).map(other => other.born ?? 0)) + 1;
+    temporary[unit.id] = unit;
+    return { summary: `${unit.name} joins the fight.`, narrate: false, data: { actor: unit.id } };
+}
+
+function summonSettle(ctx, payload) {
+    internalOnly(ctx, 'summon.settle');
+    if (!isObject(payload) || Object.keys(payload).some(key => key !== 'fight' && key !== 'units') || typeof payload.fight !== 'string' || !Array.isArray(payload.units)) ctx.fail('INVALID', 'summon.settle takes { fight, units }.');
+    const temporary = ctx.draft('progress').temporary;
+    const reasons = new Map();
+    for (const entry of payload.units) {
+        if (!isObject(entry) || !isActorId(entry.actor) || !(entry.reason === null || entry.reason === 'downed' || entry.reason === 'expired')) ctx.fail('INVALID', 'A unit is { actor, reason: null, "downed" or "expired" }.');
+        reasons.set(entry.actor, entry.reason);
+    }
+    let ended = 0;
+    for (const unit of Object.values(temporary)) {
+        if (unit.fight !== payload.fight || unit.sheet !== true) continue;
+        unit.sheet = false;
+        const reason = reasons.get(unit.id) ?? null;
+        if (reason && unit.ended === null) {
+            unit.ended = { reason };
+            ended += 1;
+        }
+    }
+    return { summary: ended ? `${ended} summoned unit${ended === 1 ? '' : 's'} ended with the fight.` : 'The fight\'s units leave the board.', narrate: false, data: { ended } };
+}
+
+export const commands = { 'party.setActive': setActive, 'summon.end': summonEnd, 'summon.begin': summonBegin, 'summon.settle': summonSettle };
