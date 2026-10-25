@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHost } from '../../vendor/story-block/testkit/index.js';
 import { createModule } from '../../../src/v2/module.js';
-import { rulesModule, mergeInto, SD } from '../progress/helpers/world.js';
+import { rulesModule, SD } from '../progress/helpers/world.js';
+import { rulesParts } from '../../../src/v2/rules/index.js';
 import { fightPin, ref } from '../progress/helpers/fixture.js';
 import { createDeathPart } from '../../../src/v2/death/index.js';
 import { resolveBatch } from '../../../src/v2/fight/batch.js';
@@ -14,12 +15,12 @@ export { ref };
 export async function world(t, { pin = true, native = null, faults = null, st = {}, image = null } = {}) {
     let host = null;
     const death = createDeathPart({ host: () => host?.timeline.host ?? null });
-    let module = mergeInto(createModule(), rulesModule({ given: fightPin() }));
-    const old = module;
-    module = {
-        ...old,
-        domains: { ...old.domains, ...death.domains },
-        commands: { ...old.commands, ...death.commands,
+    // The real module.js with the rules-v2 parts and the death part registered through it (createModule's `parts`), so every hook
+    // is merged by the one mergeHook the module uses. Only the test-only commands below are added beside them.
+    const ruleCommands = new Set(rulesParts.flatMap(([, part]) => Object.keys(part.commands ?? {})));
+    const pieces = Object.fromEntries(Object.entries(rulesModule({ given: fightPin() }).commands).filter(([type]) => !ruleCommands.has(type)));
+    const harness = {
+        commands: { ...pieces,
             'test.lethal': recordLethal, 'test.intervene': intervene,
             'test.proof'(ctx, { kind, payload, parents = [] }) { return { summary: 'Code evidence.', narrate: false, data: ctx.proof({ kind, payload, parents }) }; },
             'test.linkNpc'(ctx, { actor, npc }) { ctx.draft('party').actors[actor].npcId = npc; return { summary: 'Linked.', narrate: false }; },
@@ -30,16 +31,8 @@ export async function world(t, { pin = true, native = null, faults = null, st = 
                 return { summary: 'One reward.', narrate: false };
             },
         },
-        queries: { ...old.queries, ...death.queries },
-        replayQueries: [...new Set([...old.replayQueries, ...death.replayQueries])],
-        batchResults: { resolve: resolveBatch },
-        capture: { kinds: { ...old.capture.kinds, ...death.kinds }, apply: (ctx, line) => death.kinds[line.kind] ? death.kinds[line.kind].apply(ctx, line) : old.capture.apply(ctx, line) },
-        hooks: { ...old.hooks,
-            canGenerate(view, info) { const out = old.hooks.canGenerate?.(view, info); return out?.ok === false ? out : death.hooks.canGenerate(view, info); },
-            replayGuard: (view, info) => death.hooks.replayGuard(view, info) ?? old.hooks.replayGuard(view, info),
-            afterCapture: (view, info) => ({ commands: [...(old.hooks.afterCapture?.(view, info)?.commands ?? []), ...death.hooks.afterCapture(view, info).commands] }),
-        },
     };
+    const module = { ...createModule({ parts: [...rulesParts, ['death', death], ['harness', harness]] }), batchResults: { resolve: resolveBatch } };
     host = await createHost({ modules: [SD, module, ...(native ? [native.module] : [])], timelineFaults: faults, st: { ...st, ...(image ? { chat: image.chat } : {}) } });
     if (image) { host.ctx.chatMetadata = structuredClone(image.metadata); await host.turn.onChatChanged(); }
     t.after(() => host.close());

@@ -110,3 +110,21 @@ test('real module death/wipe/return/wake guards survive reload and full replay w
         assert.ok(spans(w).some(s => s.guard?.predicate?.kind === kind), kind);
     }
 }));
+
+test('one reply through the real module: the credit settlement (progress) and death.resolve (death) both run after it', async t => seeded(72, async () => {
+    const w = await world(t);
+    const hooks = w.host.registry.module('rpg-battle').hooks;
+    assert.equal(typeof hooks.afterCapture, 'function', 'one merged hook, registered by module.js');
+    await w.say('<Changes>\n~ time 15840\n</Changes>');
+    const evidence = w.proof('story', { actor: w.friend, cause: 'narrative', lethal: true });
+    const credits = Object.keys(w.slice('progress').credits).length;
+    await w.say(`The blow lands as the spell is cast.\n\n<Changes>\n! skill-use ${w.pc} | skill: ${ref('s00')} | form: ${ref('s00-base')}\n! lethal ${w.friend} | cause: narrative | evidence: ${evidence}\n</Changes>`);
+    assert.deepEqual(w.problems(), []);
+    assert.equal(Object.keys(w.slice('progress').credits).length, credits + 1, 'the training credit was settled (rules.settle)');
+    const [batch] = Object.values(w.slice('death').batches);
+    assert.equal(batch.status, 'complete', 'and so was the lethal batch (death.resolve)');
+    const steps = w.host.ctx.chat.at(-1).extra.storySuite.receipts.filter(r => r.afterCapture === true).map(r => r.type);
+    assert.deepEqual(steps, ['rules.settle', 'death.resolve'], 'in part order, both in this reply');
+    await reloadAndReplay(w);
+    assert.equal(w.slice('death').batches[batch.id].status, 'complete');
+}));

@@ -209,7 +209,7 @@ this slice, and `engine-unchanged.test.js` plays them again; `pinned.test.js` pl
 
 **Gaps and differences (written down, not decided):**
 
-- Death, return and wipe batches (B6) are not here (they wait for the timeline's merge). `BatchResult` v1 is the fight's own kind. Story Director
+- Death, return and wipe batches (B6) are on branch `track-b/death-return`: `src/v2/death/` (its open gaps, and what is waiting on the host, are in `src/v2/death/GAPS.md`). `BatchResult` v1 is the fight's own kind. Story Director
   checks and danger are slice 4 (below).
 - `batchResults.resolve` is wired by the lead at integration, one resolver for fight and death batches; until then nothing in Story Block reads
   `progress.batches`.
@@ -238,7 +238,7 @@ this slice, and `engine-unchanged.test.js` plays them again; `pinned.test.js` pl
 - The full resolved pin rides in every checkpoint (583 KB for a big pack); B3/E6 will store `resolved` once, keyed by `rulesHash`.
 - Story Block must expose `resolved`, `rulesHash`, `packHash` and `RULES_V2_PROGRESSION` to the activation: `packs.rules` returns
   only the manifest today. That is an E/D task before activation.
-- Slice 4 and later: death and return.
+- Death and return (B6): `src/v2/death/`, see `src/v2/death/GAPS.md`. The native mismatch after a deleted death reply is a dead end today and must close before release.
 
 ## Slice 4: the RB side of Story Director's checks and danger
 
