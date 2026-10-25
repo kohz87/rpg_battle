@@ -13,7 +13,7 @@ const pinned = (given = fixturePin()) => {
 
 test('a fresh rules slice is marked rules v2 with nothing pinned, and holds', () => {
     const slice = initialRules();
-    assert.deepEqual(slice, { schema: 2, rulesVersion: RULES_VERSION, rulesHash: null, pin: null });
+    assert.deepEqual(slice, { schema: 2, rulesVersion: RULES_VERSION, rulesHash: null, pin: null, flags: {}, generated: {} });
     assert.equal(RULES_VERSION, 2);
     assert.deepEqual(rulesProblems(slice), []);
     assert.equal(pinOf({ domains: { rules: slice } }), null);
@@ -108,13 +108,19 @@ test('a stored slice is held to the same shape', () => {
     assert.notEqual(rulesProblems({ ...slice, pin: { ...slice.pin, identity: { ...slice.pin.identity, engine: 'x' } } }).length, 0);
 });
 
-test('the rules and progress parts come as a pair: both ids, in order, each part complete only with the other', async () => {
+test('the rules, progress and training parts come together: all three ids in order, each domain with its owner, no query or command in two parts', async () => {
     const { rulesParts } = await import('../../../src/v2/rules/index.js');
-    assert.deepEqual(rulesParts.map(([id]) => id), ['rules', 'progress']);
-    const [[, rules], [, progress]] = rulesParts;
-    // rules.settle writes progress; the progress guards read the rules pin: each names a domain only the other owns.
+    assert.deepEqual(rulesParts.map(([id]) => id), ['rules', 'progress', 'training']);
+    const [[, rules], [, progress], [, training]] = rulesParts;
     assert.deepEqual(Object.keys(rules.domains), ['rules']);
     assert.deepEqual(Object.keys(progress.domains), ['progress']);
-    assert.ok(rules.commands['rules.settle'] && progress.commands['class.choose'] && progress.hooks.replayGuard);
+    assert.deepEqual(Object.keys(training.domains), ['training']);
+    assert.ok(rules.commands['rules.settle'] && progress.commands['class.choose'] && progress.hooks.replayGuard && training.commands['skill.train']);
+    assert.ok(training.queries['rules.training'] && rules.queries['rules.sheet'] && rules.queries['rules.flags']);
+    // A name in two parts would be refused by the host when they are merged into the module.
+    for (const kind of ['commands', 'queries', 'domains']) {
+        const names = rulesParts.flatMap(([, part]) => Object.keys(part[kind] ?? {}));
+        assert.equal(new Set(names).size, names.length, `a ${kind} name is in two parts`);
+    }
     assert.throws(() => { rulesParts.push(['x', {}]); }, TypeError, 'the list is frozen');
 });

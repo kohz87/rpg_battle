@@ -24,7 +24,7 @@ const num = (prefix, n) => `${prefix}_${n.toString(36).padStart(8, '0')}`;
  * the actor), each use a credited attempt of its own on a reply of its own on day 0 (the caps are not in play).
  */
 export function slice({ actor = ACTOR, choices = [], uses = {} } = {}) {
-    const out = { schema: 2, choices: {}, attempts: {}, credits: {} };
+    const out = { schema: 2, choices: {}, attempts: {}, credits: {}, roster: { active: null }, temporary: {}, sealed: { forms: {}, days: {}, folded: 0 } };
     for (const choice of choices) out.choices[`${choice.actor}|${choice.milestone}`] = choice;
     let n = 0;
     for (const [form, count] of Object.entries(uses)) {

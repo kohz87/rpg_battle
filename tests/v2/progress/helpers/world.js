@@ -9,11 +9,16 @@
 //   ! attempt <actor> | skill: s00 | form: s00-base | key: k1 [| kind: combat|narrative|training] [| minute: n]
 //   ~ time <minute>                              the clock
 import { createHost } from '../../../vendor/story-block/testkit/index.js';
-import { pinOf, pinRules, rulesParts } from '../../../../src/v2/rules/index.js';
-import { recordAttempt, recordBasicClass } from '../../../../src/v2/progress/index.js';
+import { pinOf, pinRules, registerPackDefs, rulesParts } from '../../../../src/v2/rules/index.js';
+import { recordAttempt, recordBasicClass, recordCombatUses } from '../../../../src/v2/progress/index.js';
 
-const [[, rulesPart], [, progressPart]] = rulesParts;
+// The module is built from `rulesParts` alone (every part of rules v2, as module.js will register them), plus the test-only pieces below.
+const PARTS_ = rulesParts.map(([, part]) => part);
+const merge = key => Object.assign({}, ...PARTS_.map(part => part[key] ?? {}));
+const rulesPart = { queries: merge('queries') };
+const progressPart = { kinds: merge('kinds'), hooks: merge('hooks'), replayQueries: [...new Set(PARTS_.flatMap(part => part.replayQueries ?? []))] };
 import { levelFromEarned } from '../../../../src/v2/progress/level.js';
+import { storedPool } from '../../../../src/v2/party/pools.js';
 import { ACTOR, FRIEND, fixturePin, ref } from './fixture.js';
 
 /** Story Director's clock as the story sets it: `~ time <minute>` is a set (ctx.absolute), like the real tracker's. */
@@ -28,6 +33,61 @@ export const CLOCK = {
             ctx.absolute('director', '/time/minutes');
             time.minutes = Number(String(line.name ?? '').trim());
             return { summary: `Story time: ${time.minutes}.`, narrate: false };
+        },
+    },
+};
+
+/**
+ * Story Director as far as training reads it: the clock (`~ time`), where the party is (`~ here <place id>` and the canonical
+ * `atlas.canonical`) and `director.advance { minutes, cause, reason }` (system, a short cause label, one advance for a cause).
+ */
+/** The tier of each place for `world.areaTier` (a test sets it; an unlisted place is unknown). */
+export const AREA_TIERS = {};
+
+export const SD = {
+    ...CLOCK,
+    id: 'story-director',
+    domains: { director: { initial: () => ({ time: { minutes: null }, here: null, advanced: {} }), validate: () => [], counters: ['time/minutes'] } },
+    queries: {
+        ...CLOCK.queries,
+        'world.areaTier': (state, { place } = {}) => (Object.hasOwn(AREA_TIERS, place)
+            ? { place, tier: AREA_TIERS[place], source: 'place', sourceId: place, allowedFoes: [], allowedTags: [], lore: [] }
+            : { place: place ?? null, tier: null, source: 'unknown', sourceId: null, allowedFoes: [], allowedTags: [], lore: [] }),
+        'atlas.canonical': state => { const id = state?.domains?.director?.here ?? null; return id ? { id, name: id, atlasId: null, regionId: null, source: 'pack' } : null; },
+    },
+    commands: {
+        // Story Director's event adapter: a code-validated event proves a flag change, then asks for it (contract §3 rules.flagSet).
+        'sd.event'(ctx, { flag, value, evidence = null, expectedHash = null, write = null } = {}) {
+            const proof = evidence ?? ctx.proof({ kind: 'event', payload: { flag, value } }).id;
+            const read = ctx.query('rules.flags', {});
+            return ctx.call('rules.flagSet', { write: write ?? ctx.id('wr'), key: flag, value, evidence: proof, expectedHash: expectedHash ?? read.hash });
+        },
+        // Only the proof of an event (the adapter that asks for the flag comes in a later reply).
+        'sd.prove'(ctx, { flag, value }) { return { summary: 'Event.', narrate: false, data: { evidence: ctx.proof({ kind: 'event', payload: { flag, value } }).id } }; },
+        'director.advance'(ctx, payload = {}) {
+            if (ctx.cause === 'ui') ctx.fail('REFUSED', 'director.advance: a click cannot move the clock.');
+            if (!/^[a-z0-9][a-z0-9._-]{0,39}$/.test(String(payload.cause ?? ''))) ctx.fail('INVALID', 'director.advance: "cause" must be a short label.');
+            if (!Number.isInteger(payload.minutes) || payload.minutes < 1 || payload.minutes > 1440) ctx.fail('INVALID', 'director.advance: minutes 1-1440.');
+            const director = ctx.draft('director');
+            if (director.time.minutes === null) ctx.fail('REFUSED', 'director.advance: the clock is not set.');
+            if (Object.hasOwn(director.advanced, payload.cause)) return { summary: 'Already taken.', narrate: false, data: { minutes: director.time.minutes, from: director.time.minutes, advanced: 0, held: 'once' } };
+            const from = director.time.minutes;
+            director.time.minutes += payload.minutes;
+            director.advanced[payload.cause] = true;
+            return { summary: `${payload.minutes} minutes pass.`, narrate: false, data: { minutes: director.time.minutes, from, advanced: payload.minutes } };
+        },
+    },
+    capture: {
+        kinds: {
+            ...CLOCK.capture.kinds,
+            here: { grammar: '~ here <place id>' },
+        },
+        apply(ctx, line) {
+            if (line.kind === 'here') {
+                ctx.draft('director').here = String(line.name);
+                return { summary: `The party is at ${line.name}.`, narrate: false };
+            }
+            return CLOCK.capture.apply(ctx, line);
         },
     },
 };
@@ -70,15 +130,22 @@ export const PARTY = {
 export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
     return {
         id, name: 'RPG Battle rules (test)', version: '2.0.0-test',
-        domains: { ...rulesPart.domains, ...progressPart.domains },
+        domains: merge('domains'),
         commands: {
-            ...rulesPart.commands,
-            ...progressPart.commands,
+            ...merge('commands'),
             'test.pin'(ctx) {
                 const problem = pinRules(ctx.draft('rules'), given);
                 if (problem) ctx.fail('REFUSED', problem);
                 return { summary: 'Rules pinned.', narrate: false };
             },
+            // An adapter of this module (craft, trade, loot) registering a generated item, and a rule event setting a flag.
+            'test.register'(ctx, payload) { return ctx.call('rules.registerItem', payload); },
+            'test.flagSet'(ctx, payload) { return ctx.call('rules.flagSet', payload); },
+            // Activation's half: the pack's frozen definitions registered with Story Block; and a registration that a later step undoes.
+            'test.packDefs'(ctx) { return { summary: 'Registered.', narrate: false, data: { registered: registerPackDefs(ctx) } }; },
+            'test.registerThenFail'(ctx, payload) { ctx.call('rules.registerItem', payload); return ctx.fail('REFUSED', 'The buy fell through.'); },
+            // A paid use some other step of this module gave proof of.
+            'test.useProof'(ctx, payload) { return { summary: 'Proof.', narrate: false, data: { proof: ctx.proof({ kind: 'use', payload }).id } }; },
             'test.start'(ctx, { actor, class: cls }) {
                 recordBasicClass(ctx, { actor, class: cls });
                 return { summary: 'Started.', narrate: false };
@@ -96,8 +163,8 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
                 for (const [form, count] of Object.entries(uses)) {
                     for (let i = 0; i < count; i += 1) {
                         n += 1;
-                        const id = `at_${n.toString(36).padStart(8, 's')}`;
-                        const reply = `sr_${n.toString(36).padStart(8, 's')}`;
+                        const id = `at_${n.toString(36).padStart(8, '0')}`;
+                        const reply = `sr_${n.toString(36).padStart(8, '0')}`;
                         const source = { sid: ctx.source.sid, swipeKey: ctx.source.swipeKey, evidence: ctx.source.evidence };
                         progress.attempts[id] = { actor, skill: form.replace(/-base.*$/, ''), form, kind: 'narrative', source, capSource: { ...source, sid: reply }, cost: null, session: null, minute: null };
                         progress.credits[id] = { award: 1, reason: null, minute: (100000 + n) * DAY + 600, day: 100000 + n, reply };
@@ -106,6 +173,24 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
                 }
                 return { summary: 'Seeded.', narrate: false };
             },
+            // A summon or pet of a fight, as the summon command (track B4) will leave it.
+            'test.unit'(ctx, unit) {
+                ctx.draft('progress').temporary[unit.id] = { kind: 'summon', owner: ACTOR, template: ref('s00'), fight: 'cf_00000001', name: 'Grey wolf', level: 5, hp: { cur: 20, max: 20 }, mp: { cur: 0, max: 0 }, sp: { cur: 5, max: 5 }, ended: null, ...unit };
+                return { summary: 'Unit.', narrate: false };
+            },
+            'test.coin'(ctx, { amount }) {
+                ctx.call('wallet.receive', { owner: 'party', amount, note: 'test' });
+                return { summary: 'Coin.', narrate: false };
+            },
+            'test.combatEnd'(ctx, input) {
+                return { summary: 'Fight ended.', narrate: false, data: recordCombatUses(ctx, input) };
+            },
+            // Sets a member's pool as the party keeps it (the module that owns the party writes it).
+            'test.pool'(ctx, { actor, pool, cur }) {
+                const member = ctx.draft('party').actors[actor];
+                member[pool] = storedPool({ cur, max: member[pool].max });
+                return { summary: 'Pool set.', narrate: false };
+            },
             'test.attempt'(ctx, input) {
                 const made = recordAttempt(ctx, input);
                 return { summary: 'Attempt.', narrate: false, data: made };
@@ -113,8 +198,9 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
         },
         queries: { ...rulesPart.queries },
         capture: {
-            kinds: { attempt: { grammar: '! attempt ac_id | skill: s | form: f | key: k' } },
+            kinds: { ...progressPart.kinds, attempt: { grammar: '! attempt ac_id | skill: s | form: f | key: k' } },
             apply(ctx, line) {
+                if (line.kind === 'skill-use') return progressPart.kinds['skill-use'].apply(ctx, line);
                 const l = line.labels;
                 const input = { actor: line.name, skill: ref(l.skill), form: ref(l.form), kind: l.kind ?? 'narrative', key: l.key };
                 if (l.minute !== undefined) input.minute = Number(l.minute);
@@ -190,7 +276,14 @@ export async function started(t, options = {}) {
 
 export { ACTOR, FRIEND, fixturePin, ref };
 
-/** The real RPG Battle module with the rules-v2 module's pieces merged into it, as module.js will register them: one module id, so a guard's own queries are the party's. */
+
+/**
+ * The real RPG Battle module (party, creation, items, trade, ...) with the rules-v2 parts merged into it the way the lead
+ * will register them: one module, `rpg-battle`, so the new commands may change the party's state and guards name it. The
+ * character is made with the real command and starts in class c0 of the golden pack. `companions`: names of companions
+ * added with the real internal command, each in class c0.
+ */
+/** The real module with the rules-v2 module's pieces merged into it, as module.js will register them (one module id, one module). */
 export function mergeInto(base, extra) {
     return {
         ...base,
@@ -206,3 +299,47 @@ export function mergeInto(base, extra) {
         hooks: { ...base.hooks, ...extra.hooks },
     };
 }
+
+export async function realWorld(t, { companions = [], modules = [], pin = true, character = true, settings = {}, reader = null, given = undefined, sd = false } = {}) {
+    const { createModule, MODULE_ID } = await import('../../../../src/v2/module.js');
+    // One module, as the real one is: Story Block answers a replay guard only its owner's own listed queries (party.actor is the party's).
+    const extra = { ...rulesModule({ given }), replayQueries: [...progressPart.replayQueries] };
+    let sdk = null;
+    const base = createModule({ settings: () => ({ ...(sdk?.settings(MODULE_ID) ?? {}), ...settings }) });
+    const merged = mergeInto(base, extra);
+    const host = await createHost({ modules: [sd === true ? SD : sd || CLOCK, merged, CALLER, ...modules], ...(reader ? { settings: { modules: { [MODULE_ID]: reader } } } : {}) });
+    sdk = host.sdk;
+    const saved = globalThis.StoryBlock;
+    globalThis.StoryBlock = { apiVersion: 2, ready: Promise.resolve(sdk), sdk };
+    t.after(() => {
+        host.close();
+        if (saved === undefined) delete globalThis.StoryBlock; else globalThis.StoryBlock = saved;
+    });
+    t.mock.method(console, 'warn', () => {});
+    const ok = (out, what) => { if (!out.ok) throw new Error(`${what}: ${out.code} ${out.message}`); return out; };
+    const internal = (type, payload = {}) => host.sdk.command('rbtest.call', { type, payload });
+    if (character) ok(await host.sdk.command('party.create', { name: 'Astra', preset: 'fighter' }), 'party.create');
+    const pc = character ? host.sdk.query('party.pc').id : null;
+    // Without a character the story waits (canGenerate); setting the start card aside lets the replies come.
+    if (!character) ok(await host.sdk.command('creation.skipStart', {}), 'creation.skipStart');
+    await host.send('Dawn.', 'The road.');
+    const mates = [];
+    if (pin) ok(host.bus.command('test.pin', {}, { cause: 'ui' }), 'test.pin');
+    if (pin && character) {
+        ok(host.bus.command('test.start', { actor: pc, class: ref('c0') }, { cause: 'ui' }), 'test.start');
+        for (const name of companions) mates.push(ok(await internal('party.addCompanion', { name, level: 1, class: ref('c0') }), 'party.addCompanion').receipt.data.actor);
+    }
+    return {
+        host, pc, mates, internal,
+        ui: (type, payload = {}) => host.bus.command(type, payload, { cause: 'ui' }),
+        q: (name, args = {}) => host.sdk.query(name, args),
+        head: () => host.head(),
+        slice: name => host.head().domains[name],
+        problems: () => host.store.problems(),
+        say: (text, lines = []) => host.send('Go on.', lines.length ? `${text}\n\n<Changes>\n${lines.join('\n')}\n</Changes>` : text),
+        progress: (actor = pc) => host.sdk.query('rules.progress', { actor }),
+    };
+}
+
+// A tiny module that sends an internal command as another part would (the real party commands refuse a bare click).
+const CALLER = { id: 'rb-test-caller', name: 'Caller', version: '0.0.0', commands: { 'rbtest.call': (ctx, { type, payload } = {}) => ctx.call(type, payload ?? {}) } };

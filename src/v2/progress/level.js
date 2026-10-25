@@ -37,6 +37,17 @@ export function levelFromEarned(earned, constants) {
 export const pointsAt = (level, constants) => constants.startPoints + (Math.min(Math.max(level, constants.startLevel), constants.levelCap) - constants.startLevel) * constants.pointsPerLevel;
 
 /**
+ * The reader's settings with the pinned ruleset's numbers laid over them (contract §5: "a pinned ruleset overrides the reader's
+ * xpBase, maxLevel, startPoints, pointsPerLevel" and the stat cap). `rules`: the `rules` slice; without a pin the same settings
+ * object comes back, so a chat that runs no ruleset is untouched. Pure.
+ */
+export function pinnedSettings(settings, rules) {
+    const constants = rules?.pin?.resolved?.constants;
+    if (!constants) return settings;
+    return { ...settings, startPoints: constants.startPoints, pointsPerLevel: constants.pointsPerLevel, statCap: constants.statCap, xpBase: constants.xpPerLevel, maxLevel: constants.levelCap };
+}
+
+/**
  * The party part's rules settings for a pin: the retained adapter of the contract (§5): xpBase = xpPerLevel,
  * xpExponent 0, the level cap, and the starting numbers. Laid over DEFAULT_RULES by makeRules.
  */
