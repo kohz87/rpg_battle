@@ -170,7 +170,7 @@ test('item.define: the items part\'s rules with its settings; beforeGenerate: th
 
 test('index.js: registers the module with Story Block v2; without it, one drawer line and nothing else', async () => {
     const registered = [];
-    const sdk = { settings: () => ({}), registerModule: async def => { registered.push(def); return sdk; } };
+    const sdk = { settings: () => ({}), preflight: () => ({ hostApi: 2, classification: 'empty', peers: [], restore: 'idle' }), registerModule: async def => { registered.push(def); return sdk; } };
     globalThis.StoryBlock = { apiVersion: 2, ready: Promise.resolve(sdk), sdk };
     try {
         const { booted, boot, MISSING_TEXT } = await import('../../index.js');
