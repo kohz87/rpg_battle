@@ -248,6 +248,9 @@ export function missingModules(registry, state) {
         .filter(entry => entry.missing.length);
 }
 
+// The timeline a registry's sdk was made with (createSdk), so ensureModules can recover it.
+const timelines = new WeakMap();
+
 // What each registry's modules were last announced as (`modules` event): id → "status\u0000reason".
 const announced = new WeakMap();
 
@@ -286,6 +289,11 @@ const toldFailures = new WeakMap();
  */
 export async function ensureModules({ store, bus, registry, events = null }) {
     announceModules(registry, events);
+    // A save point or a restore the last run left half way is finished or aborted before anything else (docs/v2/TIMELINE.md); a
+    // chat that never used the timeline has nothing to recover and costs one look.
+    const line = timelines.get(registry);
+    line?.settle?.();
+    if (line?.needsRecovery()) await line.recover();
     // A restore barrier changes nothing until every part agrees (registry.setRestore).
     if (registry.restore?.().state === 'pending') return [];
     if (store.headIndex() < 0 || !store.head()) return [];
@@ -441,11 +449,12 @@ export function preflight({ store, registry, chat = () => [], apiVersion = 2 }, 
  * The public sdk. `deps`: { store, bus, registry, settings (createSettings), events
  * (createEvents), chat?: () => Message[], check?, onRegister?(def) (after each registerModule),
  * rewind?({ index, beforeRev }) (src/v2/rewind.js), substitute?(text), dialog?(screenId, opts), dialogCurrent?(), reread?(index) (turn.js),
- * callModel?(request) (model-call.js createModelCalls().callModel) }.
+ * callModel?(request) (model-call.js createModelCalls().callModel), timeline? (timeline/coordinator.js createTimeline: sdk.timeline,
+ * savepoint.make, the participants of the modules registered) }.
  * Returns { sdk, events, markReady }:
  * `sdk.ready` resolves to the sdk once the host calls markReady().
  */
-export function createSdk({ store, bus, registry, settings, events = createEvents(), chat = () => [], check = checkModule, onRegister = null, rewind = null, substitute = text => String(text ?? ''), dialog = null, dialogCurrent = null, reread = null, callModel = null }) {
+export function createSdk({ store, bus, registry, settings, events = createEvents(), chat = () => [], check = checkModule, onRegister = null, rewind = null, substitute = text => String(text ?? ''), dialog = null, dialogCurrent = null, reread = null, callModel = null, timeline = null }) {
     let markReady;
     const ready = new Promise(resolve => { markReady = () => resolve(sdk); });
     const refused = message => ({ ok: false, code: 'REFUSED', message });
@@ -476,12 +485,23 @@ export function createSdk({ store, bus, registry, settings, events = createEvent
         const why = registry.refusal?.(type);
         return why ? { ok: false, code: why.code, message: why.message } : null;
     };
+    // The participants of the modules already registered (the runtime's `modules`, the core), and of each one registered later.
+    const attachParticipant = def => {
+        const done = timeline?.attach(def);
+        if (done && done.ok === false) console.warn(`[Story Suite] ${def?.id}'s participant was not registered: ${done.message}`);
+    };
+    if (timeline) {
+        timelines.set(registry, timeline);
+        for (const def of registry.modules()) attachParticipant(def);
+    }
+    const noTimeline = async () => ({ ok: false, code: 'UNSUPPORTED', message: 'This host has no timeline.' });
     const sdk = Object.freeze({
         apiVersion: 2,
         ready,
         /** Registers a module (§6); a module enabled mid-chat gets its initial state now. */
         async registerModule(def) {
             registry.register(def);
+            attachParticipant(def);
             if (typeof onRegister === 'function') {
                 try { onRegister(def); } catch (error) { console.warn('[Story Suite] a module was registered, but the screens could not follow', error); }
             }
@@ -499,6 +519,9 @@ export function createSdk({ store, bus, registry, settings, events = createEvent
             if (registry.isInternal?.(type)) return refused(`"${type}" is a step Story Block takes itself; it cannot be sent as an action.`);
             const waiting = settle();
             if (waiting) await waiting;
+            // A save point waits for the participants' checkpoints, which a command handler cannot: the timeline makes it
+            // (docs/v2/TIMELINE.md) and answers with the same receipt envelope.
+            if (type === 'savepoint.make' && timeline) return saved(await timeline.makeCommand(payload));   // (the timeline tells the `committed` event itself)
             return held(type) ?? saved(committed(await bus.command(type, payload, { cause: 'ui' })));
         },
         preview: async (type, payload) => {
@@ -558,6 +581,13 @@ export function createSdk({ store, bus, registry, settings, events = createEvent
             open: (screenId, opts = {}) => (typeof dialog === 'function' ? dialog(screenId, opts) : null),
             current: () => (typeof dialogCurrent === 'function' ? dialogCurrent() ?? null : null),
         }),
+        /**
+         * The timeline coordinator (RB_CONTRACT §8; docs/v2/TIMELINE.md): `head`, `make` (a manual save), `list`, `status`,
+         * `history`, `forget` for a reader; `prepare`, `activate`, `abort`, `recover`, `nativeEvent`, `registerParticipant`
+         * refuse without the host's capability, which no module is given. Every method answers `{ ok: true, … }` or
+         * `{ ok: false, code, message }`, as a promise.
+         */
+        timeline: timeline ? timeline.api : Object.freeze(Object.fromEntries(['head', 'make', 'list', 'status', 'history', 'forget', 'registerParticipant', 'prepare', 'activate', 'abort', 'recover', 'nativeEvent', 'nativeMutation'].map(name => [name, noTimeline]))),
         id: newId,
         check: check ? Object.freeze({ ...check }) : null,
         settings: id => settings(id),

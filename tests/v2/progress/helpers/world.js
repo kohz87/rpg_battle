@@ -16,7 +16,7 @@ import { recordAttempt, recordBasicClass, recordCombatUses } from '../../../../s
 const PARTS_ = rulesParts.map(([, part]) => part);
 const merge = key => Object.assign({}, ...PARTS_.map(part => part[key] ?? {}));
 const rulesPart = { queries: merge('queries') };
-const progressPart = { kinds: merge('kinds'), hooks: merge('hooks') };
+const progressPart = { kinds: merge('kinds'), hooks: merge('hooks'), replayQueries: [...new Set(PARTS_.flatMap(part => part.replayQueries ?? []))] };
 import { levelFromEarned } from '../../../../src/v2/progress/level.js';
 import { storedPool } from '../../../../src/v2/party/pools.js';
 import { ACTOR, FRIEND, fixturePin, ref } from './fixture.js';
@@ -219,7 +219,11 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
 
 /** A host with the stand-ins and the module; `ui(type, payload)` is the reader's click. */
 export async function world(t, { given, modules = [] } = {}) {
-    const host = await createHost({ modules: [CLOCK, PARTY, rulesModule({ given }), ...modules], core: false });
+    // The party stand-in's queries live in the rules module: Story Block answers a replay guard only its owner's own listed queries, as the real module's.
+    const rules = rulesModule({ given });
+    rules.queries = { ...rules.queries, ...PARTY.queries };
+    rules.replayQueries = progressPart.replayQueries.filter(name => Object.hasOwn(rules.queries, name));
+    const host = await createHost({ modules: [CLOCK, { ...PARTY, queries: {} }, rules, ...modules], core: false });
     t.after(() => host.close());
     t.mock.method(console, 'warn', () => {});
     const w = {
@@ -291,6 +295,7 @@ export function mergeInto(base, extra) {
         domains: { ...base.domains, ...extra.domains },
         commands: { ...base.commands, ...extra.commands },
         queries: { ...base.queries, ...extra.queries },
+        replayQueries: [...new Set([...(base.replayQueries ?? []), ...(extra.replayQueries ?? [])])],
         capture: {
             ...base.capture,
             kinds: { ...base.capture.kinds, ...extra.capture.kinds },
@@ -302,7 +307,8 @@ export function mergeInto(base, extra) {
 
 export async function realWorld(t, { companions = [], modules = [], pin = true, character = true, settings = {}, reader = null, given = undefined, sd = false } = {}) {
     const { createModule, MODULE_ID } = await import('../../../../src/v2/module.js');
-    const extra = rulesModule({ given });
+    // One module, as the real one is: Story Block answers a replay guard only its owner's own listed queries (party.actor is the party's).
+    const extra = { ...rulesModule({ given }), replayQueries: [...progressPart.replayQueries] };
     let sdk = null;
     const base = createModule({ settings: () => ({ ...(sdk?.settings(MODULE_ID) ?? {}), ...settings }) });
     const merged = mergeInto(base, extra);

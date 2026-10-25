@@ -9,6 +9,7 @@
 //   * with a rules pack pinned, the real party's level is what rules.progress and the guards read.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { part as progressPart } from '../../../src/v2/progress/index.js';
 import { PARTS, createModule } from '../../../src/v2/module.js';
 import { createHost } from '../../vendor/story-block/testkit/index.js';
 import { MODULE_ID } from '../../../src/v2/module.js';
@@ -70,7 +71,7 @@ test('a chat that pins no rules: the parts answer null or refuse, add no step af
 // A scripted legacy session that needs no dice: it must read the same with and without the new parts beside it.
 async function mergedHost() {
     let sdk = null;
-    const merged = mergeInto(createModule({ settings: () => sdk?.settings(MODULE_ID) ?? {} }), rulesModule({}));
+    const merged = mergeInto(createModule({ settings: () => sdk?.settings(MODULE_ID) ?? {} }), { ...rulesModule({}), replayQueries: [...progressPart.replayQueries] });
     const host = await createHost({ modules: [merged, { id: 'rb-test-caller', name: 'Caller', version: '0.0.0', commands: { 'rbtest.call': (ctx, { type, payload } = {}) => ctx.call(type, payload ?? {}) } }] });
     sdk = host.sdk;
     const saved = globalThis.StoryBlock;
@@ -159,8 +160,20 @@ test('a chat the real module recorded replays the same with the parts loaded; th
 test('with a rules pack pinned the real party\'s level is what rules.progress shows and what the guard reads', async t => {
     t.mock.method(console, 'warn', () => {});
     await seeded(3, async () => {
-        const host = await rpgHost({ modules: [CLOCK, rulesModule({ id: SLICE })] });
-                try {
+        // One module, as the real one is: Story Block answers a replay guard only its owner's own queries (party.actor is the party's).
+        let sdk = null;
+        const merged = mergeInto(createModule({ settings: () => sdk?.settings(MODULE_ID) ?? {} }), { ...rulesModule({}), replayQueries: [...progressPart.replayQueries] });
+        const host = await createHost({ modules: [CLOCK, merged, { id: 'rb-test-caller', name: 'Caller', version: '0.0.0', commands: { 'rbtest.call': (ctx, { type, payload } = {}) => ctx.call(type, payload ?? {}) } }] });
+        sdk = host.sdk;
+        const saved = globalThis.StoryBlock;
+        globalThis.StoryBlock = { apiVersion: 2, ready: Promise.resolve(sdk), sdk };
+        const close = host.close;
+        host.close = () => { close(); if (saved === undefined) delete globalThis.StoryBlock; else globalThis.StoryBlock = saved; };
+        host.q = (name, args) => sdk.query(name, args);
+        host.cmd = (type, payload = {}, opts) => sdk.command(type, payload, opts);
+        host.internal = (type, payload = {}) => sdk.command('rbtest.call', { type, payload });
+        host.reply = (text, lines = []) => (lines.length ? `${text}\n\n<Changes>\n${lines.join('\n')}\n</Changes>` : text);
+        try {
             assert.equal((await host.cmd('party.create', { name: 'Ren', preset: 'fighter' })).ok, true);
             const pc = host.q('party.pc').id;
             await host.send('Dawn.', host.reply('The road.'));
