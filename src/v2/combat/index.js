@@ -36,6 +36,7 @@ import { fitParty } from '../party/pools.js';
 import { foldStoryTime } from '../party/recovery.js';
 import { actionWithId, beginUnits, guardAction, guardStart, lootProblem, pinnedFight, pinnedOf, pinnedSetup, settleEnd } from '../fight/index.js';
 import { cleanFormFields } from '../fight/records.js';
+import { settleFightDeaths } from '../death/fight.js';
 import { applyStock, beatenFoes, boardToken, endSummary, foeNames, foeRanks, partyNames, rebuild, sessionView, tailLines } from './view.js';
 
 export { MAX_BEATEN, MAX_OFFERS } from './stored.js';
@@ -657,6 +658,7 @@ function end(ctx, payload) {
             uses: sealed ? {} : { ...(result.uses?.[member.memberId] ?? {}) },
         })),
     });
+    const deathBatch = settleFightDeaths(ctx, { session, result });
 
     // A companion who died in a fight to the death is gone from the party (MODULES §F26): no XP.
     const died = Array.isArray(applied?.data?.died) ? applied.data.died : [];
@@ -730,6 +732,7 @@ function end(ctx, payload) {
             ...(wear?.data?.changes?.length ? { wear: wear.data.changes.map(change => ({ stack: change.stack, name: change.name, cond: change.to, band: change.band })) } : {}),
             foes,
             ...(sealed ? { batch: sealed.batch } : {}),
+            ...(deathBatch ? { deathBatch: deathBatch.batch } : {}),
             xp: { ...result.xp },
             loot: {
                 money: result.loot.money,

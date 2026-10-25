@@ -97,7 +97,8 @@ test('party.setActive on built states: a dead member is refused', () => {
     assert.equal(lifeOf({ hp: { cur: 0 }, conditions: [] }), 'downed');
     assert.equal(lifeOf({ hp: { cur: 5 }, conditions: [{ kind: 'injury' }] }), 'gravely-injured');
     assert.equal(lifeOf({ hp: { cur: 0 }, conditions: [{ kind: 'dead' }] }), 'dead');
-    assert.deepEqual(activeIds({ active: ['x', 'ac_00000002', 'ac_00000002'] }, members, 'ac_00000001'), ['ac_00000001', 'ac_00000002']);
+    // B6: a permanently dead companion cannot remain in the active projection.
+    assert.deepEqual(activeIds({ active: ['x', 'ac_00000002', 'ac_00000002'] }, members, 'ac_00000001'), ['ac_00000001']);
     assert.deepEqual(activeIds(undefined, [], null), []);
     assert.equal(partyView(null, {}, null), null);
 });

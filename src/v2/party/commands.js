@@ -25,6 +25,8 @@ import { filledBy, fitActor, fitParty, fitPool, storedPool } from './pools.js';
 import { foldStoryTime } from './recovery.js';
 import { actorFrom, actorsInOrder, attempt, cleanName, cleanRole, fail, nameKey, newId, offersRecord, revOf, waitingOffers } from './util.js';
 import { startRulesClass } from '../progress/start.js';
+import { rulesFightResult } from '../death/fight.js';
+import { preserveInjury } from '../death/injury.js';
 
 // Skills learned onto a built sheet, in order (v1 newSheet's own loop, for a sheet made from final stats).
 const newSheetSkills = (sheet, skills, rules) => skills.reduce((out, skill) => learnV1(out, skill, { rules }), sheet);
@@ -40,8 +42,8 @@ function readInventory(ctx) {
 }
 
 /** The actor's record rewritten from a v1 Sheet (`options.filled`: the pools a rest filled, fromSheet). */
-function writeSheet(party, actor, sheet, rules, options) {
-    party.actors[actor.id] = fromSheet(actor, sheet, rules, options);
+function writeSheet(ctx, party, actor, sheet, rules, options) {
+    party.actors[actor.id] = preserveInjury(ctx, actor, fromSheet(actor, sheet, rules, options));
     return party.actors[actor.id];
 }
 
@@ -63,11 +65,11 @@ const skillKnown = (actor, name) => (actor.skills ?? []).some(skill => nameKey(s
  * v1 settleCompanions on the companions: those whose points are on auto (MODULES §F29, growthOf)
  * spend them by build when the setting allows; v1's 'command' is a companion on manual.
  */
-function settle(party, ids, rules, settings) {
+function settle(ctx, party, ids, rules, settings) {
     const members = ids.map(id => party.actors[id]).filter(actor => actor?.kind === 'companion')
         .map(actor => ({ id: actor.id, name: actor.name, control: growthOf(actor) === 'manual' ? 'command' : 'auto', sheet: toSheet(actor) }));
     for (const member of settleCompanions(members, { autoSpend: settings.autoSpend !== false, rules })) {
-        writeSheet(party, party.actors[member.id], member.sheet, rules);
+        writeSheet(ctx, party, party.actors[member.id], member.sheet, rules);
     }
 }
 
@@ -215,7 +217,7 @@ function create(ctx, payload = {}) {
         dropOffersFor(party, old);
     }
     const background = String(payload.background ?? '').trim().slice(0, 2000);
-    writeSheet(party, {
+    writeSheet(ctx, party, {
         id, kind: 'pc', control: 'player', role: cleanRole(payload.role ?? ''), npc: null, portrait: portraitOf(ctx, payload.portrait),
         ...(background ? { background } : {}), ...(built ? { origin: built.origin } : {}),
     }, full, rules);
@@ -284,7 +286,7 @@ function joinParty(ctx, payload = {}) {
     sheet = attempt(ctx, () => newSheetSkills(sheet, skills, rules));
     const id = newId(ctx, 'ac', candidate => Boolean(party.actors[candidate]));
     const npc = payload.npc ? String(payload.npc).trim().slice(0, 80) || null : null;
-    writeSheet(party, { id, kind: 'companion', control: payload.control === 'player' ? 'player' : 'auto', growth: payload.growth === 'manual' ? 'manual' : 'auto', role: member.role, npc, portrait: portraitOf(ctx, payload.portrait) }, sheet, rules);
+    writeSheet(ctx, party, { id, kind: 'companion', control: payload.control === 'player' ? 'player' : 'auto', growth: payload.growth === 'manual' ? 'manual' : 'auto', role: member.role, npc, portrait: portraitOf(ctx, payload.portrait) }, sheet, rules);
     party.order.push(id);
     // Rules v2: the companion's basic class, chosen by the player (nothing at all in a chat with no rules pack).
     startRulesClass(ctx, { actor: id, class: payload.class });
@@ -333,7 +335,7 @@ function edit(ctx, payload = {}) {
         const rules = rulesFor(ctx);
         const sheet = spendByBuild(toSheet(next), rules);
         spent = next.points - sheet.points;
-        writeSheet(party, next, sheet, rules);
+        writeSheet(ctx, party, next, sheet, rules);
     }
     const parts = [];
     if (next.name !== actor.name) parts.push(`${actor.name} is now called ${next.name}`);
@@ -382,7 +384,7 @@ function spend(ctx, payload = {}) {
     const sheet = attempt(ctx, () => spendPoints(before, points, rules));
     const total = before.points - sheet.points;
     if (!total) fail(ctx, 'INVALID', 'Choose where the points go.');
-    writeSheet(party, actor, sheet, rules);
+    writeSheet(ctx, party, actor, sheet, rules);
     const spent = STATS.filter(stat => sheet.stats[stat] !== before.stats[stat]).map(stat => `${stat} ${sheet.stats[stat]}`).join(', ');
     return { summary: `${actor.name} spends ${total} point${total === 1 ? '' : 's'}: ${spent}.`, data: { actor: actor.id, points: total }, narrate: false };
 }
@@ -416,7 +418,7 @@ function learnSkill(ctx, payload = {}) {
     }
     if (skillKnown(actor, found.name)) fail(ctx, 'REFUSED', `${actor.name} already knows ${found.name}.`);
     const sheet = attempt(ctx, () => learnV1(toSheet(actor), found.name, { rules, setAside: payload.setAside ?? null }));
-    const after = writeSheet(party, actor, sheet, rules);
+    const after = writeSheet(ctx, party, actor, sheet, rules);
     const aside = after.skills.find(skill => nameKey(skill.name) === nameKey(found.name))?.active === false;
     return { summary: `${actor.name} learns ${found.name}${aside ? ' (set aside for now)' : ''}.`, data: { actor: actor.id, skill: found.name }, narrate: true };
 }
@@ -431,7 +433,7 @@ function setSkillActive(ctx, payload = {}) {
     if (!current) fail(ctx, 'NOT_FOUND', `${actor.name} does not know ${payload.name}.`);
     if (current.active === active) fail(ctx, 'REFUSED', `${current.name} is already ${active ? 'in use' : 'set aside'}.`);
     const sheet = attempt(ctx, () => setActiveV1(toSheet(actor), current.name, active, rules, { swapOut: payload.swapOut ?? null }));
-    writeSheet(party, actor, sheet, rules);
+    writeSheet(ctx, party, actor, sheet, rules);
     return { summary: `${actor.name} ${active ? 'takes up' : 'sets aside'} ${current.name}.`, data: { actor: actor.id, skill: current.name, active }, narrate: false };
 }
 
@@ -442,7 +444,7 @@ function forgetSkill(ctx, payload = {}) {
     const actor = actorFrom(ctx, party, payload);
     const current = actor.skills.find(skill => nameKey(skill.name) === nameKey(payload.name));
     if (!current) fail(ctx, 'NOT_FOUND', `${actor.name} does not know ${payload.name}.`);
-    writeSheet(party, actor, attempt(ctx, () => forgetV1(toSheet(actor), current.name)), rules);
+    writeSheet(ctx, party, actor, attempt(ctx, () => forgetV1(toSheet(actor), current.name)), rules);
     return { summary: `${actor.name} forgets ${current.name}.`, data: { actor: actor.id, skill: current.name }, narrate: false };
 }
 
@@ -490,7 +492,7 @@ function rest(ctx, payload = {}) {
         const rested = already ? restAfter(sheet, kind, { gear, rules, already }) : restV1(sheet, kind, { gear, rules });
         // Any rest ends what a fight left (a bleed with rounds to go, B-c1-1); a story's condition waits for a long one.
         const next = { ...rested, conditions: (rested.conditions ?? []).filter(entry => !Number.isInteger(entry.rounds)) };
-        const after = writeSheet(party, actor, next, rules, { filled: filledBy(kind) });
+        const after = writeSheet(ctx, party, actor, next, rules, { filled: filledBy(kind) });
         const gain = gains(actor, after);
         data[id] = gain;
         const text = gainText(gain);
@@ -533,9 +535,10 @@ function heal(ctx, payload = {}) {
     const next = used.used ? used.sheet : structuredClone(sheet);
     next.sp = { ...next.sp, cur: Math.min(next.sp.max, next.sp.cur + sp) };
     const gain = gains(sheet, next);
-    const cured = sheet.conditions.filter(entry => !next.conditions.some(other => other.name === entry.name)).map(entry => entry.name);
+    const proposed = preserveInjury(ctx, actor, fromSheet(actor, next, rules));
+    const cured = sheet.conditions.filter(entry => !proposed.conditions.some(other => other.kind === entry.name)).map(entry => entry.name);
     if (!gain.hp && !gain.mp && !gain.sp && !cured.length) fail(ctx, 'REFUSED', `${actor.name} does not need that now.`);
-    writeSheet(party, actor, next, rules);
+    writeSheet(ctx, party, actor, next, rules);
     const parts = [gain.hp ? `+${gain.hp} HP` : '', gain.mp ? `+${gain.mp} MP` : '', gain.sp ? `+${gain.sp} SP` : '', cured.length ? `cured ${cured.join(', ')}` : ''].filter(Boolean);
     return { summary: `${actor.name}: ${parts.join(', ')} (now ${next.hp.cur}/${next.hp.max} HP).`, data: { actor: actor.id, ...gain, cured }, narrate: false };
 }
@@ -629,23 +632,23 @@ function applyResult(ctx, payload = {}) {
         const actor = party.actors[id];
         const applied = applyResultV1(toSheet(actor), id, result, rules);
         let sheet = applied.sheet;
-        if (id === party.pc && (payload.stakes ?? result.stakes) === 'death' && (result.outcome === 'defeat' || result.outcome === 'lost')) {
+        if (!rulesFightResult(ctx) && id === party.pc && (payload.stakes ?? result.stakes) === 'death' && (result.outcome === 'defeat' || result.outcome === 'lost')) {
             sheet = { ...sheet, hp: { ...sheet.hp, cur: 0 }, conditions: [{ name: 'dead', rounds: null }] };
         }
         // What the fight left keeps its rounds and the story minute it ended (sheets.js conditionRecord).
-        writeSheet(party, actor, sheet, rules, { at: storyMinute(ctx) });
+        writeSheet(ctx, party, actor, sheet, rules, { at: storyMinute(ctx) });
         if (applied.levelsGained) levels[id] = applied.levelsGained;
         if (applied.masteryGained.length) mastery[id] = applied.masteryGained;
     }
     // MODULES §F26: in a fight to the death, a companion who went down died.
-    const toTheDeath = (payload.stakes ?? result.stakes) === 'death';
+    const toTheDeath = !rulesFightResult(ctx) && (payload.stakes ?? result.stakes) === 'death';
     const fallen = toTheDeath
         ? ids.filter(id => id !== party.pc && party.actors[id]?.kind === 'companion' && result.party.some(entry => entry.memberId === id && (entry.down || entry.hp?.cur === 0)))
         : [];
     const died = fallen.map(id => ({ id, name: party.actors[id].name }));
     for (const id of fallen) dropMember(ctx, party, party.actors[id]);
     const living = ids.filter(id => party.actors[id]);
-    settle(party, living, rules, settingsFor(ctx));
+    settle(ctx, party, living, rules, settingsFor(ctx));
     const reached = Object.keys(levels).filter(id => party.actors[id]).map(id => `${party.actors[id].name} reaches ${levelText(party.actors[id].level, rules)}`);
     const lost = died.length ? [`${listNames(died.map(entry => entry.name))} died in the fight and ${died.length === 1 ? 'is' : 'are'} gone from the party for good`] : [];
     const said = [...lost, ...reached];
@@ -707,10 +710,10 @@ function grantXp(ctx, payload = {}) {
         if (!xp) continue;
         const actor = party.actors[id];
         const gained = gainXp(toSheet(actor), xp, rules);
-        writeSheet(party, actor, gained.sheet, rules);
+        writeSheet(ctx, party, actor, gained.sheet, rules);
         out.push({ actor: id, xp, levels: gained.levelsGained });
     }
-    settle(party, ids, rules, settingsFor(ctx));
+    settle(ctx, party, ids, rules, settingsFor(ctx));
     const reason = String(payload.reason ?? '').trim().slice(0, 120);
     const xpWord = xpLabel(rules);
     const each = out.map(gain => `${party.actors[gain.actor].name} ${xpWord} ${xpGainText(gain.xp)}${gain.levels ? `, reaches ${levelText(party.actors[gain.actor].level, rules)}` : ''}`);
@@ -841,7 +844,7 @@ function importPc(ctx, payload = {}) {
         ? { race: file.origin.race ? { id: file.origin.race.id, name: file.origin.race.name } : null, talents: file.origin.talents.map(entry => ({ id: entry.id, name: entry.name })) }
         : null;
     const origin = known ?? given;
-    writeSheet(party, {
+    writeSheet(ctx, party, {
         id, kind: 'pc', control: 'player', role: character.role, npc: null, portrait: portraitOf(ctx, payload.portrait),
         ...(background ? { background } : {}), ...(origin ? { origin } : {}),
     }, character.sheet, rules);

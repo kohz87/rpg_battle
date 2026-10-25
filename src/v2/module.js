@@ -13,7 +13,8 @@
 //   every reply), the tails concatenated in part order, the budgets summed.
 // - hooks: every part's functions of a name, called in part order (canGenerate: any "no" blocks,
 //   the first one is the answer: create your character first, you died; item.define: each one's fields laid over the def; beforeGenerate: the lines and
-//   commands of all).
+//   commands of all; afterCapture: the commands of all, in part order; replayGuard: dispatched by kind, the first part
+//   that answers is the answer). Any other hook two parts define keeps the last answer that is not undefined.
 // - settings: each part's keys under its part id (`combat.hitBase`), so two parts can never clash,
 //   labelled with the part's section title; a part still reads its own keys bare
 //   (`ctx.settings().hitBase`), with the module's un-namespaced keys (a rules file's `rules`,
@@ -112,10 +113,14 @@ function claim(table, name, partId, what) {
  * Block keeps them (`sdk.settings('rpg-battle')`); without it, the host's when it is up, else the
  * defaults. Used where no ctx or view carries them (queries, the item.define hook).
  */
-export function createModule({ settings = null, query = null } = {}) {
+export function createModule({ settings = null, query = null, parts = [] } = {}) {
+    // `parts`: [id, part] pairs registered after PARTS, in order, by whoever wires more of them in (the rules-v2 parts and the death
+    // part are not in PARTS yet, the lead adds them at integration). Tests compose them through this, so they meet the one
+    // merge the real module uses. Empty by default: the module is as PARTS make it.
+    const registered = [...PARTS, ...parts];
     const defaults = {};
     const schema = {};
-    for (const [id, part] of PARTS) {
+    for (const [id, part] of registered) {
         const own = part.settings;
         if (!own) continue;
         const title = typeof own.section === 'string' && own.section.trim() ? own.section.trim() : id;
@@ -205,7 +210,7 @@ export function createModule({ settings = null, query = null } = {}) {
         settings: partSettings(moduleSettings(), partId),
     });
 
-    for (const [id, part] of PARTS) {
+    for (const [id, part] of registered) {
         for (const [name, domain] of Object.entries(part.domains ?? {})) {
             claim(owners.domain, name, id, 'domain');
             domains[name] = domain;
@@ -433,6 +438,27 @@ function mergeHook(name, list, { viewFor, settings }) {
                 }
             }
             return { lines, commands };
+        };
+    }
+    if (name === 'afterCapture') {
+        // The steps after a reply's lines: every part's, concatenated in part order, so a later part never drops an earlier one's.
+        return async (...args) => {
+            const commands = [];
+            for (const { fn } of list) {
+                const out = await fn(...args);
+                if (isObject(out) && Array.isArray(out.commands)) commands.push(...out.commands);
+            }
+            return { commands };
+        };
+    }
+    if (name === 'replayGuard') {
+        // A part answers only the guard kinds it owns (undefined for the rest): the first answer is the answer.
+        return (...args) => {
+            for (const { fn } of list) {
+                const out = fn(...args);
+                if (out !== undefined) return out;
+            }
+            return undefined;
         };
     }
     if (name === 'item.define') {
