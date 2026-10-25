@@ -23,12 +23,14 @@ function terminalPlan(thread, inputs, outcome, policy) {
 }
 
 /** The closed prerequisites, not the entire party, inventory or formatted calendar. */
-function assess(query, pin, thread, outcome, policy, reply = null, recorded = {}) {
+function assess(query, pin, thread, outcome, policy, reply = null, recorded = {}, reserving = false) {
     const inputs = guardQuestInputs(query, reply, recorded);
     const credited = copy(thread);
     const tally = inputs.storyCoin;
-    const coin = outcome === 'done' && tally && !tally.claimed ? creditFor(thread, Math.max(0, tally.coin - tally.vouched)) : 0;
-    const credit = coin ? { reply, coin, claim: creditKey(reply) } : null;
+    const reserve = inputs.proofs.find(p => p.owner === 'rpg-battle' && p.kind === 'story' && p.payload?.type === 'quest.coin'
+        && p.payload.thread === thread.id && p.payload.instance === thread.rpg.instance && p.payload.reply === reply);
+    const coin = outcome === 'done' && tally && !tally.claimed && (reserve || reserving) ? creditFor(thread, Math.max(0, tally.coin - tally.vouched)) : 0;
+    const credit = coin ? { reply, coin, claim: creditKey(reply), ...(reserve ? { reserve: { id: reserve.id, payloadHash: reserve.payloadHash } } : {}) } : null;
     if (credit) { credited.rpg.storyCredit.coin += coin; credited.rpg.storyCredit.claims.push(credit.claim); }
     const plan = terminalPlan(credited, inputs, outcome, policy);
     if (!plan.ok) return plan;
@@ -129,9 +131,10 @@ export function createSettlement(policy = {}) {
             outcome: checked.plan.outcome, reason: operation.reason, settlement: terminal.quest.settlement.id });
         for (const stack of checked.plan.consumed) call(ctx, 'inventory.consume', stack);
         const paid = checked.plan.payout;
-        if (paid.coin) {
-            const received = call(ctx, 'wallet.receive', { owner: 'party', amount: paid.coin, note: thread.key });
-            if (received.amount !== paid.coin) return ctx.fail('REFUSED', 'The full quest reward could not be paid.');
+        const walletCoin = paid.coin + (checked.inputs.credit?.reserve ? checked.inputs.credit.coin : 0);
+        if (walletCoin) {
+            const received = call(ctx, 'wallet.receive', { owner: 'party', amount: walletCoin, note: thread.key });
+            if (received.amount !== walletCoin) return ctx.fail('REFUSED', 'The full quest reward could not be paid.');
         }
         for (const item of paid.items) call(ctx, 'inventory.grant', { def: item.def, qty: item.qty, owner: 'party' });
         const xp = paid.xp ? call(ctx, 'party.grantXp', { quest: thread.id, amount: paid.xp, claim: key }) : null;
@@ -144,6 +147,29 @@ export function createSettlement(policy = {}) {
                 units: 1, paid: paid.coin || checked.quest.storyCredit.coin ? { amount: paid.coin, ...(checked.quest.storyCredit.coin ? { story: checked.quest.storyCredit.coin } : {}) } : null,
                 consumed: copy(checked.plan.consumed), xp, fights: [], ...(payload.by === 'story' ? { by: 'story' } : {}) }),
                 v2: { key, result: { thread: thread.id, instance: thread.rpg.instance, settlement: terminal.quest.settlement.id, outcome: checked.plan.outcome, offers } } } };
+    }
+    // Move a narrated reward back to its source before settlement. Its immutable attribution survives a removed objective;
+    // only the guarded settlement can release it. This step's own guard binds the original coin, never a later quest match.
+    function reserveCoin(ctx, payload) {
+        if (ctx.cause !== 'system' || ctx.caller && ctx.caller !== 'rpg-battle') return ctx.fail('REFUSED', 'Only the reward adapter reserves narrated coin.');
+        const { epoch, source } = boundary(ctx);
+        const pin = pinned(ctx.read('rules'));
+        if (!pin) return ctx.fail('RULES_MISMATCH', 'No frozen rules.');
+        const bound = payload.bound;
+        if (!bound) return ctx.fail('INVALID', 'The source attribution must be recorded at planning.');
+        if (bound.type !== 'quest.coin' || bound.reply !== ctx.reply.sid || bound.thread !== payload.id
+            || !Number.isSafeInteger(bound.coin) || bound.coin <= 0) return ctx.fail('INVALID', 'Invalid recorded reward attribution.');
+        const tally = ctx.query('quest.replayInputs', { reply: bound.reply }).storyCoin;
+        if (!tally || tally.coin - tally.vouched !== bound.coin) return ctx.fail('NO_LONGER_DONE', 'The source coin is no longer present.');
+        const inputs = { bound, tally };
+        const key = `rb:${epoch}:quest-coin:${bound.reply}`;
+        if (!ctx.claim(key)) return ctx.fail('CLAIMED', 'This source coin already belongs to a reward.');
+        ctx.replayGuard(buildGuard({ hash: ctx.hash, owner: 'rpg-battle', epoch, source, rulesHash: pin.hash,
+            kind: 'quest.coinReserve', payload: bound, inputs }), { inputs });
+        call(ctx, 'wallet.pay', { owner: 'party', amount: bound.coin, note: 'Quest reward held at source' });
+        const proof = ctx.proof({ kind: 'story', payload: bound });
+        return { summary: 'The narrated quest reward is held for guarded settlement.', narrate: false,
+            replan: true, data: { proof: proof.id, bound } };
     }
     function settleCredit(ctx, thread) {
         const { epoch, source } = boundary(ctx);
@@ -173,6 +199,16 @@ export function createSettlement(policy = {}) {
             kind, payload: operation, inputs: guardInputs(facts) }), { inputs: facts, external });
     }
     function replayGuard({ state, query, hash }, info) {
+        if (info.guard?.predicate?.kind === 'quest.coinReserve') {
+            const guard = info.guard, bound = guard.predicate.payload, pin = pinned(state?.domains?.rules);
+            const tally = query('quest.replayInputs', { reply: bound.reply }).storyCoin;
+            if (!pin || guard.rulesHash !== pin.hash || guard.epoch !== stateEpoch(state) || !tally
+                || tally.coin - tally.vouched !== bound.coin) return { ok: false, reason: 'The attributed coin source changed.' };
+            const inputs = { bound, tally };
+            const expected = buildGuard({ hash, owner: 'rpg-battle', epoch: guard.epoch, source: info.source, rulesHash: pin.hash,
+                kind: 'quest.coinReserve', payload: bound, inputs });
+            return { ok: expected.inputHash === guard.inputHash && hash(inputs) === hash(info.recorded?.inputs) };
+        }
         if (info.guard?.predicate?.kind === 'quest.storyCredit') {
             const pin = pinned(state?.domains?.rules);
             if (!pin || !buildGuard || info.guard.rulesHash !== pin.hash || info.guard.epoch !== stateEpoch(state)) return { ok: false, reason: 'The quest rules or epoch changed.' };
@@ -212,5 +248,5 @@ export function createSettlement(policy = {}) {
         return expected.inputHash === info.guard.inputHash && hash(guardInputs(info.recorded?.inputs ?? {})) === hash(guardInputs(checked.inputs))
             ? { ok: true } : off();
     }
-    return { settleQuest, settleCredit, replayGuard, guardTake, guardIntent: (ctx, thread) => guardTake(ctx, thread, null, null, 'quest.turnIn') };
+    return { settleQuest, settleCredit, reserveCoin, replayGuard, guardTake, guardIntent: (ctx, thread) => guardTake(ctx, thread, null, null, 'quest.turnIn') };
 }

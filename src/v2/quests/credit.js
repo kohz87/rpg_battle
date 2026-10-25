@@ -16,6 +16,23 @@ export function unclaimedCoin(state, tools) {
     const budget = ask(tools.query, 'inventory.storyBudget');
     return Math.max(0, amount(budget?.paid) - amount(budget?.vouched));
 }
+const recordedReservation = tools => (tools?.receipts?.() ?? []).filter(row => row.index === tools?.reply?.index)
+    .map(row => row.receipt).find(receipt => receipt?.type === 'quest.reserveCoin' && receipt.data?.bound)?.data.bound ?? null;
+export function creditCandidates(state, _args, tools) {
+    const coin = unclaimedCoin(state, tools);
+    if (!coin || state?.meta?.claims?.[`rb:${stateEpoch(state)}:quest-coin:${tools?.reply?.sid}`]) return [];
+    const bound = recordedReservation(tools);
+    if (bound) return bound.reply === tools.reply.sid && bound.coin === coin ? [bound.thread] : [];
+    return (ask(tools.query, 'director.threads') ?? []).filter(t => t.rpg?.state === 'active' && creditFor(t, coin) > 0).map(t => t.id).sort();
+}
+export function coinReservation(state, { id } = {}, tools) {
+    const candidates = creditCandidates(state, {}, tools);
+    if (candidates.length !== 1 || candidates[0] !== id) return null;
+    const previous = recordedReservation(tools);
+    if (previous) return { id, bound: previous };
+    const thread = ask(tools.query, 'director.thread', { id });
+    return { id, bound: { type: 'quest.coin', thread: id, instance: thread.rpg.instance, reply: tools.reply.sid, coin: unclaimedCoin(state, tools) } };
+}
 export function autoTurnIns(state, args, tools) {
     const sid = tools?.reply?.sid;
     if (!sid) return [];
@@ -45,7 +62,9 @@ export function questCreditHook(view) {
     const intents = view.query('quest.autoTurnIns', { pending: true }).sort();
     const ids = [...new Set([...expiredQuests(view), ...intents, ...view.query('quest.owedCredits', {})])];
     // Objective proofs come first; settlement then sees the same prefix as a full replay.
-    const commands = [...pendingObjectives(view), ...ids.map(id => ({ type: 'quest.payOwed', payload: { id, credit: true } }))];
+    const candidates = view.query('quest.creditCandidates', {});
+    const reserves = candidates.length === 1 ? [{ type: 'quest.reserveCoin', payload: view.query('quest.coinReservation', { id: candidates[0] }) }] : [];
+    const commands = [...pendingObjectives(view), ...reserves, ...ids.map(id => ({ type: 'quest.payOwed', payload: { id, credit: true } }))];
     return commands.length ? { lines: [], commands } : undefined;
 }
 

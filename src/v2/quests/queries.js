@@ -1,7 +1,7 @@
 // Retained quest projections, from the one SD thread. Legacy quests are readable history only.
 import { objectiveProgress, planQuestSettlement } from './planner.js';
 import { ranksOf } from './ranks.js';
-import { autoTurnIns, owedCredits, repeatedCoin } from './credit.js';
+import { coinReservation, creditCandidates, autoTurnIns, owedCredits, repeatedCoin } from './credit.js';
 import { ask, copy, pinned, questInputs, replayInputs, threadOf } from './seams.js';
 
 const historyText = 'From an earlier version (read only).';
@@ -68,7 +68,7 @@ export function createQueries(policy = {}) {
         'quest.replayInputs': replayInputs,
         'quest.progress': progress, 'quest.details': details, 'quest.ranks': (state, _args, tools) => pinned(state?.domains?.rules) ? ranksOf(queryOf(tools)) : [],
         'quest.owed': (_state, _args, tools) => all(queryOf(tools)).map(owedOf).filter(Boolean),
-        'quest.owedCredits': owedCredits, 'quest.repeatedCoin': repeatedCoin, 'quest.autoTurnIns': autoTurnIns,
+        'quest.coinReservation': coinReservation, 'quest.creditCandidates': creditCandidates, 'quest.owedCredits': owedCredits, 'quest.repeatedCoin': repeatedCoin, 'quest.autoTurnIns': autoTurnIns,
         'quest.followsLadder': (_state, _args, tools) => (typeof tools?.settings === 'function' ? tools.settings() : tools?.settings)?.followLadder !== false, 'quest.board': board,
         'director.retriable': (_state, _args, tools) => {
             const reply = tools?.reply?.sid;

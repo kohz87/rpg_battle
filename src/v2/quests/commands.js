@@ -19,7 +19,7 @@ export function offerQuest(ctx, template, options = {}) {
     return id;
 }
 
-export function createCommands({ settleQuest, evaluateRequirements = null, guardTake = null, settleCredit = null, recordObjective = null } = {}) {
+export function createCommands({ settleQuest, evaluateRequirements = null, guardTake = null, settleCredit = null, recordObjective = null, reserveCoin = null } = {}) {
     function take(ctx, payload = {}) {
         if (payload.by !== undefined || payload.credit !== undefined || payload.reason !== undefined) return ctx.fail('INVALID', 'Taking a quest uses id or key.');
         if (ctx.caller && !['story-director', 'rpg-battle'].includes(ctx.caller)) return ctx.fail('REFUSED', 'Quest acceptance requires the reader or validated player intent.');
@@ -106,5 +106,5 @@ export function createCommands({ settleQuest, evaluateRequirements = null, guard
         const { id: _id, key: _key, ...request } = payload;
         return recordObjective(ctx, thread, request);
     }
-    return { 'quest.take': take, 'quest.abandon': abandon, 'quest.finish': finish, 'quest.payOwed': payOwed, 'quest.objective': objective };
+    return { 'quest.reserveCoin': reserveCoin, 'quest.take': take, 'quest.abandon': abandon, 'quest.finish': finish, 'quest.payOwed': payOwed, 'quest.objective': objective };
 }
