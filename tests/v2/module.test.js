@@ -11,9 +11,9 @@ test('the merged module is a valid Story Block module with every part\'s pieces'
     assert.deepEqual(definitionProblems(module), []);
     assert.equal(module.id, MODULE_ID);
     assert.equal(module.version, VERSION);
-    assert.deepEqual(PARTS.map(([id]) => id), ['party', 'creation', 'checks', 'quests', 'items', 'combat', 'board', 'return', 'trade', 'craft', 'screens']);
+    assert.deepEqual(PARTS.map(([id]) => id), ['rules', 'progress', 'training', 'party', 'creation', 'checks', 'quests', 'items', 'combat', 'board', 'return', 'trade', 'craft', 'screens']);
     assert.deepEqual(Object.keys(module.domains).sort(), ['bestiary', 'checks', 'combat', 'craft', 'creation', 'effects', 'gear', 'party', 'trade']);
-    for (const [, part] of PARTS) {
+    for (const [, part] of PARTS.filter(([id]) => !['rules', 'progress', 'training'].includes(id))) {
         for (const type of Object.keys(part.commands ?? {})) assert.equal(typeof module.commands[type], 'function', type);
         for (const name of Object.keys(part.queries ?? {})) assert.equal(typeof module.queries[name], 'function', name);
         for (const name of Object.keys(part.widgets ?? {})) assert.ok(module.widgets[name], name);

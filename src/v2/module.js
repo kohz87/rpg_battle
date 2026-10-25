@@ -39,6 +39,7 @@
 import { part as party } from './party/index.js';
 import { part as creation } from './creation/index.js';
 import { part as checks } from './checks/index.js';
+import { rulesParts, initialRules, pinRules, registerPackDefs } from './rules/index.js';
 import { part as quests } from './quests/index.js';
 import { part as items } from './items/index.js';
 import { part as combat } from './combat/index.js';
@@ -58,7 +59,7 @@ export const VERSION = '2.0.0-beta.2';
 
 /** The parts in their order: [part id, part]. */
 export const PARTS = Object.freeze([
-    ['party', party], ['creation', creation], ['checks', checks], ['quests', quests], ['items', items], ['combat', combat],
+    ...rulesParts, ['party', party], ['creation', creation], ['checks', checks], ['quests', quests], ['items', items], ['combat', combat],
     ['board', board], ['return', returnPart], ['trade', trade], ['craft', craft], ['screens', screens],
 ]);
 
@@ -114,11 +115,23 @@ function claim(table, name, partId, what) {
  * Block keeps them (`sdk.settings('rpg-battle')`); without it, the host's when it is up, else the
  * defaults. Used where no ctx or view carries them (queries, the item.define hook).
  */
-export function createModule({ settings = null, query = null, parts = [] } = {}) {
-    // `parts`: [id, part] pairs registered after PARTS, in order, by whoever wires more of them in (the rules-v2 parts and the death
-    // part are not in PARTS yet, the lead adds them at integration). Tests compose them through this, so they meet the one
-    // merge the real module uses. Empty by default: the module is as PARTS make it.
-    const registered = [...PARTS, ...parts];
+export function createModule({ settings = null, query = null, parts = [], rules = null, preflight = null } = {}) {
+    // A checked frozen pack and a successful host preflight are both required. Legacy chats get no rules marker.
+    let activation = null;
+    if (rules !== null) {
+        const slice = initialRules();
+        const problem = pinRules(slice, rules);
+        if (problem) throw new Error(problem);
+        const peer = preflight?.peers?.find(peer => peer.module === 'story-director');
+        if (preflight?.hostApi !== 2 || preflight.restore !== 'idle' || !peer?.enabled
+            || !/^2\./.test(peer.version ?? '') || !['empty', 'current'].includes(preflight.classification)
+            || preflight.classification === 'current' && (preflight.rulesVersion !== 2 || preflight.rulesHash !== slice.rulesHash)) {
+            throw new Error('Rules v2 activation requires a compatible preflight and Story Director.');
+        }
+        activation = slice;
+    }
+    const ruleIds = new Set(rulesParts.map(([id]) => id));
+    const registered = [...PARTS.filter(([id]) => activation || !ruleIds.has(id)), ...parts];
     const defaults = {};
     const schema = {};
     for (const [id, part] of registered) {
@@ -215,11 +228,15 @@ export function createModule({ settings = null, query = null, parts = [] } = {})
         for (const name of part.replayQueries ?? []) replayQueries.add(name);
         for (const [name, domain] of Object.entries(part.domains ?? {})) {
             claim(owners.domain, name, id, 'domain');
-            domains[name] = domain;
+            domains[name] = name === 'rules' && activation ? { ...domain, initial: () => structuredClone(activation) } : domain;
         }
         for (const [type, handler] of Object.entries(part.commands ?? {})) {
             claim(owners.command, type, id, 'command');
-            commands[type] = withFeature((ctx, payload) => handler(ctxFor(ctx, id), payload), handler);
+            commands[type] = withFeature((ctx, payload) => {
+                const own = ctxFor(ctx, id);
+                if (activation && ['party.create', 'creation.finish'].includes(type)) registerPackDefs(own);
+                return handler(own, payload);
+            }, handler);
         }
         for (const [name, fn] of Object.entries(part.queries ?? {})) {
             claim(owners.query, name, id, 'query');
