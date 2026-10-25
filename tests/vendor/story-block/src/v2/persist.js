@@ -241,11 +241,35 @@ export function keepsCopy(message, last) {
     return !!last || (Array.isArray(message?.swipes) && message.swipes.length > 1);
 }
 
+/**
+ * SillyTavern's deleteSwipe tells of the deletion (MESSAGE_SWIPE_DELETED) before it shows the swipe that takes the
+ * deleted one's place (then MESSAGE_SWIPED): until then `extra` and `mes` are the deleted swipe's and `swipe_id` is the
+ * next one's. `deleted` is the index of the swipe that went (the event's `swipeId`). True while the shown swipe is in
+ * that state, told by whose record `extra` holds, not by its text: the record is stamped with the deleted swipe's
+ * index, or the shown slot holds another swipe's own record than `extra` does, or the text is not the slot's.
+ * Nothing is written to a record meanwhile.
+ */
+export function swipeLoading(message, deleted = null) {
+    if (!isCarrier(message) || !Array.isArray(message.swipes) || !Array.isArray(message.swipe_info)) return false;
+    const swipe = message.swipe_id;
+    if (!Number.isInteger(swipe) || swipe < 0 || swipe >= message.swipes.length) return false;     // (no swipe left to show)
+    const record = message.extra?.[KEY];
+    if (Number.isInteger(deleted) && isObject(record) && record.swipe === deleted) return true;
+    const there = message.swipe_info[swipe]?.extra?.[KEY];
+    if (isObject(record) && isObject(there) && message.swipe_info[swipe].extra !== message.extra && there.sid !== record.sid
+        && !message.swipe_info.some(info => info?.extra?.[KEY]?.sid === record.sid)) return true;
+    return message.swipes[swipe] !== message.mes;
+}
+
 /** Copies the record in `message.extra` into the shown swipe's `swipe_info` (when it has one). */
 export function mirrorCopy(message) {
     const record = message?.extra?.[KEY];
     const info = Array.isArray(message?.swipe_info) ? message.swipe_info[swipeOf(message)] : null;
     if (!isObject(record) || !isObject(info)) return false;
+    // The slot already holds the record of another swipe that is stamped as this slot's own (a deleted shown swipe's record
+    // is in `extra` until the next swipe is loaded): it is never written over.
+    const there = info.extra?.[KEY];
+    if (info.extra !== message.extra && isObject(there) && there.sid !== record.sid && there.swipe === swipeOf(message)) return false;
     if (!isObject(info.extra)) info.extra = {};
     if (info.extra !== message.extra) info.extra[KEY] = structuredClone(record);
     return true;
