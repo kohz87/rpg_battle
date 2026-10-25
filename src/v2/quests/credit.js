@@ -10,29 +10,40 @@ export function creditFor(thread, coin) {
     // Retain the old exact-amount attribution. Giver presence awaits B3's canonical seam.
     return remaining > 0 && coin === remaining ? remaining : 0;
 }
-export function unclaimedCoin(state, tools) {
-    const sid = tools?.reply?.sid;
-    if (!sid || state?.meta?.claims?.[creditKey(sid)]) return 0;
-    const budget = ask(tools.query, 'inventory.storyBudget');
-    return Math.max(0, amount(budget?.paid) - amount(budget?.vouched));
+const isCoinProof = p => p.owner === 'rpg-battle' && p.kind === 'story' && ['quest.coin', 'quest.coin.repeat'].includes(p.payload?.type);
+const coinProofs = tools => (ask(tools.query, 'story.evidence') ?? []).filter(p => isCoinProof(p) && p.payload.reply === tools.reply?.sid);
+const rawCoin = tools => { const budget = ask(tools.query, 'inventory.storyBudget'); return Math.max(0, amount(budget?.paid) - amount(budget?.vouched)); };
+export function unclaimedCoin(_state, tools) {
+    return tools?.reply?.sid ? Math.max(0, rawCoin(tools) - coinProofs(tools).reduce((sum, p) => sum + p.payload.coin, 0)) : 0;
 }
-const recordedReservation = tools => (tools?.receipts?.() ?? []).filter(row => row.index === tools?.reply?.index)
-    .map(row => row.receipt).find(receipt => receipt?.type === 'quest.reserveCoin' && receipt.data?.bound)?.data.bound ?? null;
-export function creditCandidates(state, _args, tools) {
-    const coin = unclaimedCoin(state, tools);
-    if (!coin || state?.meta?.claims?.[`rb:${stateEpoch(state)}:quest-coin:${tools?.reply?.sid}`]) return [];
-    const bound = recordedReservation(tools);
-    if (bound) return bound.reply === tools.reply.sid && bound.coin === coin ? [bound.thread] : [];
-    return (ask(tools.query, 'director.threads') ?? []).filter(t => t.rpg?.state === 'active' && creditFor(t, coin) > 0).map(t => t.id).sort();
+const recordedReservations = tools => (tools?.receipts?.() ?? []).filter(row => row.index === tools?.reply?.index)
+    .map(row => row.receipt).filter(receipt => receipt?.type === 'quest.reserveCoin' && receipt.data?.bound).map(receipt => receipt.data.bound);
+export const reservationKey = (epoch, bound) => `rb:${epoch}:quest-coin:${bound.reply}${bound.type === 'quest.coin.repeat' ? `:${bound.limit}` : ''}`;
+
+/** Immutable per-source attribution: replay old bindings first, then attribute only new coin to one unique reward. */
+export function coinReservations(state, _args, tools) {
+    const reply = tools?.reply?.sid;
+    if (!reply) return [];
+    const raw = rawCoin(tools), epoch = stateEpoch(state), claims = state?.meta?.claims ?? {};
+    const previous = recordedReservations(tools);
+    const pending = previous.filter((bound, at) => bound.reply === reply && raw >= (bound.limit ?? bound.coin)
+        && !claims[reservationKey(epoch, bound)] && previous.findIndex(p => reservationKey(epoch, p) === reservationKey(epoch, bound)) === at)
+        .map(bound => ({ id: bound.thread, bound }));
+    const free = unclaimedCoin(state, tools) - pending.reduce((sum, p) => sum + p.bound.coin, 0);
+    if (free <= 0 || previous.some(p => raw < (p.limit ?? p.coin))) return pending;
+    const threads = ask(tools.query, 'director.threads') ?? [];
+    const active = threads.filter(t => t.rpg?.state === 'active' && creditFor(t, free) > 0);
+    const paid = repeatedThreads(state, tools).filter(t => t.rpg.reward.coin >= free);
+    const candidates = [...active, ...paid];
+    if (candidates.length !== 1) return pending;
+    const thread = candidates[0];
+    const bound = { type: thread.rpg.state === 'active' ? 'quest.coin' : 'quest.coin.repeat', thread: thread.id,
+        instance: thread.rpg.instance, reply, coin: free, limit: raw };
+    if (!claims[reservationKey(epoch, bound)] && !pending.some(p => reservationKey(epoch, p.bound) === reservationKey(epoch, bound))) pending.push({ id: thread.id, bound });
+    return pending;
 }
-export function coinReservation(state, { id } = {}, tools) {
-    const candidates = creditCandidates(state, {}, tools);
-    if (candidates.length !== 1 || candidates[0] !== id) return null;
-    const previous = recordedReservation(tools);
-    if (previous) return { id, bound: previous };
-    const thread = ask(tools.query, 'director.thread', { id });
-    return { id, bound: { type: 'quest.coin', thread: id, instance: thread.rpg.instance, reply: tools.reply.sid, coin: unclaimedCoin(state, tools) } };
-}
+export const creditCandidates = (state, args, tools) => coinReservations(state, args, tools).map(row => row.id);
+export const coinReservation = (state, { id } = {}, tools) => coinReservations(state, {}, tools).find(row => row.id === id) ?? null;
 export function autoTurnIns(state, args, tools) {
     const sid = tools?.reply?.sid;
     if (!sid) return [];
@@ -52,19 +63,18 @@ export function repeatedThreads(state, tools) {
     if (!coin) return [];
     const receipts = (tools?.receipts?.() ?? []).filter(row => row.index === tools.reply.index).map(row => row.receipt);
     const threads = ask(tools.query, 'director.threads') ?? [];
-    return threads.filter(t => t.rpg?.settlement?.coinPaid > 0 && t.rpg.settlement.coinPaid === coin
+    return threads.filter(t => t.rpg?.settlement?.outcome === 'done' && t.rpg.reward.coin >= coin
         && state?.meta?.claims?.[t.rpg.settlement.claim] && receipts.some(r => r.data?.v2?.result?.settlement === t.rpg.settlement.id));
 }
-export const repeatedCoin = (state, _args, tools) => ({ amount: repeatedThreads(state, tools)[0]?.rpg.settlement.coinPaid ?? 0 });
+export const repeatedCoin = (state, _args, tools) => ({ amount: repeatedThreads(state, tools)[0]?.rpg.reward.coin ?? 0 });
 
 export function questCreditHook(view) {
     if (!pinned(view?.state?.domains?.rules)) return undefined;
     // Select intents now; payOwed rechecks readiness after the preceding objective commands have committed.
     const intents = view.query('quest.autoTurnIns', { pending: true }).sort();
-    const ids = [...new Set([...expiredQuests(view), ...intents, ...view.query('quest.owedCredits', {})])];
+    const ids = [...new Set([...expiredQuests(view), ...intents])];
     // Objective proofs come first; settlement then sees the same prefix as a full replay.
-    const candidates = view.query('quest.creditCandidates', {});
-    const reserves = candidates.length === 1 ? [{ type: 'quest.reserveCoin', payload: view.query('quest.coinReservation', { id: candidates[0] }) }] : [];
+    const reserves = view.query('quest.coinReservations', {}).map(payload => ({ type: 'quest.reserveCoin', payload }));
     const commands = [...pendingObjectives(view), ...reserves, ...ids.map(id => ({ type: 'quest.payOwed', payload: { id, credit: true } }))];
     return commands.length ? { lines: [], commands } : undefined;
 }

@@ -3,7 +3,7 @@
 import { buildGuard as sharedBuildGuard } from '../progress/index.js';
 import { planQuestSettlement, settlementKey, acceptanceOf } from './planner.js';
 import { nextOffers, terminalQuest } from './outcomes.js';
-import { creditFor, creditKey } from './credit.js';
+import { creditFor, creditKey, reservationKey } from './credit.js';
 import { offerQuest } from './commands.js';
 import { boundary, call, copy, fail, pinned, guardQuestInputs, recordQuestInputs, stateEpoch, templateOf, templates, writeId } from './seams.js';
 
@@ -23,13 +23,15 @@ function terminalPlan(thread, inputs, outcome, policy) {
 }
 
 /** The closed prerequisites, not the entire party, inventory or formatted calendar. */
-function assess(query, pin, thread, outcome, policy, reply = null, recorded = {}, reserving = false) {
+function assess(query, pin, thread, outcome, policy, reply = null, recorded = {}) {
     const inputs = guardQuestInputs(query, reply, recorded);
     const credited = copy(thread);
     const tally = inputs.storyCoin;
     const reserve = inputs.proofs.find(p => p.owner === 'rpg-battle' && p.kind === 'story' && p.payload?.type === 'quest.coin'
         && p.payload.thread === thread.id && p.payload.instance === thread.rpg.instance && p.payload.reply === reply);
-    const coin = outcome === 'done' && tally && !tally.claimed && (reserve || reserving) ? creditFor(thread, Math.max(0, tally.coin - tally.vouched)) : 0;
+    if (outcome === 'done' && !reserve && tally && !tally.claimed && creditFor(thread, Math.max(0, tally.coin - tally.vouched)) > 0)
+        return { ok: false, code: 'CREDIT_UNBOUND', message: 'The narrated reward has no unique surviving source attribution.' };
+    const coin = outcome === 'done' && tally && !tally.claimed && reserve ? creditFor(thread, reserve.payload.coin) : 0;
     const credit = coin ? { reply, coin, claim: creditKey(reply), ...(reserve ? { reserve: { id: reserve.id, payloadHash: reserve.payloadHash } } : {}) } : null;
     if (credit) { credited.rpg.storyCredit.coin += coin; credited.rpg.storyCredit.claims.push(credit.claim); }
     const plan = terminalPlan(credited, inputs, outcome, policy);
@@ -38,7 +40,7 @@ function assess(query, pin, thread, outcome, policy, reply = null, recorded = {}
     const follow = nextOffers(thread.rpg, plan.outcome, inputs.clock?.minutes, templates(pin));
     if (follow.some(row => row.instance > 1000000 || row.nextOfferAt !== null && !Number.isSafeInteger(row.nextOfferAt))) return { ok: false, code: 'LIMITED', message: 'The repeat instance or cooldown limit was reached.' };
     return { ok: true, plan, follow, quest: credited.rpg, inputs: guardInputs({ credit,
-        ...(reply ? { storyCoin: inputs.storyCoin } : {}), thread: copy(thread),
+        ...(reply && !reserve ? { storyCoin: inputs.storyCoin } : {}), thread: copy(thread),
         ...(thread.rpg.deadline !== null || thread.rpg.repeat ? { clock: inputs.clock } : {}),
         ...(thread.rpg.turnInPlace !== null ? { place: inputs.place } : {}),
         ...(thread.rpg.giver !== null ? { giver: inputs.giverPresent === true } : {}),
@@ -157,12 +159,12 @@ export function createSettlement(policy = {}) {
         if (!pin) return ctx.fail('RULES_MISMATCH', 'No frozen rules.');
         const bound = payload.bound;
         if (!bound) return ctx.fail('INVALID', 'The source attribution must be recorded at planning.');
-        if (bound.type !== 'quest.coin' || bound.reply !== ctx.reply.sid || bound.thread !== payload.id
+        if (!['quest.coin', 'quest.coin.repeat'].includes(bound.type) || bound.reply !== ctx.reply.sid || bound.thread !== payload.id
             || !Number.isSafeInteger(bound.coin) || bound.coin <= 0) return ctx.fail('INVALID', 'Invalid recorded reward attribution.');
         const tally = ctx.query('quest.replayInputs', { reply: bound.reply }).storyCoin;
-        if (!tally || tally.coin - tally.vouched !== bound.coin) return ctx.fail('NO_LONGER_DONE', 'The source coin is no longer present.');
-        const inputs = { bound, tally };
-        const key = `rb:${epoch}:quest-coin:${bound.reply}`;
+        if (!tally || tally.coin - tally.vouched < (bound.limit ?? bound.coin)) return ctx.fail('NO_LONGER_DONE', 'The source coin is no longer present.');
+        const inputs = { bound };
+        const key = reservationKey(epoch, bound);
         if (!ctx.claim(key)) return ctx.fail('CLAIMED', 'This source coin already belongs to a reward.');
         ctx.replayGuard(buildGuard({ hash: ctx.hash, owner: 'rpg-battle', epoch, source, rulesHash: pin.hash,
             kind: 'quest.coinReserve', payload: bound, inputs }), { inputs });
@@ -172,19 +174,9 @@ export function createSettlement(policy = {}) {
             replan: true, data: { proof: proof.id, bound } };
     }
     function settleCredit(ctx, thread) {
-        const { epoch, source } = boundary(ctx);
-        const pin = pinned(ctx.read('rules'));
-        if (!pin || !buildGuard) return ctx.fail('DEPENDENCY_UNAVAILABLE', 'The shared guard and frozen rules are required.');
-        const payload = { thread: thread.id, reply: ctx.reply.sid };
-        const inputs = repeatedAssessment(ctx.query, thread, payload.reply, source);
-        if (!inputs) return ctx.fail('CLAIMED', 'No uncredited repeat of this reward is present.');
-        ctx.replayGuard(buildGuard({ hash: ctx.hash, owner: 'rpg-battle', epoch, source, rulesHash: pin.hash,
-            kind: 'quest.storyCredit', payload, inputs }), { inputs });
-        const key = creditKey(payload.reply);
-        if (!ctx.claim(key)) return ctx.fail('CLAIMED', 'This reply already credited another quest.');
-        call(ctx, 'wallet.pay', { owner: 'party', amount: inputs.coin, note: thread.key });
-        return { summary: `The story's coin repeats ${thread.key}'s reward; counted once.`, narrate: true, replan: true,
-            data: { quest: thread.id, credit: inputs.coin, v2: { key, result: { thread: thread.id, coin: inputs.coin } } } };
+        const payload = ctx.query('quest.coinReservations', {}).find(row => row.id === thread.id && row.bound.type === 'quest.coin.repeat');
+        if (!payload) return ctx.fail('CLAIMED', 'No uncredited repeat of this reward is present.');
+        return reserveCoin(ctx, payload);
     }
     function guardTake(ctx, thread, payload, inputs, kind = 'quest.take') {
         const { epoch, source } = boundary(ctx);
@@ -203,8 +195,8 @@ export function createSettlement(policy = {}) {
             const guard = info.guard, bound = guard.predicate.payload, pin = pinned(state?.domains?.rules);
             const tally = query('quest.replayInputs', { reply: bound.reply }).storyCoin;
             if (!pin || guard.rulesHash !== pin.hash || guard.epoch !== stateEpoch(state) || !tally
-                || tally.coin - tally.vouched !== bound.coin) return { ok: false, reason: 'The attributed coin source changed.' };
-            const inputs = { bound, tally };
+                || tally.coin - tally.vouched < (bound.limit ?? bound.coin)) return { ok: false, reason: 'The attributed coin source changed.' };
+            const inputs = { bound };
             const expected = buildGuard({ hash, owner: 'rpg-battle', epoch: guard.epoch, source: info.source, rulesHash: pin.hash,
                 kind: 'quest.coinReserve', payload: bound, inputs });
             return { ok: expected.inputHash === guard.inputHash && hash(inputs) === hash(info.recorded?.inputs) };
