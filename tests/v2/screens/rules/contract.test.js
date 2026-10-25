@@ -22,8 +22,8 @@ import {
 
 const OWN_WIDGETS = ['rpg-battle.permanent-choice', 'rpg-battle.class-pick', 'rpg-battle.command-input', 'rpg-battle.command-button',
     'rpg-battle.member-toggle', 'rpg-battle.equipment', 'rpg-battle.create-character'];
-// Commands a template names that another module owns; the pending ones are in CONTRACTS.
-const TEMPLATE_COMMANDS = ['quest.take', 'quest.finish', 'quest.abandon', 'skill.train'];
+// Commands the views build into buttons that another module owns; the pending ones are in CONTRACTS.
+const WIDGET_COMMANDS = ['quest.take', 'quest.finish', 'quest.abandon', 'skill.train'];
 const SRC = new URL('../../../../src/v2/screens/rules/', import.meta.url);
 const sourceOf = file => readFileSync(new URL(file, SRC), 'utf8');
 const FILES = readdirSync(SRC).filter(name => name.endsWith('.js'));
@@ -68,14 +68,20 @@ test('Story Block\'s validator accepts every new screen and the class step; CSS 
     assert.deepEqual(validateScreen(step), []);
 });
 
-test('every command a template names is one that exists or is pending; every widget is Story Block\'s or this part\'s', () => {
-    for (const screen of rulesScreens) {
-        for (const [, command] of screen.template.matchAll(/data-command="([^"]+)"/g)) assert.ok(TEMPLATE_COMMANDS.includes(command), `${screen.id}: ${command}`);
+test('every widget a template names is Story Block\'s or this part\'s, and no raw command button is left on a track C screen', () => {
+    for (const screen of [...rulesScreens, { id: 'rpg-battle/create-class', template: CLASS_STEP_TEMPLATE }]) {
+        // A raw data-command button runs the command and drops the answer: a refusal (STALE, REFUSED) would show nothing. Every command
+        // button on these screens is the command-button widget, which says plainly when it was refused.
+        assert.doesNotMatch(screen.template, /data-command|data-payload|<button/i, `${screen.id}: use rpg-battle.command-button`);
         for (const [, name] of screen.template.matchAll(/<ss-widget\b[^>]*?\sname="([^"]+)"/g)) {
             assert.ok(WIDGET_NAMES.includes(name) || OWN_WIDGETS.includes(name), `${screen.id}: ${name}`);
         }
     }
-    for (const command of TEMPLATE_COMMANDS) assert.ok(CONTRACTS[command], `${command} is listed as pending`);
+    for (const file of FILES) assert.doesNotMatch(sourceOf(file), /data-command|data-payload|<button/i, `${file}: no raw command button; use rpg-battle.command-button`);
+    for (const command of WIDGET_COMMANDS) assert.ok(CONTRACTS[command], `${command} is listed as pending`);
+    // The commands that were raw buttons are now widget specs built by the views.
+    const built = FILES.map(sourceOf).join('\n');
+    for (const command of WIDGET_COMMANDS) assert.match(built, new RegExp(`btn\\(\\s*'${command.replace('.', '\\.')}'`), `${command} is a command-button spec`);
     assert.deepEqual(Object.keys(rulesWidgets).sort(), OWN_WIDGETS.slice(0, 4).sort());
 });
 

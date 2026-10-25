@@ -12,7 +12,7 @@
 // `remainingMinutes` as given.
 
 import { ASK, ask, isList, isQuestView, isRecord, isText } from './ask.js';
-import { clip, clockLabel, dayOf, spanLabel } from './format.js';
+import { btn, clip, clockLabel, dayOf, spanLabel } from './format.js';
 import { namesFor } from './names.js';
 
 const isThread = value => isRecord(value) && isText(value.id) && isText(value.key) && ['active', 'resolved'].includes(value.status) && typeof value.offer === 'boolean';
@@ -80,6 +80,9 @@ function questRow(quest, names, minutes) {
         canAbandon: live,
         canFinish: live && quest.ready,
         takePayload: payload, abandonPayload: payload, finishPayload: payload,
+        takeButton: btn('quest.take', payload, 'Take', { tone: 'primary' }),
+        finishButton: btn('quest.finish', payload, 'Hand in', { tone: 'primary' }),
+        abandonButton: btn('quest.abandon', payload, 'Give up', { tone: 'quiet' }),
         minutes,
     };
 }

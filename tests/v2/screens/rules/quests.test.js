@@ -8,7 +8,7 @@ import { questsScreen } from '../../../../src/v2/screens/rules/screens.js';
 import { questsView } from '../../../../src/v2/screens/rules/quests.js';
 import { failureLine } from '../../../../src/v2/screens/rules/format.js';
 import { MISSING, QF, REPEAT_CHAIN, answers, c07, c15, c15Repeat, seed, thread } from './fixtures.js';
-import { all, buttons, drawOver, names, settle, skip, text, toolsOf, viewOf } from './helpers.js';
+import { all, drawOver, pressing, refusals, names, settle, skip, text, toolsOf, viewOf } from './helpers.js';
 
 const drawn = (table, options) => drawOver(questsScreen, table, options);
 const rows = view => view.groups.flatMap(group => group.quests);
@@ -53,9 +53,9 @@ test('C07 expiry: drawn, the expired quest has no buttons and the live one has G
     ready.answers['rules.quests'] = [{ ...ready.quest, ready: true, blocked: [] }];
     const { drawn: live } = drawn(ready.answers);
     assert.deepEqual(all(live.el, 'article.quest button').map(text), ['Hand in', 'Give up']);
-    buttons(live.el, 'quest.finish')[0].dispatch('click');
+    pressing(live.el, 'Hand in')[0].dispatch('click');
     await settle();
-    buttons(live.el, 'quest.abandon')[0].dispatch('click');
+    pressing(live.el, 'Give up')[0].dispatch('click');
     await settle();
     assert.deepEqual(live.commands, [{ type: 'quest.finish', payload: { id: 'th_job00001' } }, { type: 'quest.abandon', payload: { id: 'th_job00001' } }]);
 });
@@ -88,10 +88,28 @@ test('C07: an offered quest is taken with just its id; a blocked one says why an
     assert.deepEqual(rows(view)[0].objectives.map(item => item.text), ['Visit Mill']);
     const { drawn: d } = drawn(table, { result: () => ({ ok: false, code: 'STALE', message: '' }) });
     assert.deepEqual(all(d.el, 'article.quest button').map(text), ['Take']);
-    buttons(d.el, 'quest.take')[0].dispatch('click');
+    pressing(d.el, 'Take')[0].dispatch('click');
     await settle();
     assert.deepEqual(d.commands, [{ type: 'quest.take', payload: { id: 'th_job00001' } }], 'no write id, hash or rpg payload from the page');
     assert.match(failureLine({ ok: false, code: 'STALE', message: '' }), /changed since it was drawn/);
+    assert.deepEqual(refusals(d.el), [failureLine({ ok: false, code: 'STALE', message: '' })], 'the real STALE answer shows its words on the page');
+});
+
+test('C07: a refused or failed Take, Hand in or Give up shows its message (the answer\'s own words, else the code\'s)', { skip }, async () => {
+    const offered = { ...seed.quest, id: 'th_job00005', ready: false, blocked: [], remainingMinutes: null, state: 'offered' };
+    const live = { ...seed.quest, id: 'th_job00006', state: 'active', ready: true, blocked: [], remainingMinutes: 60 };
+    const table = answers({ 'rules.quests': [offered, live] });
+    const replies = [{ ok: false, code: 'STALE', message: '' }, { ok: false, code: 'REFUSED', message: 'The mill has not been visited.' }, { ok: false, code: 'NOT_FOUND', message: '' }];
+    const { drawn: d } = drawn(table, { result: () => replies.shift() });
+    assert.deepEqual(all(d.el, 'article.quest button').map(text), ['Take', 'Hand in', 'Give up']);
+    for (const label of ['Take', 'Hand in', 'Give up']) {
+        pressing(d.el, label)[0].dispatch('click');
+        await settle();
+    }
+    assert.deepEqual(d.commands, [
+        { type: 'quest.take', payload: { id: 'th_job00005' } }, { type: 'quest.finish', payload: { id: 'th_job00006' } }, { type: 'quest.abandon', payload: { id: 'th_job00006' } }]);
+    assert.deepEqual(refusals(d.el), [failureLine({ code: 'STALE' }), 'The mill has not been visited.', failureLine({ code: 'NOT_FOUND' })]);
+    assert.match(refusals(d.el)[0], /changed since it was drawn/);
 });
 
 // ---- C15 neutral threads -------------------------------------------------------------------------------------------------
@@ -142,11 +160,12 @@ test('C15 neutral threads: a repeat or chain is a fresh th_ id beside the finish
     assert.equal(all(d.el, 'article.quest').length, 2);
     // Take the fresh offer: only that id is sent, and a refusal (stale hash inside RPG Battle's atomic accept) leaves the page as it was.
     const before = all(d.el, 'article.quest').map(text);
-    buttons(d.el, 'quest.take')[0].dispatch('click');
+    pressing(d.el, 'Take')[0].dispatch('click');
     await settle();
     assert.deepEqual(d.commands, [{ type: 'quest.take', payload: { id: 'th_job00009' } }]);
+    assert.deepEqual(refusals(d.el), ['This offer changed.'], 'the refusal is shown');
     d.rerender();
-    assert.deepEqual(all(d.el, 'article.quest').map(text), before, 'a refused accept changes nothing shown');
+    assert.deepEqual(all(d.el, 'article.quest').map(text), [`${before[0]}This offer changed.`, before[1]], 'a refused accept changes nothing but the refusal shown');
     assert.equal(rows(viewOf(questsView, table))[0].state, 'offered');
 });
 

@@ -12,7 +12,7 @@ import { classPickerView } from '../../../../src/v2/screens/rules/class-step.js'
 import {
     CANON, LYRA, MISSING, PC, RG_NORTH, RG_SOUTH, answers, areaTier, atlasPolicy, c16, c17, c18, c19, checksPolicy, companionOf, partyOf, ref, sha256, sheetOf,
 } from './fixtures.js';
-import { all, buttons, drawOver, names, settle, skip, text, viewOf, widgetsIn } from './helpers.js';
+import { all, drawOver, names, settle, skip, text, viewOf, widgetsIn } from './helpers.js';
 
 const drawn = (table, options) => drawOver(linksScreen, table, options);
 const sectionOf = (el, name) => el.querySelector(`.sect.${name}`);

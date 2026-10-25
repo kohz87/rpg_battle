@@ -8,10 +8,12 @@ import { realWorld, DAY } from '../../progress/helpers/world.js';
 import { trainersPin, inputsPin, ref } from '../../progress/helpers/fixture.js';
 import { createModule } from '../../../../src/v2/module.js';
 import { rulesParts } from '../../../../src/v2/rules/index.js';
-import { rulesScreens, progressView, rosterView, linksView, setupView, classPickerView } from '../../../../src/v2/screens/rules/index.js';
+import { rulesScreens, progressView, rosterView, linksView, setupView, classPickerView, questsView } from '../../../../src/v2/screens/rules/index.js';
 import { createScreen } from '../../../../src/v2/creation/screen.js';
 import { partyScreen } from '../../../../src/v2/screens/party.js';
 import { draw, all, text, click } from '../helpers/render.js';
+import { pressing, refusals } from './helpers.js';
+import { seed } from './fixtures.js';
 
 const ok = out => { assert.equal(out.ok, true, out.message); return out; };
 const tools = w => ({ query: w.q });
@@ -20,7 +22,7 @@ const model = (w, view, args = {}) => view(forbidden, args, tools(w));
 function live(w, screen, extra = {}) {
     const names = new Set([...Object.keys(createModule().queries), ...rulesParts.flatMap(([, p]) => Object.keys(p.queries ?? {})),
         'inventory.items', 'inventory.definitions', 'director.time', 'atlas.canonical', 'world.areaTier', 'savepoint.list']);
-    return draw(screen, w.head(), { ...extra, queries: Object.fromEntries([...names].map(name => [name, args => w.q(name, args)])), result: extra.result ?? w.ui });
+    return draw(screen, w.head(), { ...extra, queries: { ...Object.fromEntries([...names].map(name => [name, args => w.q(name, args)])), ...(extra.queries ?? {}) }, result: extra.result ?? w.ui });
 }
 const screen = id => rulesScreens.find(s => s.id === `rpg-battle/${id}`);
 const choice = async (d, ref) => {
@@ -94,7 +96,7 @@ test('C06 real training: request button, midnight completion and recorded interr
     await w.say('Haven.', [`~ time ${start}`, '~ here pack.fixture/haven']);
     ok(w.ui('test.coin', { amount: 100 }));
     const d = live(w, screen('progress'));
-    await click(all(d.el, 'button').find(b => b.getAttribute('data-command') === 'skill.train'));
+    await click(pressing(d.el, 'Ask for training')[0]);
     assert.equal(w.q('rules.training', { actor: w.pc }).session.status, 'requested');
     await w.say('Lesson.', ['~ here pack.fixture/haven']);
     const session = w.q('rules.training', { actor: w.pc }).session;
@@ -118,6 +120,40 @@ test('real training refusal remains visible and the next request is available', 
     assert.ok(train.lines.includes('The player withdrew the request.'));
     assert.ok(train.offers.length > 0);
     await stable(w);
+});
+
+test('real STALE training click shows the module\'s own refusal on the page, with the full payload sent', async t => {
+    const w = await realWorld(t, { given: trainersPin(), sd: true });
+    await w.say('Haven.', [`~ time ${4 * DAY + 600}`, '~ here pack.fixture/haven']);
+    ok(w.ui('test.coin', { amount: 100 }));
+    const offer = w.q('rules.training', { actor: w.pc }).offers[0];
+    const d = live(w, screen('progress'));
+    assert.deepEqual(refusals(d.el), []);
+    // The page was drawn with this offer; the world moves on (asked for, then withdrawn) so the drawn session is out of date.
+    ok(w.ui('skill.train', offer.payload));
+    ok(w.ui('skill.cancelTrain', { actor: w.pc, session: offer.session }));
+    const stale = w.ui('skill.train', offer.payload);
+    assert.equal(stale.code, 'STALE');
+    await click(pressing(d.el, 'Ask for training')[0]);
+    assert.deepEqual(d.commands.at(-1), { type: 'skill.train', payload: offer.payload }, 'the whole payload, as the offer built it');
+    assert.deepEqual(refusals(d.el), [stale.message], 'the real STALE answer is shown');
+    assert.match(stale.message, /out of date/);
+    assert.equal(w.q('rules.training', { actor: w.pc }).session?.status, 'refused', 'the refused click changed nothing');
+    assert.deepEqual(w.problems(), []);
+});
+
+test('real refused quest click shows the host\'s own refusal (the quest commands are not in this build)', async t => {
+    const w = await realWorld(t, { given: trainersPin(), sd: true });
+    const quest = { ...seed.quest, state: 'offered', ready: false, blocked: [], remainingMinutes: null };
+    // Story Director's threads and the host's own commands are real; only the quest list (Track A's query) is a stand-in.
+    const asked = (name, args) => (name === 'rules.quests' ? [quest] : w.q(name, args));
+    const d = live(w, screen('quests'), { queries: { 'rpg-battle.questsView': args => questsView(w.head(), args, { query: asked }) } });
+    const refused = w.ui('quest.take', { id: quest.id });
+    assert.equal(refused.ok, false);
+    await click(pressing(d.el, 'Take')[0]);
+    assert.deepEqual(d.commands, [{ type: 'quest.take', payload: { id: quest.id } }]);
+    assert.deepEqual(refusals(d.el), [refused.message]);
+    assert.ok(refused.message.length > 0);
 });
 
 test('C08 real party Accept carries a selected class; four companions give PC+2 and two reserves', async t => {

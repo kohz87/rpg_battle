@@ -13,7 +13,7 @@
 //   picker   (no character yet) the basic classes, each with its three skills
 
 import { ASK, ask, isHash, isList, isParty, isProgress, isRecord, isText } from './ask.js';
-import { clip, clockLabel, dayOf, OPTION_LABELS, ratioText, spanLabel, TIER_LABELS } from './format.js';
+import { btn, clip, clockLabel, dayOf, OPTION_LABELS, ratioText, spanLabel, TIER_LABELS } from './format.js';
 import { namesFor } from './names.js';
 
 /** Mastery runs 0..5 (SkillView.mastery); a form at 5 / 5 is done. */
@@ -45,7 +45,7 @@ function xpText(sheet) {
 
 // ---- training (rules.training's public projection) ----------------------------------------------------------------
 
-function trainingModel(answer, minutes, names) {
+function trainingModel(answer, minutes, names, actor) {
     if (answer.status !== ASK.OK) return { state: 'unavailable', headline: '', lines: [], offers: [], caps: '', held: false };
     const { session, caps, offers } = answer.value;
     const lines = [];
@@ -86,14 +86,19 @@ function trainingModel(answer, minutes, names) {
     if (isRecord(caps.actor)) capParts.push(`all skills ${ratioText(caps.actor.used, caps.actor.max)}`);
     const clockHold = minutes === null;
     const open = state === 'none' || state === 'completed' || state === 'interrupted' || state === 'refused';
-    const offerRows = open ? offers.filter(isRecord).map(offer => ({
-        key: `${offer.skill}|${offer.form}|${offer.trainer}`,
-        text: `${names(offer.skill)} with ${clip(offer.name || names(offer.trainer), 80)}`,
-        detail: [Number.isSafeInteger(offer.fee) ? `fee ${offer.fee}` : '', Number.isSafeInteger(offer.minutes) ? spanLabel(offer.minutes) : ''].filter(Boolean).join(', '),
-        blocked: (Array.isArray(offer.blocked) ? offer.blocked : []).filter(isText).map(item => clip(item, 240)),
-        canAsk: !clockHold && !(Array.isArray(offer.blocked) && offer.blocked.length),
-        payload: { ...offer.payload },
-    })) : [];
+    const offerRows = open ? offers.filter(isRecord).map(offer => {
+        // The whole skill.train payload, exactly the fields the command takes, sent by the refusal-reporting command widget.
+        const payload = { actor, skill: offer.payload?.skill, form: offer.payload?.form, trainer: offer.payload?.trainer, session: offer.payload?.session };
+        return {
+            key: `${offer.skill}|${offer.form}|${offer.trainer}`,
+            text: `${names(offer.skill)} with ${clip(offer.name || names(offer.trainer), 80)}`,
+            detail: [Number.isSafeInteger(offer.fee) ? `fee ${offer.fee}` : '', Number.isSafeInteger(offer.minutes) ? spanLabel(offer.minutes) : ''].filter(Boolean).join(', '),
+            blocked: (Array.isArray(offer.blocked) ? offer.blocked : []).filter(isText).map(item => clip(item, 240)),
+            canAsk: !clockHold && !(Array.isArray(offer.blocked) && offer.blocked.length),
+            payload,
+            button: btn('skill.train', payload, 'Ask for training', { tone: 'plain' }),
+        };
+    }) : [];
     return { state, headline, lines, offers: offerRows, caps: capParts.length ? `Limits: ${capParts.join(' · ')}.` : '', held: clockHold };
 }
 
@@ -155,7 +160,7 @@ function memberModel(sheet, progress, training, ctx) {
         checklist, checklistText: `${done} of ${checklist.length} forms at ${MASTERY_TOP} / ${MASTERY_TOP}`, checklistDone: done,
         progress: progress.status === ASK.OK ? 'ok' : progress.status,
         promotions, pathways,
-        training: trainingModel(training, minutes, names),
+        training: trainingModel(training, minutes, names, sheet.id),
     };
 }
 

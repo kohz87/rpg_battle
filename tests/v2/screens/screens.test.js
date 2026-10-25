@@ -23,9 +23,7 @@ const OWN_WIDGETS = [...Object.keys(screenWidgets), 'rpg-battle.create-character
     'rpg-battle.permanent-choice', 'rpg-battle.class-pick', 'rpg-battle.command-input', 'rpg-battle.command-button'];
 
 const byId = Object.fromEntries(screens.map(screen => [screen.id, screen]));
-// Commands the rules screens name that other tracks own (quests: A; training: B); see tests/v2/screens/rules/fixtures.js PENDING.
-const PENDING_COMMANDS = ['quest.take', 'quest.finish', 'quest.abandon', 'skill.train'];
-const COMMANDS = new Set([...Object.keys(partyPart.commands), ...Object.keys(itemsPart.commands), ...Object.keys(tradePart.commands), ...PENDING_COMMANDS]);
+const COMMANDS = new Set([...Object.keys(partyPart.commands), ...Object.keys(itemsPart.commands), ...Object.keys(tradePart.commands)]);
 // Story Block's registry rules (src/v2/registry.js): screen ids lowercase, query names words joined by dots.
 // An <ss-widget …> tag's name (attribute values may hold ">", as in data-if="len(x) > 0").
 const WIDGET_TAG = /<ss-widget\b(?:[^>"']|"[^"]*"|'[^']*')*?\sname="([^"]+)"/g;
@@ -193,8 +191,7 @@ test('buttons run commands RPG Battle has; widgets are the standard ss.* set', (
     // The party card's EQUIPMENT tiles send no commands (the unequip is the widget's own tap, UI 8f); crafting has no buttons.
     assert.deepEqual([...used].sort(), [
         'craft.collect', 'craft.commission',
-        'party.acceptOffer', 'party.dismissOffer', 'party.edit', 'party.setSkillActive', 'party.spend',
-        'quest.abandon', 'quest.finish', 'quest.take', 'skill.train', 'trade.buy', 'trade.sell',
+        'party.acceptOffer', 'party.dismissOffer', 'party.edit', 'party.setSkillActive', 'party.spend', 'trade.buy', 'trade.sell',
     ]);
     assert.doesNotMatch(byId['rpg-battle/crafting'].template, /data-command|<button/);
     const widgets = new Set(screens.flatMap(screen => [...screen.template.matchAll(WIDGET_TAG)].map(match => match[1])));

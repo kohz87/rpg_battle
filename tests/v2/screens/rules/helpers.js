@@ -57,7 +57,10 @@ export function drawOver(screen, table, options = {}) {
 /** Runs a view query (state, args, tools) over the table, the way the host does. */
 export const viewOf = (view, table, args = {}, state = makeState(), log = []) => view(state, args, toolsOf(table, log));
 
-export const buttons = (root, command) => all(root, 'button').filter(button => button.getAttribute('data-command') === command);
+/** The buttons under `root` whose label is `label` (every command button on these pages is the command-button widget, which carries no data-command). */
+export const pressing = (root, label) => all(root, 'button').filter(button => text(button) === label);
+/** What the command-button widgets under `root` say went wrong (a refusal's words), one entry per visible message. */
+export const refusals = root => all(root, '.rpg-cb-problem').map(text).filter(Boolean);
 export const widgetsIn = (root, name) => all(root, 'ss-widget').filter(el => el.getAttribute('name') === name);
 export const names = log => [...new Set(log.map(entry => entry.name))];
 export const settle = () => new Promise(resolve => setTimeout(resolve, 0));

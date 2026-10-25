@@ -163,7 +163,7 @@ const progressTemplate = `
             <li class="offer" data-each="m.training.offers as o">
               <span class="offer-text">{{ o.text }}<small data-if="o.detail != ''"> · {{ o.detail }}</small></span>
               <ul class="why" data-if="len(o.blocked) > 0"><li data-each="o.blocked as b">{{ b }}</li></ul>
-              <button class="ss-button" data-if="o.canAsk" data-command="skill.train" data-payload='{"actor":"{{ m.id }}","skill":"{{ o.payload.skill }}","form":"{{ o.payload.form }}","trainer":"{{ o.payload.trainer }}","session":"{{ o.payload.session }}"}'>Ask for training</button>
+              <ss-widget class="ask" data-if="o.canAsk" name="rpg-battle.command-button" data-props='{"bind":"o.button"}'></ss-widget>
             </li>
           </ul>
         </section>
@@ -198,7 +198,6 @@ const progressCss = sheet(`${SHARED_CSS}${EQUIPMENT_CSS}${RULES_WIDGET_CSS}
 .train-lines { display: grid; gap: 2px; font-size: 13px; }
 .offers { display: grid; gap: 8px; }
 .offer { display: grid; gap: 4px; justify-items: start; }
-.offer .ss-button { min-height: 44px; }
 `);
 
 export const progressScreen = Object.freeze({
@@ -241,9 +240,9 @@ const questsTemplate = `
       <p class="line settled" data-if="r.settled != ''">{{ r.settled }}</p>
       <ul class="why" data-if="len(r.blocked) > 0"><li data-each="r.blocked as b">{{ b }}</li></ul>
       <div class="acts">
-        <button class="ss-button ss-button-primary" data-if="r.canTake" data-command="quest.take" data-payload='{"id":"{{ r.id }}"}'>Take</button>
-        <button class="ss-button ss-button-primary" data-if="r.canFinish" data-command="quest.finish" data-payload='{"id":"{{ r.id }}"}'>Hand in</button>
-        <button class="ss-button ss-button-quiet" data-if="r.canAbandon" data-command="quest.abandon" data-payload='{"id":"{{ r.id }}"}'>Give up</button>
+        <ss-widget data-if="r.canTake" name="rpg-battle.command-button" data-props='{"bind":"r.takeButton"}'></ss-widget>
+        <ss-widget data-if="r.canFinish" name="rpg-battle.command-button" data-props='{"bind":"r.finishButton"}'></ss-widget>
+        <ss-widget data-if="r.canAbandon" name="rpg-battle.command-button" data-props='{"bind":"r.abandonButton"}'></ss-widget>
       </div>
     </article>
   </section>
@@ -270,7 +269,6 @@ const questsCss = sheet(`${SHARED_CSS}
 .line { margin: 0; font-size: 13px; }
 .line.hold { color: var(--ss-warn); }
 .acts { display: flex; flex-wrap: wrap; gap: var(--ss-space-2); }
-.acts .ss-button { min-height: 44px; }
 `);
 
 export const questsScreen = Object.freeze({

@@ -9,12 +9,12 @@ import { progressScreen } from '../../../../src/v2/screens/rules/screens.js';
 import { progressView } from '../../../../src/v2/screens/rules/progress.js';
 import { CLASS_STEP_ID, CLASS_STEP_TEMPLATE, classPickerView } from '../../../../src/v2/screens/rules/class-step.js';
 import { renderClassPick } from '../../../../src/v2/screens/rules/widgets.js';
-import { clockLabel } from '../../../../src/v2/screens/rules/format.js';
+import { clockLabel, failureLine } from '../../../../src/v2/screens/rules/format.js';
 import { installDom } from '../helpers/dom.js';
 import {
     C01, MIDNIGHT, MISSING, NAMES, PC, CONTRACTS, QF, SHIPPED_QUERIES, answers, c02, c03, c04, c05, c06, companionOf, partyOf, progressOf, ref, sheetOf, skillView, skillsOf, trainOffer, trainingOf, LYRA, H,
 } from './fixtures.js';
-import { all, drawOver, names, settle, skip, text, toolsOf, viewOf, widgetsIn } from './helpers.js';
+import { all, drawOver, names, pressing, refusals, settle, skip, text, toolsOf, viewOf, widgetsIn } from './helpers.js';
 
 const drawn = (table, options) => drawOver(progressScreen, table, options);
 const skillsShown = el => all(el, '.skill');
@@ -310,7 +310,7 @@ test('C06: a training request carries the actor, skill, form, trainer and sessio
     const view = viewOf(progressView, table);
     assert.deepEqual(view.members[0].training.offers[0].payload, { actor: PC, skill: ref('s00'), form: ref('s00-base'), trainer: ref('mentor'), session: 'tr_00000001' });
     const { drawn: d } = drawn(table);
-    const [send] = all(d.el, 'button').filter(button => button.getAttribute('data-command') === 'skill.train');
+    const [send] = pressing(d.el, 'Ask for training');
     send.dispatch('click');
     await settle();
     assert.deepEqual(d.commands, [{ type: 'skill.train', payload: view.members[0].training.offers[0].payload }], 'a request only: no fee or time at the page');
@@ -320,8 +320,30 @@ test('C06: a training request carries the actor, skill, form, trainer and sessio
     assert.equal(held.held, true);
     assert.equal(held.offers[0].canAsk, false);
     const { drawn: u } = drawn(unset);
-    assert.equal(all(u.el, 'button').filter(button => button.getAttribute('data-command') === 'skill.train').length, 0);
+    assert.equal(pressing(u.el, 'Ask for training').length, 0);
     assert.match(text(all(u.el, '.hold')[0]), /clock is not set/);
+});
+
+test('C06: a refused training request shows its message (the answer\'s own words, else the STALE words) and keeps the full payload', { skip }, async () => {
+    const offer = trainOffer();
+    const table = answers({ 'rules.training': ({ actor }) => (actor === PC ? trainingOf({ offers: [offer] }) : null) });
+    const payload = viewOf(progressView, table).members[0].training.offers[0].payload;
+    for (const [reply, shown] of [
+        [{ ok: false, code: 'STALE', message: '' }, failureLine({ code: 'STALE' })],
+        [{ ok: false, code: 'REFUSED', message: 'The trainer is busy today.' }, 'The trainer is busy today.'],
+        [{ ok: false, code: 'FAILED' }, failureLine({ code: 'FAILED' })],
+    ]) {
+        const { drawn: d } = drawOver(progressScreen, table, { result: () => reply });
+        pressing(d.el, 'Ask for training')[0].dispatch('click');
+        await settle();
+        assert.deepEqual(d.commands, [{ type: 'skill.train', payload }]);
+        assert.deepEqual(refusals(d.el), [shown], JSON.stringify(reply));
+    }
+    assert.match(failureLine({ code: 'STALE' }), /changed since it was drawn/);
+    const { drawn: ok } = drawOver(progressScreen, table, { result: () => ({ ok: true }) });
+    pressing(ok.el, 'Ask for training')[0].dispatch('click');
+    await settle();
+    assert.deepEqual(refusals(ok.el), [], 'a request that went through shows no refusal');
 });
 
 // ---- the page as a whole -----------------------------------------------------------------------------------------------
