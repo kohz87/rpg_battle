@@ -196,4 +196,3 @@ test('a story objective offer to reward: line, proof, payout, reload, rebuild an
     paid(loaded);
     assert.equal(snap(loaded), before, 'an unchanged Re-read keeps the proof, the evidence and the payout');
 });
-
