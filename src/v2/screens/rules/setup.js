@@ -35,7 +35,16 @@ function savesModel(tools) {
 
 /** rpg-battle.setupView({}) → { deps, saves }. */
 export function setupView(state, args, tools) {
-    return { deps: dependencyView(tools, hostModules()), saves: savesModel(tools) };
+    const selection = ask(tools, 'rules.selection', {}, isRecord).value;
+    const identity = ask(tools, 'rules.identity', {}, isRecord).value;
+    const offers = selection?.state === 'offered' ? selection.offers.map(({ name, ...payload }) => ({
+        name: clip(name, 80), version: payload.version,
+        pin: btn('rules.pin', payload, `Pin ${name}`, { tone: 'primary' }),
+    })) : [];
+    return { deps: dependencyView(tools, hostModules()), saves: savesModel(tools),
+        rules: { offered: offers.length > 0, offers, pinned: Boolean(identity),
+            identity: identity ? `${identity.packId} ${identity.version}` : '',
+            create: Boolean(identity) && !ask(tools, 'party.pc', {}, isRecord).value } };
 }
 
 /** rpg-battle.rulesDeps({}) → the banner: { show, tone, headline, held, lines } (only the lines that are not fine). */

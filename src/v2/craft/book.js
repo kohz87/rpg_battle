@@ -1,7 +1,8 @@
 // RPG Battle v2, part **craft**: the recipe book and what a craft would be (pure apart from the
 // queries it is handed).
 //
-// Recipes come from two places: the enabled packs (`packs.content({ kind: 'recipes' })`, PACKS.md:
+// Recipes come from two places: the enabled packs (`packs.content({ kind: 'recipes' })`, or the pin's once the rules
+// are pinned; PACKS.md:
 // `{ id, name, makes, qty?, materials: [{ item, qty }], fee?, minutes?, craft?, dc?, station?, stat?,
 // known?, teaches? }`, every field after `materials` optional) and the story (`craft.taught`, this chat
 // only). Who knows what is per member: a pack recipe marked `known: true` everyone knows from the
@@ -15,6 +16,7 @@
 import { DEFAULT_RULES, RARITIES, makeRules } from '../../rules.js';
 import { knowKey, usesOf } from './domain.js';
 import { isKeyItem } from '../trade/core.js';
+import { pinOf } from '../rules/pin.js';
 import { fitParty } from '../party/pools.js';
 import {
     chancesOf, clip, craftOfRecipe, craftTable, dcOf, materialBonus, nameKey, rankOf,
@@ -43,7 +45,7 @@ export function envOfCtx(ctx) {
     const read = domain => {
         try { return ctx.read(domain) ?? null; } catch { return null; }
     };
-    return withPacks({ ask, craft: read('craft'), inventory: read('inventory'), party: fitParty(read('party')), scene: read('scene'), time: () => { try { return ctx.time?.() ?? null; } catch { return null; } } });
+    return withPacks({ ask, rules: read('rules'), craft: read('craft'), inventory: read('inventory'), party: fitParty(read('party')), scene: read('scene'), time: () => { try { return ctx.time?.() ?? null; } catch { return null; } } });
 }
 
 /** env for a query or a view: the state, and the host's query tools (null-safe). */
@@ -53,16 +55,18 @@ export function envOfState(state, query) {
         try { return query(name, args) ?? null; } catch { return null; }
     };
     const domains = state?.domains ?? {};
-    return withPacks({ ask, craft: domains.craft ?? null, inventory: domains.inventory ?? null, party: fitParty(domains.party ?? null), scene: domains.scene ?? null, time: () => domains.director?.time?.minutes ?? null });
+    return withPacks({ ask, rules: domains.rules ?? null, craft: domains.craft ?? null, inventory: domains.inventory ?? null, party: fitParty(domains.party ?? null), scene: domains.scene ?? null, time: () => domains.director?.time?.minutes ?? null });
 }
 
 // What one command or query reads more than once is read once (B-rxui-10: a screen with hundreds of
 // recipes must not ask the same queries per recipe): the packs' content by kind, and anything `memo`
 // keeps by its key (the craft table, the uses, a member's counted modifiers per craft).
+// A pinned timeline reads its recipes from the pin (rules/pin.js), never from the packs installed now.
 function withPacks(env) {
     const cache = {};
     const kept = new Map();
-    const content = kind => (cache[kind] ??= list(env.ask('packs.content', { kind })).filter(isRecord));
+    const pin = pinOf({ domains: { rules: env.rules } });
+    const content = kind => (cache[kind] ??= (pin && kind === 'recipes' ? Object.values(pin.resolved.recipes ?? {}) : list(env.ask('packs.content', { kind }))).filter(isRecord));
     const memo = (key, make) => {
         if (!kept.has(key)) kept.set(key, make());
         return kept.get(key);

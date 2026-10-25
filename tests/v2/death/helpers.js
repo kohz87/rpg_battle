@@ -25,12 +25,17 @@ export async function world(t, { pin = true, native = null, faults = null, st = 
             'test.proof'(ctx, { kind, payload, parents = [] }) { return { summary: 'Code evidence.', narrate: false, data: ctx.proof({ kind, payload, parents }) }; },
             'test.linkNpc'(ctx, { actor, npc }) { ctx.draft('party').actors[actor].npcId = npc; return { summary: 'Linked.', narrate: false }; },
             'test.reward'(ctx) {
+                // Like production quest/combat awards, the synthetic payer must guard its claims.
+                // Otherwise undoing a return can replay two formerly disjoint, unguarded rewards.
+                ctx.replayGuard({ owner: ctx.module, version: 2, epoch: ctx.epoch, rulesHash: null,
+                    inputHash: ctx.hash({}), predicate: { kind: 'test.reward' } });
                 if (!ctx.claim('c12:reward')) ctx.fail('CLAIMED', 'The reward was already paid.');
                 ctx.call('wallet.receive', { owner: 'party', amount: 30 });
                 ctx.call('party.grantXp', { actor: ctx.read('party').pc, amount: 25, claim: 'c12:reward' });
                 return { summary: 'One reward.', narrate: false };
             },
         },
+        hooks: { replayGuard: (_view, { guard }) => guard?.predicate?.kind === 'test.reward' ? { ok: true } : undefined },
     };
     const module = { ...createModule({ parts: [...rulesParts, ['death', death], ['harness', harness]] }), batchResults: { resolve: resolveBatch } };
     host = await createHost({ modules: [SD, module, ...(native ? [native.module] : [])], timelineFaults: faults, st: { ...st, ...(image ? { chat: image.chat } : {}) } });

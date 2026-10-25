@@ -16,6 +16,8 @@ import { validatePack, HOST_VERSION } from './validate.js';
 import { findPackEntries } from './lorebook.js';
 import { byteLength } from './safety.js';
 import { packTag } from './kind.js';
+import { itemDefsIn } from './content.js';
+import { RULES_V2_PROGRESSION, canonicalizeJson, sha256, validateRulesPack } from './rules-v2.js';
 
 const SOURCES = ['file', 'lorebook'];
 
@@ -47,6 +49,7 @@ export function createInstalled({ settings, hostVersion = HOST_VERSION, capabili
         return Array.isArray(names) ? [...new Set([...names, ...HOST_CAPABILITIES])] : null;
     };
     const checked = new WeakMap();  // stored pack object → validatePack result
+    const resolvedRules = new WeakMap();
     const listeners = new Set();
 
     const root = () => {
@@ -97,6 +100,26 @@ export function createInstalled({ settings, hostVersion = HOST_VERSION, capabili
         /** Normalized packs that are enabled and valid, in list order. */
         packs() {
             return entries().filter(entry => entry.enabled !== false).map(check).filter(result => result.ok).map(result => result.pack);
+        },
+
+        /** Checked, detached pin transport for one enabled rules pack; never resolve a manifest in a module. */
+        rules(id) {
+            const entry = entries().find(entry => entry.enabled !== false && entry.id === id);
+            if (!entry) return null;
+            const result = check(entry);
+            if (!result.ok || !result.pack.content.rules?.length) return null;
+            if (!resolvedRules.has(entry.pack)) {
+                // validatePack has already checked the host-owned envelope and records.
+                const checked = validateRulesPack(result.raw, { hostVersion: host(), limits, envelope: false });
+                if (!checked.ok) return null;
+                resolvedRules.set(entry.pack, {
+                    resolved: checked.resolved, rulesHash: checked.rulesHash, packHash: checked.packHash,
+                    packKey: result.pack.id, packVersion: result.pack.version, progression: RULES_V2_PROGRESSION,
+                    constantsHash: sha256(JSON.stringify(canonicalizeJson(checked.resolved.constants))),
+                    defs: Object.fromEntries(itemDefsIn([result.pack]).map(def => [def.id, def])),
+                });
+            }
+            return JSON.parse(JSON.stringify(resolvedRules.get(entry.pack)));
         },
 
         /**

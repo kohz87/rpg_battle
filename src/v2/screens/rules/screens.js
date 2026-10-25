@@ -11,7 +11,7 @@
 //                                  items (read only), companions' dossiers
 //   rpg-battle/setup     Setup     what RPG Battle depends on, in distinct states, and the save points
 //
-// Each is shown only while RPG Battle's rules queries answer for the chat (`active`, SPEC §13.1): on a host, a legacy chat or a save
+// The rules pages are shown while RPG Battle's rules queries answer (`active`, SPEC §13.1). Setup also offers packs before creation. On a legacy chat or a save
 // without a pinned ruleset nothing new appears and the existing tabs and Party screen draw as before. A required module that is missing makes
 // the page say so (the banner), not disappear.
 
@@ -37,6 +37,7 @@ export function rulesActive(state, ctx) {
  */
 export function setupActive(state, ctx) {
     if (rulesActive(state, ctx).on) return { on: true };
+    if (ask(ctx, 'rules.selection', {}, isRecord).value?.state === 'offered') return { on: true };
     const status = ownStatus(hostModules());
     return { on: status === 'dormant' || status === 'restore-pending' };
 }
@@ -499,6 +500,18 @@ export const linksScreen = Object.freeze({
 
 const setupTemplate = `
 <div class="rb rb-setup">
+  <section class="ss-glass sect rules-pack" data-if="q.s.rules.offered || q.s.rules.pinned">
+    <p class="ss-label"><i class="fa-solid fa-book-open"></i>Character rules</p>
+    <div data-if="q.s.rules.offered">
+      <p class="hint">Choose the rules for this character timeline before creating your character. The pin keeps this exact ruleset even if its installed pack changes. To choose different rules, start a new character timeline.</p>
+      <div class="row" data-each="q.s.rules.offers as r">
+        <p class="row-head"><b>{{ r.name }}</b><small>{{ r.version }}</small></p>
+        <ss-widget name="rpg-battle.command-button" data-props='{"bind":"r.pin"}'></ss-widget>
+      </div>
+    </div>
+    <p class="hint" data-if="q.s.rules.pinned">Pinned: {{ q.s.rules.identity }}. These rules stay with this character timeline.</p>
+    <ss-widget name="rpg-battle.create-character" data-if="q.s.rules.create"></ss-widget>
+  </section>
   <section class="ss-glass sect status" data-class="dormant: !q.s.deps.ready">
     <p class="ss-label"><i class="fa-solid fa-plug-circle-check"></i>What RPG Battle depends on</p>
     <p class="headline"><b>{{ q.s.deps.headline }}</b></p>
@@ -555,9 +568,9 @@ export const setupScreen = Object.freeze({
     id: 'rpg-battle/setup',
     title: 'Setup',
     icon: 'fa-plug-circle-check',
-    mounts: Object.freeze(['tab', 'screen']),
+    mounts: Object.freeze(['tab', 'screen', 'dialog']),
     active: setupActive,
-    activeNote: 'Shown once RPG Battle\'s new rules are present, and while the host says RPG Battle is dormant.',
+    activeNote: 'Shown when rules can be chosen for a new character, when rules are pinned, or while RPG Battle is dormant.',
     data: Object.freeze({ s: Object.freeze({ query: 'rpg-battle.setupView' }) }),
     template: setupTemplate,
     css: setupCss,
