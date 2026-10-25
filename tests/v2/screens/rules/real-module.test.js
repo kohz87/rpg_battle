@@ -8,6 +8,7 @@ import { realWorld, DAY } from '../../progress/helpers/world.js';
 import { trainersPin, inputsPin, ref } from '../../progress/helpers/fixture.js';
 import { createModule } from '../../../../src/v2/module.js';
 import { rulesParts } from '../../../../src/v2/rules/index.js';
+import { statLine } from '../../../../src/v2/screens/rules/roster.js';
 import { rulesScreens, progressView, rosterView, linksView, setupView, classPickerView, questsView } from '../../../../src/v2/screens/rules/index.js';
 import { createScreen } from '../../../../src/v2/creation/screen.js';
 import { partyScreen } from '../../../../src/v2/screens/party.js';
@@ -221,6 +222,38 @@ test('C09 Roster reads inventory.items only, with poisoned state and real item d
     assert.equal(r.active[0].bag[0].name, 'Iron Sword');
     assert.equal(r.active[0].bag[0].blocked.length > 0, true, 'missing track A plan is shown as a hold');
     assert.deepEqual(w.problems(), []);
+});
+
+test('Roster shows the real stats of a real equipped companion\'s sword (items.gear gives a record, not a string)', async t => {
+    const w = await realWorld(t, { given: inputsPin(), sd: true, companions: ['Bram'] });
+    const [bram] = w.mates;
+    ok(w.ui('test.packDefs'));
+    const granted = ok(await w.internal('inventory.grant', { def: ref('sword'), qty: 1, to: 'party' }));
+    const stack = w.q('inventory.items').find(item => item.def === ref('sword')).stack;
+    assert.ok(stack, JSON.stringify(granted.receipt?.data));
+    ok(w.ui('item.equip', { stack, to: bram }));
+    const worn = w.q('items.gear', { actor: bram }).counted.find(entry => entry.stack === stack);
+    assert.deepEqual(worn.stats, { ATK: 3 }, 'the real answer is a record');
+    const view = model(w, rosterView);
+    const tile = view.active.find(member => member.id === bram).tiles.find(item => item.key === 'weapon');
+    assert.deepEqual([tile.filled, tile.name, tile.stats], [true, 'Iron Sword', 'ATK +3']);
+    const d = live(w, screen('roster'));
+    const card = all(d.el, 'article.member')[view.active.findIndex(member => member.id === bram)];
+    assert.match(text(card), /Iron Sword/);
+    assert.deepEqual(all(card, '.rpg-eq-sub').map(text), ['ATK +3'], 'the equipment tile shows the stats');
+    assert.deepEqual(d.problems, []);
+    assert.deepEqual(d.warnings, []);
+});
+
+test('statLine formats a stat record as text: signs, zero and non-numbers dropped, a name with markup stays text, a string is cut', () => {
+    assert.equal(statLine({ ATK: 3, DEF: -1, SPD: 0, BAD: 'x' }), 'ATK +3, DEF -1');
+    assert.equal(statLine({}), '');
+    assert.equal(statLine(null), '');
+    assert.equal(statLine(undefined), '');
+    assert.equal(statLine({ '<b>ATK</b>': 2 }), '<b>ATK</b> +2');
+    assert.equal(statLine('ATK +9'), 'ATK +9');
+    assert.equal(Array.from(statLine('x'.repeat(500))).length, 120);
+    assert.equal(Array.from(statLine({ ['K'.repeat(300)]: 1 })).length, 120);
 });
 
 test('C13–C19 real queries: setup lists host saves, links reads actual flags/item rules; unavailable peers are visible', async t => {

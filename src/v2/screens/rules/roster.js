@@ -16,7 +16,7 @@
 
 import { ASK, ask, isParty, isRecord, isText } from './ask.js';
 import { btn, clip } from './format.js';
-import { conditionStatus, conditionView, heroOf } from '../view.js';
+import { conditionStatus, conditionView, heroOf, statText } from '../view.js';
 
 export const SLOT_ORDER = Object.freeze(['weapon', 'offhand', 'head', 'body', 'legs', 'feet', 'accessory-1', 'accessory-2']);
 export const SLOT_LABELS = Object.freeze({
@@ -29,6 +29,12 @@ export const BAG_PIECES_MAX = 12;
 const isSlots = value => isRecord(value) && Array.isArray(value.slots) && value.slots.every(item => isRecord(item) && isText(item.key) && isText(item.label));
 
 const toneOfBand = { good: 'good', worn: 'warn', tattered: 'bad', broken: 'bad' };
+
+/**
+ * A worn piece's stats as one line ("ATK +3, DEF +1"). items.gear gives a record ({ ATK: 3 }); it is formatted here, never passed
+ * through a text clip (which would show a record as blank). A line of text is kept as it is, cut to the tile's width.
+ */
+export const statLine = stats => clip(typeof stats === 'string' ? stats : statText(stats), 120);
 
 /** The slot descriptors in the fixed order: the query's, or the eight default names when it does not answer yet (pending A). */
 export function slotList(found) {
@@ -76,7 +82,7 @@ export function slotTilesOf({ sheet, slots, worn, tools }) {
         return {
             key: slot.key, group: slot.key, label: slot.label, filled: true, empty: false, extra: false, stack: stackId,
             name: clip(`${entry?.name ?? stackName(items, stackId)}${refine ? ` ${refine.label}` : ''}`, 80),
-            stats: clip(entry?.stats ?? '', 120), why: '', cond: condition ? condition.text : '', condTone: toneOfBand[condition?.band] ?? '',
+            stats: statLine(entry?.stats), why: '', cond: condition ? condition.text : '', condTone: toneOfBand[condition?.band] ?? '',
             condBroken: condition?.band === 'broken', meter: max > 0, cur: condition?.cur ?? 0, max, note: '',
         };
     });

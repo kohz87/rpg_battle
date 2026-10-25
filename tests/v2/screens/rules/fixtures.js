@@ -457,7 +457,7 @@ export function c09(held = 'two-handed') {
     const twoHanded = held === 'two-handed';
     const heldStack = twoHanded ? GREAT : SWORD;
     const sheet = sheetOf({ level: 6, gear: { ...emptyGear(), weapon: heldStack } });
-    const gear = { actor: PC, level: 6, counted: [{ stack: heldStack, name: twoHanded ? 'Greatsword' : 'Sword', slot: 'weapon', slotLabel: 'Main hand', stats: 'ATK +9', counted: true, why: '' }], unused: [], bonuses: {} };
+    const gear = { actor: PC, level: 6, counted: [{ stack: heldStack, name: twoHanded ? 'Greatsword' : 'Sword', slot: 'weapon', slotLabel: 'Main hand', stats: { ATK: 9 }, counted: true, why: '' }], unused: [], bonuses: {} };
     const canWear = ({ stack }) => ({
         [SHIELD]: twoHanded ? { ok: false, why: 'The Greatsword takes both hands, so there is no off hand.' } : { ok: true },
         [DAGGER]: { ok: true },
