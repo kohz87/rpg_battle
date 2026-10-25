@@ -16,12 +16,12 @@ export function unclaimedCoin(state, tools) {
     const budget = ask(tools.query, 'inventory.storyBudget');
     return Math.max(0, amount(budget?.paid) - amount(budget?.vouched));
 }
-export function autoTurnIns(state, _args, tools) {
+export function autoTurnIns(state, args, tools) {
     const sid = tools?.reply?.sid;
     if (!sid) return [];
     const threads = ask(tools.query, 'director.threads') ?? [];
     return threads.filter(t => t.rpg?.state === 'active' && state?.meta?.claims?.[turnInKey(stateEpoch(state), t.rpg, sid)]
-        && ask(tools.query, 'quest.progress', { id: t.id })?.finish?.ok).map(t => t.id);
+        && (args?.pending === true || ask(tools.query, 'quest.progress', { id: t.id })?.finish?.ok)).map(t => t.id);
 }
 export function owedCredits(state, args, tools) {
     const coin = unclaimedCoin(state, tools);
@@ -41,8 +41,10 @@ export function repeatedThreads(state, tools) {
 export const repeatedCoin = (state, _args, tools) => ({ amount: repeatedThreads(state, tools)[0]?.rpg.settlement.coinPaid ?? 0 });
 
 export function questCreditHook(view) {
-    const ids = [...new Set([...expiredQuests(view), ...view.query('quest.autoTurnIns', {}), ...view.query('quest.owedCredits', {})])];
-    // Objective proofs come first: a reply that ends a fight and turns the quest in settles on the next reply's evidence.
+    // Select intents now; payOwed rechecks readiness after the preceding objective commands have committed.
+    const intents = view.query('quest.autoTurnIns', { pending: true }).sort();
+    const ids = [...new Set([...expiredQuests(view), ...intents, ...view.query('quest.owedCredits', {})])];
+    // Objective proofs come first; settlement then sees the same prefix as a full replay.
     const commands = [...pendingObjectives(view), ...ids.map(id => ({ type: 'quest.payOwed', payload: { id, credit: true } }))];
     return commands.length ? { lines: [], commands } : undefined;
 }
