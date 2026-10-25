@@ -2204,6 +2204,12 @@ export function createStore({
             }
             for (const [n, { ops: block, span: was }] of blocks.entries()) {
                 const receipt = paired ? keptReceipts[n] : null;
+                // A reply-bound block goes when its reply is read again, its receipt with it (as a delete or a swipe takes it);
+                // what was built on it is replayed below without it.
+                if (was.guard?.replyBound === true) {
+                    if (!paired) for (const gone of receiptsFor({ receipts: keptReceipts }, block)) keptReceipts.splice(keptReceipts.indexOf(gone), 1);
+                    continue;
+                }
                 let blockOps;
                 let kept = receipt;
                 let again = null;      // the block as planned again, when it was
