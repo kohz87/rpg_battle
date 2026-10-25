@@ -307,8 +307,8 @@ export function mergeInto(base, extra) {
 
 export async function realWorld(t, { companions = [], modules = [], pin = true, character = true, settings = {}, reader = null, given = undefined, sd = false } = {}) {
     const { createModule, MODULE_ID } = await import('../../../../src/v2/module.js');
-    // One module, as the real one is: Story Block answers a replay guard only its owner's own listed queries (party.actor is the party's).
-    const extra = { ...rulesModule({ given }), replayQueries: [...progressPart.replayQueries] };
+    // One module, as the real one is: its replay-safe queries are the real module.js's own list (the parts', party.actor among them); nothing is added here.
+    const extra = rulesModule({ given });
     let sdk = null;
     const base = createModule({ settings: () => ({ ...(sdk?.settings(MODULE_ID) ?? {}), ...settings }) });
     const merged = mergeInto(base, extra);

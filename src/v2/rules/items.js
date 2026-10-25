@@ -57,13 +57,23 @@ export const plainRule = def => (def.kind === 'equipment' ? null : { def: def.id
  * is unknown or Story Director cannot be asked.
  */
 export function areaNow(query) {
+    const { allowedFoes: _foes, allowedTags: _tags, ...area } = areaPolicyNow(query);
+    return area;
+}
+
+/**
+ * areaNow with the allowlists of the place's policy ({ allowedFoes, allowedTags }; a list that is not one is an empty list, which says
+ * nothing). Kept apart from areaNow because a generated item records its `area` and that record does not change.
+ */
+export function areaPolicyNow(query) {
     const here = ask(query, 'atlas.canonical', {});
     const place = isObject(here) && typeof here.id === 'string' ? here.id : null;
     const found = place ? ask(query, 'world.areaTier', { place }) : null;
     // The pack's money scale: the item.define hook prices in the chat's coin, so the value ceiling is read in it.
     const scale = moneyScale(Number(ask(query, 'inventory.economy', {})?.scale));
-    if (!isObject(found) || !Number.isInteger(found.tier) || found.tier < 0 || found.tier > 9) return { place, tier: null, source: 'unknown', sourceId: null, scale };
-    return { place: found.place ?? place, tier: found.tier, source: found.source ?? 'unknown', sourceId: found.sourceId ?? null, scale };
+    if (!isObject(found) || !Number.isInteger(found.tier) || found.tier < 0 || found.tier > 9) return { place, tier: null, source: 'unknown', sourceId: null, scale, allowedFoes: [], allowedTags: [] };
+    const list = value => (Array.isArray(value) ? value.filter(entry => typeof entry === 'string') : []);
+    return { place: found.place ?? place, tier: found.tier, source: found.source ?? 'unknown', sourceId: found.sourceId ?? null, scale, allowedFoes: list(found.allowedFoes), allowedTags: list(found.allowedTags) };
 }
 
 const templateOk = (ix, def, template) => {

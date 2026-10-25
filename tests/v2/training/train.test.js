@@ -103,6 +103,10 @@ test('C06 training midnight: day 4 minute 1410, sixty minutes later it is day 5 
     const receipt = w.host.ctx.chat.at(-1).extra.storySuite.receipts.find(entry => entry.type === 'rules.settle' && entry.data?.v2?.result?.started?.length);
     assert.deepEqual([receipt.data.v2.result.started, receipt.data.v2.result.completed, receipt.data.v2.result.expired], [[item.session], [item.session], []]);
     assert.equal(receipt.data.v2.result.credited.length, 1);
+    // Story Block answers a replay guard no query of Story Director's or the purse: where the party was and what it held are kept with the block.
+    const span = w.host.ctx.chat.at(-1).extra.storySuite.spans.find(entry => entry.guard?.predicate?.payload?.session === item.session);
+    assert.equal(span.recorded.place, 'pack.fixture/haven');
+    assert.equal(typeof span.recorded.coin, 'number');
     assert.deepEqual(w.problems(), []);
     assert.notEqual(offer(w).session, item.session, 'the next session has its own id');
 });

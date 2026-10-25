@@ -203,3 +203,10 @@ test('manifest: 2.0.0-beta.2, depends on Story Block, no v1 interceptor', async 
     assert.equal(manifest.generate_interceptor, undefined);
     assert.equal(manifest.js, 'index.js');
 });
+
+test('the module forwards the parts\' replayQueries (Story Block answers a guard\'s query only from this list)', async () => {
+    const { createModule } = await import('../../src/v2/module.js');
+    const def = createModule();
+    assert.ok(def.replayQueries.includes('party.actor') && def.replayQueries.includes('party.actors'));
+    for (const name of def.replayQueries) assert.equal(typeof def.queries[name], 'function', `${name} is a query of the module`);
+});

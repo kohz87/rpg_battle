@@ -413,6 +413,8 @@ export function rollLoot(enemy, { rng, luck = null, rules = DEFAULT_RULES, table
             // the chat's bestiary kept from before 0.5.31 too.
             const name = row.kind === 'material' ? String(row.name).replace(/\s+swarms?(?=\s)/i, '') : row.name;
             const item = { name, qty, rarity, kind: row.kind, stats: { ...(row.stats ?? {}) } };
+            // (rules v2) A pinned foe's row names its item's definition: the ref goes along to the grant (combat/index.js grantLoot).
+            if (typeof row.def === 'string' && row.def) item.def = row.def;
             if (row.effect) item.effect = row.effect;
             if (row.tags?.length) item.tags = [...row.tags];
             if (row.kind === 'equipment') enrichGear(item, rng);

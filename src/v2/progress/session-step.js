@@ -38,9 +38,9 @@ export function placeOf(query) {
 }
 
 /**
- * What settling session `id` would do on this state. `env`: { ix, progress, training, query }; `env.recorded` { place, coin } is what the block recorded when it was planned (a replay reads these from the record, never from
- * Story Director or the purse); `event`: { die, template } as
- * rolled (or recorded); `source`: the Source the step stands on; `hash`: the contract's Hash.
+ * What settling session `id` would do on this state. `env`: { ix, progress, training, query }; `event`: { die, template } as
+ * rolled (or recorded); `env.recorded` { place, coin } is what the block recorded when it was planned (a replay reads these from the record, never from
+ * Story Director or the purse); `source`: the Source the step stands on; `hash`: the contract's Hash.
  * → { ok: false, code, why } (cannot be settled now) | { ok: true, outcome: 'refused', patch, plan, inputs }
  *   | { ok: true, outcome: 'ran', patch, attempts: [{ id, record }], plan, start, end, fee, inputs }.
  */

@@ -438,6 +438,11 @@ function canCarryLoot(ctx, carried, qty) {
     return !(fits && fits.ok === false);
 }
 
+/** The chat's item definitions by id, or null. */
+function tryDefs(ctx) {
+    try { return ctx.read('inventory')?.defs ?? null; } catch { return null; }
+}
+
 /**
  * The victory's drops granted (inventory.grant to the party, the receipt as their cause), each
  * as the item lootTarget finds; drops that turn out to be one item are told once, added up. A drop
@@ -454,7 +459,27 @@ function grantLoot(ctx, items) {
         if (same) same.qty += item.qty;
         else list.push({ name, qty: item.qty, rarity: item.rarity ?? 'common', ...(why && pinned ? why : {}) });
     };
+    const ix = pinnedOf(ctx);
     for (const item of items) {
+        // A drop that names its item's definition (a pinned foe's loot row) is that frozen definition: the chat's stack of it if the pack's
+        // definitions are registered, else the definition itself; never a lookup by name.
+        const frozen = ix && typeof item.def === 'string' ? ix.itemDef(item.def) : null;
+        if (frozen) {
+            const registered = Boolean(tryDefs(ctx)?.[frozen.id]);
+            const problem = registered ? null : lootProblem(ctx, frozen);
+            if (problem) {
+                add(left, frozen.name, item, { reason: 'held', cause: problem.reason });
+                continue;
+            }
+            const carriedFrozen = registered ? { defId: frozen.id } : { def: frozen };
+            if (!canCarryLoot(ctx, carriedFrozen, item.qty)) {
+                add(left, frozen.name, item, { reason: 'weight' });
+                continue;
+            }
+            ctx.call('inventory.grant', { ...carriedFrozen, qty: item.qty, owner: 'party' });
+            add(told, frozen.name, item);
+            continue;
+        }
         const target = lootTarget(ctx, item);
         // No stack note: the item.define hook would take it for the item's own words, and loot of
         // one kind stacks; the stack's `from` is this receipt.

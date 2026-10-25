@@ -209,8 +209,8 @@ this slice, and `engine-unchanged.test.js` plays them again; `pinned.test.js` pl
 
 **Gaps and differences (written down, not decided):**
 
-- Death, return and wipe batches (B6), Story Director checks, danger and NSD (slice 4) are not here. `BatchResult` v1 is the fight's own kind.
-- Foe adapters (`foeToEngine`) and element resistances: deferred to the area-tier slice (the lead's decision); elements are not promised.
+- Death, return and wipe batches (B6) are not here (they wait for the timeline's merge). `BatchResult` v1 is the fight's own kind. Story Director
+  checks and danger are slice 4 (below).
 - `batchResults.resolve` is wired by the lead at integration, one resolver for fight and death batches; until then nothing in Story Block reads
   `progress.batches`.
 - `lootProblem` mirrors Story Block's hook call (`{ note: '', owner: 'party', scale }`, level 1); if Story Block's call changes, so must it.
@@ -238,7 +238,49 @@ this slice, and `engine-unchanged.test.js` plays them again; `pinned.test.js` pl
 - The full resolved pin rides in every checkpoint (583 KB for a big pack); B3/E6 will store `resolved` once, keyed by `rulesHash`.
 - Story Block must expose `resolved`, `rulesHash`, `packHash` and `RULES_V2_PROGRESSION` to the activation: `packs.rules` returns
   only the manifest today. That is an E/D task before activation.
-- Slice 4 and later: death and return, Story Director checks, tiers and danger.
+- Slice 4 and later: death and return.
+
+## Slice 4: the RB side of Story Director's checks and danger
+
+- **`rules.modifier { actor, stat, skill? } -> { actor, stat, amount, parts: [{ source, ref, reason, amount }] }`** (contract §3 P09): the modifier a check
+  adds for a character, with its parts (sources `stat`, `skill`, `talent`, `item`, `effect`, `encumbrance`; `ref` is null today: the parts name
+  their cause in `reason`). It reads the same parts `checks/modifiers.js` reads, so the check table and Story Director's `checks.roll` agree. An unknown
+  actor or stat answers null. *If the lead retires the `checks` part, `modifiers.js` moves with this query.*
+- **`checks.link` at creation** (`progress/start.js`, `linkChecks`): in a rules chat, the new player character is linked in the creation's own transaction to a
+  Story Director check actor: the `checkActor` the caller named, else Story Director's default (`checks.policy`), else a new actor named like the
+  character and made the default (`checks.actor`, then `checks.link`, each with its own `write` and the hash it just got). Story Director's refusal
+  (an actor with another living character: `CONFLICT`) fails the creation whole. No Story Director checks (no `checks.policy`, or it throws): nothing is
+  linked and nothing fails.
+- **`foeToEngine`** (`fight/foes.js`, private): a pack's foe becomes an engine enemy for the area (`world.areaTier`'s answer). The area must have a tier; the foe's level
+  may not pass `min(99, 10 x (tier + 1))`; `allowedFoes` (when it lists any) must name it and `allowedTags` (when it lists any) every one of its lore tags; its
+  skills must be skills of the ruleset (their frozen base forms) and its loot items with complete definitions. Pools, attack, defence and crit are the player's formulas with no gear
+  (`combatantFromSheet`); XP stays the engine's `foeXpWorth`; loot rows keep the pack's chance and quantity. In a pinned fight (`pinnedSetup`) an offered foe whose name
+  is a pinned foe's is made this way **only where Story Director gives the place a tier and the area lets the foe in**; every other foe is the v1 projection it was
+  (a fight never fails to start for want of the adapter). `areaPolicyNow` is `areaNow` with the two lists; `areaNow` itself, and so the `area` a generated item records,
+  is unchanged. The index gains `foe(ref)` and `foeNamed(name)`.
+- **Item and loot tiers** were already read from `world.areaTier` (`areaNow`); nothing changed there.
+
+**Gaps and differences (written down, not decided):**
+
+- **No element resistances.** The pack has no field for them (a foe has stats, skills, loot and lore tags; an element is only on a skill's damage effect), so there is nothing to
+  wire; nothing is invented.
+- **An empty `allowedFoes` or `allowedTags` means "no restriction".** The contract says only that an unknown place has empty lists; a place with a tier and a policy that names
+  no foes is read as one that names none to forbid. Confirm or say otherwise.
+- **Foe stat budget (interim, the lead's decision).** A foe's seven stats total at most `35 + 10 + 4 x (level - 1)`, the point-buy a player of that level could reach, the level held to the area's
+  ceiling; a foe over it is refused (`BUDGET`), never clamped. This stands until the ruleset's authors (D) publish a foe budget. The pack's schema and the level ceiling bound the rest.
+  The foe's own `tier` is carried by the pack and not compared with the area's.
+- The foe fights with the engine's morale and flee threshold (`rules.enemy`) and carries no coin; the pack says neither. A foe that flees pays no XP or loot, as before.
+- A loot row is granted by name as before (`lootTarget`); `rollLoot` (v1) drops the row's `def` ref, so the ref is not what the grant uses.
+- An offered foe is matched to the pack's by its ref when the offer names one (`ref`; an unknown ref is no foe), else by name, case aside, and only when exactly one pack foe has that name. Today's offers carry names only
+  (`! encounter` lines), so a ref never arrives yet. The pack's foe replaces the offer's tier, level and role (it is fought as written). Whatever the adapter cannot do (including a throw) leaves the v1 foe: a fight always starts.
+- A pinned foe's loot row carries its `def` ref through `rollLoot`; the grant uses the frozen pinned definition (the pack's stack when the activation registered it, else the definition itself if the rules
+  can register it), never a lookup by name. A definition the chat does not hold and the rules cannot register is held and told, like any drop.
+- **Replay guards (Story Block E1).** Story Block answers a guard only the queries its owner lists in `replayQueries` and which depend on the state alone. The party part lists `party.actor` and `party.actors`
+  (`module.js` forwards the list: a lead-owned commit; track A needs the same forward). What else a guard read from outside is no longer asked on replay: the story clock is read from the state
+  (`director.time`'s data), and the place and purse of a training session and the area of a combat end are **recorded with the block** and read back from it. One consequence, written down:
+  taking back the reply that set the place no longer turns the end (and the loot it registered) off; the loot stays bounded by the area it was planned in. `story.evidence` is allowed once E5 merges.
+  With Story Block `main`'s testkit (E1) the suite passes except the tests that need E5's `ctx.proof` and `story.evidence` (use proofs and flags: 10 tests), which wait for the E5 merge; the vendored testkit is re-synced then.
+- `world.areaTier` is read as the contract's `AreaTier`; Story Director's own tests cover its side.
 
 ## Code that production does not reach yet
 

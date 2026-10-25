@@ -66,7 +66,7 @@ export function attachIfFree(ctx, ix, kind, payload, inputs, recorded) {
  */
 export function replayGuard({ state, query: asked, hash }, info) {
     // Story Block answers a guard only the queries its owner lists as replay-safe (REPLAY.md): the story clock is read as data from the state
-    // (Story Director's `director.time`), never asked.
+    // (Story Director's `director.time`), and what else a guard needs from outside (the place, the purse) was recorded when the block was planned.
     const query = (name, args) => (name === 'director.time' ? (state?.domains?.director?.time ?? null) : asked(name, args));
     const guard = info?.guard;
     const kind = guard?.predicate?.kind;

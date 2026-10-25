@@ -256,3 +256,94 @@ test('B7: in a rules chat every way to a new character takes a basic class and r
     assert.equal(d.host.bus.command('party.create', { name: 'Ren', preset: 'fighter' }, { cause: 'ui' }).ok, true);
     assert.deepEqual(d.slice('progress').choices, {});
 });
+
+// A stand-in for Story Director's checks (contract §3 P09): what RPG Battle may rely on, kept apart from the shared SD stand-in.
+async function withChecks(t, { actors = {}, defaultActor = null, ...options } = {}) {
+    const { SD } = await import('./helpers/world.js');
+    const book = { actors: structuredClone(actors), defaultActor, calls: [] };
+    const answered = result => ({ summary: '', narrate: false, data: { v2: { key: 'k', result } } });
+    const hash = () => `h${book.calls.length}`;
+    const sd = {
+        ...SD,
+        queries: { ...SD.queries, 'checks.policy': () => ({ hash: hash(), defaultActor: book.defaultActor, actors: Object.keys(book.actors) }) },
+        commands: {
+            ...SD.commands,
+            'checks.actor'(ctx, p) {
+                book.calls.push(['actor', p]);
+                const id = `ca_0000000${Object.keys(book.actors).length + 1}`;
+                book.actors[id] = { name: p.name, rbActor: null };
+                if (p.makeDefault) book.defaultActor = id;
+                return answered({ actor: id, hash: hash() });
+            },
+            'checks.link'(ctx, p) {
+                book.calls.push(['link', p]);
+                const found = book.actors[p.actor];
+                if (!found) ctx.fail('NOT_FOUND', 'No such check actor.');
+                if (found.rbActor && found.rbActor !== p.rbActor) ctx.fail('CONFLICT', 'That check actor is another character\'s.');
+                found.rbActor = p.rbActor;
+                return answered({ actor: p.actor, rbActor: p.rbActor, hash: hash() });
+            },
+        },
+    };
+    const w = await realWorld(t, { character: false, ...options, sd });
+    return { w, book };
+}
+
+test('the new player character is linked to a Story Director check actor in the creation itself: the default, else the given one, else a new default', async t => {
+    // none yet: one is made after the character, made the default, and linked
+    const a = await withChecks(t);
+    const made = a.w.host.bus.command('party.create', { name: 'Ren', preset: 'fighter', class: ref('c0') }, { cause: 'ui' });
+    assert.equal(made.ok, true, made.message);
+    const rb = made.receipt.data.actor;
+    assert.deepEqual(a.book.calls.map(([kind]) => kind), ['actor', 'link']);
+    assert.equal(a.book.calls[0][1].name, 'Ren');
+    assert.equal(a.book.calls[0][1].makeDefault, true);
+    assert.equal(a.book.calls[0][1].expectedHash, 'h0');
+    assert.equal(a.book.calls[1][1].rbActor, rb);
+    assert.equal(a.book.calls[1][1].expectedHash, 'h1', 'the hash of the actor it just made');
+    assert.equal(a.book.actors[a.book.defaultActor].rbActor, rb);
+    // a default exists: it is linked, nothing is made
+    const b = await withChecks(t, { actors: { ca_00000001: { name: 'Hero', rbActor: null } }, defaultActor: 'ca_00000001' });
+    assert.equal(b.w.host.bus.command('party.create', { name: 'Ren', preset: 'fighter', class: ref('c0') }, { cause: 'ui' }).ok, true);
+    assert.deepEqual(b.book.calls.map(([kind]) => kind), ['link']);
+    assert.equal(b.book.calls[0][1].actor, 'ca_00000001');
+    // the one the caller named wins over the default
+    const c = await withChecks(t, { actors: { ca_00000001: { name: 'Hero', rbActor: null }, ca_00000002: { name: 'Other', rbActor: null } }, defaultActor: 'ca_00000001' });
+    assert.equal(c.w.host.bus.command('party.create', { name: 'Ren', preset: 'fighter', class: ref('c0'), checkActor: 'ca_00000002' }, { cause: 'ui' }).ok, true);
+    assert.deepEqual(c.book.calls.map(([kind, p]) => [kind, p.actor]), [['link', 'ca_00000002']]);
+});
+
+test('a check actor that already belongs to a living other character refuses the creation whole: nobody is made, nothing is recorded', async t => {
+    const w = await withChecks(t, { actors: { ca_00000001: { name: 'Hero', rbActor: 'ac_other001' } }, defaultActor: 'ca_00000001' });
+    const out = w.w.host.bus.command('party.create', { name: 'Ren', preset: 'fighter', class: ref('c0') }, { cause: 'ui' });
+    assert.equal(out.ok, false);
+    assert.equal(out.code, 'CONFLICT');
+    assert.equal(w.w.q('party.pc'), null, 'and nobody was made');
+    assert.deepEqual(w.w.slice('progress').choices, {});
+    assert.deepEqual(rbClaims(w.w), []);
+});
+
+test('without Story Director\'s checks nothing is linked and nothing is asked: no SD, an SD with no checks.policy', async t => {
+    for (const sd of [false, true]) {
+        const w = await realWorld(t, { character: false, sd });
+        const out = w.host.bus.command('party.create', { name: 'Ren', preset: 'fighter', class: ref('c0') }, { cause: 'ui' });
+        assert.equal(out.ok, true, out.message);
+        assert.equal(w.q('party.pc').name, 'Ren');
+    }
+});
+
+test('a chat with no rules pack never asks Story Director for a check actor', async t => {
+    const w = await withChecks(t, { pin: false });
+    assert.equal(w.w.host.bus.command('party.create', { name: 'Ren', preset: 'fighter' }, { cause: 'ui' }).ok, true);
+    assert.deepEqual(w.book.calls, []);
+});
+
+test('R1: a companion is never linked to a check actor: party.addCompanion asks Story Director for nothing and does not meet the player\'s CONFLICT', async t => {
+    const w = await withChecks(t, { actors: { ca_00000001: { name: 'Hero', rbActor: null } }, defaultActor: 'ca_00000001' });
+    assert.equal(w.w.host.bus.command('party.create', { name: 'Ren', preset: 'fighter', class: ref('c0') }, { cause: 'ui' }).ok, true);
+    const calls = w.book.calls.length;
+    const out = await w.w.internal('party.addCompanion', { name: 'Lyra', level: 1, class: ref('c0') });
+    assert.equal(out.ok, true, out.message);
+    assert.equal(w.book.calls.length, calls, 'no check.actor or checks.link for a companion');
+    assert.equal(Object.keys(w.w.slice('party').actors).length, 2);
+});

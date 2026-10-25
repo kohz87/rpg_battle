@@ -49,6 +49,13 @@ export function indexOf(pin) {
         flags: () => (flags ??= declaredFlags(resolved)),
         /** The pack's rule for an item (ItemRule) or null; the generated ones are in the state (items.js). */
         itemRule: ref => (Object.hasOwn(resolved.items ?? {}, ref) ? resolved.items[ref] : null),
+        /** A foe of the pinned ruleset by its ref, or null; and by its name (case aside), or null unless exactly one foe has that name. */
+        foe: ref => (Object.hasOwn(resolved.foes ?? {}, ref) ? resolved.foes[ref] : null),
+        foeNamed(name) {
+            const wanted = String(name ?? '').trim().toLowerCase();
+            const same = Object.values(resolved.foes ?? {}).filter(entry => String(entry.name).toLowerCase() === wanted);
+            return same.length === 1 ? same[0] : null;
+        },
         /** The pack's complete ItemDef frozen with the rules, or null. */
         itemDef: ref => (Object.hasOwn(pin.defs ?? {}, ref) ? pin.defs[ref] : null),
         itemRuleCount: Object.keys(resolved.items ?? {}).length,

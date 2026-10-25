@@ -149,3 +149,21 @@ export function fightPack() {
     return pack;
 }
 export const fightPin = () => pinFor('fight', fightPack());
+
+/** The fight pack with two foes: a Wolf (level 1, tier 1; one skill, one loot row) and a Warlord (level 40, tier 4). The pin also holds the rope's complete definition. */
+export function foesPack() {
+    const pack = fightPack();
+    const row = (slug, name, over = {}) => ({ slug, name, kind: 'goods', rarity: 'common', value: 2, stack: true, slot: null, stats: {}, effect: {}, tags: [], note: '', ...over });
+    pack.content.items = [row('rope', 'Rope')];
+    pack.content.rules[0].itemRules = [{ def: 'rope', allowedSlots: [], hands: 0, requires: {}, weight: 1 }];
+    const stats = n => ({ STR: n, VIT: n, AGI: n, DEX: n, INT: n, LUK: n, CHA: n });
+    pack.content.creatures = [
+        { slug: 'wolf', name: 'Wolf', tier: 1, level: 1, stats: stats(1), skills: ['s01'], loot: [{ def: 'rope', chance: 100, qty: 2 }], loreTags: ['beast', 'forest'] },
+        { slug: 'warlord', name: 'Warlord', tier: 4, level: 40, stats: stats(28), skills: ['s01', 's02'], loot: [], loreTags: ['war'] },
+    ];
+    return pack;
+}
+export const foesPin = () => {
+    const pin = pinFor('foes', foesPack());
+    return Object.freeze({ ...pin, defs: { 'pack.fixture/rope': { id: 'pack.fixture/rope', name: 'Rope', kind: 'goods', rarity: 'common', value: 2, stack: true, slot: null, stats: {}, effect: {}, tags: [], note: '' } } });
+};

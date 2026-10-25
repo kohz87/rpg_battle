@@ -7,6 +7,8 @@
 //   rules.names({ refs })         → { [Ref]: name }                      class, skill and form names; unknown refs left out
 //   rules.party({})               → PartyView | null                     active (PC + 2), reserve, temporary sheets (sheet.js)
 //   rules.sheet({ actor? })       → SheetView | null                      the member with class, three skills, gear (sheet.js); your character by default
+//   rules.modifier({ actor, stat, skill? }) → RulesModifier | null        what a check of this stat and skill adds for the member (no die, no relationship
+//                                                                         bonus): Story Director's checks.roll reads it for a character it is linked to
 
 import { indexOfState } from './graph.js';
 import { isObject } from './ids.js';
@@ -14,6 +16,8 @@ import { pinOf } from './pin.js';
 import { ask } from './ask.js';
 import { gearOf, partyView, sheetView } from './sheet.js';
 import { isActorId } from './ids.js';
+import { STATS } from '../../rules.js';
+import { memberOf, modifiersFor, rulesFor } from '../checks/modifiers.js';
 
 const noArgs = args => args === undefined || args === null || (isObject(args) && Object.keys(args).length === 0);
 
@@ -61,4 +65,24 @@ export function rulesSheet(state, args, tools) {
     return sheetView(ix, state.domains.progress ?? {}, member, gearOf(query, member.id));
 }
 
-export const queries = { 'rules.sheet': rulesSheet, 'rules.party': rulesParty, 'rules.identity': rulesIdentity, 'rules.classes': rulesClasses, 'rules.names': rulesNames };
+/**
+ * rules.modifier({ actor, stat, skill? }) -> { actor, stat, amount, parts: [{ source, ref, reason, amount }] } | null (contract §3). The rule is the
+ * checks' (checks/modifiers.js): v1's check modifier of the member's **base** stat (gear does not count again), a skill in use whose name falls
+ * under the check's topic +2, a talent +1, one item +1 (the extras together at most +3), effects together at most +-3, and the host's burden -2
+ * outside the caps. `amount` is the sum of the parts, whole, within -30..30. An unknown actor, a stat that is not one, or a chat with no pin is null.
+ */
+export function rulesModifier(state, args, tools) {
+    const ix = indexOfState(state);
+    if (!ix || !isObject(args) || Object.keys(args).some(key => !['actor', 'stat', 'skill'].includes(key)) || !isActorId(args.actor) || !STATS.includes(args.stat)) return null;
+    if (args.skill !== undefined && (typeof args.skill !== 'string' || args.skill.length > 80)) return null;
+    const query = tools?.query;
+    const member = ask(query, 'party.actor', { id: args.actor });
+    if (!isObject(member)) return null;
+    const found = modifiersFor(memberOf(query, member, state?.domains?.inventory?.defs ?? {}), args.skill ?? '', args.stat, rulesFor(null));
+    const parts = found.map(part => ({ source: part.source === 'effect' && part.reason === 'Encumbered' ? 'encumbrance' : part.source, ref: null, reason: String(part.reason).slice(0, 120), amount: part.amount }));
+    const amount = parts.reduce((sum, part) => sum + part.amount, 0);
+    if (!Number.isSafeInteger(amount) || Math.abs(amount) > 30 || parts.some(part => Math.abs(part.amount) > 30)) return null;
+    return { actor: args.actor, stat: args.stat, amount, parts };
+}
+
+export const queries = { 'rules.modifier': rulesModifier, 'rules.sheet': rulesSheet, 'rules.party': rulesParty, 'rules.identity': rulesIdentity, 'rules.classes': rulesClasses, 'rules.names': rulesNames };

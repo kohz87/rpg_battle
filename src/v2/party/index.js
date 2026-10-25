@@ -49,6 +49,9 @@ export const part = {
     },
     commands: { ...commands, ...effectCommands, 'party.recover': recover },
     queries,
+    // The queries a replay guard may ask (Story Block REPLAY.md "Guards are pure"): they read the state and their arguments alone. An NPC's
+    // portrait comes through the tools when there is one and is null on replay, which no guard reads.
+    replayQueries: ['party.actor', 'party.actors'],
     kinds: { ...kinds, ...effectKinds },
     context,
     hooks: { canGenerate, beforeGenerate: beforeReply },

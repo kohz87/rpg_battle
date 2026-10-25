@@ -1,7 +1,7 @@
 // rules/queries.js: the lookups track C's screens read (rules.identity, rules.classes, rules.names, rules.training).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ACTOR, DAY, FRIEND, ref, started, world } from '../progress/helpers/world.js';
+import { ACTOR, AREA_TIERS, DAY, FRIEND, realWorld, ref, started, world } from '../progress/helpers/world.js';
 
 test('rules.identity: the pinned rules hash class.choose and path.choose need, with the pack and its version', async t => {
     const w = await started(t);
@@ -76,4 +76,34 @@ test('rules.sheet: your character by default, a member by id, null for a strange
     const bare = await world(t);
     await bare.say('Dawn.');
     assert.equal(bare.q('rules.sheet', {}), null, 'no pin');
+});
+
+test('rules.modifier: the base stat\'s check modifier and what the member brings to the check, in parts that sum to the amount; null for what it cannot answer', async t => {
+    for (const key of Object.keys(AREA_TIERS)) delete AREA_TIERS[key];
+    AREA_TIERS['pack.fixture/haven'] = 4;
+    try {
+        const w = await realWorld(t, { sd: true });
+        await w.say('Haven.', ['~ here pack.fixture/haven', '+ item Lockpicks | qty: 1']);
+        const bare = w.q('rules.modifier', { actor: w.pc, stat: 'STR', skill: 'shout' });
+        assert.deepEqual(Object.keys(bare), ['actor', 'stat', 'amount', 'parts']);
+        assert.deepEqual(bare.parts, [{ source: 'stat', ref: null, reason: 'STR', amount: bare.amount }]);
+        const lock = w.q('rules.modifier', { actor: w.pc, stat: 'DEX', skill: 'pick the lock' });
+        assert.deepEqual(lock.parts.map(part => [part.source, part.reason]).slice(0, 2), [['stat', 'DEX'], ['item', 'Lockpicks']]);
+        assert.equal(lock.amount, lock.parts.reduce((sum, part) => sum + part.amount, 0));
+        assert.equal(lock.parts[1].amount, 1, 'one item +1');
+        assert.ok(lock.parts.every(part => part.ref === null && Number.isInteger(part.amount) && part.reason.length <= 120));
+        // The skill word may be absent, and the stat decides.
+        assert.equal(w.q('rules.modifier', { actor: w.pc, stat: 'DEX' }).parts.length, 1);
+        // Nothing else: a stranger, a stat that is not one, a malformed call, no pin.
+        assert.equal(w.q('rules.modifier', { actor: 'ac_zzzzzzzz', stat: 'DEX' }), null);
+        assert.equal(w.q('rules.modifier', { actor: w.pc, stat: 'WIS' }), null);
+        assert.equal(w.q('rules.modifier', { actor: w.pc, stat: 'DEX', die: 20 }), null);
+        assert.equal(w.q('rules.modifier', { actor: w.pc }), null);
+        assert.equal(w.q('rules.modifier', {}), null);
+        const plain = await world(t);
+        await plain.say('Dawn.');
+        assert.equal(plain.q('rules.modifier', { actor: ACTOR, stat: 'DEX' }), null, 'no pin');
+    } finally {
+        for (const key of Object.keys(AREA_TIERS)) delete AREA_TIERS[key];
+    }
 });
