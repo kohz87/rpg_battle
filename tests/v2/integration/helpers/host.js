@@ -8,6 +8,7 @@
 import { createHost } from '../../../vendor/story-block/testkit/index.js';
 import { MODULE_ID, createModule } from '../../../../src/v2/module.js';
 import { EQUIP_PARTS } from '../../items/helpers/equip-parts.js';
+import { withDirector } from './peer.js';
 
 // splitmix32 over a counter: plenty for test dice, the same every run.
 function source(seed) {
@@ -66,7 +67,7 @@ export async function rpgHost(options = {}) {
     const module = createModule({ settings: () => sdk?.settings(MODULE_ID) ?? {}, ...(equip ? { parts: [...EQUIP_PARTS] } : {}) });
     // `tweak(module)`: a test's change to the module before it registers (a query wrapped to misbehave).
     if (typeof tweak === 'function') tweak(module);
-    const host = await createHost({ ...hostOptions, modules: [module, CALLER, ...(options.modules ?? [])] });
+    const host = await createHost({ ...hostOptions, modules: withDirector([module, CALLER, ...(options.modules ?? [])]) });
     sdk = host.sdk;
     const saved = globalThis.StoryBlock;
     globalThis.StoryBlock = { apiVersion: 2, ready: Promise.resolve(sdk), sdk };

@@ -213,23 +213,23 @@ test('party.rest short and long', () => {
     const base = withCompanion();
     const pc = base.domains.party.pc;
     const state = hurt(base, pc, 10, { mp: { cur: 0, max: 40 }, conditions: [{ kind: 'poison', stacks: 2 }, { kind: 'exhausted', stacks: 1 }] });
-    const short = run(state, 'party.rest', { kind: 'short' });
+    const short = run(state, 'party.rest', { kind: 'short' }, { time: 0 });
     assert.ok(short.ok, short.message);
     const max = pcOf(state).hp.max;
     assert.equal(pcOf(short.state).hp.cur, 10 + Math.floor(max * 0.25));
     // Any rest ends what a fight left (poison with rounds to go, B-c1-1); a story's condition waits for a long rest.
     assert.deepEqual(pcOf(short.state).conditions, [{ kind: 'exhausted', stacks: 1 }]);
     assert.match(short.result.summary, /^The party takes a short rest: Ren HP \+/);
-    const long = run(state, 'party.rest', { kind: 'long', reason: 'a night at the inn' });
+    const long = run(state, 'party.rest', { kind: 'long', reason: 'a night at the inn' }, { time: 0 });
     assert.equal(pcOf(long.state).hp.cur, max);
     assert.deepEqual(pcOf(long.state).conditions, [{ kind: 'exhausted', stacks: 1 }]);
     assert.match(long.result.summary, /long rest \(a night at the inn\)/);
-    const idle = run(base, 'party.rest', { kind: 'long' });
+    const idle = run(base, 'party.rest', { kind: 'long' }, { time: 0 });
     assert.ok(idle.ok);
     assert.match(idle.result.summary, /Nobody needed it/);
     rejects(run(state, 'party.rest', { kind: 'nap' }), 'INVALID');
-    rejects(run(makeState(), 'party.rest', { kind: 'long' }), 'NOT_FOUND');
-    rejects(run(state, 'party.rest', { kind: 'long', actors: ['ac_nobody00'] }), 'NOT_FOUND');
+    rejects(run(makeState(), 'party.rest', { kind: 'long' }, { time: 0 }), 'NOT_FOUND');
+    rejects(run(state, 'party.rest', { kind: 'long', actors: ['ac_nobody00'] }, { time: 0 }), 'NOT_FOUND');
 });
 
 test('party.rest recomputes the maxima with the gear the member wears', () => {
@@ -238,7 +238,7 @@ test('party.rest recomputes the maxima with the gear the member wears', () => {
     const state = structuredClone(base);
     state.domains.inventory.defs['story/iron-helm'] = { id: 'story/iron-helm', name: 'Iron Helm', kind: 'equipment', rarity: 'rare', value: 0, stack: false, slot: 'worn', stats: { HP: 20 }, effect: {}, tags: [], note: '' };
     state.domains.inventory.stacks.it_aaaaaaaa = { id: 'it_aaaaaaaa', def: 'story/iron-helm', qty: 1, owner: pc, equipped: 'worn', note: '', from: '' };
-    const out = run(state, 'party.rest', { kind: 'long' });
+    const out = run(state, 'party.rest', { kind: 'long' }, { time: 0 });
     assert.equal(pcOf(out.state).hp.max, pcOf(base).hp.max + 20);
     assert.equal(pcOf(out.state).hp.cur, pcOf(base).hp.max + 20);
 });
