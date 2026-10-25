@@ -49,4 +49,3 @@ test('modifiers: the stat, +2 a skill in use, +1 a talent by its tags, +1 one it
     assert.deepEqual(modifiersFor(member, 'dance'), [{ source: 'stat', amount: 0, reason: 'LUK' }]);
     assert.equal(tableLine(member, { you: true }), 'Ren (you): STR +0, VIT +0, AGI +0, DEX +2, INT +0, LUK +0, CHA +0; +2 lock (Lockpicking), +2 stealth (Sneak Attack), +1 perception (Keen Eyes), +1 stealth (Night Owl), +1 perception (Lantern), +1 lock (Lockpicks), +1 climb (Rope), +1 perception (Torch).');
 });
-
