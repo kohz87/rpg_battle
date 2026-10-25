@@ -1,5 +1,6 @@
 // Retained quest command payloads; all thread changes go through SD's P23 writers.
 import { offeredQuest } from './outcomes.js';
+import { OBJECTIVE_FIELDS } from './objectives.js';
 import { ask, boundary, call, copy, fail, freshThreadId, pinned, questInputs, templateOf, threadOf, writeId } from './seams.js';
 
 const requireThread = (ctx, payload) => {
@@ -18,7 +19,7 @@ export function offerQuest(ctx, template, options = {}) {
     return id;
 }
 
-export function createCommands({ settleQuest, evaluateRequirements = null, guardTake = null, settleCredit = null } = {}) {
+export function createCommands({ settleQuest, evaluateRequirements = null, guardTake = null, settleCredit = null, recordObjective = null } = {}) {
     function take(ctx, payload = {}) {
         if (payload.by !== undefined || payload.credit !== undefined || payload.reason !== undefined) return ctx.fail('INVALID', 'Taking a quest uses id or key.');
         if (ctx.caller && !['story-director', 'rpg-battle'].includes(ctx.caller)) return ctx.fail('REFUSED', 'Quest acceptance requires the reader or validated player intent.');
@@ -94,5 +95,16 @@ export function createCommands({ settleQuest, evaluateRequirements = null, guard
         const out = settleQuest(ctx, thread, { ...payload, by: 'story' }, expired ? 'expired' : 'done');
         return { ...out, replan: true };
     }
-    return { 'quest.take': take, 'quest.abandon': abandon, 'quest.finish': finish, 'quest.payOwed': payOwed };
+    // B3: one validated action becomes one proof of one objective (objectives.js). A button is not an action of the story.
+    function objective(ctx, payload = {}) {
+        if (!payload || typeof payload !== 'object' || Object.keys(payload).some(k => !OBJECTIVE_FIELDS.includes(k))) return ctx.fail('INVALID', 'quest.objective takes { id|key, objective, fight? | proof? }.');
+        if (typeof payload.objective !== 'string' || (payload.fight !== undefined && payload.proof !== undefined)) return ctx.fail('INVALID', 'Name the objective and either the fight or the proof, not both.');
+        if (ctx.cause === 'ui' && !ctx.caller) return ctx.fail('REFUSED', 'An objective is proved by the story or by code, not by a button.');
+        if (typeof recordObjective !== 'function') return ctx.fail('DEPENDENCY_UNAVAILABLE', 'The objective adapter is unavailable.');
+        const thread = requireThread(ctx, { ...(payload.id ? { id: payload.id } : {}), ...(payload.key ? { key: payload.key } : {}) });
+        if (!thread.rpg) return ctx.fail('REFUSED', 'This goal has no RPG quest extension.');
+        const { id: _id, key: _key, ...request } = payload;
+        return recordObjective(ctx, thread, request);
+    }
+    return { 'quest.take': take, 'quest.abandon': abandon, 'quest.finish': finish, 'quest.payOwed': payOwed, 'quest.objective': objective };
 }

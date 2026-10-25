@@ -5,7 +5,7 @@ SB inventory/wallet/claims and NSD presets. No legacy migration is included.
 
 | Task | Done | Left |
 | --- | --- | --- |
-| A1 | Retained quest commands/queries, parser, progress/ranks, board/retry adapters and context. | B3 requirements and kill/visit/story validators. |
+| A1 | Retained quest commands/queries, parser, progress/ranks, board/retry adapters and context. | Requirements wiring; objective proofs are in track-a-quests.md. |
 | A2 | SD neutral writers, acceptance, retry ledger and standalone journal; old quest payouts retired. | Host cursor()/epoch integration. |
 | A3 | One guarded settlement, exact consumption, wallet/XP/journal/claim, fresh follow-up offers and story-coin deduplication. | B3 giver/place, carry and objective-event adapters; expiry sweep. |
 | A4 | Pure eight-slot planner and slot projection. | Live equipment routing, rules/packs/prompt/UI; see track-a-equipment.md. |

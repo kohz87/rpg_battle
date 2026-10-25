@@ -1,5 +1,6 @@
 // Story coin remains SB-owned. RB only attributes it to one reward on that reply.
 import { ask, stateEpoch } from './seams.js';
+import { pendingObjectives } from './objectives.js';
 export const creditKey = sid => `storycoin:${sid}`;
 export const turnInKey = (epoch, quest, sid) => `rb:${epoch}:quest:${quest.id}:${quest.instance}:turnin:${sid}`;
 const amount = value => Number.isSafeInteger(value) && value > 0 ? value : 0;
@@ -41,7 +42,9 @@ export const repeatedCoin = (state, _args, tools) => ({ amount: repeatedThreads(
 
 export function questCreditHook(view) {
     const ids = [...new Set([...expiredQuests(view), ...view.query('quest.autoTurnIns', {}), ...view.query('quest.owedCredits', {})])];
-    return ids.length ? { lines: [], commands: ids.map(id => ({ type: 'quest.payOwed', payload: { id, credit: true } })) } : undefined;
+    // Objective proofs come first: a reply that ends a fight and turns the quest in settles on the next reply's evidence.
+    const commands = [...pendingObjectives(view), ...ids.map(id => ({ type: 'quest.payOwed', payload: { id, credit: true } }))];
+    return commands.length ? { lines: [], commands } : undefined;
 }
 
 function expiredQuests(view) {
@@ -52,6 +55,7 @@ function expiredQuests(view) {
 }
 
 export function questExpiryHook(view) {
-    const ids = expiredQuests(view);
-    return ids.length ? { commands: ids.map(id => ({ type: 'quest.payOwed', payload: { id } })) } : undefined;
+    // Expiry first; an expired quest has no objective left to prove (pendingObjectives skips it).
+    const commands = [...expiredQuests(view).map(id => ({ type: 'quest.payOwed', payload: { id } })), ...pendingObjectives(view)];
+    return commands.length ? { commands } : undefined;
 }

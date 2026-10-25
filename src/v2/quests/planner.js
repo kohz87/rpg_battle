@@ -84,7 +84,7 @@ export function objectiveProgress(thread, { proofs, items, activeActors, validat
                 if (!proof || !count(evidence.amount) || evidence.amount > 999) continue;
                 // The shared checker must verify thread/instance/objective, exact action and
                 // the surviving acceptance prefix. A visible line by itself is insufficient.
-                if (validateProof({ objective, quest, acceptance, proof }) !== true) continue;
+                if (validateProof({ objective, quest, acceptance, proof, evidence }) !== true) continue;
                 seen.add(proof.id);
                 used.set(proof.id, proof);
                 have += evidence.amount;
