@@ -169,7 +169,9 @@ test('an existing legacy character cannot pin when a pack is installed later', a
 
 test('late Story Director enables the same Setup offer; a restore barrier prevents pinning', async t => {
     const h = await world(t, { sd: false });
-    assert.equal(h.selection().state, 'legacy');
+    assert.equal(h.selection().state, 'offered', 'Setup still names the pack while its dependency starts');
+    assert.equal((await h.pin()).code, 'DEPENDENCY_UNAVAILABLE');
+    assert.equal(h.head().domains.rules, undefined);
     await h.sdk.registerModule(director);
     const offer = h.selection().offers[0];
     assert.ok(offer);

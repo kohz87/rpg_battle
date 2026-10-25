@@ -987,7 +987,7 @@ export function createStore({
                 }
             }
             running = spineStep(running, record, arr[i], seen === 0);
-            if (record.spans?.some(span => span.guard?.replyBound === true) && !list().includes(arr[i])) withdrawn = true;
+            if (Array.isArray(record.spans) && record.spans.some(span => span?.guard?.replyBound === true) && !list().includes(arr[i])) withdrawn = true;
             seen += 1;
             since.push(record.sid);
             members.push(i);

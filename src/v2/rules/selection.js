@@ -34,10 +34,11 @@ export function pinReplay({ state, hash }, { guard, source } = {}) {
 }
 
 export function selectionPart({ preflight }) {
+    const eligible = flight => flight?.hostApi === 2 && ['empty', 'legacy', 'current'].includes(flight.classification);
     const ready = () => {
         try {
             const flight = preflight();
-            return compatibleHost(flight) && ['empty', 'legacy', 'current'].includes(flight.classification);
+            return compatibleHost(flight) && eligible(flight);
         } catch { return false; }
     };
     return {
@@ -45,7 +46,7 @@ export function selectionPart({ preflight }) {
             'rules.selection'(state, _args, tools) {
                 const pin = pinOf(state);
                 if (pin) return { state: 'pinned', offers: [], packHash: pin.identity.packHash };
-                if (!ready() || !canPin(state)) return { state: 'legacy', offers: [] };
+                if (!eligible(preflight()) || !canPin(state)) return { state: 'legacy', offers: [] };
                 let entries;
                 try { entries = tools.query('packs.rules', { resolve: true }); } catch { entries = []; }
                 const offers = (Array.isArray(entries) ? entries : []).filter(entry => entry.pin && validChoice({

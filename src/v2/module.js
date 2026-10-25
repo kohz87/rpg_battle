@@ -172,6 +172,8 @@ export function createModule({ settings = null, query = null, parts = [], rules 
         return ask(name, args);
     };
     const whilePinned = entry => Object.defineProperty(entry, 'enabled', { enumerable: true, get() {
+        // The older explicit activation/resume API also works without a host query callback.
+        if (typeof query !== 'function' && typeof globalThis.StoryBlock?.sdk?.query !== 'function') return Boolean(activation || resumed);
         try { return Boolean(staticQuery('rules.identity', {})); } catch { return false; }
     } });
     // A view (tails, tabs, view hooks) whose settings are the part's.

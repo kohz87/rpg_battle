@@ -40,7 +40,11 @@ M	tests/v2/quests/settlement-runtime.test.js
 - Creation/Setup: `src/v2/creation/open.js`, `src/v2/screens/rules/setup.js`, `screens.js`.
 - Pinning: new `src/v2/rules/selection.js`; rules/progress/training index comments updated.
 - Evidence: new `tests/v2/rules/selection.test.js`; progress.md and track-a*.md notes.
-- Host dependency: tests/vendor/story-block synced from SB 49675e4 (177 files, matrix 1), including
+- Host dependency: tests/vendor/story-block synced from SB c85ead1 (177 files, matrix 1), including
   resolved pack transport, deferred API/domain activation and reply-bound prefix handling.
 - Coordinated SB source: packs/index.js, packs/installed.js, registry.js, sdk.js, commands.js,
   replay.js, store.js; PACKS/LIFECYCLE/REPLAY docs; pack transport, deferred-domain and preflight tests.
+
+The sync also updates RB's native-history compatibility (`src/v2/death/selection.js`,
+`tests/v2/death/native-mismatch.test.js`) to recognize completed E6b selection. The screen contract
+catalog/fixtures now list rules.pin and rules.selection and Setup's dialog mount.

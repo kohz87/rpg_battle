@@ -15,7 +15,8 @@ and query access; it needs no injected rules argument.
 ## Stage 5: choosing the timeline's rules
 
 At character creation, `rules.selection({})` projects the enabled, checked `packs.rules` offers.
-One pack is offered explicitly; several packs each have a reader-selected Pin button. None leaves
+One pack is offered explicitly; several packs each have a reader-selected Pin button. Offers stay
+visible while Story Director starts; pinning waits for the compatible dependency. None leaves
 the chat legacy. The normal creation opener and start card lead to track C's Setup before the
 class picker; direct finish/create/import commands cannot bypass an offered choice. Pin buttons
 use the existing `rpg-battle.command-button`, including its refusal message.
@@ -39,7 +40,7 @@ rebuild never runs the command or resolves an installed pack again. As with the 
 history contract, a prefix deleted outside a session that saw it can require explicit history
 repair; no replacement pack is substituted.
 
-Host dependency: Story Block `49675e4bfcc7ce2f11916ab31767b40e29779936` or a descendant,
+Host dependency: Story Block `c85ead118766b9904f82432e897b3be3592c851e` or a descendant,
 vendored by sync-testkit. P01's additive transport/lifecycle contracts are documented in SB
 PACKS.md (`resolve: true` and its `pin` transport), LIFECYCLE.md (deferred domains and API
 presence) and REPLAY.md (`replyBound`). These are coordinated host changes, not missing seams.
@@ -328,3 +329,10 @@ and must have struck `actor`; the rescuer is another, alive, active durable memb
 `heal` or `shield`. The cost is paid in the same root (a `use` proof) or cited from one surviving paid use, as `skill.use` does (`applyUse`, the same function,
 no guard of its own). The `rescue` proof binds all of it with the use as its only parent; the claim `rb:<epoch>:rescue:<event>:<actor>` consumes the rescue once.
 Taking back the paid use, the sealed result or the rescuer's place turns the block off with its claims.
+
+## Synced host compatibility
+
+The refreshed host includes E6b native history selection. RB recognizes a completed host selection
+as the reconciliation boundary; it keeps the older player-facing mismatch hold when no such
+selection exists. The death history fixture covers native revival after deletion as well as the
+older host's hold. Explicit checked activation/resume still works without a live query callback.
