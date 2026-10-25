@@ -65,10 +65,16 @@ export function recordQuestInputs(query, thread) {
     const quest = thread?.rpg;
     if (!quest) return {};
     const out = {};
-    if (quest.turnInPlace !== null || quest.requirements.some(row => row.kind === 'place')) out.place = ask(query, 'atlas.canonical');
+    const prefix = ask(query, 'quest.replayInputs') ?? {};
+    if (quest.turnInPlace !== null || quest.requirements.some(row => row.kind === 'place')) {
+        out.place = ask(query, 'atlas.canonical');
+        out.placeSource = copy(prefix.scenePlace ?? null);
+        out.placeRef = out.place?.atlasId ? prefix.placeRefs?.[out.place.atlasId] ?? null : null;
+    }
     if (quest.giver !== null) {
         const identity = ask(query, 'npc.identity', { id: quest.giver });
         const present = ask(query, 'scene.present');
+        out.giverSource = identity?.id === quest.giver ? identity.name : null;
         out.giverPresent = !!identity && identity.id === quest.giver && Array.isArray(present) && present.includes(identity.name);
     }
     if (quest.reward.items.length) {
@@ -119,12 +125,24 @@ export function replayInputs(state, { reply = null } = {}) {
     const storyCoin = reply ? { reply, coin: tally?.coin ?? 0, vouched: tally?.vouched ?? 0, claimed: state?.meta?.claims?.[`storycoin:${reply}`] === true } : null;
     const flags = domains.rules?.pin?.resolved?.manifest ? rulesFlags(state, {}) : null;
     return { storyCoin, threads, party: copy(party), flags, activeActors, items,
-        clock: { minutes: domains.director?.time?.minutes ?? null }, place: null };
+        clock: { minutes: domains.director?.time?.minutes ?? null }, place: null,
+        scenePlace: copy(domains.scene?.place ?? null), present: copy(domains.scene?.present ?? []), placeRefs: copy(domains.atlas?.placeRefs ?? {}) };
 }
 
 export function guardQuestInputs(query, reply = null, recorded = {}) {
     const inputs = query('quest.replayInputs', { reply });
-    return { ...inputs, ...recorded, proofs: query('story.evidence', {}) };
+    const facts = { ...inputs, ...recorded, proofs: query('story.evidence', {}) };
+    // Recorded identities are useful only while the scene and its canonical binding survive in the prefix.
+    if (Object.hasOwn(recorded, 'place')) {
+        const here = inputs.scenePlace;
+        const source = recorded.placeSource;
+        const samePlace = here && source && ['name', 'kind', 'region'].every(key => here[key] === source[key]);
+        const sameRef = !recorded.place?.atlasId || inputs.placeRefs?.[recorded.place.atlasId] === recorded.placeRef;
+        if (!samePlace || !sameRef) facts.place = null;
+    }
+    if (Object.hasOwn(recorded, 'giverPresent')) facts.giverPresent = recorded.giverPresent === true
+        && typeof recorded.giverSource === 'string' && inputs.present?.includes(recorded.giverSource) === true;
+    return facts;
 }
 
 // B's epochOf uses this genesis epoch until the host savepoints domain is installed.
