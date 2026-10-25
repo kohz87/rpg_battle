@@ -9,6 +9,7 @@
 //   ! attempt <actor> | skill: s00 | form: s00-base | key: k1 [| kind: combat|narrative|training] [| minute: n]
 //   ~ time <minute>                              the clock
 import { createHost } from '../../../vendor/story-block/testkit/index.js';
+import { withDirector } from '../../integration/helpers/peer.js';
 import { pinOf, pinRules, registerPackDefs, rulesParts } from '../../../../src/v2/rules/index.js';
 import { recordAttempt, recordBasicClass, recordCombatUses } from '../../../../src/v2/progress/index.js';
 import { resultBytes, batchId } from '../../../../src/v2/death/plan.js';
@@ -52,6 +53,7 @@ export const AREA_TIERS = {};
 export const SD = {
     ...CLOCK,
     id: 'story-director',
+    version: '2.0.0-beta.2',
     domains: { director: { initial: () => ({ time: { minutes: null }, here: null, advanced: {} }), validate: () => [], counters: ['time/minutes'] } },
     queries: {
         ...CLOCK.queries,
@@ -329,7 +331,7 @@ export async function realWorld(t, { companions = [], modules = [], pin = true, 
     // The equipment planner is what a pinned chat adds beside the rules parts (module.js leaves it out of the plain one); the merge below stands for those parts.
     const base = createModule({ settings: () => ({ ...(sdk?.settings(MODULE_ID) ?? {}), ...settings }), parts: [PLANNER_PART] });
     const merged = mergeInto(base, extra);
-    const host = await createHost({ modules: [sd === true ? SD : sd || CLOCK, merged, CALLER, ...modules], ...(reader ? { settings: { modules: { [MODULE_ID]: reader } } } : {}) });
+    const host = await createHost({ modules: withDirector([sd === true ? SD : sd || CLOCK, merged, CALLER, ...modules]), ...(reader ? { settings: { modules: { [MODULE_ID]: reader } } } : {}) });
     sdk = host.sdk;
     const saved = globalThis.StoryBlock;
     globalThis.StoryBlock = { apiVersion: 2, ready: Promise.resolve(sdk), sdk };

@@ -36,6 +36,7 @@ import { part as combat } from '../../../../src/v2/combat/index.js';
 import { part as trade } from '../../../../src/v2/trade/index.js';
 import { sessionOf } from '../../../../src/v2/combat/stored.js';
 import { EQUIP_PARTS } from '../../items/helpers/equip-parts.js';
+import { withDirector } from '../../integration/helpers/peer.js';
 
 const { deepFreeze } = sbOps;
 const makeRng = sbRng.rng;
@@ -147,7 +148,7 @@ const base36 = (n, width = 8) => {
  * }. `settings` are RPG Battle's module settings (namespaced as module.js keeps them:
  * `combat.hitBase`), `coreSettings` Story Block's (currency).
  */
-export function createHarness({ host = defaultHost, shim = true, settings = {}, coreSettings = {}, seed = 1, queryOverrides = {}, equip = true } = {}) {
+export function createHarness({ host = defaultHost, shim = true, settings = {}, coreSettings = {}, seed = 1, queryOverrides = {}, equip = true, modules = [] } = {}) {
     const runtime = RUNTIMES[host];
     if (!runtime) throw new Error(`No host ${host}.`);
     const registry = runtime.registry.createRegistry();
@@ -181,6 +182,7 @@ export function createHarness({ host = defaultHost, shim = true, settings = {}, 
     Object.assign(rb.queries, queryOverrides);
     rbDefaults = rb.settings.defaults;
     registry.register(core);
+    for (const peer of withDirector(modules)) registry.register(wrapModule({ ...peer }));
     registry.register(rb);
 
     const store = memoryStore(registry.initialState(), runtime.ops);

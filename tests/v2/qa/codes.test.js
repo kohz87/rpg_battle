@@ -3,6 +3,7 @@
 // byte-identical (SPEC §3.2: any throw rejects the whole command).
 import assert from 'node:assert/strict';
 import { bytes, stacksOf, storyCoin, storyItem, withHero, each, equipsOnInt } from './helpers/harness.js';
+import { DIRECTOR_PEER } from '../integration/helpers/peer.js';
 
 const stackOf = (h, defId) => stacksOf(h, defId)[0]?.stack;
 
@@ -49,10 +50,9 @@ each('trade where there is no market (wrong place): REFUSED', () => {
 });
 
 each('craft.collect before the piece is ready: REFUSED', () => {
-    const { h } = withHero();
     // A story clock (Story Director's query) so a commission has a ready time.
     let minutes = 600;
-    h.registry.register({ id: 'story-director', queries: { 'director.time': () => ({ minutes }) } });
+    const { h } = withHero({ modules: [{ ...DIRECTOR_PEER, queries: { 'director.time': () => ({ minutes }) } }] });
     storyCoin(h, 3000);
     const pelt = storyItem(h, 'Wolf Pelt', 3);
     const order = h.command('craft.commission', { piece: 'Pelt Cloak', materials: [{ stack: stackOf(h, pelt), qty: 3 }], crafter: 'the tanner' });
@@ -65,9 +65,8 @@ each('craft.collect before the piece is ready: REFUSED', () => {
 });
 
 each('craft.collect before ready leaves no claim behind (the order can still be collected later)', () => {
-    const { h } = withHero();
     let minutes = 600;
-    h.registry.register({ id: 'story-director', queries: { 'director.time': () => ({ minutes }) } });
+    const { h } = withHero({ modules: [{ ...DIRECTOR_PEER, queries: { 'director.time': () => ({ minutes }) } }] });
     storyCoin(h, 3000);
     const pelt = storyItem(h, 'Wolf Pelt', 3);
     const order = h.command('craft.commission', { piece: 'Pelt Cloak', materials: [{ stack: stackOf(h, pelt), qty: 3 }], crafter: 'the tanner' });

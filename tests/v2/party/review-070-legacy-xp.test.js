@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHost } from '../../vendor/story-block/testkit/host.js';
 import { createModule } from '../../../src/v2/module.js';
+import { DIRECTOR_PEER } from '../integration/helpers/peer.js';
 
 test('an unpinned raw fight result retains its XP through reload and rebuild', async t => {
-    const h = await createHost({ modules: [createModule()] });
+    const h = await createHost({ modules: [DIRECTOR_PEER, createModule()] });
     t.after(() => h.close());
     assert.equal((await h.sdk.command('party.create', { name: 'Ren', preset: 'fighter' })).ok, true);
     await h.send('Fight.', 'Victory.');
