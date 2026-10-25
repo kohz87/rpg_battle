@@ -48,7 +48,8 @@ export function createCommands({ settleQuest, evaluateRequirements = null, guard
             if (checked?.ok !== true) return fail(ctx, checked ?? {});
         }
         quest.state = 'active';
-        quest.acceptedAt = thread.acceptance?.minute ?? (Number.isSafeInteger(now) ? now : null);
+        quest.acceptedAt = thread.acceptance ? thread.acceptance.minute : (Number.isSafeInteger(now) ? now : null);
+        if (template.durationMinutes !== null && !Number.isSafeInteger(quest.acceptedAt)) return ctx.fail('CLOCK_UNSET', 'A timed quest needs its original acceptance minute.');
         quest.acceptedCursor = copy(thread.acceptance?.cursor ?? cursor);
         quest.deadline = template.durationMinutes === null ? null : quest.acceptedAt + template.durationMinutes;
         if (quest.deadline !== null && !Number.isSafeInteger(quest.deadline)) return ctx.fail('INVALID', 'The quest deadline overflowed.');
