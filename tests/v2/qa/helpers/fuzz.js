@@ -5,6 +5,7 @@
 
 import { rng as makeRng } from '../vendor/src/v2/rng.js';
 import { withHero } from './harness.js';
+import { DIRECTOR_CLOCK } from '../../integration/helpers/peer.js';
 import { lastOf, sessionOf } from '../../../../src/v2/combat/stored.js';
 
 const STATS = ['STR', 'VIT', 'AGI', 'DEX', 'INT', 'LUK', 'CHA', 'XYZ'];
@@ -128,7 +129,7 @@ export function nextStep(h, p) {
  * steps. `onStep({ type, payload, result, before, after, h })` checks each one.
  */
 export function runSequence(seed, steps, onStep, options = {}) {
-    const { h } = withHero({ seed: seed + 1, ...options });
+    const { h } = withHero({ seed: seed + 1, modules: [DIRECTOR_CLOCK], ...options });
     const setup = [
         ['capture', { op: '+', kind: 'item', name: 'Minor Healing Draught', labels: { qty: '2' } }],
         ['capture', { op: '+', kind: 'item', name: 'Wolf Pelt', labels: { qty: '4' } }],

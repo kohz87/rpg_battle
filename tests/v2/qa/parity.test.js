@@ -3,6 +3,7 @@
 // the parts' own bridge): creation, a healing dose, XP and level-ups, rests, wounds, a check's
 // d20, a fight's blows and XP, a sale price.
 import assert from 'node:assert/strict';
+import { DIRECTOR_CLOCK } from '../integration/helpers/peer.js';
 import { DEFAULT_RULES, checkModifier, makeRules } from '../../../src/rules.js';
 import { PRESETS } from '../../../src/skills.js';
 import { newSheet } from '../../../src/sheet.js';
@@ -72,7 +73,7 @@ each('party.grantXp = v1 gainXp: XP, level-ups and points for fixed amounts', ()
 
 each('party.rest short and long = v1 rest', () => {
     for (const kind of ['short', 'long']) {
-        const { h } = withHero();
+        const { h } = withHero({ modules: [DIRECTOR_CLOCK] });
         const next = structuredClone(h.state());
         const me = next.domains.party.actors[next.domains.party.pc];
         Object.assign(me, { hp: { cur: 11, max: me.hp.max }, mp: { cur: 3, max: me.mp.max }, sp: { cur: 0, max: me.sp.max } });

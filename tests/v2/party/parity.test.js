@@ -133,7 +133,7 @@ test('rest: same as v1 recovery.rest', () => {
     const state = structuredClone(base);
     Object.assign(state.domains.party.actors[pc], { hp: { cur: 3, max: 98 }, mp: { cur: 1, max: 40 }, sp: { cur: 0, max: 31 }, conditions: [{ kind: 'burn', stacks: 2 }, { kind: 'cursed', stacks: 1 }] });
     for (const kind of ['short', 'long']) {
-        const out = run(state, 'party.rest', { kind });
+        const out = run(state, 'party.rest', { kind }, { time: 0 });
         assert.deepEqual(numbers(toSheet(pcOf(out.state))), numbers(rest(toSheet(pcOf(state)), kind, { gear: [], rules: DEFAULT_RULES })));
     }
 });
