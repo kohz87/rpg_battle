@@ -1207,6 +1207,10 @@ function validateSchemaValue(val, schema, defs, path = '', options = {}) {
                 const opBranches = branchDiagnostics.filter(b => matchesDiscriminator(b.resolved, 'op', val.op));
                 if (opBranches.length === 1) selected = opBranches[0];
             }
+            if (!selected && (val.open === true || branchDiagnostics.some(b => b.resolved?.properties?.open))) {
+                const openBranches = branchDiagnostics.filter(b => b.resolved?.properties?.open?.const === (val.open === true));
+                if (openBranches.length === 1) selected = openBranches[0];
+            }
             if (!selected && val.kind !== undefined) {
                 const kindBranches = branchDiagnostics.filter(b => matchesDiscriminator(b.resolved, 'kind', val.kind));
                 if (kindBranches.length === 1) selected = kindBranches[0];
@@ -2246,6 +2250,19 @@ function validateRulesV2Of(manifest, content, constants, { host = false } = {}) 
     for (let i = 0; i < contentQuests.length; i++) {
         const q = contentQuests[i];
         const p = `content.quests[${i}]`;
+        if (q.open === true) {
+            const rank = (cnt.ranks ?? []).find(row => row.id === q.rank);
+            const range = rank?.reward;
+            if (!Array.isArray(range) || range.length !== 2 || !range.every(Number.isSafeInteger) || range[0] < 0 || range[0] > range[1]) {
+                errors.push({ code: RULES_V2_ERROR_CODES.BAD_SCHEMA, path: `${p}.rank`, message: 'An open quest names a pack rank with a whole reward range' });
+            } else {
+                for (const unit of ['coin', 'xp']) {
+                    if (q.reward[`${unit}Min`] < range[0] || q.reward[`${unit}Max`] > range[1] || q.reward[`${unit}Min`] > q.reward[`${unit}Max`]) {
+                        errors.push({ code: RULES_V2_ERROR_CODES.BAD_SCHEMA, path: `${p}.reward`, message: `Open ${unit} bounds must be ordered and inside rank ${q.rank}'s reward range` });
+                    }
+                }
+            }
+        }
         if (q.giver) {
             const gRef = checkReference(q.giver, packKey, creatureSlugs, 'npc', `${p}.giver`);
             if (!gRef.ok) errors.push(gRef.error);
@@ -2289,13 +2306,13 @@ function validateRulesV2Of(manifest, content, constants, { host = false } = {}) 
                     errors.push({ code: RULES_V2_ERROR_CODES.DUP_ID, path: `${p}.objectives[${o}].id`, message: `Duplicate objective id "${obj.id}" in quest "${q.slug}"` });
                 }
                 objectiveIds.add(obj.id);
-                if (obj.kind === 'kill') {
+                if (obj.kind === 'kill' && obj.foe) {
                     const fRef = checkReference(obj.foe, packKey, creatureSlugs, null, `${p}.objectives[${o}].foe`);
                     if (!fRef.ok) errors.push(fRef.error);
-                } else if (obj.kind === 'collect') {
+                } else if (obj.kind === 'collect' && obj.def) {
                     const cRef = checkReference(obj.def, packKey, itemSlugs, null, `${p}.objectives[${o}].def`);
                     if (!cRef.ok) errors.push(cRef.error);
-                } else if (obj.kind === 'visit') {
+                } else if (obj.kind === 'visit' && obj.place) {
                     const vRef = checkReference(obj.place, packKey, placeSlugs, 'place', `${p}.objectives[${o}].place`);
                     if (!vRef.ok) errors.push(vRef.error);
                     else if (vRef.isExternal) warnings.push({ path: `${p}.objectives[${o}].place`, message: `External place reference "${obj.place}" accepted with runtime eligibility check` });

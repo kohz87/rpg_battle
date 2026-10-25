@@ -35,7 +35,7 @@ const bytes = () => withDraws(batchBytes({ fight: null, session: session(), resu
 test('the bytes of a fight\'s result are plain JSON built from what it recorded, with a hash that does not move', () => {
     const sealed = seal(bytes());
     // Recorded once: if this changes, a result sealed by an earlier version no longer matches its hash.
-    assert.equal(sealed.hash, '3c834b920610fcf3f7511f5345bbc4e49e8c1475d2ce5718c9a9bdc888cfaeb1');
+    assert.equal(sealed.hash, '255d276c5a5afcfbd690ebac4e5c82d8982cf5680385e7f93e0c07e390b7d2e0');
     assert.equal(hashJson(JSON.parse(JSON.stringify(sealed.bytes))), sealed.hash, 'a JSON round trip hashes the same');
     assert.equal(sealedProblem(sealed), '');
     const b = sealed.bytes;

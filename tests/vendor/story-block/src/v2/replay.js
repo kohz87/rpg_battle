@@ -171,7 +171,7 @@ export function guardProblem(guard) {
 /** True for a span written by a guarded transaction (a legacy span is `{ n, story }` only). */
 export const isMetaSpan = span => isObject(span) && typeof span.id === 'string';
 
-function cursorProblem(cursor) {
+export function cursorProblem(cursor) {
     if (!isObject(cursor)) return 'a boundary has no cursor';
     if (!isRecordId(cursor.sid) || !isRecordId(cursor.swipeKey) || !isRecordId(cursor.block)) return 'a boundary cursor names no source or block';
     if (!Number.isInteger(cursor.op) || cursor.op < 0 || !Number.isInteger(cursor.rev) || cursor.rev < 0) return 'a boundary cursor has no op or rev';
