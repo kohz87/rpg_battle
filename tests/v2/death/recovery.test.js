@@ -5,6 +5,7 @@ import { seeded } from '../integration/helpers/host.js';
 import { lifeOf } from '../../../src/v2/rules/sheet.js';
 import { replayGuard } from '../../../src/v2/death/guard.js';
 import { hashJson } from '../../../src/v2/rules/hash.js';
+import { assertFullReplay } from './replay-helper.js';
 
 async function finish(w, type = 'attack') {
     for (let i = 0; i < 200 && w.q('combat.session').status === 'active'; i++) {
@@ -99,4 +100,57 @@ test('the end guard retracts a wipe/outbox when a native fighter link changes', 
     assert.equal(replayGuard(view(before), info).ok, true);
     before.domains.party.actors[w.pc].npcId = 'np_00000002';
     assert.equal(replayGuard(view(before), info).ok, false);
+}));
+
+test('F3: an injury recorded with no clock is anchored by the first fold that sees one, and then ends, also after reload and rebuild', async t => seeded(71, async () => {
+    const w = await world(t);
+    assert.equal(w.q('director.time').minutes, null, 'no clock yet');
+    await injure(w);
+    const injury = () => w.q('party.actor', { id: w.friend }).conditions.find(c => c.kind === 'injury');
+    const penalty = () => w.q('rules.modifier', { actor: w.friend, stat: 'AGI' }).parts.find(p => p.reason === 'Injury')?.amount;
+    // A fold counts rounds down and moves `at` on with them, so the end (at + 10 minutes a round) is what stays put.
+    const ends = () => injury().at + injury().rounds * 10;
+    assert.equal(injury().at, undefined, 'nothing to anchor it on yet');
+    assert.equal(penalty(), -2);
+    await w.say('<Changes>\n~ time 5000\n</Changes>');
+    await w.say('The next reply folds the clock in.');
+    assert.equal(injury().at, 5000, 'anchored at the first clock a fold saw');
+    assert.equal(injury().rounds, 144);
+    await w.say('<Changes>\n~ time 6439\n</Changes>');
+    assert.equal(lifeOf(w.q('party.actor', { id: w.friend })), 'gravely-injured');
+    assert.equal(penalty(), -2);
+    ok(w.command('party.rest', { kind: 'long' }, 'story'));
+    assert.equal(ends(), 6440, 'a rest keeps the anchor');
+    assert.equal(lifeOf(w.q('party.actor', { id: w.friend })), 'gravely-injured');
+    // After a reload and a full rebuild the same anchor gives the same answers.
+    await w.host.st.loadChat(JSON.parse(JSON.stringify(w.host.ctx.chat)));
+    assert.equal(ends(), 6440);
+    assertFullReplay(w);
+    assert.equal(ends(), 6440);
+    await w.say('<Changes>\n~ time 6440\n</Changes>');
+    assert.equal(injury(), undefined, 'it ends after its 1440 minutes');
+    assert.equal(penalty(), undefined);
+    assert.equal(lifeOf(w.q('party.actor', { id: w.friend })), 'alive');
+    ok(w.command('party.rest', { kind: 'long' }, 'story'));
+    assert.equal(injury(), undefined, 'a rest does not bring it back');
+    await w.host.st.loadChat(JSON.parse(JSON.stringify(w.host.ctx.chat)));
+    assertFullReplay(w);
+    assert.equal(injury(), undefined);
+    assert.deepEqual(w.problems(), []);
+}));
+
+test('F3: an XP rewrite or a rest that sees a clock anchors an injury recorded without one, once', async t => seeded(72, async () => {
+    const w = await world(t);
+    await injure(w);
+    const injury = () => w.q('party.actor', { id: w.friend }).conditions.find(c => c.kind === 'injury');
+    ok(w.command('party.grantXp', { actor: w.friend, amount: 10, claim: 'no-clock' }));
+    assert.equal(injury().at, undefined, 'still no clock to anchor on');
+    await w.say('<Changes>\n~ time 3000\n</Changes>');
+    ok(w.command('party.grantXp', { actor: w.friend, amount: 10, claim: 'with-clock' }));
+    assert.equal(injury().at, 3000);
+    assert.equal(injury().rounds, 144);
+    await w.say('<Changes>\n~ time 3100\n</Changes>');
+    ok(w.command('party.grantXp', { actor: w.friend, amount: 10, claim: 'later' }));
+    assert.equal(injury().at + injury().rounds * 10, 3000 + 1440, 'a clock read later never moves the anchor');
+    assert.deepEqual(w.problems(), []);
 }));

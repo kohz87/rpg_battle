@@ -1,4 +1,4 @@
-import { preserveInjury } from '../death/injury.js';
+import { anchorInjuries, needsAnchor, preserveInjury } from '../death/injury.js';
 // HP, MP and SP that come back as story time passes (v1 recovery.recoverOverTime, DESIGN §8.5),
 // feature `rpg-battle.recovery` (MODULES §F100, on by default). The clock is Story Director's
 // (`director.time`, read only through a query that may not be there, rule 11): without it nothing
@@ -116,7 +116,13 @@ function fightOf(ctx) {
  * clock or no character, or there is nothing to do; with `markOnly` while it is off, only `rested`
  * moves on. → { plan, gains: { [actor]: { hp, mp, sp } } } | null.
  */
-export function foldStoryTime(ctx, { markOnly = false } = {}) {
+export function foldStoryTime(ctx, options) {
+    // An injury written with no clock gets its anchor from the first fold that sees one (death/injury.js), whatever the recovery switch says.
+    anchorInjuries(ctx);
+    return foldTime(ctx, options);
+}
+
+function foldTime(ctx, { markOnly = false } = {}) {
     const off = !recoveryOn(ctx);
     if (off && !markOnly) return null;
     const minutes = clockFrom(typeof ctx?.query === 'function' ? (name, args) => ctx.query(name, args) : null);
@@ -201,5 +207,7 @@ export function recoveryBeforeReply(view, info = {}) {
     const minutes = clockFrom(typeof view?.query === 'function' ? (name, args) => view.query(name, args) : null);
     const rules = rulesFrom(settingsOf(view?.settings), view?.state?.domains?.rules);
     const plan = planRecovery(party, minutes, { fight: Boolean(sessionOf(view?.state?.domains?.combat)), off: !recoveryOn(view), rules });
-    return plan ? { commands: [{ type: 'party.recover', payload: {} }] } : { commands: [] };
+    // An injury with no anchor asks for the fold as soon as a clock exists, even when no recovery is due.
+    const anchor = Number.isSafeInteger(minutes) && view.state.domains.death?.schema === 2 && needsAnchor(party);
+    return plan || anchor ? { commands: [{ type: 'party.recover', payload: {} }] } : { commands: [] };
 }
