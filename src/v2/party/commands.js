@@ -469,7 +469,6 @@ const gainText = gain => [gain.hp ? `HP +${gain.hp}` : '', gain.mp ? `MP +${gain
  * what that time gave (v1 restAfter: one stretch of time, not two).
  */
 function rest(ctx, payload = {}) {
-    const timeFold = payload.kind === 'short' || payload.kind === 'long' ? foldStoryTime(ctx) : null;
     const party = ctx.draft('party');
     const rules = rulesFor(ctx);
     const kind = payload.kind;
@@ -481,6 +480,8 @@ function rest(ctx, payload = {}) {
     // The dead do not rest back to life (B-b4-12).
     const ids = asked.filter(id => !isDead(party.actors[id]));
     if (!ids.length) fail(ctx, 'REFUSED', `${listNames(asked.map(id => party.actors[id].name))} ${asked.length === 1 ? 'is' : 'are'} dead: no rest brings the dead back.`);
+    if (storyMinute(ctx) === null) fail(ctx, 'CLOCK_UNSET', 'Set the story time before taking a rest.');
+    const timeFold = foldStoryTime(ctx);
     const inventory = readInventory(ctx);
     const parts = [];
     const data = {};

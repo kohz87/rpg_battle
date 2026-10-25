@@ -144,9 +144,12 @@ test('F3: an XP rewrite or a rest never invents or moves the anchor', async t =>
     await injure(w);
     const injury = () => w.q('party.actor', { id: w.friend }).conditions.find(c => c.kind === 'injury');
     ok(w.command('party.grantXp', { actor: w.friend, amount: 10, claim: 'no-clock' }));
-    ok(w.command('party.rest', { kind: 'long' }, 'story'));
+    const before = structuredClone(w.head());
+    assert.equal(w.command('party.rest', { kind: 'long' }, 'story').code, 'CLOCK_UNSET');
+    assert.deepEqual(w.head(), before);
     assert.equal(injury().at, undefined, 'no clock, so nothing to anchor on, and a rewrite does not make one up');
     await w.say('<Changes>\n~ time 3000\n</Changes>');
+    ok(w.command('party.rest', { kind: 'long' }, 'story'));
     assert.equal(injury().at, 3000);
     assert.equal(injury().rounds, 144);
     await w.say('<Changes>\n~ time 3100\n</Changes>');

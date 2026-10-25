@@ -14,6 +14,7 @@ import { PARTS, createModule } from '../../../src/v2/module.js';
 import { createHost } from '../../vendor/story-block/testkit/index.js';
 import { MODULE_ID } from '../../../src/v2/module.js';
 import { rpgHost, seeded } from '../integration/helpers/host.js';
+import { DIRECTOR_PEER } from '../integration/helpers/peer.js';
 import { CLOCK, DAY, mergeInto, nextKey, rulesModule } from './helpers/world.js';
 import { ref } from './helpers/fixture.js';
 
@@ -73,7 +74,7 @@ test('a chat that pins no rules: the parts answer null or refuse, add no step af
 async function mergedHost({ modules = [] } = {}) {
     let sdk = null;
     const merged = mergeInto(createModule({ settings: () => sdk?.settings(MODULE_ID) ?? {} }), rulesModule({}));
-    const host = await createHost({ modules: [...modules, merged, { id: 'rb-test-caller', name: 'Caller', version: '0.0.0', commands: { 'rbtest.call': (ctx, { type, payload } = {}) => ctx.call(type, payload ?? {}) } }] });
+    const host = await createHost({ modules: [DIRECTOR_PEER, ...modules, merged, { id: 'rb-test-caller', name: 'Caller', version: '0.0.0', commands: { 'rbtest.call': (ctx, { type, payload } = {}) => ctx.call(type, payload ?? {}) } }] });
     sdk = host.sdk;
     const saved = globalThis.StoryBlock;
     globalThis.StoryBlock = { apiVersion: 2, ready: Promise.resolve(sdk), sdk };

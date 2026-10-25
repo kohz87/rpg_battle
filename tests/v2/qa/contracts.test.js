@@ -301,11 +301,10 @@ each('craft.commission → inventory.consume per material and wallet.pay { owner
 // ---------- another module → party ----------
 
 each('Story Director → party.grantXp { quest, difficulty }: given once per quest (claim xp:quest:<id>)', () => {
-    const { h, pc } = withHero();
-    h.registry.register({
-        id: 'story-director',
+    const { h, pc } = withHero({ modules: [{
+        id: 'story-director', version: '2.0.0-beta.2',
         commands: { 'quest.finishQa': (ctx, payload) => { ctx.call('party.grantXp', { quest: payload.quest, difficulty: 'hard' }); return { summary: 'done' }; } },
-    });
+    }] });
     // As a system command: the sb bus's shim gives a caller only to RPG Battle's own handlers, and
     // party.grantXp refuses a click with no calling module (B-b3-10).
     const first = h.command('quest.finishQa', { quest: 'q_ab12cd34' }, { cause: 'system' });

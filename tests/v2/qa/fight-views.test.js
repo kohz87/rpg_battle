@@ -2,6 +2,7 @@
 // fight per action); fight loot uses the item the chat or a pack already has for that drop (the
 // base creature's part) and joins its stack; a fight's id never moves the dice it is fought with.
 import test from 'node:test';
+import { DIRECTOR_CLOCK } from '../integration/helpers/peer.js';
 import assert from 'node:assert/strict';
 import { rng as intRng } from '../../vendor/story-block/src/v2/rng.js';
 import { fightOut, patch, withHero, each } from './helpers/harness.js';
@@ -57,7 +58,7 @@ function withPackItems(h) {
 each('fight loot is the item the chat has for the base creature\'s part, one stack across fights', () => {
     let checked = 0;
     for (let seed = 1; seed <= 40 && checked < 2; seed++) {
-        const { h } = withHero({ seed });
+        const { h } = withHero({ seed, modules: [DIRECTOR_CLOCK] });
         withPackItems(h);
         let parts = 0;
         for (let fight = 0; fight < 2; fight++) {

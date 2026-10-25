@@ -10,6 +10,7 @@ import { createFakeContext } from '../../../vendor/story-block/testkit/index.js'
 import { createModule } from '../../../../src/v2/module.js';
 import { mergeInto, realWorld, rulesModule } from '../../progress/helpers/world.js';
 import { installDom } from '../helpers/dom.js';
+import { withDirector } from '../../integration/helpers/peer.js';
 
 const NEW_PAGES = ['rpg-battle/progress', 'rpg-battle/quests', 'rpg-battle/roster', 'rpg-battle/links', 'rpg-battle/setup'];
 const LEGACY_TABS = ['rpg-battle/party', 'story-block/inventory', 'rpg-battle/crafting', 'rpg-battle/trade', 'story-block/scene'];
@@ -19,7 +20,7 @@ async function legacyChat(module) {
     const doc = installDom();
     const st = createFakeContext({});
     let ui = null;
-    const runtime = createRuntime({ ctx: st.ctx, modules: [module], onRegister: () => ui?.syncScreens(), notify: () => {} });
+    const runtime = createRuntime({ ctx: st.ctx, modules: withDirector([module]), onRegister: () => ui?.syncScreens(), notify: () => {} });
     ui = mountUi({ runtime, ctx: st.ctx, doc });
     runtime.turn.install({ globalName: null });
     st.interceptor = runtime.turn.interceptor;

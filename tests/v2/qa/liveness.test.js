@@ -6,6 +6,7 @@
 // now no one leaves and your character is not remade while a fight has the party, a member who
 // is gone anyway is skipped, XP at the level cap is nothing, and draughts leave at use.
 import assert from 'node:assert/strict';
+import { DIRECTOR_CLOCK } from '../integration/helpers/peer.js';
 import { bytes, fightOut, patch, sent, stacksOf, storyItem, winFight, withHero, each } from './helpers/harness.js';
 import { sessionOf } from '../../../src/v2/combat/stored.js';
 
@@ -137,7 +138,7 @@ each('a fight whose draughts were handed to a companion meanwhile still settles,
 });
 
 each('party.edit control (MODULES §F49): a companion led by the reader waits for orders in the next fight; on auto acts alone', () => {
-    const { h } = withHero({ seed: 4 });
+    const { h } = withHero({ seed: 4, modules: [DIRECTOR_CLOCK] });
     const lyra = h.command('party.addCompanion', { name: 'Lyra', role: 'archer', level: 1 }, { cause: 'system' }).receipt.data.actor;
     assert.equal(h.command('party.edit', { actor: lyra, control: 'player' }).ok, true);
     h.capture({ op: '!', kind: 'encounter', name: '3 Bandits', text: '', labels: { tier: 'even' } });

@@ -8,12 +8,9 @@ import { withHero, winFight } from '../qa/helpers/harness.js';
 import { moneyScale, scaledMoney } from '../../../src/v2/combat/setup.js';
 import { sessionOf } from '../../../src/v2/combat/stored.js';
 
-/** A won fight against bandits (they carry coin), with a pack scale (null: no inventory.economy query). */
+/** A won fight against bandits, using Story Block's real economy query and reader setting. */
 function lootWith(scale, seed = 3) {
-    const { h } = withHero({ seed });
-    if (scale !== null) {
-        h.registry.register({ id: 'economy-test', name: 'Economy test', version: '1.0.0', queries: { 'inventory.economy': () => ({ scale }) } });
-    }
+    const { h } = withHero({ host: 'int', seed, coreSettings: { economyScale: scale ?? '0' } });
     const { end, status } = winFight(h, '3 Bandit', { tier: 'trivial' });
     assert.equal(status, 'won');
     assert.equal(end.ok, true, end.message);
@@ -22,7 +19,7 @@ function lootWith(scale, seed = 3) {
 
 const plain = lootWith(null).money;
 
-test('without inventory.economy the loot coin is as before (scale 1)', () => {
+test('Story Block defaults to scale 1 when no reader or pack scale is set', () => {
     assert.ok(plain > 0, 'bandits drop coin');
     assert.equal(lootWith(1).money, plain);
 });
@@ -36,13 +33,13 @@ test('scale 10: the foes\' coin is ten times as much', () => {
 });
 
 test('the scale is kept in the fight\'s setup when it starts (moneyScale), not read again at its end', () => {
-    const { h } = withHero({ seed: 3 });
-    let scale = 10;
-    h.registry.register({ id: 'economy-test', name: 'Economy test', version: '1.0.0', queries: { 'inventory.economy': () => ({ scale }) } });
+    const coreSettings = { economyScale: 10 };
+    const { h } = withHero({ host: 'int', seed: 3, coreSettings });
     h.capture({ op: '!', kind: 'encounter', name: '3 Bandit', text: '', labels: { tier: 'trivial' } });
     assert.equal(h.command('combat.start', { offer: h.query('combat.offers').at(-1).id }).ok, true);
     assert.equal(sessionOf(h.state().domains.combat).setup.moneyScale, 10);
-    scale = 0.1;
+    coreSettings.economyScale = 0.1;
+    assert.equal(h.query('inventory.economy').scale, 0.1, 'the live setting changed');
     while (h.query('combat.session').status === 'active') h.command('combat.act', { action: { type: 'auto' } });
     assert.equal(h.command('combat.end').receipt.data.loot.money, plain * 10);
 });

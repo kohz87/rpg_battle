@@ -150,11 +150,11 @@ test('rest: a short or long rest for the whole party', () => {
     const base = party();
     const state = structuredClone(base);
     pcOf(state).hp.cur = 1;
-    const out = capture(state, '! rest long — a night at the inn');
+    const out = capture(state, '! rest long — a night at the inn', { time: 0 });
     assert.ok(out.ok, out.message);
     assert.equal(pcOf(out.state).hp.cur, pcOf(state).hp.max);
     assert.match(out.result.summary, /^The party takes a long rest \(a night at the inn\): Ren HP \+/);
-    assert.ok(capture(state, '! rest short — a breather by the road').ok);
+    assert.ok(capture(state, '! rest short — a breather by the road', { time: 0 }).ok);
     rejects(capture(state, '! rest forever — the end'), 'INVALID');
 });
 

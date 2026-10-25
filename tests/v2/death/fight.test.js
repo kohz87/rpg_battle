@@ -37,6 +37,7 @@ test('C11: code-confirmed companion death is permanent; rest/heal and active sel
     assert.equal(w.command('party.heal', { actor: w.friend, hp: 100 }).code, 'REFUSED');
     assert.equal(w.command('party.setActive', { actors: [w.pc, w.friend] }, 'ui').code, 'REFUSED');
     assert.equal(w.q('rules.party').active.some(m => m.id === w.friend), false);
+    await w.say('<Changes>\n~ time 0\n</Changes>');
     ok(w.command('party.rest', { kind: 'long' }, 'story'));
     assert.equal(lifeOf(w.q('party.actor', { id: w.friend })), 'dead');
     w.host.store.rebuild();
