@@ -14,11 +14,18 @@ rb:<epoch>:quest:<thread>:<instance>:settled claim commit together. Missing proo
 owner validation holds the whole transaction. Deadline equality expires before objective checks.
 Follow-up offers have fresh IDs; zero XP omits its grant.
 
-Story turn-in capture records a guarded host intent claim, not another quest ledger. RB's
-afterCapture settles after SB has tallied all coin lines. Exact matching story coin reduces
-that reward before payout and acquires the existing storycoin:<reply> claim atomically.
-A Continue repeating an already-paid reward uses a guarded duplicate-coin correction; it
-never grants another settlement or XP award. Money storage and mutations remain SB-owned.
+Story turn-in capture records a guarded host intent claim, not another quest ledger. Narrated coin (`+ coin N`) always goes
+to the wallet at once, as with no quest; nothing is held, reserved or claimed at narration. While exactly one active quest
+instance can hold the amount (its remaining reward), RB's afterCapture publishes a `story` proof `{ type: 'quest.coin', thread,
+instance, reply, coin, limit }` whose parent is that quest's acceptance proof (`quest.attributeCoin`; guard kind `quest.coinNote`).
+When the quest settles `done`, the payout coin is reward minus the surviving amounts attributed to that instance (capped at the
+reward), and the settlement guard binds those proofs by id and bytes: deleting or editing a narration, or swiping the acceptance,
+replays to a different payout and nothing pays twice. Abandon, fail and expiry pay nothing extra and take nothing away. A UI finish
+and a system turn-in read the same proofs. Narrated coin that equals the remaining reward but has no unique attribution (two
+candidates) refuses the settlement (CREDIT_UNBOUND) instead of guessing.
+A Continue repeating a reward the reply's own settlement already paid is the one correction that touches the wallet: it takes back
+that duplicate (`quest.coin.repeat`, claim `rb:<epoch>:quest-coin-repeat:<reply>:<limit>`), and its guard needs that settlement
+to survive. The settlement itself is never paid again. Money storage and mutations remain SB-owned.
 Removing the intent line on Re-read removes its claim and prevents automatic turn-in.
 
 Unrelated prefix replies do not invalidate payouts. Removing a consumed-item carrier or

@@ -10,16 +10,17 @@ for (const narrated of [false, true]) test(`Continue repeats one reward (${narra
     const objective = h.ctx.chat.length - 1;
     await h.send('Turn in.', `<Changes>\n${narrated ? '+ coin 30\n' : ''}- quest Mill job — done\n</Changes>`);
     const payout = h.ctx.chat.length - 1;
-    const check = (amount = 30) => {
-        assert.equal(h.sdk.query('inventory.wallet').coin ?? 0, amount);
+    // With the settlement gone, narrated coin stays in the wallet (50: the Continues' lines, held to one reply's budget).
+    const check = (amount = 30, wallet = amount) => {
+        assert.equal(h.sdk.query('inventory.wallet').coin ?? 0, wallet);
         assert.equal(h.sdk.query('party.pc').xp, amount ? 25 : 0);
     };
     check();
     for (let n = 0; n < 2; n++) { await h.cont('<Changes>\n+ coin 30\n</Changes>'); check(); }
     await h.st.loadChat(structuredClone(h.ctx.chat)); check(); h.store.rebuild(); check();
     assert.equal((await h.turn.reread(payout)).ok, true); check(); assert.deepEqual(h.store.problems(), []);
-    await h.st.deleteMessage(objective); check(0);
-    await h.st.loadChat(structuredClone(h.ctx.chat)); check(0); h.store.rebuild(); check(0);
+    await h.st.deleteMessage(objective); check(0, 50);
+    await h.st.loadChat(structuredClone(h.ctx.chat)); check(0, 50); h.store.rebuild(); check(0, 50);
 });
 
 test('ambiguous equal rewards stay unbound; a UI finish cannot invent attribution or pay twice', { skip }, async t => {

@@ -19,7 +19,7 @@ export function offerQuest(ctx, template, options = {}) {
     return id;
 }
 
-export function createCommands({ settleQuest, evaluateRequirements = null, guardTake = null, settleCredit = null, recordObjective = null, reserveCoin = null } = {}) {
+export function createCommands({ settleQuest, evaluateRequirements = null, guardTake = null, recordObjective = null, attributeCoin = null } = {}) {
     function take(ctx, payload = {}) {
         if (payload.by !== undefined || payload.credit !== undefined || payload.reason !== undefined) return ctx.fail('INVALID', 'Taking a quest uses id or key.');
         if (ctx.caller && !['story-director', 'rpg-battle'].includes(ctx.caller)) return ctx.fail('REFUSED', 'Quest acceptance requires the reader or validated player intent.');
@@ -84,10 +84,7 @@ export function createCommands({ settleQuest, evaluateRequirements = null, guard
         if (ctx.cause !== 'system') return ctx.fail('REFUSED', 'Rewards owed are settled by code.');
         const thread = requireThread(ctx, payload);
         if (!thread.rpg) return ctx.fail('REFUSED', 'Reward from an earlier version (read only).');
-        if (thread.rpg.settlement) {
-            if (payload.credit === true && settleCredit) return settleCredit(ctx, thread);
-            return ctx.fail('CLAIMED', 'This quest settlement is already complete.');
-        }
+        if (thread.rpg.settlement) return ctx.fail('CLAIMED', 'This quest settlement is already complete.');
         const expired = thread.rpg.deadline !== null && Number.isSafeInteger(ctx.time()) && ctx.time() >= thread.rpg.deadline;
         if (!expired && !(ask(ctx.query, 'quest.autoTurnIns') ?? []).includes(thread.id)) {
             return ctx.fail('NO_LONGER_DONE', 'This quest has neither expired nor a surviving turn-in intent.');
@@ -106,5 +103,5 @@ export function createCommands({ settleQuest, evaluateRequirements = null, guard
         const { id: _id, key: _key, ...request } = payload;
         return recordObjective(ctx, thread, request);
     }
-    return { 'quest.reserveCoin': reserveCoin, 'quest.take': take, 'quest.abandon': abandon, 'quest.finish': finish, 'quest.payOwed': payOwed, 'quest.objective': objective };
+    return { 'quest.attributeCoin': attributeCoin, 'quest.take': take, 'quest.abandon': abandon, 'quest.finish': finish, 'quest.payOwed': payOwed, 'quest.objective': objective };
 }

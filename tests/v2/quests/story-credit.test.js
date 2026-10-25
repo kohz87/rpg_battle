@@ -19,8 +19,7 @@ for (const order of ['turn-in first', 'coin first']) test(`story coin credits be
         assert.equal(q.storyCredit.coin, 30);
         assert.equal(q.settlement.coinPaid, 0);
         assert.equal(host.sdk.query('party.pc').xp, 25);
-        assert.equal(q.storyCredit.claims.length, 1);
-        assert.equal(host.head().meta.claims[q.storyCredit.claims[0]], true);
+        assert.deepEqual(q.storyCredit.claims, []);
     }
     paid(h);
     assert.equal((await h.turn.reread(at)).ok, true);
@@ -30,7 +29,7 @@ for (const order of ['turn-in first', 'coin first']) test(`story coin credits be
     paid(loaded);
     await h.st.editMessage(at, '<Changes>\n+ coin 30\n</Changes>');
     assert.equal((await h.turn.reread(at)).ok, true);
-    assert.equal(h.sdk.query('inventory.wallet').coin, 0, 'attributed coin remains held when its settlement is removed');
+    assert.equal(h.sdk.query('inventory.wallet').coin, 30, 'narrated coin stays in the wallet when the settlement is removed');
     assert.equal(h.sdk.query('party.pc').xp, 0);
     assert.equal(h.sdk.query('director.thread', { id: thread.id }).rpg.state, 'active');
 });

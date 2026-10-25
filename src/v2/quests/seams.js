@@ -122,7 +122,7 @@ export function replayInputs(state, { reply = null } = {}) {
         .filter(stack => domains.inventory?.defs?.[stack.def])
         .map(stack => ({ stack: stack.id, def: stack.def, qty: stack.qty, owner: stack.owner, equipped: stack.equipped ?? null }));
     const tally = reply ? domains.inventory?.perReply?.[reply] : null;
-    const storyCoin = reply ? { reply, coin: tally?.coin ?? 0, vouched: tally?.vouched ?? 0, claimed: state?.meta?.claims?.[`storycoin:${reply}`] === true } : null;
+    const storyCoin = reply ? { reply, coin: tally?.coin ?? 0, vouched: tally?.vouched ?? 0 } : null;
     const flags = domains.rules?.pin?.resolved?.manifest ? rulesFlags(state, {}) : null;
     return { storyCoin, threads, party: copy(party), flags, activeActors, items,
         clock: { minutes: domains.director?.time?.minutes ?? null }, place: null,
