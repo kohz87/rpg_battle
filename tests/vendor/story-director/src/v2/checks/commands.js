@@ -181,9 +181,9 @@ function checksRoll(ctx, payload) {
     const dc = payload.dc ?? (Number.isSafeInteger(settings.defaultDc) ? settings.defaultDc : 15);
     const margin = Number.isSafeInteger(settings.costMargin) ? settings.costMargin : 2;
     const request = hashJson({ actor: actorId, stat, skill: skill.toLowerCase(), targetNpc: payload.targetNpc ?? null, dc, ...(payload.craft ? { craft: payload.craft } : {}) });
-    // The pre-roll (Story Block's assist, cause 'system') stands on the previous reply's evidence, which that reply's own check may already have used:
-    // it is its own check (once per message, which the assist's claim `assist:precheck:<key>` keeps), so its claim is scoped by the receipt's rev.
-    // Crafts also use their receipt's scope: two crafts of the same recipe are separate attempts, capped by RB.
+    // Assist previews the seed for the prompt and commits on the generated reply before its story lines.
+    // Its message claim belongs to that reply too; a swipe retracts it and rolls once on the new source.
+    // System requests and crafts keep receipt scope: two crafts of one recipe are separate attempts, capped by RB.
     const scope = payload.craft || ctx.cause === 'system' ? `:r${ctx.rev}` : '';
     if (!ctx.claim(`sd:check:${payload.evidence}:${request.slice(0, 16)}${scope}`)) ctx.fail('REFUSED', 'That evidence already made this check.');
 

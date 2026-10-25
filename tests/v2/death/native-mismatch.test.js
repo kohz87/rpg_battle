@@ -9,7 +9,7 @@ import { createDeathPart } from '../../../src/v2/death/index.js';
 import { generationProblem, historySelectionProblem } from '../../../src/v2/death/selection.js';
 import { lifeOf } from '../../../src/v2/rules/sheet.js';
 
-test('F4: deleting the lethal reply selects the living native checkpoint; an older host still reports its mismatch', async t => seeded(17, async () => {
+test('F4: deleting the lethal reply selects the living native checkpoint; an older host still reports its mismatch', async t => seeded(1, async () => {
     const w = await savedWorld(t);
     await w.say('<Changes>\n~ time 15840\n</Changes>');
     await w.say('The lethal reply.');

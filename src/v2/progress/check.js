@@ -1,5 +1,6 @@
 // A skill check is one practice attempt, regardless of its outcome. SD calls this in the roll's
 // transaction, so taking the check back takes its attempt back too. The existing settlement owns caps.
+import { readClock } from '../training/clock.js';
 import { recordAttempt } from './record.js';
 import { standing } from './offers.js';
 import { attachIfFree } from './guard.js';
@@ -23,7 +24,7 @@ export function practiceCheck(ctx, payload = {}) {
     const fixed = { actor: payload.actor, skill: held.skill, form: held.form };
     const answer = assessCheck({ ix, progress: ctx.read('progress'), query: (name, args) => ctx.query(name, args) }, fixed);
     if (!answer.ok) ctx.fail(answer.code, answer.why);
-    const made = recordAttempt(ctx, { ...fixed, kind: 'narrative', key: `check:${payload.check}` });
+    const made = recordAttempt(ctx, { ...fixed, kind: 'narrative', key: `check:${payload.check}`, minute: readClock((name, args) => ctx.query(name, args)) });
     attachIfFree(ctx, ix, 'check.practice', fixed, answer.inputs);
     return { summary: '', narrate: false, data: { attempt: made.id } };
 }

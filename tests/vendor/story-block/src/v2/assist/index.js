@@ -3,8 +3,8 @@
 // `story-block.extractor`, MODULES §F100; the profile is in the settings section "Assist").
 //
 // * Pre-roll classifier (classifier.js), in `beforeGenerate`: the reader's new message → at most one
-//   check line → `assist.precheck` (claim, capture.check) committed before the reply, so
-//   the reply narrates the roll.
+//   check line → a seeded preview for the prompt; `assist.precheck` (claim, capture.check) is stored
+//   on the generated reply before its story lines, so its roll and attempt retract with that reply.
 // * After-reply extractor, the safety net (extractor.js, safety.js), in the `afterReply` hook the host
 //   calls after each captured reply: the reply and its own lines → only the lines it missed, through the
 //   value wall (never coin, new items, XP, loot or heals) → the host's capture, marked as Assist's.

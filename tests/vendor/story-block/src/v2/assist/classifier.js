@@ -1,7 +1,7 @@
 // The pre-roll classifier (SPEC §4.5 "Optional classifier", MODULES §F16): when it is on and the
 // reader's new message tries something whose outcome is uncertain, one cheap model call turns the
-// message into a check line, and the check is made and rolled BEFORE the reply, so the reply tells
-// the result instead of stopping at it.
+// message into a check line. The turn previews the roll for the prompt, then commits that seed
+// on the generated reply before its story lines. No change is stored on the previous reply.
 //
 // The model only proposes `? check <skill> — <what> | dc: …` or `none`; code reads the line with
 // Story Block's capture parser and commits one `system` command, `assist.precheck`, whose single
@@ -135,6 +135,7 @@ export function precheck(ctx, payload = {}) {
     return {
         summary: String(made.summary ?? '').trim() || `A ${line.name} check is made.`,
         narrate: true,
+        replan: true,
         data: {
             key,
             skill: line.name,
@@ -155,7 +156,7 @@ export function precheck(ctx, payload = {}) {
 export function createClassifier({ callModel, settings, chat, chatId, hasKind, log, warn, timeoutMs = TIMEOUT_MS, timer }) {
     // Messages already asked about in this session (whatever the answer), by chat and key, so a
     // swipe, a regenerate or a failed call never asks again.
-    const asked = new Set();
+    const asked = new Map();
 
     function note(outcome, entry = {}) {
         const item = log.add({ helper: 'classifier', outcome, ...entry });
@@ -166,32 +167,33 @@ export function createClassifier({ callModel, settings, chat, chatId, hasKind, l
     /**
      * beforeGenerate(view, info?): { lines, commands: [{ type: 'assist.precheck', payload }] } when the
      * reader's new message is an uncertain attempt, else null. `info.type` (when the host passes it) is
-     * the generation type; only a new message (normal, or a regenerate of its reply) is asked about.
+     * the generation type. A swipe or regeneration reuses a successful classification, but rolls anew
+     * when the old reply's claim was retracted.
      */
     async function beforeGenerate(view, info = {}) {
         const values = settings(view);
         if (values?.[SETTING.classifier] !== true) return null;
         const type = normalizeType(info?.type);
-        if (BACKGROUND.includes(type) || !['normal', 'regenerate'].includes(type)) return null;
-        // A swipe or continue has no new message; nor has a reply asked for without one.
+        if (BACKGROUND.includes(type) || !['normal', 'regenerate', 'swipe'].includes(type)) return null;
+        // A swipe reuses the reader message before its reply; a Continue never prepares a roll.
         const messages = chat() ?? [];
-        const index = messages.length - 1;
+        const index = type === 'swipe' ? messages.length - 2 : messages.length - 1;
         const last = messages[index];
         if (!last?.is_user) return null;
         const text = String(last.mes ?? '').trim();
         if (!text) return null;
         const key = `${index}-${hashText(text)}`;
         const memo = `${chatId() ?? ''}|${key}`;
-        if (asked.has(memo)) return null;
         if (claimed(view?.state, key)) {
-            asked.add(memo);
             return null;
         }
         if (!hasKind(CHECK_KIND)) {
             note('skipped', { key, message: 'no module keeps checks (RPG Battle is not on)' });
             return null;
         }
-        asked.add(memo);
+        const prepared = line => ({ lines: [ROLLED_LINE], commands: [{ type: PRECHECK, payload: { key, line } }] });
+        if (asked.has(memo)) return asked.get(memo) ? prepared(asked.get(memo)) : null;
+        asked.set(memo, null);
         const prompt = classifierPrompt(text);
         let answer;
         try {
@@ -210,7 +212,8 @@ export function createClassifier({ callModel, settings, chat, chatId, hasKind, l
             return null;
         }
         note('check', { key, line: parsed.line.raw, tokens: estimateTokens(prompt) });
-        return { lines: [ROLLED_LINE], commands: [{ type: PRECHECK, payload: { key, line: parsed.line } }] };
+        asked.set(memo, parsed.line);
+        return prepared(parsed.line);
     }
 
     return { beforeGenerate };

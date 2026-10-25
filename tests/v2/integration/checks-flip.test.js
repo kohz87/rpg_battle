@@ -92,3 +92,72 @@ test('real modules: Assist capture pre-roll calls SD once, and the generation se
     assert.equal(Object.keys(host.head().domains.progress.attempts).length, 1);
     await replay(host);
 });
+
+test('real modules: pre-roll belongs to its generated reply across reread, swipe, regeneration and deletion', async t => {
+    const host = await setup(t, { assist: true });
+    await host.send('Dawn.', reply(['~ time June 3, 1200, 08:00 am']));
+    // The classifier also sees Dawn in this fixture; isolate the next reply's contribution.
+    const baseline = Object.keys(host.head().domains.checks.log).length;
+    await host.send('I attempt the risky task.', 'The story follows the roll.');
+    const index = host.ctx.chat.length - 1;
+    const own = host.ctx.chat[index].extra.storySuite;
+    const precheck = own.receipts.find(row => row.type === 'assist.precheck');
+    assert.ok(precheck, 'pre-roll is stored on the generated reply');
+    const attempt = Object.values(host.head().domains.progress.attempts).find(row => row.source.evidence === own.source.evidence);
+    assert.ok(attempt, 'the attempt uses the generated reply source');
+    await replay(host);
+    assert.equal((await host.sdk.reread(index)).ok, true);
+    assert.equal(Object.keys(host.head().domains.checks.log).length, baseline + 1, 'reread replaces the roll once');
+    await replay(host);
+    await host.swipe('A new telling.');
+    assert.equal(Object.keys(host.head().domains.checks.log).length, baseline + 1, 'a swipe replaces the roll once');
+    await replay(host);
+    await host.regenerate('A regenerated telling.');
+    assert.equal(Object.keys(host.head().domains.checks.log).length, baseline + 1, 'regeneration keeps one roll for the message');
+    await replay(host);
+    await host.st.deleteMessage(index);
+    assert.equal(Object.keys(host.head().domains.checks.log).length, baseline, 'delete retracts the roll');
+    assert.ok(!Object.values(host.head().domains.progress.attempts).some(row => row.source.evidence === own.source.evidence));
+    await replay(host);
+    await host.st.generate('regenerate', { reply: 'The attempt again.' });
+    assert.equal(Object.keys(host.head().domains.checks.log).length, baseline + 1, 'a deleted reply can be regenerated once');
+    await replay(host);
+});
+
+test('real modules: a pre-roll settles on its reply without Changes and keeps the check day', async t => {
+    const host = await setup(t);
+    host.features.set('story-block.preroll', true);
+    const minute = host.sdk.query('director.time', {}).minutes;
+    const before = credits(host);
+    await host.send('I attempt the risky task.', 'The story follows the roll.');
+    assert.equal(credits(host), before + 1, 'credit settles when this reply completes');
+    const attempt = Object.values(host.head().domains.progress.attempts).at(-1);
+    assert.equal(attempt.minute, minute, 'practice keeps the check minute');
+    const credit = Object.values(host.head().domains.progress.credits).at(-1);
+    assert.equal(credit.day, Math.floor(minute / 1440));
+    await replay(host);
+    host.features.set('story-block.preroll', false);
+    await host.send('Tomorrow.', reply(['~ time June 4, 1200, 08:00 am']));
+    assert.equal(credits(host), before + 1);
+    assert.equal(Object.values(host.head().domains.progress.credits).at(-1).day, credit.day);
+    await replay(host);
+});
+
+test('real modules: a pre-roll keeps its minute when its generated reply crosses midnight', async t => {
+    const host = await setup(t);
+    host.features.set('story-block.preroll', true);
+    const minute = host.sdk.query('director.time', {}).minutes;
+    const { request } = await host.send('I attempt the risky task.', reply(['~ time June 4, 1200, 08:00 am']));
+    const attempt = Object.values(host.head().domains.progress.attempts).at(-1);
+    const credit = Object.values(host.head().domains.progress.credits).at(-1);
+    const log = Object.values(host.head().domains.checks.log).at(-1);
+    assert.equal(attempt.minute, minute);
+    assert.equal(credit.minute, minute);
+    assert.equal(credit.day, Math.floor(minute / 1440));
+    assert.ok(host.sdk.query('director.time', {}).minutes > minute);
+    assert.match(request.chat.filter(message => message.role === 'system').map(message => message.content).join('\n'), new RegExp(`d20 ${log.die} `));
+    await replay(host);
+    assert.equal((await host.sdk.reread(host.ctx.chat.length - 1)).ok, true);
+    assert.equal(Object.values(host.head().domains.progress.credits).at(-1).minute, minute);
+    await replay(host);
+});

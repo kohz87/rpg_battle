@@ -350,3 +350,17 @@ The death history fixtures cover native revival after deletion, the older host's
 surviving-death mismatch. Their synthetic reward uses a guarded payer, as production awards do, so
 undoing a return cannot replay duplicate claims. Explicit checked activation/resume still works
 without a live query callback.
+
+## Checks flip review fixes
+
+Assist's prompt preview is committed on the generated reply before its story lines. The roll, message
+claim and practice attempt retract together; Re-read replaces that prelude with the saved seed, and a
+swipe/regeneration rolls once after retraction. Check practice records the current in-story minute;
+reply completion runs settlement even when narration has no Changes block. A later clock cannot move
+that check into another day's cap. Replay guards continue to read state and their declared queries.
+
+The integration suite reproduces both review blockers with real SB + SD + RB, then verifies Re-read,
+swipe, delete/regenerate, reload/rebuild and a reply crossing midnight. RB's vendored host and director
+run the same tests from a lone checkout. Literal no-check byte parity remains changed: main writes
+checks.prepare receipts and an RB checks slice; restoring those bytes needs a compatibility design
+across the ownership change rather than a small lifecycle fix.
