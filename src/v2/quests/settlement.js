@@ -107,7 +107,7 @@ export function createSettlement(policy = {}) {
         if (typeof buildGuard !== 'function') return ctx.fail('DEPENDENCY_UNAVAILABLE', 'The shared B5 guard builder is unavailable.');
         const key = settlementKey(epoch, thread.rpg);
         if (thread.rpg.settlement) return ctx.fail('CLAIMED', 'This quest settlement is already complete.');
-        const reply = payload.credit === true && ctx.cause === 'system' ? ctx.reply?.sid : null;
+        const reply = outcome === 'done' ? ctx.reply?.sid ?? null : null;
         const external = recordQuestInputs(ctx.query, thread);
         const checked = assess(ctx.query, pin, thread, outcome, policy, reply, external);
         const threadHash = ctx.query('threads.hash', { thread: thread.id });
