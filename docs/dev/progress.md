@@ -40,7 +40,7 @@ rebuild never runs the command or resolves an installed pack again. As with the 
 history contract, a prefix deleted outside a session that saw it can require explicit history
 repair; no replacement pack is substituted.
 
-Host dependency: Story Block `ed936ae02ca6d33ccb0b513d49b879abe79eb518` or a descendant,
+Host dependency: Story Block `71ea5a30be5464f7a789b0f555a49b30a72585e8` (branch `stage5/pin`) or a descendant,
 vendored by sync-testkit. P01's additive transport/lifecycle contracts are documented in SB
 PACKS.md (`resolve: true` and its `pin` transport), LIFECYCLE.md (deferred domains and API
 presence) and REPLAY.md (`replyBound`). These are coordinated host changes, not missing seams.

@@ -962,7 +962,6 @@ export function createStore({
         let history = false;     // a record before this point (anywhere) holds guarded blocks: a checkpoint here depends on its owners
         let running = '';        // the prefix hash in front of this record (spineStep)
         let seen = 0;            // records before this one
-        let withdrawn = false;  // a deleted reply-bound setup block invalidates later saved states
         const last = Math.min(upTo, arr.length - 1);
         for (let i = 0; i <= last; i++) {
             if (!isCarrier(arr[i])) continue;
@@ -977,7 +976,7 @@ export function createStore({
                 // records, a hidden swipe's) is trusted only as the first record there is.
                 const exact = record.prefix !== undefined ? record.prefix === running : seen === 0;
                 // (covers and coverHash are further checks when it has them)
-                const holds = !withdrawn && under && exact && (!covers || (from >= 0 && covers.length === since.length && covers.every((sid, at) => sid === since[at])
+                const holds = under && exact && (!covers || (from >= 0 && covers.length === since.length && covers.every((sid, at) => sid === since[at])
                     && (record.coverHash === undefined ? !guarded : record.coverHash === windowHash(arr, members))));
                 if (holds) {
                     from = i;
@@ -987,7 +986,6 @@ export function createStore({
                 }
             }
             running = spineStep(running, record, arr[i], seen === 0);
-            if (Array.isArray(record.spans) && record.spans.some(span => span?.guard?.replyBound === true) && !list().includes(arr[i])) withdrawn = true;
             seen += 1;
             since.push(record.sid);
             members.push(i);
