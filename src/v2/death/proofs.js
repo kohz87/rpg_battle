@@ -30,5 +30,5 @@ export function rescueProof(env, event, id) {
     if (!skill || !Number.isInteger(p.effect) || env.ix.form(p.form)?.effects[p.effect]?.op !== 'heal') throw new Error('The rescuer does not hold that healing effect.');
     const paid = proofsOf(env.query, [p.payment])[0];
     if (paid.owner !== 'rpg-battle' || paid.kind !== 'use' || paid.payload?.actor !== p.rescuer || paid.payload?.skill !== p.skill || paid.payload?.form !== p.form || !proof.parents.includes(p.payment)) throw new Error('The rescue has no surviving paid parent action.');
-    return { proof: proof.id, payloadHash: proof.payloadHash, payment: p.payment };
+    return { proof: proof.id, payloadHash: proof.payloadHash, payment: p.payment, paymentHash: paid.payloadHash };
 }

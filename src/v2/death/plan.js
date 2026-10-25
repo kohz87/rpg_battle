@@ -34,6 +34,7 @@ export function assessDeath(kind, env, payload, recorded = {}) {
             for (const e of events) {
                 const member = query('party.actor', { id: e.actor });
                 if (!member || lifeOf(member) === 'dead') return fail('REFUSED', 'The lethal actor is no longer alive on this timeline.');
+                if ((member.npcId ?? null) !== e.npcId) return fail('REFUSED', 'The lethal actor is linked to another native identity.');
                 if (e.cause !== 'wipe' && hashJson(lethalProofs(query, { ...e, evidence: e.evidence.map(p => p.id) })) !== hashJson(e.evidence)) return fail('REFUSED', 'The lethal evidence changed.');
                 if (e.intervention && hashJson(rescueProof(env, e, e.intervention.proof)) !== hashJson(e.intervention)) return fail('REFUSED', 'The rescue evidence changed.');
                 actors.push({ actor: e.actor, npcId: member.npcId ?? null, kind: member.kind, life: lifeOf(member), mod: statModifier({ stats: member.stats }, 'VIT') });
@@ -60,9 +61,9 @@ export function resultBytes(env, batch, plan, recorded) {
         const actor = plan.actors.find(a => a.actor === event.actor);
         const check = recorded.checks[event.id] ?? null;
         const outcome = event.cause === 'wipe' ? 'dead' : event.intervention || check.total >= check.dc ? 'gravely-injured' : 'dead';
-        return { ...structuredClone(event), check, outcome, _pc: actor.kind === 'pc' };
+        return { ...structuredClone(event), kind: actor.kind, check, outcome };
     });
-    const returnRequested = events.some(e => e._pc && e.outcome === 'dead');
+    const returnRequested = events.some(e => e.kind === 'pc' && e.outcome === 'dead');
     return { v: 1, kind: 'death', batch: batch.id, source: batch.source, epoch: env.epoch, ruleset: env.ix.rulesHash, minute: recorded.minute,
-        events: events.map(({ _pc, ...row }) => row), snapshot: returnRequested ? recorded.snapshot : null, returnRequested };
+        events, snapshot: returnRequested ? recorded.snapshot : null, returnRequested };
 }

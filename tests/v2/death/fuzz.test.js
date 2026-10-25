@@ -52,7 +52,7 @@ for (const seed of seeds) test(`B6 death/wipe/return fuzz ${seed}: rewards, nati
                 await w.host.turn.reread(at);
                 // A Re-read may retract dependent system blocks; the next full-replay assertion is authoritative.
                 void before;
-            } else if (op === 4 && at > 3) {
+            } else if (op === 4 && at > 3 && at === w.host.ctx.chat.length - 1) {
                 await w.host.swipe(`A different turn ${i}.`);
             } else if (op === 5 && at > 3 && w.host.ctx.chat[at].swipes.length > 1) {
                 await w.host.st.swipeTo(at, next(w.host.ctx.chat[at].swipes.length));
@@ -80,7 +80,7 @@ for (const seed of seeds) test(`B6 death/wipe/return fuzz ${seed}: rewards, nati
             const reason = generationProblem(w.head(), w.host.timeline.host);
             if (reason) {
                 holds++;
-                const blocked = await w.say('The story must wait for native recovery.');
+                const blocked = await w.host.st.generate('normal', { reply: 'The story must wait for native recovery.' });
                 assert.equal(blocked.aborted, true);
             } else {
                 const member = w.q('party.actor', { id: w.friend });
