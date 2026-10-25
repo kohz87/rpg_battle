@@ -286,3 +286,13 @@ this slice, and `engine-unchanged.test.js` plays them again; `pinned.test.js` pl
 
 `pinRules` and `registerPackDefs` (activation), and the parts themselves (`rulesParts`, not registered by `module.js`). Everything
 else above is reached through the commands and queries once the parts are registered.
+
+## Rescue proofs (track A, B3)
+
+`rescue.use { event, batch: { id, hash }, actor, rescuer, skill, form, effect, paid? }` (`progress/rescue.js`; the guard kind `rescue.use` asks `assess.js`
+`assessRescue`). Only Story Director's event adapter or this module may ask. The sealed death result is read from `progress.batches` as
+`{ kind: 'death', events: [{ id, actor }] }`, which is this slice's assumption until B6 writes its records (a contract gap): the lethal event must be in it
+and must have struck `actor`; the rescuer is another, alive, active durable member holding the skill in that form; the form's frozen effect at `effect` is a
+`heal` or `shield`. The cost is paid in the same root (a `use` proof) or cited from one surviving paid use, as `skill.use` does (`applyUse`, the same function,
+no guard of its own). The `rescue` proof binds all of it with the use as its only parent; the claim `rb:<epoch>:rescue:<event>:<actor>` consumes the rescue once.
+Taking back the paid use, the sealed result or the rescuer's place turns the block off with its claims.

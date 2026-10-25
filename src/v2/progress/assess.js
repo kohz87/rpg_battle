@@ -11,7 +11,8 @@ import { readClock } from '../training/clock.js';
 import { planSession } from './session-step.js';
 import { expectedSessionId, waitingOf } from '../training/session.js';
 import { isObject, isActorId } from '../rules/ids.js';
-import { ACTIVE_LIMIT, lifeOf } from '../rules/sheet.js';
+import { sealedProblem } from '../fight/batch.js';
+import { ACTIVE_LIMIT, activeIds, lifeOf } from '../rules/sheet.js';
 import { assessFlag } from '../rules/flags.js';
 import { assessItem } from '../rules/items.js';
 import { buildAct, buildEnd, buildStart } from '../fight/guards.js';
@@ -133,6 +134,40 @@ function assessUse(env, payload) {
     return { ok: true, member, form, pool, amount, inputs: { pays: { pool, amount } } };
 }
 
+/** The effects of a form a rescue may stand on: the ones that mend or ward an ally. */
+export const RESCUE_OPS = Object.freeze(['heal', 'shield']);
+
+/**
+ * rescue.use (B3: "Rescue proof must bind lethal event/batch, rescued actor, living rescuer, stable skill/form/effect, active source,
+ * cost/payment reference and one-time consumption"): the sealed death result names the lethal event and the actor it struck, the
+ * rescuer is another, living, active, durable member who holds the skill in that form, the form's frozen effect mends or wards an
+ * ally, and the cost is paid now or by one surviving `use` proof of the rescuer (skill.use's own question, never both). Reads the
+ * progress slice and the declared queries only. → { ok, inputs, use } | { ok: false, code, why }.
+ */
+function assessRescue(env, payload) {
+    const { ix, progress, query } = env;
+    if (payload.actor === payload.rescuer) return { ok: false, code: 'REFUSED', why: 'A character cannot rescue themselves.' };
+    const entry = progress.batches?.[payload.batch.id];
+    if (!entry || sealedProblem(entry) || entry.hash !== payload.batch.hash) return { ok: false, code: 'NOT_FOUND', why: 'No sealed result matches the one named.' };
+    const events = entry.bytes.kind === 'death' && Array.isArray(entry.bytes.events) ? entry.bytes.events : [];
+    const event = events.find(item => isObject(item) && item.id === payload.event);
+    if (!event) return { ok: false, code: 'NOT_FOUND', why: 'That lethal event is not in that result.' };
+    if (event.actor !== payload.actor) return { ok: false, code: 'REFUSED', why: 'That lethal event struck another character.' };
+    if (!memberOf(query, payload.actor)) return { ok: false, code: 'NOT_FOUND', why: 'The character in danger is not in the party.' };
+    const member = memberOf(query, payload.rescuer);
+    if (!member) return { ok: false, code: 'NOT_FOUND', why: 'The rescuer is not in the party.' };
+    if (lifeOf(member) !== 'alive') return { ok: false, code: 'REFUSED', why: `${member.name} is not alive to rescue anyone.` };
+    const durable = members(query).filter(item => item.kind === 'pc' || item.kind === 'companion');
+    const pc = durable.find(item => item.kind === 'pc');
+    if (!activeIds(progress.roster, durable, pc?.id ?? null).includes(payload.rescuer)) return { ok: false, code: 'REFUSED', why: `${member.name} is not an active member of the party.` };
+    const effect = ix.form(payload.form)?.effects?.[payload.effect];
+    if (!effect || !RESCUE_OPS.includes(effect.op)) return { ok: false, code: 'REFUSED', why: 'That effect of the form does not mend or ward an ally.' };
+    const use = assessUse(env, { actor: payload.rescuer, skill: payload.skill, form: payload.form, paid: payload.paid });
+    if (!use.ok) return use;
+    return { ok: true, member, use, inputs: { event: payload.event, batch: { id: payload.batch.id, hash: payload.batch.hash }, actor: payload.actor,
+        rescuer: payload.rescuer, skill: payload.skill, form: payload.form, effect: payload.effect, op: effect.op, use: use.inputs } };
+}
+
 /**
  * Asks about an operation: `kind` 'class.choose' | 'path.choose' (payload = the command's payload) or
  * 'rules.settle'. `env`: { ix, progress, query }. → { ok: true, inputs, … } | { ok: false, code, why }.
@@ -165,6 +200,7 @@ export function assess(kind, env, payload, extra = {}) {
     }
     if (kind === 'class.start') return assessStart(env, payload);
     if (kind === 'skill.use') return assessUse(env, payload);
+    if (kind === 'rescue.use') return assessRescue(env, payload);
     if (kind === 'party.setActive') return assessRoster(env, payload);
     if (kind === 'summon.end') return assessUnit(env, payload);
     const member = memberOf(query, payload.actor);

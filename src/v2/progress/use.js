@@ -22,7 +22,12 @@ import { epochOf, isActorId, isDefId, isObject, isRecordId } from '../rules/ids.
 
 const FIELDS = ['actor', 'skill', 'form', 'paid'];
 
-export function useSkill(ctx, payload) {
+/**
+ * The use without its guard: validates, pays (or cites the paid use) and records the attempt and its claims in `ctx`'s transaction.
+ * → { ix, fixed, answer, key, member, form }. `useSkill` guards it as `skill.use`; a step that wraps a use in an operation of its
+ * own (rescue.use) attaches that operation's guard instead, since a root carries one.
+ */
+export function applyUse(ctx, payload) {
     if (!isObject(payload) || Object.keys(payload).some(key => !FIELDS.includes(key))) ctx.fail('INVALID', 'skill.use takes { actor, skill, form, paid? }.');
     if (!isActorId(payload.actor) || !isDefId(payload.skill) || !isDefId(payload.form)) ctx.fail('INVALID', 'A skill use names a character, a skill and its form.');
     const paid = payload.paid ?? null;
@@ -54,8 +59,12 @@ export function useSkill(ctx, payload) {
     // The same attempt again (a proof this very step gave, cited): counted once.
     if (!made.created && !made.dropped) ctx.fail('CLAIMED', 'That use was already counted.');
     if (!ctx.claim(`rb:${epochOf(ctx)}:use:${made.id}`)) ctx.fail('CLAIMED', 'That use was already counted.');
+    return { ix, fixed, answer, key, made, form: ix.form(payload.form), paid };
+}
+
+export function useSkill(ctx, payload) {
+    const { ix, fixed, answer, key, made, form, paid } = applyUse(ctx, payload);
     attachGuard(ctx, ix, 'skill.use', fixed, answer.inputs, { key });
-    const form = ix.form(payload.form);
     return {
         summary: `${answer.member.name} uses ${form?.name ?? payload.skill}${paid !== null ? '' : ` (${answer.amount} ${answer.pool.toUpperCase()})`}.`,
         narrate: false,

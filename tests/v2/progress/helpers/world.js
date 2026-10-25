@@ -11,6 +11,8 @@
 import { createHost } from '../../../vendor/story-block/testkit/index.js';
 import { pinOf, pinRules, registerPackDefs, rulesParts } from '../../../../src/v2/rules/index.js';
 import { recordAttempt, recordBasicClass, recordCombatUses } from '../../../../src/v2/progress/index.js';
+import { seal } from '../../../../src/v2/fight/batch.js';
+import { storeBatch } from '../../../../src/v2/fight/index.js';
 
 // The module is built from `rulesParts` alone (every part of rules v2, as module.js will register them), plus the test-only pieces below.
 const PARTS_ = rulesParts.map(([, part]) => part);
@@ -147,6 +149,8 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
             // A sealed result and a condition on a member, as an earlier fight would have left them.
             'test.carried'(ctx, { actor, list }) { ctx.draft('progress').carried[actor] = list; return { summary: 'Carried.', narrate: false }; },
             'test.condition'(ctx, { actor, kind, rounds, at }) { ctx.draft('party').actors[actor].conditions.push({ kind, stacks: rounds, rounds, at }); return { summary: 'Condition.', narrate: false }; },
+            // A sealed death result, as B6 will leave one: the lethal events it names are { id, actor }.
+            'test.death'(ctx, { id, events }) { storeBatch(ctx, id, seal({ v: 1, kind: 'death', events })); return { summary: 'Sealed.', narrate: false }; },
             'test.settleUnits'(ctx, payload) { return ctx.call('summon.settle', payload); },
             'test.begin'(ctx, payload) { return ctx.call('summon.begin', payload); },
             // A paid use some other step of this module gave proof of.
