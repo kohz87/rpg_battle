@@ -19,7 +19,8 @@ import { WIDGET_NAMES } from './helpers/render.js';
 import { screenWidgets } from '../../../src/v2/screens/widgets.js';
 
 // This part's own widgets (widgets.js) beside Story Block's standard ones.
-const OWN_WIDGETS = [...Object.keys(screenWidgets), 'rpg-battle.create-character', 'rpg-battle.return-card'];
+const OWN_WIDGETS = [...Object.keys(screenWidgets), 'rpg-battle.create-character', 'rpg-battle.return-card',
+    'rpg-battle.permanent-choice', 'rpg-battle.class-pick', 'rpg-battle.command-input', 'rpg-battle.command-button'];
 
 const byId = Object.fromEntries(screens.map(screen => [screen.id, screen]));
 const COMMANDS = new Set([...Object.keys(partyPart.commands), ...Object.keys(itemsPart.commands), ...Object.keys(tradePart.commands)]);
@@ -31,11 +32,13 @@ const QUERY_NAME = /^[a-z][a-zA-Z0-9_-]*(?:\.[a-zA-Z0-9_-]+)*$/;
 
 test('the part exports the five default screens under the new `screens` key, its view queries and widgets', () => {
     // No Items screen: Story Block's Inventory is the one bag (MODULES §F99).
-    assert.deepEqual(screens.map(screen => screen.id), ['rpg-battle/party', 'rpg-battle/trade', 'rpg-battle/crafting', 'rpg-battle/hud', 'rpg-battle/status-card']);
+    // The five below are first; track C's five rules screens follow (tests/v2/screens/rules/), each shown only while the rules queries exist.
+    assert.deepEqual(screens.map(screen => screen.id), ['rpg-battle/party', 'rpg-battle/trade', 'rpg-battle/crafting', 'rpg-battle/hud', 'rpg-battle/status-card',
+        'rpg-battle/progress', 'rpg-battle/quests', 'rpg-battle/roster', 'rpg-battle/links', 'rpg-battle/setup']);
     assert.equal(byId['rpg-battle/items'], undefined);
     assert.equal(part.screens, screens);
-    assert.deepEqual(Object.keys(part.queries).sort(), ['rpg-battle.cards', 'rpg-battle.carry', 'rpg-battle.crafting', 'rpg-battle.heroes', 'rpg-battle.hud', 'rpg-battle.itemDetail', 'rpg-battle.trade']);
-    assert.deepEqual(Object.keys(part.widgets).sort(), ['rpg-battle.character-file', 'rpg-battle.equipment', 'rpg-battle.item-detail', 'rpg-battle.member-toggle', 'rpg-battle.skill-tree']);
+    assert.deepEqual(Object.keys(part.queries).sort(), ['rpg-battle.cards', 'rpg-battle.carry', 'rpg-battle.classPicker', 'rpg-battle.crafting', 'rpg-battle.heroes', 'rpg-battle.hud', 'rpg-battle.itemDetail', 'rpg-battle.linksView', 'rpg-battle.offers', 'rpg-battle.progressView', 'rpg-battle.questsView', 'rpg-battle.rosterView', 'rpg-battle.rulesDeps', 'rpg-battle.setupView', 'rpg-battle.trade']);
+    assert.deepEqual(Object.keys(part.widgets).sort(), ['rpg-battle.character-file', 'rpg-battle.class-pick', 'rpg-battle.command-button', 'rpg-battle.command-input', 'rpg-battle.equipment', 'rpg-battle.item-detail', 'rpg-battle.member-toggle', 'rpg-battle.permanent-choice', 'rpg-battle.skill-tree']);
     for (const widget of Object.values(part.widgets)) {
         assert.equal(typeof widget.render, 'function');
         assert.deepEqual(widget.validate({}), []);
@@ -86,7 +89,7 @@ test('mounts: party, trade and crafting are tabs and game screens; the HUD is a 
 });
 
 test('data bindings name the view queries; the status card reads the reply\'s own state', () => {
-    assert.deepEqual(byId['rpg-battle/party'].data, { cards: { query: 'rpg-battle.cards' }, offers: { query: 'party.offers' }, carry: { query: 'rpg-battle.carry' }, ret: { query: 'return.status' } });
+    assert.deepEqual(byId['rpg-battle/party'].data, { cards: { query: 'rpg-battle.cards' }, offers: { query: 'rpg-battle.offers' }, carry: { query: 'rpg-battle.carry' }, ret: { query: 'return.status' } });
     assert.deepEqual(byId['rpg-battle/crafting'].data, { craft: { query: 'rpg-battle.crafting' } });
     assert.deepEqual(byId['rpg-battle/trade'].data, { trade: { query: 'rpg-battle.trade' } });
     assert.deepEqual(byId['rpg-battle/hud'].data, { hud: { query: 'rpg-battle.hud' } });
