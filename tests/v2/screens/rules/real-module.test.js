@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { realWorld, DAY } from '../../progress/helpers/world.js';
+import { realWorld, DAY, AREA_TIERS } from '../../progress/helpers/world.js';
 import { trainersPin, inputsPin, ref } from '../../progress/helpers/fixture.js';
 import { createModule } from '../../../../src/v2/module.js';
 import { rulesParts } from '../../../../src/v2/rules/index.js';
@@ -108,6 +108,29 @@ test('C06 real training: request button, midnight completion and recorded interr
     if (session.event?.template) assert.ok(train.lines.some(line => line.includes(session.event.template)));
     assert.deepEqual(w.problems(), []);
     await stable(w);
+    // Completed across midnight: the page shows the finish, the Day 5 cap and the new day.
+    const finished = live(w, screen('progress'));
+    assert.match(text(finished.el), /Training (finished|interrupted)/);
+    assert.match(text(finished.el), /Day 5/);
+    // Re-read: the reply that carried the lesson is deleted. The jump, the completion (credits, cap) and the event go with it, and the
+    // request that was made before it is back, asked for and not yet started.
+    const lesson = w.host.ctx.chat.findIndex(m => !m.is_user && m.mes.includes('Lesson.'));
+    assert.ok(lesson > 0);
+    await w.host.st.deleteMessage(lesson);
+    await w.host.st.deleteMessage(lesson - 1);
+    const back = w.q('rules.training', { actor: w.pc }).session;
+    assert.equal(back.status, 'requested', JSON.stringify(back));
+    assert.equal(w.q('director.time').minutes, start, 'the clock is back before the jump');
+    assert.equal(back.endMinute ?? null, null);
+    assert.equal(back.event ?? null, null, 'no event survives');
+    assert.deepEqual(Object.keys(w.slice('progress').attempts), [], 'no credit survives');
+    const rolled = model(w, progressView).members[0].training;
+    assert.equal(rolled.state, 'requested');
+    assert.deepEqual(rolled.lines, ['It starts when the story time next moves. Nothing is paid until then.']);
+    const redrawn = live(w, screen('progress'));
+    assert.match(text(redrawn.el), /Training requested/);
+    assert.doesNotMatch(text(redrawn.el), /crosses midnight|Training finished|Training interrupted|Day 5|Training event/);
+    assert.deepEqual(w.problems(), []);
 });
 
 test('real training refusal remains visible and the next request is available', async t => {
@@ -277,6 +300,61 @@ test('C13–C19 real queries: setup lists host saves, links reads actual flags/i
         assert.deepEqual(d.warnings, [], s.id);
     }
     await stable(w);
+});
+
+test('C18 real mutation: a story item and an authorized flag event reach the Links page; conflicts are refused; reading assigns nothing; Re-read takes both back', async t => {
+    // A story item needs a known place and its tier, as in the rules' generation bounds (tests/v2/rules/items.test.js).
+    for (const key of Object.keys(AREA_TIERS)) delete AREA_TIERS[key];
+    AREA_TIERS['pack.fixture/haven'] = 4;
+    t.after(() => { delete AREA_TIERS['pack.fixture/haven']; });
+    const w = await realWorld(t, { given: inputsPin(), sd: true });
+    await w.say('Haven.', ['~ time 3000', '~ here pack.fixture/haven']);
+    ok(w.ui('test.packDefs'));
+    const sys = (type, payload) => w.host.bus.command(type, payload, { cause: 'system' });
+    const inputs = () => model(w, linksView).inputs;
+    const snapshot = () => JSON.stringify({ domains: w.head().domains, claims: w.head().meta.claims });
+    const generated = () => inputs().items.filter(item => item.id.startsWith('story/'));
+    assert.deepEqual(inputs().flags.map(f => [f.key, f.on]), [['bell.rung', false], ['gate.open', false]]);
+    assert.deepEqual(generated(), []);
+
+    await w.say('A charm.', ['+ item Moon Charm | qty: 1']);
+    const charmReply = w.host.ctx.chat.length - 1;
+    await w.say('The bell.');
+    const bellReply = w.host.ctx.chat.length - 1;
+    const rung = sys('sd.event', { flag: 'bell.rung', value: true });
+    assert.equal(rung.ok, true, rung.message);
+    assert.deepEqual(inputs().flags.map(f => [f.key, f.on]), [['bell.rung', true], ['gate.open', false]]);
+    assert.deepEqual(generated().map(item => [item.id, item.name]), [['story/moon-charm', 'Moon Charm']]);
+    const page = live(w, screen('links'));
+    assert.match(text(page.el), /Moon Charm/);
+
+    // Looking assigns nothing: the same state after the page is read and drawn again, in both the view and the host.
+    const before = snapshot();
+    model(w, linksView); model(w, linksView); live(w, screen('links'));
+    assert.equal(snapshot(), before, 'reading the page changed no state and assigned no id');
+
+    // A conflicting registration under the charm's id, and one that names no source, are refused and leave the page as it was.
+    const charm = w.q('inventory.definitions').find(def => def.id === 'story/moon-charm');
+    const blade = { id: 'craft/iron-blade', name: 'Iron Blade', kind: 'equipment', rarity: 'uncommon', value: 20, stack: false, slot: 'weapon', stats: { ATK: 4 }, effect: {}, tags: [], note: '' };
+    const payload = { write: 'wr_00000001', def: blade, rule: { def: 'craft/iron-blade', allowedSlots: ['weapon'], hands: 1, requires: {}, weight: 4 }, template: 'pack.fixture/forge-blade', area: null, rulesHash: null };
+    const noSource = sys('test.register', { ...payload, template: null });
+    assert.equal(noSource.code, 'RULES_MISMATCH');
+    const conflict = sys('test.register', { ...payload, write: 'wr_00000002', def: { ...charm, rarity: 'rare' }, template: null });
+    assert.equal(conflict.code, 'CONFLICT', 'a different definition under an existing generated id is refused');
+    assert.deepEqual(generated().map(item => item.id), ['story/moon-charm']);
+    assert.equal(inputs().items.some(item => item.id === 'craft/iron-blade'), false);
+    assert.deepEqual(w.problems(), []);
+
+    // Re-read: the reply with the flag event goes, and the flag is Off again; then the charm's reply goes, and the item leaves the page.
+    await w.host.st.deleteMessage(bellReply);
+    await w.host.st.deleteMessage(bellReply - 1);
+    assert.deepEqual(inputs().flags.map(f => [f.key, f.on]), [['bell.rung', false], ['gate.open', false]]);
+    assert.equal(generated().length, 1);
+    await w.host.st.deleteMessage(charmReply);
+    await w.host.st.deleteMessage(charmReply - 1);
+    assert.deepEqual(generated(), []);
+    assert.doesNotMatch(text(live(w, screen('links')).el), /Moon Charm/);
+    assert.deepEqual(w.problems(), []);
 });
 
 test('screen queries never reach into state, and their rendering uses safe DOM helpers', () => {
