@@ -187,6 +187,12 @@ test('C13 dependencies: with RPG Battle dormant, Setup is still offered and stil
     assert.deepEqual(withHost(HOST.restoring(), () => setupActive(null, ctx)), { on: true });
     assert.deepEqual(withHost(HOST.ready(), () => setupActive(null, ctx)), { on: false }, 'a ready module without rules queries (an old save) shows nothing new');
     assert.deepEqual(setupActive(null, ctx), { on: false }, 'a host without module status shows nothing new');
+    // A legacy chat: the host answers the registered query with null. Only a dormant or restoring module keeps Setup.
+    const legacy = { query: () => null };
+    assert.deepEqual(withHost(HOST.ready(), () => setupActive(null, legacy)), { on: false }, 'a ready module on a legacy chat shows nothing new');
+    assert.deepEqual(withHost(HOST.rbDormant(), () => setupActive(null, legacy)), { on: true });
+    assert.deepEqual(withHost(HOST.restoring(), () => setupActive(null, legacy)), { on: true });
+    assert.deepEqual(withHost(HOST.ready(), () => setupActive(null, { query: () => ({ pc: null, active: [], reserve: [], temporary: [], activeLimit: 3 }) })), { on: true }, 'a valid rules answer');
 
     withHost(HOST.rbDormant(), () => {
         const view = dependencyView(toolsOf(table));

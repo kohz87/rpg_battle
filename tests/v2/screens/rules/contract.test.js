@@ -41,10 +41,18 @@ test('five screens, unique ids, tab and screen mounts, each gated by rulesActive
         'rpg-battle.classPicker', 'rpg-battle.linksView', 'rpg-battle.offers', 'rpg-battle.progressView', 'rpg-battle.questsView', 'rpg-battle.rosterView', 'rpg-battle.rulesDeps', 'rpg-battle.setupView']);
 });
 
-test('rulesActive: the pages exist only while RPG Battle\'s rules queries are registered (an old host or save shows none)', () => {
-    assert.deepEqual(rulesActive(null, { query: () => null }), { on: true }, 'registered, even when it answers nothing (dormant)');
+test('rulesActive: the pages exist only on a valid rules answer (a pinned chat), never for null, a missing query or a throw', () => {
+    assert.deepEqual(rulesActive(null, { query: () => null }), { on: false }, 'a legacy chat: the query is registered but answers null');
+    assert.deepEqual(rulesActive(null, { query: () => undefined }), { on: false });
     assert.deepEqual(rulesActive(null, { query: () => { throw new Error('No query called "rules.party".'); } }), { on: false });
-    assert.deepEqual(rulesActive(null, {}), { on: true });
+    assert.deepEqual(rulesActive(null, {}), { on: false }, 'no queries at all');
+    assert.deepEqual(rulesActive(null, { query: () => 'yes' }), { on: false }, 'not a record');
+    assert.deepEqual(rulesActive(null, { query: () => ({ pc: null, active: [], reserve: [], temporary: [], activeLimit: 3 }) }), { on: true }, 'a pinned chat without a character yet');
+    assert.deepEqual(rulesActive(null, { query: () => ({ pc: 'ac_00000001', active: [], reserve: [], temporary: [], activeLimit: 3 }) }), { on: true });
+    assert.deepEqual(rulesActive(null, { query: () => ({ unexpected: 1 }) }), { on: true }, 'a shape this version does not know: the pages say mismatch themselves');
+    const asked = [];
+    rulesActive(null, { query: (name, args) => { asked.push([name, args]); return null; } });
+    assert.deepEqual(asked, [['rules.party', {}]]);
 });
 
 test('Story Block\'s validator accepts every new screen and the class step; CSS is scoped, small and colourless', () => {

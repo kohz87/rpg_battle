@@ -11,24 +11,26 @@
 //                                  items (read only), companions' dossiers
 //   rpg-battle/setup     Setup     what RPG Battle depends on, in distinct states, and the save points
 //
-// Each is shown only while RPG Battle's rules queries exist (`active`, SPEC §13.1): on a host or a save without them
-// nothing new appears and the existing Party screen draws as before. A required module that is missing makes the page
-// say so (the banner), not disappear.
+// Each is shown only while RPG Battle's rules queries answer for the chat (`active`, SPEC §13.1): on a host, a legacy chat or a save
+// without a pinned ruleset nothing new appears and the existing tabs and Party screen draw as before. A required module that is missing makes
+// the page say so (the banner), not disappear.
 
 import { sheet } from '../style.js';
 import { EQUIPMENT_CSS } from '../equipment.js';
 import { RULES_WIDGET_CSS } from './widgets.js';
 import { hostModules, ownStatus } from './deps.js';
+import { ASK, ask, isRecord } from './ask.js';
 
-/** The rules queries a page needs to exist before it is offered: a host without them (older, or RPG Battle 1) shows none of the pages. */
+/**
+ * The new pages are offered only on a valid rules answer: `rules.party` answers for a chat that has a pinned ruleset, and answers null
+ * (or has no such query) for a legacy chat, an old host or an unpinned save, where nothing new appears and the existing tabs and
+ * navigation stay exactly as they were. Any record counts as the answer: one in a shape this version does not know still turns the
+ * pages on, because they say "mismatch" themselves; null, a missing query and a thrown error keep them off.
+ */
 export function rulesActive(state, ctx) {
-    try {
-        ctx?.query?.('rules.party', {});
-        return { on: true };
-    } catch {
-        return { on: false };
-    }
+    return { on: ask(ctx, 'rules.party', {}, isRecord).status === ASK.OK };
 }
+
 /**
  * The Setup page is offered on the same condition, and also while Story Block's module status says RPG Battle is dormant or
  * restoring: then its own queries may not answer, and this page, which asks the host for the status, is where the reason is.
