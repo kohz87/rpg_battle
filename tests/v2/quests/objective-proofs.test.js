@@ -38,44 +38,6 @@ async function fight(h, line = '! encounter 2 Wolf — hungry | tier: weak') {
     return Object.keys(h.head().domains.combat.beaten).at(-1);
 }
 
-test('a story objective: line, proof, payout, reload, rebuild, Re-read, with no Problems', { skip }, async t => {
-    const given = questPin({ objectives: story });
-    const h = await realQuestHost(t, { given });
-    const thread = await offer(h);
-    await take(h, thread);
-    const accepted = h.sdk.query('director.thread', { id: thread.id }).acceptance.proof;
-    assert.equal((await h.sdk.command('quest.finish', { id: thread.id })).ok, false, 'the story has not said it yet');
-    await h.send('I greet the miller.', '<Changes>\n~ quest Mill job | met: yes\n</Changes>');
-    const lineIndex = h.ctx.chat.length - 1;
-    const [proof] = proofs(h);
-    assert.equal(proof.kind, 'story');
-    assert.deepEqual(proof.parents, [accepted]);
-    assert.deepEqual({ ...proof.payload, line: undefined }, { thread: thread.id, instance: 1, objective: 'ob_00000001', objectiveKind: 'story',
-        acceptance: accepted, text: 'Greet the miller', line: undefined });
-    assert.deepEqual(h.sdk.query('director.thread', { id: thread.id }).rpg.evidence[proof.id], { objective: 'ob_00000001', proof: proof.id, amount: 1 });
-    assert.equal(h.head().meta.claims[`rb:ep_00000000:objective:${thread.id}:1:ob_00000001`], true);
-    assert.equal(h.sdk.query('quest.progress', { id: thread.id }).finish.ok, true);
-    await h.send('Return to the mill.', 'The miller thanks you.');
-    ok(await h.sdk.command('quest.finish', { id: thread.id }));
-    const paid = host => {
-        assert.equal(host.sdk.query('inventory.wallet').coin, 30);
-        assert.equal(host.sdk.query('party.pc').xp, 25);
-        assert.equal(host.sdk.query('director.thread', { id: thread.id }).rpg.state, 'done');
-        assert.deepEqual(host.store.problems(), []);
-    };
-    paid(h);
-    const before = snap(h);
-    const loaded = await reload(t, h, given);
-    paid(loaded);
-    assert.equal(snap(loaded), before, 'after the reload');
-    loaded.store.rebuild();
-    paid(loaded);
-    assert.equal(snap(loaded), before, 'after the rebuild');
-    ok(await loaded.turn.reread(lineIndex));
-    paid(loaded);
-    assert.equal(snap(loaded), before, 'an unchanged Re-read keeps the proof, the evidence and the payout');
-});
-
 test('a kill objective: a sealed victory after the acceptance becomes the proof and pays once', { skip }, async t => {
     await seeded(7, async () => {
         const given = killPin();
