@@ -36,6 +36,7 @@ import { fitParty } from '../party/pools.js';
 import { foldStoryTime } from '../party/recovery.js';
 import { bindEncounter, actionWithId, beginUnits, guardAction, guardStart, lootProblem, pinnedFight, pinnedOf, pinnedSetup, settleEnd } from '../fight/index.js';
 import { cleanFormFields } from '../fight/records.js';
+import { resolveOpposition } from '../fight/danger.js';
 import { settleFightDeaths } from '../death/fight.js';
 import { applyStock, beatenFoes, boardToken, endSummary, foeNames, foeRanks, partyNames, rebuild, sessionView, tailLines } from './view.js';
 
@@ -519,16 +520,18 @@ function start(ctx, payload) {
     const numbers = fightNumbers(ctx.settings() ?? {});
     const party = partyCombatants(ctx, { rules: fightRules(numbers) });
     // The chat's creatures, then the packs' (packBestiary): a pack's creature is fought as written.
-    const chatBestiary = fightBestiary(ctx, fightRules(numbers));
+    const chatBestiary = offer.opposition ? [] : fightBestiary(ctx, fightRules(numbers));
     const id = newId(ctx, 'fi');
     const seed = Math.floor(ctx.rng() * 4294967296) >>> 0;
     // The offer's foes held to what each tier can hold for the party as it stands now (B-a2-9): a
     // member down since the offer makes the same foes more dangerous. What stays out is told.
-    const held = heldToTiers(offer.foes, { pcLevel: party[0]?.level ?? 1, members: party.filter(c => c.hp.cur > 0).length || 1, field: numbers.field, rules: fightRules(numbers) });
+    const held = offer.opposition ? { foes: offer.foes, cut: [] } : heldToTiers(offer.foes, { pcLevel: party[0]?.level ?? 1, members: party.filter(c => c.hp.cur > 0).length || 1, field: numbers.field, rules: fightRules(numbers) });
     const fought = held.cut.length ? { ...offer, foes: held.foes } : offer;
     let built;
     try {
-        built = buildSetup({ id, seed, offer: fought, party, chatBestiary, numbers, money: moneyScale(ctx) });
+        built = offer.opposition
+            ? { setup: { ...unpackSetup(offer.opposition), id, seed, party }, made: [] }
+            : buildSetup({ id, seed, offer: fought, party, chatBestiary, numbers, money: moneyScale(ctx) });
     } catch (error) {
         ctx.fail('REFUSED', error?.message || 'That fight cannot start.');
     }
@@ -878,6 +881,7 @@ function captureEncounter(ctx, line) {
     const id = newId(ctx, 'en');
     const binding = bindEncounter(ctx, quest.foes, line.labels?.like);
     const offer = { ...(binding ? { area: binding.area } : {}), id, foes: binding?.foes ?? quest.foes, stakes: read.stakes, place, rev: nextRev(ctx), ...(read.note ? { note: read.note } : {}) };
+    if (pinnedOf(ctx)) resolveOpposition(ctx, offer, { numbers, chatBestiary: fightBestiary(ctx, rules) });
     const draft = ctx.draft('combat');
     const offers = recordOf(draft, 'offers');
     // Under its own id (B-b1r2-13); the oldest go past MAX_OFFERS.

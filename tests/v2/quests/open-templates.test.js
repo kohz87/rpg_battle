@@ -96,13 +96,14 @@ for (const target of ['pack.fixture/wolf~ash-wolf', 'pack.fixture/wolf']) test(`
     await h.send('A hunt.', `<Changes>\n+ quest Hunt | like: hunt | text: Hunt the ash wolf | foe: ${target}\n</Changes>`);
     const id = h.sdk.query('director.thread', { key: 'Hunt' }).id;
     ok(await h.sdk.command('quest.take', { id }));
-    await h.send('The wolf.', '<Changes>\n! encounter Ash Wolf | like: wolf | tier: weak\n</Changes>');
+    // This tests kill evidence and settlement; use the reliable Auto tier for the fixture fight.
+    await h.send('The wolf.', '<Changes>\n! encounter Ash Wolf | like: wolf | tier: trivial\n</Changes>');
     const offer = h.sdk.query('combat.offers').at(-1);
     assert.equal(offer.foes[0].ref, 'pack.fixture/wolf~ash-wolf');
     ok(await h.sdk.command('combat.start', { offer: offer.id }));
     for (let n = 0; n < 100; n++) {
         const v = h.sdk.query('combat.session'); if (v.status !== 'active') break;
-        ok(await h.sdk.command('combat.act', { action: { type: 'attack', target: v.actions.targets.enemies[0] }, session: v.id, board: v.board }));
+        ok(await h.sdk.command('combat.act', { action: { type: 'auto' }, session: v.id, board: v.board }));
     }
     ok(await h.sdk.command('combat.end', { session: h.sdk.query('combat.session').id }));
     await h.send('Return.', '<Changes>\n- quest Hunt — done\n</Changes>');

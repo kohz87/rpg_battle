@@ -128,7 +128,7 @@ async function begin(w, line, here = null) {
 }
 const enemies = w => Object.values(w.slice('combat').fights).at(-1).setup.enemies;
 
-play('in a place Story Director gives a tier, an offered foe the pack wrote up is fought as the pack wrote it; its id, letter and loot go along', async t => {
+play('in a place Story Director gives a tier, an offered pack foe keeps its identity, level and loot', async t => {
     AREA_TIERS['pack.fixture/haven'] = 1;
     t.after(() => { delete AREA_TIERS['pack.fixture/haven']; });
     const w = await ready(t);
@@ -149,11 +149,11 @@ play('where the place has no tier (or the area forbids the foe), the fight is wh
     assert.equal(enemies(w).length, 2);
 });
 
-const attackAll = async w => {
+const autoAll = async w => {
     for (let n = 0; n < 60; n += 1) {
         const v = w.q('combat.session', {});
         if (v.status !== 'active') return v;
-        assert.equal(w.ui('combat.act', { action: { type: 'attack', target: v.actions.targets.enemies[0] }, session: v.id, board: v.board }).ok, true);
+        assert.equal(w.ui('combat.act', { action: { type: 'auto' }, session: v.id, board: v.board }).ok, true);
     }
     throw new Error('the fight did not end');
 };
@@ -164,8 +164,9 @@ const fightToEnd = async (t, { register, story = false }) => {
     const w = await ready(t);
     if (story) await w.say('A coil of rope.', ['~ here pack.fixture/haven', '+ item Rope | qty: 1']);
     if (register) assert.equal(w.ui('test.packDefs').ok, true);
-    await begin(w, '! encounter 1 Wolf — hungry | tier: weak', '~ here pack.fixture/haven');
-    const done = await attackAll(w);
+    // Settlement/definition identity needs a reliable Auto win, independent of manual tactics.
+    await begin(w, '! encounter 1 Wolf — hungry | tier: trivial', '~ here pack.fixture/haven');
+    const done = await autoAll(w);
     assert.equal(done.status, 'won');
     const ended = w.ui('combat.end', { session: done.id });
     assert.equal(ended.ok, true, ended.message);

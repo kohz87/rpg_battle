@@ -101,6 +101,11 @@ export function pinnedSetup(ctx, setup, offer = null) {
     const ix = pinnedOf(ctx);
     if (!ix) return setup;
     const pinned = { ...setup, ruleset: ix.rulesHash, draws: 'action', xpBase: ix.constants.xpPerLevel };
+    // New offers own their resolved foes. Old offers deliberately keep the adapter they used.
+    if (offer?.opposition) {
+        const { enemies, waves = [], area } = unpackSetup(structuredClone(offer.opposition));
+        return { ...pinned, enemies, waves, area };
+    }
     return packFoes(ctx, ix, pinned, offer);
 }
 

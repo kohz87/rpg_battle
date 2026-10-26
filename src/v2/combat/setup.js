@@ -628,6 +628,11 @@ export function normalizedFoe(enemy, row, entry, rules = DEFAULT_RULES, pcLevel 
     if (!row?.threat) return enemy;
     const power = powerScale(entry, pcLevel, Number(row.level) >= 1 ? Number(row.level) : pcLevel, rules);
     const factor = (row.boss ? Math.max(1, power) : power) * (Number(row.levelScale) > 0 ? Number(row.levelScale) : 1);
+    return scaleFoe(enemy, factor);
+}
+
+/** The legacy danger multiplier, also used when resolving pinned offers. */
+export function scaleFoe(enemy, factor) {
     if (factor === 1) return enemy;
     const hp = Math.max(1, Math.round(enemy.hp.max * factor));
     return { ...enemy, hp: { cur: hp, max: hp }, patk: Math.max(1, Math.round(enemy.patk * factor)), matk: Math.max(1, Math.round(enemy.matk * factor)) };
