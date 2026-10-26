@@ -36,9 +36,11 @@ async function world(t, klass = 'militiaman') {
 }
 
 async function offer(h, tier = 'weak', extra = '') {
+    const previous = h.q('combat.offers').at(-1)?.id;
     await h.send('They attack.', `They attack.\n\n<Changes>\n! encounter 6 Cellar Rat Swarm | tier: ${tier}${extra}\n</Changes>`);
     const result = h.q('combat.offers').at(-1);
     assert.ok(result, JSON.stringify(h.store.problems()));
+    assert.notEqual(result.id, previous, 'the new encounter must have been captured');
     return result;
 }
 
@@ -49,7 +51,7 @@ function setupOf(h, offered) {
 
 const classes = PACK.content.rules[0].classes.filter(klass => klass.tier === 0);
 for (const klass of classes) {
-    test(`pinned danger: ${klass.name}, level 1, six real Ersveil rats, ${SEEDS} independent seeds per label`, async t => {
+    test(`pinned danger: ${klass.name}, level 1, six real Ersveil rats, ${SEEDS} independent seeds per label`, async t => seeded(7, async () => {
         const h = await world(t, klass.slug);
         const rates = {};
         for (const [label, lo, hi] of [['weak', 85, 100], ['normal', 50, 75], ['strong', 20, 50]]) {
@@ -64,7 +66,7 @@ for (const klass of classes) {
             assert.ok(rates[label] >= lo && rates[label] <= hi, `${klass.name} ${label}: ${rates[label].toFixed(1)}%, wanted ${lo}–${hi}%`);
         }
         t.diagnostic(`${klass.name} | ${Object.values(rates).map(rate => rate.toFixed(1) + '%').join(' | ')}`);
-    });
+    }));
 }
 
 test('offer owns the pack identity and stats through reinstall, rebuild, reload and start; old offers retain their recorded data', async t => seeded(7, async () => {

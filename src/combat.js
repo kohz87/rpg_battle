@@ -407,8 +407,15 @@ const roundLength = (f, rules) => TICK / Math.max(1, rules.character.startStat +
 
 /** Who acts first among `pool` ({ c, next, index }): the soonest, ties to the party, then setup order. */
 function soonest(pool) {
-    return [...pool].sort((x, y) => (x.next - y.next)
-        || ((x.c.side === 'party' ? 0 : 1) - (y.c.side === 'party' ? 0 : 1)) || (x.index - y.index))[0] ?? null;
+    // Only the minimum is needed. Avoid allocating and sorting a copy for every preview turn
+    // (offer calibration runs this path thousands of times). Keep the exact stable tie order.
+    let first = null;
+    for (const entry of pool) {
+        if (!first || ((entry.next - first.next)
+            || ((entry.c.side === 'party' ? 0 : 1) - (first.c.side === 'party' ? 0 : 1))
+            || (entry.index - first.index)) < 0) first = entry;
+    }
+    return first;
 }
 
 /** A fighter entering the timeline: its first turn after most of one wait (the jitter is the old d6). */
