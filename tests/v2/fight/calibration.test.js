@@ -7,6 +7,8 @@ import { startFight, actInPlace, prepareAuto } from '../../../src/combat.js';
 import { DEFAULT_RULES, makeRules } from '../../../src/rules.js';
 import { formSkill } from '../../../src/v2/fight/forms.js';
 import '../../../src/v2/fight/interpret.js';
+import { hashSeed } from '../../../src/rng.js';
+import { leanAuto } from '../../../src/v2/fight/lean.js';
 import { calibrate, autoOutcome, scaled, scaledHp } from '../../../src/v2/fight/danger.js';
 import { hero, friend, foe } from './golden.js';
 import { form as formOf, damage as damageOf, condition as conditionOf } from './helpers/forms.js';
@@ -102,6 +104,21 @@ const bash = () => formOf('Shield Bash', 'physical', 'STR', [damageOf(60), condi
 const mend = () => formOf('Cauterize', 'heal', 'INT', [{ op: 'heal', target: 'self', power: 100 }], { mp: 2, cooldown: 1 });
 const stance = () => formOf('Stance', 'buff', 'VIT', [conditionOf('guard', 2, 100, 'self'), { op: 'stat', target: 'self', stat: 'VIT', amount: 2, rounds: 2 }], { mp: 1, cooldown: 1 });
 const fighter = (skills, over = {}) => hero({ id: 'pc', memberId: 'pc', hp: { cur: 90, max: 90 }, patk: 18, pdef: 7, crit: 11.5, skills, ...over });
+
+// A turn already set for someone is the engine's to keep: the lean player refuses the setup, and the search is still the engine's.
+test('calibrate chooses what the engine\'s search chooses: a hero whose turn is set a long way off', () => {
+    const setup = pinned([{ ...fighter([spear(), mend()]), next: 1000 }], [rat('r1'), rat('r2', { next: 40 }), rat('r3')]);
+    assert.equal(leanAuto(setup, DEFAULT_RULES), null);
+    assert.deepEqual(calibrate(setup, 0.625), engineSearch(setup, 0.625));
+});
+
+// A run past the engine's step cap is no win, in the engine and so in the search (a whole search of them would take minutes, so one seed).
+test('a fight the engine cannot settle is no win for the lean player either', () => {
+    const endless = pinned([fighter([], { stats: { STR: 10, VIT: 8, AGI: 100000, DEX: 8, INT: 8, LUK: 5, CHA: 8 } })], [rat('r1', { hp: { cur: 1e9, max: 1e9 } })]);
+    assert.equal(autoOutcome(endless, 'endless'), 'unsettled');
+    assert.equal(leanAuto(endless, DEFAULT_RULES)(hashSeed('endless'), hashSeed('endless|ca_00000001')), -1);
+    assert.throws(() => prepareAuto(endless, DEFAULT_RULES)('endless'), /did not settle/);
+});
 
 for (const [label, party, target] of [
     ['one hero, the lean player throughout', [fighter([spear(), bash(), mend()])], 0.625],

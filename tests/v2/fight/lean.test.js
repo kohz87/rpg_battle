@@ -12,11 +12,16 @@ import { hero, foe } from './golden.js';
 
 import { form, damage, condition } from './helpers/forms.js';
 
-/** What the engine's fight holds at the end: the lean player must say the same. */
+/** What the engine's fight holds at the end: the lean player must say the same. A run past the engine's step cap is null. */
 function engine(setup, seed, rules) {
-    const fight = startFight({ ...setup, seed, rules });
-    if (fight.status === 'active') actInPlace(fight, { type: 'auto', id: 'ca_00000001' }, rules);
-    return fight;
+    try {
+        const fight = startFight({ ...setup, seed, rules });
+        if (fight.status === 'active') actInPlace(fight, { type: 'auto', id: 'ca_00000001' }, rules);
+        return fight;
+    } catch (error) {
+        if (error.message !== 'Fight did not settle.') throw error;
+        return null;
+    }
 }
 const members = setup => [...setup.party, ...setup.enemies, ...(setup.waves ?? []).flatMap(wave => wave.enemies)];
 
@@ -31,6 +36,8 @@ function agree(setup, rules, seeds, label) {
         const fight = engine(setup, seed, rules);
         const out = {};
         const answer = play(hashSeed(seed), hashSeed(`${seed}|ca_00000001`), out);
+        // A fight the engine cannot settle is one the lean player leaves to it (which then counts it as no win).
+        if (!fight) { assert.equal(answer, -1, `${label} seed ${n}: an unsettled fight is left to the engine`); continue; }
         if (answer < 0) { bails++; continue; }
         const where = `${label} seed ${n}`;
         assert.equal(answer, fight.status === 'victory' ? 1 : 0, `${where}: outcome`);
@@ -104,16 +111,30 @@ function randomSetup(rng) {
         spellRule: rng.chance(75) ? 'roll' : undefined, speedOffset: rng.chance(70) ? rng.int(0, 14) : undefined, party: [player], enemies, waves };
 }
 
+/** A hero with no skills who acts a hundred thousand times for each turn of the foe's, against a foe who is never felled: the engine's step cap. */
+const runaway = setup => ({ ...setup, party: [{ ...setup.party[0], skills: [], stats: { ...setup.party[0].stats, AGI: 100000 } }], enemies: [{ ...setup.enemies[0], hp: { cur: 1e9, max: 1e9 } }], waves: [] });
+/** Someone's turn is already set (a fight carried over): the engine keeps it, where the lean player would start everyone afresh. */
+const withNext = (setup, rng) => {
+    const all = members(setup);
+    return { ...setup, party: setup.party.map(c => (c === all[0] ? { ...c, next: rng.int(0, 3000) } : c)), enemies: setup.enemies.map((c, i) => (i === 0 ? { ...c, next: rng.int(0, 3000) } : c)) };
+};
+
 test('the lean player and the engine play the same fight: random heroes, foes, waves and forms', () => {
     const rng = makeRng('lean-fuzz');
     let fights = 0, bails = 0;
     for (let n = 0; n < 160; n++) {
-        const setup = randomSetup(rng);
+        let setup = randomSetup(rng);
         const rules = makeRules({ turns: { mode: 'timeline' } });
+        // Now and then, the inputs a random hero never makes: a run of turns the engine gives up on, a turn already set for someone.
+        if (n % 40 === 7) setup = runaway(setup);
+        const preset = n % 40 === 19;
+        if (preset) setup = withNext(setup, rng);
         const play = leanAuto(setup, rules);
+        if (preset) { assert.equal(play, null, `fuzz${n}: a turn already set is left to the engine`); continue; }
         if (!play) continue;
-        bails += agree(setup, rules, 8, `fuzz${n}`);
-        fights += 8;
+        const seeds = n % 40 === 7 ? 2 : 8;
+        bails += agree(setup, rules, seeds, `fuzz${n}`);
+        fights += seeds;
     }
     assert.ok(fights > 800, `${fights} fights compared`);
     assert.ok(bails < fights / 4, `${bails} of ${fights} fights left to the engine`);
@@ -161,4 +182,19 @@ test('a turn the lean player does not play is left to the engine, a setup it doe
     refused({ party: [hero({ id: 'pc', memberId: 'pc', skills: [{ name: 'Old Strike', type: 'physical', stat: 'STR', power: 1.2, mastery: 1, target: 'one', mp: 0, cooldown: 0, cooldownLeft: 0, effect: null }] })] });
     refused({ party: [hero({ id: 'pc', memberId: 'pc', skills: [FORMS.spear(), FORMS.spear()] })] });
     assert.equal(leanAuto(setup, makeRules({ combat: { maxRounds: 1e6 } })), null);
+});
+
+test('a run of turns past the engine\'s step cap is left to the engine, and a turn already set is not overwritten', () => {
+    const base = { id: 'fi_00000001', turns: 'timeline', draws: 'action', party: [hero({ id: 'pc', memberId: 'pc', skills: [] })], enemies: [foe('e1', { hp: { cur: 40, max: 40 } })] };
+    // Skill-free, quick beyond measure, against a foe who cannot fall: the engine stops at its cap of steps and calls the fight unsettled.
+    const endless = runaway(base);
+    const seed = 'endless';
+    assert.equal(engine(endless, seed, DEFAULT_RULES), null);
+    assert.equal(leanAuto(endless, DEFAULT_RULES)(hashSeed(seed), hashSeed(`${seed}|ca_00000001`)), -1);
+    // A hero whose turn is set a long way off against a one-HP foe: the foe strikes first, as the engine plays it.
+    const late = { ...base, party: [{ ...base.party[0], next: 1000 }], enemies: [foe('e1', { hp: { cur: 1, max: 1 } })] };
+    assert.equal(engine(late, 'late', DEFAULT_RULES).status, 'defeat');
+    assert.equal(leanAuto(late, DEFAULT_RULES), null);
+    assert.equal(leanAuto({ ...base, enemies: [foe('e1', { next: 5 })] }, DEFAULT_RULES), null, 'the same for a foe');
+    assert.equal(leanAuto({ ...base, waves: [{ round: 2, enemies: [foe('w1', { next: 5 })] }] }, DEFAULT_RULES), null, 'and for a wave');
 });

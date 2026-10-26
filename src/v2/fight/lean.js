@@ -6,8 +6,8 @@
 //
 // What it plays: one party member against any number of foes and waves on the timeline, with forms of damage, heal, shield and the
 // conditions daze, guard and regen. Anything else (more than one party member, items, gear elements, summons, rounds, other conditions,
-// area effects) is not offered: leanAuto answers null for the setup, and the caller plays it with the engine. A fight that reaches a
-// turn it does not play (Defend, a stat shift, a party member fleeing) answers -1 for that seed, and the caller plays that seed with the
+// area effects, a turn already set for someone) is not offered: leanAuto answers null for the setup, and the caller plays it with the engine. A fight that reaches a
+// turn it does not play (Defend, a stat shift, a party member fleeing, a run of turns past the engine's step cap) answers -1 for that seed, and the caller plays that seed with the
 // engine too. Pure.
 
 import { SHIELD_ROUNDS } from './interpret.js';
@@ -35,7 +35,7 @@ export function leanAuto(setup, rules) {
     const members = [party, ...enemies, ...waves.flatMap(wave => wave.enemies ?? [])];
     const N = members.length;
     const E = enemies.length;
-    if (members.some(c => !c || !c.hp || !c.stats || (c.conditions ?? []).length || (c.onHit ?? []).length || c.summoned || (c.gone && c.hp.cur > 0))) return null;
+    if (members.some(c => !c || !c.hp || !c.stats || (c.conditions ?? []).length || (c.onHit ?? []).length || c.summoned || (c.gone && c.hp.cur > 0) || Number.isFinite(c.next))) return null;
     if ((party.items ?? []).some(item => item?.effect?.heal && item.qty > 0)) return null;
     if (rules.combat.maxRounds > 5000) return null;
     const A = rules.attack, C = rules.combat, D = rules.derived;
@@ -388,7 +388,10 @@ export function leanAuto(setup, rules) {
     };
     // Turns until the party member must choose (true) or the fight is over (false).
     const advance = () => {
+        // The engine's cap on one run of turns: past it the fight "did not settle", which the engine's own player reports.
+        let steps = 0;
         while (status === ACTIVE) {
+            if (++steps > 100000) return null;
             if (head < 0 || (enemiesAlive === 0 && !turnStarted)) { nextOnTimeline(); checkEnd(); continue; }
             const a = head;
             if (!alive[a]) { head = -1; turnStarted = false; continue; }
