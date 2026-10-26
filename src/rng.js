@@ -39,38 +39,3 @@ export function makeRng(seed) {
         state: () => state,
     };
 }
-
-/** Private repeated trials can reuse the same immutable random draws. Each reader owns its
- * cursor; values and resumed states are exactly makeRng's. Cap retained prefixes so long
- * unsettled fights cannot grow the cache without bound. */
-export function makeRngCache() {
-    const streams = new Map();
-    return seed => {
-        let stream = streams.get(seed);
-        if (!stream) {
-            const source = makeRng(seed);
-            stream = { source, initial: source.state(), values: [] };
-            streams.set(seed, stream);
-        }
-        let position = 0, tail = null;
-        const state = () => (stream.initial + Math.imul(position, 0x6d2b79f5)) >>> 0;
-        const next = () => {
-            if (position < stream.values.length) return stream.values[position++];
-            if (position < 4096) {
-                const value = stream.source.next();
-                stream.values.push(value);
-                position++;
-                return value;
-            }
-            tail ??= makeRng(state());
-            position++;
-            return tail.next();
-        };
-        return { next, state,
-            int: (low, high) => Math.floor(next() * (Math.floor(high) - Math.ceil(low) + 1)) + Math.ceil(low),
-            chance: percent => next() * 100 < percent,
-            between: (low, high) => low + next() * (high - low),
-            pick: list => list[Math.floor(next() * list.length)],
-        };
-    };
-}

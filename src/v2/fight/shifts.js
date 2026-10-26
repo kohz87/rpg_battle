@@ -19,7 +19,6 @@ function baselineOf(c) {
  * one is left exactly as it is (no baseline is taken). `rules`: the derived-number table (v1's defaults when not given).
  */
 export function syncShifts(c, rules = DEFAULT_RULES) {
-    if (!c.conditions.length && !c.baseline) return;
     const shifts = c.conditions.filter(cond => cond.name === 'stat-shift');
     if (!c.baseline) {
         if (!shifts.length) return;

@@ -13,10 +13,8 @@ import { effectivePower } from './skills.js';
 import { LOOT_TABLES, rollLoot } from './enemies.js';
 import { templateFor } from './templates.js';
 
-const AUTO_SKILL = Symbol('autoSkill');
-const AUTO_TARGET = Symbol('autoTarget');
-const AUTO_ACTION = Symbol('autoAction');
-const AUTO_PLAN = Symbol('autoPlan');
+// A fight played by prepareAuto holds the way it makes its late joiners (waves): from templates, not clones.
+const MAKE = Symbol('make');
 const DOTS = ['poison', 'burn', 'bleed'];
 const HARMFUL = new Set(['poison', 'burn', 'bleed', 'stun', 'slow', 'weaken', 'daze']);
 // Conditions that only make sense inside a fight; the rest may follow the sheet out of it.
@@ -75,11 +73,10 @@ export const formHooks = { plan: null, perform: null, describe: null, shifts: nu
 // --- small helpers ------------------------------------------------------------------------
 
 const isActive = c => Boolean(c) && !c.gone && c.hp.cur > 0;
-const enemiesRemain = f => f[CALIBRATION] ? f[CALIBRATION].enemies > 0 : f.combatants.some(c => c.side === 'enemy' && isActive(c));
 const share = c => (c.hp.max > 0 ? c.hp.cur / c.hp.max : 0);
 const byId = (f, id) => f.combatants.find(c => c.id === id) ?? null;
-const opponents = (f, c) => f[CALIBRATION]?.soloPool && c.side === 'enemy' ? f[CALIBRATION].soloPool : f.combatants.filter(o => o.side !== c.side && isActive(o));
-const allies = (f, c) => f[CALIBRATION]?.soloPool && c.side === 'party' ? f[CALIBRATION].soloPool : f.combatants.filter(o => o.side === c.side && isActive(o));
+const opponents = (f, c) => f.combatants.filter(o => o.side !== c.side && isActive(o));
+const allies = (f, c) => f.combatants.filter(o => o.side === c.side && isActive(o));
 const has = (c, name) => c.conditions.some(cond => cond.name === name);
 // The points a dazed actor's rolls lose this action (0 when not dazed; only the stun rule dazes).
 const dazed = c => (has(c, 'daze') ? DAZE_POINTS : 0);
@@ -105,11 +102,7 @@ const hitIn = (f, actor, target, rules) => hitChance(relativeDex(actor.stats.DEX
 const cap = text => text.charAt(0).toUpperCase() + text.slice(1);
 const norm = name => String(name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 const average = list => (list.length ? list.reduce((sum, value) => sum + value, 0) / list.length : 0);
-const lowest = list => {
-    let first = null;
-    for (const c of list) if (!first || share(c) < share(first)) first = c;
-    return first;
-};
+const lowest = list => [...list].sort((a, b) => share(a) - share(b))[0] ?? null;
 
 // (0.5.33) The creatures holy gear bites harder: by their loot table or their name.
 const HALLOWED_FOES = new Set(['undead', 'spirit']);
@@ -124,12 +117,11 @@ function label(c) {
 }
 
 function log(f, actor, text, kind, important = false) {
-    if (f[CALIBRATION]) { f.log.length += 1; return; }
     f.log.push({ round: f.round, actor: actor?.id ?? null, text: cap(text), kind, important });
 }
 
 function bump(table, key, name, by = 1) {
-    if (!table || !key) return;
+    if (!key) return;
     table[key] ??= {};
     table[key][name] = (table[key][name] ?? 0) + by;
 }
@@ -236,7 +228,7 @@ function applyEffect(f, source, target, skill, rules) {
         else if (name === 'regen') strength = Math.max(1, Math.round(value * power * c.regen));
         else if (name === 'shield') strength = Math.max(1, Math.round(value * power * c.shield));
         addCondition(target, name, rounds, strength);
-        applied.push(f[CALIBRATION] ? '' : name === 'shield' ? `shielded (${strength})` : `${LABELS[name]} (${rounds} ${rounds === 1 ? 'round' : 'rounds'})`);
+        applied.push(name === 'shield' ? `shielded (${strength})` : `${LABELS[name]} (${rounds} ${rounds === 1 ? 'round' : 'rounds'})`);
     }
     return applied;
 }
@@ -247,7 +239,7 @@ function markHurt(f, c, rules) {
     const low = share(c) <= rules.combat.nearDeath;
     if (low && !f.marks.hurt[c.id]) {
         f.marks.hurt[c.id] = true;
-        log(f, c, !f[CALIBRATION] ? (`${label(c)} is badly hurt (${c.hp.cur}/${c.hp.max} HP).`) : '', 'info', true);
+        log(f, c, `${label(c)} is badly hurt (${c.hp.cur}/${c.hp.max} HP).`, 'info', true);
     } else if (!low) {
         f.marks.hurt[c.id] = false;
     }
@@ -255,21 +247,19 @@ function markHurt(f, c, rules) {
 
 /** HP loss; a target reaching 0 is down. `source` (or `cause`) names the finishing blow. */
 function takeDamage(f, target, amount, rules, { source = null, cause = null } = {}) {
-    const standing = isActive(target);
     const dealt = Math.min(target.hp.cur, amount);
     target.hp.cur -= dealt;
-    if (f.stats.damageTaken) f.stats.damageTaken[target.id] = (f.stats.damageTaken[target.id] ?? 0) + dealt;
+    f.stats.damageTaken[target.id] = (f.stats.damageTaken[target.id] ?? 0) + dealt;
     if (target.hp.cur > 0) {
         markHurt(f, target, rules);
         return;
     }
     target.hp.cur = 0;
-    if (standing && target.side === 'enemy' && f[CALIBRATION]) f[CALIBRATION].enemies -= 1;
     target.gone = 'down';
     target.conditions = [];
-    if (target.side === 'party') log(f, target, !f[CALIBRATION] ? (`${label(target)} is down.`) : '', 'down', true);
-    else if (source) log(f, source, !f[CALIBRATION] ? (`${label(source)} finishes ${label(target)}.`) : '', 'down', true);
-    else log(f, target, !f[CALIBRATION] ? (`${label(target)} succumbs to ${cause ?? 'its wounds'}.`) : '', 'down', true);
+    if (target.side === 'party') log(f, target, `${label(target)} is down.`, 'down', true);
+    else if (source) log(f, source, `${label(source)} finishes ${label(target)}.`, 'down', true);
+    else log(f, target, `${label(target)} succumbs to ${cause ?? 'its wounds'}.`, 'down', true);
 }
 
 /** A shield soaks damage before HP does; returns what got through and what was absorbed. */
@@ -289,9 +279,10 @@ function soak(target, amount) {
 function strike(f, actor, target, skill, rng, rules) {
     const a = rules.attack;
     const physical = !skill || skill.type === 'physical';
+    const what = skill ? `${label(actor)}'s ${skill.name}` : label(actor);
     // (v2) With the spell rule a spell rolls too: INT against AGI, as a blow rolls DEX (spellIn).
     if ((physical ? !rng.chance(hitIn(f, actor, target, rules)) : f.spellRule === 'roll' && !rng.chance(spellIn(f, actor, target, rules)))) {
-        log(f, actor, !f[CALIBRATION] ? (`${skill ? `${label(actor)}'s ${skill.name}` : label(actor)} misses ${label(target)}.`) : '', 'miss');
+        log(f, actor, `${what} misses ${label(target)}.`, 'miss');
         return false;
     }
     const power = skill ? effectivePower(skill, skill.mastery, rules) : 1;
@@ -303,23 +294,18 @@ function strike(f, actor, target, skill, rng, rules) {
     if (has(target, 'guard')) damage *= a.defendTaken;
     damage = Math.max(1, Math.round(damage));
     const { through, absorbed } = soak(target, damage);
-    if (f[CALIBRATION]) {
-        f.log.length += 1;
-    } else {
-        const what = skill ? `${label(actor)}'s ${skill.name}` : label(actor);
-        const soaked = absorbed ? ` (${absorbed} absorbed)` : '';
-        let text;
-        if (!skill) text = `${label(actor)} hits ${label(target)} for ${through}${soaked}.`;
-        else if (skill.type === 'physical') text = `${label(actor)} uses ${skill.name} on ${label(target)} for ${through}${soaked}.`;
-        else text = `${label(actor)} casts ${skill.name} on ${label(target)} for ${through}${soaked}.`;
-        if (crit) text = `Critical! ${cap(what)} hits ${label(target)} for ${through}${soaked}.`;
-        if (!through) text = `${crit ? 'Critical! ' : ''}${cap(what)} hits ${label(target)}, but the shield absorbs it.`;
-        log(f, actor, text, crit ? 'crit' : skill ? 'skill' : 'hit', crit);
-    }
+    const soaked = absorbed ? ` (${absorbed} absorbed)` : '';
+    let text;
+    if (!skill) text = `${label(actor)} hits ${label(target)} for ${through}${soaked}.`;
+    else if (skill.type === 'physical') text = `${label(actor)} uses ${skill.name} on ${label(target)} for ${through}${soaked}.`;
+    else text = `${label(actor)} casts ${skill.name} on ${label(target)} for ${through}${soaked}.`;
+    if (crit) text = `Critical! ${cap(what)} hits ${label(target)} for ${through}${soaked}.`;
+    if (!through) text = `${crit ? 'Critical! ' : ''}${cap(what)} hits ${label(target)}, but the shield absorbs it.`;
+    log(f, actor, text, crit ? 'crit' : skill ? 'skill' : 'hit', crit);
     takeDamage(f, target, through, rules, { source: actor });
     if (skill?.effect && isActive(target)) {
         const applied = applyEffect(f, actor, target, skill, rules);
-        if (applied.length) log(f, actor, !f[CALIBRATION] ? (`${label(target)} is ${applied.join(', ')}.`) : '', 'condition');
+        if (applied.length) log(f, actor, `${label(target)} is ${applied.join(', ')}.`, 'condition');
     }
     if (physical) gearOnHit(f, actor, target, skill, rng, rules);
     return true;
@@ -346,7 +332,7 @@ function gearOnHit(f, actor, target, skill, rng, rules) {
             if (!from.includes(element)) from.push(element);
         }
     }
-    if (applied.length) log(f, actor, !f[CALIBRATION] ? (`${label(target)} is ${applied.join(', ')}, from ${label(actor)}'s ${from.join(' and ')} gear.`) : '', 'condition');
+    if (applied.length) log(f, actor, `${label(target)} is ${applied.join(', ')}, from ${label(actor)}'s ${from.join(' and ')} gear.`, 'condition');
 }
 
 function heal(f, target, amount) {
@@ -365,7 +351,7 @@ function pendingWaves(f) {
 function joinWaves(f) {
     const pending = pendingWaves(f);
     let due = pending.filter(({ wave }) => (Number(wave.round) || 1) <= f.round);
-    if (!due.length && pending.length && !enemiesRemain(f)) {
+    if (!due.length && pending.length && !f.combatants.some(c => c.side === 'enemy' && isActive(c))) {
         const first = Math.min(...pending.map(({ wave }) => Number(wave.round) || 1));
         due = pending.filter(({ wave }) => (Number(wave.round) || 1) === first);
     }
@@ -373,15 +359,14 @@ function joinWaves(f) {
         f.marks.waves.push(index);
         const joined = [];
         for (const enemy of wave.enemies ?? []) {
-            const c = normalizeCombatant(enemy);
+            const c = f[MAKE] ? f[MAKE](enemy) : normalizeCombatant(enemy);
             while (byId(f, c.id)) c.id = `${c.id}w${index + 1}`;
             c.side = 'enemy';
             c.controller = 'auto';
             f.combatants.push(c);
-            if (f[CALIBRATION] && isActive(c)) f[CALIBRATION].enemies += 1;
             joined.push(label(c));
         }
-        if (joined.length) log(f, null, !f[CALIBRATION] ? (`Reinforcements arrive: ${joined.join(', ')}.`) : '', 'info', true);
+        if (joined.length) log(f, null, `Reinforcements arrive: ${joined.join(', ')}.`, 'info', true);
     }
 }
 
@@ -390,7 +375,7 @@ function startRound(f, rng, rules) {
     if (f.round > rules.combat.maxRounds) {
         f.round -= 1;
         f.status = 'fled';
-        log(f, null, !f[CALIBRATION] ? ('The fight drags on until both sides break off.') : '', 'flee', true);
+        log(f, null, 'The fight drags on until both sides break off.', 'flee', true);
         return;
     }
     joinWaves(f);
@@ -416,7 +401,6 @@ function startRound(f, rng, rules) {
 
 const TICK = 100;
 const PREVIEW_TURNS = 8;
-const CALIBRATION = Symbol('calibration');
 
 const timeline = f => f.turns === 'timeline';
 const speedOf = (f, c) => Math.max(1, (Number(c.stats?.AGI) || 0) + f.speedOffset) * (has(c, 'slow') ? 0.5 : 1);
@@ -464,26 +448,25 @@ function previewOrder(f, actorId) {
  */
 function nextOnTimeline(f, rng, rules) {
     const length = roundLength(f, rules);
-    const enemiesLeft = enemiesRemain(f);
+    const enemiesLeft = f.combatants.some(c => c.side === 'enemy' && isActive(c));
     if (!enemiesLeft && pendingWaves(f).length) {
         // The field is clear: the next round starts now, so the wave can join.
         f.time = Math.max(f.time, f.round * length);
         if (!passRounds(f, f.round + 1, rng, rules)) return;
     }
-    let up = null;
-    for (const c of f.combatants) {
-        if (!isActive(c)) continue;
-        if (!Number.isFinite(c.next)) enterTimeline(f, c, rng);
-        if (!up || c.next < up.next || (c.next === up.next && c.side === 'party' && up.side !== 'party')) up = c;
-    }
+    const pool = f.combatants.map((c, index) => ({ c, index })).filter(({ c }) => isActive(c))
+        .map(({ c, index }) => {
+            if (!Number.isFinite(c.next)) enterTimeline(f, c, rng);
+            return { c, index, next: c.next };
+        });
+    const up = soonest(pool);
     if (!up) return;
     f.time = Math.max(f.time, up.next);
     if (!passRounds(f, Math.floor(f.time / length) + 1, rng, rules)) return;
-    if (f[CALIBRATION]) { f.order[0] = up.id; f.order.length = 1; }
-    else f.order = previewOrder(f, up.id);
+    // The strip of turns ahead is for a screen; a trial plays only the one in front.
+    f.order = f[MAKE] ? [up.c.id] : previewOrder(f, up.c.id);
     f.turn = 0;
     f.turnStarted = false;
-    return up;
 }
 
 /** Counts rounds up to `round`, joining the waves due; false once the fight is broken off. */
@@ -493,7 +476,7 @@ function passRounds(f, round, rng, rules) {
         if (f.round > rules.combat.maxRounds) {
             f.round -= 1;
             f.status = 'fled';
-            log(f, null, !f[CALIBRATION] ? ('The fight drags on until both sides break off.') : '', 'flee', true);
+            log(f, null, 'The fight drags on until both sides break off.', 'flee', true);
             return false;
         }
         const before = new Set(f.combatants.map(c => c.id));
@@ -509,16 +492,16 @@ function passRounds(f, round, rng, rules) {
  */
 function beginTurn(f, actor, rng, rules) {
     let stunned = false;
-    for (const cond of actor.conditions) {
+    for (const cond of [...actor.conditions]) {
         if (!isActive(actor)) break;
         if (DOTS.includes(cond.name)) {
             const amount = cond.power || Math.max(1, Math.round(actor.hp.max * rules.combat.dotMaxHpShare));
             const { name } = cond;
-            log(f, actor, !f[CALIBRATION] ? (`${cap(name === 'bleed' ? 'bleeding' : name)} deals ${Math.min(amount, actor.hp.cur)} to ${label(actor)}.`) : '', 'condition');
+            log(f, actor, `${cap(name === 'bleed' ? 'bleeding' : name)} deals ${Math.min(amount, actor.hp.cur)} to ${label(actor)}.`, 'condition');
             takeDamage(f, actor, amount, rules, { cause: name === 'bleed' ? 'bleeding' : name });
         } else if (cond.name === 'regen') {
             const gained = heal(f, actor, cond.power);
-            if (gained) log(f, actor, !f[CALIBRATION] ? (`${label(actor)} regenerates ${gained} HP.`) : '', 'heal');
+            if (gained) log(f, actor, `${label(actor)} regenerates ${gained} HP.`, 'heal');
             markHurt(f, actor, rules);
         } else if (cond.name === 'stun') {
             stunned = true;
@@ -526,7 +509,7 @@ function beginTurn(f, actor, rng, rules) {
         cond.rounds -= 1;
     }
     // Guard is "until your next turn", so it goes now; everything else lasts through this turn.
-    if (actor.conditions.length) actor.conditions = actor.conditions.filter(cond => cond.name !== 'guard' || cond.rounds > 0);
+    actor.conditions = actor.conditions.filter(cond => cond.name !== 'guard' || cond.rounds > 0);
     if (formHooks.shifts) formHooks.shifts(actor, rules, f);
     if (!isActive(actor)) return false;
     // (0.5.29) A little stamina comes back each turn, as breath does.
@@ -540,22 +523,22 @@ function beginTurn(f, actor, rng, rules) {
         else delete f.marks.stunned[actor.id];
     }
     if (stunned) {
-        log(f, actor, !f[CALIBRATION] ? (`${label(actor)} is stunned and loses the turn.`) : '', 'condition');
+        log(f, actor, `${label(actor)} is stunned and loses the turn.`, 'condition');
         return false;
     }
-    if (has(actor, 'daze')) log(f, actor, !f[CALIBRATION] ? (`${label(actor)} is dazed (−${DAZE_POINTS} to this action).`) : '', 'condition');
+    if (has(actor, 'daze')) log(f, actor, `${label(actor)} is dazed (−${DAZE_POINTS} to this action).`, 'condition');
     return true;
 }
 
 function endTurn(f, actor, usedSkill) {
     for (const s of actor.skills) if (s.name !== usedSkill && s.cooldownLeft > 0) s.cooldownLeft -= 1;
-    if (actor.conditions.length) actor.conditions = actor.conditions.filter(cond => cond.rounds > 0);
+    actor.conditions = actor.conditions.filter(cond => cond.rounds > 0);
     if (formHooks.shifts) formHooks.shifts(actor, undefined, f);
     f.turnStarted = false;
     if (timeline(f)) {
         // Their next turn after one wait at the speed they have now (slowed or not).
         actor.next = f.time + waitOf(f, actor);
-        if (f[CALIBRATION]) f.order.length = 0; else f.order = [];
+        f.order = [];
         f.turn = 0;
         return;
     }
@@ -564,16 +547,15 @@ function endTurn(f, actor, usedSkill) {
 
 function checkEnd(f) {
     if (f.status !== 'active') return;
-    const enemies = enemiesRemain(f);
+    const enemies = f.combatants.some(c => c.side === 'enemy' && isActive(c));
     // (rules v2) A summoned unit does not keep the party standing: a wipe is the party's own members all down.
-    const pool = f[CALIBRATION]?.soloPool;
-    const party = pool ? isActive(pool[0]) : f.combatants.some(c => c.side === 'party' && isActive(c) && !c.summoned);
+    const party = f.combatants.some(c => c.side === 'party' && isActive(c) && !c.summoned);
     if (!enemies && !pendingWaves(f).length) {
         f.status = 'victory';
-        log(f, null, !f[CALIBRATION] ? ('Victory.') : '', 'info');
+        log(f, null, 'Victory.', 'info');
     } else if (!party) {
         f.status = 'defeat';
-        log(f, null, !f[CALIBRATION] ? ('Defeat.') : '', 'info');
+        log(f, null, 'Defeat.', 'info');
     }
 }
 
@@ -604,11 +586,6 @@ function canTalkTo(target, rules) {
 function resolve(f, actor, action, rules) {
     const type = action?.type;
     if (type === 'attack') {
-        if (action[AUTO_TARGET]) {
-            const plan = action[AUTO_PLAN] ??= { type, targets: [action[AUTO_TARGET]] };
-            plan.targets[0] = action[AUTO_TARGET];
-            return plan;
-        }
         return { type, targets: targetsFor(f, actor, 'one', action.target) };
     }
     if (type === 'form') {
@@ -617,15 +594,15 @@ function resolve(f, actor, action, rules) {
         if (!skill) throw new Error(`${actor.name} does not hold the form ${action.form}.`);
         const reason = blockReason(actor, skill);
         if (reason) throw new Error(`${skill.name} cannot be used now (${reason}).`);
-        return { type, skill, picks: formHooks.plan(f, actor, skill, action), targets: [] };
+        return { type, skill, picks: formHooks.plan(f, actor, skill, action, { foes: opponents(f, actor), friends: allies(f, actor) }), targets: [] };
     }
     if (type === 'skill') {
-        const skill = action[AUTO_SKILL] ?? findSkillOf(actor, action.skill);
+        const skill = findSkillOf(actor, action.skill);
         if (!skill) throw new Error(`${actor.name} has no skill ${action.skill}.`);
-        const reason = action[AUTO_SKILL] ? null : blockReason(actor, skill);
+        const reason = blockReason(actor, skill);
         if (reason) throw new Error(`${skill.name} cannot be used now (${reason}).`);
         // (rules v2) A form named like a v1 skill (the automatic turns, a v1 caller): its one target stands for every effect that needs one.
-        if (skill.parts) return { type: 'form', skill, picks: formHooks.plan(f, actor, skill, { type: 'form', form: skill.formId, target: action.target }), targets: [] };
+        if (skill.parts) return { type: 'form', skill, picks: formHooks.plan(f, actor, skill, { type: 'form', form: skill.formId, target: action.target }, { foes: opponents(f, actor), friends: allies(f, actor) }), targets: [] };
         return { type, skill, targets: targetsFor(f, actor, scopeOf(skill), action.target) };
     }
     if (type === 'item') {
@@ -660,7 +637,7 @@ function useSkill(f, actor, skill, targets, rng, rules) {
         }
         // (v2) Who an area skill missed, as a key moment (the per-target lines say it too).
         if (f.spellRule === 'roll' && targets.length > 1 && missed.length) {
-            log(f, actor, !f[CALIBRATION] ? (`${label(actor)}'s ${skill.name} ${hit ? 'misses' : 'misses everyone:'} ${missed.map(label).join(', ').replace(/, ([^,]*)$/, ' and $1')}${hit ? ` and hits ${hit === 1 ? 'one' : hit}` : ''}.`) : '', 'miss', true);
+            log(f, actor, `${label(actor)}'s ${skill.name} ${hit ? 'misses' : 'misses everyone:'} ${missed.map(label).join(', ').replace(/, ([^,]*)$/, ' and $1')}${hit ? ` and hits ${hit === 1 ? 'one' : hit}` : ''}.`, 'miss', true);
         }
         return;
     }
@@ -672,7 +649,7 @@ function useSkill(f, actor, skill, targets, rng, rules) {
             const applied = applyEffect(f, actor, target, skill, rules);
             const on = target === actor ? '' : ` on ${label(target)}`;
             const extra = applied.length ? `, ${applied.join(', ')}` : '';
-            log(f, actor, !f[CALIBRATION] ? (`${label(actor)} ${verb} ${skill.name}${on}: +${gained} HP${extra}.`) : '', 'heal');
+            log(f, actor, `${label(actor)} ${verb} ${skill.name}${on}: +${gained} HP${extra}.`, 'heal');
             markHurt(f, target, rules);
         }
         return;
@@ -681,7 +658,7 @@ function useSkill(f, actor, skill, targets, rng, rules) {
         for (const target of targets) {
             const applied = applyEffect(f, actor, target, skill, rules);
             const on = target === actor ? '' : ` on ${label(target)}`;
-            log(f, actor, !f[CALIBRATION] ? (`${label(actor)} ${verb} ${skill.name}${on}: ${applied.join(', ') || 'no effect'}.`) : '', 'skill');
+            log(f, actor, `${label(actor)} ${verb} ${skill.name}${on}: ${applied.join(', ') || 'no effect'}.`, 'skill');
         }
         return;
     }
@@ -689,7 +666,7 @@ function useSkill(f, actor, skill, targets, rng, rules) {
     for (const target of targets) {
         if (!isActive(target)) continue;
         if (!rng.chance(hitIn(f, actor, target, rules))) {
-            log(f, actor, !f[CALIBRATION] ? (`${label(actor)} ${verb} ${skill.name} on ${label(target)} — miss.`) : '', 'miss');
+            log(f, actor, `${label(actor)} ${verb} ${skill.name} on ${label(target)} — miss.`, 'miss');
             continue;
         }
         if ((skill.power ?? 0) > 0) {
@@ -697,7 +674,7 @@ function useSkill(f, actor, skill, targets, rng, rules) {
             if (!isActive(target)) continue;
         }
         const applied = applyEffect(f, actor, target, skill, rules);
-        log(f, actor, !f[CALIBRATION] ? (`${label(actor)} ${verb} ${skill.name} on ${label(target)}: ${applied.join(', ') || 'no effect'}.`) : '', 'condition');
+        log(f, actor, `${label(actor)} ${verb} ${skill.name} on ${label(target)}: ${applied.join(', ') || 'no effect'}.`, 'condition');
     }
 }
 
@@ -714,7 +691,7 @@ function useItem(f, actor, item, targets, rules) {
             const { through } = soak(target, amount);
             parts.push({ target, through });
         }
-        log(f, actor, !f[CALIBRATION] ? (`${label(actor)} uses ${item.name}: ${parts.map(p => `${p.through} to ${label(p.target)}`).join(', ') || 'no effect'}.`) : '', 'item');
+        log(f, actor, `${label(actor)} uses ${item.name}: ${parts.map(p => `${p.through} to ${label(p.target)}`).join(', ') || 'no effect'}.`, 'item');
         for (const { target, through } of parts) takeDamage(f, target, through, rules, { source: actor });
         return;
     }
@@ -733,7 +710,7 @@ function useItem(f, actor, item, targets, rules) {
         parts.push(removed.length ? `cured of ${removed.map(cond => cond.name).join(', ')}` : 'nothing to cure');
     }
     const on = target === actor ? '' : ` on ${label(target)}`;
-    log(f, actor, !f[CALIBRATION] ? (`${label(actor)} uses ${item.name}${on}: ${parts.join(', ') || 'no effect'}.`) : '', 'item');
+    log(f, actor, `${label(actor)} uses ${item.name}${on}: ${parts.join(', ') || 'no effect'}.`, 'item');
     markHurt(f, target, rules);
 }
 
@@ -743,10 +720,9 @@ function flee(f, actor, rng, rules) {
         const partyAgi = average(f.combatants.filter(c => c.side === 'party' && isActive(c)).map(c => c.stats.AGI));
         if (rng.chance(fleeChance(actor.stats.AGI - dazed(actor), partyAgi, {}, rules))) {
             actor.gone = 'fled';
-            if (f[CALIBRATION]) f[CALIBRATION].enemies -= 1;
-            log(f, actor, !f[CALIBRATION] ? (`${label(actor)} flees.`) : '', 'flee', true);
+            log(f, actor, `${label(actor)} flees.`, 'flee', true);
         } else {
-            log(f, actor, !f[CALIBRATION] ? (`${label(actor)} tries to flee but cannot get away.`) : '', 'flee');
+            log(f, actor, `${label(actor)} tries to flee but cannot get away.`, 'flee');
         }
         return;
     }
@@ -754,9 +730,9 @@ function flee(f, actor, rng, rules) {
     const daze = dazed(actor) * rules.flee.perAgi;
     if (rng.chance(daze ? Math.max(rules.flee.min, partyFleeChance(f, rules) - daze) : partyFleeChance(f, rules))) {
         f.status = 'fled';
-        log(f, actor, !f[CALIBRATION] ? (party.length > 1 ? 'The party escapes!' : `${label(actor)} escapes!`) : '', 'flee', true);
+        log(f, actor, party.length > 1 ? 'The party escapes!' : `${label(actor)} escapes!`, 'flee', true);
     } else {
-        log(f, actor, !f[CALIBRATION] ? (`${label(actor)} tries to flee, but the way is blocked.`) : '', 'flee');
+        log(f, actor, `${label(actor)} tries to flee, but the way is blocked.`, 'flee');
     }
 }
 
@@ -769,11 +745,10 @@ function partyFleeChance(f, rules) {
 function parley(f, actor, target, rng, rules) {
     if (rng.chance(parleyChance(actor.stats.CHA - dazed(actor), target.morale, share(target), rules))) {
         target.gone = 'parleyed';
-        if (f[CALIBRATION]) f[CALIBRATION].enemies -= 1;
-        log(f, actor, !f[CALIBRATION] ? (`${label(actor)} talks ${label(target)} down; it withdraws.`) : '', 'parley', true);
+        log(f, actor, `${label(actor)} talks ${label(target)} down; it withdraws.`, 'parley', true);
     } else {
         target.morale += 1;
-        log(f, actor, !f[CALIBRATION] ? (`${label(target)} will not listen to ${label(actor)}.`) : '', 'parley');
+        log(f, actor, `${label(target)} will not listen to ${label(actor)}.`, 'parley');
     }
 }
 
@@ -792,7 +767,7 @@ function perform(f, actor, plan, rng, rules) {
             const breath = actor.sp ? Math.min(actor.sp.max - actor.sp.cur, Math.max(actor.sp.max > 0 ? 1 : 0, Math.round(actor.sp.max * (a.defendSpBack ?? 0)))) : 0;
             if (breath) actor.sp.cur += breath;
             const gained = [back ? `+${back} MP` : '', breath ? `+${breath} SP` : ''].filter(Boolean).join(', ');
-            log(f, actor, !f[CALIBRATION] ? (`${label(actor)} defends${gained ? ` (${gained})` : ''}.`) : '', 'defend');
+            log(f, actor, `${label(actor)} defends${gained ? ` (${gained})` : ''}.`, 'defend');
             break;
         }
         case 'flee': flee(f, actor, rng, rules); break;
@@ -807,24 +782,12 @@ function perform(f, actor, plan, rng, rules) {
 function attackScore(skill, foes, target, rules) {
     const count = scopeOf(skill) === 'all' ? foes.length : 1;
     let score = effectivePower(skill, skill.mastery, rules) * count;
-    for (const [name, rounds] of skill.effect ? Object.entries(skill.effect) : []) {
+    for (const [name, rounds] of Object.entries(skill.effect ?? {})) {
         const fresh = scopeOf(skill) === 'all' ? foes.some(c => !has(c, name)) : !has(target, name);
         if (!fresh) continue;
         score += DOTS.includes(name) ? 0.15 * rounds : name === 'stun' ? 0.5 : 0.2;
     }
     return score;
-}
-
-function autoSkill(skill, target) {
-    const action = skill[AUTO_ACTION] ??= { type: 'skill', skill: skill.name, [AUTO_SKILL]: skill };
-    action.target = target;
-    return action;
-}
-function autoAttack(actor, target) {
-    const action = actor[AUTO_ACTION] ??= { type: 'attack' };
-    action.target = target.id;
-    action[AUTO_TARGET] = target;
-    return action;
 }
 
 /**
@@ -834,44 +797,19 @@ function autoAttack(actor, target) {
  */
 function chooseAuto(f, actor, rules) {
     const foes = opponents(f, actor);
+    const friends = allies(f, actor);
     if (!foes.length) return { type: 'defend' };
     if (actor.side === 'enemy' && !actor.boss && actor.fleesBelow > 0 && share(actor) <= actor.fleesBelow && !f.marks.fleeTried[actor.id]) {
         return { type: 'flee' };
     }
-    // Actors with only attacks need no ally/heal/buff projections. This is the same
-    // stable maximum as the general AI, evaluated once per skill rather than in a sort.
-    if (actor.skills.every(s => s.type === 'physical' || s.type === 'magic')
-        && !(actor.items ?? []).some(i => i.effect?.heal && i.qty > 0)) {
-        const target = lowest(foes);
-        let chosen = null, score = -Infinity;
-        for (const skill of actor.skills) {
-            if (blockReason(actor, skill)) continue;
-            const value = attackScore(skill, foes, target, rules);
-            if (value > score) { chosen = skill; score = value; }
-        }
-        if (score > 1) return autoSkill(chosen, target.id);
-        return autoAttack(actor, target);
-    }
     const usable = actor.skills.filter(s => !blockReason(actor, s));
-    if (!usable.length && !(actor.items ?? []).some(i => i.effect?.heal && i.qty > 0)) {
-        const target = lowest(foes);
-        return autoAttack(actor, target);
-    }
-    const friends = allies(f, actor);
-    const best = list => {
-        let chosen, score = -Infinity;
-        for (const skill of list) {
-            const value = effectivePower(skill, skill.mastery, rules);
-            if (value > score) { chosen = skill; score = value; }
-        }
-        return chosen;
-    };
+    const best = list => [...list].sort((x, y) => effectivePower(y, y.mastery, rules) - effectivePower(x, x.mastery, rules))[0];
 
     const hurt = friends.filter(c => share(c) < rules.combat.healBelow).sort((x, y) => share(x) - share(y));
     if (hurt.length) {
         const heals = usable.filter(s => s.type === 'heal' && (scopeOf(s) !== 'self' || hurt.includes(actor)));
         const skill = best(heals);
-        if (skill) return autoSkill(skill, scopeOf(skill) === 'self' ? actor.id : hurt[0].id);
+        if (skill) return { type: 'skill', skill: skill.name, target: scopeOf(skill) === 'self' ? actor.id : hurt[0].id };
         const potion = (actor.items ?? []).find(i => i.effect?.heal && i.qty > 0);
         if (potion && actor.side === 'party') {
             const needy = hurt.find(c => share(c) < rules.combat.itemHealBelow);
@@ -879,32 +817,28 @@ function chooseAuto(f, actor, rules) {
         }
     }
 
-    for (const skill of usable) {
-        if (skill.type !== 'buff') continue;
+    for (const skill of usable.filter(s => s.type === 'buff')) {
         const names = Object.keys(skill.effect ?? {});
         const scope = scopeOf(skill);
         const pool = scope === 'self' ? [actor] : friends;
         const bare = pool.filter(c => names.some(name => !has(c, name)));
         if (!bare.length) continue;
-        return autoSkill(skill, scope === 'ally' ? lowest(bare).id : actor.id);
+        return { type: 'skill', skill: skill.name, target: scope === 'ally' ? lowest(bare).id : actor.id };
     }
 
     const target = lowest(foes);
-    for (const skill of usable) {
-        if (skill.type !== 'debuff') continue;
+    for (const skill of usable.filter(s => s.type === 'debuff')) {
         const names = Object.keys(skill.effect ?? {});
         const pool = scopeOf(skill) === 'all' ? foes : [target];
-        if (pool.some(c => names.some(name => !has(c, name)))) return autoSkill(skill, target.id);
+        if (pool.some(c => names.some(name => !has(c, name)))) return { type: 'skill', skill: skill.name, target: target.id };
     }
 
-    let chosen = null, score = -Infinity;
-    for (const skill of usable) {
-        if (skill.type !== 'physical' && skill.type !== 'magic') continue;
-        const value = attackScore(skill, foes, target, rules);
-        if (value > score) { chosen = skill; score = value; }
+    const attacks = usable.filter(s => s.type === 'physical' || s.type === 'magic');
+    if (attacks.length) {
+        const skill = [...attacks].sort((x, y) => attackScore(y, foes, target, rules) - attackScore(x, foes, target, rules))[0];
+        if (attackScore(skill, foes, target, rules) > 1) return { type: 'skill', skill: skill.name, target: target.id };
     }
-    if (score > 1) return autoSkill(chosen, target.id);
-    return autoAttack(actor, target);
+    return { type: 'attack', target: target.id };
 }
 
 /** Runs turns until a player-controlled combatant must choose, or the fight is over. */
@@ -912,17 +846,12 @@ function advance(f, rng, rules) {
     let steps = 0;
     while (f.status === 'active') {
         if (++steps > 100000) throw new Error('Fight did not settle.');
-        let actor = null;
-        const enemiesLeft = enemiesRemain(f);
+        const enemiesLeft = f.combatants.some(c => c.side === 'enemy' && isActive(c));
         if (timeline(f)) {
             if (!f.order.length || (!enemiesLeft && !f.turnStarted)) {
-                const next = nextOnTimeline(f, rng, rules);
+                nextOnTimeline(f, rng, rules);
                 checkEnd(f);
-                if (!f[CALIBRATION] || !next || f.status !== 'active') continue;
-                // The normal loop would immediately select this same actor on its next
-                // iteration. Retain its step accounting without scanning the field again.
-                if (++steps > 100000) throw new Error('Fight did not settle.');
-                actor = next;
+                continue;
             }
         } else if (f.turn >= f.order.length || (!enemiesLeft && !f.turnStarted)) {
             // Nobody left to fight but reinforcements due: close the round so the wave can join.
@@ -930,9 +859,9 @@ function advance(f, rng, rules) {
             checkEnd(f);
             continue;
         }
-        actor ??= byId(f, f.order[f.turn]);
+        const actor = byId(f, f.order[f.turn]);
         if (!isActive(actor)) {
-            if (timeline(f)) { if (f[CALIBRATION]) f.order.length = 0; else f.order = []; }
+            if (timeline(f)) f.order = [];
             else f.turn += 1;
             f.turnStarted = false;
             continue;
@@ -971,11 +900,10 @@ function current(f) {
 /** A combatant who joins mid-fight on a side (a summon): in the timeline it waits its first turn, in rounds it acts from the next round. */
 function joinFight(f, c, rng) {
     f.combatants.push(c);
-    if (f[CALIBRATION] && c.side === 'enemy' && isActive(c)) f[CALIBRATION].enemies += 1;
     if (timeline(f)) enterTimeline(f, c, rng);
 }
 
-const ENGINE = Object.freeze({ narrates: f => !f[CALIBRATION], join: joinFight, hit: hitIn, strike, heal, applyEffect, addCondition, takeDamage, markHurt, skillValue, label, log, bump, has, isActive, byId, costOf, effectivePower, LABELS, DOTS });
+const ENGINE = Object.freeze({ join: joinFight, hit: hitIn, strike, heal, applyEffect, addCondition, takeDamage, markHurt, skillValue, label, log, bump, has, isActive, byId, costOf, effectivePower, LABELS, DOTS });
 
 // --- the API --------------------------------------------------------------------------------
 
@@ -984,16 +912,16 @@ const ENGINE = Object.freeze({ narrates: f => !f[CALIBRATION], join: joinFight, 
  * waiting on the first player-controlled combatant (or already over when nobody is).
  */
 export function startFight({ rules = DEFAULT_RULES, ...setup } = {}) {
-    return beginFight(setup, rules);
+    return beginFight(setup, structuredClone(setup), rules, normalizeCombatant);
 }
 
-function beginFight(setup, rules, normalize = normalizeCombatant, calibration = false) {
-    const saved = calibration ? setup : structuredClone(setup);
+/** startFight's body: `saved` is the fight's own copy of the setup, `make` the fighter each Combatant becomes. */
+function beginFight(setup, saved, rules, make) {
     const seed = setup.seed ?? setup.id ?? 'fight';
-    const party = (setup.party ?? []).map(c => ({ ...normalize(c), side: 'party' }));
-    const enemies = (setup.enemies ?? []).map(c => ({ ...normalize(c), side: 'enemy', controller: 'auto' }));
+    const party = (setup.party ?? []).map(c => ({ ...make(c), side: 'party' }));
+    const enemies = (setup.enemies ?? []).map(c => ({ ...make(c), side: 'enemy', controller: 'auto' }));
     const f = {
-        ...(calibration ? { [CALIBRATION]: { ...calibration, soloPool: calibration.solo ? party : null, enemies: enemies.filter(isActive).length } } : {}),
+        ...(make === normalizeCombatant ? {} : { [MAKE]: make }),
         id: setup.id ?? null,
         seed,
         stakes: setup.stakes === 'death' ? 'death' : 'normal',
@@ -1012,52 +940,53 @@ function beginFight(setup, rules, normalize = normalizeCombatant, calibration = 
         turn: 0,
         turnStarted: false,
         combatants: [...party, ...enemies],
-        log: calibration ? { length: 0, push() { this.length += 1; } } : [],
+        log: [],
         actions: [],
         rngState: 0,
         setup: saved,
-        stats: calibration ? { uses: null, itemsUsed: null, damageTaken: null } : { uses: {}, itemsUsed: {}, damageTaken: {} },
+        stats: { uses: {}, itemsUsed: {}, damageTaken: {} },
         // Bookkeeping that is not part of any combatant: waves joined, one flee try per enemy,
         // and who has already had their "badly hurt" moment.
         marks: { waves: [], fleeTried: {}, hurt: {} },
     };
-    const rng = calibration ? calibration.rng(seed) : makeRng(seed);
+    const rng = makeRng(seed);
     checkEnd(f);
     advance(f, rng, rules);
     f.rngState = rng.state();
     return f;
 }
 
-/** Prepare repeated Auto trials. Only presentation work is omitted: the timeline's seven
- * future preview slots and log text. Log length is retained because summon ids use it.
- * Definitions are cloned once; each trial owns all fields the engine/interpreter mutate.
- * Opening turns still stop at the first player, then Auto gets its normal action stream.
+/**
+ * Repeated Auto trials of one setup, for calibration: `trial(seed, actionId)` returns the fight
+ * that startFight then actInPlace({ type: 'auto' }) would, to the last field (tests/v2/fight/
+ * calibration.test.js), at a fraction of the cost. Each Combatant is normalised once and every
+ * trial plays on its own plain copy; the setup is neither copied per trial nor changed.
  */
-export function prepareAuto(setup, rules = DEFAULT_RULES, { rng = makeRng } = {}) {
-    // With one party actor and no summons, its active pool is constant until the
-    // fight ends. Reuse it across enemy turns instead of filtering the whole field.
-    const everyone = [...(setup.party ?? []), ...(setup.enemies ?? []), ...(setup.waves ?? []).flatMap(w => w.enemies)];
-    const solo = setup.party?.length === 1 && everyone.every(c => !c.summoned && !(c.skills ?? []).some(s => s.unit));
-    const calibration = { rng, solo };
-    const templates = new Map([...(setup.party ?? []), ...(setup.enemies ?? [])]
-        .map(c => [c, normalizeCombatant(c)]));
-    const copy = c => {
-        const template = templates.get(c);
-        return {
-            ...template,
-            hp: { ...template.hp }, mp: { ...template.mp },
-            ...(template.sp ? { sp: { ...template.sp } } : {}),
-            stats: { ...template.stats },
-            conditions: template.conditions.map(condition => ({ ...condition })),
-            skills: template.skills.map(skill => ({ ...skill })),
-            items: template.items.map(item => ({ ...item })),
-        };
-    };
+export function prepareAuto(setup, rules = DEFAULT_RULES) {
+    const templates = new Map();
+    for (const c of [...(setup.party ?? []), ...(setup.enemies ?? []), ...(setup.waves ?? []).flatMap(wave => wave.enemies ?? [])]) templates.set(c, normalizeCombatant(c));
+    const make = c => plain(templates.get(c));
     return (seed, actionId = 'ca_00000001') => {
-        const fight = beginFight({ ...setup, seed }, rules, copy, calibration);
-        if (fight.status === 'active') actInPlace(fight, { type: 'auto', id: actionId }, rules);
-        return fight;
+        const f = beginFight({ ...setup, seed }, setup, rules, make);
+        if (f.status === 'active') actInPlace(f, { type: 'auto', id: actionId }, rules);
+        delete f[MAKE];
+        return f;
     };
+}
+
+/** A deep copy of plain data (what structuredClone gives it), without structuredClone's fixed cost per call. */
+function plain(value) {
+    if (value === null || typeof value !== 'object') return value;
+    if (Array.isArray(value)) {
+        const copy = new Array(value.length);
+        for (let i = 0; i < copy.length; i++) copy[i] = plain(value[i]);
+        return copy;
+    }
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null) return structuredClone(value);
+    const copy = {};
+    for (const key of Object.keys(value)) copy[key] = plain(value[key]);
+    return copy;
 }
 
 /** What the player-controlled combatant whose turn it is can do. */
@@ -1117,11 +1046,10 @@ export function actInPlace(f, action, rules = DEFAULT_RULES) {
     // (rules v2) A fight that draws by action gives each action its own stream, from the fight's seed and the action's id: an action
     // taken back does not move the dice of the ones after it. Every other fight continues the one stream, as before.
     if (f.drawsBy === 'action' && !(typeof action?.id === 'string' && action.id)) throw new Error('An action of this fight needs its id.');
-    const source = f[CALIBRATION]?.rng ?? makeRng;
-    const rng = f.drawsBy === 'action' ? source(`${f.seed}|${action.id}`) : source(f.rngState);
+    const rng = f.drawsBy === 'action' ? makeRng(`${f.seed}|${action.id}`) : makeRng(f.rngState);
     if (action?.type === 'auto') {
         for (const c of f.combatants) if (c.side === 'party' && c.controller === 'player') c.controller = 'auto';
-        log(f, actor, !f[CALIBRATION] ? ('The rest of the fight runs on auto.') : '', 'info');
+        log(f, actor, 'The rest of the fight runs on auto.', 'info');
     } else {
         const plan = resolve(f, actor, action, rules);
         perform(f, actor, plan, rng, rules);

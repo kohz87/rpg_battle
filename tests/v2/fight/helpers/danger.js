@@ -44,4 +44,3 @@ export function setupOf(h, offered) {
     const party = partyCombatants(h.ctxForFight, { rules: fightRules(fightNumbers({})) });
     return { ...unpackSetup(offered.opposition), id: 'fi_00000001', party };
 }
-
