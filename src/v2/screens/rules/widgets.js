@@ -176,20 +176,27 @@ export function renderClassPick(el, props = {}, api = {}) {
 
     function draw() {
         const options = optionsOf(spec);
+        // The rows are built again at each pick: the one that had the keyboard focus gets it back (Enter or Space, then Tab on).
+        const held = root.contains?.(doc.activeElement) ? doc.activeElement?.getAttribute?.('data-choice') ?? null : null;
         root.setAttribute('aria-label', str(spec.label, 80) || 'Choose one');
         root.replaceChildren(...options.map(option => {
             const on = option.id === picked;
-            const card = make(doc, 'button', `rpg-cp-card${on ? ' picked' : ''}`);
+            // A card like the wizard's race and talent cards (`cc-card`, styled where the wizard's css is): the name with the "Chosen"
+            // pill on its right, the sub (a class's three skills) under it. The rpg-cp-* classes style it elsewhere.
+            const card = make(doc, 'button', `rpg-cp-card cc-card cc-row${on ? ' picked' : ''}`);
             card.setAttribute('type', 'button');
             card.setAttribute('aria-pressed', on ? 'true' : 'false');
             card.setAttribute('data-choice', option.id);
-            card.append(make(doc, 'span', 'rpg-cp-name', option.label));
-            if (option.sub) card.append(make(doc, 'span', 'rpg-cp-sub', option.sub));
-            if (on) card.append(make(doc, 'span', 'rpg-cp-tick', 'Chosen'));
+            const head = make(doc, 'span', 'cc-card-head');
+            head.append(make(doc, 'span', 'rpg-cp-name cc-card-name', option.label));
+            if (on) head.append(make(doc, 'span', 'rpg-cp-tick cc-card-tick', 'Chosen'));
+            card.append(head);
+            if (option.sub) card.append(make(doc, 'span', 'rpg-cp-sub cc-card-note', option.sub));
             card.addEventListener('click', () => write(option.id));
             return card;
         }));
-        if (!options.length) root.replaceChildren(make(doc, 'p', 'rpg-cp-none', str(spec.empty, 160) || 'Nothing to choose from.'));
+        if (!options.length) root.replaceChildren(make(doc, 'p', 'rpg-cp-none cc-none', str(spec.empty, 160) || 'Nothing to choose from.'));
+        if (held !== null) Array.from(root.children).find(card => card.getAttribute?.('data-choice') === held)?.focus?.();
     }
     draw();
     return {
@@ -381,6 +388,7 @@ export const RULES_WIDGET_CSS = `
 .rpg-pc-option:hover:not(:disabled), .rpg-cp-card:hover { border-color: var(--ss-accent); }
 .rpg-pc-option:focus-visible, .rpg-cp-card:focus-visible { outline: 2px solid var(--ss-accent); outline-offset: 2px; }
 .rpg-pc-option.picked, .rpg-cp-card.picked { border-color: var(--ss-accent); background: linear-gradient(var(--ss-accent-soft), var(--ss-accent-soft)), var(--ss-tile); }
+.rpg-cp-card .cc-card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 8px; min-width: 0; }
 .rpg-pc-label, .rpg-cp-name { font-weight: 700; overflow-wrap: anywhere; }
 .rpg-pc-sub, .rpg-cp-sub { font-size: 13px; color: var(--ss-muted); overflow-wrap: anywhere; }
 .rpg-cp-tick { font-size: 12px; color: var(--ss-accent); font-weight: 700; }

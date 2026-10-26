@@ -10,7 +10,7 @@ import { progressView, offersView } from './progress.js';
 import { questsView } from './quests.js';
 import { rosterView } from './roster.js';
 import { linksView } from './links.js';
-import { depsBanner, setupView } from './setup.js';
+import { depsBanner, rulesGate, setupView } from './setup.js';
 import { classPickerView } from './class-step.js';
 
 export { ask, ASK } from './ask.js';
@@ -19,7 +19,7 @@ export { progressView } from './progress.js';
 export { questsView } from './quests.js';
 export { rosterView, slotTilesOf } from './roster.js';
 export { linksView } from './links.js';
-export { depsBanner, setupView } from './setup.js';
+export { depsBanner, rulesChoice, rulesGate, setupView } from './setup.js';
 export { CLASS_STEP_TEMPLATE, classPickerView } from './class-step.js';
 export {
     CLASS_PICK_WIDGET, COMMAND_BUTTON_WIDGET, COMMAND_INPUT_WIDGET, PERMANENT_CHOICE_WIDGET, RULES_WIDGET_CSS, rulesWidgets,
@@ -33,6 +33,7 @@ export const rulesQueries = Object.freeze({
     'rpg-battle.rosterView': rosterView,
     'rpg-battle.linksView': linksView,
     'rpg-battle.setupView': setupView,
+    'rpg-battle.rulesGate': rulesGate,
     'rpg-battle.rulesDeps': depsBanner,
     'rpg-battle.classPicker': classPickerView,
 });

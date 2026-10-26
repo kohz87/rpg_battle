@@ -79,5 +79,5 @@ export { CREATE_SCREEN_ID, CREATE_STEPS, PORTRAIT_URL_MAX, TALENT_LIST_MAX, crea
 export { STAT_RADAR_WIDGET, radarAxes, radarPoint, radarScale, renderStatRadar, statRadar } from './radar.js';
 export { PRESET_WIDGET, presetDraft, presetPick, renderPresetPick } from './preset-pick.js';
 export {
-    CREATED_EVENT, DRAFT_START_WIDGET, FILE_LIMIT, IMPORT_PICK_WIDGET, TALENT_ROLL_WIDGET, characterFrom, draftStart, importFile, importPick, renderDraftStart, renderImportPick, renderTalentRoll, talentRoll, wizardWidgets,
+    CREATED_EVENT, DRAFT_START_WIDGET, FILE_LIMIT, IMPORT_PICK_WIDGET, RULES_PIN_WIDGET, TALENT_ROLL_WIDGET, characterFrom, draftStart, importFile, importPick, renderDraftStart, renderImportPick, renderRulesPin, renderTalentRoll, rulesPin, talentRoll, wizardWidgets,
 } from './wizard-widgets.js';

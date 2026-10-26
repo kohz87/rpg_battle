@@ -177,7 +177,7 @@ export const PENDING = Object.freeze(Object.fromEntries(Object.entries(CONTRACTS
 
 export const ref = x => `pack.fixture/${x}`;
 /** Shipped queries the views also read (not pending anything). */
-export const SHIPPED_QUERIES = Object.freeze(['director.time', 'director.threads', 'chronicle.day', 'items.gear', 'items.condition', 'inventory.items', 'party.offers', 'party.pc']);
+export const SHIPPED_QUERIES = Object.freeze(['director.time', 'director.threads', 'chronicle.day', 'items.gear', 'items.condition', 'inventory.items', 'party.offers', 'party.pc', 'packs.rules']);
 export const PC = seed.actor.id;
 export const LYRA = seed.friend.id;
 export const BRAM = 'ac_00000003';
