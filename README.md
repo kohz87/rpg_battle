@@ -1,6 +1,6 @@
-# RPG Battle 2.0.0-beta.2
+# RPG Battle 2.0.0
 
-> Story Suite v2, second beta (2.0.0-beta.2). It is for test play, not for your real campaigns yet.
+> Story Suite 2.0.0.
 
 ## What it is
 
@@ -8,21 +8,27 @@ RPG Battle gives your story a character, a party and rules that code runs: dice 
 board, items and gear, trade, crafting and a way back after a death. The story tells what happens; code sets
 every number, so a swipe cannot reroll a lost fight and the model never makes up your stats.
 
-It is a module of [Story Block](https://github.com/kohz87/Story_block), the host of Story Suite v2. It works
-with Story Block alone, and does more beside [Story Director](https://github.com/kohz87/Story_director) (a story
-clock, quests) and [NPC State Delta](https://github.com/kohz87/npc_state_delta) (how people feel about you).
+It is a module of [Story Block](https://github.com/kohz87/Story_block), the host of Story Suite v2. It needs
+[Story Director](https://github.com/kohz87/Story_director) for checks, the story clock and quests, and works beside [NPC State Delta](https://github.com/kohz87/npc_state_delta) (how people feel about you).
 
 ## Install
 
-1. SillyTavern **1.19 or newer**; try the beta in a separate profile.
-2. Install **Story Block first** from `https://github.com/kohz87/Story_block`.
-3. **Extensions → Install extension**, paste `https://github.com/kohz87/rpg_battle` and install (no branch to
-   pick), reload.
+Tested with **SillyTavern 1.19**. In **Extensions → Install extension**, install in this order, then reload:
+
+1. [Story Block](https://github.com/kohz87/Story_block)
+2. [Story Director](https://github.com/kohz87/Story_director)
+3. [RPG Battle](https://github.com/kohz87/rpg_battle)
+4. [NPC State Delta](https://github.com/kohz87/npc_state_delta)
+
+To start with the bundled **Ersveil** rules pack, open a fresh chat and follow **Setup → Pin Ersveil Rules → Create**,
+then choose your character's options. Existing chats load and rebuild unchanged; legacy chats stay unpinned.
+
+Report bugs in [this repo's Issues](https://github.com/kohz87/rpg_battle/issues), with steps to reproduce.
 
 For RPG Battle 1 (the offer-based extension), install the `v1` branch of the same repo instead: paste the URL and type `v1` as the branch.
 
 Needs (`requires`): Story Block **2.0.0-beta.2 or later**. Without Story Block 2 RPG Battle shows one line in the extensions drawer and does nothing else; an older
-Story Block 2 shows a red notice and RPG Battle waits. Works with, but does not need: Story Director, NPC State Delta. Update Story Block before
+Story Block 2 shows a red notice and RPG Battle waits. Needs Story Director for checks; NPC State Delta is optional. Update Story Block before
 RPG Battle. Install help: [guide, Installing](https://github.com/kohz87/Story_block/blob/main/docs/v2/GUIDE.md#installing).
 
 ## What you get
