@@ -6,6 +6,8 @@
 - **Foe variants:** `! encounter <name> | like: <foe>` derives a named variant from a pinned pack foe while keeping its identity and rewards tied to that foe.
 - The bundled **Ersveil pack 1.5.0** includes **12 open quest templates**.
 - **Pinned-pack encounters now follow their danger label.** In 2.0.0, weak fights could be unwinnable at level 1 because pinned foes kept their fixed pack stats. New offers record opposition calibrated to the label at offer time.
+- A fight offer in a pinned chat now sets its danger in about 0.1 s (it took 1.6–5 s and froze the page), with exactly the same numbers.
+- **Modules can declare capabilities** (`capabilities: [...]` on a module definition, shown in `sdk.modules()`); RPG Battle declares `rb-rules-v2`, so a pack's `requires.capabilities` is met by the module that provides it.
 
 ### Upgrading from 2.0
 
@@ -42,7 +44,6 @@ For a pinned Ersveil adventure, start a fresh chat with **Setup → Pin Ersveil 
 ## Unreleased
 
 - Licence: MIT (was unlicensed), so the module can be a base for other extensions.
-- A fight offer in a pinned chat sets its danger in a fraction of a second (it took seconds, freezing the page), to the same numbers.
 
 ## 2.0.0-beta.2 (`v2` branch)
 
