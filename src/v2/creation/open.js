@@ -63,6 +63,15 @@ export function openCreation(api, opts = {}) {
         try { view = api.view(); } catch { view = null; }
     }
     if (hasCharacter(api, view)) return { ok: false, code: 'REFUSED', message: 'You already have a character.' };
+    // The normal creation entrances lead to track C's Setup when this timeline can choose rules.
+    let selection = null;
+    try { selection = (api?.query ?? view?.query)?.call(api, 'rules.selection', {}); } catch { /* legacy host */ }
+    if (selection?.state === 'offered') {
+        const current = dialog.current();
+        if (current?.screenId === 'rpg-battle/setup' && current.isOpen?.() !== false) return { ok: true, handle: current };
+        const handle = dialog.open('rpg-battle/setup', {});
+        return handle ? { ok: true, handle } : { ok: false, code: 'NO_DIALOG', message: 'Story Block cannot show Setup here.' };
+    }
     const current = dialog.current();
     if (current?.screenId === CREATE_SCREEN_ID && current.isOpen?.() !== false) return { ok: true, handle: current };
     const last = dialog.owner && typeof dialog.owner === 'object' ? lastOpened.get(dialog.owner) : null;

@@ -13,7 +13,9 @@ each('module.js registers beside the core module: every domain owned once, every
     const h = createHarness();
     for (const domain of ['party', 'combat', 'bestiary', 'trade']) assert.equal(h.registry.domainOwner(domain), 'rpg-battle', domain);
     for (const domain of ['scene', 'inventory']) assert.equal(h.registry.domainOwner(domain), 'story-block', domain);
-    for (const kind of ['wound', 'join', 'skill', 'check', 'rest', 'encounter']) assert.equal(h.registry.captureOwner(kind), 'rpg-battle', kind);
+    for (const kind of ['wound', 'join', 'skill', 'rest', 'encounter']) assert.equal(h.registry.captureOwner(kind), 'rpg-battle', kind);
+    assert.equal(h.registry.captureOwner('check'), null, 'RB leaves check capture to SD');
+    assert.equal(h.registry.domainOwner('checks'), null);
     const state = h.registry.initialState();
     for (const name of Object.keys(state.domains)) {
         const validate = h.registry.validator(name);

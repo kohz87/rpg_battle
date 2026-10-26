@@ -1,3 +1,4 @@
+import { rollCheck } from '../party/helpers/check.js';
 // QA: v1 parity spot checks. For fixed inputs, the numbers the v2 parts commit through the real
 // bus equal what v1's pure functions give for the same sheet (built here by hand, not through
 // the parts' own bridge): creation, a healing dose, XP and level-ups, rests, wounds, a check's
@@ -98,17 +99,18 @@ each('~ wound Ren | harm: wound = v1 applyWounds (a share of max HP by the word)
     }
 });
 
-each('check.resolve: the d20 is the receipt seed\'s first roll; the modifier is v1 checkModifier', () => {
+each('SD check: the d20 is the receipt seed\'s first roll; the modifier is v1 checkModifier', () => {
     const { h } = withHero();
     for (let n = 0; n < 20; n++) {
-        const r = h.command('check.resolve', { skill: 'athletics', dc: 'hard', what: 'climbing the wall' });
+        const r = rollCheck(h.state(), { skill: 'athletics', dc: 'hard' }, { seed: n + 1 });
         assert.equal(r.ok, true, r.message);
-        const die = roll(rng(r.receipt.seed), '1d20').dice[0];
-        assert.equal(r.receipt.data.die, die);
-        assert.equal(r.receipt.data.stat, 'STR');
-        assert.equal(r.receipt.data.mod, checkModifier(pcOf(h).stats.STR, DEFAULT_RULES));
-        assert.equal(r.receipt.data.total, die + r.receipt.data.mod);
-        assert.equal(r.receipt.data.dc, 20);
+        const again = rollCheck(h.state(), { skill: 'athletics', dc: 'hard' }, { seed: n + 1 });
+        const die = again.result.data.die;
+        assert.equal(r.result.data.die, die);
+        assert.equal(r.result.data.stat, 'STR');
+        assert.equal(r.result.data.mod, checkModifier(pcOf(h).stats.STR, DEFAULT_RULES));
+        assert.equal(r.result.data.total, die + r.result.data.mod);
+        assert.equal(r.result.data.dc, 20);
     }
 });
 

@@ -12,7 +12,6 @@ import { part as itemsPart } from '../../../src/v2/items/index.js';
 import { part as partyPart } from '../../../src/v2/party/index.js';
 import { part as tradePart } from '../../../src/v2/trade/index.js';
 import { part as returnPart } from '../../../src/v2/return/index.js';
-import { part as checksPart } from '../../../src/v2/checks/index.js';
 import { createModule } from '../../../src/v2/module.js';
 import { definitionProblems, scopeCss, validateScreen, validatorFrom } from './helpers/runtime.js';
 import { WIDGET_NAMES } from './helpers/render.js';
@@ -93,13 +92,13 @@ test('data bindings name the view queries; the status card reads the reply\'s ow
     assert.deepEqual(byId['rpg-battle/crafting'].data, { craft: { query: 'rpg-battle.crafting' } });
     assert.deepEqual(byId['rpg-battle/trade'].data, { trade: { query: 'rpg-battle.trade' } });
     assert.deepEqual(byId['rpg-battle/hud'].data, { hud: { query: 'rpg-battle.hud' } });
-    assert.deepEqual(byId['rpg-battle/status-card'].data, { terms: { query: 'party.terms' }, pools: { query: 'party.pools' }, heroes: { query: 'rpg-battle.heroes' }, checks: { query: 'checks.view' } });
+    assert.deepEqual(byId['rpg-battle/status-card'].data, { terms: { query: 'party.terms' }, pools: { query: 'party.pools' }, heroes: { query: 'rpg-battle.heroes' } });
     assert.match(byId['rpg-battle/status-card'].template, /changed\(state\.party\.actors\[id\]\.hp\)/);
     for (const screen of screens) {
         const aliases = new Set(Object.keys(screen.data ?? {}));
         const used = new Set([...screen.template.matchAll(/\bq\.([A-Za-z_]\w*)/g)].map(match => match[1]));
         for (const alias of used) assert.ok(aliases.has(alias), `${screen.id} reads q.${alias}, which its data does not give`);
-        for (const binding of Object.values(screen.data ?? {})) assert.ok(part.queries[binding.query] ?? partyPart.queries[binding.query] ?? returnPart.queries[binding.query] ?? checksPart.queries[binding.query], `${screen.id} binds ${binding.query}`);
+        for (const binding of Object.values(screen.data ?? {})) assert.ok(part.queries[binding.query] ?? partyPart.queries[binding.query] ?? returnPart.queries[binding.query], `${screen.id} binds ${binding.query}`);
     }
 });
 

@@ -5,12 +5,45 @@ generation bounds), `src/v2/progress/` (choices, offers, credits, guards, comman
 `src/v2/training/` (the clock, the request, the host's step, the offers). Tests: `tests/v2/progress/`,
 `tests/v2/rules/`, `tests/v2/training/`. Contract: `RB_CONTRACT` §3–§7, B3 and B5 in the track B design.
 
-The parts (`rules/index.js`, `progress/index.js`) are one unit: `rulesParts` (exported by `rules/index.js`) lists
-`['rules', part]` and `['progress', part]`, registered together or not at all (`rules.settle` writes `progress`; every
-`progress` guard reads the `rules` pin). `module.js` puts them in `PARTS` but registers them only when the host's preflight
-allows it: `createModule` activates from a checked frozen pack (`rules`) or resumes a chat whose preflight says it is already
-on rules v2 with a matching hash. The `rules` slice's root is the rules-v2 marker `sdk.preflight` reads, so a legacy chat
-stays legacy: no existing chat, pack or command changes (`tests/v2/progress/legacy.test.js`).
+The rules, progression and training parts register together. On a host advertising
+`preflight.deferredDomains`, their domains remain absent until Setup's guarded `rules.pin` command;
+their command/query dispatch and skill-use prompt grammar also remain absent until a pin exists.
+`rules.identity` stays available as a null-or-identity probe. The older checked `rules` activation
+argument and existing-pin resume path remain supported. Production `boot()` passes live preflight
+and query access; it needs no injected rules argument.
+
+## Stage 5: choosing the timeline's rules
+
+At character creation, `rules.selection({})` projects the enabled, checked `packs.rules` offers.
+One pack is offered explicitly; several packs each have a reader-selected Pin button. Story Director
+is a required peer: Setup offers become available when that dependency is ready. None leaves
+the chat legacy. The normal creation opener and start card lead to track C's Setup before the
+class picker; direct finish/create/import commands cannot bypass an offered choice. Pin buttons
+use the existing `rpg-battle.command-button`, including its refusal message.
+
+`rules.pin { pack, version, rulesHash, packHash }` is a direct player UI command, accepted only
+before any actor exists and before a pin exists. It resolves the selected pack through
+`packs.rules({ pack, resolve: true })`, verifies both hashes and the version, validates the stored
+shape, and atomically writes rules/progress/training plus frozen inventory definitions. A stale,
+disabled, changed or conflicting definition refuses the whole transaction. The saved rules slice
+contains the complete resolved ruleset, hashes, pack ID/version, constants/progression and item
+definitions. Once pinned, selection and mechanics use those bytes exclusively. Reinstalling the
+same version, disabling or removing the pack cannot change the running timeline. Repinning is
+refused even before character creation; a new character timeline may choose again.
+
+The pin is **reply-bound**, as character creation and other commands are. Its guard carries
+`replyBound: true`: deleting or swiping away its reply retracts the pin, definitions and dependent
+creation/choices. This includes deletion of the first reply: the host omits this guarded setup
+from the state it otherwise carries forward from a deleted prefix. A pin should not silently
+survive while its creation prerequisites disappear. The saved pin is replayed as stored ops;
+rebuild never runs the command or resolves an installed pack again. As with the host's existing
+history contract, a prefix deleted outside a session that saw it can require explicit history
+repair; no replacement pack is substituted.
+
+Host dependency: Story Block `71ea5a30be5464f7a789b0f555a49b30a72585e8` (branch `stage5/pin`) or a descendant,
+vendored by sync-testkit. P01's additive transport/lifecycle contracts are documented in SB
+PACKS.md (`resolve: true` and its `pin` transport), LIFECYCLE.md (deferred domains and API
+presence) and REPLAY.md (`replyBound`). These are coordinated host changes, not missing seams.
 
 ## Records
 
@@ -284,8 +317,8 @@ this slice, and `engine-unchanged.test.js` plays them again; `pinned.test.js` pl
 
 ## Code that production does not reach yet
 
-`pinRules` and `registerPackDefs` (activation) run only on a checked activation or a resumed rules-v2 chat (`createModule` registers `rulesParts`
-then, not on a legacy chat). Everything else above is reached through the commands and queries once the parts are registered.
+`pinRules` and `registerPackDefs` are reached by production Setup pinning, as well as the older checked activation path.
+The guarded `rules.pin` transaction initializes the deferred parts; subsequent commands use only the surviving stored pin.
 
 ## Rescue proofs (track A, B3)
 
@@ -296,3 +329,38 @@ and must have struck `actor`; the rescuer is another, alive, active durable memb
 `heal` or `shield`. The cost is paid in the same root (a `use` proof) or cited from one surviving paid use, as `skill.use` does (`applyUse`, the same function,
 no guard of its own). The `rescue` proof binds all of it with the use as its only parent; the claim `rb:<epoch>:rescue:<event>:<actor>` consumes the rescue once.
 Taking back the paid use, the sealed result or the rescuer's place turns the block off with its claims.
+
+## Stage 5: checks flip
+
+Story Director alone registers domain `checks`, `checks.roll` and `? check` (P09). RPG Battle has no check table, prepared dice, check capture, or direct `check.resolve` roller. Its modifier and stat-word code lives in `src/v2/rules/`; `rules.modifier` also serves legacy characters without activating a rules pack.
+
+- Crafting calls SD `checks.roll` with `{ craft: { recipe, at?: 'campfire' } }`, the linked actor, recipe DC and source evidence. SD asks RB for the recipe's modifier: sum of stat modifiers, tools/talents, craft rank, station and material quality. RB decides the existing quality bands from SD's die and total. Both writes and materials roll back together. Old `roll` labels cannot select dice.
+- Narrator checks omit `result`. Older check lines may carry it; SD ignores it with no disagreement flag or Problem. The receipt is narrated in the next tail. All other prompt instructions stay as before.
+- The status card has no check rows; the reply receipts show the roll and outcome.
+- SD calls internal `rules.practiceCheck` in its roll transaction. A held skill (name or definition/form reference) records one narrative practice attempt, regardless of outcome; stat-only and unknown skills record nothing. The existing settlement applies two per skill, six per reply and thirty per day, and an unset clock holds credit. The guard reads the pinned state and declared party queries only. Deleting, swiping or editing/Re-reading the check retracts its attempt and credit.
+- Tests formerly tied to prepared dice now exercise the SD command and RB modifier, receipt visibility, ignored labels, craft rollback and the original fight folding regressions. Each suite repo contains a real SB+SD+RB test, including Assist, caps, reload/rebuild and no Problems.
+## Synced host compatibility
+
+The refreshed host includes E6b native history selection. RB recognizes a completed host selection
+as a reconciliation boundary only while its selected native history retains each surviving death
+acknowledgement. Native edits may descend from that checkpoint; a restore does not inherit the deaths
+it undoes. If a history edit preserves an RB death but invalidates its strict native prefix, generation
+keeps the player-facing repair hold. Automatic reconciliation of that case remains a host contract gap.
+The death history fixtures cover native revival after deletion, the older host's hold, and this
+surviving-death mismatch. Their synthetic reward uses a guarded payer, as production awards do, so
+undoing a return cannot replay duplicate claims. Explicit checked activation/resume still works
+without a live query callback.
+
+## Checks flip review fixes
+
+Assist's prompt preview is committed on the generated reply before its story lines. The roll, message
+claim and practice attempt retract together; Re-read replaces that prelude with the saved seed, and a
+swipe/regeneration rolls once after retraction. Check practice records the current in-story minute;
+reply completion runs settlement even when narration has no Changes block. A later clock cannot move
+that check into another day's cap. Replay guards continue to read state and their declared queries.
+
+The integration suite reproduces both review blockers with real SB + SD + RB, then verifies Re-read,
+swipe, delete/regenerate, reload/rebuild and a reply crossing midnight. RB's vendored host and director
+run the same tests from a lone checkout. Literal no-check byte parity remains changed: main writes
+checks.prepare receipts and an RB checks slice; restoring those bytes needs a compatibility design
+across the ownership change rather than a small lifecycle fix.

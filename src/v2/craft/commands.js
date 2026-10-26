@@ -9,10 +9,9 @@
 //   the materials', never above epic) or a rank written on the line (`rank: D`), whichever is higher.
 //   `- recipe Iron Sword | who: Lyra` forgets one. Nobody learns or forgets anything else.
 // * `! craft Iron Sword | with: Iron Ore x2 | by: Lyra | roll: 1 | result: fine`: someone crafts a
-//   recipe they know. Code checks the station (rules.js), that the materials are there (their own
-//   and the party's bag), takes the reply's roll by its place among the reply's checks and crafts
-//   (F80, positional: the first uncertain attempt takes Roll 1, the next Roll 2, whatever the line
-//   names), adds its modifiers (book.js) and decides the quality (rules.js). It consumes the
+//   recipe they know. Code checks the station (rules.js) and materials (their own and the party's
+//   bag), asks SD's checks.roll for one die with rules.modifier's recipe subtotal, and decides the
+//   quality (rules.js). Old roll labels never select another die. It consumes the
 //   materials (a fail: half of them; a natural 1: all, and a botched item), makes the item (the
 //   quality's numbers, the materials' elements, worth what went into it; trade's resale cap set to
 //   what the materials would fetch), counts a use of the craft, and moves the clock on by the
@@ -198,11 +197,11 @@ export function forget(ctx, request = {}) {
 }
 
 // ---------------------------------------------------------------------------------------
-// The dice (the checks part's, by its queries)
+// The dice (Story Director's checks.roll)
 
 /**
  * The key one reply's crafts and checks share: its record id (`s:<sid>`), else its carrier
- * ("index:swipe"), else the receipt's rev: the checks part's own rule (checks/commands.js replyKey).
+ * ("index:swipe"), else the receipt's rev. This only groups crafts for the per-reply cap.
  */
 export function replyKey(ctx, prepared) {
     if (typeof ctx?.carrier?.sid === 'string' && ctx.carrier.sid) return `s:${ctx.carrier.sid.slice(0, 36)}`;
@@ -211,49 +210,22 @@ export function replyKey(ctx, prepared) {
     return prepared ? `r${prepared.for ?? 'x'}:${prepared.rev}` : `rev${revOf(ctx)}`;
 }
 
-/** The rolls handed over for this reply: the latest when it is this reply's, else this index's (checks.rolls). */
-function rollsFor(ctx) {
-    const index = ctx?.carrier?.index;
-    const latest = tryQuery(ctx, 'checks.rolls', {});
-    if (!latest || !Number.isInteger(index) || latest.for === null || latest.for === index || latest.for === index + 1) return latest;
-    return tryQuery(ctx, 'checks.rolls', { for: index }) ?? latest;
-}
-
-const ORDINALS = ['first', 'second', 'third', 'fourth'];
-
-function d20(ctx) {
-    const rolled = typeof ctx.roll === 'function' ? ctx.roll('1d20') : null;
-    const value = typeof rolled === 'number' ? rolled : rolled?.dice?.[0] ?? rolled?.total;
-    if (Number.isInteger(value) && value >= 1 && value <= 20) return value;
-    return Math.floor(ctx.rng() * 20) + 1;
-}
-
-/**
- * The die a craft takes: by its place among the reply's uncertain attempts (its checks and crafts so
- * far), F80's positional rule; what the line names never picks another die (a note says so).
- * → { roll (0: rolled by code), die, note, key }.
- */
-function dieFor(ctx, craft, written) {
-    const prepared = rollsFor(ctx);
-    const key = replyKey(ctx, prepared);
-    const checks = (tryQuery(ctx, 'checks.log', {}) ?? []).filter(entry => isRecord(entry) && entry.carrier === key);
-    const crafts = madeEntries(craft).filter(entry => entry.carrier === key);
-    if (crafts.length >= MAX_PER_REPLY) return { refused: true, key };
-    const used = new Set([...checks, ...crafts].map(entry => entry.roll).filter(roll => Number.isInteger(roll) && roll > 0));
-    const place = checks.length + crafts.length + 1;
-    const rolls = Array.isArray(prepared?.rolls) ? prepared.rolls : [];
-    if (!rolls.length) return { roll: 0, die: d20(ctx), note: 'no dice were handed over for this reply: code rolled', key };
-    if (place > rolls.length || used.has(place)) return { roll: 0, die: d20(ctx), note: 'every roll handed over was used: code rolled', key };
-    const die = rolls[place - 1];
-    const number = Number.parseInt(/(\d+)/.exec(String(written ?? ''))?.[1] ?? '', 10);
-    let note = '';
-    const nth = ORDINALS[place - 1] ?? `${place}th`;
-    if (!Number.isInteger(number)) note = `no roll was named: Roll ${place} taken`;
-    else if (number >= 1 && number <= rolls.length) {
-        // A roll number (the grammar's `roll: <1 or 2>`), never read as a die: noted whatever the die is.
-        if (number !== place) note = `the line named Roll ${number}, but this is the reply's ${nth} uncertain attempt: Roll ${place} taken`;
-    } else if (number !== die) note = `${number} is not a roll that was handed over: Roll ${place} taken`;
-    return { roll: place, die, note, key };
+/** Each craft asks SD for its own die. Old roll labels never select a die. */
+function dieFor(ctx, craft, actor, recipe, at) {
+    const key = replyKey(ctx);
+    if (madeEntries(craft).filter(entry => entry.carrier === key).length >= MAX_PER_REPLY) return { refused: true, key };
+    const policy = tryQuery(ctx, 'checks.policy', {});
+    if (!policy) fail(ctx, 'REFUSED', 'Crafting needs Story Director checks.');
+    let checkActor = Object.keys(policy.rbActors).find(id => policy.rbActors[id] === actor.id);
+    if (!checkActor) {
+        const made = ctx.call('checks.actor', { write: ctx.id('wr'), name: actor.name, expectedHash: policy.hash }).data?.v2?.result;
+        checkActor = made.actor;
+        ctx.call('checks.link', { write: ctx.id('wr'), actor: checkActor, rbActor: actor.id, expectedHash: made.hash });
+    }
+    const rolled = ctx.call('checks.roll', { actor: checkActor, skill: `craft ${recipe.craft}`, stat: recipe.stats?.[0] ?? 'INT', dc: recipe.dc,
+        craft: { recipe: recipe.id, ...(at === 'campfire' ? { at } : {}) }, evidence: ctx.source.evidence }).data?.v2?.result;
+    if (!rolled) fail(ctx, 'FAILED', 'Story Director returned no craft check.');
+    return { roll: 0, die: rolled.die, mod: rolled.mod, modifiers: rolled.modifiers, total: rolled.total, check: rolled.check, note: '', key };
 }
 
 // ---------------------------------------------------------------------------------------
@@ -315,9 +287,11 @@ export function make(ctx, request = {}) {
     }
 
     const craft = draftCraft(ctx);
-    const dice = dieFor(ctx, craft, request.roll);
+    const dice = dieFor(ctx, craft, actor, recipe, at);
     if (dice.refused) fail(ctx, 'REFUSED', `Only ${MAX_PER_REPLY} crafts count in one reply: ${recipe.name} was not made.`);
-    const total = dice.die + plan.mod;
+    const total = dice.total;
+    plan.mod = dice.mod;
+    plan.modifiers = dice.modifiers;
     const rolled = qualityOf(dice.die, total, plan.dc);
     const held = story && ['fine', 'masterwork'].includes(rolled) ? qualityWithin(base, rolled, cap, worthOptions) : rolled;
     const quality = held ?? 'normal';
@@ -379,7 +353,7 @@ export function make(ctx, request = {}) {
     const text = clip(`${recipe.name} (${recipe.craft}): ${dieText}${modText ? `, ${modText}` : ''} → ${total} against DC ${plan.dc}: ${QUALITY_TEXT[quality]}`, 300);
     craft.made[id] = {
         id, actor: actor.id, name: clip(actor.name, 80), recipe: recipe.id, recipeName: recipe.name, craft: recipe.craft, carrier: dice.key, rev,
-        roll: dice.roll, die: dice.die, modifiers: plan.modifiers, mod: plan.mod, dc: plan.dc, total, quality, said, mismatch,
+        check: dice.check, roll: dice.roll, die: dice.die, modifiers: plan.modifiers, mod: plan.mod, dc: plan.dc, total, quality, said, mismatch,
         note: clip(notes.filter(Boolean).join('; '), 200), item, qty, lost, refine, minutes, text,
     };
     prune(craft.made, MAX_MADE, id);
@@ -391,7 +365,7 @@ export function make(ctx, request = {}) {
     return {
         summary: `${actor.name} crafts ${text}.${madeText}${lostText}${minutes ? (clock ? ` It took ${minutes} minutes.` : ` No story time passes (no story clock moves here; it would take ${minutes} minutes).`) : ''}${flag}`,
         data: {
-            craft: id, actor: actor.id, recipe: recipe.id, kind: recipe.craft, roll: dice.roll, die: dice.die, modifiers: JSON.parse(JSON.stringify(plan.modifiers)), mod: plan.mod,
+            craft: id, actor: actor.id, recipe: recipe.id, kind: recipe.craft, check: dice.check, roll: dice.roll, die: dice.die, modifiers: JSON.parse(JSON.stringify(plan.modifiers)), mod: plan.mod,
             dc: plan.dc, total, quality, said, mismatch, note: craft.made[id].note, item, qty, lost, refine, minutes, clock, owner: KEEPER, carrier: dice.key,
         },
         narrate: Boolean(mismatch),
@@ -431,7 +405,7 @@ function applyCraft(ctx, line) {
 
 export const GRAMMAR = Object.freeze({
     recipe: '+ recipe Name | from: who or what taught it | who: Name (someone learns a recipe; one the packs lack also says | makes: Item | with: Material x2, Material | craft: smithing|leather|alchemy|enchanting|cooking or a pack\'s craft, and | slot: weapon|armour|… for gear); - recipe Name | who: Name when forgotten',
-    craft: '! craft Recipe | with: Material x2, Material | by: Name | roll: <1 or 2> | result: fail|made|fine|masterwork (someone crafts a recipe they know; it takes the reply\'s next roll like a check; add | at: campfire for a fire made on the spot)',
+    craft: '! craft Recipe | with: Material x2, Material | by: Name | result: fail|made|fine|masterwork (someone crafts a recipe they know; Story Director rolls its check; add | at: campfire for a fire made on the spot)',
 });
 
 const guarded = handler => (ctx, payload) => {

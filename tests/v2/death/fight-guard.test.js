@@ -25,7 +25,7 @@ async function rat(w, stakes = 'normal') {
     return Object.assign(ok(w.command('combat.end', { session: w.q('combat.session').id }, 'ui')), { pre });
 }
 
-test('F1: a won fight with no one downed keeps combat.end; deleting an earlier clock-only or hp-edit reply keeps its XP', async t => seeded(91, async () => {
+test('F1: a won fight with no one downed keeps combat.end; deleting an earlier clock-only or hp-edit reply keeps its XP', async t => seeded(1, async () => {
     const w = await world(t);
     await w.say('Clock only.\n\n<Changes>\n~ time 3000\n</Changes>');
     await w.say('Hurt.');

@@ -1,149 +1,10 @@
-// beta.1 live test, the reader's notes:
-//
-// 1. "there's no way for us to know the rolls?" A reply wrote `? check AGI — pursuing the wounded wolf |
-//    dc: 10 | roll: 1 | result: success` (and a second check also naming `roll: 1`); `roll: 1` is "Roll 1",
-//    the first die handed over, and the dice were shown only on RPG Battle's own status card, which is off by
-//    default. Fixed: each check is a line on the reply's "Changed this reply" card (Story Block's
-//    hooks.replyCard, MODULES §F125; checks/card.js): skill and stat, the d20 and which roll it was, the
-//    modifiers, the total against the DC, code's outcome, and "Story said …; dice said …" when the written
-//    result disagrees. Code's outcome is the one kept. The dice handed over are in Settings → Diagnostics.
-// 2. "it still shows the last battle result after 2 more messages". Fixed: the Fight screen shows the last
-//    fight in full only on the reply it settled on and the one that tells it; before any later reply it is
-//    folded (combat.fold), "No fight on offer" with "Last fight" closed under it.
+// Check outcomes are receipt summaries; the fight-folding regression coverage still runs unchanged.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { playOut, rpgHost, seeded } from '../integration/helpers/host.js';
-import { changesSummary, replyCardLines } from '../../vendor/story-block/src/v2/screens/index.js';
-import { replyCard } from '../../../src/v2/checks/card.js';
 import { settleBeforeReply } from '../../../src/v2/combat/index.js';
 import { statusCardScreen } from '../../../src/v2/screens/index.js';
-
-const KIND = { crit: 'success', success: 'success', cost: 'cost', fail: 'fail', critfail: 'fail' };
-const WORDS = { crit: 'critical success', success: 'success', cost: 'success, at a cost', fail: 'fail', critfail: 'critical fail' };
-
-/** The lines Story Block's card gets for the reply at `index`, through the host's registry (as ui-host asks). */
-const cardLines = (host, index) => replyCardLines(host.registry.hookEntries('replyCard'), { index, state: host.store.at(index), changes: host.store.changesAt(index) });
 const lastIndex = host => host.ctx.chat.length - 1;
-const entriesAt = (host, index) => Object.values(host.store.at(index).domains.checks.log)
-    .filter(entry => host.store.changesAt(index).some(path => path.startsWith(`/domains/checks/log/${entry.id}`)))
-    .sort((a, b) => a.rev - b.rev);
-
-const USER_CHECKS = [
-    '? check AGI — pursuing the wounded wolf | dc: 10 | roll: 1 | result: success',
-    '? check perception — spotting where it went to ground | dc: 40 | roll: 1 | result: success',
-];
-
-test('the reply\'s checks on "Changed this reply": the die, which roll, modifiers, total vs DC, code\'s outcome, a disagreement told', async t => {
-    t.mock.method(console, 'warn', () => {});
-    await seeded(21, async () => {
-        const host = await rpgHost();
-        try {
-            assert.equal((await host.cmd('party.create', { name: 'Wessel', preset: 'fighter' })).ok, true);
-            await host.send('After it!', host.reply('Wessel runs the wolf down.', USER_CHECKS));
-            const index = lastIndex(host);
-            const handed = host.q('checks.rolls').rolls;
-            const entries = entriesAt(host, index);
-            assert.equal(entries.length, 2, 'both checks count');
-            const lines = cardLines(host, index);
-            assert.equal(lines.length, 2);
-            assert.ok(lines.every(line => line.module === 'rpg-battle' && line.icon === 'fa-dice-d20'));
-            entries.forEach((entry, n) => {
-                const line = lines[n];
-                // The member's 1st die for the first check, the 2nd for the second, whatever the line named.
-                assert.equal(entry.roll, n + 1);
-                assert.equal(entry.die, handed[n]);
-                const mods = entry.modifiers.map(mod => ` ${mod.amount < 0 ? '−' : '+'} ${Math.abs(mod.amount)} ${mod.reason}`).join('');
-                assert.ok(line.text.startsWith('Wessel, '), line.text);
-                assert.ok(line.text.includes(`: d20 ${entry.die} (${n ? '2nd' : '1st'})${mods} = ${entry.total} vs DC ${entry.dc} → ${WORDS[entry.outcome]}`), line.text);
-                assert.equal(entry.total, entry.die + entry.mod);
-                assert.ok(line.summary.endsWith(`${entry.total} vs DC ${entry.dc}: ${WORDS[entry.outcome]}${line.flag ? ' (story said otherwise)' : ''}`), line.summary);
-                // The written result is only compared: code's outcome is kept, a disagreement told.
-                assert.equal(entry.said, 'success');
-                assert.equal(line.flag, KIND[entry.outcome] === 'success' ? '' : `Story said success; dice said ${WORDS[entry.outcome]}`);
-            });
-            assert.match(lines[0].text, /AGI — pursuing the wounded wolf/);
-            assert.match(lines[1].text, /Perception \(\w+\) — spotting where it went to ground/);
-            assert.equal(lines[1].note, '', 'with the table the roll is the member\'s 2nd die; `roll:` is not read');
-            // DC 40 cannot be reached but by a natural 20: the story's "success" is flagged otherwise.
-            if (entries[1].die !== 20) assert.match(lines[1].flag, /^Story said success; dice said (fail|critical fail)$/);
-            // The folded header tells them after the rest.
-            const header = changesSummary({ state: host.store.at(index), changes: host.store.changesAt(index), lines });
-            assert.ok(header.includes(lines[0].summary) && header.includes(lines[1].summary), header);
-            // Nothing is a Problem: both lines were used.
-            assert.equal((host.turn.problems?.() ?? []).filter(problem => problem.index === index).length, 0);
-
-            // A Re-read of the same text: the same dice, the same lines.
-            const before = JSON.stringify(lines);
-            assert.equal((await host.sdk.reread(index)).ok, true);
-            assert.equal(JSON.stringify(cardLines(host, index)), before, 'Re-read reads the same checks');
-
-            // The next reply rolled nothing: its card has no check, the earlier reply keeps its own.
-            await host.send('Rest.', host.reply('They catch their breath.'));
-            const next = lastIndex(host);
-            assert.deepEqual(cardLines(host, next), []);
-            assert.equal(changesSummary({ state: host.store.at(next), changes: host.store.changesAt(next), lines: [] }), 'No changes');
-            assert.equal(JSON.stringify(cardLines(host, index)), before);
-
-            // A swipe brings fresh dice and its own checks only.
-            await host.swipe(host.reply('Wessel climbs a ledge instead.', ['? check athletics — up the ledge | dc: 15 | roll: 1 | result: fail']));
-            const swiped = cardLines(host, next);
-            assert.equal(swiped.length, 1);
-            const [entry] = entriesAt(host, next);
-            assert.equal(entry.die, host.q('checks.rolls').rolls[0]);
-            assert.match(swiped[0].text, /^Wessel, Athletics \(STR\) — up the ledge: d20 \d+ \(1st\)/);
-            assert.equal(swiped[0].flag, KIND[entry.outcome] === 'fail' ? '' : `Story said fail; dice said ${WORDS[entry.outcome]}`);
-            assert.equal(JSON.stringify(cardLines(host, index)), before, 'the earlier reply still shows its own');
-
-            // Replay equals live.
-            const live = JSON.stringify(host.head());
-            host.store.rebuild();
-            assert.equal(JSON.stringify(host.head()), live);
-        } finally {
-            host.close();
-        }
-    });
-});
-
-test('the dice handed over are in Diagnostics (behind a click), never in the reply\'s card; numbers only', async t => {
-    t.mock.method(console, 'warn', () => {});
-    await seeded(22, async () => {
-        const host = await rpgHost();
-        try {
-            assert.deepEqual(host.module.hooks.diagnostics(), ['Dice: none handed over yet (they are rolled when a reply starts).']);
-            assert.equal((await host.cmd('party.create', { name: 'Wessel', preset: 'fighter' })).ok, true);
-            await host.send('Look.', host.reply('Wessel looks around.', ['? check perception — the treeline | dc: 10 | roll: 1 | result: success']));
-            const { rolls, for: at } = host.q('checks.rolls');
-            const lines = host.module.hooks.diagnostics();
-            assert.deepEqual(lines, [
-                `Dice handed over for the latest reply (message ${at}): Roll 1 = ${rolls[0]} · Roll 2 = ${rolls[1]}.`,
-                'Taken by a check: Roll 1.',
-                'Every new reply, swipe or regenerate rolls fresh dice when it starts; a Continue keeps them.',
-            ]);
-            assert.ok(!lines.join(' ').includes('treeline'), 'no story words');
-            // The hook is registered for Story Block's Diagnostics fold.
-            assert.ok(host.registry.hookEntries('diagnostics').some(entry => entry.moduleId === 'rpg-battle'));
-            // The tail hands over the reply's own dice only (unchanged); the card shows no dice still to come.
-            assert.ok(cardLines(host, lastIndex(host)).every(line => !line.text.includes('Roll 2')));
-        } finally {
-            host.close();
-        }
-    });
-});
-
-test('replyCard: an older chat\'s whole-log write shows that reply\'s entries; no checks, no lines', () => {
-    const entry = (id, carrier, rev) => ({ id, actor: 'ac_ren00001', name: 'Ren', skill: 'stealth', stat: 'DEX', dc: 15, word: 'normal', what: 'past the gate', rev, carrier, roll: 1, die: 9, modifiers: [{ source: 'stat', amount: 2, reason: 'DEX' }], mod: 2, total: 11, outcome: 'fail', said: null, note: '' });
-    const state = { domains: { party: { pc: 'ac_ren00001', actors: {} }, checks: { prepared: {}, log: { ck_a: entry('ck_a', 'old', 1), ck_b: entry('ck_b', 'new', 2) } } } };
-    assert.deepEqual(replyCard({ state, changes: ['/domains/checks/log'] }).map(line => line.text), ['Ren, Stealth (DEX) — past the gate: d20 9 (Roll 1) + 2 DEX = 11 vs DC 15 (normal) → fail']);
-    assert.deepEqual(replyCard({ state, changes: ['/domains/party/actors/ac_ren00001/hp'] }), []);
-    assert.deepEqual(replyCard({ state: null, changes: null }), []);
-    // A result kept before `said` existed keeps its own note as the flag.
-    const old = { ...entry('ck_c', 'x', 3), said: undefined, mismatch: 'narrated as success, the dice say fail' };
-    delete old.said;
-    assert.equal(replyCard({ state: { domains: { checks: { log: { ck_c: old } } } }, changes: ['/domains/checks/log/ck_c'] })[0].flag, 'Narrated as success, the dice say fail');
-});
-
-// ---------------------------------------------------------------------------------------------------
-// 2. The last fight folds once the story has moved on
 
 /** A character, an offered fight, started and played out (not finished on the board). */
 async function foughtOut(host) {
@@ -238,4 +99,20 @@ test('settleBeforeReply folds only a result that is not news, only for a new rep
     assert.deepEqual(settleBeforeReply(view({ ...old, folded: true }), { type: 'normal' }), { commands: [] }, 'folded already');
     // RPG Battle's status card never shows a fight's result (only HP, conditions and what the reply changed).
     assert.ok(!/combat|last/i.test(statusCardScreen.template));
+});
+
+for (const labels of ['', ' | result: success', ' | result: fail']) test(`check receipts show the actual die and outcome, without a status row (${labels})`, async () => {
+    const host = await rpgHost();
+    try {
+        assert.equal((await host.cmd('party.create', { name: 'Ren', preset: 'fighter' })).ok, true);
+        await host.send('Try.', host.reply('An attempt.', [`? check AGI — chase | dc: 40${labels}`]));
+        const record = Object.values(host.head().domains.checks.log)[0];
+        const receipt = host.ctx.chat.at(-1).extra.storySuite.receipts.find(row => row.type === 'capture.check');
+        assert.equal(receipt.data.v2.result.die, record.die);
+        assert.equal(receipt.data.v2.result.outcome, record.outcome);
+        assert.match(receipt.summary, new RegExp(`d20 ${record.die} .* = ${record.total} against 40`));
+        assert.equal(receipt.problem, undefined);
+        assert.deepEqual(host.turn.problems(), []);
+        assert.equal(host.module.domains.checks, undefined);
+    } finally { host.close(); }
 });

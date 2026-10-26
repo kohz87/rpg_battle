@@ -169,3 +169,18 @@ Injury anchor (review round 2)
   clock, which anchors it there. The earlier clock is not looked up again, and the later replies do not re-anchor it by
   themselves: live state after the delete equals the state a rebuild gives (tests/v2/death/recovery.test.js). The end of the
   injury (`at` plus its rounds) moves with the anchor; this is intended, not a bug.
+
+Native-death merge with main (checks flip and pin flow)
+
+- The current host's participant barrier and RB's nativeSelection dossier dependency govern
+  native readiness. Hosts without that readiness contract retain main's selectionIncludes
+  journal traversal and mismatch remedy, including completed selection boundaries.
+- Both deletion outcomes remain covered: the living native checkpoint follows a removed
+  lethal reply, while unavailable checkpoint bytes keep reads and generation held with a
+  player-facing reason and restore/replace-reply remedy. The latter fixture now uses seed 1
+  to retain its lethal outcome after main's changed command entropy.
+- Test vendors were regenerated from SB release/native-death 4e26023 and SD main f48c01d.
+  Main's module/capture assertions leave checks with SD; RB's checks domain and kind stay absent.
+- Side-by-side npm test: 2398 tests, 2377 pass, zero failures, 15 skips and 6 TODOs.
+  All 74 death tests pass, including seven scenarios using NSD release/native-death 3353259.
+  npm run -s check passes. The shared matrix ran once: 109 pass, 19 not applicable, no failures.

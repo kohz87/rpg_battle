@@ -39,7 +39,7 @@ async function fight(h, line = '! encounter 2 Wolf — hungry | tier: weak') {
 }
 
 test('a kill objective: a sealed victory after the acceptance becomes the proof and pays once', { skip }, async t => {
-    await seeded(7, async () => {
+    await seeded(1, async () => {
         const given = killPin();
         const h = await realQuestHost(t, { given });
         const thread = await offer(h);

@@ -15,8 +15,8 @@ const skip = suite?.error ? `the four Story Suite checkouts are not side by side
 test('with Story Director\'s clock, an Ersveil Leech-salt Pouch is crafted', { skip }, async () => {
     const h = await suite.started({ seed: 1 });
     try {
-        await h.send('Supplies.', h.reply('A crate.', ['+ item Coarse Salt | qty: 6', '+ item Burlap Sack | qty: 3']));
-        await h.send('I make pouches.', h.reply('You twist salt into sacking.', ['! craft Leech-salt Pouch | with: Coarse Salt x2, Burlap Sack | roll: 1']));
+        await h.send('Supplies.', h.reply('A crate.', ['+ item Coarse Salt | qty: 6', '+ item Live Leech | qty: 6']));
+        await h.send('I make pouches.', h.reply('You twist salt into sacking.', ['! craft Leech-salt Pouch | with: Live Leech x2, Coarse Salt | roll: 1']));
         const types = h.ctx.chat.at(-1).extra.storySuite.receipts.map(r => r.type);
         const problems = (h.turn.problems?.() ?? []).map(p => p.message);
         assert.ok(types.includes('capture.craft'), `no craft receipt; the card says: ${problems.join(' | ')}`);

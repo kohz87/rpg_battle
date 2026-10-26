@@ -1,7 +1,8 @@
 // RPG Battle v2, part **craft**: the recipe book and what a craft would be (pure apart from the
 // queries it is handed).
 //
-// Recipes come from two places: the enabled packs (`packs.content({ kind: 'recipes' })`, PACKS.md:
+// Recipes come from two places: the enabled packs (`packs.content({ kind: 'recipes' })`, or the pin's once the rules
+// are pinned; PACKS.md:
 // `{ id, name, makes, qty?, materials: [{ item, qty }], fee?, minutes?, craft?, dc?, station?, stat?,
 // known?, teaches? }`, every field after `materials` optional) and the story (`craft.taught`, this chat
 // only). Who knows what is per member: a pack recipe marked `known: true` everyone knows from the
@@ -15,6 +16,7 @@
 import { DEFAULT_RULES, RARITIES, makeRules } from '../../rules.js';
 import { knowKey, usesOf } from './domain.js';
 import { isKeyItem } from '../trade/core.js';
+import { pinOf } from '../rules/pin.js';
 import { fitParty } from '../party/pools.js';
 import {
     chancesOf, clip, craftOfRecipe, craftTable, dcOf, materialBonus, nameKey, rankOf,
@@ -43,7 +45,7 @@ export function envOfCtx(ctx) {
     const read = domain => {
         try { return ctx.read(domain) ?? null; } catch { return null; }
     };
-    return withPacks({ ask, craft: read('craft'), inventory: read('inventory'), party: fitParty(read('party')), scene: read('scene'), time: () => { try { return ctx.time?.() ?? null; } catch { return null; } } });
+    return withPacks({ ask, rules: read('rules'), craft: read('craft'), inventory: read('inventory'), party: fitParty(read('party')), scene: read('scene'), time: () => { try { return ctx.time?.() ?? null; } catch { return null; } } });
 }
 
 /** env for a query or a view: the state, and the host's query tools (null-safe). */
@@ -53,16 +55,18 @@ export function envOfState(state, query) {
         try { return query(name, args) ?? null; } catch { return null; }
     };
     const domains = state?.domains ?? {};
-    return withPacks({ ask, craft: domains.craft ?? null, inventory: domains.inventory ?? null, party: fitParty(domains.party ?? null), scene: domains.scene ?? null, time: () => domains.director?.time?.minutes ?? null });
+    return withPacks({ ask, rules: domains.rules ?? null, craft: domains.craft ?? null, inventory: domains.inventory ?? null, party: fitParty(domains.party ?? null), scene: domains.scene ?? null, time: () => domains.director?.time?.minutes ?? null });
 }
 
 // What one command or query reads more than once is read once (B-rxui-10: a screen with hundreds of
 // recipes must not ask the same queries per recipe): the packs' content by kind, and anything `memo`
 // keeps by its key (the craft table, the uses, a member's counted modifiers per craft).
+// A pinned timeline reads its recipes from the pin (rules/pin.js), never from the packs installed now.
 function withPacks(env) {
     const cache = {};
     const kept = new Map();
-    const content = kind => (cache[kind] ??= list(env.ask('packs.content', { kind })).filter(isRecord));
+    const pin = pinOf({ domains: { rules: env.rules } });
+    const content = kind => (cache[kind] ??= (pin && kind === 'recipes' ? Object.values(pin.resolved.recipes ?? {}) : list(env.ask('packs.content', { kind }))).filter(isRecord));
     const memo = (key, make) => {
         if (!kept.has(key)) kept.set(key, make());
         return kept.get(key);
@@ -155,7 +159,7 @@ export function findRecipe(book, name, among = null) {
     const pool = among ?? book;
     const key = nameKey(name);
     if (!key) return null;
-    return pool.find(recipe => sameName(recipe.name, name)) ?? pool.find(recipe => sameName(recipe.makes?.name, name)) ?? null;
+    return pool.find(recipe => recipe.id === name) ?? pool.find(recipe => sameName(recipe.name, name)) ?? pool.find(recipe => sameName(recipe.makes?.name, name)) ?? null;
 }
 
 /** What a member knows: [{ ...recipe, from }] (the basics, less any forgotten, then what was learned). */
@@ -260,14 +264,14 @@ export function rankFor(env, actorId, craft, rules) {
 
 /**
  * The modifiers of a craft for a member, by the rule (rules.js): [{ source, amount, reason }]: the
- * stat and what the checks part counts for crafting (its `checks.modifiers` query: tools, a talent, a
+ * stat sum and what rules.modifier counts for crafting (tools, a talent, a
  * skill, at most +3), the craft's rank, the station's bonus, the materials' quality.
  */
 export function modifiersFor(env, actor, recipe, { station = null, parts = [], rules = DEFAULT_RULES } = {}) {
     const stats = recipe.stats?.length ? recipe.stats : ['INT'];
     const out = [{ source: 'stat', amount: statsModifier(actor, stats, rules), reason: stats.join('+') }];
-    const counted = env.memo(`mods|${actor.id}|${recipe.craft}|${stats[0]}`, () => env.ask('checks.modifiers', { actor: actor.id, skill: `craft ${recipe.craft}`, stat: stats[0] }));
-    for (const entry of Array.isArray(counted) ? counted : []) {
+    const counted = env.memo(`mods|${actor.id}|${recipe.craft}|${stats[0]}`, () => env.ask('rules.modifier', { actor: actor.id, skill: `craft ${recipe.craft}`, stat: stats[0] }));
+    for (const entry of Array.isArray(counted?.parts) ? counted.parts : []) {
         if (isRecord(entry) && entry.source !== 'stat' && Number.isInteger(entry.amount)) out.push({ source: entry.source, amount: entry.amount, reason: clip(entry.reason, 60) || entry.source });
     }
     const rank = rankFor(env, actor.id, recipe.craft, rules).rank;

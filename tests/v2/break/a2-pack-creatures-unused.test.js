@@ -18,7 +18,13 @@ const { started } = suite?.error ? {} : suite;
 
 test('a2-pack-creatures: a pack creature written in an encounter is fought with the pack\'s own loot', { skip }, async t => {
     t.mock.method(console, 'warn', () => {});
-    const host = await started({ seed: 5 });
+    // Ersveil now supplies rules-v2 foes. This regression specifically exercises the
+    // unpinned legacy bestiary path, so keep its legacy creature schema explicit.
+    const packText = JSON.stringify({ id: 'legacy-creature-fixture', version: '1.0.0', name: 'Legacy creature fixture', requires: { storyBlock: '^2' }, content: {
+        creatures: [{ name: 'River Drake', template: 'drake', level: 12,
+            loot: [{ name: 'River Drake Scale', chance: 60, qty: [1, 2], kind: 'material' }] }],
+    } });
+    const host = await started({ seed: 5, packText });
     t.after(() => host.close());
     await host.send('Hunt.', host.reply('A drake on the bank.', ['! encounter River Drake | tier: even']));
     const offer = host.q('combat.offers').at(-1);

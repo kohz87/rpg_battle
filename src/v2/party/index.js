@@ -1,11 +1,12 @@
 // RPG Battle v2, part **party** (MODULES §A, §B1): the `party` domain (your character and the
 // companions, story-taught skills, and the join and skill offers waiting for the reader), its
-// commands, the wound / join / skill / check / rest change-line kinds, queries, the prompt's
+// commands, the wound / join / skill / rest change-line kinds, queries, the prompt's
 // party lines, the 'Character' settings and the Party tab; and the `effects` domain (timed buffs
 // and debuffs, feature `rpg-battle.effects`, effects.js) with its commands and `effect` kind; HP and MP back
 // with story time (feature `rpg-battle.recovery`, recovery.js) and the story's `xp` awards. The coordinator's src/v2/module.js
 // merges this part with the others into one registerModule definition.
 
+import { practiceCheck } from '../progress/check.js';
 import { commands } from './commands.js';
 import { kinds } from './capture.js';
 import { queries } from './queries.js';
@@ -47,7 +48,7 @@ export const part = {
         // `turns` is per-reply bookkeeping (SPEC §2.2 scratch): replay makes it when only a deleted reply had.
         effects: { initial: initialEffects, validate: slice => validateEffects(slice), scratch: ['turns'] },
     },
-    commands: { ...commands, ...effectCommands, 'party.recover': recover },
+    commands: { 'rules.practiceCheck': practiceCheck, ...commands, ...effectCommands, 'party.recover': recover },
     queries,
     // The queries a replay guard may ask (Story Block REPLAY.md "Guards are pure"): they read the state and their arguments alone. An NPC's
     // portrait comes through the tools when there is one and is null on replay, which no guard reads.
