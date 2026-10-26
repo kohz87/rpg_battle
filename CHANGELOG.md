@@ -23,6 +23,7 @@ For a pinned Ersveil adventure, start a fresh chat with **Setup → Pin Ersveil 
 ## Unreleased
 
 - Licence: MIT (was unlicensed), so the module can be a base for other extensions.
+- A fight offer in a pinned chat sets its danger in a fraction of a second (it took seconds, freezing the page), to the same numbers.
 
 ## 2.0.0-beta.2 (`v2` branch)
 
