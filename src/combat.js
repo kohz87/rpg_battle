@@ -13,6 +13,8 @@ import { effectivePower } from './skills.js';
 import { LOOT_TABLES, rollLoot } from './enemies.js';
 import { templateFor } from './templates.js';
 
+// A fight played by prepareAuto holds the way it makes its late joiners (waves): from templates, not clones.
+const MAKE = Symbol('make');
 const DOTS = ['poison', 'burn', 'bleed'];
 const HARMFUL = new Set(['poison', 'burn', 'bleed', 'stun', 'slow', 'weaken', 'daze']);
 // Conditions that only make sense inside a fight; the rest may follow the sheet out of it.
@@ -357,7 +359,7 @@ function joinWaves(f) {
         f.marks.waves.push(index);
         const joined = [];
         for (const enemy of wave.enemies ?? []) {
-            const c = normalizeCombatant(enemy);
+            const c = f[MAKE] ? f[MAKE](enemy) : normalizeCombatant(enemy);
             while (byId(f, c.id)) c.id = `${c.id}w${index + 1}`;
             c.side = 'enemy';
             c.controller = 'auto';
@@ -461,7 +463,8 @@ function nextOnTimeline(f, rng, rules) {
     if (!up) return;
     f.time = Math.max(f.time, up.next);
     if (!passRounds(f, Math.floor(f.time / length) + 1, rng, rules)) return;
-    f.order = previewOrder(f, up.c.id);
+    // The strip of turns ahead is for a screen; a trial plays only the one in front.
+    f.order = f[MAKE] ? [up.c.id] : previewOrder(f, up.c.id);
     f.turn = 0;
     f.turnStarted = false;
 }
@@ -909,11 +912,16 @@ const ENGINE = Object.freeze({ join: joinFight, hit: hitIn, strike, heal, applyE
  * waiting on the first player-controlled combatant (or already over when nobody is).
  */
 export function startFight({ rules = DEFAULT_RULES, ...setup } = {}) {
-    const saved = structuredClone(setup);
+    return beginFight(setup, structuredClone(setup), rules, normalizeCombatant);
+}
+
+/** startFight's body: `saved` is the fight's own copy of the setup, `make` the fighter each Combatant becomes. */
+function beginFight(setup, saved, rules, make) {
     const seed = setup.seed ?? setup.id ?? 'fight';
-    const party = (setup.party ?? []).map(c => ({ ...normalizeCombatant(c), side: 'party' }));
-    const enemies = (setup.enemies ?? []).map(c => ({ ...normalizeCombatant(c), side: 'enemy', controller: 'auto' }));
+    const party = (setup.party ?? []).map(c => ({ ...make(c), side: 'party' }));
+    const enemies = (setup.enemies ?? []).map(c => ({ ...make(c), side: 'enemy', controller: 'auto' }));
     const f = {
+        ...(make === normalizeCombatant ? {} : { [MAKE]: make }),
         id: setup.id ?? null,
         seed,
         stakes: setup.stakes === 'death' ? 'death' : 'normal',
@@ -946,6 +954,39 @@ export function startFight({ rules = DEFAULT_RULES, ...setup } = {}) {
     advance(f, rng, rules);
     f.rngState = rng.state();
     return f;
+}
+
+/**
+ * Repeated Auto trials of one setup, for calibration: `trial(seed, actionId)` returns the fight
+ * that startFight then actInPlace({ type: 'auto' }) would, to the last field (tests/v2/fight/
+ * calibration.test.js), at a fraction of the cost. Each Combatant is normalised once and every
+ * trial plays on its own plain copy; the setup is neither copied per trial nor changed.
+ */
+export function prepareAuto(setup, rules = DEFAULT_RULES) {
+    const templates = new Map();
+    for (const c of [...(setup.party ?? []), ...(setup.enemies ?? []), ...(setup.waves ?? []).flatMap(wave => wave.enemies ?? [])]) templates.set(c, normalizeCombatant(c));
+    const make = c => plain(templates.get(c));
+    return (seed, actionId = 'ca_00000001') => {
+        const f = beginFight({ ...setup, seed }, setup, rules, make);
+        if (f.status === 'active') actInPlace(f, { type: 'auto', id: actionId }, rules);
+        delete f[MAKE];
+        return f;
+    };
+}
+
+/** A deep copy of plain data (what structuredClone gives it), without structuredClone's fixed cost per call. */
+function plain(value) {
+    if (value === null || typeof value !== 'object') return value;
+    if (Array.isArray(value)) {
+        const copy = new Array(value.length);
+        for (let i = 0; i < copy.length; i++) copy[i] = plain(value[i]);
+        return copy;
+    }
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null) return structuredClone(value);
+    const copy = {};
+    for (const key of Object.keys(value)) copy[key] = plain(value[key]);
+    return copy;
 }
 
 /** What the player-controlled combatant whose turn it is can do. */

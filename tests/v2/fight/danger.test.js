@@ -2,52 +2,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createHost } from '../../vendor/story-block/testkit/index.js';
-import { createModule } from '../../../src/v2/module.js';
-import { SD, AREA_TIERS } from '../progress/helpers/world.js';
-import { partyCombatants, fightNumbers } from '../../../src/v2/combat/setup.js';
+import { AREA_TIERS } from '../progress/helpers/world.js';
 import { fightRules, sessionStatus, unpackSetup } from '../../../src/v2/combat/stored.js';
+import { hashSeed } from '../../../src/rng.js';
+import { leanAuto } from '../../../src/v2/fight/lean.js';
 import { autoOutcome } from '../../../src/v2/fight/danger.js';
 import { pinnedSetup } from '../../../src/v2/fight/index.js';
 import { seeded } from '../integration/helpers/host.js';
 
-const PACK = JSON.parse(readFileSync(new URL('./fixtures/ersveil-bluewatch.pack.json', import.meta.url)));
-const PLACE = 'pack.ersveil-bluewatch/bluewatch-village';
-const ok = result => { assert.equal(result.ok, true, `${result.code}: ${result.message}`); return result; };
-const allFoes = setup => [...setup.enemies, ...(setup.waves ?? []).flatMap(wave => wave.enemies)];
-const SEEDS = 300;
+import { PACK, PLACE, ok, allFoes, SEEDS, world, offer, setupOf } from './helpers/danger.js';
 
-async function world(t, klass = 'militiaman') {
-    const h = await createHost({ modules: [{ ...SD, version: '2.0.0' }] });
-    t.after(() => h.close());
-    ok(await h.packs.packs.install(structuredClone(PACK)));
-    const preflight = () => h.sdk.preflight({ module: 'rpg-battle', rulesVersion: 2, peers: ['story-director'] });
-    await h.sdk.registerModule(createModule({ settings: () => h.sdk.settings('rpg-battle'), query: (name, args) => h.sdk.query(name, args), preflight: preflight(), readPreflight: preflight }));
-    h.q = (name, args = {}) => h.sdk.query(name, args);
-    const { name, ...choice } = h.q('rules.selection').offers[0];
-    ok(await h.sdk.command('rules.pin', choice));
-    const human = h.q('packs.content', { kind: 'races' }).find(race => /human/i.test(race.id));
-    ok(await h.sdk.command('creation.finish', { name: 'Ren', race: human.id, talents: [], points: { STR: 4, VIT: 2, AGI: 2, DEX: 2 }, portrait: '', background: '', class: `pack.ersveil-bluewatch/${klass}`, checkActor: null }));
-    AREA_TIERS[PLACE] = 0;
-    t.after(() => { delete AREA_TIERS[PLACE]; });
-    await h.send('Here.', `Here.\n\n<Changes>\n~ time 3000\n~ here ${PLACE}\n</Changes>`);
-    h.ctxForFight = { query: h.q, read: domain => h.head().domains[domain] };
-    return h;
-}
-
-async function offer(h, tier = 'weak', extra = '') {
-    const previous = h.q('combat.offers').at(-1)?.id;
-    await h.send('They attack.', `They attack.\n\n<Changes>\n! encounter 6 Cellar Rat Swarm | tier: ${tier}${extra}\n</Changes>`);
-    const result = h.q('combat.offers').at(-1);
-    assert.ok(result, JSON.stringify(h.store.problems()));
-    assert.notEqual(result.id, previous, 'the new encounter must have been captured');
-    return result;
-}
-
-function setupOf(h, offered) {
-    const party = partyCombatants(h.ctxForFight, { rules: fightRules(fightNumbers({})) });
-    return { ...unpackSetup(offered.opposition), id: 'fi_00000001', party };
-}
+const BASELINE = JSON.parse(readFileSync(new URL('./fixtures/pinned-danger-rates.json', import.meta.url)));
 
 const classes = PACK.content.rules[0].classes.filter(klass => klass.tier === 0);
 for (const klass of classes) {
@@ -59,10 +24,19 @@ for (const klass of classes) {
             assert.ok(offered.opposition, JSON.stringify(h.store.problems()));
             const setup = setupOf(h, offered);
             assert.equal(allFoes(setup).length, 6);
+            // The calibration's own player takes a shipped encounter, and plays its private samples as the engine does.
+            const play = leanAuto(setup, fightRules(setup));
+            assert.ok(play, `${klass.name} ${label}: the lean player takes the offer`);
+            for (let n = 0; n < 48; n += 1) {
+                const seed = `pinned-danger:sample:${n}`;
+                assert.equal(play(hashSeed(seed), hashSeed(`${seed}|ca_00000001`)), autoOutcome(setup, seed) === 'victory' ? 1 : 0, `${klass.name} ${label}: sample ${n}`);
+            }
             assert.ok(allFoes(setup).every(enemy => enemy.pack === 'pack.ersveil-bluewatch/cellar-rat-swarm'));
             let wins = 0;
             for (let seed = 1000; seed < 1000 + SEEDS; seed += 1) if (autoOutcome(setup, seed) === 'victory') wins += 1;
             rates[label] = wins / SEEDS * 100;
+            const before = BASELINE.wins[klass.slug][label];
+            assert.ok(Math.abs(wins - before) <= SEEDS * 0.03, `${klass.name} ${label}: ${wins}/${SEEDS}, baseline ${before}/${SEEDS}; must stay within three points`);
             assert.ok(rates[label] >= lo && rates[label] <= hi, `${klass.name} ${label}: ${rates[label].toFixed(1)}%, wanted ${lo}–${hi}%`);
         }
         t.diagnostic(`${klass.name} | ${Object.values(rates).map(rate => rate.toFixed(1) + '%').join(' | ')}`);
@@ -122,4 +96,22 @@ test('like variants keep their frozen base, variant name, skills and loot in the
     assert.equal(foe.pack, 'pack.ersveil-bluewatch/cellar-rat-swarm~ash-rat');
     assert.equal(foe.skills.length, 1);
     assert.equal(foe.loot[0].def, 'pack.ersveil-bluewatch/rat-tail');
+});
+
+test('the same offer on two cold captures records identical opposition, including after reload', async () => {
+    const captures = [];
+    for (let run = 0; run < 2; run++) await seeded(7, async () => {
+        const cleanup = [];
+        try {
+            const h = await world({ after: fn => cleanup.push(fn) });
+            const offered = await offer(h, 'normal');
+            const bytes = JSON.stringify(offered.opposition);
+            h.store.rebuild();
+            assert.equal(JSON.stringify(h.q('combat.offers').at(-1).opposition), bytes);
+            await h.st.loadChat(structuredClone(h.ctx.chat));
+            assert.equal(JSON.stringify(h.q('combat.offers').at(-1).opposition), bytes);
+            captures.push(bytes);
+        } finally { for (const fn of cleanup.reverse()) await fn(); }
+    });
+    assert.equal(captures[0], captures[1]);
 });

@@ -356,6 +356,9 @@ export function createModule({ settings = null, query = null, parts = [], rules 
         // replays list appends at the end (B-b1r2-13) came in Story Block 2.0.0-alpha.2; the beta asks for
         // the beta host it was built and tested with (the Features switches, F100, among them).
         requires: { storyBlock: '>=2.0.0-beta.2', peers: { 'story-director': '>=2.0.0-beta.2' } },
+        // What a pack's requires.capabilities may name that this module provides: the rules pack kind. Declared always, also
+        // while the module waits for Story Director: installing a pack into the library does not depend on peers.
+        capabilities: ['rb-rules-v2'],
         domains,
         commands,
         queries,
