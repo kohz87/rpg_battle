@@ -43,22 +43,25 @@ Today's skills map to tier-1 (or tier-0) nodes with no `requires`, so no lines a
 
 ## Character creation (`src/v2/creation/`)
 
-The wizard's steps keep their ids, commands, payloads and rules. Every step is a summary strip "Your character" (one
-wrapping row under the dialog's step list: portrait, name, race, talents and the final stats as an inline list, drawn again
-from the draft at each change) and, below it, the step's choices across the whole dialog. The screen asks Story Block for a
-wide window (`width: 'wide'`, 960 px on a wide screen). Races, talents and classes are one grid of cards
-(`repeat(auto-fill, minmax(min(100%, 15em), 1fr))`: two or three to a row on the wide dialog, one on a phone, equal width and
-height). On a phone the steps stack one per screen with the dialog's own step list as the indicator.
+The wizard's steps keep their ids, commands, payloads and rules. The screen asks Story Block for a wide window
+(`width: 'wide'`, 960 px on a wide screen). Under the dialog's step list every step has one full-width summary row "Your
+character" (a card: portrait and name with "Race · Class" under it, the pinned Rules on Start, the talents, the final stats as
+one inline list, and the points left as a pill on the right; drawn again from the draft at each change). It wraps, and on a
+phone (below 768 px) it stacks: name and points, then talents, then stats. The step's choices follow at full width. Races,
+talents and classes are one grid of equal cards: three columns wide, one on a phone; each card has the name with a
+"Taken"/"Chosen" pill, a stat line in the accent colour (the cost joins it on a phone), a muted note, and the cost at the
+bottom right. The Start step ends with the kit section: the ready-made characters, My own and Import character in one row.
 
 The rules choice comes first. While a rules pack is offered and none is pinned (`rules.selection` is `offered`), every step
 shows "Choose your rules" (`.cc-gate`, query `rpg-battle.rulesGate`) in place of its choices, with the same `rules.pin`
 button Setup draws (`rulesChoice` in `screens/rules/setup.js` builds both; widget `rpg-battle.rules-pin` wraps
 `rpg-battle.command-button`, so there is one pin command and one guard). The You step has no Create until the pin is made.
-After it, the steps are as before. With no pack offered, or a pin made, nothing of this shows.
+The summary row stays; the choice goes where the step's choices go. After the pin the steps are as before. With no pack offered,
+or a pin made, nothing of this shows.
 
 - The class and check-actor choices (`rpg-battle.class-pick`) are cards in the same grid: the name, the skills on their own
-  line, a "Chosen" badge. Picking by keyboard keeps the focus on the card.
-- Races are tiles (`button.cc-card`, `aria-pressed`); talents are cards with their note (`.cc-row`). Both come from `rpg-battle.choice-pick`.
+  line, a "Chosen" pill. Picking by keyboard keeps the focus on the card.
+- Races and talents are cards (`button.cc-card`, `aria-pressed`, `.cc-tile` and `.cc-row`). Both come from `rpg-battle.choice-pick`.
 - The radar is `rpg-battle.stat-radar` (`creation/radar.js`): SVG made with `createElementNS`, one axis per stat, colours
   from the screen's classes (tokens), and a visually hidden list of the same values (`.cc-sr-only`).
 - Buttons are Story Block's `ss-button`s; Back, Next and the step list are the dialog's own glass footer.

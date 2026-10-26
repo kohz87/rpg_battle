@@ -44,8 +44,15 @@ export function rulesChoice(tools) {
         name: clip(name, 80), version: payload.version,
         pin: btn('rules.pin', payload, `Pin ${name}`, { tone: 'primary' }),
     })) : [];
+    // The wizard's summary row names the pinned pack as the reader knows it ("Ersveil Rules 1.5.0"), else by its id.
+    let label = '';
+    if (identity) {
+        const found = ask(tools, 'packs.rules', { pack: identity.packId }, value => isList(value, isRecord));
+        const entry = found.status === ASK.OK ? found.value.find(item => item.pack === identity.packId) : null;
+        label = `${clip(isText(entry?.name) ? entry.name : identity.packId, 80)} ${identity.version}`;
+    }
     return { offered: offers.length > 0, offers, pinned: Boolean(identity),
-        identity: identity ? `${identity.packId} ${identity.version}` : '' };
+        identity: identity ? `${identity.packId} ${identity.version}` : '', label };
 }
 
 /** rpg-battle.rulesGate({}) → { offered, offers, pinned, identity }: what the creation wizard asks before any of its steps. */

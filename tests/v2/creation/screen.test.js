@@ -350,10 +350,11 @@ test('Random shows only on the Talents step; the other steps have no roll button
     }
 });
 
-test('Points left is said once per step: the lead line; the stat steppers\' own notes are hidden', { skip: NO_RENDERER }, async () => {
-    for (const id of ['talents', 'stats']) {
-        const template = CREATE_STEPS.find(step => step.id === id).template;
-        assert.equal((template.match(/Points left/g) ?? []).length, 1, id);
+test('Points left is said once per step: in the summary row\'s pill; the stat steppers\' own notes are hidden', { skip: NO_RENDERER }, async () => {
+    for (const { id } of CREATE_STEPS) {
+        const { el } = await draw(id, { draft: startDraft(null, { persona: { name: 'Ren' } }) });
+        assert.equal(el.querySelectorAll('.cc-summary-pts').length, 1, id);
+        assert.equal((el.querySelector('.cc-summary').textContent.match(/Points left/g) ?? []).length, 1, `${id}: said once, in the row (the steppers' own notes are hidden)`);
     }
     assert.match(createScreen.css, /\.cc-stat \.ss-w-stepper-budget \{ display: none; \}/);
     // The steppers still get the budget (it stops + when the points are spent).
@@ -614,52 +615,92 @@ test('you step: a summary of name, race, talents and the final stats before Crea
     assert.deepEqual(el.querySelectorAll('.cc-review-stats li').map(node => node.textContent.replace(/\s+/g, ' ').trim()),
         ['STR 9', 'VIT 5', 'AGI 5', 'DEX 12', 'INT 6', 'LUK 5', 'CHA 5']);
     const bare = await draw('you', { draft: { ...startDraft(null, { persona: { name: 'Ren' } }) } });
-    assert.equal(bare.el.querySelector('.cc-review-race').textContent.trim(), 'None');
+    assert.equal(bare.el.querySelector('.cc-review-race').textContent.trim(), 'race not chosen');
     assert.equal(bare.el.querySelector('.cc-review-talents').textContent.trim(), 'None');
 });
 
-test('layout: one "Your character" summary row at the top of every step, over the step\'s full-width choices; the side panel is gone', { skip: NO_RENDERER }, async () => {
+test('layout: one "Your character" summary row under the tabs on every step, over the step\'s full-width choices; the side panel is gone', { skip: NO_RENDERER }, async () => {
     const picked = { ...startDraft(null, { persona: { name: 'Ren Avel' } }), race: 'rpg-battle/elf', talents: ['rpg-battle/keen-eyes'], points: points({ STR: 4 }) };
     const bare = startDraft(null, { persona: { name: 'Ren Avel' } });
+    const k = { classes: { state: 'ready', names: { 'pack/drifter': 'Barge Drifter' }, pick: { field: 'class', label: 'Basic class', options: [{ id: 'pack/drifter', label: 'Barge Drifter', sub: 'a · b · c' }] } },
+        checks: { state: 'unavailable', pick: { field: 'checkActor', options: [] }, fallback: 'x' } };
+    const g = { offered: false, offers: [], pinned: true, identity: 'ersveil 1.5.0', label: 'Ersveil Rules 1.5.0' };
     const read = el => ({
         race: el.querySelector('.cc-review-race').textContent.trim(),
         talents: el.querySelector('.cc-review-talents').textContent.trim(),
         stats: el.querySelectorAll('.cc-review-stats li').length,
     });
     for (const { id } of CREATE_STEPS) {
-        const a = await draw(id, { draft: bare });
-        const b = await draw(id, { draft: picked });
+        const a = await draw(id, { draft: bare, q: { k, g } });
+        const b = await draw(id, { draft: { ...picked, class: 'pack/drifter' }, q: { k, g } });
         for (const { el } of [a, b]) {
             assert.equal(el.querySelectorAll('.cc-summary').length, 1, `${id}: one summary row`);
             assert.equal(el.querySelectorAll('.cc-register').length, 1, `${id}: and no second panel`);
             const kids = el.querySelector('.cc-layout').children.map(node => node.className.split(' ')[0]);
             assert.deepEqual(kids, ['cc-register', 'cc-main'], `${id}: the summary first, then the choices (no column beside them)`);
             assert.equal(el.querySelector('.cc-register-name').textContent.trim(), 'Ren Avel');
-            assert.equal(el.querySelectorAll('.cc-register .ss-section-label').length, 0, 'a row, not a titled panel');
+            assert.deepEqual(el.querySelectorAll('.cc-summary-label').map(node => node.textContent.trim()), id === 'start' ? ['Rules', 'Talents', 'Stats'] : ['Talents', 'Stats'], `${id}: the groups`);
+            assert.equal(el.querySelectorAll('.cc-summary .cc-left b')[0].textContent, id === 'stats' || id === 'you' || true ? el.querySelector('.cc-left b').textContent : '');
         }
-        assert.deepEqual(read(a.el), { race: 'None', talents: 'None', stats: 7 }, `${id}: before any choice`);
+        assert.deepEqual(read(a.el), { race: 'race not chosen', talents: 'None', stats: 7 }, `${id}: before any choice`);
         assert.deepEqual(read(b.el), { race: 'Elf', talents: 'Keen Eyes', stats: 7 }, `${id}: after the choices`);
+        assert.equal(b.el.querySelector('.cc-summary-sub').textContent.replace(/\s+/g, ' ').trim(), 'Elf · Barge Drifter', `${id}: Race · Class`);
+        assert.equal(a.el.querySelector('.cc-summary-sub').textContent.replace(/\s+/g, ' ').trim(), 'race not chosen · class not chosen');
         assert.equal(b.el.querySelectorAll('.cc-review-stats li')[0].textContent.replace(/\s+/g, ' ').trim(), 'STR 9');
     }
-    // The Stats step's steppers and radar are the choices below the row.
+    // Start names the pinned rules; no other step does.
+    assert.equal((await draw('start', { draft: bare, q: { k, g } })).el.querySelector('.cc-review-rules').textContent.trim(), 'Ersveil Rules 1.5.0 (pinned)');
+    assert.equal((await draw('race', { draft: bare, q: { k, g } })).el.querySelectorAll('.cc-review-rules').length, 0);
+    // No rules pack (legacy): no class in the row, no Rules group.
+    const legacy = await draw('start', { draft: bare });
+    assert.equal(legacy.el.querySelectorAll('.cc-review-class, .cc-review-rules').length, 0);
+    assert.equal(legacy.el.querySelector('.cc-summary-sub').textContent.trim(), 'race not chosen');
+    // The Stats step's steppers and radar are the choices below the row; the pill says the points left.
     const stats = await draw('stats', { draft: picked });
     assert.equal(stats.el.querySelectorAll('.cc-main .cc-stat').length, 7);
     assert.equal(stats.el.querySelectorAll('.cc-register .cc-stat').length, 0);
+    assert.match(stats.el.querySelector('.cc-summary-pts').textContent, /Points left: \d+/);
 });
 
-test('layout css: a wide window, a wrapping summary row, no side column, and one responsive grid of cards for races, talents and classes', () => {
+test('layout css: a wide window, a wrapping summary row that stacks on a phone, no side column, and one grid of equal cards: 3 columns wide, 1 on a phone', () => {
     const css = createScreen.css;
     assert.equal(createScreen.width, 'wide', 'the dialog asks Story Block for a wide window');
     assert.doesNotMatch(css, /@container|container:|position: sticky|cc-register-optional/, 'no side column and no container switch');
     assert.doesNotMatch(css, /\.cc-layout \{[^}]*grid-template-columns/);
     assert.match(css, /\.cc-summary \{[^}]*display: flex;[^}]*flex-wrap: wrap;/);
+    assert.match(css, /\.cc-summary-pts \{[^}]*margin-left: auto;/, 'the points pill is pushed right');
+    assert.match(css, /\.cc-summary \.ss-w-portrait \{ --ss-w-portrait-size: 44px; \}/);
+    assert.match(css, /\.cc-summary-label \{[^}]*text-transform: uppercase;/);
     assert.match(css, /\.cc-review-stats li \+ li::before \{ content: "\\00b7"/);
-    // Cards: auto-fill columns (several to a row when wide, one at 390 px), equal width and equal height.
-    assert.match(css, /\.rpg-choices, \.rpg-choices-rows, \.rpg-cp \{[^}]*grid-template-columns: repeat\(auto-fill, minmax\(min\(100%, 15em\), 1fr\)\);[^}]*align-items: stretch;/);
-    assert.match(css, /\.cc-card \{[^}]*height: 100%;/);
-    assert.doesNotMatch(css, /\.rpg-choices-rows \{[^}]*minmax\(0, 1fr\)\);\s*\}/, 'talents are no longer one column of rows');
-    assert.match(css, /\.cc-layout \{[^}]*gap: var\(--ss-space-4\);/);
+    // Cards: three equal columns, a 12px gap, one column at 390 px; the selected card has an accent border and a tint.
+    assert.match(css, /\.rpg-choices, \.rpg-choices-rows, \.rpg-cp \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);[^}]*gap: var\(--ss-space-3\);[^}]*align-items: stretch;/);
+    const phone = css.slice(css.indexOf('@media (max-width: 767.98px)'));
+    assert.match(phone, /\.rpg-choices, \.rpg-choices-rows, \.rpg-cp, \.cc-kit \{ grid-template-columns: minmax\(0, 1fr\);/);
+    assert.match(phone, /\.cc-summary \{ display: grid;/, 'the summary stacks');
+    assert.match(phone, /\.cc-card-cost \{ display: none; \}\s*\.cc-card-cost-inline \{ display: inline; \}/, 'the cost moves into the stat line');
+    assert.match(css, /\.cc-card-cost-inline \{ display: none; \}/);
+    assert.match(css, /\.cc-card \{[^}]*min-height: 104px;[^}]*border: 1px solid var\(--ss-border\);/);
+    assert.match(css, /\.cc-card\[aria-pressed="true"\] \{[^}]*border-color: var\(--ss-accent\);[^}]*background: color-mix\(in srgb, var\(--ss-accent\) 16%, var\(--ss-tile\)\);/);
+    assert.match(css, /\.cc-card-bonus \{[^}]*color: var\(--ss-accent-text\);/);
+    assert.match(css, /\.cc-layout \{[^}]*gap: var\(--ss-space-3\);/);
     assert.doesNotMatch(css, /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/, 'colours come from the theme tokens');
+});
+
+test('race and talent cards: the name with a Taken/Chosen pill, the stat line (the cost joins it on a phone), the note, the cost at the bottom', () => {
+    const doc = installDom();
+    const el = doc.createElement('div');
+    doc.body.append(el);
+    const list = [{ id: 't/a', name: 'Shadow-bent', bonus: '+1 INT', note: 'Self-taught.', cost: 1 }, { id: 't/b', name: 'Inward Bent', bonus: '+1 STR, +1 VIT', note: 'The common bent.', cost: 2 }];
+    renderChoicePick(el, { value: list, field: 'talents', many: true, picked: ['t/a'], label: 'Talents' }, {});
+    const [a, b] = el.querySelectorAll('.cc-card');
+    assert.deepEqual(a.children.map(node => node.className), ['cc-card-head', 'cc-card-bonus', 'cc-card-note', 'cc-card-cost']);
+    assert.equal(a.querySelector('.cc-card-head .cc-card-name').textContent, 'Shadow-bent');
+    assert.equal(a.querySelector('.cc-card-head .cc-card-tick').textContent, 'Taken');
+    assert.equal(a.querySelector('.cc-card-bonus').textContent, '+1 INT · 1 pt', 'the stat line carries the cost too (shown on a phone)');
+    assert.equal(a.querySelector('.cc-card-cost').textContent, '1 pt');
+    assert.equal(b.querySelectorAll('.cc-card-tick').length, 0, 'only a taken card has the pill');
+    assert.equal(b.getAttribute('aria-pressed'), 'false');
+    el.querySelectorAll('.cc-card').forEach(card => assert.equal(card.tagName.toLowerCase(), 'button'));
 });
 
 test('class cards: the class name, its skills on their own line and a Chosen badge, in the same grid of cards as races and talents', { skip: NO_RENDERER }, async () => {
@@ -676,7 +717,7 @@ test('class cards: the class name, its skills on their own line and a Chosen bad
         assert.match(card.className, /\bcc-card\b/);
         assert.match(card.className, /\bcc-row\b/);
         assert.equal(card.tagName.toLowerCase(), 'button', 'keyboard: a real button');
-        assert.equal(card.querySelectorAll('.cc-row-main > .cc-card-name').length, 1);
+        assert.equal(card.querySelectorAll('.cc-card-head > .cc-card-name').length, 1);
     }
     const [drifter, scribe] = cards;
     assert.equal(drifter.querySelector('.cc-card-name').textContent, 'Barge Drifter');
@@ -694,6 +735,21 @@ test('class cards: the class name, its skills on their own line and a Chosen bad
     assert.match(css, /\.rpg-cp[,{ ]/, 'the class cards are in the card grid');
     assert.match(css, /\.cc-checks \{[^}]*border-top: 1px solid var\(--ss-border\);/);
     assert.match(css, /\.cc-card\[aria-pressed="true"\] \{[^}]*border-color: var\(--ss-accent\);/);
+});
+
+test('start step: the kit section is a divider, an intro and one row of three cards: the kit, My own and Import character', { skip: NO_RENDERER }, async () => {
+    const draft = startDraft(null, { persona: { name: 'Wessel', background: '', avatar: '' } });
+    const { el } = await draw('start', { draft, host: makeHost({ packs: PACKS }) });
+    const kit = el.querySelector('.cc-kit-section .cc-kit');
+    assert.ok(kit, 'the kit row');
+    assert.equal(kit.querySelectorAll('.rpg-preset').length, 1);
+    assert.equal(kit.querySelectorAll('.rpg-preset-own').length, 1);
+    assert.equal(kit.querySelector('.rpg-import-go').textContent, 'Import character…');
+    assert.equal(kit.querySelectorAll('.rpg-preset-go')[0].textContent, 'Start from this');
+    const css = createScreen.css;
+    assert.match(css, /\.cc-kit \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
+    assert.match(css, /\.cc-kit \.rpg-import-go \{[^}]*border-style: dashed;/);
+    assert.match(css, /\.cc-kit-section \{[^}]*border-top: 1px solid var\(--ss-border\);/);
 });
 
 test('openCreation: Create that worked says "<Name> is ready" once; a refusal or closing says nothing', () => {

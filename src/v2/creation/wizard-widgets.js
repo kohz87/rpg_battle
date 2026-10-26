@@ -231,7 +231,7 @@ export function renderImportPick(el, props = {}, api = {}) {
     const doc = el.ownerDocument;
     const root = make(doc, 'div', 'ss-w rpg-import');
     // A button (Story Block's glass button is a button element); it opens the file picker, which stays hidden.
-    const go = button(doc, 'rpg-import-go', 'Import character');
+    const go = button(doc, 'rpg-import-go', 'Import character…');
     const input = make(doc, 'input', 'rpg-import-file');
     input.type = 'file';
     input.setAttribute('accept', '.json,application/json');

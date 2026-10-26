@@ -181,17 +181,17 @@ export function renderClassPick(el, props = {}, api = {}) {
         root.setAttribute('aria-label', str(spec.label, 80) || 'Choose one');
         root.replaceChildren(...options.map(option => {
             const on = option.id === picked;
-            // A row like the wizard's talent rows (`cc-card cc-row`, styled where the wizard's css is): the name as the title, the
-            // sub (a class's three skills) on its own line, and the "Chosen" badge beside them. The rpg-cp-* classes style it elsewhere.
+            // A card like the wizard's race and talent cards (`cc-card`, styled where the wizard's css is): the name with the "Chosen"
+            // pill on its right, the sub (a class's three skills) under it. The rpg-cp-* classes style it elsewhere.
             const card = make(doc, 'button', `rpg-cp-card cc-card cc-row${on ? ' picked' : ''}`);
             card.setAttribute('type', 'button');
             card.setAttribute('aria-pressed', on ? 'true' : 'false');
             card.setAttribute('data-choice', option.id);
-            const main = make(doc, 'span', 'cc-row-main');
-            main.append(make(doc, 'span', 'rpg-cp-name cc-card-name', option.label));
-            if (option.sub) main.append(make(doc, 'span', 'rpg-cp-sub cc-card-note', option.sub));
-            card.append(main);
-            if (on) card.append(make(doc, 'span', 'rpg-cp-tick cc-card-tick', 'Chosen'));
+            const head = make(doc, 'span', 'cc-card-head');
+            head.append(make(doc, 'span', 'rpg-cp-name cc-card-name', option.label));
+            if (on) head.append(make(doc, 'span', 'rpg-cp-tick cc-card-tick', 'Chosen'));
+            card.append(head);
+            if (option.sub) card.append(make(doc, 'span', 'rpg-cp-sub cc-card-note', option.sub));
             card.addEventListener('click', () => write(option.id));
             return card;
         }));
@@ -388,7 +388,7 @@ export const RULES_WIDGET_CSS = `
 .rpg-pc-option:hover:not(:disabled), .rpg-cp-card:hover { border-color: var(--ss-accent); }
 .rpg-pc-option:focus-visible, .rpg-cp-card:focus-visible { outline: 2px solid var(--ss-accent); outline-offset: 2px; }
 .rpg-pc-option.picked, .rpg-cp-card.picked { border-color: var(--ss-accent); background: linear-gradient(var(--ss-accent-soft), var(--ss-accent-soft)), var(--ss-tile); }
-.rpg-cp-card .cc-row-main { display: grid; gap: 2px; min-width: 0; }
+.rpg-cp-card .cc-card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 8px; min-width: 0; }
 .rpg-pc-label, .rpg-cp-name { font-weight: 700; overflow-wrap: anywhere; }
 .rpg-pc-sub, .rpg-cp-sub { font-size: 13px; color: var(--ss-muted); overflow-wrap: anywhere; }
 .rpg-cp-tick { font-size: 12px; color: var(--ss-accent); font-weight: 700; }

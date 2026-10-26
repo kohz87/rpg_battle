@@ -43,7 +43,9 @@ test('offered and not pinned: every step shows "Choose your rules" with the Pin 
         assert.match(text(all(d.el, '.cc-gate')[0]), /Choose your rules/);
         assert.deepEqual(all(d.el, '.cc-gate-row button').map(text), ['Pin Fixture rules'], id);
         assert.match(text(all(d.el, '.cc-gate-name')[0]), /Fixture rules/);
-        for (const gone of ['.cc-layout', '.cc-register', '.cc-card', '.rpg-preset', '.cc-go', '[data-submit]', 'form']) assert.equal(all(d.el, gone).length, 0, `${id}: no ${gone} before the pin`);
+        // The same summary row and layout, with the pin choice where the step's choices go.
+        assert.deepEqual(all(d.el, '.cc-layout')[0].children.map(node => node.className.split(' ')[0]), ['cc-register', 'cc-gate'], `${id}: the summary, then the rules choice`);
+        for (const gone of ['.cc-main', '.cc-card', '.rpg-preset', '.cc-go', '[data-submit]', 'form']) assert.equal(all(d.el, gone).length, 0, `${id}: no ${gone} before the pin`);
     }
 });
 
@@ -61,8 +63,9 @@ test('offered: the Pin button sends the one rules.pin command with the exact off
     const after = h.step('start', draft);
     assert.deepEqual(after.warnings, []);
     assert.equal(all(after.el, '.cc-gate').length, 0);
-    assert.equal(all(after.el, '.cc-layout').length, 1);
-    assert.equal(all(after.el, '.cc-register').length, 1, 'the details panel');
+    assert.equal(all(after.el, '.cc-layout > .cc-main').length, 1);
+    assert.equal(all(after.el, '.cc-register').length, 1, 'the summary row');
+    assert.equal(text(all(after.el, '.cc-review-rules')[0]), 'Fixture rules 2.0.0 (pinned)', 'the pinned rules are named in the row');
     assert.ok(all(after.el, '.rpg-cp-card').length > 0, 'the pinned pack\'s classes are listed');
     const you = h.step('you', draft);
     assert.equal(all(you.el, 'form[data-submit="creation.finish"]').length, 1);
@@ -84,7 +87,7 @@ test('pinned already: the steps are the steps, with no rules choice', async t =>
         const d = h.step(id);
         assert.deepEqual(d.warnings, [], id);
         assert.equal(all(d.el, '.cc-gate').length, 0, id);
-        assert.equal(all(d.el, '.cc-register').length, 1, `${id}: the details panel`);
+        assert.equal(all(d.el, '.cc-register').length, 1, `${id}: the summary row`);
     }
 });
 
