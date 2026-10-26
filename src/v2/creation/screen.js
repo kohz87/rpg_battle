@@ -10,11 +10,11 @@
 // module's settings, since the template language has no arithmetic (TEMPLATES.md §1.2). Where the host does not give
 // templates `query`, those show empty and the steppers run without a budget; creation.finish still enforces it.
 //
-// Layout: every step is a main column (its choices) and the details panel "Your character" (portrait, name, race, talents and
-// the final stats, drawn again from the draft at each change). The dialog asks Story Block for a wide window (`width: 'wide'`);
-// a step 560 px or wider (a container query on the step's root) puts the panel in the right column, a phone stacks it under the
-// choices, one step at a time, with the dialog's own step list as the indicator. Back, Next and the step list are the dialog's
-// (Story Block's glass footer); Create is the YOU step's own glass button.
+// Layout: every step is the summary strip "Your character" (portrait, name, race, talents and the final stats, one wrapping row
+// across the dialog, drawn again from the draft at each change) and, below it, the step's choices across the dialog's full width.
+// Races, talents and classes are one grid of cards (auto-fill columns: two or three to a row on the wide dialog, one on a phone).
+// The dialog asks Story Block for a wide window (`width: 'wide'`). Back, Next and the step list are the dialog's (Story Block's
+// glass footer); Create is the YOU step's own glass button.
 //
 // While a rules pack is offered and none is pinned, each step shows the rules choice (GATE) in place of its content, and the
 // You step has no Create: the pin is made with the same `rules.pin` button Setup draws (widget rpg-battle.rules-pin), then the
@@ -33,20 +33,19 @@ export const TALENT_LIST_MAX = 60;
 // The live preview of the draft (creation.build), as a template expression.
 const LIVE = 'query("creation.build", { draft: draft, settings: settings })';
 
-// The details panel ("Your character"): the same on every step, in the right column (below the choices on a phone), and
-// drawn again from the draft at each change: the portrait and name, the race, the talents (the rolled ones too) and the
-// final stats the build gives now. The Stats step's steppers and radar are its choices, in the main column.
+// The summary strip "Your character": one full-width row at the top of every step, under the dialog's step list, drawn again from
+// the draft at each change: the portrait and name, the race, the talents (the rolled ones too) and the final stats the build
+// gives now, as a compact inline list. It wraps on a narrow screen. The step's choices get the whole dialog width below it.
 const DETAILS = `
-  <aside class="cc-register cc-review" aria-label="Your character">
-    <h4 class="ss-section-label">Your character</h4>
+  <aside class="cc-register cc-summary cc-review" aria-label="Your character">
     <div class="cc-register-head">
-      <ss-widget name="ss.portrait" data-props='{"src":"{{ draft.portrait }}","name":"{{ draft.name }}","frame":"circle","size":"md"}'></ss-widget>
+      <ss-widget name="ss.portrait" data-props='{"src":"{{ draft.portrait }}","name":"{{ draft.name }}","frame":"circle","size":"sm"}'></ss-widget>
       <p class="cc-register-name cc-review-name">{{ draft.name }}</p>
     </div>
     <dl class="cc-review-list">
-      <dt>Race</dt><dd class="cc-review-race"><span data-if="draft.race">{{ ${LIVE}.raceName }}</span><span data-if="!draft.race">None</span></dd>
-      <dt>Talents</dt><dd class="cc-review-talents"><span data-if="len(draft.talents) > 0 || len(q.c.rolled) > 0">{{ ${LIVE}.talentNames }}</span><span data-if="len(draft.talents) == 0 && len(q.c.rolled) == 0">None</span></dd>
-      <dt>Stats</dt><dd><ul class="cc-review-stats"><li data-each='${LIVE}.rows as s'><b>{{ s.id }}</b> {{ s.final }}</li></ul></dd>
+      <div class="cc-summary-item"><dt>Race</dt><dd class="cc-review-race"><span data-if="draft.race">{{ ${LIVE}.raceName }}</span><span data-if="!draft.race">None</span></dd></div>
+      <div class="cc-summary-item"><dt>Talents</dt><dd class="cc-review-talents"><span data-if="len(draft.talents) > 0 || len(q.c.rolled) > 0">{{ ${LIVE}.talentNames }}</span><span data-if="len(draft.talents) == 0 && len(q.c.rolled) == 0">None</span></dd></div>
+      <div class="cc-summary-item"><dt>Stats</dt><dd><ul class="cc-review-stats"><li data-each='${LIVE}.rows as s'><b>{{ s.id }}</b> {{ s.final }}</li></ul></dd></div>
     </dl>
   </aside>`;
 
@@ -65,12 +64,12 @@ const GATE = `
     </ul>
   </section>`;
 
-// A step: its choices (main column) and the details panel beside them.
+// A step: the summary strip, then its choices across the dialog's full width.
 const LAYOUT = main => `
   <div class="cc-layout" data-if="!q.g.offered">
+    ${DETAILS}
     <div class="cc-main">${main}
     </div>
-    ${DETAILS}
   </div>`;
 
 const START = `
@@ -135,6 +134,7 @@ const YOU = `
 <section class="cc-step cc-you-step">${GATE}
   <form class="cc-you" data-if="!q.g.offered" data-submit="creation.finish">
     <div class="cc-layout">
+      ${DETAILS}
       <div class="cc-main">
         <div class="cc-you-row">
           <ss-widget name="ss.portrait" data-props='{"src":"{{ draft.portrait }}","name":"{{ draft.name }}","frame":"circle","size":"lg"}'></ss-widget>
@@ -155,7 +155,6 @@ const YOU = `
           <button type="submit" class="ss-button ss-button-primary cc-go">Create {{ draft.name }}</button>
         </div>
       </div>
-      ${DETAILS}
     </div>
   </form>
 </section>`;
@@ -163,10 +162,10 @@ const YOU = `
 const CSS = `
 .cc-one { font-family: var(--ss-font); color: var(--ss-text); }
 .cc-draft-start { display: none; }
-.cc-step { display: grid; gap: var(--ss-space-3); min-width: 0; container: cc / inline-size; }
+.cc-step { display: grid; gap: var(--ss-space-3); min-width: 0; }
 .cc-layout { display: grid; gap: var(--ss-space-4); min-width: 0; }
 .cc-main { display: grid; gap: var(--ss-space-4); align-content: start; min-width: 0; }
-.cc-register { display: grid; gap: var(--ss-space-3); align-content: start; min-width: 0; }
+.cc-summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ss-space-1) var(--ss-space-4); min-width: 0; }
 .cc-choices { display: grid; gap: var(--ss-space-3); min-width: 0; }
 .cc-you { display: grid; min-width: 0; }
 .cc-lead, .cc-none, .cc-hint { margin: 0; }
@@ -175,7 +174,7 @@ const CSS = `
 .cc-none, .cc-hint { color: var(--ss-text); font-size: 0.9em; }
 .cc-left { justify-self: start; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .cc-left b { color: inherit; font-weight: 800; }
-.cc-register { padding: var(--ss-space-3); border-radius: var(--ss-radius-l); background: var(--ss-glass); border: 1px solid var(--ss-border); box-shadow: var(--ss-shadow); backdrop-filter: var(--ss-blur); -webkit-backdrop-filter: var(--ss-blur); }
+.cc-register { padding: var(--ss-space-2) var(--ss-space-3); border-radius: var(--ss-radius-l); background: var(--ss-glass); border: 1px solid var(--ss-border); box-shadow: var(--ss-shadow); backdrop-filter: var(--ss-blur); -webkit-backdrop-filter: var(--ss-blur); }
 .cc-register-head { display: flex; gap: var(--ss-space-2); align-items: center; min-width: 0; }
 .cc-register-who { display: grid; gap: 2px; min-width: 0; }
 .cc-register-name { margin: 0; font-weight: 800; font-size: 16px; overflow-wrap: anywhere; color: var(--ss-text); }
@@ -185,8 +184,7 @@ const CSS = `
 .cc-gate-list { display: grid; gap: var(--ss-space-2); margin: 0; padding: 0; list-style: none; }
 .cc-gate-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--ss-space-2); padding: var(--ss-space-2) var(--ss-space-3); border-radius: var(--ss-radius-m); background: var(--ss-tile); border: 1px solid var(--ss-border); min-width: 0; }
 .cc-gate-name { overflow-wrap: anywhere; min-width: 0; color: var(--ss-text); }
-/* the basic class and check actor rows (widget rpg-battle.class-pick): full-width rows like the talents; the actor link is the quieter block */
-.rpg-cp { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ss-space-2); min-width: 0; }
+/* the basic class and check actor cards (widget rpg-battle.class-pick) sit in the same grid; the actor link is the quieter block */
 .cc-class .cc-main { gap: var(--ss-space-3); }
 .cc-checks { display: grid; gap: var(--ss-space-2); padding-top: var(--ss-space-3); border-top: 1px solid var(--ss-border); }
 .cc-checks .cc-lead { font-size: 0.9em; font-weight: 700; }
@@ -197,9 +195,9 @@ const CSS = `
 .cc-stat .ss-w-stepper-budget { display: none; }
 .cc-preview { display: flex; justify-content: center; min-width: 0; }
 /* the choices: race tiles and talent rows (widget rpg-battle.choice-pick, buttons with aria-pressed) */
-.rpg-choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 8.5em), 1fr)); gap: var(--ss-space-2); min-width: 0; }
-.rpg-choices-rows { display: grid; gap: var(--ss-space-2); grid-template-columns: minmax(0, 1fr); }
-.cc-card { appearance: none; margin: 0; min-width: 0; font: inherit; color: var(--ss-text); text-align: center; cursor: pointer; display: grid; justify-items: center; gap: 4px; padding: 10px 8px; border-radius: var(--ss-radius-m); background: var(--ss-tile); border: 1px solid var(--ss-border); }
+/* races, talents and classes are one grid of cards: two or three to a row on the wide dialog, one on a phone, equal width and height */
+.rpg-choices, .rpg-choices-rows, .rpg-cp { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 15em), 1fr)); gap: var(--ss-space-2); align-items: stretch; min-width: 0; }
+.cc-card { appearance: none; margin: 0; min-width: 0; font: inherit; color: var(--ss-text); text-align: center; cursor: pointer; display: grid; align-content: start; justify-items: center; gap: 4px; padding: 10px 8px; height: 100%; border-radius: var(--ss-radius-m); background: var(--ss-tile); border: 1px solid var(--ss-border); }
 .cc-card:disabled { cursor: not-allowed; opacity: 0.5; }
 .cc-card:hover:not(:disabled) { background: color-mix(in srgb, var(--ss-accent) 18%, var(--ss-tile)); }
 .cc-card:active:not(:disabled) { background: color-mix(in srgb, var(--ss-accent) 30%, var(--ss-tile)); }
@@ -212,15 +210,17 @@ const CSS = `
 .cc-card-tick { font-size: 12px; font-weight: 700; padding: 0 8px; border-radius: var(--ss-radius-pill); background: var(--ss-accent); color: var(--ss-on-ring); }
 .cc-card-bonus { font-size: 13px; font-weight: 700; color: var(--ss-text); overflow-wrap: anywhere; }
 .cc-card-note { font-size: 13px; color: var(--ss-text); overflow-wrap: anywhere; }
-.cc-row { width: 100%; padding: 10px 12px; text-align: start; grid-template-columns: minmax(0, 1fr) auto; justify-items: start; align-items: center; column-gap: var(--ss-space-2); }
+.cc-row { padding: 10px 12px; text-align: start; grid-template-columns: minmax(0, 1fr) auto; justify-items: start; align-items: center; column-gap: var(--ss-space-2); }
 .cc-row-main { display: grid; gap: 2px; min-width: 0; }
 .cc-row .cc-card-tick { grid-column: 2; grid-row: 1; }
 .cc-row .cc-card-cost { grid-column: 2; grid-row: 2; justify-self: end; }
 /* the review and the summary lists */
-.cc-review-list { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+.cc-review-list { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--ss-space-1) var(--ss-space-4); margin: 0; min-width: 0; flex: 1 1 18em; }
+.cc-summary-item { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .cc-review-list dt { color: var(--ss-text); font-size: 13px; font-weight: 600; }
-.cc-review-list dd { margin: 0; overflow-wrap: anywhere; color: var(--ss-text); }
-.cc-review-stats { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 0; padding: 0; list-style: none; }
+.cc-review-list dd { margin: 0; overflow-wrap: anywhere; color: var(--ss-text); min-width: 0; }
+.cc-review-stats { display: flex; flex-wrap: wrap; gap: 0 6px; margin: 0; padding: 0; list-style: none; font-variant-numeric: tabular-nums; }
+.cc-review-stats li + li::before { content: "\\00b7"; margin-right: 6px; }
 .cc-rolled { margin: 0; padding-left: 1.2em; color: var(--ss-text); }
 .cc-rolled em { color: var(--ss-muted); font-size: 0.85em; }
 .cc-random, .cc-import { display: grid; gap: 4px; justify-items: start; }
@@ -262,11 +262,6 @@ const CSS = `
 .rpg-radar-label { fill: var(--ss-text); font-size: 11px; font-weight: 700; font-family: var(--ss-font); text-anchor: middle; dominant-baseline: middle; }
 .rpg-radar-value { fill: var(--ss-text); font-size: 10px; font-family: var(--ss-font); text-anchor: middle; dominant-baseline: middle; }
 .cc-sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
-/* the dialog's own step list is the phone indicator; the details panel stacks under the choices there, and from a 560 px step it sits in the right column and stays in view */
-@container cc (min-width: 560px) {
-  .cc-layout { grid-template-columns: minmax(0, 1fr) minmax(15em, 19em); align-items: start; }
-  .cc-register { position: sticky; top: 0; }
-}
 `;
 
 /** The wizard's steps (SPEC §13.6): Start (a pack's ready-made character), Race, Talents, Stats, You (the persona's name, background and portrait; submits). */
