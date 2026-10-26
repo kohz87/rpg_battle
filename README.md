@@ -1,6 +1,6 @@
-# RPG Battle 2.0.0
+# RPG Battle 2.1.0
 
-> Story Suite 2.0.0.
+> Story Suite 2.1.0.
 
 ## What it is
 
@@ -20,7 +20,7 @@ Tested with **SillyTavern 1.19**. In **Extensions → Install extension**, insta
 3. [RPG Battle](https://github.com/kohz87/rpg_battle)
 4. [NPC State Delta](https://github.com/kohz87/npc_state_delta)
 
-To start with the bundled **Ersveil** rules pack, open a fresh chat and follow **Setup → Pin Ersveil Rules → Create**,
+To start with the bundled **Ersveil 1.5.0** rules pack, open a fresh chat and follow **Setup → Pin Ersveil Rules → Create**,
 then choose your character's options. Existing chats load and rebuild unchanged; legacy chats stay unpinned.
 
 Report bugs in [this repo's Issues](https://github.com/kohz87/rpg_battle/issues), with steps to reproduce.
@@ -79,10 +79,13 @@ The model writes the story and ends it with a hidden `<Changes>` list. RPG Battl
 <Changes>
 ? check Persuasion — talk the guard round | dc: normal | result: success | vs: Elula
 ! encounter 3 Weir Rat — the cellar pack | tier: weak
+! encounter River Rat | like: cellar-rat-swarm
 ! use Healing Salve | on: Wessel
 + xp minor — talked the guard round
 </Changes>
 ```
+
+In a pinned chat, `| like: <foe>` makes a named foe variant, and new encounters follow their danger label. Open quest offers use `| like: <template>` or the reader's **Make this a quest** action; code fixes the reward from the template's range at offer time. Ersveil 1.5.0 supplies 12 open quest templates.
 
 Code rolls and decides: dice come from code, a fight is played by you, an item's effect comes from the item's own
 numbers. Anything that does not fit is skipped and listed under **Problems**. Swipe, delete, Re-read and reload

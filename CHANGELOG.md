@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.1.0
+
+- **Open quest templates:** add `| like: <template>` to a quest offer line, or use the reader's **Make this a quest** action. The reward is fixed from the template's range at offer time and recorded with the offer.
+- **Foe variants:** `! encounter <name> | like: <foe>` derives a named variant from a pinned pack foe while keeping its identity and rewards tied to that foe.
+- The bundled **Ersveil pack 1.5.0** includes **12 open quest templates**.
+- **Pinned-pack encounters now follow their danger label.** In 2.0.0, weak fights could be unwinnable at level 1 because pinned foes kept their fixed pack stats. New offers record opposition calibrated to the label at offer time.
+
+### Upgrading from 2.0
+
+Saved chats keep their recorded quest and encounter offers, including their rewards and opposition; updating does not reroll them. Legacy chats stay unpinned.
+Update all extensions together, with Story Block first; NPC State Delta stays at 1.3.0. Existing `requires` and peer ranges remain satisfied by 2.0.0 or later; no 2.1-only peer requirement is added.
+
+### Known issues
+
+- Fight offers appear in the Game view and Fight tab dot, but are not listed in **Changed this reply**.
+- The creation wizard allows Next without a class and says **Choose a basic class** only at the end.
+- Shop prices and the bestiary can still read the installed pack in pinned chats, so reinstalling a pack can affect them.
+- If an extension stops responding during recovery, the chat can remain on hold until it responds.
+
 ## 2.0.0
 
 - Story Block v2 hosts the suite's inventory, purse and scene, with reply cards and a **Game view** for your party, fights and world.
