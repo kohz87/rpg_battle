@@ -32,7 +32,7 @@ export function effectsLine(view, party) {
     return `Effects: ${parts.join('; ')}${rest > 0 ? `; and ${rest} more` : ''}.`;
 }
 
-export const STATIC = 'Party numbers (HP, MP, SP, XP, levels) are set by code: never write them; write a wound, rest or check line instead, and tell what the [Happened] lines say.';
+export const STATIC = 'Party numbers (HP, MP, SP, XP, levels) are set by code: never write them; write a wound, rest or check line instead (? check skill — attempt | dc: hard; omit result; Story Director rolls, and the tail tells the outcome), and tell what the [Happened] lines say.';
 
 /**
  * The static line in the world's words (MODULES §F105): `settings` is the part's, with the terms

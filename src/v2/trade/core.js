@@ -294,7 +294,12 @@ function packShopsAt(packs, placeName) {
     const here = placeKey(placeName);
     if (!here || !Array.isArray(packs?.shops) || !packs.shops.length) return [];
     const items = new Map((packs.items ?? []).filter(item => item && typeof item.id === 'string').map(item => [item.id, item]));
-    return packs.shops.filter(shop => shop && typeof shop.place === 'string' && placeKey(shop.place) && (wordsIn(here, placeKey(shop.place)) || wordsIn(placeKey(shop.place), here)))
+    return packs.shops.filter(shop => {
+        if (!shop || typeof shop.place !== 'string') return false;
+        // Current packs name a place by definition id; legacy packs used its display name.
+        const place = placeKey(packs.places?.find(entry => entry.id === shop.place)?.name ?? shop.place);
+        return place && (wordsIn(here, place) || wordsIn(place, here));
+    })
         .map(shop => ({
             name: clean(shop.name, 80), slug: shopSlug(shop), kindWords: clean(shop.kind ?? '', 60), keeper: clean(shop.keeper ?? '', 80),
             stock: (Array.isArray(shop.stock) ? shop.stock : []).map(line => {

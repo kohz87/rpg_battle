@@ -8,6 +8,8 @@
 import { createHost } from '../../../vendor/story-block/testkit/index.js';
 import { MODULE_ID, createModule } from '../../../../src/v2/module.js';
 import { EQUIP_PARTS } from '../../items/helpers/equip-parts.js';
+import { createModule as createDirector } from '../../../vendor/story-director/src/v2/module.js';
+import { part as checks } from '../../../vendor/story-director/src/v2/checks/index.js';
 import { withDirector } from './peer.js';
 
 // splitmix32 over a counter: plenty for test dice, the same every run.
@@ -67,7 +69,7 @@ export async function rpgHost(options = {}) {
     const module = createModule({ settings: () => sdk?.settings(MODULE_ID) ?? {}, ...(equip ? { parts: [...EQUIP_PARTS] } : {}) });
     // `tweak(module)`: a test's change to the module before it registers (a query wrapped to misbehave).
     if (typeof tweak === 'function') tweak(module);
-    const host = await createHost({ ...hostOptions, modules: withDirector([module, CALLER, ...(options.modules ?? [])]) });
+    const host = await createHost({ ...hostOptions, modules: withDirector([...((options.modules ?? []).some(peer => peer.id === 'story-director') ? [] : [createDirector({ parts: [['checks', checks]] })]), module, CALLER, ...(options.modules ?? [])]) });
     sdk = host.sdk;
     const saved = globalThis.StoryBlock;
     globalThis.StoryBlock = { apiVersion: 2, ready: Promise.resolve(sdk), sdk };
@@ -79,7 +81,21 @@ export async function rpgHost(options = {}) {
         else globalThis.StoryBlock = saved;
     };
     host.q = (name, args) => sdk.query(name, args);
-    host.cmd = (type, payload = {}, opts) => sdk.command(type, payload, opts);
+    host.cmd = async (type, payload = {}, opts) => {
+        const out = await sdk.command(type, payload, opts);
+        // Legacy fixtures opt into SD checks explicitly; production creation links only a pinned PC.
+        if (out.ok && type === 'party.create' && host.registry.query('checks.policy')) {
+            const policy = sdk.query('checks.policy', {});
+            if (policy.defaultActor === null) {
+                const made = await sdk.command('checks.actor', { write: 'wr_fixture1', name: payload.name, expectedHash: policy.hash });
+                if (!made.ok) throw new Error(made.message);
+                const result = made.receipt.data.v2.result;
+                const linked = await sdk.command('checks.link', { write: 'wr_fixture2', actor: result.actor, rbActor: out.receipt.data.actor, expectedHash: result.hash });
+                if (!linked.ok) throw new Error(linked.message);
+            }
+        }
+        return out;
+    };
     /** One of RPG Battle's internal commands, sent as another module sends it (CALLER). */
     host.internal = (type, payload = {}) => sdk.command('rbtest.call', { type, payload });
     /** A reply with a <Changes> block of `lines`. */

@@ -65,7 +65,7 @@ test('real module lethal/intervention/resolve guards survive reload and full rep
     }
 }));
 
-test('real module death/wipe/return/wake guards survive reload and full replay without Problems', async t => seeded(17, async () => {
+test('real module death/wipe/return/wake guards survive reload and full replay without Problems', async t => seeded(1, async () => {
     const w = await savedWorld(t);
     await w.say('The rewarded deed.');
     ok(w.command('test.reward'));

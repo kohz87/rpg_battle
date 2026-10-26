@@ -87,6 +87,7 @@ export const RULES_V2_LIMITS = deepFreeze({
     name: rulesV2Schema.$defs.name.maxLength,
     note: rulesV2Schema.$defs.note.maxLength,
     slug: rulesV2Schema.$defs.slug.maxLength,
+    skillSlug: 52, // room for the base form and both pathway steps
     forms: 2048,
     nodes: 100000,
     errors: 20,
@@ -860,9 +861,9 @@ function checkParentForm(form, constants) {
     for (const key of Object.keys(form)) if (!allowed.has(key)) add(key, `Unknown form field "${key}"`);
     for (const key of ['id', 'skill']) {
         const value = form[key];
-        if (typeof value !== 'string' || !DEF_ID.test(value) || value.length > 160 || value.split('/')[1].length > 64) add(key, 'Expected an SB definition ID');
+        if (typeof value !== 'string' || !DEF_ID.test(value) || value.length > rulesV2Schema.$defs.id.maxLength || value.split('/')[1].length > RULES_V2_LIMITS.slug) add(key, 'Expected an SB definition ID');
     }
-    if (typeof form.skill === 'string' && form.skill.split('/').at(-1).length > 52) add('skill', 'Base skill slug must leave room for both pathway steps');
+    if (typeof form.skill === 'string' && form.skill.split('/').at(-1).length > RULES_V2_LIMITS.skillSlug) add('skill', 'Base skill slug must leave room for both pathway steps');
     for (const key of ['name', 'note']) {
         for (const error of validateSchemaValue(form[key], rulesV2Schema.$defs[key], rulesV2Schema.$defs, key)) add(error.path, error.message);
     }
@@ -1925,8 +1926,8 @@ function validateRulesV2Of(manifest, content, constants, { host = false } = {}) 
     // Skills validation
     for (let i = 0; i < (m.skills ?? []).length; i++) {
         const skl = m.skills[i];
-        if ([...skl.slug].length > 52) {
-            errors.push({ code: RULES_V2_ERROR_CODES.NUMERIC_RANGE, path: `content.rules[0].skills[${i}].slug`, message: `Skill slug "${skl.slug}" exceeds maximum length 52` });
+        if ([...skl.slug].length > RULES_V2_LIMITS.skillSlug) {
+            errors.push({ code: RULES_V2_ERROR_CODES.NUMERIC_RANGE, path: `content.rules[0].skills[${i}].slug`, message: `Skill slug "${skl.slug}" exceeds maximum length ${RULES_V2_LIMITS.skillSlug}` });
         }
         const owningClassSlug = skillOwner.get(skl.slug);
         const owningClass = owningClassSlug ? classBySlug.get(owningClassSlug) : null;

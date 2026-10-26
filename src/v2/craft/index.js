@@ -5,7 +5,7 @@
 //   rest the story teaches (`+ recipe … | from: …`), a recipe the packs lack kept for this chat with
 //   code's DC; `- recipe` forgets. Companions learn and craft with their own stats.
 // * `! craft X | with: … | by: Name | roll: N | result: fine` (commands.js): code recomputes it with the
-//   reply's own roll (the checks part's dice, F80, positional), its modifiers (stat, tools, rank,
+//   Story Director check, its modifiers (stat, tools, rank,
 //   station, materials) against the DC, and decides the quality (rules.js): it consumes the materials
 //   and makes the item through Story Block's inventory commands, counts a craft use (ranks grow like
 //   RPG Battle's skills), moves the clock by the recipe's minutes and flags a story quality that
@@ -31,7 +31,7 @@ export const part = {
     features: [{
         id: FEATURE,
         label: 'Crafting',
-        describe: 'Characters and companions learn recipes and craft from the story; code rolls the result with the reply\'s dice and decides the quality.',
+        describe: 'Characters and companions learn recipes and craft from the story; Story Director rolls the check and RPG Battle decides the quality.',
         default: true,
         // Its two kinds' grammar is in the fixed prompt part: turning it on or off changes that part once.
         prompt: true,

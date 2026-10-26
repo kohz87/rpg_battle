@@ -27,7 +27,7 @@ const SLICE = 'rb-rules-slice';
 const json = value => JSON.stringify(value);
 
 test('module.js registers the quest part while rules-v2 domains await pinned preflight', async () => {
-    assert.deepEqual(PARTS.map(([id]) => id), ['rules', 'progress', 'training', 'party', 'creation', 'checks', 'quests', 'items', 'combat', 'board', 'return', 'trade', 'craft', 'screens']);
+    assert.deepEqual(PARTS.map(([id]) => id), ['rules', 'progress', 'training', 'modifiers', 'party', 'creation', 'quests', 'items', 'combat', 'board', 'return', 'trade', 'craft', 'screens']);
     const module = createModule({ settings: () => ({}), query: () => [] });
     for (const name of NEW_NAMES.domains) assert.equal(Object.hasOwn(module.domains, name), false, `domain ${name}`);
     for (const name of NEW_NAMES.commands) assert.equal(Object.hasOwn(module.commands, name), false, `command ${name}`);
@@ -89,7 +89,7 @@ async function mergedHost({ modules = [] } = {}) {
 
 async function session(modules, { merge = false } = {}) {
     return seeded(5, async () => {
-        const host = merge ? await mergedHost() : await rpgHost({ modules });
+        const host = merge ? await mergedHost() : await rpgHost({ modules: [DIRECTOR_PEER, ...modules] });
         try {
             assert.equal((await host.cmd('party.create', { name: 'Ren', preset: 'fighter' })).ok, true);
             await host.send('We walk into the village.', host.reply('Bluewatch Village.', ['~ place Bluewatch Village | kind: settlement', '+ item Rope | qty: 1']));

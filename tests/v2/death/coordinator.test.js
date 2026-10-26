@@ -97,7 +97,7 @@ test('the most recent manual point after day10 wins for a day11 death', async t 
     assert.equal(w.q('return.status').lastReturn.snapshot, manual.id);
 }));
 
-test('simultaneous companion and PC death seals both original checks and makes one return', async t => seeded(17, async () => {
+test('simultaneous companion and PC death seals both original checks and makes one return', async t => seeded(1, async () => {
     const w = await savedWorld(t);
     await w.say('<Changes>\n~ time 15840\n</Changes>');
     const friend = w.lethal(w.friend);

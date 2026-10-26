@@ -245,7 +245,7 @@ export function missingModules(registry, state) {
     const domains = state?.domains ?? {};
     return registry.modules()
         .filter(def => registry.held?.(def.id) !== true)
-        .map(def => ({ def, missing: Object.keys(def.domains ?? {}).filter(name => !Object.hasOwn(domains, name)) }))
+        .map(def => ({ def, missing: Object.keys(def.domains ?? {}).filter(name => !def.domains[name].deferred && !Object.hasOwn(domains, name)) }))
         .filter(entry => entry.missing.length);
 }
 
@@ -370,6 +370,7 @@ export function preflight({ store, registry, chat = () => [], apiVersion = 2 }, 
 
     const result = {
         hostApi: apiVersion,
+        deferredDomains: true,
         hostVersion: registry.hostVersion?.() ?? '',
         storeVersion: null,
         classification: 'empty',

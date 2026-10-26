@@ -217,3 +217,16 @@ test('selling starts from the item\'s own value (a pack\'s numbers), then v1\'s 
     assert.equal(host.query('trade.quote', { type: 'sell', stack: 'it_00000010', qty: 1, kind: 'apothecary' }).each, 1105);
     assert.equal(host.query('trade.quote', { type: 'sell', stack: 'it_00000009', qty: 1, kind: 'fence' }).each, 153);
 });
+
+test('pack shops resolve a place definition id before matching the current scene', () => {
+    const module = { ...part, queries: { ...part.queries, 'packs.content': (_state, args) => structuredClone({
+        shops: [{ ...PACK_SHOPS[0], place: 'pack.e/bluewatch-village' }],
+        places: [{ id: 'pack.e/bluewatch-village', name: 'Bluewatch Village' }],
+        items: PACK_ITEMS,
+    }[args?.kind] ?? []) } };
+    const host = createHost(module, { state: baseState({ coin: 20000, place: { name: 'Bluewatch Village', kind: 'village' } }) });
+    const stores = host.query('trade.stock', { kind: 'watch-stores' });
+    assert.equal(stores.pack, true);
+    assert.equal(stores.shop, 'bluewatch village|watch-stores');
+    assert.deepEqual(stores.items.map(item => item.def.id), PACK_ITEMS.map(item => item.id));
+});

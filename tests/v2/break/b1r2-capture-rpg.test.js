@@ -55,6 +55,6 @@ test('deleting an early reply with a check keeps the checks of later replies', a
     await host.st.deleteMessage(a);
     await host.st.deleteMessage(a - 1);
     // The log is keyed by check id (B-b1r2-13, approved): read through its query, oldest first.
-    const skills = host.q('checks.log').map(entry => entry.skill);
+    const skills = Object.values(host.head().domains.checks.log).map(entry => entry.skill);
     assert.deepEqual(skills, ['athletics', 'STR'], JSON.stringify(host.store.problems().map(problem => problem.message)));
 });

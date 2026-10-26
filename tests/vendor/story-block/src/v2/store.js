@@ -666,6 +666,9 @@ export function createStore({
 
     function replayGuarded(state, record, ops, span, message = null, receipt = null) {
         blockIntact(record, ops, span, receipt);
+        // Some setup choices must retract even when deletion of the earliest replies carries their
+        // other state forward (carriedTo replays the formerly known prefix). Never carry this choice.
+        if (span.guard?.replyBound === true && message && !list().includes(message)) throw prerequisite('its reply was deleted');
         const clockPrefix = markerPrefixProblem(span, state);
         if (clockPrefix) throw prerequisite(clockPrefix);
         // A proof id belongs to the block that applied with it first: a later block that gives the same id collides and does not apply.
@@ -1247,7 +1250,7 @@ export function createStore({
         }
         const own = revOfOps(fresh);
         if (Number.isInteger(own)) out.running = out.running === null ? own : Math.max(out.running, own);
-        const newReceipt = { ...structuredClone(planned.receipt), id: receipt.id, ...(receipt.afterCapture === true ? { afterCapture: true } : {}) };
+        const newReceipt = { ...structuredClone(planned.receipt), id: receipt.id, ...(receipt.afterCapture === true ? { afterCapture: true } : {}), ...(receipt.beforeGenerate === true ? { beforeGenerate: true } : {}) };
         let newSpan = { n: fresh.length, story: false };
         if (planned.block) {
             const arr = list();
@@ -2084,8 +2087,8 @@ export function createStore({
             writable();
             const arr = list();
             const message = carrierAt(arr, index);
-            if (!Array.isArray(receipts) || receipts.some(receipt => !isObject(receipt) || receipt.cause !== 'story')) {
-                throw new TypeError('Re-read takes story receipts only.');
+            if (!Array.isArray(receipts) || receipts.some(receipt => !isObject(receipt) || (receipt.cause !== 'story' && !(receipt.cause === 'system' && receipt.beforeGenerate === true)))) {
+                throw new TypeError('Re-read takes story receipts and generated-reply preludes only.');
             }
             if (settled !== null && (!Array.isArray(settled) || settled.some(ran => !isObject(ran?.receipt) || ran.receipt.cause !== 'system'))) {
                 throw new TypeError('Re-read\'s afterCapture steps are system steps, each { ops, receipt }.');
@@ -2137,16 +2140,17 @@ export function createStore({
             // The new story lines: each guarded one a block of its own, the others together as one (as before).
             const replacedIds = new Set(spans.filter(span => span.story && isMetaSpan(span)).map(span => span.id));
             const pieces = Array.isArray(lines) && lines.length && lines.every(piece => Number.isInteger(piece?.n) && piece.n >= 0)
-                && lines.reduce((sum, piece) => sum + piece.n, 0) === fresh.length && lines.some(piece => piece.block) ? lines : null;
+                && lines.reduce((sum, piece) => sum + piece.n, 0) === fresh.length && lines.some(piece => piece.block || piece.receipt?.beforeGenerate === true) ? lines : null;
             if (pieces) {
                 let offset = 0;
                 let upTo = base;         // the state before the piece
                 for (const piece of pieces) {
                     const own = fresh.slice(offset, offset + piece.n);
+                    const story = piece.receipt?.beforeGenerate !== true;
                     if (piece.block) {
                         let span;
                         try {
-                            span = { n: piece.n, story: true, ...stamp(arr, index, record, piece.block, own, piece.receipt, nextParts, offset) };
+                            span = { n: piece.n, story, ...stamp(arr, index, record, piece.block, own, piece.receipt, nextParts, offset) };
                             guardHolds(upTo, span, message);
                         } catch (error) {
                             throw fail(error);
@@ -2154,11 +2158,11 @@ export function createStore({
                         publish(span, index);     // the lines applied to the state before this point
                         storySpans.push(span);
                         nextParts.push({ ops: own, span });
-                    } else if (storySpans.length && !isMetaSpan(storySpans.at(-1))) {
+                    } else if (storySpans.length && storySpans.at(-1).story === story && !isMetaSpan(storySpans.at(-1))) {
                         storySpans.at(-1).n += piece.n;
                         nextParts.at(-1).ops = [...nextParts.at(-1).ops, ...own];
                     } else {
-                        const span = { n: piece.n, story: true };
+                        const span = { n: piece.n, story };
                         storySpans.push(span);
                         nextParts.push({ ops: own, span });
                     }
@@ -2201,6 +2205,12 @@ export function createStore({
             }
             for (const [n, { ops: block, span: was }] of blocks.entries()) {
                 const receipt = paired ? keptReceipts[n] : null;
+                // A reply-bound block goes when its reply is read again, its receipt with it (as a delete or a swipe takes it);
+                // what was built on it is replayed below without it.
+                if (was.guard?.replyBound === true) {
+                    if (!paired) for (const gone of receiptsFor({ receipts: keptReceipts }, block)) keptReceipts.splice(keptReceipts.indexOf(gone), 1);
+                    continue;
+                }
                 let blockOps;
                 let kept = receipt;
                 let again = null;      // the block as planned again, when it was
@@ -2217,7 +2227,7 @@ export function createStore({
                     } else {
                         again = out;
                         blockOps = asOps(out.ops);
-                        kept = { ...structuredClone(out.receipt), id: receipt.id };
+                        kept = { ...structuredClone(out.receipt), id: receipt.id, ...(receipt.beforeGenerate === true ? { beforeGenerate: true } : {}) };
                         const own = [...blockOps].reverse().find(op => op?.path === '/meta/rev' && Number.isInteger(op.value))?.value;
                         if (Number.isInteger(own)) rev = Math.max(rev, own);
                     }

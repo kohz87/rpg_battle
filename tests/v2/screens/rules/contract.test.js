@@ -32,7 +32,7 @@ test('five screens, unique ids, tab and screen mounts, each gated by rulesActive
     assert.deepEqual(rulesScreens.map(screen => screen.id), ['rpg-battle/progress', 'rpg-battle/quests', 'rpg-battle/roster', 'rpg-battle/links', 'rpg-battle/setup']);
     assert.equal(new Set(rulesScreens.map(screen => screen.id)).size, 5);
     for (const screen of rulesScreens) {
-        assert.deepEqual(screen.mounts, ['tab', 'screen']);
+        assert.deepEqual(screen.mounts, screen.id === 'rpg-battle/setup' ? ['tab', 'screen', 'dialog'] : ['tab', 'screen']);
         assert.equal(screen.active, screen.id === 'rpg-battle/setup' ? setupActive : rulesActive);
         assert.ok(screen.activeNote.length > 0);
         for (const { query } of Object.values(screen.data)) assert.equal(typeof rulesQueries[query], 'function', `${screen.id} reads ${query}`);
@@ -156,7 +156,7 @@ test('every dependency scenario is a complete answers table (nothing a view asks
 
 
 test('the former track B stand-ins name real registered query/command handlers and use their wire shapes', () => {
-    const base = createModule();
+    const base = createModule({ preflight: { hostApi: 2, deferredDomains: true, classification: 'empty', restore: 'idle', peers: [] } });
     const registered = Object.assign({}, base.commands, base.queries, ...rulesParts.flatMap(([, p]) => [p.commands ?? {}, p.queries ?? {}]));
     for (const name of REAL_API.filter(name => !name.startsWith('inventory.') && !name.startsWith('savepoint.'))) {
         assert.equal(typeof registered[name], 'function', name);

@@ -124,7 +124,7 @@ test('companions learn and craft with their own stats', async t => {
         await replyWhen(host, 'Lyra forges.', () => true, () => ['! craft Iron Sword | by: Lyra | roll: 1 | result: made']);
         const made = lastCraft(host);
         assert.equal(made.actor, lyra.id);
-        const strength = host.q('checks.modifiers', { actor: lyra.id, skill: 'craft smithing', stat: 'STR' })[0].amount;
+        const strength = host.q('rules.modifier', { actor: lyra.id, skill: 'craft smithing', stat: 'STR' }).parts[0].amount;
         assert.equal(made.modifiers[0].amount, strength, 'Lyra\'s own STR');
         assert.equal(made.modifiers[0].reason, 'STR');
     } finally { host.close(); }
@@ -142,10 +142,10 @@ test('a craft takes the reply\'s roll by its place among the reply\'s checks and
             '! craft Iron Sword | roll: 1 | result: made',
         ], { place: 2 });
         const made = lastCraft(host);
-        assert.equal(made.roll, 2, 'the second uncertain attempt takes Roll 2');
+        assert.equal(made.roll, 0, 'SD rolls once per craft');
         assert.equal(made.die, die);
-        assert.match(made.note, /named Roll 1.*Roll 2 taken/);
-        assert.deepEqual(host.q('craft.rollsUsed', { carrier: made.carrier }), [2]);
+        assert.equal(made.note, '');
+        assert.deepEqual(host.q('craft.rollsUsed', { carrier: made.carrier }), [0]);
     } finally { host.close(); }
 });
 
@@ -158,12 +158,12 @@ test('a check after a craft in the same reply takes the next roll: one positiona
             '? check perception — spot the thief | dc: normal | roll: 1 | result: success',
         ]);
         const rolls = replyWhen.rolls;
-        assert.equal(lastCraft(host).roll, 1);
+        assert.equal(lastCraft(host).roll, 0);
         assert.equal(lastCraft(host).die, rolls[0]);
-        const check = host.q('checks.log').at(-1);
-        assert.equal(check.roll, 2, 'the check is the second uncertain attempt');
+        const check = Object.values(host.head().domains.checks.log).at(-1);
+        assert.equal(check.roll, undefined, 'SD has no positional table');
         assert.equal(check.die, rolls[1]);
-        assert.equal(check.note, '', 'the table: the member\'s 2nd die, no roll named needed');
+        assert.equal(check.note, undefined);
         // Two crafts and two checks: Rolls 1 and 2 by place, the rest rolled by code.
         await replyWhen(host, 'Busy.', () => true, () => [
             '! craft Grilled Fish | roll: 1',
@@ -172,12 +172,12 @@ test('a check after a craft in the same reply takes the next roll: one positiona
             '? check perception — look | dc: normal | roll: 2 | result: success',
         ]);
         const crafts = host.q('craft.last').results.map(result => host.q('craft.log').find(entry => entry.id === result.id));
-        const checks = host.q('checks.last').results.map(result => host.q('checks.log').find(entry => entry.id === result.id));
-        assert.deepEqual(crafts.map(entry => entry.roll), [1, 0]);
-        assert.deepEqual(checks.map(entry => entry.roll), [2, 0]);
-        assert.match(crafts[1].note, /every roll handed over was used: code rolled/);
-        assert.match(checks[1].note, /every roll handed over was used: code rolled/);
-        assert.deepEqual(host.q('craft.rollsUsed', { carrier: crafts[0].carrier }), [1, 0]);
+        const checks = Object.values(host.head().domains.checks.log).slice(-4).filter(entry => !entry.skill.startsWith('craft '));
+        assert.deepEqual(crafts.map(entry => entry.roll), [0, 0]);
+        assert.deepEqual(checks.map(entry => entry.roll), [undefined, undefined]);
+        assert.equal(crafts[1].note, '');
+        assert.equal(checks[1].note, undefined);
+        assert.deepEqual(host.q('craft.rollsUsed', { carrier: crafts[0].carrier }), [0, 0]);
     } finally { host.close(); }
 });
 
@@ -228,7 +228,7 @@ test('at most two crafts count in one reply; the third is refused and costs noth
         await host.send('Cook three.', host.reply('Fish.', ['! craft Grilled Fish | roll: 1', '! craft Grilled Fish | roll: 2', '! craft Grilled Fish | roll: 2']));
         assert.equal(host.q('craft.log').length, 2);
         assert.equal(qtyOf(host, 'River Fish'), 1, 'the third fish was not used');
-        assert.deepEqual(host.q('craft.log').map(entry => entry.roll), [1, 2]);
+        assert.deepEqual(host.q('craft.log').map(entry => entry.roll), [0, 0]);
     } finally { host.close(); }
 });
 
@@ -436,7 +436,9 @@ test('the carry limit: a craft whose item the party could not carry is refused, 
         await host.send('Hollis teaches me.', host.reply('He shows you.', ['+ recipe Iron Sword | from: Hollis']));
         await host.send('A heavy load.', host.reply('Sacks.', ['+ item River Fish | qty: 20']));
         // A roll that makes the sword (a fail makes nothing, so there is nothing to carry).
-        await replyWhen(host, 'I forge.', die => die >= 10, () => ['! craft Iron Sword | roll: 1']);
+        const attempt = host.reply('I forge.', ['! craft Iron Sword | roll: 1']);
+        await host.send('I forge.', attempt);
+        for (let n = 0; n < 100 && !host.turn.problems().some(problem => /cannot craft Iron Sword/.test(problem.message)); n += 1) await host.swipe(attempt);
         assert.equal(host.q('craft.log').length, 0, 'not crafted');
         assert.equal(qtyOf(host, 'Iron Ore'), 3, 'the ore is still there');
         assert.equal(qtyOf(host, 'Ember Salt'), 1);

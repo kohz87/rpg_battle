@@ -37,7 +37,7 @@ test('deleting a paid rescue parent retracts the intervention, injury and claims
     assertFullReplay(w);
 }));
 
-test('swiping or deleting a restored carrier retracts its wake and refuses unmatched native selection', async t => seeded(91, async () => {
+test('swiping or deleting a restored carrier retracts its wake and follows the native selection', async t => seeded(91, async () => {
     const w = await savedWorld(t);
     await w.say('<Changes>\n~ time 15840\n</Changes>');
     const ref = (await wipe(w)).receipt.data.deathBatch;
@@ -48,8 +48,8 @@ test('swiping or deleting a restored carrier retracts its wake and refuses unmat
     await w.host.swipe('Another outcome.');
     assert.equal(w.q('return.status').lastReturn, null);
     assert.equal(Object.keys(w.slice('death').wakes).length, 0);
-    assert.ok(generationProblem(w.head(), w.host.timeline.host));
-    assert.equal((await w.coordinator.recover()).code, 'DEPENDENCY_UNAVAILABLE');
+    assert.equal(generationProblem(w.head(), w.host.timeline.host, w.q('savepoint.contract')), null);
+    ok(await w.coordinator.recover());
     await w.host.st.swipeTo(index, 0);
     assert.equal(w.q('return.status').lastReturn.id, record.id);
     assert.equal(Object.keys(w.slice('death').wakes).length, 1);
@@ -57,7 +57,7 @@ test('swiping or deleting a restored carrier retracts its wake and refuses unmat
     await w.host.st.deleteMessage(index);
     assert.equal(w.q('return.status').lastReturn, null);
     assert.equal(Object.keys(w.slice('death').wakes).length, 0);
-    assert.ok(generationProblem(w.head(), w.host.timeline.host));
+    assert.equal(generationProblem(w.head(), w.host.timeline.host, w.q('savepoint.contract')), null);
     assert.deepEqual(w.host.timeline.host.pin(ref.id).bytes, pinned.bytes, 'original wipe check/result remains archived');
     assertFullReplay(w);
 }));

@@ -57,5 +57,8 @@ export function nativeFixture(saved = null) {
         }),
     };
     return { native: n, module: { id: 'npc-state-delta', name: 'Synthetic native participant', version: '1.0.0', participant,
-        queries: { 'npc.identity': (state, { id } = {}) => n.live.map[id] ? { id, nativeKey: n.live.map[id], name: n.live.dossiers[n.live.map[id]].name } : null } } };
+        queries: {
+            'npc.identity': (state, { id } = {}) => n.live.map[id] ? { id, nativeKey: n.live.map[id], name: n.live.dossiers[n.live.map[id]].name } : null,
+            'npc.dossier': (state, { id } = {}) => n.live.map[id] ? { lifeState: n.live.dossiers[n.live.map[id]].alive ? 'alive' : 'deceased' } : null,
+        } } };
 }

@@ -11,5 +11,5 @@ test('beforeGenerate hands { type } on, so a Continue keeps the reply\'s prepare
     const cont = await def.hooks.beforeGenerate(view, { type: 'continue' });
     assert.ok(!cont.commands.some(c => c.type === 'checks.prepare'), 'a Continue re-rolled');
     const fresh = await def.hooks.beforeGenerate(view, { type: 'normal' });
-    assert.ok(fresh.commands.some(c => c.type === 'checks.prepare'), 'a new reply did not roll');
+    assert.ok(!fresh.commands.some(c => c.type === 'checks.prepare'), 'RB never prepares check dice');
 });

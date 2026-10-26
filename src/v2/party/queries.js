@@ -6,7 +6,7 @@ import { combatNumbers, combatantFromSheet } from '../../party.js';
 import { rulesFrom, toSheet, wornGear } from './sheets.js';
 import { moneyScale, packOwnRanks, packRanks, rankLadder, termsOf } from '../../terms.js';
 import { actorsInOrder, offerText, plainCopy, resolveName, waitingOffers } from './util.js';
-import { encumbranceOf } from '../checks/modifiers.js';
+import { encumbranceOf } from '../rules/modifiers.js';
 import { clockOf, fitParty, lapsed, POOLS } from './pools.js';
 import { FEATURE, activeEffects, combatShift, featureOn, nowOfState, shifted, shown } from './effects.js';
 

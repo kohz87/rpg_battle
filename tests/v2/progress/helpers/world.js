@@ -10,7 +10,7 @@
 //   ~ time <minute>                              the clock
 import { createHost } from '../../../vendor/story-block/testkit/index.js';
 import { withDirector } from '../../integration/helpers/peer.js';
-import { pinOf, pinRules, registerPackDefs, rulesParts } from '../../../../src/v2/rules/index.js';
+import { pinOf, pinRules, registerPackDefs, rulesParts, modifierPart } from '../../../../src/v2/rules/index.js';
 import { recordAttempt, recordBasicClass, recordCombatUses } from '../../../../src/v2/progress/index.js';
 import { resultBytes, batchId } from '../../../../src/v2/death/plan.js';
 import { indexOfCtx } from '../../../../src/v2/rules/graph.js';
@@ -19,7 +19,7 @@ import { seal } from '../../../../src/v2/fight/batch.js';
 import { storeBatch } from '../../../../src/v2/fight/index.js';
 
 // The module is built from `rulesParts` alone (every part of rules v2, as module.js will register them), plus the test-only pieces below.
-const PARTS_ = rulesParts.map(([, part]) => part);
+const PARTS_ = [...rulesParts.map(([, part]) => part), modifierPart];
 const merge = key => Object.assign({}, ...PARTS_.map(part => part[key] ?? {}));
 const rulesPart = { queries: merge('queries') };
 const progressPart = { kinds: merge('kinds'), hooks: merge('hooks'), replayQueries: [...new Set(PARTS_.flatMap(part => part.replayQueries ?? []))] };
@@ -218,7 +218,7 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
                 return { summary: 'Attempt.', narrate: false, data: made };
             },
         },
-        queries: { ...rulesPart.queries },
+        queries: Object.fromEntries(Object.entries(rulesPart.queries).filter(([name]) => id === 'rpg-battle' || name !== 'rules.modifier')),
         capture: {
             kinds: { ...progressPart.kinds, attempt: { grammar: '! attempt ac_id | skill: s | form: f | key: k' } },
             apply(ctx, line) {

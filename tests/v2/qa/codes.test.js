@@ -99,7 +99,7 @@ each('malformed payloads are rejected (INVALID / NOT_FOUND), never thrown, and c
     ];
     for (const [type, payload] of cases) {
         const r = rejected(h, type, payload);
-        assert.ok(['INVALID', 'NOT_FOUND', 'NOT_ENOUGH', 'REFUSED'].includes(r.code), `${type} ${JSON.stringify(payload)} → ${r.code}: ${r.message}`);
+        assert.ok(['INVALID', 'NOT_FOUND', 'NOT_ENOUGH', 'REFUSED', ...(type === 'check.resolve' ? ['UNKNOWN_COMMAND'] : [])].includes(r.code), `${type} ${JSON.stringify(payload)} → ${r.code}: ${r.message}`);
         assert.equal(typeof r.message, 'string');
         assert.ok(r.message.length > 0 && !/undefined|\[object/.test(r.message), `${type}: a plain message (${r.message})`);
     }

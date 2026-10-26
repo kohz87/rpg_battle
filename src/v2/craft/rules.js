@@ -139,7 +139,7 @@ export function statsModifier(actor, stats, rules = DEFAULT_RULES) {
         const value = actor?.stats?.[stat];
         return total + checkModifier(Number.isFinite(value) ? value : rules.character.startStat, rules);
     }, 0);
-    return Math.floor(sum / list.length);
+    return sum;
 }
 
 /** The stations a recipe can be made at: its own `station`, else its craft's ([]: anywhere). */

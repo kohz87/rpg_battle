@@ -15,6 +15,9 @@ export const LIMITS = Object.freeze({
     errors: 20,                      // problems reported for one pack before giving up
 });
 
+// Shared authoring bounds for host records, also used by pack editors.
+export const RECORD_LIMITS = Object.freeze({ slug: 64, note: 500, word: 40, element: 24 });
+
 // Content kinds a pack may carry (SPEC §9). Each is a list of records.
 // races and talents are choices for the character creation wizard (MODULES §F12); skills are
 // RPG Battle skill templates and presets ready-made characters for that wizard; places and

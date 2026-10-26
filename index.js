@@ -60,8 +60,9 @@ export async function boot({ rules = null, global = globalThis, doc = global.doc
             const st = global.SillyTavern?.getContext?.();
             if (migrateRankLadder(st?.extensionSettings?.storySuite)) st.saveSettingsDebounced?.();
         } catch (error) { console.warn(`[${MODULE_NAME}] the rank ladder could not be moved`, error); }
-        await sdk.registerModule(createModule({ settings: () => sdk.settings(MODULE_ID), rules,
-            preflight: sdk.preflight({ module: MODULE_ID, rulesVersion: 2 }) }));
+        const preflight = () => sdk.preflight({ module: MODULE_ID, rulesVersion: 2, peers: ['story-director'] });
+        await sdk.registerModule(createModule({ settings: () => sdk.settings(MODULE_ID), query: (name, args) => sdk.query(name, args), rules,
+            preflight: preflight(), readPreflight: preflight }));
         return { ok: true, sdk };
     } catch (error) {
         console.error(`[${MODULE_NAME}] Story Block v2 did not take the module:`, error);

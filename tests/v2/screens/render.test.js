@@ -321,18 +321,12 @@ test('status card: an MP change marks the hero as HP does (the same highlight); 
     assert.ok(!ren.querySelector('.hero').classList.contains('hit'), 'HP did not change');
 });
 
-test('status card: the reply\'s checks with the die, modifiers, total vs DC, code\'s result and the disagreement flag; only on that reply', { skip }, () => {
+test('status card: checks remain on receipts, with no check rows even when a check changed', { skip }, () => {
     const drawn = draw(statusCardScreen, makeState(), { changes: ['/domains/checks/log/ck_aaaaaaaa'], settings: { cardOnlyChanged: true } });
     assert.deepEqual(drawn.warnings, []);
     assert.equal(all(drawn.el, '.member').length, 0);
-    const [check] = all(drawn.el, '.checks .check');
-    // The skill and stat, the die (and which roll it was), the modifiers, the total against the DC, code's outcome.
-    assert.equal(text(check.querySelector('.txt')), 'Ren, Stealth (DEX) — slipping past the guard: d20 12 (Roll 1) + 0 DEX = 12 vs DC 20 (hard) → fail');
-    assert.ok(!check.classList.contains('pass'));
-    assert.ok(check.classList.contains('off'));
-    assert.equal(text(check.querySelector('.flag')), 'Story said success; dice said fail');
-    assert.equal(drawn.el.querySelector('.calm'), null);
-    // Another reply (that did not write these checks) does not show them.
+    assert.equal(all(drawn.el, '.checks .check').length, 0);
+    assert.ok(drawn.el.querySelector('.calm'));
     drawn.rerender(makeState(), ['/domains/party/actors/ac_lyra0001/mp']);
     assert.equal(all(drawn.el, '.checks .check').length, 0);
 });
