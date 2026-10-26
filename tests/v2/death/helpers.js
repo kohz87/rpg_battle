@@ -25,17 +25,20 @@ export async function world(t, { pin = true, native = null, faults = null, st = 
             'test.proof'(ctx, { kind, payload, parents = [] }) { return { summary: 'Code evidence.', narrate: false, data: ctx.proof({ kind, payload, parents }) }; },
             'test.linkNpc'(ctx, { actor, npc }) { ctx.draft('party').actors[actor].npcId = npc; return { summary: 'Linked.', narrate: false }; },
             'test.reward'(ctx) {
-                // Like production quest/combat awards, the synthetic payer must guard its claims.
-                // Otherwise undoing a return can replay two formerly disjoint, unguarded rewards.
-                ctx.replayGuard({ owner: ctx.module, version: 2, epoch: ctx.epoch, rulesHash: null,
-                    inputHash: ctx.hash({}), predicate: { kind: 'test.reward' } });
                 if (!ctx.claim('c12:reward')) ctx.fail('CLAIMED', 'The reward was already paid.');
+                ctx.replayGuard({ owner: 'rpg-battle', version: 2, epoch: ctx.read('savepoints')?.epoch ?? 'ep_00000000',
+                    rulesHash: ctx.read('rules').rulesHash, predicate: { kind: 'test.reward' },
+                    inputHash: ctx.hash({ party: ctx.read('party'), inventory: ctx.read('inventory') }) });
                 ctx.call('wallet.receive', { owner: 'party', amount: 30 });
                 ctx.call('party.grantXp', { actor: ctx.read('party').pc, amount: 25, claim: 'c12:reward' });
                 return { summary: 'One reward.', narrate: false };
             },
         },
-        hooks: { replayGuard: (_view, { guard }) => guard?.predicate?.kind === 'test.reward' ? { ok: true } : undefined },
+        hooks: { replayGuard(view, info) {
+            if (info.guard?.predicate?.kind !== 'test.reward') return undefined;
+            return { ok: view.hash({ party: view.state.domains.party, inventory: view.state.domains.inventory }) === info.guard.inputHash,
+                reason: 'The reward prerequisite changed.' };
+        } },
     };
     const module = { ...createModule({ parts: [...rulesParts, ['death', death], ['harness', harness]] }), batchResults: { resolve: resolveBatch } };
     host = await createHost({ modules: [SD, module, ...(native ? [native.module] : [])], timelineFaults: faults, st: { ...st, ...(image ? { chat: image.chat } : {}) } });
@@ -48,13 +51,13 @@ export async function world(t, { pin = true, native = null, faults = null, st = 
     }
     const command = (type, payload = {}, cause = 'system') => host.bus.command(type, payload, { cause });
     const q = (name, args = {}) => host.sdk.query(name, args);
-    const pc = q('party.pc').id;
+    const pc = image?.pc ?? q('party.pc')?.id;
     if (pin && !image) {
         ok(command('test.pin'));
         ok(command('test.start', { actor: pc, class: ref('c0') }));
     }
     // A test-only RB adapter, rather than a forged cross-owner caller.
-    const friend = image ? q('party.actors').find(m => m.kind === 'companion')?.id : ok(command('party.addCompanion', { name: 'Lyra', level: 1, ...(pin ? { class: ref('c0') } : {}) })).receipt.data.actor;
+    const friend = image ? image.friend ?? q('party.actors')?.find(m => m.kind === 'companion')?.id : ok(command('party.addCompanion', { name: 'Lyra', level: 1, ...(pin ? { class: ref('c0') } : {}) })).receipt.data.actor;
     const proof = (kind, payload, parents = []) => ok(command('test.proof', { kind, payload, parents })).receipt.data.id;
     const lethal = (actor, cause = 'narrative') => {
         const evidence = proof('story', { actor, cause, lethal: true });

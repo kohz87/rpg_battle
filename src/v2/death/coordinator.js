@@ -10,6 +10,18 @@ const fail = (code, message) => ({ ok: false, code, message });
 export function createDeathCoordinator({ timeline, host, state, command, query, participant = 'npc-state-delta' }) {
     let queue = Promise.resolve();
     const ready = () => timeline && ['head', 'status', 'list'].every(k => typeof timeline[k] === 'function') && host && ['pin', 'journal', 'prepare', 'activate', 'nativeEvent', 'recover'].every(k => typeof host[k] === 'function') && typeof state === 'function' && typeof command === 'function' && typeof query === 'function';
+    const selectionProblem = () => historySelectionProblem(state(), host.journal(), query('savepoint.contract', {}));
+    // Recovery failures retain the host's code and RB's player-facing remedy. Only the host can settle its barrier.
+    async function recoverSelection() {
+        const recovered = await host.recover();
+        if (!recovered.ok) {
+            const selection = historySelectionProblem(state(), host.journal());
+            return selection ? { ...recovered, message: selection } : recovered;
+        }
+        if (recovered.state !== 'idle') return fail('RESTORE_PENDING', 'The host must finish the prepared native selection before delivery.');
+        const selection = selectionProblem();
+        return selection ? fail('DEPENDENCY_UNAVAILABLE', selection) : recovered;
+    }
     const tell = async id => {
         // A chat switch, a selected swipe or a failed participant must not deliver a wake on another head.
         const status = query('return.status', {});
@@ -19,11 +31,8 @@ export function createDeathCoordinator({ timeline, host, state, command, query, 
     async function deliver(ref) {
         if (!ready()) return fail('DEPENDENCY_UNAVAILABLE', 'RB needs the host-authenticated timeline coordinator.');
         if (!refOK(ref)) return fail('INVALID', 'A death delivery names its sealed { id, hash }.');
-        const recovered = await host.recover();
+        const recovered = await recoverSelection();
         if (!recovered.ok) return recovered;
-        if (recovered.state !== 'idle') return fail('RESTORE_PENDING', 'The host must finish the prepared native selection before delivery.');
-        const selection = historySelectionProblem(state(), host.journal());
-        if (selection) return fail('DEPENDENCY_UNAVAILABLE', selection);
         const pinned = host.pin(ref.id);
         if (pinned && pinned.hash !== ref.hash) return fail('CONFLICT', 'The batch is pinned with another meaning.');
         const selected = query('return.status', {})?.lastReturn;
@@ -72,10 +81,8 @@ export function createDeathCoordinator({ timeline, host, state, command, query, 
         },
         async recover() {
             if (!ready()) return fail('DEPENDENCY_UNAVAILABLE', 'RB needs the host-authenticated timeline coordinator.');
-            const out = await host.recover();
-            if (!out.ok || out.state !== 'idle') return out;
-            const selection = historySelectionProblem(state(), host.journal());
-            if (selection) return fail('DEPENDENCY_UNAVAILABLE', selection);
+            const out = await recoverSelection();
+            if (!out.ok) return out;
             const selected = query('return.status', {})?.lastReturn;
             if (selected?.status === 'complete') return tell(selected.id);
             return out;

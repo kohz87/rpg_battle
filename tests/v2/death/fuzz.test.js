@@ -1,5 +1,4 @@
-// A rules-side death/return fuzzer. Native readiness is tested through a synthetic participant. When E6a
-// cannot select its native prefix after a history edit, RB must refuse generation (the E6b gap is explicit).
+// A rules-side death/return fuzzer. The real E6b host selects checkpoints of a synthetic native participant.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { savedWorld, coordinator } from './return-helper.js';
@@ -19,9 +18,9 @@ for (const seed of seeds) test(`B6 death/wipe/return fuzz ${seed}: rewards, nati
     let random = seed >>> 0;
     const next = n => { random = (Math.imul(random, 1664525) + 1013904223) >>> 0; return random % n; };
     const trace = [];
-    const selected = () => lifeOf(w.q('party.actor', { id: w.pc }));
+    const selected = () => { const pc = w.q('party.actor', { id: w.pc }); return pc ? lifeOf(pc) : 'held'; };
     const snapshot = () => structuredClone({ domains: w.head().domains, claims: w.head().meta.claims });
-    const ready = () => !generationProblem(w.head(), w.host.timeline.host);
+    const ready = () => w.host.registry.restore().state === 'idle' && !generationProblem(w.head(), w.host.timeline.host, w.q('savepoint.contract'));
     await w.say('<Changes>\n~ time 15840\n</Changes>');
     let deaths = 0, returns = 0, holds = 0;
     for (let i = 0; i < steps; i++) {
@@ -45,9 +44,12 @@ for (const seed of seeds) test(`B6 death/wipe/return fuzz ${seed}: rewards, nati
                 if (out.ok && out.return) returns++;
             } else if (op === 2 && selected() !== 'dead' && ready()) {
                 const out = await wipe(w);
-                deaths++;
-                const delivered = await coordinator(w).deliver(out.receipt.data.deathBatch);
-                if (delivered.ok && delivered.return) returns++;
+                if (!out.ok) assert.equal(out.code, 'RESTORE_PENDING');
+                else {
+                    deaths++;
+                    const delivered = await coordinator(w).deliver(out.receipt.data.deathBatch);
+                    if (delivered.ok && delivered.return) returns++;
+                }
             } else if (op === 3) {
                 const before = snapshot();
                 await w.host.turn.reread(at);
@@ -62,15 +64,21 @@ for (const seed of seeds) test(`B6 death/wipe/return fuzz ${seed}: rewards, nati
                 if (choices.length) await w.host.st.deleteMessage(choices[next(choices.length)]);
             } else if (op === 7) {
                 await w.host.store.flush();
-                const image = structuredClone({ chat: w.host.ctx.chat, metadata: w.host.ctx.chatMetadata });
+                const image = structuredClone({ chat: w.host.ctx.chat, metadata: w.host.ctx.chatMetadata, pc: w.pc, friend: w.friend });
                 const native = nativeFixture(w.native);
                 w.host.close();
                 w = { ...await world(t, { native, image }), native: native.native };
             } else if (op === 8 && selected() !== 'dead' && ready()) {
                 await w.say(`Save ${i}.`);
                 await w.host.sdk.command('savepoint.make', { name: 'A recent point' });
-            } else if (op === 9 && selected() !== 'dead' && ready()) {
+            } else if (op === 9 && selected() !== 'dead' && ready() && w.host.ctx.chat.at(-1)?.is_user === false) {
                 await w.host.cont(` More at ${i}.`);
+            }
+            if (w.host.registry.restore().state === 'pending') {
+                holds++;
+                assert.equal(w.q('party.actor', { id: w.friend }), null, 'a missing matching checkpoint stays behind the host barrier');
+                assert.equal((await w.host.st.generate('normal', { reply: 'Must wait for native recovery.' })).aborted, true);
+                continue; // No public domain/query snapshot is available until participants confirm.
             }
             const batchResults = w.slice('progress').batches;
             for (const entry of Object.values(batchResults)) assert.equal(hashJson(entry.bytes), entry.hash);
@@ -78,7 +86,7 @@ for (const seed of seeds) test(`B6 death/wipe/return fuzz ${seed}: rewards, nati
             assert.ok(w.q('party.actor', { id: w.pc }).xp <= 25, 'a retained duplicate XP reward');
             const wakes = Object.values(w.slice('death').wakes);
             assert.equal(new Set(wakes.map(r => r.cue)).size, wakes.length);
-            const reason = generationProblem(w.head(), w.host.timeline.host);
+            const reason = generationProblem(w.head(), w.host.timeline.host, w.q('savepoint.contract'));
             if (reason) {
                 holds++;
                 const blocked = await w.host.st.generate('normal', { reply: 'The story must wait for native recovery.' });
@@ -89,7 +97,7 @@ for (const seed of seeds) test(`B6 death/wipe/return fuzz ${seed}: rewards, nati
             }
             assertFullReplay(w);
             assert.deepEqual(w.problems().filter(p => !['REPLAY_PREREQUISITE', 'REPLANNED'].includes(p.code)), []);
-        } catch (error) { error.message += `\nseed ${seed}; ${trace.slice(-15).join(' ')}`; throw error; }
+        } catch (error) { t.diagnostic(`seed ${seed}; ${trace.slice(-15).join(' ')}`); throw error; }
     }
     assert.ok(deaths > 0);
     assert.ok(returns > 0);
