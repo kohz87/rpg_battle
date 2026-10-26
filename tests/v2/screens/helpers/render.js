@@ -10,6 +10,7 @@ import { toolsFor } from './state.js';
 import { screenWidgets } from '../../../../src/v2/screens/widgets.js';
 import { rulesWidgets } from '../../../../src/v2/screens/rules/widgets.js';
 import { CREATE_BUTTON_WIDGET, createButton } from '../../../../src/v2/creation/create-button.js';
+import { part as creationPart } from '../../../../src/v2/creation/index.js';
 import { part as returnPart, WIDGET as RETURN_WIDGET } from '../../../../src/v2/return/index.js';
 
 export const WIDGET_NAMES = ['ss.meter', 'ss.radar', 'ss.map', 'ss.skill-tree', 'ss.portrait', 'ss.badge', 'ss.timeline', 'ss.stepper', 'ss.hero', 'ss.tiers', 'ss.bar', 'ss.status'];
@@ -63,7 +64,7 @@ export function draw(screen, state, { mount = screen.mounts[0], changes = [], se
     const evaluate = renderer.conditionEvaluator({ compile: renderer.events.compile, evaluate: renderer.events.evaluate });
     const options = {
         evaluate,
-        widgets: { ...(real ? standard.standardWidgets : stubWidgets(widgets)), ...screenWidgets, ...rulesWidgets, [CREATE_BUTTON_WIDGET]: createButton, [RETURN_WIDGET]: returnPart.widgets[RETURN_WIDGET] },
+        widgets: { ...(real ? standard.standardWidgets : stubWidgets(widgets)), ...screenWidgets, ...rulesWidgets, ...creationPart.widgets, [CREATE_BUTTON_WIDGET]: createButton, [RETURN_WIDGET]: returnPart.widgets[RETURN_WIDGET] },
         api: {
             ...(dialog ? { dialog } : {}),
             query: (name, args) => toolsWith(current, settings, queries).query(name, args),

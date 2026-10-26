@@ -10,11 +10,15 @@
 // module's settings, since the template language has no arithmetic (TEMPLATES.md §1.2). Where the host does not give
 // templates `query`, those show empty and the steppers run without a budget; creation.finish still enforces it.
 //
-// Layout (concept: Create.dc.html, CreateLight.dc.html): every step is a main column (its choices) and a registration
-// card (name, portrait, race, talents; on the Stats step the steppers, the points left as a pill and the radar). Phones
-// stack them, one step at a time, with the dialog's own step list as the indicator. A dialog 560 px or wider (a container
-// query on the step's root) puts the card beside the choices. Back, Next and the step list are the dialog's (Story Block's
-// glass footer); Create is the YOU step's own glass button.
+// Layout: every step is a main column (its choices) and the details panel "Your character" (portrait, name, race, talents and
+// the final stats, drawn again from the draft at each change). The dialog asks Story Block for a wide window (`width: 'wide'`);
+// a step 560 px or wider (a container query on the step's root) puts the panel in the right column, a phone stacks it under the
+// choices, one step at a time, with the dialog's own step list as the indicator. Back, Next and the step list are the dialog's
+// (Story Block's glass footer); Create is the YOU step's own glass button.
+//
+// While a rules pack is offered and none is pinned, each step shows the rules choice (GATE) in place of its content, and the
+// You step has no Create: the pin is made with the same `rules.pin` button Setup draws (widget rpg-battle.rules-pin), then the
+// steps draw as they always did. With no pack offered (a legacy chat) or a pin made, nothing of this shows.
 //
 // Data, not code: a pack or card may restyle or replace this screen by its id (SPEC §13.7).
 
@@ -29,55 +33,75 @@ export const TALENT_LIST_MAX = 60;
 // The live preview of the draft (creation.build), as a template expression.
 const LIVE = 'query("creation.build", { draft: draft, settings: settings })';
 
-// The registration card: the same on every step; the stats steppers and the radar only where the stats are chosen.
-const REGISTER = (body, { optional = false } = {}) => `
-  <aside class="cc-register${optional ? ' cc-register-optional' : ''}" aria-label="Your character">
+// The details panel ("Your character"): the same on every step, in the right column (below the choices on a phone), and
+// drawn again from the draft at each change: the portrait and name, the race, the talents (the rolled ones too) and the
+// final stats the build gives now. The Stats step's steppers and radar are its choices, in the main column.
+const DETAILS = `
+  <aside class="cc-register cc-review" aria-label="Your character">
+    <h4 class="ss-section-label">Your character</h4>
     <div class="cc-register-head">
       <ss-widget name="ss.portrait" data-props='{"src":"{{ draft.portrait }}","name":"{{ draft.name }}","frame":"circle","size":"md"}'></ss-widget>
-      <div class="cc-register-who">
-        <p class="cc-register-name">{{ draft.name }}</p>
-        <p class="cc-register-sub"><span data-if="draft.race">{{ ${LIVE}.raceName }}</span><span data-if="!draft.race">No race yet</span> · <span data-if="len(draft.talents) == 0">No talents</span><span data-if="len(draft.talents) == 1">1 talent</span><span data-if="len(draft.talents) > 1">{{ len(draft.talents) }} talents</span></p>
-      </div>
+      <p class="cc-register-name cc-review-name">{{ draft.name }}</p>
     </div>
-    ${body}
+    <dl class="cc-review-list">
+      <dt>Race</dt><dd class="cc-review-race"><span data-if="draft.race">{{ ${LIVE}.raceName }}</span><span data-if="!draft.race">None</span></dd>
+      <dt>Talents</dt><dd class="cc-review-talents"><span data-if="len(draft.talents) > 0 || len(q.c.rolled) > 0">{{ ${LIVE}.talentNames }}</span><span data-if="len(draft.talents) == 0 && len(q.c.rolled) == 0">None</span></dd>
+      <dt>Stats</dt><dd><ul class="cc-review-stats"><li data-each='${LIVE}.rows as s'><b>{{ s.id }}</b> {{ s.final }}</li></ul></dd>
+    </dl>
   </aside>`;
 
+// The rules choice, before any step's content while a rules pack is offered and none is pinned (query rpg-battle.rulesGate;
+// the same `rules.pin` button Setup draws, through widget rpg-battle.rules-pin). Nothing past it can be reached: a step shows
+// this in place of its choices, and the You step has no Create until the pin is made.
+const GATE = `
+  <section class="cc-gate" data-if="q.g.offered" aria-label="Choose your rules">
+    <h4 class="ss-section-label">Choose your rules</h4>
+    <p class="cc-lead">Choose the rules this character plays by before you make them: race, talents and class come from them. The choice stays with this character timeline.</p>
+    <ul class="cc-gate-list">
+      <li class="cc-gate-row" data-each="q.g.offers as r">
+        <span class="cc-gate-name"><b>{{ r.name }}</b> <small>{{ r.version }}</small></span>
+        <ss-widget name="rpg-battle.rules-pin" data-props='{"bind":"r.pin"}'></ss-widget>
+      </li>
+    </ul>
+  </section>`;
+
+// A step: its choices (main column) and the details panel beside them.
+const LAYOUT = main => `
+  <div class="cc-layout" data-if="!q.g.offered">
+    <div class="cc-main">${main}
+    </div>
+    ${DETAILS}
+  </div>`;
+
 const START = `
-<section class="cc-step cc-start">
-  <div data-if="q.k.classes.state == 'ready'">${CLASS_STEP_TEMPLATE.replaceAll('q.c.', 'q.k.')}</div>
-  <ss-widget class="cc-draft-start" name="rpg-battle.draft-start" data-props='{}'></ss-widget>
-  <p class="cc-none" data-if="!q.c.hasPresets">This story has no ready-made characters. Go on to make your own.</p>
-  <div data-if="q.c.hasPresets">
-    <p class="cc-lead">Start from a ready-made character, or make your own. A ready-made one fills in race, talents and points (you can still change them) and brings its skills; your name and background stay your persona's.</p>
-    <ss-widget name="rpg-battle.preset-pick" data-props='{"bind":"q.c.presets"}'></ss-widget>
-  </div>
-  <div class="cc-import">
-    <p class="cc-hint">Bringing a character from another story? Import their character file (saved from the Party tab). They keep their level, stats, skills and things, held to this story's rules; the name and background are your persona's.</p>
-    <ss-widget name="rpg-battle.import-pick" data-props='{}'></ss-widget>
-  </div>
+<section class="cc-step cc-start">${GATE}${LAYOUT(`
+      <div data-if="q.k.classes.state == 'ready'">${CLASS_STEP_TEMPLATE.replaceAll('q.c.', 'q.k.')}</div>
+      <ss-widget class="cc-draft-start" name="rpg-battle.draft-start" data-props='{}'></ss-widget>
+      <p class="cc-none" data-if="!q.c.hasPresets">This story has no ready-made characters. Go on to make your own.</p>
+      <div data-if="q.c.hasPresets">
+        <p class="cc-lead">Start from a ready-made character, or make your own. A ready-made one fills in race, talents and points (you can still change them) and brings its skills; your name and background stay your persona's.</p>
+        <ss-widget name="rpg-battle.preset-pick" data-props='{"bind":"q.c.presets"}'></ss-widget>
+      </div>
+      <div class="cc-import">
+        <p class="cc-hint">Bringing a character from another story? Import their character file (saved from the Party tab). They keep their level, stats, skills and things, held to this story's rules; the name and background are your persona's.</p>
+        <ss-widget name="rpg-battle.import-pick" data-props='{}'></ss-widget>
+      </div>`)}
 </section>`;
 
 const RACE = `
-<section class="cc-step cc-race">
-  <div class="cc-layout">
-    <div class="cc-main">
+<section class="cc-step cc-race">${GATE}${LAYOUT(`
       <p class="cc-none" data-if="!q.c.hasRaces">This story has no races to choose from. Go on to the next step.</p>
-      <div data-if="q.c.hasRaces">
+      <div class="cc-choices" data-if="q.c.hasRaces">
         <p class="cc-lead">Choose your people. A race moves a few stats a little; it costs no points.</p>
         <p class="cc-hint">Choose a tile to pick it; choose it again to clear it.</p>
         <ss-widget class="cc-cards" name="rpg-battle.choice-pick" data-props='{"bind":"q.c.races","field":"race","picked":"{{ draft.race }}","label":"Race"}'></ss-widget>
-      </div>
-    </div>
-    ${REGISTER('', { optional: true })}
-  </div>
+      </div>`)}
 </section>`;
 
 const TALENTS = `
-<section class="cc-step cc-talents">
-  <div class="cc-layout">
-    <div class="cc-main">
+<section class="cc-step cc-talents">${GATE}${LAYOUT(`
       <p class="cc-none" data-if="!q.c.hasTalents">This story has no talents to choose from. Go on to the next step.</p>
-      <div data-if="q.c.hasTalents">
+      <div class="cc-choices" data-if="q.c.hasTalents">
         <p class="cc-lead">Take up to {{ q.c.rules.maxTalents }} talents. Each costs points from the same budget as your stats.
           <span class="cc-left ss-pill ss-pill-soft">Points left: <b>{{ ${LIVE}.left }}</b></span></p>
         <ul class="cc-rolled" data-if="len(q.c.rolled)" aria-label="Rolled talents">
@@ -88,74 +112,63 @@ const TALENTS = `
           <ss-widget name="rpg-battle.talent-roll" data-props='{}'></ss-widget>
           <p class="cc-hint">Random talent rolls one your points can still pay for. Keep it, and the talent it showed is the one you get.</p>
         </div>
-      </div>
-    </div>
-    ${REGISTER('', { optional: true })}
-  </div>
+      </div>`)}
 </section>`;
 
 const STATS = `
-<section class="cc-step cc-stats">
-  <div class="cc-layout">
-    ${REGISTER(`
-    <div class="cc-points">
-      <span class="cc-left ss-pill ss-pill-soft">Points left: <b>{{ ${LIVE}.left }}</b></span>
-      <p class="cc-hint">Every stat starts at {{ q.c.rules.startStat }}. Spend all your points; your race and talents are added after.</p>
-    </div>
-    <div class="cc-stat-grid">
-      <div class="cc-stat" data-each="q.c.stats as s">
-        <ss-widget name="ss.stepper" data-props='{"name":"points.{{ s.id }}","label":"{{ s.label }}","value":{{ draft.points[s.id] }},"min":0,"max":{{ q.c.rules.pointMax }},"budget":{{ ${LIVE}.left }}}'></ss-widget>
+<section class="cc-step cc-stats">${GATE}${LAYOUT(`
+      <div class="cc-points">
+        <span class="cc-left ss-pill ss-pill-soft">Points left: <b>{{ ${LIVE}.left }}</b></span>
+        <p class="cc-hint">Every stat starts at {{ q.c.rules.startStat }}. Spend all your points; your race and talents are added after.</p>
       </div>
-    </div>`)}
-    <div class="cc-main">
+      <div class="cc-stat-grid">
+        <div class="cc-stat" data-each="q.c.stats as s">
+          <ss-widget name="ss.stepper" data-props='{"name":"points.{{ s.id }}","label":"{{ s.label }}","value":{{ draft.points[s.id] }},"min":0,"max":{{ q.c.rules.pointMax }},"budget":{{ ${LIVE}.left }}}'></ss-widget>
+        </div>
+      </div>
       <div class="cc-preview">
         <ss-widget name="rpg-battle.stat-radar" data-props='{"axes":{{ ${LIVE}.axes }},"label":"Your stats","levels":4}'></ss-widget>
-      </div>
-    </div>
-  </div>
+      </div>`)}
 </section>`;
 
 const YOU = `
-<form class="cc-step cc-you" data-submit="creation.finish">
-  <div class="cc-layout">
-    <div class="cc-main">
-      <div class="cc-you-row">
-        <ss-widget name="ss.portrait" data-props='{"src":"{{ draft.portrait }}","name":"{{ draft.name }}","frame":"circle","size":"lg"}'></ss-widget>
-        <div class="cc-you-fields">
-          <p class="cc-name"><b>{{ draft.name }}</b> <small class="cc-from">Name and background are set in Persona Management.</small></p>
-          <p class="cc-none" data-if="!draft.name">Your persona has no name yet: set one in SillyTavern's Persona Management, then open this again.</p>
-          <label class="cc-field">Portrait <small>(your persona's picture unless you give another)</small>
-            <input data-draft="portrait" maxlength="${PORTRAIT_URL_MAX}" placeholder="An https: image address" autocomplete="off">
-          </label>
+<section class="cc-step cc-you-step">${GATE}
+  <form class="cc-you" data-if="!q.g.offered" data-submit="creation.finish">
+    <div class="cc-layout">
+      <div class="cc-main">
+        <div class="cc-you-row">
+          <ss-widget name="ss.portrait" data-props='{"src":"{{ draft.portrait }}","name":"{{ draft.name }}","frame":"circle","size":"lg"}'></ss-widget>
+          <div class="cc-you-fields">
+            <p class="cc-name"><b>{{ draft.name }}</b> <small class="cc-from">Name and background are set in Persona Management.</small></p>
+            <p class="cc-none" data-if="!draft.name">Your persona has no name yet: set one in SillyTavern's Persona Management, then open this again.</p>
+            <label class="cc-field">Portrait <small>(your persona's picture unless you give another)</small>
+              <input data-draft="portrait" maxlength="${PORTRAIT_URL_MAX}" placeholder="An https: image address" autocomplete="off">
+            </label>
+          </div>
+        </div>
+        <div class="cc-background" data-if="draft.background">
+          <h4 class="ss-section-label">Background</h4>
+          <p class="cc-background-text" data-bind="draft.background"></p>
+        </div>
+        <p class="cc-problem" role="status">{{ ${LIVE}.message }}</p>
+        <div class="cc-actions">
+          <button type="submit" class="ss-button ss-button-primary cc-go">Create {{ draft.name }}</button>
         </div>
       </div>
-      <div class="cc-background" data-if="draft.background">
-        <h4 class="ss-section-label">Background</h4>
-        <p class="cc-background-text" data-bind="draft.background"></p>
-      </div>
-      <p class="cc-problem" role="status">{{ ${LIVE}.message }}</p>
-      <div class="cc-actions">
-        <button type="submit" class="ss-button ss-button-primary cc-go">Create {{ draft.name }}</button>
-      </div>
+      ${DETAILS}
     </div>
-    <section class="cc-register cc-review" aria-label="Your character">
-      <h4 class="ss-section-label">Your character</h4>
-      <dl class="cc-review-list">
-        <dt>Name</dt><dd class="cc-review-name">{{ draft.name }}</dd>
-        <dt>Race</dt><dd class="cc-review-race"><span data-if="draft.race">{{ ${LIVE}.raceName }}</span><span data-if="!draft.race">None</span></dd>
-        <dt>Talents</dt><dd class="cc-review-talents"><span data-if="len(draft.talents) > 0 || len(q.c.rolled) > 0">{{ ${LIVE}.talentNames }}</span><span data-if="len(draft.talents) == 0 && len(q.c.rolled) == 0">None</span></dd>
-        <dt>Stats</dt><dd><ul class="cc-review-stats"><li data-each='${LIVE}.rows as s'><b>{{ s.id }}</b> {{ s.final }}</li></ul></dd>
-      </dl>
-    </section>
-  </div>
-</form>`;
+  </form>
+</section>`;
 
 const CSS = `
 .cc-one { font-family: var(--ss-font); color: var(--ss-text); }
 .cc-draft-start { display: none; }
 .cc-step { display: grid; gap: var(--ss-space-3); min-width: 0; container: cc / inline-size; }
-.cc-layout { display: grid; gap: var(--ss-space-3); min-width: 0; }
-.cc-main, .cc-register { display: grid; gap: var(--ss-space-2); align-content: start; min-width: 0; }
+.cc-layout { display: grid; gap: var(--ss-space-4); min-width: 0; }
+.cc-main { display: grid; gap: var(--ss-space-4); align-content: start; min-width: 0; }
+.cc-register { display: grid; gap: var(--ss-space-3); align-content: start; min-width: 0; }
+.cc-choices { display: grid; gap: var(--ss-space-3); min-width: 0; }
+.cc-you { display: grid; min-width: 0; }
 .cc-lead, .cc-none, .cc-hint { margin: 0; }
 /* the section headers are Story Block's ss-section-label (its muted colour is too faint on the glass: the text token instead) */
 .ss-section-label { color: var(--ss-text); }
@@ -163,20 +176,30 @@ const CSS = `
 .cc-left { justify-self: start; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .cc-left b { color: inherit; font-weight: 800; }
 .cc-register { padding: var(--ss-space-3); border-radius: var(--ss-radius-l); background: var(--ss-glass); border: 1px solid var(--ss-border); box-shadow: var(--ss-shadow); backdrop-filter: var(--ss-blur); -webkit-backdrop-filter: var(--ss-blur); }
-.cc-register-optional { display: none; }
 .cc-register-head { display: flex; gap: var(--ss-space-2); align-items: center; min-width: 0; }
 .cc-register-who { display: grid; gap: 2px; min-width: 0; }
 .cc-register-name { margin: 0; font-weight: 800; font-size: 16px; overflow-wrap: anywhere; color: var(--ss-text); }
-.cc-register-sub { margin: 0; font-size: 13px; color: var(--ss-text); overflow-wrap: anywhere; }
-.cc-points { display: grid; gap: var(--ss-space-1); }
+.cc-points { display: grid; gap: var(--ss-space-2); }
+/* the rules choice (rpg-battle.rulesGate): one row per pack on offer, the Pin button beside its name */
+.cc-gate { display: grid; gap: var(--ss-space-3); padding: var(--ss-space-3); border-radius: var(--ss-radius-l); background: var(--ss-glass); border: 1px solid var(--ss-border); }
+.cc-gate-list { display: grid; gap: var(--ss-space-2); margin: 0; padding: 0; list-style: none; }
+.cc-gate-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--ss-space-2); padding: var(--ss-space-2) var(--ss-space-3); border-radius: var(--ss-radius-m); background: var(--ss-tile); border: 1px solid var(--ss-border); min-width: 0; }
+.cc-gate-name { overflow-wrap: anywhere; min-width: 0; color: var(--ss-text); }
+/* the basic class and check actor rows (widget rpg-battle.class-pick): full-width rows like the talents; the actor link is the quieter block */
+.rpg-cp { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ss-space-2); min-width: 0; }
+.cc-class .cc-main { gap: var(--ss-space-3); }
+.cc-checks { display: grid; gap: var(--ss-space-2); padding-top: var(--ss-space-3); border-top: 1px solid var(--ss-border); }
+.cc-checks .cc-lead { font-size: 0.9em; font-weight: 700; }
+.cc-checks .cc-hint { font-size: 13px; }
+.cc-class .cc-lead:first-child { font-weight: 700; }
 .cc-stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 11em), 1fr)); gap: var(--ss-space-2); min-width: 0; }
 .cc-stat { min-width: 0; }
 .cc-stat .ss-w-stepper-budget { display: none; }
 .cc-preview { display: flex; justify-content: center; min-width: 0; }
 /* the choices: race tiles and talent rows (widget rpg-battle.choice-pick, buttons with aria-pressed) */
-.rpg-choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 7.5em), 1fr)); gap: var(--ss-space-2); min-width: 0; }
+.rpg-choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 8.5em), 1fr)); gap: var(--ss-space-2); min-width: 0; }
 .rpg-choices-rows { display: grid; gap: var(--ss-space-2); grid-template-columns: minmax(0, 1fr); }
-.cc-card { appearance: none; margin: 0; min-width: 0; font: inherit; color: var(--ss-text); text-align: center; cursor: pointer; display: grid; justify-items: center; gap: 4px; padding: 8px 6px; border-radius: var(--ss-radius-m); background: var(--ss-tile); border: 1px solid var(--ss-border); }
+.cc-card { appearance: none; margin: 0; min-width: 0; font: inherit; color: var(--ss-text); text-align: center; cursor: pointer; display: grid; justify-items: center; gap: 4px; padding: 10px 8px; border-radius: var(--ss-radius-m); background: var(--ss-tile); border: 1px solid var(--ss-border); }
 .cc-card:disabled { cursor: not-allowed; opacity: 0.5; }
 .cc-card:hover:not(:disabled) { background: color-mix(in srgb, var(--ss-accent) 18%, var(--ss-tile)); }
 .cc-card:active:not(:disabled) { background: color-mix(in srgb, var(--ss-accent) 30%, var(--ss-tile)); }
@@ -189,7 +212,7 @@ const CSS = `
 .cc-card-tick { font-size: 12px; font-weight: 700; padding: 0 8px; border-radius: var(--ss-radius-pill); background: var(--ss-accent); color: var(--ss-on-ring); }
 .cc-card-bonus { font-size: 13px; font-weight: 700; color: var(--ss-text); overflow-wrap: anywhere; }
 .cc-card-note { font-size: 13px; color: var(--ss-text); overflow-wrap: anywhere; }
-.cc-row { text-align: start; grid-template-columns: minmax(0, 1fr) auto; justify-items: start; align-items: center; column-gap: var(--ss-space-2); }
+.cc-row { width: 100%; padding: 10px 12px; text-align: start; grid-template-columns: minmax(0, 1fr) auto; justify-items: start; align-items: center; column-gap: var(--ss-space-2); }
 .cc-row-main { display: grid; gap: 2px; min-width: 0; }
 .cc-row .cc-card-tick { grid-column: 2; grid-row: 1; }
 .cc-row .cc-card-cost { grid-column: 2; grid-row: 2; justify-self: end; }
@@ -239,12 +262,10 @@ const CSS = `
 .rpg-radar-label { fill: var(--ss-text); font-size: 11px; font-weight: 700; font-family: var(--ss-font); text-anchor: middle; dominant-baseline: middle; }
 .rpg-radar-value { fill: var(--ss-text); font-size: 10px; font-family: var(--ss-font); text-anchor: middle; dominant-baseline: middle; }
 .cc-sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
-/* the dialog's own step list is the phone indicator; on a wide dialog the card sits beside the choices */
+/* the dialog's own step list is the phone indicator; the details panel stacks under the choices there, and from a 560 px step it sits in the right column and stays in view */
 @container cc (min-width: 560px) {
-  .cc-layout { grid-template-columns: minmax(0, 1fr) minmax(0, 15em); align-items: start; }
-  .cc-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .cc-register-optional { display: grid; }
-  .cc-you .cc-layout { grid-template-columns: minmax(0, 1fr) minmax(0, 14em); }
+  .cc-layout { grid-template-columns: minmax(0, 1fr) minmax(15em, 19em); align-items: start; }
+  .cc-register { position: sticky; top: 0; }
 }
 `;
 
@@ -263,7 +284,8 @@ export const createScreen = Object.freeze({
     title: 'New character',
     icon: 'fa-user-plus',
     mounts: Object.freeze(['dialog']),
-    data: Object.freeze({ c: Object.freeze({ query: 'creation.content' }), k: Object.freeze({ query: 'rpg-battle.classPicker' }) }),
+    width: 'wide',
+    data: Object.freeze({ c: Object.freeze({ query: 'creation.content' }), k: Object.freeze({ query: 'rpg-battle.classPicker' }), g: Object.freeze({ query: 'rpg-battle.rulesGate' }) }),
     template: `<div class="cc-one">${CREATE_STEPS.map(step => step.template).join('\n')}</div>`,
     css: CSS.trim(),
     steps: CREATE_STEPS,

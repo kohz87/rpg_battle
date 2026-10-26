@@ -43,11 +43,20 @@ Today's skills map to tier-1 (or tier-0) nodes with no `requires`, so no lines a
 
 ## Character creation (`src/v2/creation/`)
 
-The wizard's steps keep their ids, commands, payloads and rules. Each step is a main column (its choices) and a
-registration card (name, portrait, race and talents; on Stats, the steppers, the points-left pill and the radar). On a
-phone the steps stack one per screen with the dialog's own step list as the indicator; a dialog 560 px or wider (a
-container query on each `.cc-step`) puts the card beside the choices.
+The wizard's steps keep their ids, commands, payloads and rules. Each step is a main column (its choices) and the
+details panel "Your character" (portrait, name, race, talents, the final stats; drawn again from the draft at each
+change) on every step. The screen asks Story Block for a wide window (`width: 'wide'`, 960 px on a wide screen). A step
+560 px or wider (a container query on each `.cc-step`) puts the panel in the right column; on a phone the panel stacks under
+the choices, one step per screen, with the dialog's own step list as the indicator.
 
+The rules choice comes first. While a rules pack is offered and none is pinned (`rules.selection` is `offered`), every step
+shows "Choose your rules" (`.cc-gate`, query `rpg-battle.rulesGate`) in place of its choices, with the same `rules.pin`
+button Setup draws (`rulesChoice` in `screens/rules/setup.js` builds both; widget `rpg-battle.rules-pin` wraps
+`rpg-battle.command-button`, so there is one pin command and one guard). The You step has no Create until the pin is made.
+After it, the steps are as before. With no pack offered, or a pin made, nothing of this shows.
+
+- The class and check-actor choices (`rpg-battle.class-pick`) are full-width rows like the talents: the name, the skills on
+  their own line, a "Chosen" badge. Picking by keyboard keeps the focus on the row.
 - Races are tiles (`button.cc-card`, `aria-pressed`); talents are rows (`.cc-row`). Both come from `rpg-battle.choice-pick`.
 - The radar is `rpg-battle.stat-radar` (`creation/radar.js`): SVG made with `createElementNS`, one axis per stat, colours
   from the screen's classes (tokens), and a visually hidden list of the same values (`.cc-sr-only`).

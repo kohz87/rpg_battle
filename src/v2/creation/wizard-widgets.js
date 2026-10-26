@@ -13,6 +13,10 @@
 //                             says "<Name> is ready" unless that was done: the wizard also opens from Story
 //                             Block's start card, which does not go through openCreation.
 //
+//   rpg-battle.rules-pin      the wizard's rules choice (shown first while a rules pack is offered and none is pinned): the very
+//                             `rpg-battle.command-button` Setup uses, bound to the same `rules.pin` button spec, so the pin has
+//                             one path and one guard. When it worked the widget marks the draft (`rulesPinned`), which draws
+//                             the step again, now past the choice.
 //   rpg-battle.draft-start    the Start step's first line, drawn as nothing: when the wizard opened with an empty draft
 //                             (Story Block's start card sends no persona, so one switched since the card was drawn
 //                             counts), it fills the draft with startDraft() and the persona of this moment.
@@ -23,6 +27,7 @@
 export const TALENT_ROLL_WIDGET = 'rpg-battle.talent-roll';
 export const IMPORT_PICK_WIDGET = 'rpg-battle.import-pick';
 export const DRAFT_START_WIDGET = 'rpg-battle.draft-start';
+export const RULES_PIN_WIDGET = 'rpg-battle.rules-pin';
 /** The event an import that worked sends from the widget, bubbling to the dialog. */
 export const CREATED_EVENT = 'rpg-battle:created';
 /** The largest character file read (a file is a few KB; this is far above any real one). */
@@ -32,6 +37,7 @@ import { CHARACTER_FILE_VERSION } from '../party/portable.js';
 import { startDraft } from './draft.js';
 import { showCreated, wasTold } from './notice.js';
 import { CREATE_SCREEN_ID } from './screen.js';
+import { renderCommandButton } from '../screens/rules/widgets.js';
 
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 /** The longest note the widgets show (a refusal can quote a file's own words). */
@@ -307,5 +313,30 @@ export const draftStart = Object.freeze({
     render: renderDraftStart,
 });
 
+// ---------------------------------------------------------------------------------------------------
+// rpg-battle.rules-pin
+
+/** render(el, props, api): Setup's command button for `rules.pin`; a pin that worked draws the wizard's step again. */
+export function renderRulesPin(el, props = {}, api = {}) {
+    const redraw = () => {
+        try {
+            if (isRecord(api?.draft) && typeof api.draft.set === 'function') api.draft.set('rulesPinned', true);
+            else if (typeof api?.onDraft === 'function') api.onDraft('rulesPinned', true);
+        } catch { /* the dialog reports its own problems */ }
+    };
+    const command = typeof api?.command === 'function' ? async (type, payload) => {
+        const result = await api.command(type, payload);
+        if (result?.ok !== false) redraw();
+        return result;
+    } : undefined;
+    return renderCommandButton(el, props, { ...api, command });
+}
+
+export const rulesPin = Object.freeze({
+    props: Object.freeze({ value: Object.freeze({ type: 'object', required: false, default: null }) }),
+    validate(props = {}) { return props.value !== undefined && props.value !== null && !isRecord(props.value) ? ['value must be an object.'] : []; },
+    render: renderRulesPin,
+});
+
 /** The wizard's widgets by name (with rpg-battle.preset-pick, registered by the creation part). */
-export const wizardWidgets = Object.freeze({ [TALENT_ROLL_WIDGET]: talentRoll, [IMPORT_PICK_WIDGET]: importPick, [DRAFT_START_WIDGET]: draftStart });
+export const wizardWidgets = Object.freeze({ [TALENT_ROLL_WIDGET]: talentRoll, [IMPORT_PICK_WIDGET]: importPick, [DRAFT_START_WIDGET]: draftStart, [RULES_PIN_WIDGET]: rulesPin });

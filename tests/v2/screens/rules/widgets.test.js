@@ -234,3 +234,17 @@ test('clearing the optional check actor writes null, which creation.finish accep
     host.querySelector('button').dispatch('click');
     assert.deepEqual(writes, [['checkActor', 'ca_00000001'], ['checkActor', null]]);
 });
+
+test('class-pick: each class is a card (title, skills on their own line, a Chosen badge) and the keyboard focus stays on the card pressed', () => {
+    const { doc, host } = setup();
+    renderClassPick(host, { value: { field: 'class', options: opts, label: 'Basic class' }, picked: '' }, { draft: { set: () => {} } });
+    const card = host.querySelector('[data-choice="x/one"]');
+    assert.equal(text(card.querySelector('.cc-card-name')), 'One');
+    assert.equal(text(card.querySelector('.cc-card-note')), 'first');
+    assert.match(card.className, /\bcc-card\b.*\bcc-row\b|\bcc-row\b.*\bcc-card\b/);
+    card.focus();
+    card.dispatch('click');
+    const again = host.querySelector('[data-choice="x/one"]');
+    assert.equal(text(again.querySelector('.cc-card-tick')), 'Chosen');
+    assert.equal(doc.activeElement, again, 'the redrawn card has the focus');
+});

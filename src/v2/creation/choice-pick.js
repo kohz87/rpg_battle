@@ -88,6 +88,8 @@ export function renderChoicePick(el, props = {}, api = {}) {
     }
 
     function draw() {
+        // The cards are built again at each pick: the one that had the keyboard focus gets it back (Enter or Space, then Tab on).
+        const held = root.contains?.(doc.activeElement) ? doc.activeElement?.getAttribute?.('data-choice') ?? null : null;
         root.textContent = '';
         const many = Boolean(current.many);
         root.setAttribute('aria-label', str(current.label, 80) || (many ? 'Talents' : 'Race'));
@@ -137,6 +139,7 @@ export function renderChoicePick(el, props = {}, api = {}) {
             card.addEventListener('click', () => write(choice.id));
             root.append(card);
         }
+        if (held !== null) Array.from(root.children).find(card => card.getAttribute?.('data-choice') === held)?.focus?.();
     }
 
     draw();

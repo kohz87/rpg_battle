@@ -12,6 +12,8 @@ import {
 import { makeHost, points } from './helpers/fake-host.js';
 import { installDom } from '../screens/helpers/dom.js';
 import { PACKS } from './helpers/packs.js';
+import { renderChoicePick } from '../../../src/v2/creation/choice-pick.js';
+import { rulesWidgets } from '../../../src/v2/screens/rules/widgets.js';
 
 const ROOTS = [fileURLToPath(new URL('../../vendor/story-block', import.meta.url))];
 const has = (root, files) => files.every(file => existsSync(`${root}/${file}`));
@@ -26,7 +28,7 @@ test('the screen definition: a dialog with five steps and the creation queries',
     assert.equal(CREATE_SCREEN_ID, 'rpg-battle/create');
     assert.deepEqual(createScreen.mounts, ['dialog']);
     assert.deepEqual(CREATE_STEPS.map(step => step.id), ['start', 'race', 'talents', 'stats', 'you']);
-    assert.deepEqual(createScreen.data, { c: { query: 'creation.content' }, k: { query: 'rpg-battle.classPicker' } });
+    assert.deepEqual(createScreen.data, { c: { query: 'creation.content' }, k: { query: 'rpg-battle.classPicker' }, g: { query: 'rpg-battle.rulesGate' } });
     assert.ok(part.queries[createScreen.data.c.query]);
     assert.deepEqual(part.screens, [createScreen]);
     // Only the last step submits, and it submits creation.finish.
@@ -52,12 +54,12 @@ async function renderer() {
 }
 
 /** Draws one step as the dialog would: q from the screen's data, the draft, the module's settings, and query. */
-async function draw(stepId, { draft, settings = {}, host = makeHost({ settings }), onSubmit, command = null, apiExtra = {} } = {}) {
+async function draw(stepId, { draft, settings = {}, host = makeHost({ settings }), onSubmit, command = null, apiExtra = {}, q = {} } = {}) {
     const r = await renderer();
     const doc = r.installFakeDom();
     doc.createElementNS ??= (_ns, tag) => doc.createElement(tag);   // the radar draws SVG
     const props = {};
-    const widgets = Object.fromEntries(Object.entries({ ...r.standardWidgets, ...part.widgets }).map(([name, def]) => [name, {
+    const widgets = Object.fromEntries(Object.entries({ ...r.standardWidgets, ...part.widgets, ...rulesWidgets }).map(([name, def]) => [name, {
         ...def,
         render(el, given, api) {
             (props[name] ??= []).push(given);
@@ -69,7 +71,7 @@ async function draw(stepId, { draft, settings = {}, host = makeHost({ settings }
     assert.deepEqual(compiled.warnings, [], `${stepId}: template warnings`);
     const el = doc.createElement('div');
     doc.body.appendChild(el);
-    const scope = { state: host.state, q: { c: host.query('creation.content', {}) }, draft, settings: { ...part.settings.defaults, ...settings }, query: (name, args) => host.query(name, args) };
+    const scope = { state: host.state, q: { c: host.query('creation.content', {}), ...q }, draft, settings: { ...part.settings.defaults, ...settings }, query: (name, args) => host.query(name, args) };
     // The wizard's widgets get the dialog's api: preview and commit on the host, commands recorded
     // (or run by `command`), and the draft (the renderer adds it).
     const sent = [];
@@ -577,6 +579,21 @@ test('cards show a picture only for a real image address; a pack id or a broken 
     assert.doesNotMatch(el.textContent, /pack\.ersveil/);
 });
 
+test('race and talent cards keep the keyboard focus when a pick draws them again', () => {
+    const doc = installDom();
+    const el = doc.createElement('div');
+    doc.body.append(el);
+    const list = [{ id: 'race/a', name: 'A' }, { id: 'race/b', name: 'B' }];
+    renderChoicePick(el, { value: list, field: 'race', label: 'Race' }, { draft: { set: () => {} } });
+    const first = el.querySelector('[data-choice="race/a"]');
+    first.focus();
+    first.dispatch('click');
+    const now = el.querySelector('[data-choice="race/a"]');
+    assert.notEqual(now, first, 'the card was drawn again');
+    assert.equal(now.getAttribute('aria-pressed'), 'true');
+    assert.equal(doc.activeElement, now, 'and holds the focus');
+});
+
 test('toggled: one choice un-picks on a second click; a list adds and takes off', () => {
     assert.equal(toggled('', 'a', false), 'a');
     assert.equal(toggled('a', 'a', false), '');
@@ -599,6 +616,82 @@ test('you step: a summary of name, race, talents and the final stats before Crea
     const bare = await draw('you', { draft: { ...startDraft(null, { persona: { name: 'Ren' } }) } });
     assert.equal(bare.el.querySelector('.cc-review-race').textContent.trim(), 'None');
     assert.equal(bare.el.querySelector('.cc-review-talents').textContent.trim(), 'None');
+});
+
+test('layout: the details panel "Your character" is in the right column on every step and follows the draft', { skip: NO_RENDERER }, async () => {
+    const picked = { ...startDraft(null, { persona: { name: 'Ren Avel' } }), race: 'rpg-battle/elf', talents: ['rpg-battle/keen-eyes'], points: points({ STR: 4 }) };
+    const bare = startDraft(null, { persona: { name: 'Ren Avel' } });
+    const read = el => ({
+        race: el.querySelector('.cc-review-race').textContent.trim(),
+        talents: el.querySelector('.cc-review-talents').textContent.trim(),
+        stats: el.querySelectorAll('.cc-review-stats li').length,
+    });
+    for (const { id } of CREATE_STEPS) {
+        const a = await draw(id, { draft: bare });
+        const b = await draw(id, { draft: picked });
+        for (const { el } of [a, b]) {
+            assert.equal(el.querySelectorAll('.cc-layout > .cc-register').length, 1, `${id}: one details panel, a sibling of the step's choices`);
+            assert.equal(el.querySelectorAll('.cc-layout > .cc-main').length, 1, `${id}: the choices in the main column`);
+            assert.match(el.querySelector('.cc-register .ss-section-label').textContent, /Your character/);
+            assert.equal(el.querySelector('.cc-register .cc-review-name').textContent.trim(), 'Ren Avel');
+            assert.equal(el.querySelectorAll('.cc-register-optional').length, 0);
+        }
+        assert.deepEqual(read(a.el), { race: 'None', talents: 'None', stats: 7 }, `${id}: before any choice`);
+        assert.deepEqual(read(b.el), { race: 'Elf', talents: 'Keen Eyes', stats: 7 }, `${id}: after the choices`);
+        assert.equal(b.el.querySelectorAll('.cc-review-stats li')[0].textContent.replace(/\s+/g, ' ').trim(), 'STR 9');
+    }
+    // The Stats step's steppers and radar are choices (the main column); the panel only reports the result.
+    const stats = await draw('stats', { draft: picked });
+    assert.equal(stats.el.querySelectorAll('.cc-main .cc-stat').length, 7);
+    assert.equal(stats.el.querySelectorAll('.cc-register .cc-stat').length, 0);
+});
+
+test('layout css: a wide window, the panel beside the choices from a 560 px step and under them on a phone, no overflow', () => {
+    const css = createScreen.css;
+    assert.equal(createScreen.width, 'wide', 'the dialog asks Story Block for a wide window');
+    // The base rule is one column (a phone); the columns come only inside the container query on the step.
+    assert.doesNotMatch(css.slice(0, css.indexOf('@container')), /\.cc-layout \{[^}]*grid-template-columns/);
+    assert.match(css, /\.cc-step \{[^}]*container: cc \/ inline-size;/);
+    assert.match(css, /@container cc \(min-width: 560px\) \{[^@]*\.cc-layout \{ grid-template-columns: minmax\(0, 1fr\) minmax\(15em, 19em\);/);
+    assert.match(css, /\.cc-layout \{[^}]*gap: var\(--ss-space-4\);/);
+    assert.match(css, /\.cc-main, \.cc-register|\.cc-main \{[^}]*min-width: 0;/);
+    assert.doesNotMatch(css, /cc-register-optional/);
+    assert.doesNotMatch(css, /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/, 'colours come from the theme tokens');
+});
+
+test('class rows: the class name, its skills on their own line and a Chosen badge, full width, in the talent cards\' look', { skip: NO_RENDERER }, async () => {
+    const options = [
+        { id: 'pack/drifter', label: 'Barge Drifter', sub: 'River-skiff Footwork · Hidden Shiv · Slum Instinct' },
+        { id: 'pack/scribe', label: 'Ledger Scribe', sub: 'Quick Hand · Cold Read · Fine Print' },
+    ];
+    const k = { classes: { state: 'ready', pick: { field: 'class', label: 'Basic class', options, empty: 'None.' } },
+        checks: { state: 'ready', pick: { field: 'checkActor', label: 'Check actor', options: [], empty: 'No check actors yet.' }, fallback: 'If you choose none, a new check actor is made for your character.' } };
+    const { el } = await draw('start', { draft: { ...startDraft(null, { persona: { name: 'Ren' } }), class: 'pack/drifter' }, q: { k } });
+    const cards = el.querySelectorAll('.cc-class .rpg-cp-card');
+    assert.equal(cards.length, 2);
+    for (const card of cards) {
+        assert.match(card.className, /\bcc-card\b/);
+        assert.match(card.className, /\bcc-row\b/);
+        assert.equal(card.tagName.toLowerCase(), 'button', 'keyboard: a real button');
+        assert.equal(card.querySelectorAll('.cc-row-main > .cc-card-name').length, 1);
+    }
+    const [drifter, scribe] = cards;
+    assert.equal(drifter.querySelector('.cc-card-name').textContent, 'Barge Drifter');
+    assert.equal(drifter.querySelector('.cc-card-note').textContent, 'River-skiff Footwork · Hidden Shiv · Slum Instinct');
+    assert.notEqual(drifter.querySelector('.cc-card-name'), drifter.querySelector('.cc-card-note'), 'the title and the skills are two elements, never one run of text');
+    assert.equal(drifter.getAttribute('aria-pressed'), 'true');
+    assert.equal(drifter.querySelector('.cc-card-tick').textContent, 'Chosen');
+    assert.equal(scribe.getAttribute('aria-pressed'), 'false');
+    assert.equal(scribe.querySelectorAll('.cc-card-tick').length, 0);
+    // The check-actor block is a section of the wizard, not loose text.
+    assert.equal(el.querySelectorAll('.cc-checks').length, 1);
+    assert.match(el.querySelector('.cc-checks .cc-none').textContent, /No check actors yet/);
+    assert.match(el.querySelector('.cc-checks .cc-hint').textContent, /new check actor is made/);
+    const css = createScreen.css;
+    assert.match(css, /\.rpg-cp \{[^}]*grid-template-columns: minmax\(0, 1fr\);/, 'one full-width column');
+    assert.match(css, /\.cc-row \{[^}]*width: 100%;/);
+    assert.match(css, /\.cc-checks \{[^}]*border-top: 1px solid var\(--ss-border\);/);
+    assert.match(css, /\.cc-card\[aria-pressed="true"\] \{[^}]*border-color: var\(--ss-accent\);/);
 });
 
 test('openCreation: Create that worked says "<Name> is ready" once; a refusal or closing says nothing', () => {

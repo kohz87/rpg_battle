@@ -38,7 +38,7 @@ test('five screens, unique ids, tab and screen mounts, each gated by rulesActive
         for (const { query } of Object.values(screen.data)) assert.equal(typeof rulesQueries[query], 'function', `${screen.id} reads ${query}`);
     }
     assert.deepEqual(Object.keys(rulesQueries).sort(), [
-        'rpg-battle.classPicker', 'rpg-battle.linksView', 'rpg-battle.offers', 'rpg-battle.progressView', 'rpg-battle.questsView', 'rpg-battle.rosterView', 'rpg-battle.rulesDeps', 'rpg-battle.setupView']);
+        'rpg-battle.classPicker', 'rpg-battle.linksView', 'rpg-battle.offers', 'rpg-battle.progressView', 'rpg-battle.questsView', 'rpg-battle.rosterView', 'rpg-battle.rulesDeps', 'rpg-battle.rulesGate', 'rpg-battle.setupView']);
 });
 
 test('rulesActive: the pages exist only on a valid rules answer (a pinned chat), never for null, a missing query or a throw', () => {
