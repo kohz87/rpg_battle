@@ -3,7 +3,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { AREA_TIERS } from '../progress/helpers/world.js';
-import { sessionStatus, unpackSetup } from '../../../src/v2/combat/stored.js';
+import { fightRules, sessionStatus, unpackSetup } from '../../../src/v2/combat/stored.js';
+import { hashSeed } from '../../../src/rng.js';
+import { leanAuto } from '../../../src/v2/fight/lean.js';
 import { autoOutcome } from '../../../src/v2/fight/danger.js';
 import { pinnedSetup } from '../../../src/v2/fight/index.js';
 import { seeded } from '../integration/helpers/host.js';
@@ -22,6 +24,13 @@ for (const klass of classes) {
             assert.ok(offered.opposition, JSON.stringify(h.store.problems()));
             const setup = setupOf(h, offered);
             assert.equal(allFoes(setup).length, 6);
+            // The calibration's own player takes a shipped encounter, and plays its private samples as the engine does.
+            const play = leanAuto(setup, fightRules(setup));
+            assert.ok(play, `${klass.name} ${label}: the lean player takes the offer`);
+            for (let n = 0; n < 48; n += 1) {
+                const seed = `pinned-danger:sample:${n}`;
+                assert.equal(play(hashSeed(seed), hashSeed(`${seed}|ca_00000001`)), autoOutcome(setup, seed) === 'victory' ? 1 : 0, `${klass.name} ${label}: sample ${n}`);
+            }
             assert.ok(allFoes(setup).every(enemy => enemy.pack === 'pack.ersveil-bluewatch/cellar-rat-swarm'));
             let wins = 0;
             for (let seed = 1000; seed < 1000 + SEEDS; seed += 1) if (autoOutcome(setup, seed) === 'victory') wins += 1;

@@ -22,6 +22,13 @@ time F17); this repo's README "A fight", "Fights from the story", "Monsters on t
   private seeds each, duplicate candidates reused) aims at Auto wins: trivial ≥98%, weak ≥90%,
   even/normal 50–75%, strong 20–50%, deadly <20%. HP rounding is distributed in foe order for finer
   steps. Mixed tiers retain legacy's relative budgets and aim at the most dangerous row's target.
+  The samples are played by the lean player (`fight/lean.js`): the engine's own Auto for one party
+  member (forms of damage, heal, shield and the daze, guard and regen conditions, foes and waves on the
+  timeline) with the same sums and draws, but no log, previews or clones, and each candidate's count
+  stops once it can neither change which side of the target it is on nor beat the nearest so far.
+  Anything it does not take (a second party member, items, gear elements, summons, other conditions,
+  rounds) or a turn it does not play is played by the engine (`prepareAuto` in `src/combat.js`), so the
+  numbers never depend on which player ran (a six-rat Ersveil offer takes 0.03–0.13 s in Node, it took 1.6–5 s).
   The complete opposition, waves and fight settings are stored on the offer. Starting it reads those
   numbers even if the party, area, installed packs or settings change; replay/reload never recalibrate.
   Existing offers without that record, explicit ranks, death stakes, and unpinned chats retain their
@@ -61,6 +68,11 @@ time F17); this repo's README "A fight", "Fights from the story", "Monsters on t
 - `tests/v2/combat/` (`combat`, `waves`, `power`, `boss-rank`, `quest-fights`, `stun-rule`, `money-scale`,
   `gear-capped`, `foe-rank-tail`, `v2-rules`, `story-line-offer` (suite)), `tests/v2/board/`, `tests/v2/return/`.
 - `tests/v2/qa/balance-tiers.test.js`, `qa/weak-foes.test.js`, `qa/fight-views.test.js`, `tests/balance.test.js`.
+- `tests/v2/fight/lean.test.js` holds the lean player to the engine fight for fight (outcome, clock, HP,
+  the generator's state) over random heroes, foes, waves and forms; `calibration.test.js` holds
+  `prepareAuto` to `startFight` + Auto and the whole search to the engine-only search main shipped.
+  `scripts/danger-calibrate.mjs` times one offer's calibration (median of `DANGER_RUNS`, default 10)
+  and prints the six-rat win rates; run it from any revision with the helper in `tests/v2/fight/helpers`.
 - `tests/v2/fight/danger.test.js`: real Ersveil 1.5.0 fixture (copied from Story Block cc0b793), all five
   tier-0 classes at level 1 against six rats, 300 independent seeds per weak/normal/strong label;
   replay and reinstall stability. `legacy-danger.test.js` checks 60 domain snapshots from 15 complete

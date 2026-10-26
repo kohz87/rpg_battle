@@ -1,6 +1,8 @@
 // A danger word is a proposal. Resolve it once, during capture, against the party that heard it.
 // Replay applies the offer's recorded opposition; combat.start never calibrates an old offer.
 import { startFight, actInPlace, prepareAuto } from '../../combat.js';
+import { hashSeed } from '../../rng.js';
+import { leanAuto } from './lean.js';
 import { buildSetup, partyCombatants, scaleFoe } from '../combat/setup.js';
 import { fightRules, packSetup } from '../combat/stored.js';
 import { areaPolicyNow } from '../rules/items.js';
@@ -8,23 +10,26 @@ import { pinnedSetup } from './index.js';
 
 export const DANGER_TARGETS = Object.freeze({ trivial: 0.995, weak: 0.97, even: 0.625, strong: 0.35, deadly: 0.1 });
 // Fixed private samples, disjoint from the regression's seeds. No receipt draws, wall clock or
-// installed content enters the search. At most 22 × 256 engine runs, each with the engine's turn cap.
+// installed content enters the search. At most 22 × 256 fights, each with the engine's turn cap, played by the lean player
+// (lean.js: the engine's own Auto, fight for fight) and, for what it does not take, by the engine's prepared trials.
 const SAMPLES = 256;
 const STEPS = 12;
-// Logits of win rate lost per doubling of the foes' HP, as measured on pack encounters; only a first guess.
-const SLOPE = 9;
+const sampleSeed = n => `pinned-danger:sample:${n}`;
+// What the generator starts from for each sample: the fight's opening, and Auto's own draws (the action's id, as combat.act gives it).
+const OPENING = Uint32Array.from({ length: SAMPLES }, (_, n) => hashSeed(sampleSeed(n)));
+const AUTO = Uint32Array.from({ length: SAMPLES }, (_, n) => hashSeed(`${sampleSeed(n)}|ca_00000001`));
 
 /** Legacy's below-level-one / normalizedFoe rule: scale HP and attack, never the pack's seven
  * stats, skills, elements or loot. The source has already passed foeToEngine's area/stat budget.
  */
-function scaled(setup, factor) {
+export function scaled(setup, factor) {
     const foe = enemy => enemy.pack ? scaleFoe(enemy, factor) : enemy;
     return { ...setup, enemies: setup.enemies.map(foe), waves: (setup.waves ?? []).map(wave => ({ ...wave, enemies: wave.enemies.map(foe) })) };
 }
 
 // Once attack is in range, HP gives finer steps than integer damage thresholds. Distribute
 // rounding across the foes in a stable order, so six identical foes do not all gain a hit at once.
-function scaledHp(setup, factor) {
+export function scaledHp(setup, factor) {
     const count = setup.enemies.length + (setup.waves ?? []).reduce((n, wave) => n + wave.enemies.length, 0);
     let ordinal = 0;
     const foe = enemy => {
@@ -99,7 +104,7 @@ export function calibrate(setup, target) {
             const middle = (low + high) / 2;
             const candidate = make(2 ** middle);
             const key = JSON.stringify([...candidate.enemies, ...candidate.waves.flatMap(wave => wave.enemies)].map(enemy => [enemy.hp.max, enemy.patk, enemy.matk]));
-            if (!measured.has(key)) measured.set(key, winRate(candidate, rules));
+            if (!measured.has(key)) measured.set(key, winRate(candidate, rules, target, best ? best.distance : Infinity));
             const rate = measured.get(key);
             const distance = Math.abs(rate - target);
             if (!best || distance < best.distance) best = { candidate, distance, rate };
@@ -113,16 +118,31 @@ export function calibrate(setup, target) {
     return best.candidate;
 }
 
-/** Wins in the fixed samples, over their number. A fight that never settles is no win. */
-function winRate(candidate, rules) {
-    const trial = prepareAuto(candidate, rules);
+/**
+ * Wins in the fixed samples, over their number; a fight that never settles is no win. The count stops as soon as it cannot change what
+ * the search does with it: once it is certain which side of `target` the rate is on, and certain to be no nearer than `limit`, the
+ * rate returned is the nearest the remaining samples could leave it, which says the same.
+ */
+function winRate(candidate, rules, target, limit) {
+    const quick = leanAuto(candidate, rules);
+    let engine = null;
     let wins = 0;
     for (let seed = 0; seed < SAMPLES; seed += 1) {
-        try {
-            if (trial(`pinned-danger:sample:${seed}`).status === 'victory') wins += 1;
-        } catch (error) {
-            if (error.message !== 'Fight did not settle.') throw error;
+        let won = quick ? quick(OPENING[seed], AUTO[seed]) : -1;
+        if (won < 0) {
+            // A setup or a turn the lean player does not play is played by the engine.
+            engine ??= prepareAuto(candidate, rules);
+            won = 0;
+            try {
+                if (engine(sampleSeed(seed)).status === 'victory') won = 1;
+            } catch (error) {
+                if (error.message !== 'Fight did not settle.') throw error;
+            }
         }
+        wins += won;
+        const low = wins / SAMPLES, high = (wins + SAMPLES - 1 - seed) / SAMPLES;
+        if (low > target && low - target >= limit) return low;
+        if (high <= target && target - high >= limit) return high;
     }
     return wins / SAMPLES;
 }

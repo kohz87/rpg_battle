@@ -1,12 +1,15 @@
-// prepareAuto (src/combat.js) is what offer calibration plays its private samples with: the fight startFight then Auto plays,
-// at a fraction of the cost. It may differ from that in nothing a result can show.
+// Offer calibration (src/v2/fight/danger.js) plays its private samples with the lean player (lean.test.js) and, for what that does not
+// take, with prepareAuto (src/combat.js): the fight startFight then Auto plays, at a fraction of the cost, differing from it in nothing a
+// result can show. This file holds prepareAuto to that, and the whole search to the one main shipped.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { startFight, actInPlace, prepareAuto } from '../../../src/combat.js';
 import { DEFAULT_RULES, makeRules } from '../../../src/rules.js';
 import { formSkill } from '../../../src/v2/fight/forms.js';
 import '../../../src/v2/fight/interpret.js';
+import { calibrate, autoOutcome, scaled, scaledHp } from '../../../src/v2/fight/danger.js';
 import { hero, friend, foe } from './golden.js';
+import { form as formOf, damage as damageOf, condition as conditionOf } from './helpers/forms.js';
 
 const form = (name, effects, over = {}) => ({ id: `pack.t/${name}-base`, skill: `pack.t/${name}`, name, type: 'physical', stat: 'STR', cost: { mp: 0, sp: 1, cooldown: 1 }, effects, unit: null, ...over });
 const damage = { op: 'damage', target: 'one', power: 150, element: 'none', damageType: 'physical' };
@@ -61,3 +64,57 @@ test('a trial that cannot settle throws what Auto throws', () => {
     assert.equal(message, 'Fight did not settle.');
     assert.equal(error(() => prepareAuto(setup, rules)('slow')), message);
 });
+
+// --- the whole search --------------------------------------------------------------------------------------------------------------------
+// calibrate (danger.js) is the search main shipped, with the lean player and early stops in place of an engine fight for every sample:
+// it must choose the very candidate that search chooses.
+function engineSearch(setup, target) {
+    let best = null;
+    const measured = new Map();
+    const search = (make, low, high, steps) => {
+        for (let step = 0; step < steps; step += 1) {
+            const middle = (low + high) / 2;
+            const candidate = make(2 ** middle);
+            const key = JSON.stringify([...candidate.enemies, ...candidate.waves.flatMap(wave => wave.enemies)].map(enemy => [enemy.hp.max, enemy.patk, enemy.matk]));
+            if (!measured.has(key)) {
+                let wins = 0;
+                for (let seed = 0; seed < 256; seed += 1) if (autoOutcome(candidate, `pinned-danger:sample:${seed}`) === 'victory') wins += 1;
+                measured.set(key, wins / 256);
+            }
+            const rate = measured.get(key);
+            const distance = Math.abs(rate - target);
+            if (!best || distance < best.distance) best = { candidate, distance, rate };
+            if (best.distance <= 0.5 / 256) break;
+            if (rate > target) low = middle; else high = middle;
+        }
+    };
+    search(factor => scaled(setup, factor), -7, 7, 12);
+    const coarse = best.candidate;
+    if (best.distance > 0.5 / 256) search(factor => scaledHp(coarse, factor), -2, 2, 10);
+    return best.candidate;
+}
+
+const rat = (id, over = {}) => foe(id, { pack: 'pack.t/rat', name: `Rat ${id}`, hp: { cur: 36, max: 36 }, patk: 9, matk: 3, pdef: 3, mdef: 2, crit: 8, fleesBelow: 0.25,
+    stats: { STR: 5, VIT: 5, AGI: 8, DEX: 6, INT: 3, LUK: 6, CHA: 3 }, skills: [], ...over });
+const pinned = (party, enemies, waves = []) => ({ id: 'fi_00000001', turns: 'timeline', draws: 'action', stunRule: 'daze', hitRule: 'relative', spellRule: 'roll', speedOffset: 11, party, enemies, waves });
+const spear = () => formOf('Brace Spear', 'physical', 'STR', [damageOf(110)], { sp: 1 });
+const bash = () => formOf('Shield Bash', 'physical', 'STR', [damageOf(60), conditionOf('daze', 2, 50, 'one')], { sp: 2, cooldown: 1 });
+const mend = () => formOf('Cauterize', 'heal', 'INT', [{ op: 'heal', target: 'self', power: 100 }], { mp: 2, cooldown: 1 });
+const stance = () => formOf('Stance', 'buff', 'VIT', [conditionOf('guard', 2, 100, 'self'), { op: 'stat', target: 'self', stat: 'VIT', amount: 2, rounds: 2 }], { mp: 1, cooldown: 1 });
+const fighter = (skills, over = {}) => hero({ id: 'pc', memberId: 'pc', hp: { cur: 90, max: 90 }, patk: 18, pdef: 7, crit: 11.5, skills, ...over });
+
+for (const [label, party, target] of [
+    ['one hero, the lean player throughout', [fighter([spear(), bash(), mend()])], 0.625],
+    ['one hero, a harder target', [fighter([spear(), bash()])], 0.35],
+    ['one hero whose stance the lean player leaves to the engine', [fighter([stance(), spear()])], 0.625],
+    ['two in the party, all of it left to the engine', [fighter([spear()]), fighter([bash()], { id: 'ally', memberId: 'ally', controller: 'auto' })], 0.625],
+]) {
+    test(`calibrate chooses what the engine's search chooses: ${label}`, () => {
+        const setup = pinned(party, [rat('r1'), rat('r2'), rat('r3'), rat('r4', { hp: { cur: 44, max: 44 } })], [{ round: 1000000, enemies: [rat('r5'), rat('r6')] }]);
+        const chosen = calibrate(setup, target);
+        const expected = engineSearch(setup, target);
+        const stats = candidate => [...candidate.enemies, ...candidate.waves.flatMap(wave => wave.enemies)].map(enemy => [enemy.hp.max, enemy.patk, enemy.matk]);
+        assert.deepEqual(stats(chosen), stats(expected));
+        assert.deepEqual(chosen, expected);
+    });
+}
