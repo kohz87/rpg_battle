@@ -28,6 +28,8 @@ export function classPickerView(state, args, tools) {
         classes: {
             state: classes.state,
             pick: { field: 'class', label: 'Basic class', options: classes.classes, empty: 'No basic classes are available yet.' },
+            // id → name, for the wizard's summary row ("Human · Barge Drifter")
+            names: Object.fromEntries(classes.classes.map(option => [option.id, option.label])),
         },
         checks: {
             state: policy.status === ASK.OK ? 'ready' : 'unavailable',

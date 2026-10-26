@@ -33,18 +33,36 @@ function savesModel(tools) {
     };
 }
 
-/** rpg-battle.setupView({}) → { deps, saves }. */
-export function setupView(state, args, tools) {
+/**
+ * The rules choice, as Setup and the creation wizard both show it: the packs on offer, each with the one `rules.pin` button
+ * (the exact payload `rules.selection` gave), and the pin once made. One builder, so the wizard is never a second pinning path.
+ */
+export function rulesChoice(tools) {
     const selection = ask(tools, 'rules.selection', {}, isRecord).value;
     const identity = ask(tools, 'rules.identity', {}, isRecord).value;
     const offers = selection?.state === 'offered' ? selection.offers.map(({ name, ...payload }) => ({
         name: clip(name, 80), version: payload.version,
         pin: btn('rules.pin', payload, `Pin ${name}`, { tone: 'primary' }),
     })) : [];
+    // The wizard's summary row names the pinned pack as the reader knows it ("Ersveil Rules 1.5.0"), else by its id.
+    let label = '';
+    if (identity) {
+        const found = ask(tools, 'packs.rules', { pack: identity.packId }, value => isList(value, isRecord));
+        const entry = found.status === ASK.OK ? found.value.find(item => item.pack === identity.packId) : null;
+        label = `${clip(isText(entry?.name) ? entry.name : identity.packId, 80)} ${identity.version}`;
+    }
+    return { offered: offers.length > 0, offers, pinned: Boolean(identity),
+        identity: identity ? `${identity.packId} ${identity.version}` : '', label };
+}
+
+/** rpg-battle.rulesGate({}) → { offered, offers, pinned, identity }: what the creation wizard asks before any of its steps. */
+export const rulesGate = (state, args, tools) => rulesChoice(tools);
+
+/** rpg-battle.setupView({}) → { deps, saves }. */
+export function setupView(state, args, tools) {
+    const rules = rulesChoice(tools);
     return { deps: dependencyView(tools, hostModules()), saves: savesModel(tools),
-        rules: { offered: offers.length > 0, offers, pinned: Boolean(identity),
-            identity: identity ? `${identity.packId} ${identity.version}` : '',
-            create: Boolean(identity) && !ask(tools, 'party.pc', {}, isRecord).value } };
+        rules: { ...rules, create: rules.pinned && !ask(tools, 'party.pc', {}, isRecord).value } };
 }
 
 /** rpg-battle.rulesDeps({}) → the banner: { show, tone, headline, held, lines } (only the lines that are not fine). */
