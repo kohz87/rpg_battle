@@ -1,0 +1,152 @@
+[
+  {
+    "tier": "trivial",
+    "seed": 7,
+    "hashes": [
+      "50973198f9568d5b62b2a25ce5be599382ed2d081f6aa55aa42cf9e4f0293b1c",
+      "96cd0a5c2d86823a403269ab0d88dcb3f10e9fa8742673f73a2ccaf049f303c4",
+      "3dfa2137fd31a132ed82aad6763994123cdb9729d9978e788d15fe2591d7f446",
+      "b61c792f11e171e5be4e6063d72b8c653d76dc56e93d6adc098360087f268291"
+    ]
+  },
+  {
+    "tier": "trivial",
+    "seed": 101,
+    "hashes": [
+      "9b251797e6d16b4e92c1aea3b8112315dcf2a88a04e45ed6a364239e4fe5d608",
+      "84d8f28a2fda3d1f6e39cb3c60ac7f3d4cea8aae7b5f6ce2aec170365e616598",
+      "4e33e84894983471f0df957885c2d797886217412195f9386fb6effff42e2803",
+      "7c5dc53e8d461995c80bc8199bd9f1b7e5fc98eed55458c2ad219499981a609d"
+    ]
+  },
+  {
+    "tier": "trivial",
+    "seed": 1000,
+    "hashes": [
+      "b01c34496a44340c65ac162d3199b712fda2d21c7ceaf77edfa143efa567799a",
+      "6a50a6c8a104ac869f7994997b8afb2708184033311be9a42ffeaa558648aa43",
+      "37d59492b959a50860735116831da2a8da8442c0620b9ed8953841d4fa97bd12",
+      "1d6da609626b134a391367516ff7398b439d5ac18da1076ac8d3a53696e6af3c"
+    ]
+  },
+  {
+    "tier": "weak",
+    "seed": 7,
+    "hashes": [
+      "b7648277ee04be25a1e89f019c07f143bacdcbda4a53b814bc19c30da2bb2143",
+      "7f0c9d510945783c266404397e4433cb588abac0f2ac93a50e5f3979717c30ab",
+      "9efa958d64ddbc3a39578c37832c3a94bc8965a3830e423062ff3c84fcdcfe4d",
+      "bb55765c52b969b97c24d9754ecfbba4a317bae4f9c475aecea7cdf1e92da101"
+    ]
+  },
+  {
+    "tier": "weak",
+    "seed": 101,
+    "hashes": [
+      "2b5f05faa0cc6f4f4ae0537482bcbad23cd33fca5250ab3d7ad24ae7a9af1079",
+      "7524204edd2b8e7702b2f7518b2dd816da52461092b3d77e6a5a59d4f8bcd1f5",
+      "b4537fad24b9dce2ce8e04835b3613b9794077bae37d75024a1860e38eb6f906",
+      "19c474e0cfc59fb09e1689aeb5b3bbd335ca145b8a9a651081cb833921f266f6"
+    ]
+  },
+  {
+    "tier": "weak",
+    "seed": 1000,
+    "hashes": [
+      "ff14f1ccc2910303df2d8cf1596173d3483b55b5ed4654ce208b96b2f1ef4f3e",
+      "af011d25a4b0152d3c70876092cac19e8be701a55d3755c7e9d88ceb0b1ff390",
+      "838857d0ee25d9312ee2dcf57fc6e12edbab4965c56787b2a291fad7506ef7b0",
+      "29e7b50dce4eacaf2e3d079317fd26287db22b8dbddf36322699d697611ce9cc"
+    ]
+  },
+  {
+    "tier": "normal",
+    "seed": 7,
+    "hashes": [
+      "50d6e1fb4bda4bac565d4a5aff294083edd00eaab465e6a800378300eab5906e",
+      "ace7d18ee8a96de3edb1a19209a6ed8ec8b71fbf55287f4854f8ed9e30365ef3",
+      "fefe9eed4554d4df10d8767489fc1dbd8d572c2dccddcb3a072b669176ad74bc",
+      "3d40ee206f076b5c260a5951e42de569e78ca8118ff7754b77c35aa94109b2f4"
+    ]
+  },
+  {
+    "tier": "normal",
+    "seed": 101,
+    "hashes": [
+      "5b18e1ec68c51f1a3564eed511390fb2fa3252aeb1e36f1e856d425152019e06",
+      "229c6b0ab3b1b9218bdffac07628b82e444b73b721ea7ef9467240d90c1888be",
+      "30c415f389c9fb6b2e116e8ac508e9f875cbe9d0b2e50c8536cc459dd16803b9",
+      "8c578d0b98c580675d79bb6c2e6af06099f56528a406ae907c480c0a1caabbc6"
+    ]
+  },
+  {
+    "tier": "normal",
+    "seed": 1000,
+    "hashes": [
+      "49fcd2d8b3dd2c9666ff9db0cfdadffc637635c2640049a800ba76cd2d54c2e3",
+      "f85a5b62cc24f8ee43475f0506b15d4ed5d9693b08ba6b9402fc55ae36aa7fd7",
+      "3e981810cf028baf53f6d4e3942206b84332675103c771a9715678a2068d1066",
+      "b3c1e92eb1f4f0980efc1756f7e6e5be8966f5f429a3f8549b9688b6c0657ba2"
+    ]
+  },
+  {
+    "tier": "strong",
+    "seed": 7,
+    "hashes": [
+      "9844363f0cf7535359531a9aec1c1d344e9e413f31ca3490a191a08e9abdf58e",
+      "a8f366096c6c43bc6ce1fc80ab792f27244f58e235b9ffdc4287f8f960f3970d",
+      "8108c8c211323146a2d7651ea66d44b208868ecae78f135696aeb11b6be29f10",
+      "e91fac4e5f7dc0be068ecebe1892502f2b4c7f1bf9f316cc4734d904207c7a3b"
+    ]
+  },
+  {
+    "tier": "strong",
+    "seed": 101,
+    "hashes": [
+      "f2bf669d4a785f01872c85ffe501a022e4a009a8839bc2912bd0033791665b88",
+      "212a2114fe122c9ca25f79259efb94c41bcc3cc2a7e57d0164367ed12a1f5ae7",
+      "d524daadce1c8ba0681ac71ad67b058d88552d6c0cb6db113f26696984fc9364",
+      "9e2dd5c0ada747be44ef83e5c37f789b01425093a28255989d1ef14981d9e1f4"
+    ]
+  },
+  {
+    "tier": "strong",
+    "seed": 1000,
+    "hashes": [
+      "1e50cc4bb9366b630766f3502561610b5bb9bed0a5e7c2f5ce2b7bd80ce6962b",
+      "bbf6c742d53a43017852a9a86fb31369d5fe1a96523a6d5297f435e43e16451f",
+      "354cd417c237517b399c32062070b5150efa40f548bb35128a7eadaaf39a17c8",
+      "4c7f0dc30472a25f522ce81bf3a01c7f4f833f269da0bf3b51318e48c40ea971"
+    ]
+  },
+  {
+    "tier": "deadly",
+    "seed": 7,
+    "hashes": [
+      "6ff9400a85ed8f0d3e89c3d4d1c050667c9fc36149620c7a5d889873e1008545",
+      "59ae6382f5cae219f98d2e682eae5b8719a896e1b798168df3af6dfa3fe0c025",
+      "ebf09778829a5da99c20be25a9ee883f64c90fc2821e6124ed02a8744ee3fc48",
+      "83354e156a6b5878c101a30ce92cbeee12c7a5fab810c526bef282fb9fe4a517"
+    ]
+  },
+  {
+    "tier": "deadly",
+    "seed": 101,
+    "hashes": [
+      "00b2fcd6ecfc48626df15d40ae78e429daa4c45e84c787e8649d5b66fe751f5a",
+      "9634aae8bf212b7adcec407837d8db80f3eb2071623dc3fcb7b85232d5b1b133",
+      "cdef4df6d3f0035e424f02e25a9521987b08a1802c912f8aea4d4b8aaa399c5d",
+      "c05542d6f28d91ccb5015dc790f3119bc57f3da23e6f560ac8a50921f80be3dd"
+    ]
+  },
+  {
+    "tier": "deadly",
+    "seed": 1000,
+    "hashes": [
+      "c958775f20b773eb17b646580fdc616b322ce6ec5a2b525c68ff9295f8beb659",
+      "7fe46b880af996b5ba652b4c09c761cfe3a81b5d7cfb3975c98f0a892765e1fc",
+      "4915ca4b19a21a7045a38f75eb3b152bdd34f7e93b86d84f875d0bed5bf0b886",
+      "e39dba7661c47386d83b7d0f1db9b7e8642f53e2aaf669c552278e15e2d5c6a4"
+    ]
+  }
+]

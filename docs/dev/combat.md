@@ -16,6 +16,16 @@ time F17); this repo's README "A fight", "Fights from the story", "Monsters on t
 - **Power-based sizing** (`power.js`): each creature's danger measured against the five creation presets
   at band levels (1, 5, 10, 20, 40, 60) with fixed-seed duels; HP and damage scaled by
   `√(reference / power)` within `SCALE_MIN`–`SCALE_MAX`. Deterministic and cached.
+- **Pinned danger offers** (`fight/danger.js`): the narrator proposes the danger; code resolves the
+  pack foes against the current party at capture. The legacy HP/attack multiplier preserves the pack's
+  name, seven budgeted stats, skills, elements and loot. A bounded search (22 candidates, 256 fixed
+  private seeds each, duplicate candidates reused) aims at Auto wins: trivial ≥98%, weak ≥90%,
+  even/normal 50–75%, strong 20–50%, deadly <20%. HP rounding is distributed in foe order for finer
+  steps. Mixed tiers retain legacy's relative budgets and aim at the most dangerous row's target.
+  The complete opposition, waves and fight settings are stored on the offer. Starting it reads those
+  numbers even if the party, area, installed packs or settings change; replay/reload never recalibrate.
+  Existing offers without that record, explicit ranks, death stakes, and unpinned chats retain their
+  previous behavior. Area allowlists and source foe stat budgets still pass through `foeToEngine`.
 - **Quest-sized fights** (`quest.js`): a fight for a Story Director kill quest brings at least
   `QUEST_SHARE` (⅓) of the goal, at most what is missing, at most `QUEST_MAX_FOES` (24). Without Story
   Director nothing is quest-sized.
@@ -51,6 +61,11 @@ time F17); this repo's README "A fight", "Fights from the story", "Monsters on t
 - `tests/v2/combat/` (`combat`, `waves`, `power`, `boss-rank`, `quest-fights`, `stun-rule`, `money-scale`,
   `gear-capped`, `foe-rank-tail`, `v2-rules`, `story-line-offer` (suite)), `tests/v2/board/`, `tests/v2/return/`.
 - `tests/v2/qa/balance-tiers.test.js`, `qa/weak-foes.test.js`, `qa/fight-views.test.js`, `tests/balance.test.js`.
+- `tests/v2/fight/danger.test.js`: real Ersveil 1.5.0 fixture (copied from Story Block cc0b793), all five
+  tier-0 classes at level 1 against six rats, 300 independent seeds per weak/normal/strong label;
+  replay and reinstall stability. `legacy-danger.test.js` checks 60 domain snapshots from 15 complete
+  unpinned fights against SHA-256 bytes recorded on main 81cb400 (fixture regeneration: run
+  `legacyDangerTrace()` from `legacy-danger-trace.js` against that revision, hash each snapshot).
 - Break findings: `tests/v2/break/a2-*` (ladder, waves, bosses, quest sizing; `a2-rules.test.js` alone, the
   rest need the suite), `b4-*`, `final-*`; fuzz: `tests/v2/qa/fuzz.test.js`, `tests/v2/break/fuzz-delete.test.js`.
 
