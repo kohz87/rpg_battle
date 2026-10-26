@@ -15,6 +15,7 @@ export const source = value => closed(value, ['sid', 'swipeKey', 'evidence', 'or
     && ['sid', 'swipeKey', 'evidence'].every(key => recordId(value[key])) && count(value.ordinal) && value.ordinal <= 1000000;
 export const cursor = value => closed(value, ['sid', 'swipeKey', 'block', 'op', 'rev'])
     && ['sid', 'swipeKey', 'block'].every(key => recordId(value[key])) && count(value.op) && count(value.rev);
+const foeRef = value => typeof value === 'string' && /^[a-z0-9]+(?:[._-][a-z0-9]+)*\/[a-z0-9]+(?:[_-][a-z0-9]+)*(?:~[a-z0-9]+(?:-[a-z0-9]+)*)?$/.test(value);
 const refs = list => Array.isArray(list) && list.length > 0 && list.every(defId);
 const stats = ['STR', 'VIT', 'AGI', 'DEX', 'INT', 'LUK', 'CHA'];
 function requirement(value) {
@@ -32,12 +33,12 @@ function requirement(value) {
 }
 function objective(value) {
     const shape = {
-        kill: [ ['id', 'kind', 'foe', 'count'], () => defId(value.foe) && small(value.count, 999) ],
+        kill: [ ['id', 'kind', 'foe', 'count'], () => foeRef(value.foe) && (value.allowVariants === undefined || typeof value.allowVariants === 'boolean') && small(value.count, 999) ],
         collect: [ ['id', 'kind', 'def', 'count', 'consume'], () => defId(value.def) && small(value.count, 999) && typeof value.consume === 'boolean' ],
         visit: [ ['id', 'kind', 'place'], () => id(value.place) ],
         story: [ ['id', 'kind', 'text'], () => text(value.text, 240) ],
     }[value?.kind];
-    return !!shape && closed(value, shape[0]) && id(value.id) && shape[1]();
+    return !!shape && closed(value, shape[0], value.kind === 'kill' ? ['allowVariants'] : []) && id(value.id) && shape[1]();
 }
 const items = value => Array.isArray(value) && value.length <= 8 && value.every(row => closed(row, ['def', 'qty']) && defId(row.def) && small(row.qty, 999));
 const outcomes = ['done', 'failed', 'expired', 'abandoned'];

@@ -20,7 +20,7 @@
 // its creatures and quests stay open records, as they always were. The result then also carries `rulesHash` and
 // `packHash` (the checker's two hashes).
 
-import { CALENDAR_FIELDS, CALENDAR_HOLIDAY_FIELDS, CALENDAR_LIMITS, CALENDAR_START_FIELDS, CHOICE_FIELDS, CONTENT_KINDS, COMMAND, CRAFT_FIELDS, ECONOMY_FIELDS, ECONOMY_LIMITS, CRAFTS_LIMITS, DEFAULT_CRAFTS, METER_FIELDS, METER_LIMITS, METER_PRESET_FIELDS, METER_RESERVED, METER_STAGE_FIELDS, RECIPE_LIMITS, STAT_SUM, DEF_ID, EVENT_FIELDS, EVENT_LIMITS, ITEM_FIELDS, ITEM_KINDS, LIMITS, MOUNTS, PACK_FIELDS, PACK_ID, PLACE_FIELDS, PRESET_FIELDS, RARITIES, ROUTE_FIELDS, SCREEN_FIELDS, SCREEN_ID, SEMVER, SKILL_FIELDS, SKILL_TARGETS, SKILL_TYPES, SLUG, START_FIELDS, STAT_NAME, RANK_FIELDS, RANK_ID, RANKS_LIMITS, TERM_SEPARATORS, ITEM_CARRY, MARKET_FIELDS, MARKET_LIMITS, MARKET_WORD, TERMS_FIELDS, TERMS_LIMITS, TERMS_NUMERALS, TERMS_TIER_FIELDS, WEATHER_FIELDS, WEATHER_LIMITS, WEATHER_SEASON_FIELDS, WEATHER_TABLE_FIELDS } from './limits.js';
+import { RECORD_LIMITS, CALENDAR_FIELDS, CALENDAR_HOLIDAY_FIELDS, CALENDAR_LIMITS, CALENDAR_START_FIELDS, CHOICE_FIELDS, CONTENT_KINDS, COMMAND, CRAFT_FIELDS, ECONOMY_FIELDS, ECONOMY_LIMITS, CRAFTS_LIMITS, DEFAULT_CRAFTS, METER_FIELDS, METER_LIMITS, METER_PRESET_FIELDS, METER_RESERVED, METER_STAGE_FIELDS, RECIPE_LIMITS, STAT_SUM, DEF_ID, EVENT_FIELDS, EVENT_LIMITS, ITEM_FIELDS, ITEM_KINDS, LIMITS, MOUNTS, PACK_FIELDS, PACK_ID, PLACE_FIELDS, PRESET_FIELDS, RARITIES, ROUTE_FIELDS, SCREEN_FIELDS, SCREEN_ID, SEMVER, SKILL_FIELDS, SKILL_TARGETS, SKILL_TYPES, SLUG, START_FIELDS, STAT_NAME, RANK_FIELDS, RANK_ID, RANKS_LIMITS, TERM_SEPARATORS, ITEM_CARRY, MARKET_FIELDS, MARKET_LIMITS, MARKET_WORD, TERMS_FIELDS, TERMS_LIMITS, TERMS_NUMERALS, TERMS_TIER_FIELDS, WEATHER_FIELDS, WEATHER_LIMITS, WEATHER_SEASON_FIELDS, WEATHER_TABLE_FIELDS } from './limits.js';
 import { byteLength, checkPlain } from './safety.js';
 import { parseRange, satisfies } from './version.js';
 import { foldKey, oneLine } from '../../text.js';
@@ -38,7 +38,7 @@ export const HOST_VERSION = '2.0.0';
 /** A slug for a display name: "Iron Sword (old)" → "iron-sword-old". */
 export function slugify(name) {
     return String(name ?? '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64).replace(/-+$/, '');
+        .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, RECORD_LIMITS.slug).replace(/-+$/, '');
 }
 
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -319,17 +319,17 @@ function checkItem(record, path, label, add) {
     if (typeof stack !== 'boolean') say('stack', 'stack must be true or false.');
     else if (stack && kind === 'equipment') say('stack', 'equipment does not stack; leave "stack" out.');
     const slot = record.slot ?? null;
-    if (slot !== null && (typeof slot !== 'string' || !slot.trim() || slot.length > 40)) say('slot', 'slot must be a short name like "weapon", or null.');
+    if (slot !== null && (typeof slot !== 'string' || !slot.trim() || slot.length > RECORD_LIMITS.word)) say('slot', 'slot must be a short name like "weapon", or null.');
     const stats = record.stats ?? {};
     if (!isObject(stats) || Object.values(stats).some(n => !Number.isInteger(n))) say('stats', 'stats must map names to whole numbers: { "STR": 2 }.');
     const effect = record.effect ?? {};
     if (!isObject(effect)) say('effect', 'effect must be an object, like { "heal": 20 }.');
     const tags = record.tags ?? [];
-    if (!Array.isArray(tags) || tags.some(tag => typeof tag !== 'string' || !tag.trim() || tag.length > 40)) say('tags', 'tags must be a list of short words.');
+    if (!Array.isArray(tags) || tags.some(tag => typeof tag !== 'string' || !tag.trim() || tag.length > RECORD_LIMITS.word)) say('tags', 'tags must be a list of short words.');
     const aliases = record.aliases ?? [];
     if (!Array.isArray(aliases) || aliases.some(alias => typeof alias !== 'string' || !alias.trim() || alias.length > LIMITS.name)) say('aliases', 'aliases must be a list of other names for the item.');
     const note = record.note ?? '';
-    if (typeof note !== 'string' || note.length > 500) say('note', 'note must be text of at most 500 characters.');
+    if (typeof note !== 'string' || note.length > RECORD_LIMITS.note) say('note', 'note must be text of at most 500 characters.');
     // The carry capacity it adds while owned (worn, for equipment): PACKS.md "Carry capacity".
     if (record.carry !== undefined && !(isInt(record.carry, ITEM_CARRY.min) && record.carry <= ITEM_CARRY.max)) say('carry', `carry must be a whole number from ${ITEM_CARRY.min} to ${ITEM_CARRY.max} (the carry capacity it adds), or left out.`);
     if (!ok) return null;
@@ -732,11 +732,11 @@ function checkChoice(record, path, label, add) {
     const say = (field, message, code = 'BAD_RECORD') => { ok = false; add(code, `${path}.${field}`, `${label}: ${message}`); };
     for (const key of Object.keys(record)) if (!CHOICE_FIELDS.includes(key)) say(key, `"${key}" is not a field here (expected ${CHOICE_FIELDS.join(', ')}).`, 'UNKNOWN_FIELD');
     const note = record.note ?? '';
-    if (typeof note !== 'string' || note.length > 500) say('note', 'note must be text of at most 500 characters.');
+    if (typeof note !== 'string' || note.length > RECORD_LIMITS.note) say('note', 'note must be text of at most 500 characters.');
     const stats = record.stats ?? {};
     if (!isObject(stats) || Object.values(stats).some(n => !Number.isInteger(n))) say('stats', 'stats must map names to whole numbers: { "STR": 1 }.');
     const tags = record.tags ?? [];
-    if (!Array.isArray(tags) || tags.some(tag => typeof tag !== 'string' || !tag.trim() || tag.length > 40)) say('tags', 'tags must be a list of short words.');
+    if (!Array.isArray(tags) || tags.some(tag => typeof tag !== 'string' || !tag.trim() || tag.length > RECORD_LIMITS.word)) say('tags', 'tags must be a list of short words.');
     if (!ok) return null;
     return { name: oneLine(record.name, LIMITS.name), note, stats: { ...stats }, tags: tags.map(tag => tag.trim()) };
 }
@@ -780,7 +780,7 @@ function checkStart(start, add, ref) {
             // A start item must be defined by this pack: the start state has no story to name it.
             if (!id || !id.startsWith('pack.')) return add('UNKNOWN_REF', `${at}.item`, `The start gives "${line.item}", which is not an item of this pack.`);
             if (!isInt(line.qty ?? 1, 1)) return add('BAD_START', `${at}.qty`, `${at}.qty must be a whole number of 1 or more.`);
-            if (line.note !== undefined && (typeof line.note !== 'string' || line.note.length > 500)) return add('BAD_START', `${at}.note`, `${at}.note must be text of at most 500 characters.`);
+            if (line.note !== undefined && (typeof line.note !== 'string' || line.note.length > RECORD_LIMITS.note)) return add('BAD_START', `${at}.note`, `${at}.note must be text of at most 500 characters.`);
             out.inventory.items.push({ item: id, qty: line.qty ?? 1, note: line.note ?? '' });
         });
         // Money is one whole number of the chat's one currency, like item values (MODULES §F1).
@@ -807,11 +807,11 @@ function checkSkill(record, path, label, add) {
     const target = record.target ?? 'one';
     if (!SKILL_TARGETS.includes(target)) say('target', `target must be one of ${SKILL_TARGETS.join(', ')}.`);
     const element = record.element ?? null;
-    if (element !== null && (typeof element !== 'string' || !/^[a-z]{1,24}$/.test(element))) say('element', 'element must be one short lowercase word, like "fire", or left out.');
+    if (element !== null && (typeof element !== 'string' || (!/^[a-z]+$/.test(element) || element.length > RECORD_LIMITS.element))) say('element', 'element must be one short lowercase word, like "fire", or left out.');
     const note = record.note ?? '';
-    if (!isText(note, 500)) say('note', 'note must be text of at most 500 characters.');
+    if (!isText(note, RECORD_LIMITS.note)) say('note', 'note must be text of at most 500 characters.');
     const tags = record.tags ?? [];
-    if (!Array.isArray(tags) || tags.some(tag => typeof tag !== 'string' || !tag.trim() || tag.length > 40)) say('tags', 'tags must be a list of short words.');
+    if (!Array.isArray(tags) || tags.some(tag => typeof tag !== 'string' || !tag.trim() || tag.length > RECORD_LIMITS.word)) say('tags', 'tags must be a list of short words.');
     if (!ok) return null;
     return { name: oneLine(record.name, LIMITS.name), type, stat, target, element, note, tags: tags.map(tag => tag.trim()) };
 }
@@ -837,7 +837,7 @@ function checkPreset(record, path, label, add, choose) {
     const say = (field, message, code = 'BAD_RECORD') => { ok = false; add(code, `${path}.${field}`, `${label}: ${message}`); };
     for (const key of Object.keys(record)) if (!PRESET_FIELDS.includes(key)) say(key, `"${key}" is not a preset field (expected ${PRESET_FIELDS.join(', ')}).`, 'UNKNOWN_FIELD');
     const note = record.note ?? '';
-    if (!isText(note, 500)) say('note', 'note must be text of at most 500 characters.');
+    if (!isText(note, RECORD_LIMITS.note)) say('note', 'note must be text of at most 500 characters.');
     let race = null;
     if (record.race !== undefined && record.race !== null) {
         race = choose.race(record.race);
@@ -873,7 +873,7 @@ function checkPlace(record, path, label, add) {
     const aliases = record.aliases ?? [];
     if (!Array.isArray(aliases) || aliases.some(alias => typeof alias !== 'string' || !alias.trim() || alias.length > LIMITS.name)) say('aliases', 'aliases must be a list of other names for the place.');
     const note = record.note ?? '';
-    if (!isText(note, 500)) say('note', 'note must be text of at most 500 characters.');
+    if (!isText(note, RECORD_LIMITS.note)) say('note', 'note must be text of at most 500 characters.');
     for (const flag of ['hidden', 'secret']) if (record[flag] !== undefined && typeof record[flag] !== 'boolean') say(flag, `${flag} must be true or false.`);
     // Its market (PACKS.md "Markets"): a settlement type and environment tags, each a lowercase word.
     if (record.market !== undefined && !(typeof record.market === 'string' && MARKET_WORD.test(record.market))) say('market', 'market must be a settlement type, a lowercase word like "village" or "city".');
@@ -918,13 +918,13 @@ function checkRoute(record, path, add, place) {
     if (!from) say('from', `"${record.from ?? ''}" is not a place of this pack.`, 'UNKNOWN_REF');
     if (!to) say('to', `"${record.to ?? ''}" is not a place of this pack.`, 'UNKNOWN_REF');
     if (from && to && from === to) say('to', 'a route joins two different places.');
-    if (typeof record.kind !== 'string' || !record.kind.trim() || record.kind.length > 40) say('kind', 'kind must say what the route is, like "road" or "river" (at most 40 characters).');
+    if (typeof record.kind !== 'string' || !record.kind.trim() || record.kind.length > RECORD_LIMITS.word) say('kind', 'kind must say what the route is, like "road" or "river" (at most 40 characters).');
     for (const field of ['km', 'hours']) if (record[field] !== undefined && (!isNumber(record[field]) || record[field] <= 0 || record[field] > 1e6)) say(field, `${field} must be a number above 0, or left out.`);
     if (record.corridor !== undefined && !isText(record.corridor, LIMITS.name)) say('corridor', `corridor must be text of at most ${LIMITS.name} characters.`);
     const note = record.note ?? '';
-    if (!isText(note, 500)) say('note', 'note must be text of at most 500 characters.');
+    if (!isText(note, RECORD_LIMITS.note)) say('note', 'note must be text of at most 500 characters.');
     if (!ok) return null;
-    return { from, to, kind: oneLine(record.kind, 40), km: record.km ?? null, hours: record.hours ?? null, corridor: oneLine(record.corridor ?? '', LIMITS.name), note };
+    return { from, to, kind: oneLine(record.kind, RECORD_LIMITS.word), km: record.km ?? null, hours: record.hours ?? null, corridor: oneLine(record.corridor ?? '', LIMITS.name), note };
 }
 
 // A record of display terms gets the slug from its `id`, else its name, else `terms`, `terms-2` … in

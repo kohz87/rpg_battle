@@ -44,7 +44,7 @@ import { fightsAmong } from './fights.js';
 
 export const MODULE_ID = 'story-director';
 export const MODULE_NAME = 'Story Director';
-export const VERSION = '2.0.0-beta.2';
+export const VERSION = '2.0.0';
 
 /** The Story Block versions this module runs on (`requires.storyBlock`). */
 export const STORY_BLOCK_RANGE = '>=2.0.0-beta.2';

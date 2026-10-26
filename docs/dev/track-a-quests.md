@@ -46,3 +46,35 @@ asks for story objectives. The guard kind `quest.objective` reads the state it i
 the clock, the scene), `story.evidence` for the acceptance and a cited proof, and the place and line it recorded; it declares no query.
 The planner counts a row only when `validateObjectiveProof` accepts the proof, the settlement guard hashes those proofs, so a
 deleted parent turns the evidence row, the payout and their claims off together.
+
+## Stage 5: open templates and variant hunts
+
+`quest.open({id,template,text,foe?,place?,item?})` is the reader action behind “Make this a quest”.
+It requires an existing neutral active SD goal and an explicit open template ID or slug.
+`quest.openTemplates({})` lists only pinned open templates as `{id,name,kinds}[]` for the form.
+The narrator uses `+ quest Name | like: <slug> | text: <objective text>` with explicit targets.
+Extra labels (including narrator-supplied rewards) refuse visibly; a refused narrator opening
+leaves a plain goal. Linking an offered goal leaves it offered; linking an accepted goal retains
+its original acceptance. Closed templates still follow their existing offer/accept path.
+
+Open policy fixes objective kinds, counts, consumption and requirements. Only missing target/text
+slots are filled. Each target must resolve explicitly to one real place, item or allowed foe.
+A variant uses its canonical `<base-ref>~<variant-slug>`; a name resolves only to a surviving explicit
+variant declaration. No fuzzy matching or inferred template selection occurs. The numeric reward
+is `min + floor((max-min)*areaTier/9)` for both coin and XP. The opening guard records the canonical
+area and external identities; the same projection of surviving requirements is checked on replay.
+It asks only `quest.replayInputs` and `story.evidence`, never live atlas/settings/economy queries.
+
+`! encounter Variant name | like: <pack foe slug>` explicitly declares one literal variant name.
+It copies frozen skills, loot and tags. Its level is `base.level + 10*(area.tier-base.tier)`; each
+stat is `ceil(base.stat * foeStatBudget(level)/foeStatBudget(base.level))`. Invalid levels, per-stat
+bounds, summed budgets and area allowlists refuse; nothing is clamped or redistributed. Area and
+binding travel with the offer and setup. Sealed results keep `<base-ref>~<variant-slug>`, never a
+name-derived kill credit. A hunt matches its exact canonical ref, or a base with `allowVariants:true`.
+The existing per-fight kill claim is shared across the base family so an exact and base hunt cannot
+spend the same result twice. Existing encounter behavior without a variant binding is retained.
+
+New settlements retain proofs sorted by ID. Replay respects older saved proof order, so Re-read
+cannot change an earned reward merely by changing evidence iteration order. Settlement, retraction
+causes, narrated-coin attribution, repeat-coin dedupe and terminal claims use the existing machinery.
+Open templates have null repeat/chain; a fresh open offer needs fresh explicit binding evidence.

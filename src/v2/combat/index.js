@@ -34,7 +34,7 @@ import { clipped } from '../lines.js';
 import { lastParts, partsProblems } from '../board/parts.js';
 import { fitParty } from '../party/pools.js';
 import { foldStoryTime } from '../party/recovery.js';
-import { actionWithId, beginUnits, guardAction, guardStart, lootProblem, pinnedFight, pinnedOf, pinnedSetup, settleEnd } from '../fight/index.js';
+import { bindEncounter, actionWithId, beginUnits, guardAction, guardStart, lootProblem, pinnedFight, pinnedOf, pinnedSetup, settleEnd } from '../fight/index.js';
 import { cleanFormFields } from '../fight/records.js';
 import { settleFightDeaths } from '../death/fight.js';
 import { applyStock, beatenFoes, boardToken, endSummary, foeNames, foeRanks, partyNames, rebuild, sessionView, tailLines } from './view.js';
@@ -533,7 +533,7 @@ function start(ctx, payload) {
         ctx.fail('REFUSED', error?.message || 'That fight cannot start.');
     }
     const { made } = built;
-    const setup = pinnedSetup(ctx, built.setup);
+    const setup = pinnedSetup(ctx, built.setup, offer);
     // The foes past the field (the reader's setting, setup.planWaves) come in later waves.
     const later = (setup.waves ?? []).reduce((sum, wave) => sum + (wave.enemies?.length ?? 0), 0);
     // The party as it stands before the opening (the automatic turns before the first choice,
@@ -857,7 +857,7 @@ function captureEncounter(ctx, line) {
     const bestiary = combinedBestiary(fightBestiary(ctx, rules), DEFAULT_BESTIARY);
     // A `rank:` is read on the suite's ladder for the character's level now (MODULES §F91).
     const ranks = rankContext(ctx);
-    const read = readEncounter(line, { bestiary, ...ranks });
+    const read = readEncounter(line, { bestiary, ...ranks, literal: !!pinnedOf(ctx) && Object.hasOwn(line.labels ?? {}, 'like') });
     if (!read.ok) ctx.fail('INVALID', read.message);
     // Every foe written is fought, in waves; what a fight cannot hold is told (B-a2-4, B-a2-9): past
     // MAX_ENCOUNTER_FOES, and past what each tier can hold for the party (heldToTiers).
@@ -876,7 +876,8 @@ function captureEncounter(ctx, line) {
         try { place = String(ctx.read('scene')?.place?.name ?? '').trim().slice(0, 60); } catch { place = ''; }
     }
     const id = newId(ctx, 'en');
-    const offer = { id, foes: quest.foes, stakes: read.stakes, place, rev: nextRev(ctx), ...(read.note ? { note: read.note } : {}) };
+    const binding = bindEncounter(ctx, quest.foes, line.labels?.like);
+    const offer = { ...(binding ? { area: binding.area } : {}), id, foes: binding?.foes ?? quest.foes, stakes: read.stakes, place, rev: nextRev(ctx), ...(read.note ? { note: read.note } : {}) };
     const draft = ctx.draft('combat');
     const offers = recordOf(draft, 'offers');
     // Under its own id (B-b1r2-13); the oldest go past MAX_OFFERS.

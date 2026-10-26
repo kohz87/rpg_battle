@@ -20,7 +20,7 @@ import {
     C13, CLASS_VIEWS, H, CONTRACTS, QF, SHIPPED_QUERIES, answers, c02, c04, c05, c08, c09, hashOf, seed, smallRulesPack, sheetOf,
 } from './fixtures.js';
 
-const OWN_WIDGETS = ['rpg-battle.permanent-choice', 'rpg-battle.class-pick', 'rpg-battle.command-input', 'rpg-battle.command-button',
+const OWN_WIDGETS = ['rpg-battle.quest-binding', 'rpg-battle.permanent-choice', 'rpg-battle.class-pick', 'rpg-battle.command-input', 'rpg-battle.command-button',
     'rpg-battle.member-toggle', 'rpg-battle.equipment', 'rpg-battle.create-character'];
 // Commands the views build into buttons that another module owns; the pending ones are in CONTRACTS.
 const WIDGET_COMMANDS = ['quest.take', 'quest.finish', 'quest.abandon', 'skill.train'];
@@ -82,7 +82,7 @@ test('every widget a template names is Story Block\'s or this part\'s, and no ra
     // The commands that were raw buttons are now widget specs built by the views.
     const built = FILES.map(sourceOf).join('\n');
     for (const command of WIDGET_COMMANDS) assert.match(built, new RegExp(`btn\\(\\s*'${command.replace('.', '\\.')}'`), `${command} is a command-button spec`);
-    assert.deepEqual(Object.keys(rulesWidgets).sort(), OWN_WIDGETS.slice(0, 4).sort());
+    assert.deepEqual(Object.keys(rulesWidgets).sort(), OWN_WIDGETS.slice(0, 5).sort());
 });
 
 test('commands the views build into buttons are all listed in CONTRACTS with an owner', () => {

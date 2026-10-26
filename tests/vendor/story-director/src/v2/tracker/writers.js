@@ -146,10 +146,15 @@ export function writeThread(type, ctx, payload) {
         thread.rev = ctx.rev;
         result = { thread: thread.id, hash: ctx.hash(threadProjection(thread)), accepted: true, linked: !!thread.rpg };
     } else if (type === 'threads.link') {
-        if (thread.status !== 'active' || thread.offer || !thread.taken || thread.rpg) fail(ctx, 'REFUSED', 'Only an accepted neutral thread can be linked.');
-        survivingAcceptance(ctx, thread);
-        activeQuest(ctx, payload.quest, thread.acceptance);
-        if (Object.keys(payload.quest.evidence).length) fail(ctx, 'REFUSED', 'A quest is taken on without objective evidence.');
+        if (thread.status !== 'active' || thread.rpg) fail(ctx, 'REFUSED', 'Only a neutral active thread can be linked.');
+        if (thread.offer) {
+            if (payload.quest.state !== 'offered' || payload.quest.acceptedAt !== null || payload.quest.acceptedCursor !== null || payload.quest.deadline !== null || payload.quest.settlement !== null) fail(ctx, 'REFUSED', 'An offered extension cannot assert acceptance or settlement.');
+        } else {
+            if (!thread.taken) fail(ctx, 'REFUSED', 'The thread has no acceptance.');
+            survivingAcceptance(ctx, thread);
+            activeQuest(ctx, payload.quest, thread.acceptance);
+        }
+        if (Object.keys(payload.quest.evidence).length) fail(ctx, 'REFUSED', 'A quest is linked without objective evidence.');
         thread.rpg = copy(payload.quest);
         thread.rev = ctx.rev;
         compatible(thread);

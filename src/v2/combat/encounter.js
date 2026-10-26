@@ -78,7 +78,7 @@ const labelOf = (labels, ...names) => {
  * what stayed out past MAX_ENCOUNTER_FOES (cutText words it). `bestiary` is the list
  * names are matched against (the chat's creatures, then the shipped ones).
  */
-export function readEncounter(line, { bestiary, rules = DEFAULT_RULES, ranks = null, pcLevel = 1 } = {}) {
+export function readEncounter(line, { bestiary, rules = DEFAULT_RULES, ranks = null, pcLevel = 1, literal = false } = {}) {
     if (line?.op && line.op !== '!' && line.op !== '+') {
         return { ok: false, message: `An encounter is written with "!" (it happens), not "${line.op}".` };
     }
@@ -100,7 +100,8 @@ export function readEncounter(line, { bestiary, rules = DEFAULT_RULES, ranks = n
         if (!ranked.ok) return ranked;
     }
 
-    const rows = parseEncounter(name, bestiary, rules).filter(row => row?.name && !isNoteName(row.name));
+    if (literal && (typeof line.name !== 'string' || line.name.trim().length > 48 || /[<>|\p{Cc}]/u.test(line.name))) return { ok: false, message: 'A variant names one literal foe, up to 48 characters.' };
+    const rows = literal ? [{ name: line.name.trim(), count: 1, written: 1, counted: true }] : parseEncounter(name, bestiary, rules).filter(row => row?.name && !isNoteName(row.name));
     if (!rows.length) return { ok: false, message: `No foe could be read from "${name}".` };
     // A fight with a boss is never below strong (the user's call, wave C): a boss is never made
     // smaller, so "a weak boss" would be a weak fight that is not. The line's tier, and the boss's

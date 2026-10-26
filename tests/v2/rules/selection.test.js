@@ -255,7 +255,7 @@ test('Ersveil, end to end through the real module: Setup offers it, the pin turn
     assert.equal(h.q('rules.identity'), null, 'a fresh chat is not pinned');
     const offers = h.selection();
     assert.equal(offers.state, 'offered');
-    assert.deepEqual(offers.offers.map(offer => [offer.pack, offer.version, offer.name]), [['ersveil-bluewatch', '1.4.0', 'Ersveil Rules']]);
+    assert.deepEqual(offers.offers.map(offer => [offer.pack, offer.version, offer.name]), [['ersveil-bluewatch', '1.5.0', 'Ersveil Rules']]);
     const d = h.draw();
     const pin = all(d.el, 'button').find(button => text(button) === 'Pin Ersveil Rules');
     assert.ok(pin, text(d.el));
@@ -265,7 +265,7 @@ test('Ersveil, end to end through the real module: Setup offers it, the pin turn
     assert.equal(h.sdk.receipts().filter(({ receipt }) => receipt.type === 'rules.pin').length, 1);
     const frozen = structuredClone(h.head().domains.rules);
     const identity = h.q('rules.identity');
-    assert.deepEqual([identity.packId, identity.version, identity.hash], ['ersveil-bluewatch', '1.4.0', frozen.rulesHash]);
+    assert.deepEqual([identity.packId, identity.version, identity.hash], ['ersveil-bluewatch', '1.5.0', frozen.rulesHash]);
     assert.equal(frozen.pin.identity.packHash, offers.offers[0].packHash);
     assert.equal(h.selection().state, 'pinned');
     assert.ok(staticParts(h.registry)[0].text.includes('! skill-use'), 'rules v2 is active');

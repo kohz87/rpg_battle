@@ -10,6 +10,7 @@
 // `story.evidence` for the acceptance and a cited proof, and what the block recorded (the canonical place, the line); it asks no
 // other query. One plan answers the command and the guard, so a block is stored only if its guard will hold.
 
+import { baseFoeRef, matchesFoe } from '../fight/foes.js';
 import { acceptanceOf } from './planner.js';
 import { objectivePayload, objectiveProofProblem, payloadProblem, proofKindOf, effectiveEvidence } from './proofs.js';
 import { ask, boundary, call, copy, fail, pinned, stateEpoch, writeId } from './seams.js';
@@ -25,7 +26,7 @@ const claimPart = value => String(value).replaceAll('/', ':');
 
 export const objectiveClaim = (epoch, thread, quest, objective) => `rb:${epoch}:objective:${thread}:${quest.instance}:${objective}`;
 /** One sealed victory pays one objective per foe, for every quest (MODULES F7). */
-export const killClaim = (epoch, batch, foe) => `rb:${epoch}:objective:fight:${batch}:${claimPart(foe)}`;
+export const killClaim = (epoch, batch, foe) => `rb:${epoch}:objective:fight:${batch}:${claimPart(baseFoeRef(foe))}`;
 export const proofClaim = (epoch, proof) => `rb:${epoch}:objective:proof:${proof}`;
 
 /** The threads of a state as the public query shows them (without Story Director's private order). */
@@ -34,7 +35,7 @@ export const threadsOf = state => Object.values(state?.domains?.director?.thread
 /** The sealed victory of `fight` over `objective`'s foe after the acceptance: `{ fight, batch: { id, hash }, count }` or a refusal. */
 export function killSource({ ix, quest, combat, progress }, objective, fight) {
     const beaten = record(combat?.beaten)[fight];
-    const foe = ix?.foe(objective.foe);
+    const foe = ix?.foe(baseFoeRef(objective.foe));
     if (!isObject(beaten) || beaten.won !== true || !foe) return refuse('NOT_FOUND', 'No victory over that foe is recorded.');
     if (!quest.acceptedCursor || !safe(beaten.rev) || beaten.rev <= quest.acceptedCursor.rev) return refuse('REFUSED', 'That fight ended before the quest was taken on.');
     const found = Object.entries(record(progress?.batches)).find(([, entry]) => entry?.bytes?.kind === 'fight' && entry.bytes.fight === fight);
@@ -44,7 +45,7 @@ export function killSource({ ix, quest, combat, progress }, objective, fight) {
     // The sealed rows keep the name the fight showed ("Wolf A"); the foe's own name is that without the letter that told twins apart.
     const nameOf = enemy => String(enemy?.name ?? '').replace(/\s+[A-Z]$/, '').trim().toLowerCase();
     const count = (Array.isArray(bytes.enemies) ? bytes.enemies : []).filter(enemy => enemy?.gone === 'down' && (Object.hasOwn(enemy, 'foe')
-        ? enemy.foe === objective.foe
+        ? matchesFoe(objective, enemy.foe)
         : ix.foeNamed(nameOf(enemy))?.id === objective.foe)).length;
     if (count < 1) return refuse('NOT_FOUND', 'That fight did not defeat this foe.');
     return { ok: true, fight, batch: { id: found[0], hash: found[1].hash }, count: Math.min(count, 999) };

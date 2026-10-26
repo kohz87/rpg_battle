@@ -1180,145 +1180,14 @@ export const rulesV2SchemaSource = {
             }
         },
         "quest": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-                "slug",
-                "name",
-                "category",
-                "giver",
-                "turnInPlace",
-                "requirements",
-                "objectives",
-                "reward",
-                "durationMinutes",
-                "repeat",
-                "chain"
-            ],
-            "properties": {
-                "slug": {
-                    "$ref": "#/$defs/slug"
+            "oneOf": [
+                {
+                    "$ref": "#/$defs/closedQuest"
                 },
-                "name": {
-                    "$ref": "#/$defs/name"
-                },
-                "category": {
-                    "enum": [
-                        "main",
-                        "side",
-                        "bounty"
-                    ]
-                },
-                "giver": {
-                    "oneOf": [
-                        {
-                            "type": "null"
-                        },
-                        {
-                            "$ref": "#/$defs/id"
-                        }
-                    ]
-                },
-                "turnInPlace": {
-                    "oneOf": [
-                        {
-                            "type": "null"
-                        },
-                        {
-                            "$ref": "#/$defs/id"
-                        }
-                    ]
-                },
-                "requirements": {
-                    "type": "array",
-                    "minItems": 0,
-                    "maxItems": 16,
-                    "items": {
-                        "$ref": "#/$defs/requirement"
-                    }
-                },
-                "objectives": {
-                    "type": "array",
-                    "minItems": 1,
-                    "maxItems": 8,
-                    "items": {
-                        "$ref": "#/$defs/objective"
-                    }
-                },
-                "reward": {
-                    "$ref": "#/$defs/reward"
-                },
-                "durationMinutes": {
-                    "oneOf": [
-                        {
-                            "type": "null"
-                        },
-                        {
-                            "type": "integer",
-                            "minimum": 1,
-                            "maximum": 525600
-                        }
-                    ]
-                },
-                "repeat": {
-                    "oneOf": [
-                        {
-                            "type": "null"
-                        },
-                        {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": [
-                                "cooldownMinutes"
-                            ],
-                            "properties": {
-                                "cooldownMinutes": {
-                                    "type": "integer",
-                                    "minimum": 0,
-                                    "maximum": 525600
-                                }
-                            }
-                        }
-                    ]
-                },
-                "chain": {
-                    "oneOf": [
-                        {
-                            "type": "null"
-                        },
-                        {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "required": [
-                                "previous",
-                                "next"
-                            ],
-                            "properties": {
-                                "previous": {
-                                    "oneOf": [
-                                        {
-                                            "type": "null"
-                                        },
-                                        {
-                                            "$ref": "#/$defs/ref"
-                                        }
-                                    ]
-                                },
-                                "next": {
-                                    "oneOf": [
-                                        {
-                                            "type": "null"
-                                        },
-                                        {
-                                            "$ref": "#/$defs/ref"
-                                        }
-                                    ]
-                                }
-                            }
-                        }
-                    ]
+                {
+                    "$ref": "#/$defs/openQuest"
                 }
-            }
+            ]
         },
         "foe": {
             "type": "object",
@@ -1582,6 +1451,387 @@ export const rulesV2SchemaSource = {
                     "type": "integer",
                     "minimum": 1,
                     "maximum": 60
+                }
+            }
+        },
+        "closedQuest": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "slug",
+                "name",
+                "category",
+                "giver",
+                "turnInPlace",
+                "requirements",
+                "objectives",
+                "reward",
+                "durationMinutes",
+                "repeat",
+                "chain"
+            ],
+            "properties": {
+                "slug": {
+                    "$ref": "#/$defs/slug"
+                },
+                "name": {
+                    "$ref": "#/$defs/name"
+                },
+                "category": {
+                    "enum": [
+                        "main",
+                        "side",
+                        "bounty"
+                    ]
+                },
+                "giver": {
+                    "oneOf": [
+                        {
+                            "type": "null"
+                        },
+                        {
+                            "$ref": "#/$defs/id"
+                        }
+                    ]
+                },
+                "turnInPlace": {
+                    "oneOf": [
+                        {
+                            "type": "null"
+                        },
+                        {
+                            "$ref": "#/$defs/id"
+                        }
+                    ]
+                },
+                "requirements": {
+                    "type": "array",
+                    "minItems": 0,
+                    "maxItems": 16,
+                    "items": {
+                        "$ref": "#/$defs/requirement"
+                    }
+                },
+                "objectives": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 8,
+                    "items": {
+                        "$ref": "#/$defs/objective"
+                    }
+                },
+                "reward": {
+                    "$ref": "#/$defs/reward"
+                },
+                "durationMinutes": {
+                    "oneOf": [
+                        {
+                            "type": "null"
+                        },
+                        {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 525600
+                        }
+                    ]
+                },
+                "repeat": {
+                    "oneOf": [
+                        {
+                            "type": "null"
+                        },
+                        {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                                "cooldownMinutes"
+                            ],
+                            "properties": {
+                                "cooldownMinutes": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 525600
+                                }
+                            }
+                        }
+                    ]
+                },
+                "chain": {
+                    "oneOf": [
+                        {
+                            "type": "null"
+                        },
+                        {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                                "previous",
+                                "next"
+                            ],
+                            "properties": {
+                                "previous": {
+                                    "oneOf": [
+                                        {
+                                            "type": "null"
+                                        },
+                                        {
+                                            "$ref": "#/$defs/ref"
+                                        }
+                                    ]
+                                },
+                                "next": {
+                                    "oneOf": [
+                                        {
+                                            "type": "null"
+                                        },
+                                        {
+                                            "$ref": "#/$defs/ref"
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    ]
+                },
+                "open": {
+                    "const": false
+                }
+            }
+        },
+        "openObjective": {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                        "id",
+                        "kind",
+                        "count"
+                    ],
+                    "properties": {
+                        "id": {
+                            "$ref": "#/$defs/id"
+                        },
+                        "kind": {
+                            "const": "kill"
+                        },
+                        "foe": {
+                            "$ref": "#/$defs/ref"
+                        },
+                        "count": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 999
+                        },
+                        "allowVariants": {
+                            "type": "boolean"
+                        }
+                    }
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                        "id",
+                        "kind",
+                        "count",
+                        "consume"
+                    ],
+                    "properties": {
+                        "id": {
+                            "$ref": "#/$defs/id"
+                        },
+                        "kind": {
+                            "const": "collect"
+                        },
+                        "def": {
+                            "$ref": "#/$defs/ref"
+                        },
+                        "count": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 999
+                        },
+                        "consume": {
+                            "type": "boolean"
+                        }
+                    }
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                        "id",
+                        "kind"
+                    ],
+                    "properties": {
+                        "id": {
+                            "$ref": "#/$defs/id"
+                        },
+                        "kind": {
+                            "const": "visit"
+                        },
+                        "place": {
+                            "$ref": "#/$defs/id"
+                        }
+                    }
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                        "id",
+                        "kind"
+                    ],
+                    "properties": {
+                        "id": {
+                            "$ref": "#/$defs/id"
+                        },
+                        "kind": {
+                            "const": "story"
+                        },
+                        "text": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 240
+                        }
+                    }
+                }
+            ]
+        },
+        "openReward": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "coinMin",
+                "coinMax",
+                "xpMin",
+                "xpMax",
+                "items"
+            ],
+            "properties": {
+                "coinMin": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000
+                },
+                "coinMax": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000
+                },
+                "xpMin": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000
+                },
+                "xpMax": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000
+                },
+                "items": {
+                    "type": "array",
+                    "maxItems": 0
+                }
+            }
+        },
+        "openQuest": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "slug",
+                "name",
+                "category",
+                "giver",
+                "turnInPlace",
+                "requirements",
+                "objectives",
+                "reward",
+                "durationMinutes",
+                "repeat",
+                "chain",
+                "open",
+                "rank"
+            ],
+            "properties": {
+                "slug": {
+                    "$ref": "#/$defs/slug"
+                },
+                "name": {
+                    "$ref": "#/$defs/name"
+                },
+                "category": {
+                    "enum": [
+                        "main",
+                        "side",
+                        "bounty"
+                    ]
+                },
+                "giver": {
+                    "oneOf": [
+                        {
+                            "type": "null"
+                        },
+                        {
+                            "$ref": "#/$defs/id"
+                        }
+                    ]
+                },
+                "turnInPlace": {
+                    "oneOf": [
+                        {
+                            "type": "null"
+                        },
+                        {
+                            "$ref": "#/$defs/id"
+                        }
+                    ]
+                },
+                "requirements": {
+                    "type": "array",
+                    "minItems": 0,
+                    "maxItems": 16,
+                    "items": {
+                        "$ref": "#/$defs/requirement"
+                    }
+                },
+                "objectives": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 8,
+                    "items": {
+                        "$ref": "#/$defs/openObjective"
+                    }
+                },
+                "reward": {
+                    "$ref": "#/$defs/openReward"
+                },
+                "durationMinutes": {
+                    "oneOf": [
+                        {
+                            "type": "null"
+                        },
+                        {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 525600
+                        }
+                    ]
+                },
+                "repeat": {
+                    "type": "null"
+                },
+                "chain": {
+                    "type": "null"
+                },
+                "open": {
+                    "const": true
+                },
+                "rank": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 20
                 }
             }
         }

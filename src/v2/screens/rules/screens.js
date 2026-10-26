@@ -253,6 +253,7 @@ const questsTemplate = `
     <article class="ss-glass goal" data-each="q.v.goals as g">
       <header class="quest-head"><h3 class="nm">{{ g.title }}</h3><span class="ss-pill ss-pill-outline state-pill">{{ g.stateLabel }}</span></header>
       <p class="line" data-if="g.summary != ''">{{ g.summary }}</p>
+      <ss-widget data-if="g.canMakeQuest" name="rpg-battle.quest-binding" data-props='{"bind":"g.binding"}'></ss-widget>
       <p class="line hold" data-if="g.needsRpg">This goal carries rewards that RPG Battle settles; it waits for RPG Battle.</p>
     </article>
   </section>

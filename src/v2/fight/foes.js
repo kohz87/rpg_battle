@@ -55,7 +55,7 @@ export function foeToEngine(foe, { rules, forms, items, area, ordinal } = {}) {
     const room = foeStatBudget(Math.min(foe.level, ceiling));
     if (total > room) return refuse('BUDGET', `${foe.name}'s stats total ${total}; a level ${foe.level} foe may total ${room}.`);
     const foes = Array.isArray(area.allowedFoes) ? area.allowedFoes : [];
-    if (foes.length && !foes.includes(foe.id)) return refuse('FOE_NOT_ALLOWED', `${foe.name} is not among the foes this place allows.`);
+    if (foes.length && !foes.includes(foe.id) && !foes.includes(baseFoeRef(foe.id))) return refuse('FOE_NOT_ALLOWED', `${foe.name} is not among the foes this place allows.`);
     const tags = Array.isArray(area.allowedTags) ? area.allowedTags : [];
     const stray = tags.length ? foe.loreTags.find(tag => !tags.includes(tag)) : undefined;
     if (stray !== undefined) return refuse('TAG_NOT_ALLOWED', `${foe.name} has the lore tag "${stray}", which this place does not allow.`);
@@ -105,4 +105,29 @@ export function foeToEngine(foe, { rules, forms, items, area, ordinal } = {}) {
         pack: foe.id,
     };
     return { ok: true, enemy };
+}
+
+/** Variant identity is derived only from an explicit base binding and a normalized name. */
+export const variantSlug = name => String(name ?? '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+export const isFoeRef = ref => typeof ref === 'string' && /^[a-z0-9]+(?:[._-][a-z0-9]+)*\/[a-z0-9]+(?:[_-][a-z0-9]+)*(?:~[a-z0-9]+(?:-[a-z0-9]+)*)?$/.test(ref);
+export const baseFoeRef = ref => String(ref ?? '').split('~')[0];
+export const matchesFoe = (objective, ref) => ref === objective.foe || objective.allowVariants === true && !objective.foe.includes('~') && baseFoeRef(ref) === objective.foe;
+
+/** Scale the base's level position within its ten-level tier band, and each stat by the budget ratio.
+ * No points are redistributed: an over-budget or out-of-bounds result is refused, never clamped.
+ */
+export function foeVariant(base, name, area) {
+    const bad = shapeProblem(base);
+    if (bad) return refuse('FOE', bad);
+    if (!int(area?.tier, 0, 9)) return refuse('AREA', 'The place has no tier for this variant.');
+    const slug = variantSlug(name);
+    if (!text(name, 120) || !slug || slug.length > 80) return refuse('FOE', 'A variant needs a name with a stable slug.');
+    const level = base.level + 10 * (area.tier - base.tier);
+    if (!int(level, 1, levelCeiling(area.tier))) return refuse('LEVEL', 'This base cannot scale into the area level band.');
+    const stats = Object.fromEntries(STATS.map(stat => [stat, Math.ceil(base.stats[stat] * foeStatBudget(level) / foeStatBudget(base.level))]));
+    if (STATS.some(stat => !int(stats[stat], 1, 99)) || Object.values(stats).reduce((a, b) => a + b, 0) > foeStatBudget(level)) return refuse('BUDGET', 'This variant cannot fit the area stat budget.');
+    if (base.stats && Object.values(base.stats).reduce((a, b) => a + b, 0) > foeStatBudget(base.level)) return refuse('BUDGET', 'The base foe exceeds its stat budget.');
+    if (area.allowedFoes?.length && !area.allowedFoes.includes(base.id) && !area.allowedFoes.includes(`${base.id}~${slug}`)) return refuse('FOE_NOT_ALLOWED', 'The area does not allow this base or variant.');
+    if (area.allowedTags?.length && base.loreTags.some(tag => !area.allowedTags.includes(tag))) return refuse('TAG_NOT_ALLOWED', 'The area does not allow this variant’s tags.');
+    return { ok: true, foe: { ...structuredClone(base), id: `${base.id}~${slug}`, name, tier: area.tier, level, stats } };
 }

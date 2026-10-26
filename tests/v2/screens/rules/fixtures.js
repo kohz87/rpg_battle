@@ -127,6 +127,8 @@ export const QF = queryFixtures(seed);
  * open (`gap`: C made a minimal one up and needs the lead's decision).
  */
 export const CONTRACTS = Object.freeze({
+    'quest.open': { owner: 'A', shape: '{id,template,text,foe?,place?,item?}' },
+    'quest.openTemplates': { owner: 'A', shape: '[{id,name,kinds}]' },
     // queries
     'rules.party': { owner: 'B', shape: '§3 PartyView' },
     'rules.progress': { owner: 'B', shape: '§3 ProgressView' },

@@ -310,6 +310,49 @@ export function renderCommandButton(el, props = {}, api = {}) {
     };
 }
 
+/** An explicit template selection and targets, sent through the standard refusal-reporting button. */
+export function renderQuestBinding(el, props = {}, api = {}) {
+    const doc = el.ownerDocument;
+    const root = make(doc, 'div', 'rpg-qb');
+    el.append(root);
+    let spec = specOf(props);
+    const select = make(doc, 'select', 'rpg-ci-input');
+    select.setAttribute('aria-label', 'Quest template');
+    const controls = {};
+    root.append(select);
+    for (const [key, label] of [['text', 'Objective text'], ['foe', 'Foe or canonical variant ref'], ['place', 'Place'], ['item', 'Item']]) {
+        const wrap = make(doc, 'label', 'rpg-ci-label', label);
+        const input = make(doc, 'input', 'rpg-ci-input');
+        input.setAttribute('type', 'text'); input.setAttribute('maxlength', key === 'text' ? '240' : '200');
+        input.setAttribute('aria-label', label);
+        wrap.append(input); root.append(wrap); controls[key] = input;
+    }
+    const action = make(doc, 'span'); root.append(action);
+    const button = renderCommandButton(action, {}, api);
+    function refresh() {
+        const template = (spec.templates ?? []).find(t => t.id === select.value);
+        const kinds = template?.kinds ?? [];
+        const payload = { id: spec.id, template: select.value, text: controls.text.value.trim() };
+        for (const [key, kind] of [['foe', 'kill'], ['place', 'visit'], ['item', 'collect']]) {
+            controls[key].parentNode.hidden = !kinds.includes(kind);
+            if (kinds.includes(kind) && controls[key].value.trim()) payload[key] = controls[key].value.trim();
+        }
+        button.update({ command: 'quest.open', payload, label: 'Make this a quest', disabled: !template, tone: 'primary' });
+    }
+    function options() {
+        const chosen = select.value;
+        select.replaceChildren();
+        const empty = make(doc, 'option', '', 'Choose an open template'); empty.value = ''; select.append(empty);
+        for (const row of spec.templates ?? []) { const option = make(doc, 'option', '', str(row.name, 80)); option.value = row.id; select.append(option); }
+        select.value = (spec.templates ?? []).some(row => row.id === chosen) ? chosen : '';
+    }
+    options(); controls.text.value = str(spec.text, 240);
+    select.addEventListener('change', refresh);
+    for (const input of Object.values(controls)) input.addEventListener('input', refresh);
+    refresh();
+    return { update(next = {}) { spec = specOf(next); options(); refresh(); }, destroy() { button.destroy(); root.remove(); } };
+}
+
 const widget = render => Object.freeze({
     props: Object.freeze({ value: Object.freeze({ type: 'object', required: false, default: null }) }),
     validate(props = {}) { return props.value !== undefined && props.value !== null && !isRecord(props.value) ? ['value must be an object.'] : []; },
@@ -326,6 +369,7 @@ export const rulesWidgets = Object.freeze({
     [CLASS_PICK_WIDGET]: classPick,
     [COMMAND_INPUT_WIDGET]: commandInput,
     [COMMAND_BUTTON_WIDGET]: commandButton,
+    'rpg-battle.quest-binding': widget(renderQuestBinding),
 });
 
 export const RULES_WIDGET_CSS = `
