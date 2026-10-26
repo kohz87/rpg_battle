@@ -127,11 +127,36 @@ Resume 2: main and replay audit
   also passed at 200 steps per seed. After the assertion fix, the full suite passed with
   its default fuzz lengths. Both whitespace checks pass, including origin/main to HEAD.
 
-Open gaps (review round)
+Release gap (closed)
 
 | Gap | Tag | Today | Closes with |
 |---|---|---|---|
-| Native mismatch is a dead end: a companion's death was delivered (the dossier is dead), then the lethal reply was deleted. The story has the companion alive, the generation hold stays, and `recover()` answers DEPENDENCY_UNAVAILABLE with no way out inside the story. | must close before release | RB refuses generation and delivery with a player-facing reason (selection.js) and the one remedy that works today: restore a save point from before the death, or put the reply back. | Stage-5 integration with E6b's native checkpoint selection: the host reselects the matching native checkpoint when a history change removes a death's evidence, before a scan, read or generation. |
+| Native mismatch after a delivered companion death leaves the story. | closed — must close before release | E6b's native-event journal already publishes before/after checkpoints. Delete, swipe and Re-read select the matching native checkpoint; RB honors `savepoint.contract().participantsReady` after recovery, retaining its visible remedy if selection cannot finish. | Real SB + RB + NSD tests cover both alive after removal, both dead after swipe back, unchanged Re-read, reload/full rebuild, a held activation and missing native bytes. No earlier save point is required. |
+
+The E6a limitations and synthetic-only evidence above are historical. The current tests vendor E6b. The real-module
+native-selection tests use NSD's shipped adapter, identity and participant with in-memory storage and DOM ports, not
+an NSD-shaped participant. SB also preserves reused Sources on unchanged Re-read after native work was published,
+so ordinal allocation alone cannot invalidate a delivered death's exact prefix. RB registers a native-selection
+dependency with the host; NSD's `npc.dossier({id: np_})` read confirms even archived terminal-death dossiers. A surviving
+death without a matching native checkpoint remains held before the host can announce readiness.
+
+Native-death release verification (post-fix only)
+
+- Real SB + RB + NSD: seven scenarios pass, covering delete, swipe/back, unchanged and removing Re-read,
+  reload/full rebuild, no save point, missing native bytes, a surviving death with no matching prefix, and held activation.
+  All 72 B6 tests pass. Storage/DOM ports are synthetic; production modules, participant callbacks and host selection run unchanged.
+- Final `check` (SB/RB), `validate` (NSD), and working-tree/branch `diff --check` pass.
+  `test:dot`: SB 3442 pass / 4 skip / 1 TODO; NSD 1511 pass plus compatibility/runtime smoke;
+  RB 2360 pass / 3 fail / 15 skip / 6 TODO. The three failures are outside death recovery:
+  `a2-carry-buy-second-bag` (Backpack stock), `a2-pack-creatures-unused` (River Drake loot),
+  `rx-econ-6-craft-clock-cause` (Leech-salt Pouch now requires Live Leech).
+- SB fuzz: 55/55 at `QA_FUZZ_STEPS=60`, plus replay CLI seeds 1–20 × 120 steps (2400), zero failures.
+  NSD meter/delete fuzz: 3/3. RB expanded fuzz: 35/38 at `QA_FUZZ_STEPS=200`; death seeds 33/91/217
+  pass all 600 steps, and fight/progression/entry/delete/QA fuzzes pass. The three failures are the quest
+  objective fuzzer's `paid once` wallet assertion: seed 2 step 138 and seed 3 step 104 read 210 instead of 30;
+  seed 4 step 186 reads 150 instead of 30. These extended quest assertions remain to investigate.
+- Shared real-module matrix, run once: 109 ok / 19 not applicable, no failures.
+  Both participant test vendors pin SB c54104b; NSD's native-read change is 3353259. No version bump or release merge.
 
 Injury anchor (review round 2)
 
@@ -144,3 +169,18 @@ Injury anchor (review round 2)
   clock, which anchors it there. The earlier clock is not looked up again, and the later replies do not re-anchor it by
   themselves: live state after the delete equals the state a rebuild gives (tests/v2/death/recovery.test.js). The end of the
   injury (`at` plus its rounds) moves with the anchor; this is intended, not a bug.
+
+Native-death merge with main (checks flip and pin flow)
+
+- The current host's participant barrier and RB's nativeSelection dossier dependency govern
+  native readiness. Hosts without that readiness contract retain main's selectionIncludes
+  journal traversal and mismatch remedy, including completed selection boundaries.
+- Both deletion outcomes remain covered: the living native checkpoint follows a removed
+  lethal reply, while unavailable checkpoint bytes keep reads and generation held with a
+  player-facing reason and restore/replace-reply remedy. The latter fixture now uses seed 1
+  to retain its lethal outcome after main's changed command entropy.
+- Test vendors were regenerated from SB release/native-death 4e26023 and SD main f48c01d.
+  Main's module/capture assertions leave checks with SD; RB's checks domain and kind stay absent.
+- Side-by-side npm test: 2398 tests, 2377 pass, zero failures, 15 skips and 6 TODOs.
+  All 74 death tests pass, including seven scenarios using NSD release/native-death 3353259.
+  npm run -s check passes. The shared matrix ran once: 109 pass, 19 not applicable, no failures.
