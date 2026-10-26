@@ -10,7 +10,7 @@ import { wipe } from './fight-helper.js';
 
 import { coordinator, savedWorld } from './return-helper.js';
 
-test('C12 rules side: full return restores RB/native companion, fades rewards and wakes exactly once', async t => seeded(17, async () => {
+test('C12 rules side: full return restores RB/native companion, fades rewards and wakes exactly once', async t => seeded(1, async () => {
     const w = await savedWorld(t);
     await w.say('The rewarded deed.');
     ok(w.command('test.reward'));

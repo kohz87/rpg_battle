@@ -53,20 +53,17 @@ export const qtyOf = (host, name) => itemsNamed(host, name).reduce((sum, row) =>
  * written, so the reply is built when SillyTavern asks for its text). → the die used.
  */
 export async function replyWhen(host, text, wanted, lines, { place = 1, most = 400 } = {}) {
-    let die = null;
-    const reply = () => {
-        const rolls = host.q('checks.rolls', {})?.rolls ?? [];
-        const now = rolls[place - 1];
-        if (!wanted(now)) return 'Nothing happens.';
-        die = now;
-        replyWhen.rolls = [...rolls];
-        return host.reply('It is done.', lines(now));
-    };
-    const lazy = { toString: reply };
-    await host.send(text, lazy);
-    for (let n = 0; die === null && n < most; n += 1) await host.swipe(lazy);
-    if (die === null) throw new Error('no such roll came up');
-    return die;
+    const reply = host.reply('It is done.', lines());
+    await host.send(text, reply);
+    for (let n = 0; n <= most; n += 1) {
+        const receipts = host.ctx.chat.at(-1)?.extra?.storySuite?.receipts ?? [];
+        const rolls = receipts.filter(receipt => ['capture.craft', 'capture.check'].includes(receipt.type))
+            .map(receipt => receipt.data?.die ?? receipt.data?.v2?.result?.die);
+        const die = rolls[place - 1];
+        if (wanted(die) && die !== undefined) { replyWhen.rolls = rolls; return die; }
+        await host.swipe(reply);
+    }
+    throw new Error('no such roll came up');
 }
 
 /** A Story Director stand-in: a clock (`director.time`) and `director.advance { minutes }`. */

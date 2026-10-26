@@ -46,7 +46,7 @@
 // a shared counter.
 
 import { STATS } from '../../rules.js';
-import { TOPIC_NAMES, topicsOf } from '../checks/modifiers.js';
+import { TOPIC_NAMES, topicsOf } from '../rules/modifiers.js';
 import { clipped } from '../lines.js';
 import { ACTOR_ID } from './validate.js';
 import { clipText, fail, labelsOf, nameKey, newId, replyOf, resolveName, revOf } from './util.js';

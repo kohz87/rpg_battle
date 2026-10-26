@@ -5,7 +5,6 @@
 // fight plays the same way every run.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { preparedEntries } from '../../../src/v2/checks/shared.js';
 import { playOut, rpgHost, seeded } from './helpers/host.js';
 import { MODULE_ID } from '../../../src/v2/module.js';
 import { sessionOf } from '../../../src/v2/combat/stored.js';
@@ -210,13 +209,19 @@ test('trade at a settlement: sell the loot, buy a supply; nothing to trade in th
             const tails = host.q('inventory.items', {}).find(item => item.name === 'Cellar Rat Tail');
             const sold = await host.cmd('trade.sell', { stack: tails.stack, qty: tails.qty });
             assert.equal(sold.ok, true, sold.message);
-            const coin = host.q('inventory.wallet', { owner: 'party' }).coin;
+            let coin = host.q('inventory.wallet', { owner: 'party' }).coin;
             assert.equal(coin, sold.receipt.data.total);
             assert.ok(Number.isInteger(coin) && coin > 0);
             assert.match(sold.receipt.summary, new RegExp(`for ${coin} gold\\.$`));
             assert.equal(host.q('inventory.items', {}).some(item => item.name === 'Cellar Rat Tail'), false);
 
             const stock = host.q('trade.stock', { kind: 'general' });
+            // The check actor's creation now consumes ids too; fund the buy independently of random loot.
+            const cheapest = Math.min(...stock.items.filter(entry => entry.def.kind !== 'equipment').map(entry => entry.price));
+            if (coin < cheapest) {
+                await host.send('A little coin.', host.reply('Coin.', [`+ coin ${cheapest - coin}`]));
+                coin = host.q('inventory.wallet', { owner: 'party' }).coin;
+            }
             const cheap = stock.items.filter(entry => entry.def.kind !== 'equipment' && entry.price <= coin).sort((a, b) => a.price - b.price)[0];
             assert.ok(cheap, 'something on the shelf is affordable');
             const bought = await host.cmd('trade.buy', { shop: stock.shop, def: cheap.def.id, qty: 1 });
@@ -272,7 +277,7 @@ test('swipe and delete roll back: the offer, the fight, its loot and XP go with 
             const { checks: thenChecks, ...then } = before.domains;
             assert.deepEqual(now, then);
             assert.deepEqual(nowChecks.log, thenChecks.log);
-            assert.equal(preparedEntries(nowChecks).at(-1).for, out.index, 'the leftover rolls are the deleted reply\'s');
+            assert.deepEqual(nowChecks, thenChecks, 'RB leaves no prepared dice behind');
             assert.equal(host.q('party.pc').xp, 0);
             assert.deepEqual(host.q('inventory.items', {}), []);
             assert.deepEqual(host.q('combat.foesBeaten', { sinceRev: 0 }), []);
@@ -375,46 +380,36 @@ test('a fight to the death that is lost stops the story (return part); deleting 
     });
 });
 
-test('F80: the reply gets its rolls in the tail, writes its checks, code records them; a swipe rolls again', async () => {
+test('SD owns checks: one die per capture, old result ignored, receipts survive reload; a swipe replaces checks', async () => {
     await seeded(3, async () => {
         const host = await started();
         try {
-            assert.equal(host.registry.captureOwner('check'), MODULE_ID);
-            const rolls = host.q('checks.rolls');
-            const tail = host.tails().at(-1);
-            // The check table (checks/table.js): Ren's results worked out from this reply's two dice.
-            assert.equal(rolls.rolls.length, 2, 'two dice for the one member');
-            assert.match(tail, /Checks — Ren \(you\) 1st: .+ \| 2nd: .+/, 'the table in the tail');
-            assert.ok(!tail.includes('Dice for this reply'), 'no raw dice');
-            assert.ok(host.statics()[0].includes('settled by the check table in this reply\'s notes'));
-
-            const out = await host.send('I sneak past.', host.reply('The guard turns away; I slip by.', [
-                '? check stealth — slipping past the guard | dc: hard | roll: 1 | result: success',
-                '? check climb — up the wall | dc: easy | roll: 2 | result: success',
+            assert.equal(host.registry.captureOwner('check'), 'story-director');
+            assert.ok(!host.tails().at(-1).includes('Checks —'));
+            assert.match(host.statics()[0], /without a result/);
+            await host.send('I sneak past.', host.reply('The guard turns away.', [
+                '? check stealth — slipping past the guard | dc: hard | result: success',
+                '? check climb — up the wall | dc: easy',
                 '? check lore — the sigil | dc: easy',
             ]));
-            const handed = host.q('checks.rolls');
-            const log = host.q('checks.log');
-            assert.equal(log.length, 2);
-            assert.deepEqual(log.map(entry => [entry.skill, entry.roll, entry.die]), [['stealth', 1, handed.rolls[0]], ['climb', 2, handed.rolls[1]]]);
-            for (const entry of log) assert.equal(entry.total, entry.die + entry.mod);
-            // The reply's key is its record id (ctx.carrier.sid, B-b2-timeline-10), which a middle delete never moves.
-            const first = host.q('checks.last').carrier;
-            assert.match(first, /^s:/);
-            // The third check is a problem; the static instruction never changed.
-            assert.deepEqual(host.turn.problems().map(problem => problem.code), ['REFUSED']);
+            const log = Object.values(host.head().domains.checks.log);
+            assert.deepEqual(log.map(entry => entry.skill), ['stealth', 'climb', 'lore']);
+            for (const entry of log) {
+                assert.equal(entry.total, entry.die + entry.mod);
+                assert.equal(entry.mismatch, undefined);
+                assert.ok(entry.die >= 1 && entry.die <= 20);
+            }
+            assert.deepEqual(host.turn.problems(), []);
+            const before = structuredClone(host.head());
+            await host.st.loadChat(JSON.parse(JSON.stringify(host.ctx.chat)));
+            host.store.rebuild();
+            assert.deepEqual(host.head(), before);
             assert.equal(new Set(host.statics()).size, 1);
-
-            // A swipe: fresh rolls, the swipe's own checks.
-            await host.swipe(host.reply('I trip on a bucket.', ['? check stealth — slipping past the guard | dc: hard | roll: 1 | result: fail']));
-            const again = host.q('checks.rolls');
-            assert.notEqual(again.rev, handed.rev);
-            assert.match(host.q('checks.last').carrier, /^s:/);
-            assert.notEqual(host.q('checks.last').carrier, first, 'the swipe is its own reply');
-            assert.equal(host.q('checks.last').results.length, 1);
-            assert.equal(host.q('checks.log').at(-1).die, again.rolls[0]);
-        } finally {
-            host.close();
-        }
+            await host.swipe(host.reply('I trip.', ['? check stealth — slip | dc: hard | result: fail']));
+            const again = Object.values(host.head().domains.checks.log);
+            assert.equal(again.length, 1);
+            assert.ok(!log.some(entry => entry.id === again[0].id));
+            assert.deepEqual(host.turn.problems(), []);
+        } finally { host.close(); }
     });
 });

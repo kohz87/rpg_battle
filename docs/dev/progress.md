@@ -330,6 +330,15 @@ and must have struck `actor`; the rescuer is another, alive, active durable memb
 no guard of its own). The `rescue` proof binds all of it with the use as its only parent; the claim `rb:<epoch>:rescue:<event>:<actor>` consumes the rescue once.
 Taking back the paid use, the sealed result or the rescuer's place turns the block off with its claims.
 
+## Stage 5: checks flip
+
+Story Director alone registers domain `checks`, `checks.roll` and `? check` (P09). RPG Battle has no check table, prepared dice, check capture, or direct `check.resolve` roller. Its modifier and stat-word code lives in `src/v2/rules/`; `rules.modifier` also serves legacy characters without activating a rules pack.
+
+- Crafting calls SD `checks.roll` with `{ craft: { recipe, at?: 'campfire' } }`, the linked actor, recipe DC and source evidence. SD asks RB for the recipe's modifier: sum of stat modifiers, tools/talents, craft rank, station and material quality. RB decides the existing quality bands from SD's die and total. Both writes and materials roll back together. Old `roll` labels cannot select dice.
+- Narrator checks omit `result`. Older check lines may carry it; SD ignores it with no disagreement flag or Problem. The receipt is narrated in the next tail. All other prompt instructions stay as before.
+- The status card has no check rows; the reply receipts show the roll and outcome.
+- SD calls internal `rules.practiceCheck` in its roll transaction. A held skill (name or definition/form reference) records one narrative practice attempt, regardless of outcome; stat-only and unknown skills record nothing. The existing settlement applies two per skill, six per reply and thirty per day, and an unset clock holds credit. The guard reads the pinned state and declared party queries only. Deleting, swiping or editing/Re-reading the check retracts its attempt and credit.
+- Tests formerly tied to prepared dice now exercise the SD command and RB modifier, receipt visibility, ignored labels, craft rollback and the original fight folding regressions. Each suite repo contains a real SB+SD+RB test, including Assist, caps, reload/rebuild and no Problems.
 ## Synced host compatibility
 
 The refreshed host includes E6b native history selection. RB recognizes a completed host selection
@@ -341,3 +350,17 @@ The death history fixtures cover native revival after deletion, the older host's
 surviving-death mismatch. Their synthetic reward uses a guarded payer, as production awards do, so
 undoing a return cannot replay duplicate claims. Explicit checked activation/resume still works
 without a live query callback.
+
+## Checks flip review fixes
+
+Assist's prompt preview is committed on the generated reply before its story lines. The roll, message
+claim and practice attempt retract together; Re-read replaces that prelude with the saved seed, and a
+swipe/regeneration rolls once after retraction. Check practice records the current in-story minute;
+reply completion runs settlement even when narration has no Changes block. A later clock cannot move
+that check into another day's cap. Replay guards continue to read state and their declared queries.
+
+The integration suite reproduces both review blockers with real SB + SD + RB, then verifies Re-read,
+swipe, delete/regenerate, reload/rebuild and a reply crossing midnight. RB's vendored host and director
+run the same tests from a lone checkout. Literal no-check byte parity remains changed: main writes
+checks.prepare receipts and an RB checks slice; restoring those bytes needs a compatibility design
+across the ownership change rather than a small lifecycle fix.

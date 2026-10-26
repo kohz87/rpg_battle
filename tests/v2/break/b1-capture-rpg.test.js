@@ -1,7 +1,6 @@
 // RPG Battle capture findings from the b1-capture break round (B-b1-capture-5, -6, -12, -3b).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { logEntries } from '../../../src/v2/checks/shared.js';
 import { rpgHost } from '../integration/helpers/host.js';
 import { DEFAULT_TAIL_BUDGET, estimateTokens } from '../../vendor/story-block/src/v2/prompt.js';
 
@@ -53,7 +52,7 @@ test('a weapon whose note says "ATK +9999" sells for no more than a plain legend
 // (MAX_PENDING), each rolled and narrated before the next reply. (RB-fix1: since F80 a check rolls
 // in its own reply and there is no pending list; the third and later are refused, so the reply's
 // checks are counted in the log.)
-test('a reply with five ? check lines opens at most two checks', async t => {
+test('a reply with five ? check lines rolls each distinct check through SD', async t => {
     const host = await started(t);
     await host.send('I try everything.', host.reply('You try.', [
         '? check stealth — sneak | dc: normal',
@@ -62,10 +61,9 @@ test('a reply with five ? check lines opens at most two checks', async t => {
         '? check perception — look | dc: easy',
         '? check persuasion — talk | dc: hard',
     ]));
-    const log = logEntries(host.head().domains.checks);
-    const carrier = log.at(-1)?.carrier;
-    const counted = log.filter(entry => entry.carrier === carrier).length;
-    assert.ok(counted >= 1 && counted <= 2, `${counted} checks counted in one reply`);
+    const log = Object.values(host.head().domains.checks.log);
+    assert.equal(log.length, 5, 'SD rolls all five distinct checks; practice caps are applied separately');
+    assert.deepEqual(host.turn.problems(), []);
 });
 
 // B-b1-capture-12: party.offers has no limit: every `+ join` / `+ skill` line with a new name is

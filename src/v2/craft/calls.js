@@ -5,9 +5,8 @@
 //   module (`ctx.call`): inventory.consume { stack, qty }, inventory.grant { def, qty, owner }. A
 //   module's grant is not the story's: the story coin and goods budget does not apply (the item and
 //   its numbers are code's result).
-// * The dice are the checks part's (MODULES §F80), read through its queries, never imported:
-//   `checks.rolls({ for })` (the rolls handed over for the reply) and `checks.log` (the checks the
-//   reply already wrote, which took their rolls by place).
+// * Each craft asks Story Director's checks.roll for one die; RB supplies rules.modifier.
+
 // * The clock moves by Story Director's `director.advance { minutes, cause, reason }` (system, code-only) when
 //   it is there and the story time is set; without it crafting takes no story time, and the receipt says so.
 // * The carry limit is the items part's `items.carry` (MODULES §F39), asked as the trade part asks it

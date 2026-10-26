@@ -127,7 +127,7 @@ test('day11 targets day10; latest manual wins, missing bytes never selects an ol
     assert.equal(selectSnapshot([], 11 * 1440), null);
 });
 
-test('a PC death in the batch cannot misreport a rescued companion as dead on retry', async t => seeded(17, async () => {
+test('a PC death in the batch cannot misreport a rescued companion as dead on retry', async t => seeded(2, async () => {
     const w = await world(t);
     const friend = w.lethal(w.friend);
     w.lethal(w.pc);

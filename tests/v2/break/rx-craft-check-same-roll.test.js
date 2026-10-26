@@ -18,8 +18,12 @@ test('rx-combat: a check after a craft in the same reply takes Roll 2, not the c
             const craft = receipts.find(r => r.type === 'capture.craft');
             const check = receipts.find(r => r.type === 'capture.check');
             assert.ok(craft && check, 'both lines were read');
-            assert.match(craft.summary, /Roll 1 =/);
-            assert.match(check.summary, /Roll 2 =/, `the check took the craft's roll: ${check.summary}`);
+            assert.match(craft.summary, /d20/);
+            assert.ok(craft.data.check);
+            assert.match(check.summary, /d20/);
+            assert.notEqual(craft.data.check, check.data.v2.result.check);
+            assert.equal(Object.keys(host.head().domains.checks.log).length, 2);
+            assert.deepEqual(host.turn.problems(), []);
         } finally {
             host.close();
         }

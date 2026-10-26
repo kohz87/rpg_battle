@@ -11,7 +11,7 @@
 //   the checked activation/resume gate. An unpinned chat keeps Story Block's own storage (§9); rules.sheet is rules' alone.
 // - capture: every part's kinds, each line handed to the part that owns its kind. One kind is
 //   taken over on purpose: `check` is the checks part's (a pending check the reader rolls), not
-//   the party part's (which keeps its check.resolve command for compatibility).
+//   the party part's. Story Director alone owns the check kind and dice.
 // - context: the statics joined in part order (each is fixed text, so the whole is byte-identical
 //   every reply), the tails concatenated in part order, the budgets summed.
 // - hooks: every part's functions of a name, called in part order (canGenerate: any "no" blocks,
@@ -41,8 +41,7 @@
 
 import { part as party } from './party/index.js';
 import { part as creation } from './creation/index.js';
-import { part as checks } from './checks/index.js';
-import { rulesParts, initialRules, pinRules, registerPackDefs } from './rules/index.js';
+import { rulesParts, modifierPart, initialRules, pinRules, registerPackDefs } from './rules/index.js';
 import { compatibleHost, selectionPart } from './rules/selection.js';
 import { part as quests } from './quests/index.js';
 import { part as items } from './items/index.js';
@@ -63,7 +62,7 @@ export const VERSION = '2.0.0-beta.2';
 
 /** The parts in their order: [part id, part]. */
 export const PARTS = Object.freeze([
-    ...rulesParts, ['party', party], ['creation', creation], ['checks', checks], ['quests', quests], ['items', items], ['combat', combat],
+    ...rulesParts, ['modifiers', modifierPart], ['party', party], ['creation', creation], ['quests', quests], ['items', items], ['combat', combat],
     ['board', board], ['return', returnPart], ['trade', trade], ['craft', craft], ['screens', screens],
 ]);
 
@@ -72,7 +71,8 @@ export const PARTS = Object.freeze([
 export const SHARED_SETTINGS = Object.freeze({ creation: Object.freeze({ party: Object.freeze(['startPoints', 'statCap']) }) });
 
 // Change-line kinds a later part takes over from an earlier one: kind → the part that keeps it.
-export const KIND_OVERRIDES = Object.freeze({ check: 'checks' });
+// (None since the checks flip: Story Director keeps the `check` kind, contract P09.)
+export const KIND_OVERRIDES = Object.freeze({});
 
 // The query a ctx without `rev` reads meta.rev through (the receipt's rev is one more).
 export const REV_QUERY = `${MODULE_ID}.rev`;

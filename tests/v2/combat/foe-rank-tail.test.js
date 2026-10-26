@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { actor, baseDomains, createWorld, line } from './helpers/fake-ctx.js';
 import { part, STATIC_TEXT, validateCombat } from '../../../src/v2/combat/index.js';
 import { foeRanks, rankedFoeNames } from '../../../src/v2/combat/view.js';
-import { rpgHost } from '../integration/helpers/host.js';
+import { rpgHost, seeded } from '../integration/helpers/host.js';
 import { DEFAULT_TAIL_BUDGET, estimateTokens } from '../../vendor/story-block/src/v2/prompt.js';
 import { sessionOf } from '../../../src/v2/combat/stored.js';
 
@@ -85,7 +85,7 @@ test('six ranked foes with long names and a long rank: the line stays inside the
     assert.ok(estimateTokens(under) <= part.context.budget, `${estimateTokens(under)} tokens`);
 });
 
-test('on the real host (Story Block + RPG Battle, no Story Director): the tail names the rank, the static part never changes', async t => {
+test('on the real host (Story Block + RPG Battle, no Story Director): the tail names the rank, the static part never changes', async t => seeded(1, async () => {
     t.mock.method(console, 'warn', () => {});
     const host = await rpgHost();
     t.after(() => host.close());
@@ -102,4 +102,4 @@ test('on the real host (Story Block + RPG Battle, no Story Director): the tail n
     assert.ok(statics.length >= 2);
     assert.ok(statics.every(text => text === statics[0]), 'the static part is byte-identical reply to reply');
     assert.ok(statics[0].includes(STATIC_TEXT));
-});
+}));

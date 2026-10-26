@@ -25,7 +25,6 @@ export const GRAMMAR = Object.freeze({
     wound: '~ wound Name — what happened | harm: scratch|wound|severe|grievous (or heal: the same words; or — poisoned to add a condition, — cure poisoned to lift one); one blow or heal per person per reply',
     join: '+ join Name — who they are | level: <number> | role: <word> (someone asks to travel with the party; the reader decides)',
     skill: '+ skill Name — Skill Name: what it does | taught by: <who> (someone in the party is taught a skill; the reader decides)',
-    check: '? check <skill or stat> — what is attempted | dc: easy|normal|hard|<number> | who: Name (then stop before the outcome; code rolls it)',
     rest: '! rest short|long — where and how the party rests',
     leave: '- leave Name — why they go (a companion parts ways with the party; the reader decides)',
     xp: xpGrammar(null),
@@ -174,13 +173,6 @@ function applySkill(ctx, line) {
     return { summary: `${actor.name} could learn ${offer.skill}${taughtBy ? ` from ${taughtBy}` : ''}.`, data: { offer: offer.id, actor: actor.id, skill: offer.skill }, narrate: false };
 }
 
-/** `? check stealth — slipping past the guard | dc: hard | who: Lyra` → check.resolve. */
-function applyCheck(ctx, line) {
-    const labels = labelsOf(line);
-    const who = labels.who ?? labels.by ?? null;
-    return handlers.resolveCheck(ctx, { who, skill: line.name, stat: labels.stat ?? null, dc: labels.dc ?? '', what: line.text ?? '' });
-}
-
 /** `! rest long — a night at the inn` → party.rest; one rest a reply (B1-3: the rest is narrated). */
 function applyRest(ctx, line) {
     const labels = labelsOf(line);
@@ -225,7 +217,6 @@ export const kinds = {
     wound: { grammar: GRAMMAR.wound, apply: clipped(applyWound) },
     join: { grammar: GRAMMAR.join, apply: clipped(applyJoin) },
     skill: { grammar: GRAMMAR.skill, apply: clipped(applySkill) },
-    check: { grammar: GRAMMAR.check, apply: clipped(applyCheck) },
     rest: { grammar: GRAMMAR.rest, apply: clipped(applyRest) },
     leave: { grammar: GRAMMAR.leave, apply: clipped(applyLeave) },
     // The grammar in the world's XP word (src/v2/module.js reads `grammarFor` with the part's settings).

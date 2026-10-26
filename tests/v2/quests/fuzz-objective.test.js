@@ -24,7 +24,13 @@ const snapshot = h => JSON.stringify({ wallet: h.sdk.query('inventory.wallet').c
     proofs: h.sdk.query('story.evidence', {}).map(p => [p.id, p.payloadHash]) });
 
 function invariants(h, when) {
-    for (const thread of h.sdk.query('director.threads', {})) {
+    const threads = h.sdk.query('director.threads', {});
+    const proofs = h.sdk.query('story.evidence', {});
+    const narrated = h.sdk.receipts().filter(row => row.receipt.type === 'capture.coin').reduce((sum, row) => sum + (row.receipt.data.amount ?? 0), 0);
+    const paid = threads.reduce((sum, thread) => sum + (thread.rpg?.settlement?.coinPaid ?? 0), 0);
+    const corrected = proofs.filter(proof => proof.owner === 'rpg-battle' && proof.payload?.type === 'quest.coin.repeat').reduce((sum, proof) => sum + proof.payload.coin, 0);
+    assert.equal(h.sdk.query('inventory.wallet').coin ?? 0, narrated + paid - corrected, `${when}: every coin has one surviving source`);
+    for (const thread of threads) {
         const quest = thread.rpg;
         if (!quest) continue;
         for (const [key, row] of Object.entries(quest.evidence)) {
@@ -37,7 +43,9 @@ function invariants(h, when) {
         const settled = h.head().meta.claims[`rb:ep_00000000:quest:${thread.id}:${quest.instance}:settled`] === true;
         assert.equal(settled, quest.settlement !== null, `${when}: the settlement and its claim go together`);
         if (quest.settlement?.outcome === 'done') {
-            assert.equal(h.sdk.query('inventory.wallet').coin, 30, `${when}: paid once`);
+            // Other narrated coin survives acceptance edits under the current coin contract.
+            // Measure this quest's payout, and independently reconcile the whole wallet above.
+            assert.equal(quest.settlement.coinPaid + quest.storyCredit.coin, quest.reward.coin, `${when}: paid once`);
             assert.ok(story.every(o => Object.values(quest.evidence).some(row => row.objective === o.id)), `${when}: paid only with every objective met`);
         }
     }

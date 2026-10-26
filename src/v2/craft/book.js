@@ -159,7 +159,7 @@ export function findRecipe(book, name, among = null) {
     const pool = among ?? book;
     const key = nameKey(name);
     if (!key) return null;
-    return pool.find(recipe => sameName(recipe.name, name)) ?? pool.find(recipe => sameName(recipe.makes?.name, name)) ?? null;
+    return pool.find(recipe => recipe.id === name) ?? pool.find(recipe => sameName(recipe.name, name)) ?? pool.find(recipe => sameName(recipe.makes?.name, name)) ?? null;
 }
 
 /** What a member knows: [{ ...recipe, from }] (the basics, less any forgotten, then what was learned). */
@@ -264,14 +264,14 @@ export function rankFor(env, actorId, craft, rules) {
 
 /**
  * The modifiers of a craft for a member, by the rule (rules.js): [{ source, amount, reason }]: the
- * stat and what the checks part counts for crafting (its `checks.modifiers` query: tools, a talent, a
+ * stat sum and what rules.modifier counts for crafting (tools, a talent, a
  * skill, at most +3), the craft's rank, the station's bonus, the materials' quality.
  */
 export function modifiersFor(env, actor, recipe, { station = null, parts = [], rules = DEFAULT_RULES } = {}) {
     const stats = recipe.stats?.length ? recipe.stats : ['INT'];
     const out = [{ source: 'stat', amount: statsModifier(actor, stats, rules), reason: stats.join('+') }];
-    const counted = env.memo(`mods|${actor.id}|${recipe.craft}|${stats[0]}`, () => env.ask('checks.modifiers', { actor: actor.id, skill: `craft ${recipe.craft}`, stat: stats[0] }));
-    for (const entry of Array.isArray(counted) ? counted : []) {
+    const counted = env.memo(`mods|${actor.id}|${recipe.craft}|${stats[0]}`, () => env.ask('rules.modifier', { actor: actor.id, skill: `craft ${recipe.craft}`, stat: stats[0] }));
+    for (const entry of Array.isArray(counted?.parts) ? counted.parts : []) {
         if (isRecord(entry) && entry.source !== 'stat' && Number.isInteger(entry.amount)) out.push({ source: entry.source, amount: entry.amount, reason: clip(entry.reason, 60) || entry.source });
     }
     const rank = rankFor(env, actor.id, recipe.craft, rules).rank;

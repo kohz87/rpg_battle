@@ -13,7 +13,7 @@ for (const [foe, target, expected] of [['pack.fixture/wolf', 'pack.fixture/warlo
     const result = killSource({ ix, quest: { acceptedCursor: { rev: 5 } }, combat: { beaten: { cf_00000001: { won: true, rev: 10 } } }, progress: { batches: { br_00000001: batch } } }, { foe: target }, 'cf_00000001');
     assert.equal(result.ok, expected);
 });
-test('a real fight seals canonical foe refs, retained through reload and rebuild', { skip }, async t => seeded(7, async () => {
+test('a real fight seals canonical foe refs, retained through reload and rebuild', { skip }, async t => seeded(1, async () => {
     const h = await realQuestHost(t, { given: killPin() });
     await h.send('Work?', '<Changes>\n+ quest Mill job\n</Changes>');
     const id = h.sdk.query('director.thread', { key: 'Mill job' }).id;

@@ -2,7 +2,7 @@ import { hashJson } from '../rules/hash.js';
 import { idFromHash } from '../rules/ids.js';
 import { lifeOf } from '../rules/sheet.js';
 import { lethalProofs, rescueProof } from './proofs.js';
-import { statModifier } from '../checks/modifiers.js';
+import { statModifier } from '../rules/modifiers.js';
 
 export const sourceOf = s => ({ sid: s.sid, swipeKey: s.swipeKey, evidence: s.evidence, ordinal: s.ordinal });
 export const batchId = (source, epoch, fight = null) => idFromHash('db', hashJson({ sid: source.sid, swipeKey: source.swipeKey, epoch, ...(fight ? { fight } : {}) }));
