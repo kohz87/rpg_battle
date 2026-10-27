@@ -25,7 +25,7 @@ export const modifierPart = { queries: { 'rules.modifier': rulesModifier } };
 export const part = {
     domains: { rules: { initial: initialRules, validate: rulesProblems } },
     commands: { 'rules.settle': commands['rules.settle'], ...inputCommands },
-    queries: { 'rules.progress': queries['rules.progress'], ...lookups, ...flagQueries, ...itemQueries },
+    queries: { 'rules.progress': queries['rules.progress'], 'rules.pace': queries['rules.pace'], ...lookups, ...flagQueries, ...itemQueries },
 };
 
 /**

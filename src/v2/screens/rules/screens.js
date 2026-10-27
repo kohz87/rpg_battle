@@ -104,7 +104,7 @@ const progressTemplate = `
     <p class="hint" data-if="q.p.picker.state == 'unavailable'">The classes are not available to list yet.</p>
   </div>
   <section class="ss-glass party-check" data-if="q.p.state == 'ready'">
-    <p class="ss-label"><i class="fa-solid fa-list-check"></i>Party checklist <small>forms at 5 / 5</small></p>
+    <p class="ss-label"><i class="fa-solid fa-list-check"></i>Party checklist <small>{{ q.p.partyText }}</small></p>
     <ul class="party-list" aria-label="Party checklist">
       <li class="party-row" data-each="q.p.party as c" data-class="complete: c.complete">
         <i class="fa-solid" data-class="fa-circle-check: c.complete; fa-circle: !c.complete"></i>
@@ -125,11 +125,13 @@ const progressTemplate = `
       <div class="rest">
         <section class="block skills">
           <p class="ss-label"><i class="fa-solid fa-diagram-project"></i>Skills <small>{{ m.checklistText }}</small></p>
+          <p class="hint how" data-if="m.howText != ''">{{ m.howText }}</p>
           <ul class="skill-list" aria-label="Skills of {{ m.name }}">
             <li class="skill" data-each="m.skills as s" data-class="mastered: s.mastered; done: s.done">
               <span class="skill-name">{{ s.name }}</span>
               <ss-widget name="ss.bar" data-props='{"label":"Mastery","kind":"exp","value":"{{ s.mastery }}","max":"{{ s.needed }}","text":"{{ s.text }}"}'></ss-widget>
               <small class="skill-note">{{ s.usesText }} · {{ s.nextText }}<span data-if="s.stepText != ''"> · {{ s.stepText }}</span></small>
+              <small class="skill-wait" data-if="s.waitText != ''"><i class="fa-regular fa-clock" aria-hidden="true"></i>{{ s.waitText }}</small>
             </li>
           </ul>
           <p class="mastered-note good" data-if="m.allMastered">{{ m.masteredNote }}</p>
@@ -200,6 +202,8 @@ const progressCss = sheet(`${SHARED_CSS}${EQUIPMENT_CSS}${RULES_WIDGET_CSS}
 .skill.done { border-color: var(--ss-good); }
 .skill-name { font-weight: 700; overflow-wrap: anywhere; }
 .skill-note { font-size: 12px; }
+.skill-wait { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ss-muted); }
+.skill-wait i { font-size: 13px; }
 .step { display: grid; gap: 6px; padding: var(--ss-space-2) 0; min-width: 0; }
 .step.waiting { opacity: 0.85; }
 .step-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; }

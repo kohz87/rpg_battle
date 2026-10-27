@@ -84,9 +84,15 @@ export function adjustments(state, args = {}, tools) {
     // A rest the story wrote that the reply's time did not pay for: nobody rested (party/capture.js restWanted).
     for (const [id, record] of Object.entries(restsOf(state?.domains?.rules))) {
         const word = record.kind === 'long' ? 'Long rest' : 'Short rest';
-        out.push(row({ id, kind: 'rest', name: word, band: 'dropped', bandLabel: 'Dropped', became: `${word} · not taken`, changes: [],
-            dropped: `The reply moved the clock ${record.moved ? durationText(record.moved) : 'not at all'}; a ${record.kind} rest needs ${durationText(record.needed)}. The narrator was told once.`,
-            wrote: wroteText(record.said ?? {}, 'goal'), notes: [`${durationText(record.needed)} needed, ${record.moved ? durationText(record.moved) : 'none'} passed`], where: '' }, receipts));
+        const place = record.place ?? '';
+        const hours = record.kind === 'long' ? Math.round(record.needed / 60) + 2 : Math.max(1, Math.round(record.needed / 60));
+        const passed = record.moved ? `Only ${durationText(record.moved)} of story time passed` : 'No story time passed';
+        const wrote = ['rest', 'place'].map(key => (key === 'rest' ? `rest: ${record.kind}` : place ? `place: ${place}` : '')).filter(Boolean);
+        if (record.said?.text) wrote.push(record.said.text);
+        out.push(row({ id, kind: 'rest', name: place ? `${word} at ${place}` : word, band: 'dropped', bandLabel: 'Dropped', changes: [],
+            became: ['Rest', record.kind, place, 'not taken'].filter(Boolean).join(' · '),
+            dropped: `${passed} in that reply; a ${record.kind} rest needs ${durationText(record.needed)} (e.g. ! time +${hours}h). Nothing was healed.`,
+            wrote: flat(wrote.join(' · '), 700), notes: [`${durationText(record.needed)} needed, ${record.moved ? durationText(record.moved) : 'none'} passed`], where: place }, receipts));
     }
     const rows = out.sort((a, b) => (b.reply ?? -1) - (a.reply ?? -1) || (a.id < b.id ? 1 : -1)).slice(0, limit);
     return { count: rows.length, rows };

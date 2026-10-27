@@ -54,7 +54,7 @@ test('the hook turns the block off when a prerequisite is gone, with the contrac
     assert.ok(level.reason.startsWith(PREREQUISITE_REMOVED));
     assert.match(level.reason, /Level 10 is needed \(this character is level 9\)/);
     const less = slice({ choices: [basic(ACTOR, 'c0')], uses: { ...mastered, 's02-base': 34 } });
-    assert.match(ask(stateOf(less), guard).reason, /s02 is 4\/5/);
+    assert.match(ask(stateOf(less), guard).reason, /s02 is 4 \/ 5/);
     const nobody = replayGuard({ state: stateOf(ready), query: () => null, hash: hashJson }, { guard, source: SOURCE });
     assert.match(nobody.reason, /not in the party/);
     const changedClass = slice({ choices: [basic(ACTOR, 'c0'), { ...basic(ACTOR, 'c0'), milestone: 10, previous: ref('c0'), selected: ref('c1') }], uses: mastered });

@@ -40,10 +40,11 @@ test('a long rest in a reply that moved the clock too little heals nobody: the n
         await h.say('Quiet.');
         assert.ok(lastTail(h).split('\n').includes(NIGHT), lastTail(h));
         const [record] = Object.values(restsOf(h.head().domains.rules));
-        assert.deepEqual([record.kind, record.needed, record.moved], ['long', 360, 60]);
+        assert.deepEqual([record.kind, record.needed, record.moved, record.place], ['long', 360, 60, 'Bluewatch Village']);
         const row = h.q('quest.adjustments', {}).rows.find(entry => entry.kind === 'rest');
-        assert.deepEqual([row.name, row.band, row.bandLabel, row.became], ['Long rest', 'dropped', 'Dropped', 'Long rest · not taken']);
-        assert.match(row.dropped, /^The reply moved the clock 1 hour; a long rest needs 6 hours\./);
+        assert.deepEqual([row.name, row.band, row.bandLabel, row.became], ['Long rest at Bluewatch Village', 'dropped', 'Dropped', 'Rest · long · Bluewatch Village · not taken']);
+        assert.equal(row.dropped, 'Only 1 hour of story time passed in that reply; a long rest needs 6 hours (e.g. ! time +8h). Nothing was healed.');
+        assert.equal(row.wrote, 'rest: long · place: Bluewatch Village · a night at the inn');
         await h.say('Later.');
         assert.ok(!lastTail(h).includes(NIGHT), 'told once');
         await agree(h, 'refused');

@@ -12,11 +12,11 @@
 //   party    the party checklist: per member, how many of the three forms are at 5 / 5
 //   picker   (no character yet) the basic classes, each with its three skills
 
-import { ASK, ask, isHash, isList, isParty, isProgress, isRecord, isText } from './ask.js';
+import { ASK, ask, isHash, isList, isPace, isParty, isProgress, isRecord, isText } from './ask.js';
 import { btn, calendarWriter, clip, clockLabel, dayOf, moneyText, OPTION_LABELS, ratioText, spanLabel, TIER_LABELS } from './format.js';
 import { namesFor } from './names.js';
 
-/** Mastery runs 0..5 (SkillView.mastery); a form at 5 / 5 is done. */
+/** Mastery runs 0..5 (SkillView.mastery) unless `rules.pace` says another top; a form at its top is mastered. */
 export const MASTERY_TOP = 5;
 
 const isIdentity = value => isRecord(value) && isHash(value.hash);
@@ -32,15 +32,27 @@ const personKey = name => String(name ?? '').normalize('NFKC').trim().replace(/\
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-function skillRow(skill, needed = MASTERY_TOP) {
+/**
+ * One skill of a sheet. The bar is out of the pin's top mastery (`top`); `need` is the mastery the open promotion asks of it (the top for a path step and
+ * for a pin that asks no less), and a card is done when the skill has it. `waiting`: the uses held for the story clock (rules.progress).
+ */
+function skillRow(skill, { need = MASTERY_TOP, top = MASTERY_TOP, waiting = 0 } = {}) {
     const mastered = skill.nextAt === null;
     return {
-        skill: skill.skill, form: skill.form, name: clip(skill.name, 80), mastery: skill.mastery, needed,
-        text: ratioText(skill.mastery, needed), mastered, done: skill.mastery >= needed,
+        skill: skill.skill, form: skill.form, name: clip(skill.name, 80), mastery: skill.mastery, needed: top, need,
+        text: ratioText(skill.mastery, top), mastered, done: skill.mastery >= need,
         usesText: plural(skill.uses, 'use'),
-        nextText: mastered ? 'Mastered' : `Next mastery at ${skill.nextAt} uses`,
+        nextText: mastered ? 'Mastered' : `Next mastery at ${plural(skill.nextAt, 'use')}`,
+        waitText: waiting > 0 ? `${plural(waiting, 'use')} waiting for the story clock` : '',
         stepText: skill.steps > 0 ? `Path step ${skill.steps} of 2` : '',
     };
+}
+
+/** How mastery grows, said once under the Skills label (`rules.pace`): empty where the query does not answer. */
+function howText(pace) {
+    if (pace.status !== ASK.OK) return '';
+    const { top, usesForTop, perReply, perDay } = pace.value;
+    return `Each skill needs ${usesForTop} uses for ${top} / ${top}. Uses come from fights (Auto too, up to ${perReply} per skill a fight), training and story skill uses \u2014 up to ${perDay} a day per skill.`;
 }
 
 function xpText(sheet) {
@@ -159,17 +171,22 @@ function trainingModel(answer, minutes, names, actor, trainers = null, feeText =
 // ---- one member ----------------------------------------------------------------------------------------------------
 
 function memberModel(sheet, progress, training, ctx) {
-    const { names, hash, minutes, you, classSkills } = ctx;  // ctx.trainers: the open trainers section, for your own character only
+    const { names, hash, minutes, you, classSkills, top } = ctx;  // ctx.trainers: the open trainers section, for your own character only
     const classRef = progress.status === ASK.OK ? progress.value.class : sheet.class;
-    const sheetSkills = sheet.skills.map(item => skillRow(item));
-    const skills = sheet.skills.map(item => skillRow(item, progress.status === ASK.OK ? progress.value.checklist.find(row => row.skill === item.skill && row.form === item.form)?.needed ?? MASTERY_TOP : MASTERY_TOP));
+    const sheetSkills = sheet.skills.map(item => skillRow(item, { top }));
+    const skills = sheet.skills.map(item => {
+        const row = progress.status === ASK.OK ? progress.value.checklist.find(entry => entry.skill === item.skill && entry.form === item.form) : null;
+        return skillRow(item, { need: row?.needed ?? top, top, waiting: row?.waiting ?? 0 });
+    });
     const checklist = progress.status === ASK.OK
         ? progress.value.checklist.map(row => ({
             skill: row.skill, form: row.form, name: sheetSkills.find(item => item.skill === row.skill)?.name ?? names(row.skill),
             mastery: row.mastery, needed: row.needed, text: ratioText(row.mastery, row.needed), done: row.mastery >= row.needed,
         }))
-        : skills.map(row => ({ skill: row.skill, form: row.form, name: row.name, mastery: row.mastery, needed: row.needed, text: row.text, done: row.mastery >= row.needed }));
+        : skills.map(row => ({ skill: row.skill, form: row.form, name: row.name, mastery: row.mastery, needed: row.need, text: ratioText(row.mastery, row.need), done: row.done }));
     const done = checklist.filter(row => row.done).length;
+    // The mastery the forms are asked for (every row of one member asks the same); the top where there are none.
+    const need = checklist.length ? checklist[0].needed : top;
     const base = { actor: sheet.id };
 
     const promotions = progress.status === ASK.OK ? progress.value.promotions.map(row => {
@@ -209,9 +226,9 @@ function memberModel(sheet, progress, training, ctx) {
         id: sheet.id, name: clip(sheet.name, 80), you, kind: sheet.kind ?? (you ? 'pc' : 'companion'), open: you,
         level: sheet.level, levelText: `Level ${sheet.level}`, xpText: xpText(sheet),
         classRef, className: names(classRef), tier: sheet.tier, tierLabel: TIER_LABELS[sheet.tier] ?? '',
-        skills, allMastered: skills.every(row => row.mastered),
+        skills, allMastered: skills.every(row => row.mastered), howText: ctx.howText, need,
         masteredNote: skills.every(row => row.mastered) ? 'All three skills are fully mastered. More uses add no mastery; XP still counts.' : '',
-        checklist, checklistText: `${done} of ${checklist.length} forms at ${MASTERY_TOP} / ${MASTERY_TOP}`, checklistDone: done,
+        checklist, checklistText: `${done} of ${checklist.length} forms at ${need} / ${top}`, checklistDone: done,
         progress: progress.status === ASK.OK ? 'ok' : progress.status,
         promotions, pathways,
         training: trainingModel(training, minutes, names, sheet.id, you ? ctx.trainers : null, ctx.feeText, ctx.times),
@@ -285,15 +302,20 @@ export function progressView(state, args, tools) {
             for (const item of classes.value) classSkills.set(item.id, item.skills.map(skillNames).join(' · '));
         }
     }
+    const pace = ask(tools, 'rules.pace', {}, isPace);
+    const top = pace.status === ASK.OK ? pace.value.top : MASTERY_TOP;
     const time = ask(tools, 'director.time', {});
     const minutes = time.status === ASK.OK && Number.isSafeInteger(time.value.minutes) ? time.value.minutes : null;
     const hash = identity.status === ASK.OK ? identity.value.hash : null;
     const trainers = trainersModel(read, names);
-    const members = wanted.map(sheet => memberModel(sheet, progress.get(sheet.id), training.get(sheet.id), { names, hash, minutes, classSkills, trainers, feeText: read.feeText, times: read.times, you: sheet.id === party.value.pc }));
+    const members = wanted.map(sheet => memberModel(sheet, progress.get(sheet.id), training.get(sheet.id), { names, hash, minutes, classSkills, trainers, feeText: read.feeText, times: read.times, top, howText: howText(pace), you: sheet.id === party.value.pc }));
+    // The party's header names the mastery the forms are asked for: one number when every member is asked the same, else the promotions' own.
+    const needs = new Set(members.map(member => member.need));
     return {
         state: 'ready', reason: '', members,
         party: members.map(member => ({ id: member.id, name: member.name, you: member.you, text: member.checklistText, done: member.checklistDone, total: member.checklist.length, complete: member.checklistDone === member.checklist.length })),
         picker: null, hashKnown: hash !== null, clockSet: minutes !== null,
+        partyText: needs.size === 1 ? `forms at ${[...needs][0]} / ${top}` : `forms at the mastery each promotion asks (of ${top})`,
     };
 }
 

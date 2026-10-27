@@ -58,7 +58,7 @@ test('C02 promotion: the last credit enables the child; one click swaps all thre
     const refused = await promote(w);
     assert.equal(refused.ok, false);
     assert.equal(refused.code, 'REFUSED');
-    assert.match(refused.message, /5\/5: s02 is 4\/5/);
+    assert.match(refused.message, /5 \/ 5: s02 is 4 \/ 5/);
     assert.deepEqual(Object.keys(w.slice('progress').choices), [`${ACTOR}|0`], 'a refusal stores nothing');
     await grind(w, { forms: [BASE[2]], uses: 1, day: 20 });
     assert.equal(w.progress().promotions[0].eligible, true);
@@ -195,7 +195,7 @@ test('C04 waiting: level 90 on a basic class; nothing is chosen, later milestone
     assert.equal((await promote(w)).ok, true);
     const next = w.progress();
     assert.deepEqual(next.promotions.map(item => [item.milestone, item.eligible, item.choices]), [[20, false, [ref('c2')]], [30, false, []]]);
-    assert.match(next.promotions[0].why[0], /s10 is 0\/5/);
+    assert.match(next.promotions[0].why[0], /s10 is 0 \/ 5/);
     assert.equal(next.pathways.length, 6);
     assert.equal(next.pathways[0].eligible, false);
     assert.match(next.pathways[0].why[0], /20 promotion comes first/);
@@ -219,7 +219,7 @@ test('C05 selected parent through the host: a step at 40 opens its own three opt
     assert.equal(view.pathways[0].eligible, true, 'two skills are 5/5: a step may be taken on one of them');
     assert.deepEqual(view.pathways[0].skills.map(item => [item.skill, item.fromForm, item.step]), [[ref('s30'), ref('s30-base-a'), 2], [ref('s31'), ref('s31-base'), 1], [ref('s32'), ref('s32-base'), 1]]);
     // At 50 the 0/5 skill cannot be taken (its form is not 5/5), a sibling's option is not its own, and the stale parent is stale.
-    assert.match((await path(w, { milestone: 50, fromForm: ref('s30-base-a'), option: ref('s30-base-a-g') })).message, /s30-base-a is 0\/5/);
+    assert.match((await path(w, { milestone: 50, fromForm: ref('s30-base-a'), option: ref('s30-base-a-g') })).message, /s30-base-a is 0 \/ 5/);
     assert.equal((await path(w, { milestone: 50, skill: ref('s31'), fromForm: ref('s31-base'), option: ref('s32-base-a') })).code, 'REFUSED');
     assert.equal((await path(w, { milestone: 50, skill: ref('s30'), fromForm: ref('s30-base'), option: ref('s30-base-g') })).code, 'STALE');
     assert.equal((await path(w, { milestone: 50, skill: ref('s31'), fromForm: ref('s31-base-a'), option: ref('s31-base-a-a') })).code, 'STALE');

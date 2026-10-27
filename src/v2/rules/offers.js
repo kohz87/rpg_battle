@@ -14,7 +14,8 @@
 //     notes what code moved, for the card; where the place's name; settled (settledProblem) every number code fixed; shown the objective, the coin and
 //     the deadline in the chat's words (the card and the Adjustments log do not ask for the currency again).
 //   Declined = { v: 1, matcher, sid, name, reason, suggestion, band: 'far', said?, kind? }   kind 'job' | 'teacher', said the labels as read
-//   Rest     = { v: 1, sid, kind: 'long' | 'short', needed, moved, said? }   needed and moved are story minutes: what the rest wants and what the reply moved the clock
+//   Rest     = { v: 1, sid, kind: 'long' | 'short', needed, moved, place?, said? }   needed and moved are story minutes: what the rest wants and what the reply moved the clock;
+//              place the name of the place the party was in, when it had one
 //
 // Absent until first used. `rules.recordOffer` is the one writer, for this module's own capture. Pure apart from the command.
 
@@ -91,6 +92,7 @@ export function declinedProblem(id, record) {
 export function restProblem(id, record) {
     if (!isRestId(id) || !isObject(record) || record.v !== 1 || !['long', 'short'].includes(record.kind) || !sid(record.sid)) return 'is not whole';
     if (!int(record.needed, 1, 5256000) || !int(record.moved, 0, 5256000)) return 'has a time out of bounds';
+    if (Object.hasOwn(record, 'place') && !text(record.place, 80, 1)) return 'has a place that is not plain text';
     if (Object.hasOwn(record, 'said') && !labels(record.said)) return 'has labels that are not plain';
     return null;
 }

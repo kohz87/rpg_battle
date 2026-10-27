@@ -858,6 +858,10 @@ SB `node authoring-kit/check.mjs examples/packs/ersveil-bluewatch/pack.json`, `n
   the Adjustments log. The reply's movement is the clock less the clock at the last settle (Story Director's `time.overdue`), so the time line goes first.
 - Promotion mastery: the pin's `constants.promotionMastery` (default and old pins `[5, 5, 5]`) is the mastery each skill needs for the promotions at 10, 20 and 30
   (`progress/offers.js` `masteryNeeded`); the checklist's `needed` is that of the open milestone.
+- Progress words: `rules.pace` (`progress/offers.js` `paceOf`: `{ top, usesForTop, perReply, perDay }` from the pin's constants) feeds the line under Skills; a `rules.progress` checklist row says
+  `waiting` (uses of its form held for the story clock; only while no clock is set, only when above 0). With `promotionMastery` the checklist header and the waiting lines use the
+  requirement ("0 of 3 forms at 3 / 5", "Strike is 1 / 3."), the skill bars stay out of the top and a card is done at the requirement. A refused rest keeps `place` in its
+  record and is the Adjustments row "Long rest at <place>" (Dropped; "No story time passed in that reply; a long rest needs 6 hours (e.g. ! time +8h). Nothing was healed.").
 - Job difficulty sets the told fight's tier: easy `| tier: weak`, hard `| tier: strong`, normal (or a difficulty that names a rank, or none) no tier; nightmare reads as hard. Worked out once at
   capture and kept in the settled binding as `fightTier` (only beside a foe), so a Re-read, a reload and a rebuild tell the same line; nothing else about the offer moves (XP and coin are the
   template's formula and range). Offers made before it have no `fightTier` and tell the line as they did.

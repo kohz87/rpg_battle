@@ -30,9 +30,9 @@ test('a promotion that wants 3: three skills at 3/5 (12 uses) are enough, two ar
     // One skill short of 3 blocks it, with the number it needs.
     const short = slice({ choices: [basic(ACTOR, 'c0')], uses: { ...uses, 's02-base': 5 } });
     const blocked = progressView(ix, short, ACTOR, 10);
-    assert.deepEqual(blocked.promotions[0].why, ['s02 is 2/5.']);
+    assert.deepEqual(blocked.promotions[0].why, ['s02 is 2 / 3.']);
     const refused = evaluateClass(ix, standing(ix, short, ACTOR), request, 10);
-    assert.deepEqual([refused.ok, refused.code, refused.why], [false, 'REFUSED', 'Every skill must be 3/5: s02 is 2/5.']);
+    assert.deepEqual([refused.ok, refused.code, refused.why], [false, 'REFUSED', 'Every skill must be 3 / 5: s02 is 2 / 3.']);
 });
 
 test('the same three skills on a pin without the constant (or with the default) are blocked at 3/5, exactly as before', () => {
@@ -41,8 +41,8 @@ test('the same three skills on a pin without the constant (or with the default) 
         const out = progressView(ix, progress, ACTOR, 10);
         assert.deepEqual(out.checklist.map(item => item.needed), [5, 5, 5]);
         assert.equal(out.promotions[0].eligible, false);
-        assert.deepEqual(out.promotions[0].why, ['s00 is 3/5.', 's01 is 3/5.', 's02 is 3/5.']);
-        assert.equal(evaluateClass(ix, standing(ix, progress, ACTOR), request, 10).why, 'Every skill must be 5/5: s00 is 3/5. s01 is 3/5. s02 is 3/5.');
+        assert.deepEqual(out.promotions[0].why, ['s00 is 3 / 5.', 's01 is 3 / 5.', 's02 is 3 / 5.']);
+        assert.equal(evaluateClass(ix, standing(ix, progress, ACTOR), request, 10).why, 'Every skill must be 5 / 5: s00 is 3 / 5. s01 is 3 / 5. s02 is 3 / 5.');
     }
 });
 

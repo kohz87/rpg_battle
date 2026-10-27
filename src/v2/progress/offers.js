@@ -17,7 +17,8 @@
 // level or a use that moved without taking the prerequisite away does not undo the choice. Pure.
 
 import { choicesOf, deriveActor, skillViews } from './derive.js';
-import { maxMastery } from './mastery.js';
+import { masteredAt, maxMastery } from './mastery.js';
+import { pendingOf } from './credit.js';
 
 /** An actor read once: { derived, skills (SkillViews), milestones (all, in order), open (oldest not taken) }. */
 export function standing(ix, progress, actor) {
@@ -42,7 +43,7 @@ const nameOf = (ix, ref) => ix.class(ref)?.name ?? ref;
 const cut = text => (text.length > 240 ? `${text.slice(0, 239)}…` : text);
 
 function unmastered(ix, st, which = st.skills, need = top(ix)) {
-    return which.filter(view => view.mastery < need).map(view => cut(`${view.name} is ${view.mastery}/${top(ix)}.`));
+    return which.filter(view => view.mastery < need).map(view => cut(`${view.name} is ${view.mastery} / ${need}.`));
 }
 
 // The ProgressView entry of a promotion milestone the character has reached and not taken.
@@ -73,17 +74,37 @@ function pathEntry(ix, st, milestone) {
 }
 
 /**
+ * The uses held for the story clock, as a count per `skill|form` of one actor: the attempts that have no credit yet and no minute of their own, while there is no clock
+ * (credit.js planSettlement leaves exactly those out). Empty when `clock` is not null: with a clock set (or not asked) nothing is held.
+ */
+function heldUses(progress, actor, clock) {
+    const held = new Map();
+    if (clock !== null) return held;
+    for (const { attempt } of pendingOf(progress)) {
+        if (attempt.actor !== actor || Number.isSafeInteger(attempt.minute)) continue;
+        const key = `${attempt.skill}|${attempt.form}`;
+        held.set(key, (held.get(key) ?? 0) + 1);
+    }
+    return held;
+}
+
+/**
  * The contract's ProgressView for an actor at `level` (§3), or null when it has no basic class yet:
- * { actor, level, class, tier, checklist, promotions, pathways }. Only the milestones the level has reached
+ * { actor, level, class, tier, checklist, promotions, pathways }. A checklist row also says `waiting` (whole, only when above 0): the uses of that form held for the
+ * story clock, counted when `clock` is null (no clock set; left out, nothing is counted). Only the milestones the level has reached
  * and the actor has not taken are listed, the oldest first, promotions then paths; only the oldest can be eligible.
  */
-export function progressView(ix, progress, actor, level) {
+export function progressView(ix, progress, actor, level, clock = undefined) {
     const st = standing(ix, progress, actor);
     if (st.derived.class === null) return null;
     const reached = m => !st.derived.taken.has(m) && level >= m;
+    const held = heldUses(progress, actor, clock);
     return {
         actor, level, class: st.derived.class, tier: st.derived.tier,
-        checklist: st.skills.map(view => ({ skill: view.skill, form: view.form, mastery: view.mastery, needed: st.open !== null && kindOf(ix, st.open) === 'promotion' ? masteryNeeded(ix, st.open) : top(ix) })),
+        checklist: st.skills.map(view => ({
+            skill: view.skill, form: view.form, mastery: view.mastery, needed: st.open !== null && kindOf(ix, st.open) === 'promotion' ? masteryNeeded(ix, st.open) : top(ix),
+            ...(held.get(`${view.skill}|${view.form}`) ? { waiting: held.get(`${view.skill}|${view.form}`) } : {}),
+        })),
         promotions: ix.constants.promotionMilestones.filter(reached).map(m => promotionEntry(ix, st, m)),
         pathways: ix.constants.pathMilestones.filter(reached).map(m => pathEntry(ix, st, m)),
     };
@@ -109,7 +130,7 @@ export function evaluateClass(ix, st, request, level) {
     if (!picked) return refuse('REFUSED', cut(`${request.class} does not follow ${nameOf(ix, st.derived.class)}.`));
     const need = masteryNeeded(ix, milestone);
     const slow = unmastered(ix, st, st.skills, need);
-    if (slow.length) return refuse('REFUSED', cut(`Every skill must be ${need}/${top(ix)}: ${slow.join(' ')}`));
+    if (slow.length) return refuse('REFUSED', cut(`Every skill must be ${need} / ${top(ix)}: ${slow.join(' ')}`));
     return {
         ok: true,
         skills: [...picked.skills],
@@ -138,10 +159,16 @@ export function evaluatePath(ix, st, request, level) {
     if (view.steps >= ix.progression.pathwaySteps) return refuse('REFUSED', `${view.name} has taken all its steps.`);
     const options = ix.optionsOf(view.form);
     if (!options.includes(option)) return refuse('REFUSED', `${option} is not a step from ${view.form}.`);
-    if (view.mastery < top(ix)) return refuse('REFUSED', cut(`${view.name} is ${view.mastery}/${top(ix)}.`));
+    if (view.mastery < top(ix)) return refuse('REFUSED', cut(`${view.name} is ${view.mastery} / ${top(ix)}.`));
     return {
         ok: true,
         step: view.steps + 1,
         facts: { tier: st.derived.tier, levelReached: true, first: true, skill, fromForm, steps: view.steps, mastered: true },
     };
+}
+
+/** How mastery grows in a pin (`rules.pace`): { top (the highest mastery), usesForTop (the uses that make it), perReply and perDay (the most credits a skill earns a reply and a story day) }. */
+export function paceOf(ix) {
+    const { masteryAt, usePerSkillReply, usePerSkillDay } = ix.constants;
+    return { top: top(ix), usesForTop: masteredAt(masteryAt), perReply: usePerSkillReply, perDay: usePerSkillDay };
 }
