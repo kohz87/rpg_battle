@@ -11,7 +11,7 @@ const SUITES = ['open-trainers-kind', 'open-trainers-pins', 'open-trainers-queri
 for (const suite of SUITES) test(`${suite} passes with Jobs from the story on, as it does in strict mode`, () => {
     const env = { ...process.env, RB_TRAINERS_FEATURE: 'on' };
     delete env.NODE_TEST_CONTEXT;
-    const run = spawnSync(process.execPath, ['--test', fileURLToPath(new URL(`./${suite}.test.js`, import.meta.url))], { env, encoding: 'utf8', timeout: 300000 });
+    const run = spawnSync(process.execPath, ['--test', '--test-reporter=tap', fileURLToPath(new URL(`./${suite}.test.js`, import.meta.url))], { env, encoding: 'utf8', timeout: 300000 });
     assert.equal(run.status, 0, `${run.stdout}`.split('\n').filter(line => /^not ok|^# (pass|fail)/.test(line)).join('\n') || run.stderr);
     assert.match(run.stdout, /^# fail 0$/m);
 });
