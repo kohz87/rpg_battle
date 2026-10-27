@@ -287,6 +287,27 @@ export function coinLine(currency) {
 }
 
 /**
+ * The static prompt's money line (one short line): always names the chat's currency, so the narrator
+ * never falls back on the lore's own coins once the reader names a different one. With coins it is
+ * coinLine (the currency's name is added first when it is none of the coins); a single-unit currency says
+ * its name, plural and short form (when the reader set one) and that no other coins exist, which is what
+ * foreignCoin enforces on a coin line. It changes only when the currency setting does.
+ */
+export function moneyLine(currency = DEFAULT_CURRENCY) {
+    const name = tidy(currency?.name, MAX_NAME) || DEFAULT_CURRENCY.name;
+    const plural = tidy(currency?.plural, MAX_NAME) || pluralOf(name);
+    const coins = coinList(currency);
+    if (coins.length) {
+        const known = coins.some(coin => [coin.name, coin.plural].some(word => word.toLowerCase() === name.toLowerCase() || word.toLowerCase() === plural.toLowerCase()));
+        return `${known ? '' : `Money in this story is the ${name}${plural.toLowerCase() === name.toLowerCase() ? '' : ` (plural: ${plural})`}. `}${coinLine(currency)}`;
+    }
+    const short = tidy(currency?.short, MAX_SHORT);
+    const ownShort = name === DEFAULT_CURRENCY.name ? DEFAULT_CURRENCY.short : Array.from(name)[0].toLowerCase();
+    const forms = [plural.toLowerCase() === name.toLowerCase() ? '' : `plural: ${plural}`, short && short !== ownShort ? `short: ${short}` : ''].filter(Boolean).join(', ');
+    return `Money in this story is ${plural.toLowerCase() === name.toLowerCase() ? '' : 'the '}${name}${forms ? ` (${forms})` : ''}. Name amounts in ${plural} in narration and in coin lines (+ coin 35); no other coins exist.`;
+}
+
+/**
  * An amount from a coin line: the number, in the smallest unit ("30", "30 gold", "1,200 crowns"; a
  * currency without coins reads the number, and refuses a coin word that is not its own, foreignCoin:
  * "40 silver" where money is pennies is never 40 pennies). With coins, a known coin's name multiplies it ("3 silver"

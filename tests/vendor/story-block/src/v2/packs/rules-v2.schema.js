@@ -826,6 +826,16 @@ export const rulesV2SchemaSource = {
             }
         },
         "trainer": {
+            "oneOf": [
+                {
+                    "$ref": "#/$defs/fixedTrainer"
+                },
+                {
+                    "$ref": "#/$defs/openTrainer"
+                }
+            ]
+        },
+        "fixedTrainer": {
             "type": "object",
             "additionalProperties": false,
             "required": [
@@ -872,6 +882,83 @@ export const rulesV2SchemaSource = {
                 },
                 "slug": {
                     "$ref": "#/$defs/slug"
+                },
+                "open": {
+                    "const": false
+                }
+            }
+        },
+        "openTrainer": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "slug",
+                "name",
+                "open",
+                "rank",
+                "skills",
+                "fee",
+                "minutes",
+                "eventTemplates"
+            ],
+            "properties": {
+                "name": {
+                    "$ref": "#/$defs/name"
+                },
+                "open": {
+                    "const": true
+                },
+                "rank": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 20
+                },
+                "skills": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 30,
+                    "items": {
+                        "$ref": "#/$defs/ref"
+                    },
+                    "uniqueItems": true
+                },
+                "fee": {
+                    "$ref": "#/$defs/openFee"
+                },
+                "minutes": {
+                    "const": 60
+                },
+                "eventTemplates": {
+                    "type": "array",
+                    "minItems": 0,
+                    "maxItems": 8,
+                    "items": {
+                        "$ref": "#/$defs/ref"
+                    },
+                    "uniqueItems": true
+                },
+                "slug": {
+                    "$ref": "#/$defs/slug"
+                }
+            }
+        },
+        "openFee": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "coinMin",
+                "coinMax"
+            ],
+            "properties": {
+                "coinMin": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000000
+                },
+                "coinMax": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000000
                 }
             }
         },

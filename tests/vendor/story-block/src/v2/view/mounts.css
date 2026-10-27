@@ -585,6 +585,11 @@
         max-height: 85dvh;
         border-radius: var(--ss-sheet-radius, var(--ss-radius));
     }
+
+    /* A screen that asks for `width: 'wide'` (a wizard with a details column beside its choices). */
+    .ss-dialog.ss-dialog-wide {
+        width: min(960px, 94vw);
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -8,7 +8,7 @@
 import { assess } from '../progress/assess.js';
 import { attachGuard } from '../progress/guard.js';
 import { indexOfCtx } from '../rules/graph.js';
-import { epochOf, isActorId, isDefId, isObject, isRecordId } from '../rules/ids.js';
+import { epochOf, isActorId, isDefId, isObject, isRecordId, isTrainerRef } from '../rules/ids.js';
 
 const FIELDS = ['actor', 'skill', 'form', 'trainer', 'session'];
 
@@ -16,7 +16,7 @@ function skillTrain(ctx, payload) {
     if (!isObject(payload)) ctx.fail('INVALID', `skill.train needs { ${FIELDS.join(', ')} }.`);
     const extra = Object.keys(payload).find(key => !FIELDS.includes(key));
     if (extra) ctx.fail('INVALID', `skill.train does not take "${extra}".`);
-    if (!isActorId(payload.actor) || !isDefId(payload.skill) || !isDefId(payload.form) || !isDefId(payload.trainer) || !isRecordId(payload.session) || !payload.session.startsWith('tr_')) {
+    if (!isActorId(payload.actor) || !isDefId(payload.skill) || !isDefId(payload.form) || !isTrainerRef(payload.trainer) || !isRecordId(payload.session) || !payload.session.startsWith('tr_')) {
         ctx.fail('INVALID', 'skill.train needs a character, a skill, its form, a trainer and the session the offer named.');
     }
     if (ctx.cause !== 'ui' || ctx.caller) ctx.fail('REFUSED', 'Asking to train is the player\'s own request.');

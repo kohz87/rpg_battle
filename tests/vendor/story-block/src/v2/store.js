@@ -1097,6 +1097,10 @@ export function createStore({
         const out = rewrites ? { parts: [], gone: new Map(), changed: false, running, planned: 0, removed: 0 } : null;
         const anyGuardedReceipt = record.receipts.some(each => each?.guarded === true);
         const orphan = anyGuardedReceipt && quarantined(record);
+        // Where each block of this record stands in the record that is written back (a planned-again step that is no longer
+        // done takes its place out of it), so the Problems below name the block as a full replay will number it.
+        const firstProblem = problems.length;
+        const placed = new Map();
         // Quarantine is decided on the record as it is stored, before any rebase, renumbering or filtering below can touch it:
         // it applies nothing and is never rewritten (so nothing renumbered can reattach the receipt that is detached).
         if (orphan) {
@@ -1142,6 +1146,7 @@ export function createStore({
             const keep = () => {
                 if (!rewrites) return;
                 out.parts.push({ ops: blockOps, span });
+                placed.set(block, out.parts.length - 1);
                 for (const [was, now] of remapped) out.gone.set(was, now);
             };
             if (skip?.has(`${index}:${block}`)) {
@@ -1182,6 +1187,10 @@ export function createStore({
             }
         });
         if (!out?.changed) return { state, fields: null, running: out?.running ?? null };
+        for (let at = firstProblem; at < problems.length; at += 1) {
+            const entry = problems[at];
+            if (entry.index === index && placed.has(entry.block)) entry.block = placed.get(entry.block);
+        }
         const receipts = [];
         for (const each of record.receipts) {
             if (!out.gone.has(each)) receipts.push(each);

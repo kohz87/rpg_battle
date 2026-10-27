@@ -26,7 +26,11 @@ export function indexOf(pin) {
         if (!children.has(entry.parent)) children.set(entry.parent, []);
         children.get(entry.parent).push(entry);
     }
-    const trainers = new Map((resolved.manifest.trainers ?? []).map(entry => [entry.id, entry]));
+    // A trainer template (`open: true`) is not someone to train with: it is what the story or the reader makes a trainer from, so the
+    // lookups of trainers a character can be taught by hold the pack's fixed trainers only (contract 2.4.0, RB open trainers §7).
+    const everyTrainer = resolved.manifest.trainers ?? [];
+    const trainers = new Map(everyTrainer.filter(entry => entry.open !== true).map(entry => [entry.id, entry]));
+    const trainerTemplates = new Map(everyTrainer.filter(entry => entry.open === true).map(entry => [entry.id, entry]));
     const maxTier = Math.max(...progression.tiers);
     let flags = null;
     // What a generated item may say it came from: a pinned recipe, shop, foe, quest or item (its id).
@@ -43,8 +47,12 @@ export function indexOf(pin) {
         class: ref => classes.get(ref) ?? null,
         skill: ref => skills.get(ref) ?? null,
         form: ref => forms[ref] ?? null,
+        /** A fixed trainer of the pack by its ref, or null (a template is not a trainer: ask `trainerOf` for an offer). */
         trainer: ref => trainers.get(ref) ?? null,
         trainers: [...trainers.values()],
+        /** An open trainer template of the pack by its ref, or null; and every template, in the pack's order. */
+        trainerTemplate: ref => trainerTemplates.get(ref) ?? null,
+        trainerTemplates: [...trainerTemplates.values()],
         /** The flags the ruleset declares (every key a flag requirement names), sorted. */
         flags: () => (flags ??= declaredFlags(resolved)),
         /** The pack's rule for an item (ItemRule) or null; the generated ones are in the state (items.js). */

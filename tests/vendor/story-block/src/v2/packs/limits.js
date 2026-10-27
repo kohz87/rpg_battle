@@ -28,15 +28,15 @@ export const RECORD_LIMITS = Object.freeze({ slug: 64, note: 500, word: 40, elem
 // markets are the price factors of settlement types and environment tags RPG Battle's trade reads (PACKS.md
 // "Markets"); rules is the one manifest of RPG Battle's rules pack format (schema 2: classes, skills, branches,
 // item rules, trainers; PACKS.md "Rules packs"), read by the rules checker (rules-v2.js) before anything is wrapped.
-export const CONTENT_KINDS = Object.freeze(['items', 'creatures', 'shops', 'recipes', 'events', 'quests', 'races', 'talents', 'skills', 'presets', 'places', 'routes', 'terms', 'ranks', 'crafts', 'meterPresets', 'markets', 'rules']);
+export const CONTENT_KINDS = Object.freeze(['items', 'creatures', 'shops', 'recipes', 'events', 'quests', 'races', 'talents', 'skills', 'presets', 'places', 'routes', 'terms', 'ranks', 'crafts', 'meterPresets', 'markets', 'rules', 'dataModules']);
 // Kinds added after the first pack format: a normalized pack has them only when the file gives
 // them, so what older packs list (counts) stays as it was.
-export const OPTIONAL_KINDS = Object.freeze(['skills', 'presets', 'places', 'routes', 'terms', 'ranks', 'crafts', 'meterPresets', 'markets', 'rules']);
+export const OPTIONAL_KINDS = Object.freeze(['skills', 'presets', 'places', 'routes', 'terms', 'ranks', 'crafts', 'meterPresets', 'markets', 'rules', 'dataModules']);
 // Capabilities Story Block itself has, beside the module ids and state areas the modules give: a pack that
 // lists one is refused where the host lacks it (validate.js, with the capability list supplied). `rb-rules-v2`:
 // this host knows the rules content kind, so a pack with a rules manifest can be installed (an older host
 // refuses the kind itself, UNKNOWN_KIND).
-export const HOST_CAPABILITIES = Object.freeze(['rb-rules-v2']);
+export const HOST_CAPABILITIES = Object.freeze(['rb-rules-v2', 'data-modules-v1']);
 
 // Top-level fields of pack.json; anything else is refused so a typo is not silently ignored.
 export const PACK_FIELDS = Object.freeze(['id', 'version', 'name', 'author', 'description', 'requires', 'currency', 'economy', 'calendar', 'weather', 'content', 'start', 'layouts', 'screens', 'theme']);

@@ -47,6 +47,8 @@ export { LIMITS, CONTENT_KINDS, DEFAULT_CRAFTS, STATIONS } from './limits.js';
 export { findPackEntries, marketEntries, readMarketLine, PACK_TAG } from './lorebook.js';
 export { readerRanks, rankLine } from './ranks.js';
 export { satisfies } from './version.js';
+export { validateDataModules, validateDataMigration, dataModuleDefaults, dataModuleHash,
+    DM_DESCRIPTORS, DM_LIMITS, DM_DIAGNOSTICS, DATA_MODULES_CAPABILITY } from '../data-modules/check.js';
 
 /**
  * Builds the part over injected access, so tests (and the coordinator, if it prefers the

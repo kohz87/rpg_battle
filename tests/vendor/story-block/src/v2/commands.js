@@ -44,6 +44,7 @@
 //   ctx.call caller may catch it. `ctx.feature(id)` says whether a feature is on.
 
 import { apply, checkOps, clone, counterInside, deepFreeze, diff, escapeKey, frozenCopy, isCounterPath, isDeepFrozen, isJson, valueAt } from './ops.js';
+import { DM_LIMITS } from './data-modules/schema.js';
 import { isSeed, rng as makeRng, roll as rollDice, seed as freshSeed } from './rng.js';
 import { blockIdOf, deriveId, epochOf, guardProblem, hashJson, isPlainJson } from './replay.js';
 import { CLOCK_COMMANDS, markerHash } from './timeline/boundary.js';
@@ -744,6 +745,18 @@ export function createCommandBus({ store, registry, settings = () => ({}), onCom
             }
 
             const { ops, touched, rev } = opsOf(tx);
+            if (block?.module === 'story-block' && String(block.guard?.predicate?.kind ?? '').startsWith('dm.')) {
+                const setup = block.guard.replyBound === true;
+                // Include the host's durable span envelope, not just receipt display data. The store
+                // supplies the final boundary hashes; their wire size is fixed for this interpreter.
+                const span = { ...block, id: block.id ?? 'bl_00000000', n: ops.length, story: cause === 'story',
+                    claims: [...(tx.meta ? Object.keys(tx.meta.claims).filter(key => !Object.hasOwn(tx.head.meta?.claims ?? {}, key)) : [])],
+                    boundaries: [{ cursor: tx.cursor ?? { sid: tx.source.sid, swipeKey: tx.source.swipeKey, block: 'bl_00000000', op: 0, rev },
+                        prefixHash: '0'.repeat(64), payloadHash: '0'.repeat(64) }] };
+                if (ops.length > DM_LIMITS.patchOps || new TextEncoder().encode(JSON.stringify(span)).length > (setup ? DM_LIMITS.pinBytes : DM_LIMITS.actionBytes)) {
+                    fail('DM_BUDGET', 'Data module patch or durable span storage budget exhausted; nothing applied.');
+                }
+            }
             const problems = checkOps(ops, head);
             if (problems.length) fail('INVALID', `This change breaks the state's rules: ${problems.join(' ')}`);
             let next;
