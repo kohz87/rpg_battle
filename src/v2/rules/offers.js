@@ -9,9 +9,9 @@
 // record back takes that record only (a map made by the first offer would take every later one's parent with it). `offersOf` and `declinedOf` read them as
 // maps by id; nothing else knows the key names.
 //
-//   Offer    = { v: 1, matcher, line, sid, receipt?, name, said, settled, band, notes, where, shown? }
+//   Offer    = { v: 1, matcher, line, sid, name, said, settled, band, notes, where, shown? }
 //     matcher  the version of the reading rules that decided it; line the first 16 hex of the hash of the line as written (a Re-read of the
-//     same line reuses `settled`, whatever matcher is running then); sid the reply's carrier; receipt the id of the receipt of the line that made it (the Adjustments log finds the record's reply by it: a receipt keeps its id when its data is trimmed away); said the labels as read; band 'within' | 'moderate';
+//     same line reuses `settled`, whatever matcher is running then); sid the reply's carrier; said the labels as read; band 'within' | 'moderate';
 //     notes what code moved, for the card; where the place's name; settled (settledProblem) every number code fixed; shown the objective, the coin and
 //     the deadline in the chat's words (the card and the Adjustments log do not ask for the currency again).
 //   Declined = { v: 1, matcher, sid, name, reason, suggestion, band: 'far', said?, kind? }   kind 'job' | 'teacher', said the labels as read
@@ -72,8 +72,6 @@ export function settledProblem(settled) {
     return '';
 }
 
-/** The receipt of the line that made a record (kept so the Adjustments log finds the record's reply by it), when it has one. */
-const receipt = record => !Object.hasOwn(record, 'receipt') || isRecordId(record.receipt);
 const labels = value => isObject(value) && Object.keys(value).length <= 16 && Object.values(value).every(entry => text(entry, 240));
 const notes = value => Array.isArray(value) && value.length <= 6 && value.every(entry => text(entry, 160));
 
@@ -82,7 +80,6 @@ export function offerProblem(id, offer) {
     if (!isOfferId(id) || !isObject(offer) || offer.v !== 1 || !int(offer.matcher, 1, 1000)) return 'is not whole';
     if (!/^[0-9a-f]{16}$/.test(offer.line ?? '') || !sid(offer.sid) || !text(offer.name, 80, 1) || !labels(offer.said) || !notes(offer.notes) || !text(offer.where, 80)) return 'has text that is not plain or the right length';
     if (!['within', 'moderate'].includes(offer.band)) return 'has a band that is not within or moderate';
-    if (!receipt(offer)) return 'has a receipt that is not an id';
     if (Object.hasOwn(offer, 'shown') && !(isObject(offer.shown) && Object.values(offer.shown).every(value => text(value, 120)))) return 'shows text that is not plain';
     const bad = settledProblem(offer.settled);
     return bad ? `settled ${bad}` : null;
@@ -94,7 +91,6 @@ export function declinedProblem(id, record) {
     if (!sid(record.sid) || !text(record.name, 80, 1) || !text(record.reason, 200) || !text(record.suggestion, 200)) return 'has text that is not plain or the right length';
     if (Object.hasOwn(record, 'said') && !labels(record.said)) return 'has labels that are not plain';
     if (Object.hasOwn(record, 'kind') && !['job', 'teacher'].includes(record.kind)) return 'is of no kind';
-    if (!receipt(record)) return 'has a receipt that is not an id';
     return null;
 }
 
@@ -103,7 +99,6 @@ export function restProblem(id, record) {
     if (!isRestId(id) || !isObject(record) || record.v !== 1 || !['long', 'short'].includes(record.kind) || !sid(record.sid)) return 'is not whole';
     if (!int(record.needed, 1, 5256000) || !int(record.moved, 0, 5256000)) return 'has a time out of bounds';
     if (Object.hasOwn(record, 'place') && !text(record.place, 80, 1)) return 'has a place that is not plain text';
-    if (!receipt(record)) return 'has a receipt that is not an id';
     if (Object.hasOwn(record, 'said') && !labels(record.said)) return 'has labels that are not plain';
     return null;
 }

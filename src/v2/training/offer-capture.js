@@ -80,7 +80,7 @@ export function captureTrainerOffer(ctx, line) {
     if (!ctx.claim(`rb:${epochOf(ctx)}:trainer:${ctx.hash({ trainer: nameKey(offer.name) }).slice(0, 16)}`)) ctx.fail('CLAIMED', 'That trainer was already offered.');
     const training = ctx.draft('training');
     training.offers ??= {};
-    training.offers[offer.id] = { ...offer, settled: { matcher: matched.matcher ?? MATCHER, line: lineKey(ctx, line), sid: ctx.source.sid, receipt: ctx.receiptId, said: matched.said, band: matched.band,
+    training.offers[offer.id] = { ...offer, settled: { matcher: matched.matcher ?? MATCHER, line: lineKey(ctx, line), sid: ctx.source.sid, said: matched.said, band: matched.band,
         notes: matched.notes, ...(matched.fee ? { feeBy: 'said' } : {}), shown: { fee: feeWords(ctx.query, offer.fee, true), teaches: flat(plan.summary.skills.join(', '), 120), template: flat(ix.trainerTemplate(offer.template)?.name ?? '', 80) } } };
     const standing = matched.fee && matched.band === 'within' ? ' (fee as agreed)' : '';
     return {
@@ -107,11 +107,11 @@ function farOut(ctx, far, env) {
     const known = declinedOf(ctx.read('rules'));
     if (!Object.hasOwn(known, id) && Object.keys(known).length < MAX_DECLINED) {
         const { reason, suggestion } = farReasonOf(far, env.currency);
-        call(ctx, 'rules.recordOffer', { write: writeId(ctx, `declined:${id}`), declined: id, record: { v: 1, matcher: MATCHER, sid: ctx.source.sid, receipt: ctx.receiptId, name: flat(far.name, NAME_MAX),
+        call(ctx, 'rules.recordOffer', { write: writeId(ctx, `declined:${id}`), declined: id, record: { v: 1, matcher: MATCHER, sid: ctx.source.sid, name: flat(far.name, NAME_MAX),
             reason: flat(reason, 200), suggestion: flat(suggestion, 200), band: 'far', kind: 'teacher', said: far.said ?? {} } });
     }
     const told = Object.values(declinedOf(ctx.read('rules'))).filter(row => row.sid === ctx.source.sid).length <= FAR_TOLD;
-    return { summary: text, narrate: told, data: { declined: id, band: 'far', why: far.why } };
+    return { summary: text, narrate: told, data: { declined: id, band: 'far', why: far.why, v2: { source: { sid: ctx.source.sid } } } };
 }
 
 /**

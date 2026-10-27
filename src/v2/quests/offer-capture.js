@@ -95,12 +95,13 @@ function farOut(ctx, line, result, env) {
     const known = declinedOf(ctx.read('rules'));
     if (!Object.hasOwn(known, id) && Object.keys(known).length < MAX_DECLINED) {
         const { reason, suggestion } = farReasonOf(result, env.currency);
-        call(ctx, 'rules.recordOffer', { write: writeId(ctx, `declined:${id}`), declined: id, record: { v: 1, matcher: MATCHER, sid: ctx.source.sid, receipt: ctx.receiptId, name: flat(result.name, NAME_CHARS),
+        call(ctx, 'rules.recordOffer', { write: writeId(ctx, `declined:${id}`), declined: id, record: { v: 1, matcher: MATCHER, sid: ctx.source.sid, name: flat(result.name, NAME_CHARS),
             reason: flat(reason, 200), suggestion: flat(suggestion, 200), band: 'far', kind: 'job', said: result.said ?? {} } });
     }
     // Two far-out lines of a reply are told; more are counted in the tail.
     const told = Object.values(declinedOf(ctx.read('rules'))).filter(row => row.sid === ctx.source.sid).length <= FAR_TOLD;
-    return { summary: text, narrate: told, data: { declined: id, band: 'far', why: result.why } };
+    // `data.v2.source`: the reply, where a trimmed receipt keeps it, so the Adjustments log finds this decision's reply when no guarded receipt of the reply is left.
+    return { summary: text, narrate: told, data: { declined: id, band: 'far', why: result.why, v2: { source: { sid: ctx.source.sid } } } };
 }
 
 /** Writes an offer the matcher (or an earlier read) settled: the guard, the thread with its quest, and the record. */
@@ -140,7 +141,7 @@ function commitOffer(ctx, line, env, result) {
     ctx.replayGuard({ ...guard, replyBound: true }, { external, ladderRow: env.ladder.find(row => String(row.id).toLowerCase() === String(settled.rank).toLowerCase()) ?? null,
         level: env.level, now: env.nowMinutes });
     call(ctx, 'rules.recordOffer', { write: writeId(ctx, `record:${id}`), thread: id, record: { v: 1, matcher: result.matcher ?? MATCHER, line: lineKey(ctx, line),
-        sid: source.sid, receipt: ctx.receiptId, name: title, said: result.said, settled, band: result.band, notes: result.notes, where: result.where, shown: shownOf(result, env.currency) } });
+        sid: source.sid, name: title, said: result.said, settled, band: result.band, notes: result.notes, where: result.where, shown: shownOf(result, env.currency) } });
     // The terms of the first few jobs of a reply are told next turn; the rest are only counted, in the tail (quests/prompt.js).
     const told = mine < settingInt(ctx.settings?.(), 'offerTermsPerReply', 1, 6);
     const terms = settledTerms(result, title, env.currency);

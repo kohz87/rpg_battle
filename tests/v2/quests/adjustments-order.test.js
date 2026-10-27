@@ -100,21 +100,15 @@ test('when the chat\'s receipts are trimmed (only their ids and data.v2 stay) ev
     });
 });
 
-test('a record keeps the id of the receipt of its line, and a state with a receipt that is not an id is not whole', async t => {
+test('a refusal, a decision and an offer each leave a receipt that keeps its reply after the trimming, so no reply depends on a guard', async t => {
     await seeded(9605, async () => {
         const h = await bluewatch(t);
         await play(h);
-        await h.say('Reply E.', ['+ present Old Soldier', '+ trainer Old Soldier | like: open-blade-drills | fee: 6 silver']);
-        const rules = h.head().domains.rules;
-        for (const prefix of ['offer.', 'declined.', 'rest.']) {
-            const [key] = Object.keys(rules).filter(name => name.startsWith(prefix));
-            assert.match(rules[key].receipt, /^rc_[0-9a-z]{8}$/, key);
-        }
-        assert.match(Object.values(h.head().domains.training.offers).find(offer => offer.settled).settled.receipt, /^rc_[0-9a-z]{8}$/);
-        const bad = structuredClone(rules);
-        bad[Object.keys(bad).find(name => name.startsWith('rest.'))].receipt = 'not an id';
-        assert.ok(rulesProblems(bad).some(error => /rests/.test(error)));
+        trimmed(h);
+        const kept = h.sdk.receipts().filter(({ receipt }) => ['capture.rest', 'capture.quest', 'capture.trainer'].includes(receipt.type));
+        assert.ok(kept.length >= 5);
+        for (const { index, receipt } of kept) assert.equal(typeof receipt.data?.v2?.source?.sid, 'string', `${receipt.type} at ${index}`);
+        for (const { receipt } of kept) assert.equal(receipt.data?.quest ?? receipt.data?.declined ?? receipt.data?.record, undefined, 'the rest of the data is gone');
     });
 });
 
-import { rulesProblems } from '../../../src/v2/rules/index.js';

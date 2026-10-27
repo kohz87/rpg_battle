@@ -124,7 +124,7 @@ test('one reply through the real module: the credit settlement (progress) and de
     const [batch] = Object.values(w.slice('death').batches);
     assert.equal(batch.status, 'complete', 'and so was the lethal batch (death.resolve)');
     const steps = w.host.ctx.chat.at(-1).extra.storySuite.receipts.filter(r => r.afterCapture === true).map(r => r.type);
-    assert.deepEqual(steps, ['rules.settle', 'death.resolve'], 'in part order, both in this reply');
+    assert.deepEqual(steps, ['rules.stampReply', 'rules.settle', 'death.resolve'], 'in part order (the reply\'s stamp first), all in this reply');
     await reloadAndReplay(w);
     assert.equal(w.slice('death').batches[batch.id].status, 'complete');
 }));

@@ -64,8 +64,10 @@ export const replyNow = (_state, _args, tools) => ({ sid: tools?.reply?.sid ?? n
 
 /** afterCapture: the reply is stamped free when its pass read freely (once, however many lines it had). */
 export function stampAfterCapture(view) {
-    const sid = typeof view?.query === 'function' ? view.query('rules.replyNow', {})?.sid : null;
-    if (typeof sid !== 'string' || !noted.delete(sid) || !isObject(view.state?.domains?.rules?.pin)) return { commands: [] };
+    if (!isObject(view?.state?.domains?.rules?.pin) || typeof view.query !== 'function') return { commands: [] };
+    let sid = null;
+    try { sid = view.query('rules.replyNow', {})?.sid; } catch { sid = null; }
+    if (typeof sid !== 'string' || !noted.delete(sid)) return { commands: [] };
     return { commands: [{ type: 'rules.stampReply', payload: {} }] };
 }
 

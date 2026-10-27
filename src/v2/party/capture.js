@@ -200,10 +200,11 @@ function applyRest(ctx, line) {
             // Where the party was, for the log's title ("Long rest at The Stray Oar"); none when the world has no place yet.
             let place = '';
             try { place = flat(ctx.query('atlas.canonical', {})?.name, 80); } catch { place = ''; }
-            const record = { v: 1, sid: ctx.source.sid, receipt: ctx.receiptId, kind, needed: short.needed, moved: short.moved, ...(place ? { place } : {}), said };
+            const record = { v: 1, sid: ctx.source.sid, kind, needed: short.needed, moved: short.moved, ...(place ? { place } : {}), said };
             try { if (ctx.call('rules.recordOffer', { write: `wr_${ctx.hash({ source: ctx.source, writer: 'rest' }).slice(0, 8)}`, rest, record })?.ok === false) rest = null; } catch { rest = null; }
         }
-        return { summary, narrate: true, data: { kind, rest: 'refused', needed: short.needed, moved: short.moved, ...(rest ? { record: rest } : {}) } };
+        // `data.v2.source`: the reply, which a long chat's trimming of old receipts leaves, so the Adjustments log finds this refusal's reply (the receipt has no guard to carry it).
+        return { summary, narrate: true, data: { kind, rest: 'refused', needed: short.needed, moved: short.moved, ...(rest ? { record: rest } : {}), ...(ctx.source ? { v2: { source: { sid: ctx.source.sid } } } : {}) } };
     }
     return handlers.rest(ctx, { kind, reason: line.text ?? '' });
 }
