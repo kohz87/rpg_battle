@@ -100,7 +100,11 @@ export function restoreStrengths(ctx, combatant, rules = DEFAULT_RULES) {
 export function pinnedSetup(ctx, setup, offer = null) {
     const ix = pinnedOf(ctx);
     if (!ix) return setup;
-    const pinned = { ...setup, ruleset: ix.rulesHash, draws: 'action', xpBase: ix.constants.xpPerLevel };
+    // `autoRule`: Auto plays each unmastered form once; fights stored before it was written have none and play as they did.
+    // An offer calibrated before the rule (its stored opposition has none) is fought as it was calibrated.
+    const practice = offer?.opposition ? offer.opposition.autoRule === 'practice' : true;
+    const { autoRule: _kept, ...rest } = setup;
+    const pinned = { ...rest, ruleset: ix.rulesHash, draws: 'action', xpBase: ix.constants.xpPerLevel, ...(practice ? { autoRule: 'practice' } : {}) };
     // New offers own their resolved foes. Old offers deliberately keep the adapter they used.
     if (offer?.opposition) {
         const { enemies, waves = [], area } = unpackSetup(structuredClone(offer.opposition));

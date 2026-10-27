@@ -1,10 +1,37 @@
 {
-  "revision": "32286c7",
+  "revision": "rules v2 Auto practice (RB 2.3.0)",
   "seeds": {
     "first": 1000,
     "count": 300
   },
   "wins": {
+    "barge-drifter": {
+      "weak": 296,
+      "normal": 215,
+      "strong": 113
+    },
+    "militiaman": {
+      "weak": 293,
+      "normal": 181,
+      "strong": 103
+    },
+    "blade-initiate": {
+      "weak": 285,
+      "normal": 209,
+      "strong": 89
+    },
+    "flame-initiate": {
+      "weak": 288,
+      "normal": 196,
+      "strong": 90
+    },
+    "hedge-apprentice": {
+      "weak": 290,
+      "normal": 178,
+      "strong": 102
+    }
+  },
+  "before": {
     "barge-drifter": {
       "weak": 291,
       "normal": 192,

@@ -29,7 +29,9 @@ for (const klass of classes) {
             assert.ok(play, `${klass.name} ${label}: the lean player takes the offer`);
             for (let n = 0; n < 48; n += 1) {
                 const seed = `pinned-danger:sample:${n}`;
-                assert.equal(play(hashSeed(seed), hashSeed(`${seed}|ca_00000001`)), autoOutcome(setup, seed) === 'victory' ? 1 : 0, `${klass.name} ${label}: sample ${n}`);
+                // A sample the lean player leaves to the engine (-1: a form it does not model, such as a stat buff Auto plays once as practice) is the engine's.
+                const quick = play(hashSeed(seed), hashSeed(`${seed}|ca_00000001`));
+                if (quick >= 0) assert.equal(quick, autoOutcome(setup, seed) === 'victory' ? 1 : 0, `${klass.name} ${label}: sample ${n}`);
             }
             assert.ok(allFoes(setup).every(enemy => enemy.pack === 'pack.ersveil-bluewatch/cellar-rat-swarm'));
             let wins = 0;
