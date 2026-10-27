@@ -36,6 +36,8 @@ export const STAKES = Object.freeze(['normal', 'death']);
 export const MAX_COUNT = 9;
 // The most foes one encounter line brings (six rows of nine, the most a line could bring before).
 export const MAX_ENCOUNTER_FOES = 54;
+/** The most a count written in front of a named kind may be: three digits. A fight holds MAX_ENCOUNTER_FOES of them; the rest is cut and told, as for any line. */
+export const MAX_WRITTEN_COUNT = 999;
 const MAX_NOTE = 160;
 const MAX_PLACE = 60;
 
@@ -100,10 +102,14 @@ export function readEncounter(line, { bestiary, rules = DEFAULT_RULES, ranks = n
         if (!ranked.ok) return ranked;
     }
 
-    if (literal && (typeof line.name !== 'string' || line.name.trim().length > 48 || /[<>|\p{Cc}]/u.test(line.name))) return { ok: false, message: 'A variant names one literal foe, up to 48 characters.' };
-    // A named kind (`| like:`) is one literal name; with Jobs from the story on, a count in front of it ("6 Culvert Rats") is how many of them, as the job's terms write it.
-    const counted = literal && leadingCount ? /^(\d{1,2})\s+(\S.*)$/u.exec(line.name.trim()) : null;
-    const rows = literal ? [{ name: counted ? counted[2] : line.name.trim(), count: counted ? Number(counted[1]) : 1, written: counted ? Number(counted[1]) : 1, counted: true }] : parseEncounter(name, bestiary, rules).filter(row => row?.name && !isNoteName(row.name));
+    if (literal && (typeof line.name !== 'string' || /[<>|\p{Cc}]/u.test(line.name))) return { ok: false, message: 'A variant names one literal foe, up to 48 characters.' };
+    // A named kind (`| like:`) is one literal name; with Jobs from the story on, a count in front of it ("6 Culvert Rats", "120 Plague Rats") is how many of them, as the job's terms
+    // write it. The whole number is the count, whatever its digits; the name is what follows it, and its length is checked on that.
+    const counted = literal && leadingCount ? /^(\d+)\s+(\S.*)$/u.exec(line.name.trim()) : null;
+    if (counted && !(Number(counted[1]) >= 1 && Number(counted[1]) <= MAX_WRITTEN_COUNT)) return { ok: false, message: `A count in front of a name is a whole number from 1 to ${MAX_WRITTEN_COUNT}, not ${counted[1].slice(0, 12)}.` };
+    const literalName = counted ? counted[2].trim() : typeof line.name === 'string' ? line.name.trim() : '';
+    if (literal && literalName.length > 48) return { ok: false, message: 'A variant names one literal foe, up to 48 characters.' };
+    const rows = literal ? [{ name: literalName, count: counted ? Number(counted[1]) : 1, written: counted ? Number(counted[1]) : 1, counted: true }] : parseEncounter(name, bestiary, rules).filter(row => row?.name && !isNoteName(row.name));
     if (!rows.length) return { ok: false, message: `No foe could be read from "${name}".` };
     // A fight with a boss is never below strong (the user's call, wave C): a boss is never made
     // smaller, so "a weak boss" would be a weak fight that is not. The line's tier, and the boss's
