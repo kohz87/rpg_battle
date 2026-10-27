@@ -3,7 +3,9 @@ import { copy } from './seams.js';
 
 export function offeredQuest(template, id, { instance = 1, nextOfferAt = null } = {}) {
     return { id, template: template.id, instance, title: template.name, category: template.category,
-        giver: template.giver, turnInPlace: template.turnInPlace, requirements: copy(template.requirements), objectives: copy(template.objectives),
+        giver: template.giver, turnInPlace: template.turnInPlace, requirements: copy(template.requirements),
+        // The bounds on a count (Story Block 2.5.0) are the pack's: the quest is Story Director's closed shape, which has no place for them.
+        objectives: copy(template.objectives).map(({ countMin: _min, countMax: _max, ...objective }) => objective),
         evidence: {}, reward: copy(template.reward), storyCredit: { coin: 0, claims: [] }, acceptedAt: null, acceptedCursor: null,
         deadline: null, repeat: template.repeat ? { cooldownMinutes: template.repeat.cooldownMinutes, nextOfferAt } : null,
         chain: copy(template.chain), state: 'offered', settlement: null };
