@@ -7,7 +7,7 @@ import { buildGuard } from '../progress/guard.js';
 import { indexOfCtx, indexOfState } from '../rules/graph.js';
 import { epochOf } from '../rules/ids.js';
 import { ask, call, freshThreadId, pinned, threadOf, writeId } from '../quests/seams.js';
-import { MATCHER, farLineOf, flat } from '../quests/offer-bands.js';
+import { FAR_TOLD, MATCHER, NOTE, farLineOf, flat, keepNotes } from '../quests/offer-bands.js';
 import { declinedId } from '../quests/offer-capture.js';
 import { ladderFrom } from '../quests/ranks.js';
 import { evidenceOf, npcReader } from './capture.js';
@@ -65,12 +65,13 @@ export function captureTrainerOffer(ctx, line) {
     if (matched.kind === 'far') return farOut(ctx, matched, env);
     const here = evidenceOf(ctx, null);
     const held = Object.values(ctx.read('training')?.offers ?? {}).find(offer => nameKey(offer.name) === key);
-    if (held && !(here.place !== null && held.place === here.place)) return farOut(ctx, { kind: 'far', name, why: 'elsewhere', where: held.where }, env);
+    if (held && !(here.place !== null && held.place === here.place)) return farOut(ctx, { kind: 'far', name, why: 'elsewhere', where: held.where, said: matched.said }, env);
     if (Object.keys(ctx.read('training')?.offers ?? {}).length >= MAX_OFFERS && !held) return keep(ctx, line, name, refused('LIMIT', `This chat has ${MAX_OFFERS} story trainers; no more can be offered.`));
     const plan = liveTrainer(ctx, ix, matched.binding, 'story', here, npcReader(ctx, name));
     if (!plan.ok) return keep(ctx, line, name, refused(plan.code, plan.message));
     if (plan.noop) return quiet(plan.message);
     if (matched.fee) withFee(plan, matched.fee);
+    else matched.notes = keepNotes([...matched.notes, NOTE.feeRolled(feeWords(ctx.query, plan.offer.fee))]);
     const guard = buildGuard({ hash: value => ctx.hash(value), owner: 'rpg-battle', epoch: epochOf(ctx), source: ctx.source, rulesHash: pin.hash, kind: KIND,
         payload: { binding: matched.binding, by: 'story', matcher: matched.matcher ?? MATCHER }, inputs: plan.facts });
     ctx.replayGuard({ ...guard, replyBound: true }, plan.kept);
@@ -79,7 +80,7 @@ export function captureTrainerOffer(ctx, line) {
     const training = ctx.draft('training');
     training.offers ??= {};
     training.offers[offer.id] = { ...offer, settled: { matcher: matched.matcher ?? MATCHER, line: hash16(ctx, { raw: line.raw }), sid: ctx.source.sid, said: matched.said, band: matched.band,
-        notes: matched.notes, ...(matched.fee ? { feeBy: 'said' } : {}) } };
+        notes: matched.notes, ...(matched.fee ? { feeBy: 'said' } : {}), shown: { fee: feeWords(ctx.query, offer.fee), teaches: flat(plan.summary.skills.join(', '), 120), template: flat(ix.trainerTemplate(offer.template)?.name ?? '', 80) } } };
     const standing = matched.fee && matched.band === 'within' ? ' (fee as agreed)' : '';
     return {
         summary: `${offer.name} will teach ${list(plan.summary.skills)} at ${plan.summary.where} for ${feeWords(ctx.query, offer.fee)} a session.${standing}`,
@@ -105,9 +106,10 @@ function farOut(ctx, far, env) {
     if (!Object.hasOwn(ctx.read('rules').declined ?? {}, id)) {
         const [, reason, suggestion] = /\((.*)\)\. Let it stay as talk or a rumour; if a job is wanted, offer (.*)\.$/.exec(text) ?? [];
         call(ctx, 'rules.recordOffer', { write: writeId(ctx, `declined:${id}`), declined: id, record: { v: 1, matcher: MATCHER, sid: ctx.source.sid, name: flat(far.name, NAME_MAX),
-            reason: flat(reason ?? '', 200), suggestion: flat(suggestion ?? '', 200), band: 'far' } });
+            reason: flat(reason ?? '', 200), suggestion: flat(suggestion ?? '', 200), band: 'far', kind: 'teacher', said: far.said ?? {} } });
     }
-    return { summary: text, narrate: true, data: { declined: id, band: 'far', why: far.why } };
+    const told = Object.values(ctx.read('rules').declined ?? {}).filter(row => row.sid === ctx.source.sid).length <= FAR_TOLD;
+    return { summary: text, narrate: told, data: { declined: id, band: 'far', why: far.why } };
 }
 
 /**

@@ -40,7 +40,8 @@ export const trainingForPin = resolved => ({ ...initialTraining(), ...((resolved
 /** Whether `settled`, how a story's trainer line was read (GENERATIVE_OFFERS_SPEC §7.1: matcher, line, sid, said, band, notes, feeBy?), is whole. */
 const settledProblem = settled => !(isObject(settled) && Number.isSafeInteger(settled.matcher) && /^[0-9a-f]{16}$/.test(settled.line ?? '') && typeof settled.sid === 'string' && settled.sid.length <= 50
     && isObject(settled.said) && Object.values(settled.said).every(value => typeof value === 'string' && value.length <= 240) && ['within', 'moderate'].includes(settled.band)
-    && Array.isArray(settled.notes) && settled.notes.length <= 6 && settled.notes.every(note => typeof note === 'string' && note.length <= 160) && (settled.feeBy === undefined || settled.feeBy === 'said'));
+    && Array.isArray(settled.notes) && settled.notes.length <= 6 && settled.notes.every(note => typeof note === 'string' && note.length <= 160) && (settled.feeBy === undefined || settled.feeBy === 'said')
+    && (settled.shown === undefined || isObject(settled.shown) && Object.values(settled.shown).every(value => typeof value === 'string' && value.length <= 120)));
 
 const idLike = (value, prefix) => typeof value === 'string' && value.length === prefix.length + 9 && value.startsWith(`${prefix}_`);
 const STATUS = ['requested', 'completed', 'interrupted', 'refused'];

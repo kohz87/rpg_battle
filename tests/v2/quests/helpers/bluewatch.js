@@ -18,11 +18,12 @@ export const ok = result => { assert.equal(result.ok, true, `${result.code}: ${r
 
 /**
  * `pack`: the pack text to install (default Bluewatch 1.6.0); `sibling`: the real Story Director checkout instead of the vendored copy;
- * `level`: the PC's level (3); `tier`: the world's danger tier (0); `start: false` leaves the chat before its first reply.
+ * `level`: the PC's level (3); `tier`: the world's danger tier (0); `start: false` leaves the chat before its first reply; `settings`: the reader's
+ * settings (`{ modules: { 'rpg-battle': { offerGuideRanks: 2 } }, features: { 'rpg-battle.generative-offers': false } }`).
  */
-export async function bluewatch(t, { pack = PACK_TEXT, useSibling = false, st = null, tier = 0, level = 3, start = true } = {}) {
+export async function bluewatch(t, { pack = PACK_TEXT, useSibling = false, st = null, tier = 0, level = 3, start = true, settings = null } = {}) {
     const director = useSibling ? sibling : vendoredDirector;
-    const h = await createHost({ modules: [director()], ...(st ? { st } : {}) });
+    const h = await createHost({ modules: [director()], ...(st ? { st } : {}), ...(settings ? { settings } : {}) });
     t.after(() => h.close());
     h.q = (name, args = {}) => h.sdk.query(name, args);
     h.say = (text, lines = []) => h.send('Go on.', lines.length ? `${text}\n\n<Changes>\n${lines.join('\n')}\n</Changes>` : text);

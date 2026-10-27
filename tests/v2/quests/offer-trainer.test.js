@@ -20,7 +20,7 @@ test('the four templates are matched by their words, in the narrator\'s own', ()
 test('like: wins when it names a template; an unknown like: is noted and ignored; the text after a dash inside like: is the text', () => {
     assert.equal(slug(teach('+ trainer A — hedge magic | like: open-blade-drills').binding.template), 'open-blade-drills');
     assert.equal(slug(teach('+ trainer A — hedge magic | like: blade-drills').binding.template), 'open-hedge-lessons');
-    assert.deepEqual(teach('+ trainer A — hedge magic | like: blade-drills').notes, ['like: blade-drills is not a template']);
+    assert.deepEqual(teach('+ trainer A — hedge magic | like: blade-drills').notes, ['like: blade-drills is not a template', 'matched Hedge-magic lessons (hedge magic)']);
     assert.equal(slug(teach('+ trainer A | like: open-spear-and-shield').binding.template), 'open-spear-and-shield', 'a like: needs no words');
     assert.equal(slug(teach('+ trainer Old Reka | like: swordplay — blade drills').binding.template), 'open-blade-drills');
 });
@@ -63,9 +63,9 @@ test('fee: inside the range stands, outside it is held, above 3 times the top is
 test('names, flattening and labels that are not used', () => {
     assert.equal(teach('+ trainer <> — blade drills').kind, 'refuse');
     const r = teach('+ trainer Old Reka — blade <b>drills</b> | mood: grim');
-    assert.deepEqual([r.binding.name, r.binding.text, r.notes], ['Old Reka', 'blade b drills /b', ['mood was not used']]);
+    assert.deepEqual([r.binding.name, r.binding.text, r.notes], ['Old Reka', 'blade b drills /b', ['matched Blade drills (blade b drills /b)', 'mood was not used']]);
     assert.equal(teach(`+ trainer ${'N'.repeat(100)} — blade drills`).binding.name.length, 80);
     assert.equal(r.band, 'within');
-    assert.deepEqual(r.said, { name: 'Old Reka', text: 'blade b drills /b' });
+    assert.deepEqual(r.said, { text: 'blade b drills /b', mood: 'grim' }, 'the labels as read, in the order written');
     assert.deepEqual(teach('+ trainer A — blade drills', { currency: COPPER }).fee, null);
 });

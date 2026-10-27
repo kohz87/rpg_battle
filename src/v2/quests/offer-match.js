@@ -57,6 +57,19 @@ export function readLine(line) {
     };
 }
 
+/** The labels of a line as the offer read them, in the order they were written (the dash text first, as a goal): what the Adjustments log shows (§9.4). */
+export function saidOf(line, textKey = 'goal') {
+    const said = {};
+    const labels = lowerKeys(line.labels);
+    const text = flat(line.text, GOAL_CHARS);
+    if (text && !String(labels.goal ?? labels.text ?? '').trim()) said[textKey] = text;
+    for (const [key, value] of Object.entries(labels)) {
+        const cleaned = flat(value, key === 'goal' || key === 'text' ? GOAL_CHARS : NAME_CHARS);
+        if (cleaned && Object.keys(said).length < 12) said[key] = cleaned;
+    }
+    return said;
+}
+
 /** The target phrase and count of a text (§4.2). `{ phrase, count }`; count null when none is written. */
 export function targetOf(text) {
     const rest = amountDigits(String(text ?? ''));
@@ -201,20 +214,19 @@ export function matchOffer(env, line) {
     const read = readLine(line);
     if (!read.name) return refuse('INVALID', 'Name the job in plain words.');
     const notes = [];
-    const said = { name: read.name, goal: read.goal };
-    for (const key of ['type', 'target', 'count', 'reward', 'due', 'difficulty', 'giver', 'like']) if (read[key]) said[key] = read[key];
+    const said = saidOf(line);
     // Dedupe (§5.3): the name as written, without its article and with "The" added are one job; only equal keys merge.
     const found = typeof env.thread === 'function' ? [read.name, read.name.replace(/^(?:the|a|an)\s+/i, ''), `The ${read.name.replace(/^(?:the|a|an)\s+/i, '')}`].map(spelling => env.thread(spelling)).find(Boolean) ?? null : null;
     let link = null;
     if (found?.rpg) {
         if (['offered', 'active'].includes(found.rpg.state)) return { kind: 'noop', message: `${flat(found.key, NAME_CHARS) || read.name} is already posted.` };
-        return { kind: 'far', name: flat(found.key, NAME_CHARS) || read.name, why: 'already' };
+        return { kind: 'far', name: flat(found.key, NAME_CHARS) || read.name, why: 'already', said };
     }
     if (found) link = found.id;
     const labelled = OFFER_LABELS.some(key => Object.hasOwn(lowerKeys(line.labels), key));
     if (!found && !labelled && typeof env.declined === 'function' && env.declined(offerKey(read.name))) return { kind: 'noop', message: `${read.name} was not offered.` };
     if (DONE.test(read.status) || /^(?:yes|true)$/i.test(read.met) || DONE.test(String(line.text ?? '').trim()) && !read.goalLabelled) {
-        return { kind: 'far', name: read.name, why: 'done' };
+        return { kind: 'far', name: read.name, why: 'done', said };
     }
     const all = templates(env.pin);
     const open = all.filter(template => template.open === true && ['story', 'kill', 'collect', 'visit'].includes(kindOf(template)));
@@ -388,7 +400,7 @@ export function matchOffer(env, line) {
         } else {
             const total = reward.each && count !== null ? reward.amount * count : reward.amount;
             const held = hold(total, range.coinMin, range.coinMax);
-            if (held.far) return { kind: 'far', name: read.name, why: 'reward', written: total, max: range.coinMax, rank: rankRow.id };
+            if (held.far) return { kind: 'far', name: read.name, why: 'reward', written: total, max: range.coinMax, rank: rankRow.id, said };
             coin = held.value;
             coinBy = 'said';
             if (held.moved) {

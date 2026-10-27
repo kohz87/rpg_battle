@@ -3,11 +3,12 @@
 //   rules.offers?:   { [th_ id]: Offer }      every job the narrator offered in its own words, under the id of the thread it made
 //   rules.declined?: { [dk_ id]: Declined }   the far-out decisions: a job (or teacher) that was not offered, under the key of its name
 //
-//   Offer    = { v: 1, matcher, line, sid, name, said, settled, band, notes, where }
+//   Offer    = { v: 1, matcher, line, sid, name, said, settled, band, notes, where, shown? }
 //     matcher  the version of the reading rules that decided it; line the first 16 hex of the hash of the line as written (a Re-read of the
 //     same line reuses `settled`, whatever matcher is running then); sid the reply's carrier; said the labels as read; band 'within' | 'moderate';
-//     notes what code moved, for the card; where the place's name; settled (settledProblem) every number code fixed.
-//   Declined = { v: 1, matcher, sid, name, reason, suggestion, band: 'far' }
+//     notes what code moved, for the card; where the place's name; settled (settledProblem) every number code fixed; shown the objective, the coin and
+//     the deadline in the chat's words (the card and the Adjustments log do not ask for the currency again).
+//   Declined = { v: 1, matcher, sid, name, reason, suggestion, band: 'far', said?, kind? }   kind 'job' | 'teacher', said the labels as read
 //
 // Both are absent until first used (a pin with open quest templates starts them empty, so each record is one add-only key and taking the reply
 // that made the first one back takes that one only). `rules.recordOffer` is the one writer, for this module's own capture. Pure apart from the command.
@@ -52,6 +53,7 @@ export function offerProblem(id, offer) {
     if (!isOfferId(id) || !isObject(offer) || offer.v !== 1 || !int(offer.matcher, 1, 1000)) return 'is not whole';
     if (!/^[0-9a-f]{16}$/.test(offer.line ?? '') || !sid(offer.sid) || !text(offer.name, 80, 1) || !labels(offer.said) || !notes(offer.notes) || !text(offer.where, 80)) return 'has text that is not plain or the right length';
     if (!['within', 'moderate'].includes(offer.band)) return 'has a band that is not within or moderate';
+    if (Object.hasOwn(offer, 'shown') && !(isObject(offer.shown) && Object.values(offer.shown).every(value => text(value, 120)))) return 'shows text that is not plain';
     const bad = settledProblem(offer.settled);
     return bad ? `settled ${bad}` : null;
 }
@@ -60,6 +62,8 @@ export function offerProblem(id, offer) {
 export function declinedProblem(id, record) {
     if (!isDeclinedId(id) || !isObject(record) || record.v !== 1 || !int(record.matcher, 1, 1000) || record.band !== 'far') return 'is not whole';
     if (!sid(record.sid) || !text(record.name, 80, 1) || !text(record.reason, 200) || !text(record.suggestion, 200)) return 'has text that is not plain or the right length';
+    if (Object.hasOwn(record, 'said') && !labels(record.said)) return 'has labels that are not plain';
+    if (Object.hasOwn(record, 'kind') && !['job', 'teacher'].includes(record.kind)) return 'is of no kind';
     return null;
 }
 

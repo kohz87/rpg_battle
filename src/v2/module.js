@@ -329,7 +329,12 @@ export function createModule({ settings = null, query = null, parts = [], rules 
     queries[REV_QUERY] = state => (Number.isInteger(state?.meta?.rev) ? state.meta.rev : 0);
 
     const mergedHooks = {};
-    for (const [name, list] of Object.entries(hooks)) mergedHooks[name] = mergeHook(name, list, { viewFor, settings: id => partSettings(moduleSettings(), id) });
+    for (const [name, list] of Object.entries(hooks)) {
+        mergedHooks[name] = mergeHook(name, list, { viewFor, settings: id => partSettings(moduleSettings(), id) });
+        // A hook that only one part defines keeps the feature its part marked it with (MODULES §F100: Story Block leaves it out while that feature is off).
+        const feature = list.length === 1 ? list[0].fn.feature : undefined;
+        if (typeof feature === 'string') Object.assign(mergedHooks[name], { feature });
+    }
     // terms2 (MODULES §F105): the reader's rank ladder lines for Story Block, which answers
     // packs.content's ranks with them, so every module bands ranks the same way. Each line carries the
     // first level RPG Battle bands it at (readerLadderBands, B-a2-8): its level cap and tiers (the
@@ -416,7 +421,8 @@ export function createModule({ settings = null, query = null, parts = [], rules 
             ...(contextParts.length ? {
                 parts: contextParts.map(({ part, piece }) => ({
                     ...(piece.feature ? { feature: piece.feature } : {}),
-                    ...(typeof piece.static === 'function' ? { static: () => piece.static() } : {}),
+                    // A piece's static gets the part's settings with the terms and the host's query (the rules block is made from the pin and the installed pack).
+                    ...(typeof piece.static === 'function' ? { static: () => piece.static({ settings: withTerms(partSettings(moduleSettings(), part), staticQuery), query: staticQuery }) } : {}),
                     ...(typeof piece.tail === 'function' ? { tail: view => piece.tail(viewFor(view, part)) } : {}),
                 })),
             } : {}),

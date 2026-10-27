@@ -103,7 +103,23 @@ function threadRow(thread, templates = []) {
     };
 }
 
-/** rpg-battle.questsView({}) → { state, clock, groups, goals, note }. */
+const isAdjustment = value => isRecord(value) && isText(value.id) && isText(value.name) && isText(value.band) && Array.isArray(value.changes) && Array.isArray(value.notes);
+/** How many adjustments the page shows at once; the rest are behind "Older". */
+const SHOWN = 10;
+
+/** The Adjustments log (GENERATIVE_OFFERS_SPEC §9.4): `quest.adjustments` as the page draws it; empty while the feature is off or nothing was adjusted, and where RPG Battle is not answering (`tools` null). */
+function adjustmentsView(tools) {
+    const found = ask(tools, 'quest.adjustments', { limit: 50 }, value => isRecord(value) && isList(value.rows, isAdjustment));
+    const rows = found.status === ASK.OK ? found.value.rows.map(row => ({
+        id: row.id, name: clip(row.name, 80), band: row.band, bandLabel: clip(row.bandLabel, 24), kept: row.band === 'kept', adjusted: row.band === 'adjusted', dropped: row.band === 'dropped',
+        replyText: isText(row.replyText) ? row.replyText : '', became: clip(row.became, 240),
+        changes: row.changes.map(change => ({ k: clip(change.k, 24), from: clip(change.from, 80), to: clip(change.to, 80), unwritten: change.from === '' })),
+        droppedText: isText(row.dropped) ? clip(row.dropped, 240) : '', wrote: clip(row.wrote, 700), notes: row.notes.map(note => clip(note, 200)),
+    })) : [];
+    return { count: rows.length, recent: rows.slice(0, SHOWN), older: rows.slice(SHOWN), hasOlder: rows.length > SHOWN, olderCount: Math.max(0, rows.length - SHOWN) };
+}
+
+/** rpg-battle.questsView({}) → { state, clock, groups, goals, note, adjustments }. */
 export function questsView(state, args, tools) {
     const time = ask(tools, 'director.time', {});
     const minutes = time.status === ASK.OK && Number.isSafeInteger(time.value.minutes) ? time.value.minutes : null;
@@ -132,13 +148,14 @@ export function questsView(state, args, tools) {
         return {
             state: 'rpg', clock, groups, goals: goals.filter(row => !taken.has(row.id) && !row.needsRpg),
             note: clock.set ? '' : 'The story clock is not set, so deadlines are not counted yet.',
+            adjustments: adjustmentsView(tools),
         };
     }
     if (threads.status === ASK.OK) {
         return {
-            state: 'neutral', clock, groups: [], goals,
+            state: 'neutral', clock, groups: [], goals, adjustments: adjustmentsView(null),
             note: 'These goals are accepted and closed in the story. Say it in your reply; there is nothing to press here.',
         };
     }
-    return { state: 'unavailable', clock, groups: [], goals: [], note: 'Neither RPG Battle nor Story Director is answering, so there are no goals to list.' };
+    return { state: 'unavailable', clock, groups: [], goals: [], adjustments: adjustmentsView(null), note: 'Neither RPG Battle nor Story Director is answering, so there are no goals to list.' };
 }

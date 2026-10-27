@@ -13,9 +13,14 @@ import { bluewatch } from './helpers/bluewatch.js';
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/pinned-2.2.0.json', import.meta.url), 'utf8'));
 const json = value => JSON.parse(JSON.stringify(value));
 
-async function opened(t) {
-    const h = await bluewatch(t, { st: { chat: structuredClone(fixture.chat), extensionSettings: structuredClone(fixture.extensionSettings) } });
-    return h;
+// Strict mode (Jobs from the story off) is RPG Battle 2.2.0's prompt, byte for byte; with it on the chat's pack has open templates, so the rules block is shown.
+const strictSettings = () => {
+    const settings = structuredClone(fixture.extensionSettings);
+    settings.storySuite.features = { ...(settings.storySuite.features ?? {}), 'rpg-battle.generative-offers': false };
+    return settings;
+};
+async function opened(t, { strict = false } = {}) {
+    return bluewatch(t, { st: { chat: structuredClone(fixture.chat), extensionSettings: strict ? strictSettings() : structuredClone(fixture.extensionSettings) } });
 }
 const sameAsRecorded = (h, when) => {
     assert.deepEqual(json(h.head()), fixture.head, `${when}: the state`);
@@ -63,12 +68,31 @@ test('its quest.open block is replayed by the 2.2.0 guard and its free-form refu
     assert.equal(h.q('director.thread', { key: 'Rats' }).rpg.template, 'pack.ersveil-bluewatch/open-hunt-f');
 });
 
-test('the static prompt of that pinned chat (every module\'s part) and its open-quest tail line are byte-identical to the ones recorded on 2.2.0', async t => {
-    const h = await opened(t);
+test('in strict mode the static prompt of that pinned chat (every module\'s part) and its open-quest tail line are byte-identical to the ones recorded on 2.2.0', async t => {
+    const h = await opened(t, { strict: true });
     assert.deepEqual(json(staticParts(h.registry)), fixture.prompt);
     const recorded = fixture.tails.at(-1).split('\n').find(line => line.startsWith('Open quest:'));
     assert.ok(recorded, 'the recorded tail names the open quest line');
-    assert.deepEqual(questTail({ state: h.head() }).lines, [recorded]);
+    assert.deepEqual(questTail({ state: h.head(), feature: () => false }).lines, [recorded]);
+    assert.equal(h.registry.module('rpg-battle').capture.kinds.trainer.grammar.includes('(templates: '), true, 'and the trainer line names its templates');
+});
+
+test('with Jobs from the story on, that chat\'s prompt is the recorded one plus the rules block, with the trainer line shorter and the slug list of the quest tail gone', async t => {
+    const h = await opened(t);
+    const now = json(staticParts(h.registry));
+    assert.equal(now.length, fixture.prompt.length, 'the same parts: the block is more text in RPG Battle\'s own');
+    const lines = text => text.split('\n').filter(line => !line.startsWith('+ trainer Name'));
+    for (const old of fixture.prompt) {
+        const same = now.find(part => part.module === old.module && part.label === old.label);
+        if (old.module === 'rpg-battle') {
+            const block = h.q('quest.offerBlock', {});
+            assert.match(block, /^Jobs and teachers: write them your way\./);
+            assert.ok(same.text.includes(block), 'the block is in it');
+            assert.deepEqual(same.text.replace(block, '').split('\n').filter(Boolean), old.text.split('\n').filter(Boolean), 'RPG Battle\'s instructions are as they were');
+        } else assert.deepEqual(lines(same.text), lines(old.text), `${old.label}: every line but the trainer one is as it was`);
+    }
+    assert.ok(now.find(part => part.label === 'Story Suite: instructions').text.includes('\n+ trainer Name — what they teach [| teaches: skill, skill] [| fee: amount]. Code picks the lessons, fee and place.'));
+    assert.deepEqual(questTail({ state: h.head() }).lines.filter(line => line.startsWith('Open quest:')), []);
 });
 
 test('a new reply on that chat keeps working: nothing already settled moves', async t => {

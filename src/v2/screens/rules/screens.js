@@ -230,6 +230,34 @@ export const progressScreen = Object.freeze({
 
 // ---- Quests ------------------------------------------------------------------------------------------------------------
 
+// One row of the Adjustments log (GENERATIVE_OFFERS_SPEC §9.4): a card on a phone, a table row from 760px; the offer, a band chip with its own icon, the
+// reply, what it became, the terms that changed (three at most), and behind a native details element what the narrator wrote and the notes.
+const ADJUSTMENT = alias => `
+      <li class="adj-row" data-each="${alias} as a">
+        <div class="ahead">
+          <span class="nm">{{ a.name }}</span>
+          <span class="band ss-pill ss-pill-outline" data-class="kept: a.kept; adjusted: a.adjusted; dropped: a.dropped">
+            <i class="fa-solid fa-check" data-if="a.kept" aria-hidden="true"></i><i class="fa-solid fa-right-left" data-if="a.adjusted" aria-hidden="true"></i><i class="fa-solid fa-xmark" data-if="a.dropped" aria-hidden="true"></i>{{ a.bandLabel }}
+          </span>
+          <span class="reply" data-if="a.replyText != ''">{{ a.replyText }}</span>
+        </div>
+        <p class="became">{{ a.became }}</p>
+        <div class="changes" data-if="len(a.changes) > 0">
+          <div class="cr" data-each="a.changes as c">
+            <span class="k">{{ c.k }}</span>
+            <span class="v"><span class="from" data-if="!c.unwritten">{{ c.from }}</span><span class="from" data-if="c.unwritten"><span class="sr">not written</span><span aria-hidden="true">—</span></span><span class="arr" aria-hidden="true">→</span><span class="sr">to</span><span class="to">{{ c.to }}</span></span>
+          </div>
+        </div>
+        <p class="dropped" data-if="a.droppedText != ''"><b>Dropped:</b> {{ a.droppedText }}</p>
+        <details class="nowrote">
+          <summary>What the narrator wrote</summary>
+          <div class="why-body">
+            <p class="raw mono">{{ a.wrote }}</p>
+            <div data-if="len(a.notes) > 0"><p class="nt">Notes</p><ul><li data-each="a.notes as n">{{ n }}</li></ul></div>
+          </div>
+        </details>
+      </li>`;
+
 const questsTemplate = `
 <div class="rb rb-quests">
   ${BANNER}
@@ -269,6 +297,18 @@ const questsTemplate = `
       <p class="line hold" data-if="g.needsRpg">This goal carries rewards that RPG Battle settles; it waits for RPG Battle.</p>
     </article>
   </section>
+  <details class="adj" data-if="q.v.adjustments.count > 0">
+    <summary>Adjustments ({{ q.v.adjustments.count }})</summary>
+    <p class="adj-help">What code changed from the narrator's offers, newest first. Read only; nothing here is a Problem. Turn off "Jobs from the story" in Features for the strict behaviour.</p>
+    <p class="adj-head" aria-hidden="true"><span>Offer</span><span>Became</span><span>Changed</span><span>Band</span><span></span></p>
+    <ul class="acards">${ADJUSTMENT('q.v.adjustments.recent')}
+    </ul>
+    <details class="older" data-if="q.v.adjustments.hasOlder">
+      <summary>Older ({{ q.v.adjustments.olderCount }})</summary>
+      <ul class="acards">${ADJUSTMENT('q.v.adjustments.older')}
+      </ul>
+    </details>
+  </details>
 </div>
 `;
 
@@ -283,6 +323,51 @@ const questsCss = sheet(`${SHARED_CSS}
 .line { margin: 0; font-size: 13px; }
 .line.hold { color: var(--ss-warn); }
 .acts { display: flex; flex-wrap: wrap; gap: var(--ss-space-2); }
+.adj, .older { display: grid; gap: var(--ss-space-2); min-width: 0; }
+.adj { border: 1px solid var(--ss-border); border-radius: var(--ss-radius-m); padding: 0 var(--ss-space-3) var(--ss-space-3); }
+.adj summary, .older summary, .nowrote summary { min-height: 44px; display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 700; }
+.adj > summary { font-size: 17px; font-weight: 800; }
+.adj-help { margin: 0; color: var(--ss-muted); font-size: 13px; line-height: 1.5; }
+.adj-head { display: none; }
+.acards { display: grid; gap: var(--ss-space-3); margin: 0; padding: 0; list-style: none; }
+.adj-row { display: grid; gap: var(--ss-space-2); padding: var(--ss-space-3); min-width: 0; border: 1px solid var(--ss-border); border-radius: var(--ss-radius-m); background: var(--ss-tile); }
+.ahead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.ahead .nm { font-weight: 800; font-size: 17px; line-height: 1.3; overflow-wrap: anywhere; }
+.ahead .reply { margin-left: auto; color: var(--ss-muted); font-size: 14px; white-space: nowrap; }
+.band { gap: 5px; font-weight: 800; white-space: nowrap; }
+.band.kept { color: var(--ss-good); border-color: var(--ss-good); }
+.band.adjusted { color: var(--ss-warn); border-color: var(--ss-warn); }
+.band.dropped { color: var(--ss-bad-text, var(--ss-bad)); border-color: var(--ss-bad); }
+.became, .dropped { margin: 0; line-height: 1.45; overflow-wrap: anywhere; }
+.changes { display: grid; gap: 8px; }
+.cr { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 10px; line-height: 1.4; }
+.cr .k { color: var(--ss-muted); }
+.cr .v { overflow-wrap: anywhere; }
+.cr .from, .cr .arr { color: var(--ss-muted); }
+.cr .arr { padding: 0 4px; }
+.cr .to { font-weight: 800; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.nowrote { border-top: 1px solid var(--ss-border); }
+.why-body { display: grid; gap: 12px; padding: 4px 0 12px; }
+.why-body p, .why-body ul { margin: 0; }
+.why-body .raw { font-size: 14px; line-height: 1.5; padding: 10px 12px; border-radius: var(--ss-radius-s); background: var(--ss-tile); }
+.why-body .mono { font-family: ui-monospace, monospace; overflow-wrap: anywhere; white-space: pre-wrap; }
+.why-body ul { padding-left: 20px; display: grid; gap: 6px; line-height: 1.45; }
+.why-body .nt { font-weight: 700; }
+@container rb-screen (min-width: 760px) {
+  .adj-head, .adj-row { display: grid; grid-template-columns: 15% 28% 29% 11% minmax(0, 1fr); gap: 0 12px; align-items: start; }
+  .adj-head { padding: 10px 12px; color: var(--ss-muted); font-weight: 700; font-size: 15px; border-bottom: 1px solid var(--ss-border); }
+  .adj-row { border: 0; border-top: 1px solid var(--ss-border); border-radius: 0; background: transparent; padding: 14px 12px; }
+  .ahead { display: contents; }
+  .ahead .nm { grid-column: 1; grid-row: 1; }
+  .ahead .reply { grid-column: 1; grid-row: 2; margin: 2px 0 0; font-weight: 400; }
+  .ahead .band { grid-column: 4; grid-row: 1; justify-self: start; }
+  .became { grid-column: 2; grid-row: 1 / span 2; }
+  .changes, .dropped { grid-column: 3; grid-row: 1 / span 2; }
+  .cr { grid-template-columns: 72px minmax(0, 1fr); }
+  .nowrote { grid-column: 5; grid-row: 1; border-top: 0; position: relative; }
+  .nowrote .why-body { position: absolute; right: 0; top: 100%; width: 440px; max-width: 80vw; z-index: 5; padding: 14px; border: 1px solid var(--ss-border); border-radius: var(--ss-radius-m); background: var(--ss-glass-strong, var(--ss-tile)); }
+}
 `);
 
 export const questsScreen = Object.freeze({

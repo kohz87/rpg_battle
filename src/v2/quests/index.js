@@ -2,6 +2,8 @@
 import { replayOpening } from './opening.js';
 import { replayOffer } from './offer-plan.js';
 import { OFFERS_FEATURE } from './offer-feature.js';
+import { OFFER_DEFAULTS, OFFER_SCHEMA } from './offer-settings.js';
+import { offerCard } from './offer-card.js';
 import { createSettlement } from './settlement.js';
 import { createCommands } from './commands.js';
 import { createQueries } from './queries.js';
@@ -25,11 +27,16 @@ export function createQuestPart(policy = {}) {
     policy = { ...policy, ...createSettlement(policy), ...objectives };
     // One replayGuard for the part: an objective's guard first, every other quest guard as before.
     const replayGuard = policy.replayGuard && ((env, info) => replayOffer(env, info) ?? replayOpening(env, info) ?? objectives.replayObjective(env, info) ?? policy.replayGuard(env, info));
-    return { context: { static: () => QUEST_STATIC, tail: questTail, budget: 250 }, replayQueries: ['quest.replayInputs'], domains: {}, commands: createCommands(policy), queries: createQueries(policy),
+    // The rules block of Jobs from the story is a piece under the feature: Story Block leaves it out while the feature is off, and so does it when the
+    // piece answers nothing (an unpinned chat, a pin with no open quest template): every such chat keeps the static bytes it had.
+    const offerPiece = { feature: OFFERS_FEATURE, static: ({ settings = {}, query = null } = {}) => {
+        try { return query('quest.offerBlock', { ranks: settings.offerGuideRanks, examples: settings.offerGuideExamples }) ?? ''; } catch { return ''; }
+    } };
+    return { context: { static: () => QUEST_STATIC, tail: questTail, budget: 250, parts: [offerPiece] }, replayQueries: ['quest.replayInputs'], domains: {}, commands: createCommands(policy), queries: createQueries(policy),
         kinds: { quest: { grammar: QUEST_GRAMMAR, apply: createCapture(policy) } },
         features: [Object.freeze({ id: OFFERS_FEATURE, label: 'Jobs from the story', default: true, prompt: true,
             describe: 'The narrator may offer a job or a teacher in its own words; code picks the template, rank, count, coin, XP, deadline and fee inside the pack\'s limits and tells the narrator the terms. Off: only the frozen forms, as before.' })],
-        settings: { defaults: { followLadder: true }, schema: { followLadder: { type: 'bool', label: 'Quest ranks follow the rank ladder' } } },
-        ...(replayGuard ? { hooks: { replayGuard, afterCapture: questCreditHook, beforeGenerate: questExpiryHook } } : {}) };
+        settings: { defaults: { followLadder: true, ...OFFER_DEFAULTS }, schema: { followLadder: { type: 'bool', label: 'Quest ranks follow the rank ladder' }, ...OFFER_SCHEMA } },
+        hooks: { ...(replayGuard ? { replayGuard, afterCapture: questCreditHook, beforeGenerate: questExpiryHook } : {}), replyCard: Object.assign(info => offerCard(info), { feature: OFFERS_FEATURE }) } };
 }
 export const part = createQuestPart();

@@ -9,10 +9,11 @@ import { areaPolicyNow } from '../rules/items.js';
 import { offeredQuest } from './outcomes.js';
 import { ladderFrom } from './ranks.js';
 import { ask, boundary, call, freshThreadId, guardQuestInputs, pinned, recordQuestInputs, templates, threadOf, writeId } from './seams.js';
-import { MATCHER, flat, farLineOf, settledTerms } from './offer-bands.js';
+import { FAR_TOLD, MATCHER, flat, farLineOf, settledTerms, shownOf } from './offer-bands.js';
 import { matchOffer, offerKey, NAME_CHARS } from './offer-match.js';
 import { KIND, planOffer } from './offer-plan.js';
 import { templateBinding } from './opening.js';
+import { settingInt } from './offer-settings.js';
 
 /** Story Director's own limits on new threads: per reply, and open in all. */
 const NEW_PER_REPLY = 16;
@@ -90,9 +91,11 @@ function farOut(ctx, line, result, env) {
     if (!Object.hasOwn(ctx.read('rules').declined ?? {}, id)) {
         const [, reason, suggestion] = /\((.*)\)\. Let it stay as talk or a rumour; if a job is wanted, offer (.*)\.$/.exec(text) ?? [];
         call(ctx, 'rules.recordOffer', { write: writeId(ctx, `declined:${id}`), declined: id, record: { v: 1, matcher: MATCHER, sid: ctx.source.sid, name: flat(result.name, NAME_CHARS),
-            reason: flat(reason ?? '', 200), suggestion: flat(suggestion ?? '', 200), band: 'far' } });
+            reason: flat(reason ?? '', 200), suggestion: flat(suggestion ?? '', 200), band: 'far', kind: 'job', said: result.said ?? {} } });
     }
-    return { summary: text, narrate: true, data: { declined: id, band: 'far', why: result.why } };
+    // Two far-out lines of a reply are told; more are counted in the tail.
+    const told = Object.values(ctx.read('rules').declined ?? {}).filter(row => row.sid === ctx.source.sid).length <= FAR_TOLD;
+    return { summary: text, narrate: told, data: { declined: id, band: 'far', why: result.why } };
 }
 
 /** Writes an offer the matcher (or an earlier read) settled: the guard, the thread with its quest, and the record. */
@@ -132,9 +135,11 @@ function commitOffer(ctx, line, env, result) {
     ctx.replayGuard({ ...guard, replyBound: true }, { external, ladderRow: env.ladder.find(row => String(row.id).toLowerCase() === String(settled.rank).toLowerCase()) ?? null,
         level: env.level, now: env.nowMinutes });
     call(ctx, 'rules.recordOffer', { write: writeId(ctx, `record:${id}`), thread: id, record: { v: 1, matcher: result.matcher ?? MATCHER, line: hash16(ctx, { raw: line.raw }),
-        sid: source.sid, name: title, said: result.said, settled, band: result.band, notes: result.notes, where: result.where } });
+        sid: source.sid, name: title, said: result.said, settled, band: result.band, notes: result.notes, where: result.where, shown: shownOf(result, env.currency) } });
+    // The terms of the first few jobs of a reply are told next turn; the rest are only counted, in the tail (quests/prompt.js).
+    const told = mine < settingInt(ctx.settings?.(), 'offerTermsPerReply', 1, 6);
     const terms = settledTerms(result, title, env.currency);
-    return { receipt: { summary: terms, narrate: true, data: { quest: id, reward: quest.reward, band: result.band, notes: result.notes } } };
+    return { receipt: { summary: terms, narrate: told, data: { quest: id, reward: quest.reward, band: result.band, notes: result.notes } } };
 }
 
 /** What a read of the line comes to: a receipt, or a refusal when it cannot be an offer (the world no longer lets a settled one be made). */

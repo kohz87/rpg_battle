@@ -21,7 +21,8 @@ test('a free-form line offers a teacher: the template matched by its words, the 
         const offer = only(w);
         assert.deepEqual([offer.by, offer.template, offer.place, offer.name], ['story', 'pack.fixture/drills', HAVEN, 'Old Reka']);
         assert.ok(offer.fee >= 10 && offer.fee <= 40);
-        assert.deepEqual([offer.settled.band, offer.settled.matcher, offer.settled.notes, offer.settled.feeBy], ['within', 1, [], undefined]);
+        assert.deepEqual([offer.settled.band, offer.settled.matcher, offer.settled.feeBy], ['within', 1, undefined]);
+        assert.deepEqual(offer.settled.notes, [`fee ${offer.fee} gold (rolled)`], 'the log says the fee was rolled');
         assert.equal(offer.settled.sid, spans(w)[0].source.sid);
         assert.match(offer.settled.line, /^[0-9a-f]{16}$/);
         const [span] = spans(w);

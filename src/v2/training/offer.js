@@ -2,6 +2,7 @@
 // matching it to one of the pin's open trainer templates. `matchTrainer` is pure and called once, live, at capture; the unchanged `planTrainer`
 // then decides everything else (the place, the name, the die). Nothing here asks a query: everything it reads is in `env`.
 
+import { saidOf } from '../quests/offer-match.js';
 import { MATCHER, bandOf, flat, hold, keepNotes, NOTE } from '../quests/offer-bands.js';
 import { parseReward } from '../quests/parse.js';
 import { defaultRank } from '../quests/ranks.js';
@@ -49,7 +50,7 @@ export function matchTrainer(env, line) {
     const entries = Object.hasOwn(labels, 'teaches') ? teachesOf(flat(labels.teaches, 240)) : [];
     const likeKey = flat(labels.like ?? '', NAME_MAX).split(/\s+[—–-]\s+/)[0].trim();
     const extra = flat(labels.like ?? '', NAME_MAX).split(/\s+[—–-]\s+/).slice(1).join(' ');
-    const said = { name, ...(text ? { text } : {}), ...(entries.length ? { teaches: entries.join(', ') } : {}), ...(labels.fee ? { fee: flat(labels.fee, NAME_MAX) } : {}), ...(likeKey ? { like: likeKey } : {}) };
+    const said = saidOf(line, 'text');
     const notes = [];
     const templates = ix => ix.trainerTemplates;
     const all = templates(env.ix);
@@ -69,6 +70,9 @@ export function matchTrainer(env, line) {
         const near = row => { const at = rankIndex(row.entry); return at < 0 ? 1e6 : at <= partyIndex ? partyIndex - at : 1e3 + (at - partyIndex); };
         template = scored.filter(row => row.shared === best).sort((a, b) => near(a) - near(b) || a.order - b.order)[0].entry;
     }
+    // Said in the narrator's words, found by the template's: the log shows the match (the template's own name needs no note).
+    const asked = flat([text, extra].filter(Boolean).join(' ') || entries.join(', '), 80);
+    if (!(likeKey && templateOfLike(env.ix, likeKey)) && asked && lower(asked) !== lower(template.name)) notes.push(NOTE.matched(template.name, asked));
 
     let skills = null;
     if (entries.length) {
@@ -89,7 +93,7 @@ export function matchTrainer(env, line) {
             notes.push(foreign ? NOTE.feeForeign(flat(read.text, 60)) : NOTE.feeUnreadable(flat(read.text, 60)));
         } else if (read) {
             const held = hold(read.amount, template.fee.coinMin, template.fee.coinMax);
-            if (held.far) return { kind: 'far', name, why: 'fee', written: read.amount, max: template.fee.coinMax, template: template.name };
+            if (held.far) return { kind: 'far', name, why: 'fee', written: read.amount, max: template.fee.coinMax, template: template.name, said };
             fee = { value: held.value, by: 'said' };
             if (held.moved) {
                 moved = true;

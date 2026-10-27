@@ -19,6 +19,9 @@ export const TRAINER_GRAMMAR = `${SHAPE}. ${CLOSING}`;
 /** How many template names the line lists before "and N more". */
 export { LISTED_TEMPLATES };
 
+/** The line while Jobs from the story shows its rules block (GENERATIVE_OFFERS_SPEC §2.4): the block says how to write a teacher, so no template is named. */
+export const FREE_FORM_GRAMMAR = '+ trainer Name — what they teach [| teaches: skill, skill] [| fee: amount]. Code picks the lessons, fee and place.';
+
 /** The line shown to the narrator for a ruleset's templates (slugs in the pack's order). One line, the same on every reply of a chat. */
 export function trainerGrammar(templates) {
     const slugs = (templates ?? []).map(entry => String(entry.id).split('/')[1]).filter(Boolean);
@@ -28,7 +31,13 @@ export function trainerGrammar(templates) {
 
 /** The kind's `grammarFor(settings, query)`: the templates of the pinned ruleset, through the part's own query. */
 export function trainerGrammarFor(_settings, query) {
+    if (typeof query === 'function' && blockShown(query)) return FREE_FORM_GRAMMAR;
     return trainerGrammar(typeof query === 'function' ? query('training.openTemplates', {}) : []);
+}
+
+/** Whether the rules block of Jobs from the story is shown: the feature is on and the pin has an open quest template (a query of the feature answers null while it is off). */
+function blockShown(query) {
+    try { return query('quest.offerBlockOn', {}) === true; } catch { return false; }
 }
 
 /** The kind's `when(query)`: the chat pins rules and the ruleset has a template. A host that cannot answer gives false. */

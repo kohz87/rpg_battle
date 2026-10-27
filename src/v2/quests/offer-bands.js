@@ -9,6 +9,8 @@ export const MATCHER = 1;
 
 /** A number written more than FAR times its maximum is far out: no offer. One constant, as the spec has it. */
 export const FAR = 3;
+/** How many far-out lines one reply tells; the rest are counted ("…and N more offers were not possible."). */
+export const FAR_TOLD = 2;
 export const BAND_WITHIN = 'within';
 export const BAND_MODERATE = 'moderate';
 export const BAND_FAR = 'far';
@@ -58,6 +60,8 @@ export const NOTE = Object.freeze({
     feeSet: (fee, currency) => `fee set to ${money(fee, currency)}`,
     feeForeign: text => `fee "${text}" is not this chat's money; the fee is rolled instead`,
     feeUnreadable: text => `fee "${text}" has no amount code can read; the fee is rolled instead`,
+    matched: (template, asked) => `matched ${template} (${asked})`,
+    feeRolled: fee => `fee ${fee} (rolled)`,
     skillDropped: (skill, template) => `${skill} is not taught by ${template}`,
 });
 
@@ -107,4 +111,14 @@ export function settledTerms(result, name, currency) {
 /** The far-out line (§8.2) of a far decision of the matchers (`why`: reward, fee, done, already, elsewhere). */
 export function farLineOf(far, currency) {
     return farLine({ name: far.name, ...FAR_REASON[far.why](far, currency) });
+}
+
+/**
+ * What the card and the Adjustments log show of an offer without asking for the currency again (it is not in the state): the objective, the coin and the
+ * deadline in words, worked out once at capture and kept with the record.
+ */
+export function shownOf(result, currency) {
+    const { settled } = result;
+    const objective = settled.foe ? `kill ${settled.count} ${settled.foe.name}` : settled.item ? `bring ${settled.count} ${settled.item.name}` : settled.place ? `go to ${settled.place.name}` : settled.text;
+    return { objective: cut(objective, 120), coin: cut(money(settled.coin, currency), 40), deadline: settled.durationMinutes === null ? '' : durationText(settled.durationMinutes) };
 }
