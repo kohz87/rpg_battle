@@ -33,5 +33,8 @@ export function boundsOf(all, template) {
     return { min, max, own };
 }
 
-/** The deadline range of a template: from an hour to its own duration, else to 30 days. */
-export const durationRange = template => [SHORTEST_MINUTES, Number.isSafeInteger(template?.durationMinutes) ? template.durationMinutes : LONGEST_MINUTES];
+/** The deadline range of a template: from an hour (or its own duration when that is shorter) to its own duration, else to 30 days. */
+export const durationRange = template => {
+    const longest = Number.isSafeInteger(template?.durationMinutes) ? template.durationMinutes : LONGEST_MINUTES;
+    return [Math.min(SHORTEST_MINUTES, longest), longest];
+};

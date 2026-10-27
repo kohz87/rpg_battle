@@ -31,11 +31,11 @@ export const ixOf = pin => indexOf({ ...structuredClone(rules.pin), resolved: pi
  * danger tier at the place, or null for unknown; `clock`: whether the story clock is set; `threads`: [{ key, state }] RPG quests the director holds;
  * `declined`: offer keys with a far-out decision on record.
  */
-export function env({ level = 3, currency = COPPER, tier = 0, clock = true, pin = PIN, threads = [], declined = [], words = null } = {}) {
+export function env({ level = 3, currency = COPPER, tier = 0, clock = true, pin = PIN, threads = [], declined = [], words = null, questOrder = null } = {}) {
     const ix = pin === PIN ? IX : ixOf(pin);
     const active = [{ id: 'ac_test0001', level: level ?? 1, class: `${PACK_KEY}/militiaman`, stats: {} }];
     return {
-        pin, ix, ladder: LADDER, level, currency, order: ORDER, clock, here: PLACE, words: words ?? pin.resolved.manifest.offerWords ?? null,
+        pin, ix, ladder: LADDER, level, currency, order: ORDER, questOrder, clock, here: PLACE, words: words ?? pin.resolved.manifest.offerWords ?? null,
         area: { place: VILLAGE, tier, source: tier === null ? 'unknown' : 'world', sourceId: null, scale: 1, allowedFoes: [], allowedTags: [] },
         inputs: { party: { pc: 'ac_test0001', active }, flags: { values: {} }, threads: [], items: [], activeActors: ['ac_test0001'], proofs: [], place: PLACE },
         thread: name => {

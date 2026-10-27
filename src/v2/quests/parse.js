@@ -291,6 +291,23 @@ export function coinPhrase(written, word) {
     return next && !PHRASE_STOP.has(next.toLowerCase()) ? `${word} ${next}` : word;
 }
 
+// Written numbers an offer's money is read from (`amountWords`): digit groups are one number ("1,000 gold", "2.500 copper", "1 000 gold"), and a decimal,
+// a fraction or a sign ("1.5 gold", "½ gold", "1/2 gold", "-5 gold") is no whole amount code can read: it is never read as a different number.
+const FRACTIONS = '½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞';
+function groupedDigits(text, currency) {
+    return String(text)
+        .replace(/(?<![\d.,])([1-9]\d{0,2}(?:,\d{3})+)(?!\d|[.,]\d)/g, found => found.replace(/,/g, ''))
+        .replace(/(?<![\d.,])([1-9]\d{0,2}(?:\.\d{3})+)(?!\d|[.,]\d)/g, found => found.replace(/\./g, ''))
+        .replace(new RegExp(`(?<![\\d.,])([1-9]\\d{0,2}(?:[ \u00a0\u202f]\\d{3})+)(?=\\s*${coinWords(currency)}(?![\\p{L}]))`, 'giu'), found => found.replace(/[ \u00a0\u202f]/g, ''));
+}
+/** The first written number in front of a coin word that is not a whole one ("1.5", "1/2", "½", "-5"), or ''. */
+function oddAmount(text, currency) {
+    const number = `[-−+]?\\s?(?:\\d+(?:[.,]\\d+)*(?:\\s?\\d+[\\/\u2044]\\d+)?|\\d*[${FRACTIONS}]|\\d+[\\/\u2044]\\d+)`;
+    const found = [...String(text).matchAll(new RegExp(`(?<![\\p{L}\\d.,])(${number})\\s*${coinWords(currency)}(?![\\p{L}])`, 'giu'))]
+        .find(match => /^[-−+]/.test(match[1]) || /[.,\/\u2044]/.test(match[1]) || new RegExp(`[${FRACTIONS}]`).test(match[1]));
+    return found ? clean(found[1]) : '';
+}
+
 /**
  * A reward from the `reward:` label, else from the goal text:
  * `{ amount, each, unit, text, per }` — `amount` a whole number of the chat's one currency, in its
@@ -304,12 +321,18 @@ export function coinPhrase(written, word) {
  * currency words to the coin words; `options.amountWords` reads an amount phrase ("a dozen crowns", "a handful of silver") as its digits first.
  */
 export function parseReward(fields = {}, summary = '', { currency = null, amountWords = false } = {}) {
-    const spelled = value => clean(amountWords ? amountDigits(value) : value);
+    const spelled = value => clean(amountWords ? groupedDigits(amountDigits(value), currency) : value);
     const label = spelled(fields.reward);
     if (/^(?:none|nothing|no reward|unpaid)\.?$/i.test(label)) return { amount: 0, each: false, unit: '', text: label, per: '' };
     const sources = label ? [label] : [fields.goal, fields.desc, summary].map(spelled).filter(Boolean);
     const pattern = rewardPattern(currency);
     for (const text of sources) {
+        // A written number that is no whole amount: a label with one is unreadable (never a different number); in the goal it is no pay.
+        const odd = amountWords ? oddAmount(text, currency) : '';
+        if (odd) {
+            if (text === label) return { amount: null, each: false, unit: '', text: label, per: '', problem: `"${odd}" is not a whole amount code can read.` };
+            continue;
+        }
         const bare = text === label ? BARE_REWARD.exec(text) : null;
         const match = bare ? [bare[0], bare[1], bare[2], bare[3], bare[4]] : pattern.exec(text);
         if (!match) continue;

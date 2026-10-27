@@ -68,14 +68,30 @@ export const NOTE = Object.freeze({
 /** Notes as stored: flat, cut, at most NOTES_MAX, none twice. */
 export const keepNotes = list => [...new Set(list.map(note => flat(note, NOTE_CHARS)).filter(Boolean))].slice(0, NOTES_MAX);
 
-/** `Posted job: …` (§8.1): the settled terms, told once on the reply after the offer. */
+/** `text` held to `max` characters with an ellipsis. */
+const shorten = (text, max) => ([...text].length <= max ? text : `${cut(text, Math.max(0, max - 1)).trimEnd()}…`);
+/** The shortest a name, a giver or a place is made to get a line to fit. */
+const FLOOR = 8;
+/**
+ * `text` built from `parts` (an object the builder reads) held to `max` characters. `steps` are `[key, shortest]`: each piece is cut only as far as the line is
+ * over, down to its shortest, in that order, so the terms that follow (the pay, the fight line, the closing sentence) always stay whole.
+ */
+function fitted(build, parts, steps, max) {
+    let text = build(parts);
+    for (const [key, shortest] of steps) {
+        const over = [...text].length - max;
+        if (over <= 0) break;
+        parts[key] = shorten(parts[key], Math.max(shortest, [...parts[key]].length - over));
+        text = build(parts);
+    }
+    return [...text].length > max ? cut(text, max) : text;
+}
+
+/** `Posted job: …` (§8.1): the settled terms, told once on the reply after the offer. The long free text is cut (the place, the giver and the name first, to a fair length, then the objective), never the terms. */
 export function termsLine({ name, giver = null, objective, deadline = null, coin, xp, where = '', fight = '' }, currency) {
-    const head = `Posted job: ${name}${giver ? ` (from ${giver})` : ''}: `;
-    const tail = `${deadline ? ` within ${deadline}` : ''}; pays ${money(coin, currency)} and ${xp} XP, turned in at ${where || 'a settlement'}.${fight ? ` Fight ${fight.count > 1 ? 'them' : 'it'} as ${fight.line}.` : ''} These are the terms from now on; nobody in the scene has to restate them.`;
-    // The line is cut to size by shortening the objective, which is the narrator's own long text; the terms after it always stay whole.
-    const room = TERMS_CHARS - [...head].length - [...tail].length;
-    const shown = [...objective].length > room ? `${cut(objective, Math.max(0, room - 1)).trimEnd()}…` : objective;
-    return cut(`${head}${shown}${tail}`, TERMS_CHARS);
+    const closing = ' These are the terms from now on; nobody in the scene has to restate them.';
+    const build = p => `Posted job: ${p.name}${p.giver ? ` (from ${p.giver})` : ''}: ${p.objective}${deadline ? ` within ${deadline}` : ''}; pays ${money(coin, currency)} and ${xp} XP, turned in at ${p.where || 'a settlement'}.${fight ? ` Fight ${fight.count > 1 ? 'them' : 'it'} as ${fight.line}.` : ''}${closing}`;
+    return fitted(build, { name, giver: giver ?? '', objective, where }, [['where', 30], ['giver', 30], ['name', 40], ['objective', FLOOR], ['where', FLOOR], ['giver', FLOOR], ['name', FLOOR]], TERMS_CHARS);
 }
 
 /** The reasons a job cannot be offered (§8.2): `{ reason, suggestion }` for the far-out line. */
@@ -88,9 +104,10 @@ export const FAR_REASON = Object.freeze({
 });
 
 /** `Earlier, … was mentioned …` (§8.2): the one retcon line for a far-out offer. */
-export function farLine({ name, reason, suggestion }) {
-    return cut(`Earlier, ${name} was mentioned as a job, but it isn't one that can be offered here (${reason}). Let it stay as talk or a rumour; if a job is wanted, offer ${suggestion}.`, FAR_CHARS);
+export function farLine(parts) {
+    return cut(farText(parts), FAR_CHARS);
 }
+const farText = ({ name, reason, suggestion }) => `Earlier, ${name} was mentioned as a job, but it isn't one that can be offered here (${reason}). Let it stay as talk or a rumour; if a job is wanted, offer ${suggestion}.`;
 
 /** The fight line the terms name (§5.4): `! encounter 6 Culvert Rats | like: cellar-rat-swarm` for a named kind, `! encounter 4 Fen Wolf` for a pack foe. */
 export function encounterLine(foe, count) {
@@ -110,7 +127,8 @@ export function settledTerms(result, name, currency) {
 
 /** The far-out line (§8.2) of a far decision of the matchers (`why`: reward, fee, done, already, elsewhere). */
 export function farLineOf(far, currency) {
-    return farLine({ name: far.name, ...farReasonOf(far, currency) });
+    const build = p => farText({ name: p.name, ...farReasonOf({ ...far, name: p.name, where: p.where }, currency) });
+    return fitted(build, { name: far.name, where: far.where ?? '' }, [['name', FLOOR], ['where', FLOOR]], FAR_CHARS);
 }
 
 /** The reason and the suggestion of a far decision, as the far-out line and the declined record both keep them: `{ reason, suggestion }`. */

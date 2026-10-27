@@ -47,8 +47,8 @@ export function readLine(line) {
         return '';
     };
     const name = flat(line.name, NAME_CHARS);
-    const goalFrom = [labels.goal, labels.text, line.text].find(value => String(value ?? '').trim());
-    const goal = flat(goalFrom ?? name, GOAL_CHARS);
+    // The first of the goal, the text and the dash text that is something once flattened ("\u0007" is nothing); the name stands in for a goal that is not.
+    const goal = [labels.goal, labels.text, line.text].map(value => flat(value, GOAL_CHARS)).find(Boolean) || name;
     const unused = Object.keys(labels).filter(key => !KNOWN.has(key));
     return {
         name, goal, goalLabelled: [labels.goal, labels.text].some(value => String(value ?? '').trim()), unused,
@@ -157,11 +157,26 @@ function fightable(env, foe, area) {
     return checked.ok ? { ok: true } : { ok: false, code: checked.code };
 }
 
+// The longest variant name: the encounter reader takes 48 characters of "NN Name", so 45 leave room for a two-digit count and the space.
+const VARIANT_CHARS = 45;
+// Tokens a variant name is never made of: a level or a rank word, a number, an ordinal.
+const STRAY = /^(?:level|lvl|lv|rank|tier|\d+(?:st|nd|rd|th)?|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)$/iu;
+/** `name` held to `max` characters, cut at a word boundary when it has one (a long word is cut where it stands). */
+function fitName(name, max) {
+    if ([...name].length <= max) return name;
+    const cut = [...name].slice(0, max).join('');
+    const space = cut.lastIndexOf(' ');
+    return (space > 0 ? cut.slice(0, space) : cut).trim();
+}
+
 /** The named variant of a foe for a phrase nothing matched (§4.3 step 5): `{ row, foe, name }` or null. */
 function variantFor(env, foes, phrase, hintIndex, area) {
-    const words = phraseWords(phrase);
+    // A name made of stray tokens ("level 5", "second", numbers) is no kind of foe; and it must fit the told encounter line "! encounter NN Name" (48 characters).
+    const kept = String(phrase ?? '').split(/\s+/).filter(word => word && !STRAY.test(word.replace(/[^\p{L}\p{N}]/gu, '')));
+    const words = phraseWords(kept.join(' '));
     if (!words.length) return null;
-    const name = titleCase(phrase, NAME_CHARS);
+    const name = fitName(titleCase(kept.join(' ').replace(/[<>|\p{Cc}]/gu, ' ').replace(/\s+/g, ' ').trim(), NAME_CHARS), VARIANT_CHARS);
+    if (!name) return null;
     const shared = row => new Set([...row.names.flat(), ...row.tags].filter(word => words.includes(word))).size;
     const near = foes.map(row => ({ row, shared: shared(row) })).filter(entry => entry.shared > 0)
         .sort((a, b) => b.shared - a.shared || distance(rankIndex(env.ladder, levelOf(env, a.row)?.id), hintIndex) - distance(rankIndex(env.ladder, levelOf(env, b.row)?.id), hintIndex)
@@ -199,6 +214,18 @@ function templated(rows, index) {
     return below.length ? below.at(-1) : rows[0];
 }
 
+// The words that say what a job pays; the amount after one is the reward (§4.7). The tail starts at the first marker that is followed by an amount.
+const PAY_MARKER = /(?:^|[^\p{L}])(?:pays?|paying|paid|reward\s+of|reward|worth|bounty\s+of|for)\s+(?:(?:about|around|roughly|up\s+to|a\s+total\s+of|at\s+least)\s+)?/giu;
+function payTail(goal) {
+    const text = amountDigits(String(goal ?? ''));
+    for (const marker of text.matchAll(PAY_MARKER)) {
+        const tail = text.slice(marker.index + marker[0].length);
+        const first = /^[\p{L}\d]+/u.exec(tail)?.[0]?.toLowerCase();
+        if (first && (/^\d/.test(first) || Object.hasOwn(NUMBER_WORDS, first))) return tail;
+    }
+    return '';
+}
+
 /**
  * Reads and settles one `+ quest` line.
  *   env  { pin, ix, ladder, level, area, currency, inputs, clock, here, words, order }
@@ -229,7 +256,9 @@ export function matchOffer(env, line) {
         return { kind: 'far', name: read.name, why: 'done', said };
     }
     const all = templates(env.pin);
-    const open = all.filter(template => template.open === true && ['story', 'kill', 'collect', 'visit'].includes(kindOf(template)));
+    // "First in pack order" is the pack's own order (`env.questOrder`); the pin sorts its templates by id, which stands for any the order does not name.
+    const placeOf = template => { const at = (env.questOrder ?? []).indexOf(template.id); return at < 0 ? Number.MAX_SAFE_INTEGER : at; };
+    const open = all.filter(template => template.open === true && ['story', 'kill', 'collect', 'visit'].includes(kindOf(template))).sort((a, b) => placeOf(a) - placeOf(b));
     if (!open.length) return refuse('RULES_MISMATCH', 'This world has no open job template for that.');
     const ladder = env.ladder;
     const rows = templatedRows(env, open);
@@ -285,6 +314,9 @@ export function matchOffer(env, line) {
     let storyWhy = null;
     let rankIdx = hintIndex;
     let foeRank = null;
+
+    // A story task counts no foe, item or place: the labels that name one are said not to have been used.
+    if (kind === 'story') for (const [label, written] of [['foe', read.foeLabel], ['item', read.itemLabel], ['place', read.placeLabel]]) if (written) notes.push(NOTE.unused(label));
 
     if (kind === 'kill') {
         const foes = foesOf(env);
@@ -394,8 +426,11 @@ export function matchOffer(env, line) {
     const formula = formulaAt(range.coinMin, range.coinMax, tier);
     let coin = formula;
     let coinBy = 'formula';
-    const reward = parseReward({ reward: read.reward, goal: read.goal }, '', { currency: env.currency, amountWords: true });
-    if (reward) {
+    // A `reward:` label is the reward. Without one a coin-word amount in the goal ("Deliver 12 silver spoons") is the goods, not the pay: it counts only after
+    // a pay marker ("pays 40 copper", "for 3 gold"), and then it is held to the range and never goes far out.
+    const reward = parseReward({ reward: read.reward, goal: read.reward ? read.goal : payTail(read.goal) }, '', { currency: env.currency, amountWords: true });
+    const fromGoal = !read.reward;
+    if (reward && !(fromGoal && reward.amount === null)) {
         if (reward.amount === null) {
             moved = true;
             const foreign = /is not this chat's money|is not a coin here/.test(reward.problem ?? '');
@@ -403,7 +438,7 @@ export function matchOffer(env, line) {
         } else {
             const total = reward.each && count !== null ? reward.amount * count : reward.amount;
             const held = hold(total, range.coinMin, range.coinMax);
-            if (held.far) return { kind: 'far', name: read.name, why: 'reward', written: total, max: range.coinMax, rank: rankRow.id, said };
+            if (held.far && !fromGoal) return { kind: 'far', name: read.name, why: 'reward', written: total, max: range.coinMax, rank: rankRow.id, said };
             coin = held.value;
             coinBy = 'said';
             if (held.moved) {

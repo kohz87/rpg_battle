@@ -49,12 +49,15 @@ function liveEnv(ctx, pin, ix) {
     const minutes = ask(ctx.query, 'director.time')?.minutes;
     const creatures = ask(ctx.query, 'packs.content', { kind: 'creatures', pack: packKey });
     const declined = declinedOf(rules);
+    const quests = ask(ctx.query, 'packs.content', { kind: 'quests', pack: packKey });
     return {
         pin, ix, ladder: ladderOf(ctx, pin, packKey), level: Number.isSafeInteger(level) ? level : null, area: areaPolicyNow(ctx.query),
         currency: ask(ctx.query, 'inventory.currency'), clock: Number.isSafeInteger(minutes), nowMinutes: Number.isSafeInteger(minutes) ? minutes : null,
         here: typeof here?.id === 'string' && here.id ? { id: here.id, name: typeof here.name === 'string' ? here.name : '' } : null,
         words: pin.resolved.manifest?.offerWords ?? null,
         order: Array.isArray(creatures) ? creatures.map(record => record?.id ?? (record?.slug ? `pack.${packKey}/${record.slug}` : null)).filter(Boolean) : [],
+        // The pack's own order of its quest templates (the pin keeps them sorted by id); a pack that is not installed has none and the id order stands.
+        questOrder: Array.isArray(quests) ? quests.map(record => record?.id ?? (record?.slug ? `pack.${packKey}/${record.slug}` : null)).filter(Boolean) : [],
         inputs: guardQuestInputs(ctx.query, null, {}),
         thread: name => threadOf(ctx.query, { key: name }),
         placeOf: asked => ask(ctx.query, 'atlas.canonical', { id: asked }) ?? ask(ctx.query, 'atlas.canonical', { name: asked }),
