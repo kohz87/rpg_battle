@@ -9,7 +9,8 @@ Ships together with **Story Block 2.5.0** (count bounds on open objectives, foe 
 - **Reply card and Adjustments.** One "Posted:" line per offer, with an Adjusted flag and one short reason; the Quests page ends with a collapsed **Adjustments (n)** list (what the narrator wrote, what code settled, the notes).
 - **Decided once, kept with the reply.** Delete, swipe, Re-read, rebuild and reload give the same job; the matcher version is recorded with each offer, so a later change of the reading rules never moves a job already offered.
 - **Template choice by type.** A pack's open template can name the job type it is for (`offerType`); the written type then picks it among templates of the same kind and rank. Templates without it are chosen as before.
-- Amounts in words ("twelve crowns") are read by the quest parser.
+- Amounts in words ("twelve crowns") are read by the quest parser; for a job or a teacher's fee, digit groups ("1,000 copper") are one number and a decimal, a fraction or a sign ("1.5 gold", "½", "-5") is an amount code cannot read, never another number. A coin word in a goal counts as pay only after "pays", "for", "reward of", "worth" or "bounty of".
+- **The rules block is made from the installed pack.** Its ranks, foes and examples are read from the pack when it is installed, so disabling or removing the pack mid-chat changes the block (the pin's templates still decide every job). The record of what was offered lives in the chat itself.
 
 ### Upgrading from 2.2
 

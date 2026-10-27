@@ -1,6 +1,6 @@
 # Generative offers: implementation spec
 
-Status: **draft for review.** RPG Battle 2.3.0 (RB) builds the core below, with a minimal Story Block 2.5.0 (SB) schema change
+Status: **approved** (27 Oct; the decisions at the end take precedence). RPG Battle 2.3.0 (RB) builds the core below, with a minimal Story Block 2.5.0 (SB) schema change
 shipped beside it. Story Director (SD), Story Studio and NPC State Delta (NSD) get no code change. Everything said here about
 today's behaviour was checked against these commits (fresh clones, 27 Oct):
 
@@ -841,3 +841,9 @@ SB `node authoring-kit/check.mjs examples/packs/ersveil-bluewatch/pack.json`, `n
   whose `offerType` equals the type read from the line (§3.2); else the first of that kind and rank as before; lower ranks and
   the story fallback follow the same preference. `like:` is unchanged. Templates without `offerType` (all 2.2.0-era pins,
   Bluewatch 1.6.0) behave exactly as before.
+- Records are keys of the `rules` slice (`offer.<th_id>`, `declined.<dk_id>`), not entries of `rules.offers` / `rules.declined`: a chat pinned before
+  2.3.0 has no such map, and a map made by the first offer's reply would take every later record's parent with it when that reply is deleted or swiped.
+  Read through `offersOf` / `declinedOf`; at most 50 far-out decisions are kept (a further one is told but not recorded).
+- A pay in a goal counts only after a pay marker (pays, paying, paid, reward of, worth, bounty of, for) and is never far out; digit groups ("1,000") are one
+  number and a decimal, a fraction or a sign is no amount code can read (§4.7); "first in pack order" (§4.6) is the installed pack's order of its quest
+  templates (the pin sorts them by id and stands for a pack that is not installed); a template shorter than an hour has its own duration as its deadline range.

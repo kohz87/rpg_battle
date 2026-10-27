@@ -90,8 +90,8 @@ and settles template, rank, count, foe/item/place, coin, XP, deadline, giver and
 `offer-capture.js` (`captureOffer`) at capture; nothing here is asked again. `matchTrainer` (`training/offer.js`) does the same for a teacher.
 A free-form `+ quest` line that is not an old-style open or closed form routes here (`quests/capture.js`, `OFFER_LABELS`).
 
-**Recorded and replayed.** The settled binding is stored in `rules.offers/<th_id>` (`{ v, matcher, line, sid, name, said, settled, band, notes, where, shown }`),
-a far-out decision in `rules.declined/<dk_id>`, a teacher's in `training.offers/<tn_id>.settled`; the writer is the trusted command `rules.recordOffer`
+**Recorded and replayed.** The settled binding is stored as the key `offer.<th_id>` of the `rules` slice (`{ v, matcher, line, sid, name, said, settled, band, notes, where, shown }`),
+a far-out decision as `declined.<dk_id>`, a teacher's in `training.offers/<tn_id>.settled` (`offersOf`/`declinedOf` in `rules/offers.js` read them as maps; each is one add-only key whose parent always exists, so a chat pinned before 2.3.0 has no map for the first offer's reply to make and take away); the writer is the trusted command `rules.recordOffer`
 (`rules/offers.js` validates every field). The guards are `quest.offer` (`offer-plan.js`: `planOffer` re-checks the settled numbers against the template, then
 calls the unchanged `planOpening`) and `trainer.offer` (wraps the unchanged `planTrainer`). `replayOffer` imports neither `offer-match.js` nor `parse.js`, asks only
 `quest.replayInputs` and `story.evidence`, and never re-decides, so a table change (`MATCHER`) cannot move an offer already made; a Re-read of an unchanged line reuses
