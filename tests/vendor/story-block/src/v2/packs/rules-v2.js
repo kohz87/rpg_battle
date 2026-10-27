@@ -1162,6 +1162,10 @@ function matchesDiscriminator(resolvedSub, key, valKey) {
     return false;
 }
 
+// The objective kind each open quest `offerType` settles (GENERATIVE_OFFERS_SPEC §3.2): hunt and cull are kills, gather and deliver
+// are collections, explore is a visit, escort and task are story goals.
+const OFFER_TYPE_KIND = Object.freeze({ hunt: 'kill', cull: 'kill', gather: 'collect', deliver: 'collect', explore: 'visit', escort: 'story', task: 'story' });
+
 /**
  * Generic schema validation for manifest and owned definitions subset with $ref sibling checks.
  * Evaluates keywords independently of explicit type so siblings (e.g. maxLength:40 on $ref) are strictly enforced.
@@ -2230,6 +2234,38 @@ function validateRulesV2Of(manifest, content, constants, { host = false } = {}) 
         }
     }
 
+    // Foe aliases must name their own foe and no other (GENERATIVE_OFFERS_SPEC §4.3 matches a job's target by exact name, slug or
+    // alias, in pack order, so an alias that is another foe's name would bind the job to the wrong foe). Names are compared folded:
+    // lower case, runs of white space as one space, trimmed. An alias is refused (`bad-schema` at the alias) when it equals its own
+    // foe's name or slug, any other foe's name or slug, an alias of an earlier foe, or an earlier alias of its own list (an exact
+    // repeat is the schema's `dup-id` already), and when it has no visible character (white space and zero-width marks only).
+    {
+        const fold = text => String(text).toLowerCase().replace(/\s+/g, ' ').trim();
+        const names = new Map(); // folded name or slug -> the foe's index
+        contentCreatures.forEach((foe, i) => {
+            for (const text of [foe.name, foe.slug]) if (typeof text === 'string' && !names.has(fold(text))) names.set(fold(text), { index: i, what: text === foe.name ? 'name' : 'slug' });
+        });
+        const aliasOwners = new Map(); // folded alias -> { index }
+        contentCreatures.forEach((foe, i) => {
+            if (!Array.isArray(foe.aliases)) return;
+            const own = new Set();
+            foe.aliases.forEach((alias, j) => {
+                if (typeof alias !== 'string') return;
+                const path = `content.creatures[${i}].aliases[${j}]`;
+                const key = fold(alias);
+                const refuse = message => errors.push({ code: RULES_V2_ERROR_CODES.BAD_SCHEMA, path, message });
+                if (!/[^\p{White_Space}\p{Cc}\p{Cf}]/u.test(alias)) return refuse('An alias needs at least one visible character');
+                const named = names.get(key);
+                const earlier = aliasOwners.get(key);
+                if (named) refuse(named.index === i ? `Alias "${alias}" is the foe's own ${named.what}` : `Alias "${alias}" is the ${named.what} of another foe (content.creatures[${named.index}])`);
+                else if (own.has(key)) { if (!foe.aliases.slice(0, j).includes(alias)) refuse(`Alias "${alias}" repeats an earlier alias of this foe, apart from capitals and spacing`); }
+                else if (earlier && earlier.index !== i) refuse(`Alias "${alias}" is already an alias of another foe (content.creatures[${earlier.index}])`);
+                own.add(key);
+                if (!aliasOwners.has(key)) aliasOwners.set(key, { index: i });
+            });
+        });
+    }
+
     // Owned content cross-references
     for (let i = 0; i < contentCreatures.length; i++) {
         const foe = contentCreatures[i];
@@ -2251,6 +2287,15 @@ function validateRulesV2Of(manifest, content, constants, { host = false } = {}) 
     for (let i = 0; i < contentQuests.length; i++) {
         const q = contentQuests[i];
         const p = `content.quests[${i}]`;
+        if (q.open === true && q.offerType !== undefined) {
+            // The type a narrator's `type:` word picks this template by must be one its objective can settle (GENERATIVE_OFFERS_SPEC §3.2,
+            // §4.6): the template's first objective is the one a job takes. Two templates may share a type and rank; pack order decides.
+            const kind = q.objectives?.[0]?.kind;
+            const wanted = OFFER_TYPE_KIND[q.offerType];
+            if (wanted !== undefined && kind !== wanted) {
+                errors.push({ code: RULES_V2_ERROR_CODES.BAD_SCHEMA, path: `${p}.offerType`, message: `offerType "${q.offerType}" needs a ${wanted} objective first; this template's first objective is ${kind === undefined ? 'missing' : `a ${kind} one`}` });
+            }
+        }
         if (q.open === true) {
             const rank = (cnt.ranks ?? []).find(row => row.id === q.rank);
             const range = rank?.reward;
@@ -2310,11 +2355,16 @@ function validateRulesV2Of(manifest, content, constants, { host = false } = {}) 
                 // An open objective may bound the count a generated offer can ask for (GENERATIVE_OFFERS_SPEC §12.1):
                 // countMin <= count <= countMax for whichever of the two is written. The schema keeps each to 1..999.
                 if (q.open === true && (obj.kind === 'kill' || obj.kind === 'collect')) {
-                    if (obj.countMin !== undefined && obj.countMin > obj.count) {
-                        errors.push({ code: RULES_V2_ERROR_CODES.BAD_SCHEMA, path: `${p}.objectives[${o}].count`, message: `Open objective count ${obj.count} is below its countMin ${obj.countMin}` });
-                    }
-                    if (obj.countMax !== undefined && obj.count > obj.countMax) {
-                        errors.push({ code: RULES_V2_ERROR_CODES.BAD_SCHEMA, path: `${p}.objectives[${o}].count`, message: `Open objective count ${obj.count} is above its countMax ${obj.countMax}` });
+                    if (obj.countMin !== undefined && obj.countMax !== undefined && obj.countMin > obj.countMax) {
+                        // An inverted range has no count that fits: say that once, at countMax, not again at the count.
+                        errors.push({ code: RULES_V2_ERROR_CODES.BAD_SCHEMA, path: `${p}.objectives[${o}].countMax`, message: `countMin ${obj.countMin} is above countMax ${obj.countMax}` });
+                    } else {
+                        if (obj.countMin !== undefined && obj.countMin > obj.count) {
+                            errors.push({ code: RULES_V2_ERROR_CODES.BAD_SCHEMA, path: `${p}.objectives[${o}].count`, message: `Open objective count ${obj.count} is below its countMin ${obj.countMin}` });
+                        }
+                        if (obj.countMax !== undefined && obj.count > obj.countMax) {
+                            errors.push({ code: RULES_V2_ERROR_CODES.BAD_SCHEMA, path: `${p}.objectives[${o}].count`, message: `Open objective count ${obj.count} is above its countMax ${obj.countMax}` });
+                        }
                     }
                 }
                 if (obj.kind === 'kill' && obj.foe) {

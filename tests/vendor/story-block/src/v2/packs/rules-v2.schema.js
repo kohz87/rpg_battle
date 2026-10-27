@@ -1953,6 +1953,17 @@ export const rulesV2SchemaSource = {
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 20
+                },
+                "offerType": {
+                    "enum": [
+                        "hunt",
+                        "cull",
+                        "gather",
+                        "deliver",
+                        "explore",
+                        "escort",
+                        "task"
+                    ]
                 }
             }
         },
