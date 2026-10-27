@@ -187,3 +187,18 @@ test('a far or done line is no offer even when written with labels', () => {
     }
     assert.equal(offer('+ quest A | goal: Kill 3 rats | met: no').kind, 'offer');
 });
+
+test('a visit template: the caller resolves the place; a place it cannot find leaves a story goal; a pack without one never reads explore as a visit', () => {
+    const visits = derivedPin(resolved => { resolved.quests['pack.ersveil-bluewatch/open-delivery-f'].objectives = [{ id: 'ob_00000001', kind: 'visit' }]; });
+    const places = { 'auvoth': { id: 'pack.ersveil-bluewatch/auvoth', name: 'Auvoth' }, 'pack.ersveil-bluewatch/auvoth': { id: 'pack.ersveil-bluewatch/auvoth', name: 'Auvoth' } };
+    const read = (text, options = {}) => matchOffer({ ...env({ pin: visits, ...options }), placeOf: asked => places[String(asked).toLowerCase()] ?? null }, lineOf(text));
+    const found = read('+ quest Message | type: explore | goal: Scout Auvoth for the guild | reward: 70 copper');
+    assert.deepEqual([slug(found.settled.template), found.settled.place, found.binding.place, found.settled.count], ['open-delivery-f', { id: 'pack.ersveil-bluewatch/auvoth', name: 'Auvoth' }, 'pack.ersveil-bluewatch/auvoth', undefined]);
+    assert.deepEqual([found.settled.coin, found.placeRecord.name], [70, 'Auvoth']);
+    assert.equal(slug(read('+ quest Message | place: pack.ersveil-bluewatch/auvoth').settled.template), 'open-delivery-f', 'a place: label, or a canonical id');
+    const lost = read('+ quest Message | type: explore | goal: Scout Nowhere for the guild');
+    assert.equal(slug(lost.settled.template), 'open-story-task-f');
+    assert.ok(lost.notes.includes('no place for "Nowhere"; the story judges the goal'));
+    const plain = offer('+ quest Message | type: explore | goal: Scout Auvoth for the guild');
+    assert.equal(slug(plain.settled.template), 'open-story-task-f', 'Bluewatch has no visit template: explore becomes a story task');
+});

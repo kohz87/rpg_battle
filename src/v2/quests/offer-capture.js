@@ -14,6 +14,9 @@ import { matchOffer, offerKey, NAME_CHARS } from './offer-match.js';
 import { KIND, planOffer } from './offer-plan.js';
 import { templateBinding } from './opening.js';
 
+/** Story Director's own limits on new threads: per reply, and open in all. */
+const NEW_PER_REPLY = 16;
+const MAX_OPEN = 300;
 const hash16 = (ctx, value) => ctx.hash(value).slice(0, 16);
 
 /** The id a far-out decision is kept under: `dk_` and 12 hex of the hash of the offer key. */
@@ -95,7 +98,6 @@ function farOut(ctx, line, result, env) {
 /** Writes an offer the matcher (or an earlier read) settled: the guard, the thread with its quest, and the record. */
 function commitOffer(ctx, line, env, result) {
     const { settled } = result;
-    const { source, epoch } = boundary(ctx);
     const template = templateBinding(env.pin, settled.template);
     const thread = result.link ? threadOf(ctx.query, { id: result.link }) : null;
     // A place the job names is read once, here, like the area: the guard asks for it no more.
@@ -105,6 +107,12 @@ function commitOffer(ctx, line, env, result) {
     const plan = planOffer({ pin: env.pin, ix: env.ix, thread, inputs, external, combat: ctx.read('combat') }, settled);
     if (!plan.ok) return { failed: plan };
     const title = flat(line.name, NAME_CHARS);
+    // The technical limits (§6.3): Story Director's own, which it keeps only for the threads it makes itself, are kept here for the jobs RPG Battle makes.
+    const mine = Object.values(ctx.read('rules').offers ?? {}).filter(offer => offer.sid === ctx.source.sid).length;
+    const open = (ask(ctx.query, 'director.threads') ?? []).filter(row => row.status === 'active').length;
+    if (!thread && (mine >= NEW_PER_REPLY || open >= MAX_OPEN)) return { failed: { code: 'LIMIT', message: mine >= NEW_PER_REPLY ? `One reply offers at most ${NEW_PER_REPLY} new jobs.` : `${MAX_OPEN} threads are open; close or finish some first.` } };
+    // The host's cursor is read only once the offer is going to be made: a line that reads it must carry a guard.
+    const { source, epoch } = boundary(ctx);
     const id = thread?.id ?? freshThreadId(ctx);
     const quest = offeredQuest({ ...plan.concrete, name: title }, id);
     const fields = { goal: settled.text, ...(settled.giver ? { giver: settled.giver } : {}), ...(result.said.due ? { due: result.said.due } : {}) };

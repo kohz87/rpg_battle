@@ -48,3 +48,32 @@ export async function bluewatch(t, { pack = PACK_TEXT, useSibling = false, st = 
     }
     return h;
 }
+
+export const G1 = '+ quest Granary Vermin | giver: Hollis | type: cull | goal: Kill 6 culvert rats in the south levee granary and collect tails | reward: 12 crowns | difficulty: easy';
+export const G2 = '+ quest Scrub Pack | giver: Hollis | type: hunt | goal: Slay the alpha of the scrub wolf pack north of the ditch | reward: 30 crowns | difficulty: normal';
+export const G1_TERMS = 'Posted job: Granary Vermin (from Hollis): kill 6 Culvert Rats within 7 days; pays 5 silver and 50 XP, turned in at Bluewatch Village. Fight them as ! encounter 6 Culvert Rats | like: cellar-rat-swarm. These are the terms from now on; nobody in the scene has to restate them.';
+
+/** The reader accepts a job by name on a reply that writes `+ quest Name`. */
+export const accept = (h, name) => h.send(`I accept the ${name} job.`, `Agreed.\n\n<Changes>\n+ quest ${name}\n</Changes>`);
+
+/** The last tail the host put in the prompt (the text after the lines of `[Happened]`), or ''. */
+export const lastTail = h => h.st.promptLog.filter(entry => entry.key === 'story_suite_tail_1' && entry.value).at(-1)?.value ?? '';
+
+/** Plays one fight against `line`'s foes with the Auto tier to its end. */
+export async function fight(h, line, text = 'They attack.') {
+    await h.say(text, [`! encounter ${line}`]);
+    ok(await h.sdk.command('combat.start', { offer: h.q('combat.offers').at(-1).id }));
+    for (let n = 0; n < 300; n += 1) {
+        const session = h.q('combat.session');
+        if (!session || session.status !== 'active') break;
+        ok(await h.sdk.command('combat.act', { action: { type: 'auto' }, session: session.id, board: session.board }));
+    }
+    ok(await h.sdk.command('combat.end', { session: h.q('combat.session').id }));
+}
+
+/** Fights `line` again and again until the quest's board counts `need` (foes flee now and then, so one fight is not always enough). */
+export async function fightUntil(h, id, line, need, most = 10) {
+    for (let n = 0; n < most && h.q('quest.progress', { id }).have < need; n += 1) await fight(h, line, `Fight ${n + 1}.`);
+    await h.say('The noise dies down.');
+    return h.q('quest.progress', { id });
+}

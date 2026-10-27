@@ -71,6 +71,8 @@ export function planOffer({ pin, ix, thread, inputs, external, combat }, settled
     const plan = planOpening({ pin: withOffer(pin, template, settled), ix, thread, inputs, external, combat }, bindingOf(settled));
     if (!plan.ok) return plan;
     const concrete = copy(plan.concrete);
+    // The template's bounds on the count are the pack's; the quest it makes is Story Director's closed shape, which has no place for them.
+    concrete.objectives = concrete.objectives.map(({ countMin: _min, countMax: _max, ...objective }) => objective);
     if (settled.count !== undefined) concrete.objectives[0].count = settled.count;
     concrete.reward = { coin: settled.coin, xp: settled.xp, items: [] };
     concrete.turnInPlace = settled.turnInPlace;
