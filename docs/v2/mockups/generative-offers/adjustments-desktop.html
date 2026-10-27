@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1280">
+<title>Generative offers: card note and Adjustments log (desktop 1280px)</title>
+<style>
+:root{color-scheme:dark;--bg:#151827;--backdrop:radial-gradient(42% 36% at 18% 12%,rgba(124,92,236,.45),transparent 70%),radial-gradient(36% 32% at 88% 28%,rgba(40,160,165,.32),transparent 70%),radial-gradient(48% 38% at 62% 92%,rgba(214,132,62,.24),transparent 70%);--card:rgba(30,33,50,.62);--rail:rgba(22,25,40,.5);--tile:rgba(255,255,255,.09);--nav:rgba(30,33,50,.72);--border:rgba(255,255,255,.16);--shadow:0 10px 30px rgba(0,0,0,.35);--text:#f1f2f8;--muted:#b6bacb;--field:rgba(0,0,0,.24);--overlay:rgba(28,31,48,.97);--scrim:rgba(8,10,18,.55);--accent:#7b6cf0;--accent-soft:rgba(123,108,240,.26);--warn:#f2b54a;--warn-soft:rgba(242,181,74,.16);--warn-text:#f2c873;--danger:#d9534f;--danger-text:#ff9d99;--good:#72dea4;--map-bg:rgba(24,28,46,.45);--track:rgba(255,255,255,.14);--link:rgba(255,255,255,.28);--k-bg:#a8ebc7;--k-fg:#0d3320;--a-bg:#e6a93a;--a-fg:#2e1c00;--d-bg:#c44440;--d-fg:#fff;--sep:rgba(255,255,255,.12);--accent-strong:#5b4bd0}
+:root[data-theme=light]{color-scheme:light;--bg:#e8e6f3;--backdrop:radial-gradient(42% 36% at 18% 12%,rgba(178,156,255,.65),transparent 70%),radial-gradient(36% 32% at 88% 28%,rgba(132,214,214,.55),transparent 70%),radial-gradient(48% 38% at 62% 92%,rgba(255,205,150,.5),transparent 70%);--card:rgba(255,255,255,.62);--rail:rgba(255,255,255,.4);--tile:rgba(255,255,255,.75);--nav:rgba(255,255,255,.74);--border:rgba(60,60,110,.16);--shadow:0 10px 30px rgba(70,60,130,.14);--text:#23253a;--muted:#55586e;--field:rgba(255,255,255,.9);--overlay:rgba(255,255,255,.98);--scrim:rgba(40,40,70,.35);--accent-soft:rgba(123,108,240,.18);--warn:#b8730a;--warn-soft:rgba(184,115,10,.12);--warn-text:#8a5507;--danger:#c0392b;--danger-text:#a3271b;--good:#1d7c4a;--map-bg:rgba(255,255,255,.42);--track:rgba(35,37,58,.1);--link:rgba(35,37,58,.28);--k-bg:#d4f4e2;--k-fg:#0f5a34;--a-bg:#f0c36a;--a-fg:#3d2600;--d-bg:#a3271b;--d-fg:#fff;--sep:rgba(35,37,58,.14);--accent-strong:#5b4bd0}
+*{box-sizing:border-box}body{margin:0;background:var(--backdrop),var(--bg);color:var(--text);font-family:Nunito,system-ui,sans-serif;font-size:15px}button,input,select,textarea{font:inherit;color:inherit;min-height:44px;border:1px solid var(--border);border-radius:10px;background:var(--field);padding:8px 10px;max-width:100%}button,summary{cursor:pointer}button{min-width:44px;background:transparent;font-weight:600}button:hover:not(:disabled){background:var(--accent-soft)}button:disabled{cursor:not-allowed;color:var(--muted);background:var(--tile)}button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}button.primary:disabled{background:var(--tile);color:var(--muted);border-color:var(--border)}button.danger{color:var(--danger-text);border-color:var(--danger)}:focus-visible{outline:3px solid var(--accent);outline-offset:3px}input,textarea{width:100%}textarea{min-height:100px;resize:vertical}select{width:100%}summary{min-height:44px;display:flex;align-items:center;padding:8px}h1,h2,h3,p{margin:0}h1{font-size:22px;font-weight:800}h2{font-size:20px}h3{font-size:15px}p{line-height:1.5}.mono{font-family:ui-monospace,monospace;overflow-wrap:anywhere;white-space:pre-wrap}.muted,small{color:var(--muted)}.icon{width:20px;height:20px;flex-shrink:0}.studio{height:calc(100dvh - 44px);min-height:600px;display:flex;flex-direction:column}.topbar{display:flex;align-items:center;gap:10px;padding:14px 20px;flex-wrap:wrap;background:var(--nav);backdrop-filter:blur(16px);border-bottom:1px solid var(--border)}.brand{display:flex;gap:10px;align-items:center;font-size:20px;white-space:nowrap}.topbar>.field{display:flex;align-items:center;gap:8px;margin:0;font-size:13px}.topbar input{width:200px}.fingerprint{font-size:12px;flex:1;white-space:nowrap}.field{display:flex;flex-direction:column;gap:5px;color:var(--muted);font-size:12px;font-weight:700;min-width:0}.field input,.field select,.field textarea{color:var(--text);font-size:14px;font-weight:400}.workspace{display:grid;grid-template-columns:190px minmax(0,1fr) 330px;min-height:0;flex:1;position:relative}.rail{padding:14px 10px;display:flex;flex-direction:column;gap:4px;background:var(--rail);border-right:1px solid var(--border);overflow:auto}.rail button{display:flex;align-items:center;gap:10px;text-align:left;width:100%;border-color:transparent}.rail button span{flex:1}.rail button[aria-current=page],button[aria-pressed=true]{background:var(--accent-soft);border-color:var(--accent)}main{padding:16px 20px;display:flex;flex-direction:column;gap:12px;min-width:0;overflow:auto}.inspector{padding:16px;background:var(--card);backdrop-filter:blur(16px);border-left:1px solid var(--border);overflow:auto;min-width:0}.inspector-body{display:flex;flex-direction:column;gap:12px}.inspector-close{display:none}.workspace:has(.inspector[hidden]){grid-template-columns:190px minmax(0,1fr)}[hidden]{display:none!important}.notice:empty{display:none}.notice{padding:10px 20px;background:var(--warn-soft);color:var(--warn-text);white-space:pre-wrap;overflow-wrap:anywhere;max-height:100px;overflow:auto}.credits{padding:0 20px;font-size:12px;min-height:44px}.credits pre{padding:16px;background:var(--card)}.card{border:1px solid var(--border);border-radius:14px;background:var(--card);padding:12px;box-shadow:var(--shadow)}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.stack{display:flex;flex-direction:column;gap:10px;min-width:0}.chip{border-radius:999px;background:var(--accent-soft);padding:4px 10px;font-size:12px}.warning{color:var(--warn-text);background:var(--warn-soft);border:1px solid var(--warn);border-radius:12px;padding:10px}.overlays:empty{display:none}dialog{color:var(--text);background:var(--overlay);border:1px solid var(--border);border-radius:22px;padding:20px;width:520px;max-width:90vw;max-height:85vh;box-shadow:var(--shadow)}dialog::backdrop{background:var(--scrim)}dialog ul{max-height:45vh;overflow:auto;overflow-wrap:anywhere}dialog .row{justify-content:flex-end;margin-top:16px}
+.mock-caption{font:600 13px/1.45 Nunito,system-ui,sans-serif;color:var(--muted);padding:10px 20px;border-bottom:1px dashed var(--border);background:var(--rail);margin:0}
+.mock-caption b{color:var(--text)}
+.mock-state{border-bottom:2px solid var(--accent)}
+.mock-tag{font:600 12px/1.3 Nunito,system-ui,sans-serif;color:var(--muted);border:1px dashed var(--border);border-radius:6px;padding:3px 8px;align-self:flex-start;background:var(--rail)}
+.mock-spec{padding:16px 20px;border-bottom:1px dashed var(--border);background:var(--rail);display:flex;flex-direction:column;gap:12px;font-size:15px}.mock-spec ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.mock-spec h3{font-size:16px}
+
+
+
+button.primary{background:var(--accent-strong);border-color:var(--accent-strong)}
+.page{max-width:1180px;margin:0 auto;padding:16px;display:flex;flex-direction:column;gap:16px}
+.st-msg{border:1px solid var(--border);border-radius:14px;background:var(--card);padding:16px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:12px}
+.st-msg .who{font-weight:800}
+.chg{border:1px solid var(--border);border-radius:12px;background:var(--rail)}
+.chg>summary{font-weight:700;gap:10px;padding:8px 14px}
+.chg ul{list-style:none;margin:0;padding:0 12px 12px;display:flex;flex-direction:column;gap:10px}
+.chg li{display:flex;flex-direction:column;gap:8px;padding:14px;border-radius:10px;background:var(--tile)}
+.chg .posted{display:flex;gap:10px;align-items:flex-start;line-height:1.45}
+.chg .posted .icon{margin-top:2px}
+.chg .posted span.t{flex:1;min-width:0;overflow-wrap:anywhere}
+.why-line{color:var(--muted);line-height:1.45;padding-left:30px}
+.chip-row{display:flex;gap:8px;align-items:center;padding-left:30px}
+.band{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:3px 10px 3px 8px;font-weight:800;font-size:13px;line-height:1.3;white-space:nowrap}
+.band svg{width:14px;height:14px;flex-shrink:0}
+.b-kept{background:var(--k-bg);color:var(--k-fg)}
+.b-adjusted{background:var(--a-bg);color:var(--a-fg)}
+.b-dropped{background:var(--d-bg);color:var(--d-fg)}
+.qp{display:flex;flex-direction:column;gap:14px}
+.qp h1{font-size:22px;font-weight:800}
+.tabs{display:flex;gap:8px;flex-wrap:wrap}
+.tabs button{border-radius:999px;padding:0 16px}
+.board{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
+.job{border:1px solid var(--border);border-radius:14px;background:var(--card);padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.job h3{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:17px}
+.job .meta{color:var(--muted);overflow-wrap:anywhere}
+.job .chip{font-size:13px;font-weight:700}
+.job .row{justify-content:flex-start}
+.adj{border:1px solid var(--border);border-radius:14px;background:var(--card)}
+.adj>summary{font-weight:800;font-size:17px;padding:8px 16px}
+.adj-help{padding:0 16px 12px;color:var(--muted);line-height:1.5}
+.adj .more{padding:8px 16px 16px}
+.acards{display:flex;flex-direction:column;gap:14px;padding:0 12px 4px}
+.acard{border:1px solid var(--border);border-radius:14px;background:var(--tile);padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.ahead{display:flex;gap:8px 10px;align-items:center;flex-wrap:wrap}
+.ahead .nm{font-weight:800;font-size:17px;line-height:1.3}
+.reply{color:var(--muted);font-size:14px;margin-left:auto;white-space:nowrap}
+.became{line-height:1.45;overflow-wrap:anywhere}
+.changes{display:flex;flex-direction:column;gap:8px}
+.cr{display:grid;grid-template-columns:76px minmax(0,1fr);gap:10px;line-height:1.4}
+.cr .k{color:var(--muted)}
+.cr .v{overflow-wrap:anywhere}
+.cr .from{color:var(--muted)}
+.cr .arr{color:var(--muted);padding:0 4px}
+.cr .to{font-weight:800}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.dropped{line-height:1.5;margin:0}
+.dropped b{font-weight:800}
+.nowrote{border-top:1px solid var(--sep);margin:0 -16px -16px;padding:0 16px}
+.nowrote>summary{font-weight:700;gap:10px;padding:8px 0}
+.nowrote>summary::-webkit-details-marker{display:none}
+.nowrote>summary::before,.dcell summary::before{content:"";width:8px;height:8px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(-45deg);margin:0 4px 0 2px;flex-shrink:0;transition:transform .15s}
+.nowrote[open]>summary::before,.dcell details[open]>summary::before{transform:rotate(45deg)}
+.why-body{display:flex;flex-direction:column;gap:12px;padding:4px 0 16px}
+.why-body .raw{font-size:14px;line-height:1.5;padding:10px 12px;border-radius:10px;background:var(--field)}
+.why-body ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;line-height:1.45}
+.why-body .nt{font-weight:700}
+.spec-note{padding:0}
+
+.page{padding:24px 20px;gap:20px}
+.st-msg{max-width:760px}
+.board{grid-template-columns:repeat(2,minmax(0,1fr))}
+.atable{width:100%;border-collapse:collapse;table-layout:fixed}
+.atable th,.atable td{text-align:left;vertical-align:top;padding:14px 12px;border-top:1px solid var(--border);overflow-wrap:anywhere}
+.atable thead th{color:var(--muted);font-weight:700;border-top:1px solid var(--border);padding:10px 12px;font-size:15px}
+.atable tbody th{font-weight:800;font-size:16px}
+.atable .reply{display:block;margin:2px 0 0;font-weight:400}
+.atable .dropped{font-size:15px}
+.atable .cr{grid-template-columns:72px minmax(0,1fr)}
+.dcell{position:relative}
+.dcell summary{padding:8px 0;font-weight:700;gap:8px}
+.dcell summary::-webkit-details-marker{display:none}
+.dcell .why-body{position:absolute;right:0;top:100%;width:440px;z-index:5;padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--overlay);box-shadow:var(--shadow)}
+
+</style>
+</head>
+<body>
+<p class="mock-caption"><b>Mockup, not the product.</b> RPG Battle 2.3.0, generative offers, desktop 1280px, Ersveil: Bluewatch Starter 1.6.0 pinned. Static HTML with the Story Suite CSS tokens of the open-trainers mockups; nothing here runs.</p>
+<p class="mock-caption"><b>State A:</b> the reply that offered the user's two jobs. Story Block's "Changed this reply" card shows RPG Battle's two card lines (MODULES §F125): what was posted, a small Adjusted chip, one short Why. Nothing is a Problem.</p>
+<div class="mock-state"><div class="page">
+<article class="st-msg" aria-label="Reply 14">
+<span class="who">Narrator · reply 14</span>
+<p>(The reply's prose, with the two + quest lines of the user's live report in its change block.)</p>
+<details class="chg" open><summary>Changed this reply · 2 jobs</summary>
+<ul><li><div class="posted"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 4h11a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2zM6 4a2 2 0 0 0-2 2v2h2M10 9h6M10 13h6"/></svg><span class="t">Posted: Granary Vermin, kill 6 Culvert Rats, 5 silver</span></div><div class="chip-row"><span class="band b-adjusted"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2.5 5.5h9M9 3l2.5 2.5L9 8M13.5 10.5h-9M7 8l-2.5 2.5L7 13"/></svg>Adjusted</span></div><p class="why-line"><b>Why:</b> 12 crowns isn’t this chat’s money, so it was set to 5 silver.</p></li><li><div class="posted"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 4h11a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2zM6 4a2 2 0 0 0-2 2v2h2M10 9h6M10 13h6"/></svg><span class="t">Posted: Scrub Pack, kill 1 Alpha of the Scrub Wolf Pack, 5 silver</span></div><div class="chip-row"><span class="band b-adjusted"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2.5 5.5h9M9 3l2.5 2.5L9 8M13.5 10.5h-9M7 8l-2.5 2.5L7 13"/></svg>Adjusted</span></div><p class="why-line"><b>Why:</b> 30 crowns isn’t this chat’s money, and the count was set to 1.</p></li></ul></details>
+</article>
+</div></div>
+<p class="mock-caption"><b>State B:</b> RPG Battle's Quests page. The two jobs are offered; the Adjustments section at the end is open. It lists every normalization in this chat, including the dropped Boar Hunt, which has no card and no board row.</p>
+<div class="mock-state"><div class="page qp">
+<h1>Quests</h1>
+<div class="tabs" role="group" aria-label="Show quests"><button type="button" aria-pressed="true">Offered 2</button><button type="button" aria-pressed="false">Active 0</button><button type="button" aria-pressed="false">Done 0</button></div>
+<div class="board">
+<section class="job" aria-label="Granary Vermin"><h3>Granary Vermin <span class="chip">Hunt · rank F</span></h3><p>Kill 6 culvert rats in the south levee granary and collect tails</p><p class="meta">From Hollis · 0/6 Culvert Rats · 5 silver and 50 XP · 7 days from acceptance · turn in at Bluewatch Village</p><p class="meta">Fight them: ! encounter 6 Culvert Rats | like: cellar-rat-swarm</p><div class="row"><button type="button" class="primary">Take on</button></div></section>
+<section class="job" aria-label="Scrub Pack"><h3>Scrub Pack <span class="chip">Hunt · rank F</span></h3><p>Slay the alpha of the scrub wolf pack north of the ditch</p><p class="meta">From Hollis · 0/1 Alpha of the Scrub Wolf Pack · 5 silver and 50 XP · 7 days from acceptance · turn in at Bluewatch Village</p><p class="meta">Fight it: ! encounter Alpha of the Scrub Wolf Pack | like: starved-crag-wolf</p><div class="row"><button type="button" class="primary">Take on</button></div></section>
+</div>
+<details class="adj" open><summary>Adjustments (4)</summary>
+<p class="adj-help">What code changed from the narrator's offers, newest first. Read only; nothing here is a Problem. Turn off "Jobs from the story" in Features for the strict behaviour.</p>
+<div class="adj-table"><table class="atable"><thead><tr><th style="width:15%">Offer</th><th style="width:28%">Became</th><th style="width:29%">Changed</th><th style="width:11%">Band</th><th style="width:17%"><span class="sr">Details</span></th></tr></thead><tbody><tr><th scope="row">Old Reka<span class="reply">reply 17</span></th><td>Trainer · Blade drills · fee 6 silver 4 copper · Bluewatch Village</td><td><div class="changes"><div class="cr"><span class="k">skill</span><span class="v"><span class="from">swordplay</span><span class="arr" aria-hidden="true">→</span><span class="sr">to</span><span class="to">Blade drills</span></span></div><div class="cr"><span class="k">fee</span><span class="v"><span class="from"><span class="sr">not written</span><span aria-hidden="true">—</span></span><span class="arr" aria-hidden="true">→</span><span class="sr">to</span><span class="to">6 silver 4 copper</span></span></div></div></td><td><span class="band b-kept"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 8.5l3.2 3L13 4.5"/></svg>Kept</span></td><td class="dcell"><details><summary>What the narrator wrote</summary><div class="why-body"><p class="raw mono">— swordplay</p><div><p class="nt">Notes</p><ul><li>matched Blade drills (swordplay)</li><li>fee 6 silver 4 copper (rolled)</li></ul></div></div></details></td></tr><tr><th scope="row">Boar Hunt<span class="reply">reply 16</span></th><td>Hunt · kill 3 wild boars · 50 gold · not offered</td><td><p class="dropped"><b>Dropped:</b> 50 gold is far above a rank F job (max 4 gold). The narrator was told once.</p></td><td><span class="band b-dropped"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8"/></svg>Dropped</span></td><td class="dcell"><details><summary>What the narrator wrote</summary><div class="why-body"><p class="raw mono">goal: Hunt 3 wild boars · reward: 50 gold</p><div><p class="nt">Notes</p><ul><li>50 gold is far above what a rank F job pays: 4 gold at most</li><li>Told once: “…offer it for 4 gold or less.”</li></ul></div></div></details></td></tr><tr><th scope="row">Scrub Pack<span class="reply">reply 14</span></th><td>Hunt · kill 1 Alpha of the Scrub Wolf Pack · 5 silver · 50 XP · 7 days</td><td><div class="changes"><div class="cr"><span class="k">reward</span><span class="v"><span class="from">30 crowns</span><span class="arr" aria-hidden="true">→</span><span class="sr">to</span><span class="to">5 silver</span></span></div><div class="cr"><span class="k">count</span><span class="v"><span class="from"><span class="sr">not written</span><span aria-hidden="true">—</span></span><span class="arr" aria-hidden="true">→</span><span class="sr">to</span><span class="to">1</span></span></div><div class="cr"><span class="k">deadline</span><span class="v"><span class="from"><span class="sr">not written</span><span aria-hidden="true">—</span></span><span class="arr" aria-hidden="true">→</span><span class="sr">to</span><span class="to">7 days</span></span></div></div></td><td><span class="band b-adjusted"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2.5 5.5h9M9 3l2.5 2.5L9 8M13.5 10.5h-9M7 8l-2.5 2.5L7 13"/></svg>Adjusted</span></td><td class="dcell"><details><summary>What the narrator wrote</summary><div class="why-body"><p class="raw mono">giver: Hollis · type: hunt · goal: Slay the alpha of the scrub wolf pack north of the ditch · reward: 30 crowns · difficulty: normal</p><div><p class="nt">Notes</p><ul><li>count set to 1</li><li>reward “30 crowns” is not this chat’s money; set to 5 silver</li><li>deadline set to 7 days</li><li>Alpha of the Scrub Wolf Pack is a named kind of Starved Crag Wolf</li></ul></div></div></details></td></tr><tr><th scope="row">Granary Vermin<span class="reply">reply 14</span></th><td>Hunt · kill 6 Culvert Rats · 5 silver · 50 XP · 7 days</td><td><div class="changes"><div class="cr"><span class="k">reward</span><span class="v"><span class="from">12 crowns</span><span class="arr" aria-hidden="true">→</span><span class="sr">to</span><span class="to">5 silver</span></span></div><div class="cr"><span class="k">count</span><span class="v"><span class="from"><span class="sr">not written</span><span aria-hidden="true">—</span></span><span class="arr" aria-hidden="true">→</span><span class="sr">to</span><span class="to">6</span></span></div><div class="cr"><span class="k">deadline</span><span class="v"><span class="from"><span class="sr">not written</span><span aria-hidden="true">—</span></span><span class="arr" aria-hidden="true">→</span><span class="sr">to</span><span class="to">7 days</span></span></div></div></td><td><span class="band b-adjusted"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2.5 5.5h9M9 3l2.5 2.5L9 8M13.5 10.5h-9M7 8l-2.5 2.5L7 13"/></svg>Adjusted</span></td><td class="dcell"><details><summary>What the narrator wrote</summary><div class="why-body"><p class="raw mono">giver: Hollis · type: cull · goal: Kill 6 culvert rats in the south levee granary and collect tails · reward: 12 crowns · difficulty: easy</p><div><p class="nt">Notes</p><ul><li>reward “12 crowns” is not this chat’s money; set to 5 silver</li><li>deadline set to 7 days</li><li>Culvert Rats is a named kind of Cellar Rat Swarm</li><li>turn in at Bluewatch Village</li></ul></div></div></details></td></tr></tbody></table></div>
+<div class="more"><button type="button">Show older</button></div>
+</details>
+</div></div>
+<section class="mock-spec" aria-label="What this shows">
+<h3>What the screens read</h3>
+<ul><li>Each adjustment is one card on a phone and one table row on desktop: the offer, a band chip (Kept, Adjusted, Dropped, each with its own icon and lightness), the reply number, what it became, and only the terms that changed, three at most.</li><li>“What the narrator wrote” is a native details element holding the raw labels, as read, and the full notes. It is the only place that uses monospace.</li><li>The reply card gives one line per offer and one short Why line. Nothing longer.</li><li>Data: <b>quest.adjustments({ limit: 50 })</b>, rows from <b>rules.offers</b>, <b>rules.declined</b> and <b>training.offers</b> with notes or a far band. Every button and summary is at least 44 px tall.</li></ul>
+</section>
+</body>
+</html>
