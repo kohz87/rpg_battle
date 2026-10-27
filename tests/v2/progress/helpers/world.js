@@ -10,7 +10,7 @@
 //   ~ time <minute>                              the clock
 import { createHost } from '../../../vendor/story-block/testkit/index.js';
 import { withDirector } from '../../integration/helpers/peer.js';
-import { pinOf, pinRules, registerPackDefs, rulesParts, modifierPart, switchMode } from '../../../../src/v2/rules/index.js';
+import { pinOf, pinRules, registerPackDefs, rulesParts, modifierPart } from '../../../../src/v2/rules/index.js';
 import { recordAttempt, recordBasicClass, recordCombatUses } from '../../../../src/v2/progress/index.js';
 import { resultBytes, batchId } from '../../../../src/v2/death/plan.js';
 import { indexOfCtx } from '../../../../src/v2/rules/graph.js';
@@ -32,16 +32,6 @@ const hooksOf = () => {
             if (answer !== undefined) return answer;
         }
         return undefined;
-    };
-    // Every part's cues, in part order, as module.js merges them (the later part's would otherwise replace the earlier one's).
-    const cues = PARTS_.map(part => part.hooks?.beforeGenerate).filter(Boolean);
-    out.beforeGenerate = async (...args) => {
-        const commands = [];
-        for (const cue of cues) {
-            const answer = await cue(...args);
-            if (Array.isArray(answer?.commands)) commands.push(...answer.commands);
-        }
-        return { commands };
     };
     return out;
 };
@@ -165,7 +155,7 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
         commands: {
             ...merge('commands'),
             'test.pin'(ctx) {
-                const problem = pinRules(ctx.draft('rules'), given, { mode: switchMode(ctx) });
+                const problem = pinRules(ctx.draft('rules'), given);
                 if (problem) ctx.fail('REFUSED', problem);
                 // As the real `rules.pin` does: a pack with trainer templates starts with an empty map of offers.
                 Object.assign(ctx.draft('training'), trainingForPin(given.resolved));

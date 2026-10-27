@@ -1,7 +1,7 @@
-// Chats recorded before 2.3.0 (fixtures/old-encounters-*.json, recorded by record-old-encounters.mjs on RPG Battle 2.2.0, on ce3dbec and on 1617742) have no mode on their timeline: they
-// read as 2.2.0 did (strict) up to their first toggle event, whatever the reader's switch says now and whether the pack has open quest templates. A named kind with a count in front
+// Chats recorded before 2.3.0 (fixtures/old-encounters-*.json, recorded by record-old-encounters.mjs on RPG Battle 2.2.0, on ce3dbec and on 1617742) have no stamp on any reply: they
+// read as 2.2.0 did (strict), whatever the reader's switch says now and whether the pack has open quest templates. A named kind with a count in front
 // ("3 Rats Of Doom | like: …") is one foe called "3 Rats Of Doom" there. A chat opens as it was recorded (its stored steps are replayed, nothing is read again); a Re-read of one of its
-// replies reads its lines in the mode at that reply, which is strict. The first reply asked for after the chat is opened records the switch as it stands, and from there on it is a chat of 2.3.0.
+// replies reads its lines in the mode at that reply, which is strict. A reply written after the chat is opened takes the switch as it stands, and from there on it is a chat of 2.3.0.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -20,6 +20,7 @@ const gist = (director, training, rules) => JSON.stringify({
     offers: Object.keys(rules).filter(key => key.startsWith('offer.')).sort(),
 });
 const lastText = h => JSON.stringify([h.head().domains.combat.last].flat().filter(Boolean).map(entry => entry.summary));
+const stamps = h => Object.keys(h.head().domains.rules).filter(key => key.startsWith('mode.')).length;
 const offerKeys = h => Object.keys(h.head().domains.rules).filter(key => key.startsWith('offer.'));
 const TEXTS = ['Rats, left on offer.', 'Plague rats, fought.', 'Rats in the cellar.', 'The river guild is owed.', 'Reka offers drills.'];
 
@@ -45,13 +46,13 @@ for (const [code, what, file, freely] of CASES) {
                 const fixture = load(file);
                 const h = await opened(t, fixture, switchNow);
                 assert.deepEqual(h.store.problems(), fixture.problems);
-                assert.equal(h.head().domains.rules.mode, undefined, 'a chat recorded before 2.3.0 has no mode on its timeline');
+                assert.equal(stamps(h), 0, 'a chat recorded before 2.3.0 has no stamp on any reply');
                 const held = { foes: foesOf(h), offers: names(h), beaten: beaten(h), last: lastText(h), combat: JSON.stringify(h.head().domains.combat) };
                 assert.deepEqual(held.offers, fixture.offers, 'the chat opens as recorded');
                 const gistNow = () => gist(h.head().domains.director, h.head().domains.training, h.head().domains.rules);
                 assert.equal(gistNow(), gist(fixture.director, fixture.training, Object.fromEntries(fixture.offerKeys.map(key => [key, 1]))), 'the chat opens as recorded');
                 for (const text of TEXTS) assert.equal((await h.turn.reread(at(h, text))).ok, true, text);
-                assert.equal(h.head().domains.rules.mode, undefined, 'a Re-read records no mode');
+                assert.equal(stamps(h), 0, 'a Re-read of a reply with no stamp records none');
                 // Every line is read as strict mode does: no count in front of a name, no offer record, no teacher settled by the story's words.
                 assert.ok(names(h).every(row => row.every(([name, count]) => count === 1 && !/^Rats Of Doom$/.test(name))), JSON.stringify(names(h)));
                 assert.deepEqual(offerKeys(h), []);
@@ -73,14 +74,14 @@ for (const [code, what, file, freely] of CASES) {
     }
 }
 
-test('the first reply asked for after an old chat is opened records the switch as it stands; the old replies keep reading as strict, the new ones as the timeline says', async t => {
+test('a reply written after an old chat is opened takes the switch of its moment; the old replies keep reading as strict', async t => {
     for (const switchNow of [true, false]) {
         await seeded(9802, async () => {
             const h = await opened(t, load('ce3dbec-free'), switchNow);
             const counted = () => names(h).map(row => row.map(([name, count]) => `${count} ${name}`).join(', '));
             await h.say('Rats again.', ['! encounter 3 Rats Of Doom | like: cellar-rat-swarm']);
-            // On: the first event of the chat. Off: nothing to record, the chat already reads strict.
-            assert.equal(h.head().domains.rules.mode, switchNow ? 'free' : undefined, 'the switch of the moment is on the timeline from the reply asked for');
+            // On: the new reply is stamped free. Off: nothing to keep, a reply with no stamp reads strict.
+            assert.equal(stamps(h), switchNow ? 1 : 0, 'the new reply takes the switch of its moment');
             assert.deepEqual(counted().at(-1), switchNow ? '3 Rats Of Doom' : '1 3 Rats Of Doom');
             const kept = JSON.stringify(names(h));
             // Old replies stay strict; the new one reads as it did.
