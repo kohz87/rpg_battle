@@ -128,11 +128,15 @@ test('no pack: bare boot and a legacy module produce byte-identical chat, domain
             assert.equal(setupActive(null, { query: h.q }).on, false);
             assert.equal(h.head().domains.rules, undefined);
             ok(await h.sdk.command('party.create', { name: 'Legacy', preset: 'fighter' }));
-            await h.send('Continue.', 'The road stretches ahead.\n<Changes>\n+ coin 90\n+ item Iron Sword | note: weapon, ATK +4\n</Changes>');
+            // A `+ trainer` line (open trainers, RPG Battle 2.2.0) in a chat that pins nothing is an unknown kind, as it was before.
+            await h.send('Continue.', 'The road stretches ahead.\n<Changes>\n+ coin 90\n+ item Iron Sword | note: weapon, ATK +4\n+ trainer Old Reka | like: x\n</Changes>');
             const stack = h.q('inventory.items').find(item => item.name === 'Iron Sword').stack;
             ok(await h.sdk.command('item.equip', { stack }));
             await stable(h);
-            return { chat: h.ctx.chat, head: h.head(), prompt: staticParts(h.registry) };
+            const stray = h.turn.problems().filter(item => /trainer/.test(item.line ?? ''));
+            assert.deepEqual(stray.map(item => item.code), ['UNKNOWN_KIND']);
+            assert.equal(h.head().domains.training, undefined, 'no training slice, so no open trainers');
+            return { chat: h.ctx.chat, head: h.head(), prompt: staticParts(h.registry), problems: h.turn.problems() };
         });
     }
     assert.deepEqual(await session(false), await session(true));

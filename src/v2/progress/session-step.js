@@ -23,6 +23,7 @@ import { standing } from './offers.js';
 import { readClock, trainingWindow } from '../training/clock.js';
 import { isObject } from '../rules/ids.js';
 import { ask } from '../rules/ask.js';
+import { trainerOf } from '../training/trainers.js';
 
 
 /** The coin the party's purse holds, or null when no purse can be read. */
@@ -48,7 +49,7 @@ export function planSession(env, id, event, source, hash) {
     const { ix, progress, training, query } = env;
     const session = training?.sessions?.[id];
     if (!session || session.status !== 'requested') return { ok: false, code: 'NO_LONGER_DONE', why: 'That training is not waiting any more.' };
-    const trainer = ix.trainer(session.trainer);
+    const trainer = trainerOf(ix, training, session.trainer);
     const refuse = reason => ({ ok: true, outcome: 'refused', patch: { status: 'refused', reason }, plan: [], inputs: { session: id, outcome: 'refused', reason } });
     const view = standing(ix, progress, session.actor).skills.find(item => item.skill === session.skill);
     if (!trainer || !trainer.skills.includes(session.skill)) return refuse('That trainer does not teach it any more.');
@@ -82,8 +83,8 @@ export function planSession(env, id, event, source, hash) {
 }
 
 /** Rolls the session's event: { die, template } from the receipt's dice (ctx.roll), the template one of the trainer's frozen events or null. */
-export function rollEvent(ctx, ix, session) {
-    const trainer = ix.trainer(session.trainer);
+export function rollEvent(ctx, ix, session, training = null) {
+    const trainer = trainerOf(ix, training, session.trainer);
     const templates = trainer?.eventTemplates ?? [];
     const die = ctx.roll('1d100').total;
     if (!templates.length || die > ix.constants.trainEventPercent) return { die, template: null };

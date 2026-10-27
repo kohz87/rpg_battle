@@ -7,10 +7,16 @@
 //     holds now (its level, its skills at 5/5, its parent form, every earlier milestone), and every character keeps
 //     exactly three skills;
 //   * the live state is what a cold rebuild gives, and the only problems are the stored blocks the guard turned off.
+// The second walk (open trainers, RB open trainers §8) does the same for the story's `+ trainer` lines, the reader's "Make this a trainer", lessons
+// asked of the trainers they make, and every way to take their replies away: after every step the offers are whole and never re-rolled, the purse and
+// the clock follow exactly the lessons that ran, a lesson never stands without its trainer, and the live state and Problems are a rebuild's and a reload's.
 // QA_FUZZ_SEED runs one seed, QA_FUZZ_STEPS sets the length.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ACTOR, DAY, FRIEND, grind, nextKey, ref, started } from './helpers/world.js';
+import { ACTOR, DAY, FRIEND, grind, nextKey, ref, realWorld, started } from './helpers/world.js';
+import { openTrainersPin } from './helpers/fixture.js';
+import { feeFor } from '../../../src/v2/training/opening.js';
+import { MAX_OFFERS, trainingProblems } from '../../../src/v2/training/domain.js';
 import { promoted } from './helpers/states.js';
 import { seeded } from '../integration/helpers/host.js';
 import { choicesOf, deriveActor } from '../../../src/v2/progress/derive.js';
@@ -246,6 +252,155 @@ for (const seed of SEEDS) {
             const out = await run(t, seed, STEPS);
             if (process.env.QA_FUZZ_VERBOSE) console.log(`seed ${seed}: ${JSON.stringify(out)}`);
             assert.ok(out.credits > 0, 'the run credited uses');
+        });
+    });
+}
+
+// ---- open trainers ----
+
+const HAVEN = 'pack.fixture/haven';
+const MILL = 'pack.fixture/mill';
+const TRAINER_START = 4 * DAY + 1410;
+const PEOPLE = ['Old Reka', 'Zed', 'Mia', 'Alda', 'Brom', 'Cass'];
+
+async function runTrainers(t, seed, steps) {
+    const r = prng(seed);
+    const w = await realWorld(t, { given: openTrainersPin(), sd: true });
+    const log = [];
+    const fail = (when, message) => `seed ${seed}, ${when}: ${message}\n${log.slice(-12).join('\n')}`;
+    await w.say('Haven at dusk.', [`~ time ${TRAINER_START}`, `~ here ${HAVEN}`, ...PEOPLE.map(name => `+ present ${name}`)]);
+    assert.equal(w.host.bus.command('test.coin', { amount: 400 }, { cause: 'ui' }).ok, true);
+    const protectedUpTo = w.host.ctx.chat.length;
+    const fees = new Map();
+    const range = { coinMin: 10, coinMax: 40 };
+    let lessons = 0;
+    let offered = 0;
+    const open = () => w.slice('training').offers ?? {};
+    const sessions = () => w.slice('training').sessions;
+    const coin = () => w.q('inventory.wallet', { owner: 'party' }).coin ?? 0;
+
+    const line = () => {
+        const name = r.pick(PEOPLE);
+        const like = r.pick(['drills', 'drills', 'drills', 'pack.fixture/drills', 'mentor', 'nothing']);
+        const teaches = r.chance(0.35) ? ` | teaches: ${r.pick(['s00', 's01', 's00, s01', 's02', 'S01'])}` : '';
+        const extra = r.chance(0.05) ? ' | fee: 1' : '';
+        return `${r.chance(0.04) ? '-' : '+'} trainer ${name} — ${r.pick(['drills', 'blade lessons', ''])} | like: ${like}${teaches}${extra}`;
+    };
+    const lines = () => Array.from({ length: r.int(0, 3) }, line);
+    const idx = () => {
+        const list = w.host.ctx.chat.map((message, i) => (i >= protectedUpTo && !message.is_user ? i : -1)).filter(i => i > 0);
+        return list.length ? r.pick(list) : -1;
+    };
+    const head = () => JSON.stringify(w.head());
+    const problems = () => JSON.stringify(w.host.store.problems());
+
+    const check = when => {
+        const state = w.head();
+        const training = state.domains.training;
+        assert.deepEqual(trainingProblems(training), [], fail(when, 'the training slice is not whole'));
+        const list = Object.values(training.offers ?? {});
+        assert.ok(list.length <= MAX_OFFERS, fail(when, 'more than 100 open trainers'));
+        for (const offer of list) {
+            assert.ok(offer.fee >= range.coinMin && offer.fee <= range.coinMax, fail(when, `${offer.id}: fee ${offer.fee} outside the template's range`));
+            assert.ok([HAVEN, MILL].includes(offer.place), fail(when, `${offer.id}: place ${offer.place}`));
+            if (fees.has(offer.id)) assert.equal(offer.fee, fees.get(offer.id), fail(when, `${offer.id} was re-rolled`));
+            else fees.set(offer.id, offer.fee);
+        }
+        // Every lesson of an open trainer stands on a trainer that is still there.
+        const ran = Object.values(training.sessions).filter(session => session.status === 'completed' || session.status === 'interrupted');
+        for (const session of Object.values(training.sessions)) {
+            if (session.trainer.startsWith('tn_')) assert.ok(Object.hasOwn(training.offers ?? {}, session.trainer), fail(when, `session ${session.id} stands on a trainer that is gone`));
+        }
+        // The purse and the clock follow exactly the lessons that ran.
+        assert.equal(coin(), 400 - ran.reduce((sum, session) => sum + session.fee, 0), fail(when, 'the purse does not follow the lessons'));
+        assert.equal(w.q('director.time', {}).minutes, TRAINER_START + 60 * ran.length, fail(when, 'the clock does not follow the lessons'));
+        // One claim for each trainer name and each lesson.
+        const claims = Object.keys(state.meta.claims);
+        assert.equal(claims.filter(key => key.includes(':trainer:')).length, list.length, fail(when, 'trainer claims and offers differ'));
+        assert.equal(claims.filter(key => key.includes(':train:')).length, ran.length + Object.values(training.sessions).filter(session => session.status === 'refused' && session.fee === null && session.reason !== 'The player withdrew the request.').length, fail(when, 'settle claims and lessons differ'));
+        const stray = w.problems().filter(problem => !['REPLAY_PREREQUISITE', 'REPLANNED'].includes(problem.code));
+        assert.deepEqual(stray, [], fail(when, 'a problem that is not a turned-off block'));
+        // The live state is a rebuild's and a reload's, Problems included.
+        const live = head();
+        const found = problems();
+        const chat = JSON.parse(JSON.stringify(w.host.ctx.chat));
+        w.host.store.rebuild();
+        assert.equal(head(), live, fail(when, 'live differs from a rebuild'));
+        assert.equal(problems(), found, fail(when, 'the Problems differ after a rebuild'));
+        return { live, chat };
+    };
+
+    check('after the set-up');
+    for (let step = 0; step < steps; step += 1) {
+        const kind = r.int(0, 13);
+        const at = idx();
+        let after = null;
+        if (kind <= 1) {
+            log.push(`${step}: send with lines`);
+            await w.say(`Reply ${step}.`, lines());
+        } else if (kind === 2) {
+            const here = r.pick([HAVEN, MILL]);
+            log.push(`${step}: send at ${here}`);
+            await w.say(`Moving ${step}.`, [`~ here ${here}`, ...lines()]);
+        } else if (kind === 3) {
+            const out = w.ui('trainer.open', { name: r.pick(PEOPLE), template: r.pick(['drills', 'drills', 'nothing']), ...(r.chance(0.4) ? { skills: [ref(r.pick(['s00', 's01', 's02']))] } : {}), ...(r.chance(0.3) ? { text: r.pick(['light', 'hard']) } : {}) });
+            log.push(`${step}: click ${out.ok ? 'ok' : out.code}`);
+            if (out.ok) offered += 1;
+        } else if (kind === 4 || kind === 5) {
+            const rows = w.q('rules.training', { actor: w.pc }).offers.filter(row => row.open || r.chance(0.2));
+            if (rows.length) {
+                const row = r.pick(rows);
+                const out = w.ui('skill.train', row.payload);
+                log.push(`${step}: ask ${row.name} ${out.ok ? 'ok' : out.code}`);
+            }
+        } else if (kind === 6) {
+            log.push(`${step}: send (plain)`);
+            await w.say(`Plain ${step}.`, []);
+        } else if (kind === 7 && at > 0) {
+            log.push(`${step}: delete reply ${at}`);
+            await w.host.st.deleteMessage(at);
+            await w.host.st.deleteMessage(at - 1);
+        } else if (kind === 8 && at > 0 && at === w.host.ctx.chat.length - 1) {
+            log.push(`${step}: swipe`);
+            await w.host.swipe(`Swipe ${step}.${r.chance(0.5) ? `\n\n<Changes>\n${lines().join('\n')}\n</Changes>` : ''}`);
+        } else if (kind === 9 && at > 0) {
+            log.push(`${step}: re-read, unchanged`);
+            const before = head();
+            // A block the guard turned off is asked again by a Re-read of its reply, and may now win a name a later reply took: that is the
+            // host's order of lines, so only a chat with every block standing must come back byte for byte.
+            const standing = w.host.store.problems().length === 0;
+            const result = await w.host.turn.reread(at);
+            if (result.ok && standing) assert.equal(head(), before, fail(`step ${step}`, 'an unchanged Re-read changed the chat'));
+        } else if (kind === 10 && at > 0) {
+            log.push(`${step}: edit, re-read`);
+            const message = w.host.ctx.chat[at];
+            message.mes = `Edited ${step}.${r.chance(0.7) ? `\n\n<Changes>\n${lines().join('\n')}\n</Changes>` : ''}`;
+            message.swipes[message.swipe_id] = message.mes;
+            await w.host.turn.reread(at);
+        } else if (kind === 11) {
+            log.push(`${step}: reload`);
+            const before = head();
+            await w.host.st.loadChat(JSON.parse(JSON.stringify(w.host.ctx.chat)));
+            assert.equal(head(), before, fail(`step ${step}`, 'a reload changed the chat'));
+        } else {
+            log.push(`${step}: send (lesson)`);
+            await w.say(`Lesson ${step}.`, [`~ here ${HAVEN}`, ...lines()]);
+        }
+        after = check(`step ${step}`);
+        lessons = Math.max(lessons, Object.values(sessions()).filter(session => session.trainer.startsWith('tn_') && session.status === 'completed').length);
+        offered = Math.max(offered, Object.keys(open()).length);
+        void after;
+    }
+    assert.ok(fees.size > 0 || steps < 10, `seed ${seed}: no trainer was ever offered`);
+    return { offers: fees.size, offered, lessons };
+}
+
+for (const seed of SEEDS) {
+    test(`open trainers fuzz seed ${seed}: lines, clicks, lessons, deletes, swipes, Re-reads and reloads keep every offer whole, never re-rolled, and equal to a rebuild`, { timeout: 280000 }, async t => {
+        await seeded(seed + 500, async () => {
+            t.mock.method(console, 'warn', () => {});
+            const out = await runTrainers(t, seed, STEPS);
+            if (process.env.QA_FUZZ_VERBOSE) console.log(`trainers seed ${seed}: ${JSON.stringify(out)}`);
         });
     });
 }

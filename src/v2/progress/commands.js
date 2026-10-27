@@ -24,6 +24,7 @@ import { applyFold } from './fold.js';
 import { indexOfCtx } from '../rules/graph.js';
 import { fightOn } from '../party/commands.js';
 import { placeOf, purseOf, rollEvent } from './session-step.js';
+import { trainerOf } from '../training/trainers.js';
 import { epochOf, isActorId, isDefId, isHash, isObject, isRecordId } from '../rules/ids.js';
 
 const CLASS_FIELDS = ['actor', 'milestone', 'class', 'expectedClass', 'rulesHash'];
@@ -136,7 +137,7 @@ function settle(ctx, payload = {}) {
     const env = { ix, progress: ctx.read('progress'), training: ctx.read('training'), query: queryOf(ctx) };
     const source = ctx.source ?? ctx.fail('FAILED', 'There is no reply yet to hold the settlement.');
     const session = payload.session;
-    const event = session ? rollEvent(ctx, ix, env.training?.sessions?.[session] ?? {}) : null;
+    const event = session ? rollEvent(ctx, ix, env.training?.sessions?.[session] ?? {}, env.training) : null;
     // A training session depends on where the party is and what it holds: read now, kept with the block, and read back from it on replay.
     const seen = session ? { place: placeOf(env.query), coin: purseOf(env.query) } : null;
     if (seen) env.recorded = seen;
@@ -147,7 +148,7 @@ function settle(ctx, payload = {}) {
     const completed = [];
     if (session) {
         claimOnce(ctx, `rb:${epochOf(ctx)}:train:${session}`, 'That training was already settled.');
-        const trainer = ix.trainer(env.training.sessions[session].trainer);
+        const trainer = trainerOf(ix, env.training, env.training.sessions[session].trainer);
         if (answer.outcome === 'ran') {
             ctx.call('wallet.pay', { owner: 'party', amount: answer.fee, note: `${trainer.name} trains` });
             const advanced = ctx.call('director.advance', { minutes: ix.constants.trainMinutes, cause: `train-${session}`, reason: `${trainer.name} trains` });

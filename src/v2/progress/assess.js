@@ -12,6 +12,7 @@ import { foldInputs, planFold } from './fold.js';
 import { readClock } from '../training/clock.js';
 import { planSession } from './session-step.js';
 import { expectedSessionId, waitingOf } from '../training/session.js';
+import { trainerOf } from '../training/trainers.js';
 import { isObject, isActorId } from '../rules/ids.js';
 import { sealedProblem } from '../fight/batch.js';
 import { ACTIVE_LIMIT, activeIds, lifeOf } from '../rules/sheet.js';
@@ -67,7 +68,8 @@ function assessUnit(env, payload) {
 }
 
 /**
- * skill.train: the character is alive and holds the skill in that form, the trainer is the pack's and teaches it, no request of
+ * skill.train: the character is alive and holds the skill in that form, the trainer is the pack's (or an open trainer the story or the
+ * reader offered, recorded in `training`) and teaches it, no request of
  * this character waits, and the session named is exactly the next one for this character, trainer, skill and form.
  */
 function assessRequest(env, payload) {
@@ -75,7 +77,7 @@ function assessRequest(env, payload) {
     const member = memberOf(query, payload.actor);
     if (!member) return { ok: false, code: 'NOT_FOUND', why: 'That character is not in the party.' };
     if (lifeOf(member) !== 'alive') return { ok: false, code: 'REFUSED', why: `${member.name} cannot train now.` };
-    const trainer = ix.trainer(payload.trainer);
+    const trainer = trainerOf(ix, training, payload.trainer);
     if (!trainer) return { ok: false, code: 'NOT_FOUND', why: 'That is not a trainer of this world.' };
     const view = standing(ix, progress, payload.actor).skills.find(item => item.skill === payload.skill);
     if (!view || view.form !== payload.form) return { ok: false, code: 'REFUSED', why: 'That is not one of the character\'s skills in that form.' };

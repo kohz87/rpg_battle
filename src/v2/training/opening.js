@@ -82,7 +82,7 @@ export function planTrainer({ ix, training, binding, by, recorded, roll = null, 
     if (!template) return refuse('RULES_MISMATCH', 'Choose an open trainer template of this world\'s rules explicitly.');
     let skills = template.skills;
     if (entries !== null) {
-        if (!Array.isArray(entries) || !entries.length || !entries.every(entry => typeof entry === 'string' && entry)) return refuse('INVALID', 'An open trainer\'s skills to teach are named, or left out.');
+        if (!Array.isArray(entries) || !entries.length || !entries.every(entry => typeof entry === 'string' && entry)) return refuse('INVALID', 'An open trainer\'s | teaches: names the skills, or is left out.');
         const narrowed = narrow(ix, template, entries);
         if (narrowed.entry !== undefined) return refuse('REFUSED', `${template.name} does not teach ${narrowed.entry}; a trainer teaches only what its template lists.`);
         skills = narrowed.skills;

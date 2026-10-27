@@ -109,6 +109,12 @@ export function nextStep(h, p) {
     if (roll < 76) return ['wallet.pay', { owner: 'party', amount: ids.qty() * 3 }];
     if (roll < 77) return ['inventory.grant', { name: p.pick(ITEMS), qty: ids.qty(), owner: 'party' }];
     if (roll < 78) return ['scene.place', p.pick(PLACES)];
+    // Open trainers (RPG Battle 2.2.0): a chat that pins no rules has no trainer kind, command or query, so both are refused and change nothing.
+    if (roll < 79) {
+        return p.chance(0.5)
+            ? ['trainer.open', { name: p.pick(NAMES), template: p.pick(['drills', 'nothing', '']), ...(p.chance(0.3) ? { skills: [p.pick(['pack.fixture/s00', 'x'])] } : {}) }]
+            : ['capture', { op: p.pick(['+', '+', '-']), kind: 'trainer', name: p.pick(NAMES), text: 'drills', labels: { like: p.pick(['drills', 'nothing']), ...(p.chance(0.3) ? { teaches: 's00' } : {}) } }];
+    }
     // The story's change lines.
     const kind = p.pick(['item', 'item', 'item', 'coin', 'coin', 'encounter', 'encounter', 'wound', 'join', 'check', 'rest']);
     if (kind === 'item') {

@@ -72,7 +72,6 @@ export function createTrainerCapture() {
         }
         if (Object.keys(labels).some(key => key !== 'like' && key !== 'teaches')) return refused('INVALID', 'An open trainer cannot supply a fee, a place or other fields.');
         const entries = Object.hasOwn(labels, 'teaches') ? teachesOf(labels.teaches) : null;
-        if (entries !== null && !entries.length) return refused('INVALID', 'An open trainer\'s | teaches: names the skills, or is left out.');
         const binding = { template: String(labels.like ?? '').trim(), name, text: String(line.text ?? '').trim(), skills: entries };
         const plan = liveTrainer(ctx, ix, binding, 'story', evidenceOf(ctx, null), npcReader(ctx, name));
         if (!plan.ok) return refused(plan.code, plan.message);

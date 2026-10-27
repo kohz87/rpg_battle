@@ -95,3 +95,20 @@ test('module.js: the kind is declared once, with its when and grammarFor, and th
     assert.equal(Object.hasOwn(def.commands, 'trainer.open'), false);
     assert.equal(Object.hasOwn(def.queries, 'training.openTemplates'), false);
 });
+
+test('the explicit activation path (a checked ruleset handed to createModule, no query callback): the kind is on exactly when the ruleset has a template', async t => {
+    const { createHost } = await import('../../vendor/story-block/testkit/index.js');
+    const { SD } = await import('../progress/helpers/world.js');
+    const { openTrainersPin, trainersPin } = await import('../progress/helpers/fixture.js');
+    const h = await createHost({ modules: [{ ...SD, version: '2.0.0' }] });
+    t.after(() => h.close());
+    const saved = globalThis.StoryBlock;
+    delete globalThis.StoryBlock;
+    t.after(() => { if (saved !== undefined) globalThis.StoryBlock = saved; });
+    const preflight = h.sdk.preflight({ module: 'rpg-battle', rulesVersion: 2 });
+    const kind = rules => createModule({ rules, preflight }).capture.kinds.trainer;
+    const on = kind(openTrainersPin());
+    assert.equal(on.enabled, true);
+    assert.match(on.grammar, /\(templates: drills\)\./);
+    assert.equal(kind(trainersPin()).enabled, false, 'a ruleset with trainers and no template');
+});
