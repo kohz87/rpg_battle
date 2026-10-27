@@ -547,7 +547,7 @@ A collapsed section **Adjustments (n)** at the end of RB's Quests page (`screens
 `rules.offers`, `rules.declined` and `training.offers` that has notes or a far band, newest first, 50 at most: when (the reply),
 what the narrator wrote (the labels as read), what code settled, the band, the notes. Read only; query
 `quest.adjustments({ limit })`; `feature: 'rpg-battle.generative-offers'`. It uses the existing screen widgets (a list of rows
-and a details element), so no new widget. Mockups: desktop 1280 × 1,526 px and phone 390 × 3,096 px full page (headless
+and a details element), so no new widget. Mockups: desktop 1280 × 1,798 px and phone 390 × 3,163 px full page (headless
 Chromium: page width equal to the viewport, so no horizontal scroll; no button or summary under 44 px).
 
 ## 10. Strict mode
@@ -826,3 +826,14 @@ SB `node authoring-kit/check.mjs examples/packs/ersveil-bluewatch/pack.json`, `n
 | A.9 | NSD givers | Resolve the giver with `npc.identity({ name })`, read only, and follow the giver's location for turn-in; today the name is stored. |
 | A.10 | Story gear | SB passes `slot:`/`hands:` of `+ item` to the hooks and asks a new `rules.gearRule`; RB builds the rule from them under the area's bounds; equipment without a slot becomes a plain item with a card note instead of a refusal. |
 | A.11 | Rank above the PC | Already in the core as the player's choice with a card note; any level gate is the narrative's. |
+
+## Decisions (approved 27 Oct)
+
+- The adjustments log mockups in `docs/v2/mockups/generative-offers/` (redesigned for readability, a82c5b0) are approved as drawn.
+- Open questions Q1–Q9 are accepted as recommended: count bounds on old pins derived from the pack's closed quests; a written
+  reward below the template floor is raised to it; the far-out line goes as a `[Happened]` line; turn-in at the place the job
+  was offered when known; a default deadline of 7 days; SD's "a job only offered stays in the story" line unchanged in 2.3.0;
+  a variant from a foe sharing no word with the target is allowed (nearest by danger, base named on the card); story gear is
+  not in 2.3.0 (A.10 kept); strict mode is a reader setting, not per chat.
+- Build order: Story Block 2.5.0 (SB-M1) first; then RPG Battle 2.3.0 (RB-M1 to RB-M5) and Studio ST-M1. Story Block 2.5.0
+  and RPG Battle 2.3.0 ship together. Test on Node 24 (CI's version) as well as Node 22.
