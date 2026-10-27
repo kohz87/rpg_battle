@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { createFakeModel } from '../../vendor/story-block/testkit/index.js';
 import { seeded } from './helpers/host.js';
 import { G1, G1_TERMS, G2, bluewatch } from '../quests/helpers/bluewatch.js';
+import { offersOf } from '../../../src/v2/rules/offers.js';
 
 const G2_TERMS = 'Posted job: Scrub Pack (from Hollis): kill 1 Alpha of the Scrub Wolf Pack within 7 days; pays 5 silver and 50 XP, turned in at Bluewatch Village. Fight it as ! encounter Alpha of the Scrub Wolf Pack | like: starved-crag-wolf. These are the terms from now on; nobody in the scene has to restate them.';
 const strings = value => (typeof value === 'string' ? [value] : value && typeof value === 'object' ? Object.values(value).flatMap(strings) : []);
@@ -35,7 +36,7 @@ test('the fake model offers G1 and G2; the next prompt carries both terms; a sec
         };
         await turn('What work is there?');
         assert.deepEqual(h.store.problems(), []);
-        assert.equal(Object.keys(h.head().domains.rules.offers).length, 2);
+        assert.equal(Object.keys(offersOf(h.head().domains.rules)).length, 2);
         const second = await turn('I\'ll take the Granary Vermin job.');
         const prompt = strings(second.request).join('\n');
         assert.ok(prompt.includes(G1_TERMS), 'the terms of G1 are in the prompt of the next generation');

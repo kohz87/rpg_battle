@@ -5,6 +5,7 @@
 
 import { flat } from './offer-bands.js';
 import { minutesOf } from './offer-words.js';
+import { declinedOf, offersOf } from '../rules/offers.js';
 
 export const LOG_LIMIT = 50;
 const KIND_WORDS = Object.freeze({ kill: 'Hunt', collect: 'Delivery', story: 'Task', visit: 'Journey' });
@@ -57,7 +58,7 @@ export function adjustments(state, args = {}, tools) {
         for (const id of [data?.quest, data?.declined, data?.trainer]) if (typeof id === 'string' && Number.isInteger(entry.index)) receipts.set(id, entry.index);
     }
     const out = [];
-    for (const [id, record] of Object.entries(state?.domains?.rules?.offers ?? {})) {
+    for (const [id, record] of Object.entries(offersOf(state?.domains?.rules))) {
         if (!record.notes.length) continue;
         const kind = record.settled.foe ? 'kill' : record.settled.item ? 'collect' : record.settled.place ? 'visit' : 'story';
         const shown = record.shown ?? {};
@@ -73,7 +74,7 @@ export function adjustments(state, args = {}, tools) {
             became: ['Trainer', shown.template || shown.teaches, shown.fee ? `fee ${shown.fee}` : '', offer.where].filter(Boolean).join(' · '),
             changes: changesOfTeacher(offer), dropped: '', wrote: wroteText(settled.said, 'text'), notes: [...settled.notes], where: offer.where }, receipts));
     }
-    for (const [id, record] of Object.entries(state?.domains?.rules?.declined ?? {})) {
+    for (const [id, record] of Object.entries(declinedOf(state?.domains?.rules))) {
         const said = record.said ?? {};
         out.push(row({ id, kind: record.kind ?? 'job', name: record.name, band: 'dropped', bandLabel: 'Dropped',
             became: [cap(said.type) || (record.kind === 'teacher' ? 'Teacher' : 'Job'), said.goal ?? said.text, said.reward ?? said.fee, 'not offered'].filter(Boolean).join(' · '),

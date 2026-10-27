@@ -9,6 +9,7 @@ import { replyCardLines } from '../../vendor/story-block/src/v2/screens/index.js
 import { rpgHost, seeded } from '../integration/helpers/host.js';
 import { G1, G2, PACK, PACK_TEXT, accept, bluewatch, lastTail, ok } from './helpers/bluewatch.js';
 import { templateless, unpinned } from './helpers/prompt-scenarios.js';
+import { offersOf, declinedOf } from '../../../src/v2/rules/offers.js';
 
 const recorded = JSON.parse(readFileSync(new URL('./fixtures/prompt-2.2.0.json', import.meta.url), 'utf8'));
 const json = value => JSON.parse(JSON.stringify(value));
@@ -185,8 +186,8 @@ test('a burst: three terms and "…and 2 more jobs are posted", two far-out line
         assert.ok(posted(tail).every(line => line.length <= 320));
         assert.ok(earlier(tail).every(line => line.length <= 300));
         // All five are posted, the three first told: the board has them all.
-        assert.equal(Object.keys(h.head().domains.rules.offers).length, 5);
-        assert.equal(Object.keys(h.head().domains.rules.declined).length, 4);
+        assert.equal(Object.keys(offersOf(h.head().domains.rules)).length, 5);
+        assert.equal(Object.keys(declinedOf(h.head().domains.rules)).length, 4);
         // Worst case of §2.5: the lines past the terms are at most 60 and 50 characters.
         assert.ok(counted(tail).every(line => line.length <= 60));
         // The reply after tells none of it again.
@@ -231,7 +232,7 @@ test('the counted lines follow the reply: deleting it takes them away', async t 
         await h.st.deleteMessage(index - 1);
         await h.say('Instead.');
         assert.deepEqual(counted(lastTail(h)), []);
-        assert.deepEqual(Object.keys(h.head().domains.rules.offers ?? {}), []);
+        assert.deepEqual(Object.keys(offersOf(h.head().domains.rules)), []);
     });
 });
 

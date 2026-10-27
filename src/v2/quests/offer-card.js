@@ -3,8 +3,9 @@
 // `hooks.replyCard` (MODULES §F125) gets the reply's state and the JSON Pointers its ops touched, so it lists only what that reply did. Pure.
 
 import { flat } from './offer-bands.js';
+import { offersOf } from '../rules/offers.js';
 
-const OFFER = /^\/domains\/rules\/offers\/(th_[0-9a-z]{8})(?:\/|$)/;
+const OFFER = /^\/domains\/rules\/offer\.(th_[0-9a-z]{8})(?:\/|$)/;
 const TEACHER = /^\/domains\/training\/offers\/(tn_[0-9a-z]{8})(?:\/|$)/;
 const NOTE_CHARS = 160;
 
@@ -53,7 +54,7 @@ const flagsOf = record => [record.band === 'moderate' ? 'Adjusted' : '', (record
 
 /** hooks.replyCard({ index, state, changes }) → the lines of the offers this reply made. */
 export function offerCard({ state, changes = [] } = {}) {
-    const rules = state?.domains?.rules?.offers ?? {};
+    const rules = offersOf(state?.domains?.rules);
     const taught = state?.domains?.training?.offers ?? {};
     const seen = new Set();
     const lines = [];

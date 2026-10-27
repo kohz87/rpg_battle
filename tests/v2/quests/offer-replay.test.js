@@ -10,12 +10,13 @@ import { replayOffer } from '../../../src/v2/quests/offer-plan.js';
 import { replayInputs } from '../../../src/v2/quests/seams.js';
 import { TYPES } from '../../../src/v2/quests/offer-words.js';
 import { G1, VILLAGE, accept, bluewatch, lastTail } from './helpers/bluewatch.js';
+import { offersOf, declinedOf } from '../../../src/v2/rules/offers.js';
 
 const OFFER = '+ quest Old Debts | giver: Marrit | goal: Settle the matter with the river guild | reward: 80 copper | due: in 3 days';
 const FAR = '+ quest Boar Hunt | goal: Hunt 3 wild boars | reward: 50 gold';
 const wallet = h => h.q('inventory.wallet', { owner: 'party' }).coin ?? 0;
 const job = (h, name = 'Old Debts') => h.q('director.thread', { key: name });
-const offers = h => h.head().domains.rules.offers;
+const offers = h => offersOf(h.head().domains.rules);
 const at = (h, text) => h.ctx.chat.findIndex(message => !message.is_user && String(message.mes ?? '').includes(text));
 const prerequisites = h => h.store.problems().filter(item => item.code === 'REPLAY_PREREQUISITE');
 const drop = async (h, index) => {
@@ -24,7 +25,7 @@ const drop = async (h, index) => {
 };
 /** The state the world is in, as the replay tests compare it. */
 // (Story Director's ledger of write ids is left out: a Re-read draws its own ids, as it does for a pack quest.)
-const world = h => JSON.stringify({ rules: h.head().domains.rules.offers, director: { ...h.head().domains.director, writes: undefined }, wallet: wallet(h), xp: h.q('party.pc').xp, claims: Object.keys(h.head().meta.claims).sort() });
+const world = h => JSON.stringify({ rules: offersOf(h.head().domains.rules), director: { ...h.head().domains.director, writes: undefined }, wallet: wallet(h), xp: h.q('party.pc').xp, claims: Object.keys(h.head().meta.claims).sort() });
 const agree = async (h, when) => {
     const live = JSON.stringify(h.head());
     const problems = JSON.stringify(h.store.problems());
@@ -230,7 +231,7 @@ test('a far-out line: no thread, no record of an offer, no Problem; the next pro
         assert.deepEqual(offers(h), {});
         assert.deepEqual(h.store.problems(), []);
         assert.deepEqual(h.turn.problems(), []);
-        const declined = Object.values(h.head().domains.rules.declined);
+        const declined = Object.values(declinedOf(h.head().domains.rules));
         assert.deepEqual(declined.map(row => [row.name, row.band]), [['Boar Hunt', 'far']]);
         await h.say('The market is quiet.');
         assert.match(lastTail(h), /Earlier, Boar Hunt was mentioned as a job, but it isn't one that can be offered here \(50 gold is far above what a rank F job pays: 4 gold at most\)\. Let it stay as talk or a rumour; if a job is wanted, offer it for 4 gold or less\./);
@@ -243,7 +244,7 @@ test('a far-out line: no thread, no record of an offer, no Problem; the next pro
         await agree(h, 'after a far-out line');
         // Delete its reply: the next prompt has no retcon line and the decision is gone.
         await drop(h, at(h, 'A wild offer.'));
-        assert.deepEqual(h.head().domains.rules.declined, {});
+        assert.deepEqual(declinedOf(h.head().domains.rules), {});
         await h.say('Another day.');
         assert.equal(lastTail(h).includes('Earlier, Boar Hunt'), false);
     });
@@ -255,11 +256,11 @@ test('swipe a far-out line: it is told again only for the swipe that is shown', 
         await h.say('A wild offer.', [FAR]);
         const last = h.ctx.chat.length - 1;
         await h.swipe('Nothing is offered.');
-        assert.deepEqual(h.head().domains.rules.declined, {});
+        assert.deepEqual(declinedOf(h.head().domains.rules), {});
         await h.say('Quiet.');
         assert.equal(lastTail(h).includes('Earlier, Boar Hunt'), false);
         await h.st.swipeTo(last, 0);
-        assert.equal(Object.keys(h.head().domains.rules.declined).length, 1);
+        assert.equal(Object.keys(declinedOf(h.head().domains.rules)).length, 1);
         await h.say('The market again.');
         assert.match(lastTail(h), /Earlier, Boar Hunt was mentioned as a job/);
     });

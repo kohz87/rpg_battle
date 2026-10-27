@@ -1,4 +1,5 @@
 // Retained quest command payloads; all thread changes go through SD's P23 writers.
+import { offersOf } from '../rules/offers.js';
 import { openingPlan, commitOpening } from './opening.js';
 import { offeredQuest } from './outcomes.js';
 import { OBJECTIVE_FIELDS } from './objectives.js';
@@ -46,7 +47,7 @@ export function createCommands({ settleQuest, evaluateRequirements = null, guard
         if (!thread.offer && (!thread.taken || !thread.acceptance)) return ctx.fail('REFUSED', 'The original reader acceptance proof is missing.');
         const now = inputs.clock?.minutes;
         // A job the story offered keeps its own deadline in the offer's record (the quest has no field for a duration); any other quest, its template's.
-        const settled = ctx.read('rules')?.offers?.[thread.id]?.settled;
+        const settled = offersOf(ctx.read('rules'))[thread.id]?.settled;
         const duration = settled ? settled.durationMinutes : template.durationMinutes;
         if ((quest.repeat?.nextOfferAt !== null && quest.repeat?.nextOfferAt !== undefined) || duration !== null) {
             if (!Number.isSafeInteger(now)) return ctx.fail('CLOCK_UNSET', 'This quest needs the story clock.');

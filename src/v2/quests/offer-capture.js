@@ -9,7 +9,8 @@ import { areaPolicyNow } from '../rules/items.js';
 import { offeredQuest } from './outcomes.js';
 import { ladderFrom } from './ranks.js';
 import { ask, boundary, call, freshThreadId, guardQuestInputs, pinned, recordQuestInputs, templates, threadOf, writeId } from './seams.js';
-import { FAR_TOLD, MATCHER, flat, farLineOf, settledTerms, shownOf } from './offer-bands.js';
+import { FAR_TOLD, MATCHER, flat, farLineOf, farReasonOf, settledTerms, shownOf } from './offer-bands.js';
+import { MAX_DECLINED, declinedOf, offersOf } from '../rules/offers.js';
 import { matchOffer, offerKey, NAME_CHARS } from './offer-match.js';
 import { KIND, planOffer } from './offer-plan.js';
 import { templateBinding } from './opening.js';
@@ -47,7 +48,7 @@ function liveEnv(ctx, pin, ix) {
     const here = ask(ctx.query, 'atlas.canonical', {});
     const minutes = ask(ctx.query, 'director.time')?.minutes;
     const creatures = ask(ctx.query, 'packs.content', { kind: 'creatures', pack: packKey });
-    const declined = rules.declined ?? {};
+    const declined = declinedOf(rules);
     return {
         pin, ix, ladder: ladderOf(ctx, pin, packKey), level: Number.isSafeInteger(level) ? level : null, area: areaPolicyNow(ctx.query),
         currency: ask(ctx.query, 'inventory.currency'), clock: Number.isSafeInteger(minutes), nowMinutes: Number.isSafeInteger(minutes) ? minutes : null,
@@ -64,8 +65,8 @@ function liveEnv(ctx, pin, ix) {
 /** The stored offer of this very line on this reply, if a Re-read is running (§7.3): its settled binding is reused, whatever the matcher is now. */
 function earlier(ctx, line) {
     const sid = ctx.source?.sid;
-    const offers = ctx.standing?.domains?.rules?.offers;
-    if (!sid || !offers) return null;
+    const offers = offersOf(ctx.standing?.domains?.rules);
+    if (!sid) return null;
     const want = hash16(ctx, { raw: line.raw });
     return Object.values(offers).find(offer => offer.sid === sid && offer.line === want) ?? null;
 }
@@ -88,13 +89,14 @@ function refusal(ctx, line, code, message) {
 function farOut(ctx, line, result, env) {
     const text = farLineOf(result, env.currency);
     const id = declinedId(ctx, result.name);
-    if (!Object.hasOwn(ctx.read('rules').declined ?? {}, id)) {
-        const [, reason, suggestion] = /\((.*)\)\. Let it stay as talk or a rumour; if a job is wanted, offer (.*)\.$/.exec(text) ?? [];
+    const known = declinedOf(ctx.read('rules'));
+    if (!Object.hasOwn(known, id) && Object.keys(known).length < MAX_DECLINED) {
+        const { reason, suggestion } = farReasonOf(result, env.currency);
         call(ctx, 'rules.recordOffer', { write: writeId(ctx, `declined:${id}`), declined: id, record: { v: 1, matcher: MATCHER, sid: ctx.source.sid, name: flat(result.name, NAME_CHARS),
-            reason: flat(reason ?? '', 200), suggestion: flat(suggestion ?? '', 200), band: 'far', kind: 'job', said: result.said ?? {} } });
+            reason: flat(reason, 200), suggestion: flat(suggestion, 200), band: 'far', kind: 'job', said: result.said ?? {} } });
     }
     // Two far-out lines of a reply are told; more are counted in the tail.
-    const told = Object.values(ctx.read('rules').declined ?? {}).filter(row => row.sid === ctx.source.sid).length <= FAR_TOLD;
+    const told = Object.values(declinedOf(ctx.read('rules'))).filter(row => row.sid === ctx.source.sid).length <= FAR_TOLD;
     return { summary: text, narrate: told, data: { declined: id, band: 'far', why: result.why } };
 }
 
@@ -111,7 +113,7 @@ function commitOffer(ctx, line, env, result) {
     if (!plan.ok) return { failed: plan };
     const title = flat(line.name, NAME_CHARS);
     // The technical limits (§6.3): Story Director's own, which it keeps only for the threads it makes itself, are kept here for the jobs RPG Battle makes.
-    const mine = Object.values(ctx.read('rules').offers ?? {}).filter(offer => offer.sid === ctx.source.sid).length;
+    const mine = Object.values(offersOf(ctx.read('rules'))).filter(offer => offer.sid === ctx.source.sid).length;
     const open = (ask(ctx.query, 'director.threads') ?? []).filter(row => row.status === 'active').length;
     if (!thread && (mine >= NEW_PER_REPLY || open >= MAX_OPEN)) return { failed: { code: 'LIMIT', message: mine >= NEW_PER_REPLY ? `One reply offers at most ${NEW_PER_REPLY} new jobs.` : `${MAX_OPEN} threads are open; close or finish some first.` } };
     // The host's cursor is read only once the offer is going to be made: a line that reads it must carry a guard.

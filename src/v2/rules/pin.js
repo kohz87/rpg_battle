@@ -211,9 +211,6 @@ export function pinRules(draft, given) {
     if (draft.pin !== null && draft.pin !== undefined) return draft.rulesHash === trial.rulesHash ? '' : 'This chat already runs other rules; a running timeline keeps its rules.';
     draft.rulesHash = trial.rulesHash;
     draft.pin = pin;
-    // A pack with open quest templates starts the generative offers' maps empty: each record is then one add-only key inside them, so taking
-    // the reply that made the first back takes that one only (a map made by the first offer would take every later one's parent with it).
-    if (Object.values(pin.resolved.quests ?? {}).some(quest => quest?.open === true)) Object.assign(draft, { offers: {}, declined: {} });
     return '';
 }
 

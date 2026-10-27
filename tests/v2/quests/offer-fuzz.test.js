@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { seeded } from '../integration/helpers/host.js';
 import { createPicker } from '../qa/helpers/fuzz.js';
 import { G1, G2, bluewatch } from './helpers/bluewatch.js';
+import { offersOf, declinedOf } from '../../../src/v2/rules/offers.js';
 
 const LINES = [
     G1, G2, '+ quest Boar Hunt | goal: Hunt 3 wild boars | reward: 50 gold', '+ quest The Granary Vermin | type: cull | goal: kill 6 rats',
@@ -73,12 +74,12 @@ async function run(t, seed, steps) {
         }
         // Whatever stands is whole: every record names a thread that is there, and every offered job has its record.
         const rules = h.head().domains.rules;
-        seen.offers += Object.keys(rules.offers ?? {}).length;
-        seen.declined += Object.keys(rules.declined ?? {}).length;
+        seen.offers += Object.keys(offersOf(rules)).length;
+        seen.declined += Object.keys(declinedOf(rules)).length;
         seen.trainers += Object.keys(h.head().domains.training.offers ?? {}).length;
         seen.done += h.q('director.threads', {}).filter(row => row.rpg?.state === 'done').length;
-        for (const id of Object.keys(rules.offers ?? {})) assert.ok(h.q('director.thread', { id }), `record ${id} has its thread`);
-        for (const thread of h.q('director.threads', {}).filter(row => row.rpg && row.rpg.template.includes('/open-'))) assert.ok(rules.offers?.[thread.id], `${thread.key} has its record`);
+        for (const id of Object.keys(offersOf(rules))) assert.ok(h.q('director.thread', { id }), `record ${id} has its thread`);
+        for (const thread of h.q('director.threads', {}).filter(row => row.rpg && row.rpg.template.includes('/open-'))) assert.ok(offersOf(rules)[thread.id], `${thread.key} has its record`);
     });
 }
 

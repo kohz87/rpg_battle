@@ -6,6 +6,7 @@ import { matchOffer } from '../../../src/v2/quests/offer-match.js';
 import { derivedPin, env, lineOf, PIN } from './helpers/offer-env.js';
 import { seeded } from '../integration/helpers/host.js';
 import { PACK, bluewatch } from './helpers/bluewatch.js';
+import { offersOf } from '../../../src/v2/rules/offers.js';
 
 const P = 'pack.ersveil-bluewatch';
 const offer = (text, pin, options = {}) => matchOffer(env({ pin, ...options }), lineOf(text));
@@ -132,7 +133,7 @@ test('on the real host, with a pack whose open templates name their type (Story 
         assert.equal(pinned[`${P}/open-hunt-f`].offerType, 'hunt');
         await h.say('Hollis speaks.', ['+ quest Rats A | type: cull | goal: kill 6 culvert rats | reward: 60 copper | due: in 2 days', '+ quest Rats B | type: hunt | goal: kill 6 culvert rats | reward: 60 copper | due: in 2 days', '+ quest Rats C | goal: kill 6 culvert rats | reward: 60 copper | due: in 2 days']);
         assert.deepEqual(h.turn.problems(), []);
-        const by = Object.fromEntries(Object.values(h.head().domains.rules.offers).map(offer => [offer.name, [offer.settled.template.split('/')[1], offer.settled.count]]));
+        const by = Object.fromEntries(Object.values(offersOf(h.head().domains.rules)).map(offer => [offer.name, [offer.settled.template.split('/')[1], offer.settled.count]]));
         assert.deepEqual(by, { 'Rats A': ['open-cull-f', 3], 'Rats B': ['open-hunt-f', 6], 'Rats C': ['open-hunt-f', 6] });
         // The decision is kept: a rebuild gives the same head.
         const live = JSON.stringify(h.head());

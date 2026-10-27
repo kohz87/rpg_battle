@@ -7,7 +7,8 @@ import { buildGuard } from '../progress/guard.js';
 import { indexOfCtx, indexOfState } from '../rules/graph.js';
 import { epochOf } from '../rules/ids.js';
 import { ask, call, freshThreadId, pinned, threadOf, writeId } from '../quests/seams.js';
-import { FAR_TOLD, MATCHER, NOTE, farLineOf, flat, keepNotes } from '../quests/offer-bands.js';
+import { FAR_TOLD, MATCHER, NOTE, farLineOf, farReasonOf, flat, keepNotes } from '../quests/offer-bands.js';
+import { MAX_DECLINED, declinedOf } from '../rules/offers.js';
 import { declinedId } from '../quests/offer-capture.js';
 import { ladderFrom } from '../quests/ranks.js';
 import { evidenceOf, npcReader } from './capture.js';
@@ -49,7 +50,7 @@ export function captureTrainerOffer(ctx, line) {
     // A fixed trainer's name is theirs already; a far-out decision on record makes a bare line a quiet no-op.
     if (key && ix.trainers.some(entry => nameKey(entry.name) === key)) return quiet(`${name} is a trainer of this world.`);
     const bare = !['like', 'teaches', 'fee'].some(label => Object.hasOwn(labels, label)) && !String(line.text ?? '').trim();
-    if (key && bare && Object.hasOwn(rules.declined ?? {}, declinedId(ctx, name))) return quiet(`${name} was not offered.`);
+    if (key && bare && Object.hasOwn(declinedOf(rules), declinedId(ctx, name))) return quiet(`${name} was not offered.`);
     const earlier = (() => {
         const offers = ctx.standing?.domains?.training?.offers;
         const want = hash16(ctx, { raw: line.raw });
@@ -103,12 +104,13 @@ function keep(ctx, line, name, result) {
 function farOut(ctx, far, env) {
     const text = farLineOf(far, env.currency);
     const id = declinedId(ctx, far.name);
-    if (!Object.hasOwn(ctx.read('rules').declined ?? {}, id)) {
-        const [, reason, suggestion] = /\((.*)\)\. Let it stay as talk or a rumour; if a job is wanted, offer (.*)\.$/.exec(text) ?? [];
+    const known = declinedOf(ctx.read('rules'));
+    if (!Object.hasOwn(known, id) && Object.keys(known).length < MAX_DECLINED) {
+        const { reason, suggestion } = farReasonOf(far, env.currency);
         call(ctx, 'rules.recordOffer', { write: writeId(ctx, `declined:${id}`), declined: id, record: { v: 1, matcher: MATCHER, sid: ctx.source.sid, name: flat(far.name, NAME_MAX),
-            reason: flat(reason ?? '', 200), suggestion: flat(suggestion ?? '', 200), band: 'far', kind: 'teacher', said: far.said ?? {} } });
+            reason: flat(reason, 200), suggestion: flat(suggestion, 200), band: 'far', kind: 'teacher', said: far.said ?? {} } });
     }
-    const told = Object.values(ctx.read('rules').declined ?? {}).filter(row => row.sid === ctx.source.sid).length <= FAR_TOLD;
+    const told = Object.values(declinedOf(ctx.read('rules'))).filter(row => row.sid === ctx.source.sid).length <= FAR_TOLD;
     return { summary: text, narrate: told, data: { declined: id, band: 'far', why: far.why } };
 }
 

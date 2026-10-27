@@ -6,11 +6,13 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { seeded } from '../integration/helpers/host.js';
 import { G1, PACK, PACK_TEXT, accept, bluewatch, fight, lastTail, ok } from './helpers/bluewatch.js';
+import { replyCardLines } from '../../vendor/story-block/src/v2/screens/index.js';
+import { declinedOf, offersOf } from '../../../src/v2/rules/offers.js';
 
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/pinned-2.2.0.json', import.meta.url), 'utf8'));
 const wallet = h => h.q('inventory.wallet', { owner: 'party' }).coin ?? 0;
 const job = (h, name) => h.q('director.thread', { key: name });
-const offers = h => h.head().domains.rules.offers ?? {};
+const offers = h => offersOf(h.head().domains.rules);
 const trainers = h => h.head().domains.training.offers ?? {};
 const at = (h, text) => h.ctx.chat.findIndex(message => !message.is_user && String(message.mes ?? '').includes(text));
 const drop = async (h, index) => { await h.st.deleteMessage(index); await h.st.deleteMessage(index - 1); };
@@ -227,10 +229,10 @@ test('strict mode: the free-form line is refused as in 2.2.0 and the open-quest 
 
 // ---- a chat recorded on 2.2.0 ----
 
-test('a chat recorded on 2.2.0 offers its first generative job and a second; a delete takes whole blocks only', async t => {
+test('a chat recorded on 2.2.0 offers its first generative job and a second; a delete takes that reply\'s record only, whichever came first', async t => {
     await seeded(4210, async () => {
         const h = await bluewatch(t, { st: { chat: structuredClone(fixture.chat), extensionSettings: structuredClone(fixture.extensionSettings) } });
-        assert.equal(Object.hasOwn(h.head().domains.rules, 'offers'), false, 'a pin from before 2.3.0 has no map of offers');
+        assert.equal(offersOf(h.head().domains.rules) && Object.keys(offersOf(h.head().domains.rules)).length, 0, 'a pin from before 2.3.0 has no offers');
         await h.say('Hollis has a job.', [G1]);
         await h.say('Another.', ['+ quest Rat Trouble | goal: kill 3 rats | reward: 100 copper']);
         assert.equal(Object.keys(offers(h)).length, 2);
@@ -240,12 +242,50 @@ test('a chat recorded on 2.2.0 offers its first generative job and a second; a d
         assert.deepEqual(Object.values(offers(h)).map(o => o.name), ['Granary Vermin']);
         assert.deepEqual(h.store.problems(), []);
         await h.say('Another again.', ['+ quest Rat Trouble | goal: kill 3 rats | reward: 100 copper']);
-        // The first reply made the map. Taking it back takes the map, and the second block, which cannot be applied to a map that is not there, is skipped whole:
-        // no thread without its record, one REPLAY_PREREQUISITE (a pin made by 2.3.0 starts the map empty, so this is the old chats' case only).
+        // Each record is one key of the rules slice, so the first reply made no map the later ones hang on: taking it back takes the first job and nothing else.
         await drop(h, at(h, 'Hollis has a job.'));
         assert.equal(job(h, 'Granary Vermin'), null);
-        assert.equal(job(h, 'Rat Trouble'), null);
-        assert.deepEqual(h.store.problems().map(item => item.code), ['REPLAY_PREREQUISITE']);
+        assert.ok(job(h, 'Rat Trouble'));
+        assert.deepEqual(Object.values(offers(h)).map(o => o.name), ['Rat Trouble']);
+        assert.deepEqual(h.store.problems(), []);
+        await agree(h);
+    });
+});
+
+test('a chat recorded on 2.2.0: the first job\'s reply has its card line, and swiping it away leaves the later jobs and replies alone', async t => {
+    await seeded(4211, async () => {
+        const h = await bluewatch(t, { st: { chat: structuredClone(fixture.chat), extensionSettings: structuredClone(fixture.extensionSettings) } });
+        const card = () => replyCardLines(h.registry.hookEntries('replyCard'), { index: h.store.headIndex(), state: h.store.at(h.store.headIndex()), changes: h.store.changesAt(h.store.headIndex()) });
+        await h.say('Hollis has a job.', [G1]);
+        assert.deepEqual(card().map(line => line.text), ['Posted: Granary Vermin, kill 6 Culvert Rats, 5 silver'], 'the first offer on an old pin has its line');
+        // Swiped away, the job is gone and nothing else is touched; a later job is then the chat's first.
+        await h.swipe('Nobody has a job.');
+        assert.equal(job(h, 'Granary Vermin'), null);
+        assert.deepEqual(h.store.problems(), []);
+        await h.say('Hollis has a job.', [G1]);
+        await h.say('Another.', ['+ quest Rat Trouble | goal: kill 3 rats | reward: 100 copper', '+ coin 3']);
+        assert.equal(card().length, 1);
+        const coin = wallet(h);
+        await drop(h, at(h, 'Hollis has a job.'));
+        assert.equal(wallet(h), coin, 'the later reply\'s coin stands');
+        assert.ok(job(h, 'Rat Trouble'));
+        assert.deepEqual(h.store.problems(), []);
+        await agree(h);
+    });
+});
+
+test('a chat recorded on 2.2.0: the first far-out decision makes no map the later ones hang on', async t => {
+    await seeded(4212, async () => {
+        const h = await bluewatch(t, { st: { chat: structuredClone(fixture.chat), extensionSettings: structuredClone(fixture.extensionSettings) } });
+        assert.equal(Object.keys(declinedOf(h.head().domains.rules)).length, 0);
+        const before = wallet(h);
+        await h.say('Wild offer A.', ['+ quest Boar Hunt | goal: Hunt 3 wild boars | reward: 50 gold']);
+        await h.say('Wild offer C.', ['+ coin 7', '+ quest Wolf Hunt | goal: Hunt 3 wolves | reward: 60 gold']);
+        assert.deepEqual(Object.values(declinedOf(h.head().domains.rules)).map(row => row.name).sort(), ['Boar Hunt', 'Wolf Hunt']);
+        await drop(h, at(h, 'Wild offer A.'));
+        assert.deepEqual(Object.values(declinedOf(h.head().domains.rules)).map(row => row.name), ['Wolf Hunt']);
+        assert.equal(wallet(h) - before, 7, 'the coin of the later reply stands');
+        assert.deepEqual(h.store.problems(), []);
         await agree(h);
     });
 });

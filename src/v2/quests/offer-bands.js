@@ -110,7 +110,12 @@ export function settledTerms(result, name, currency) {
 
 /** The far-out line (§8.2) of a far decision of the matchers (`why`: reward, fee, done, already, elsewhere). */
 export function farLineOf(far, currency) {
-    return farLine({ name: far.name, ...FAR_REASON[far.why](far, currency) });
+    return farLine({ name: far.name, ...farReasonOf(far, currency) });
+}
+
+/** The reason and the suggestion of a far decision, as the far-out line and the declined record both keep them: `{ reason, suggestion }`. */
+export function farReasonOf(far, currency) {
+    return FAR_REASON[far.why](far, currency);
 }
 
 /**

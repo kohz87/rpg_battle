@@ -6,13 +6,14 @@ import assert from 'node:assert/strict';
 import { seeded } from '../integration/helpers/host.js';
 import { hashJson } from '../../../src/v2/rules/hash.js';
 import { replayTrainerOffer } from '../../../src/v2/training/offer-capture.js';
+import { declinedOf } from '../../../src/v2/rules/offers.js';
 import { HAVEN, MILL, at, coin, drop, offers, only, ready, rowOf, sessions } from './helpers/open.js';
 
 const LINE = '+ trainer Old Reka — drills';
 const free = (t, options = {}) => ready(t, { strict: false, ...options });
 const spans = w => w.host.ctx.chat.flatMap(message => message.extra?.storySuite?.spans ?? []).filter(span => span.guard?.predicate?.kind === 'trainer.offer');
 const tailOf = w => w.host.st.promptLog.filter(entry => entry.key === 'story_suite_tail_1' && entry.value).at(-1)?.value ?? '';
-const declined = w => Object.values(w.slice('rules').declined ?? {});
+const declined = w => Object.values(declinedOf(w.slice('rules')));
 
 test('a free-form line offers a teacher: the template matched by its words, the fee from the recorded die, trainer.offer guarding the reply', async t => {
     await seeded(4101, async () => {

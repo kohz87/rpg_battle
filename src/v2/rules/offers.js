@@ -1,7 +1,11 @@
 // RPG Battle v2, the generative offers kept in the `rules` domain (GENERATIVE_OFFERS_SPEC §7.1):
 //
-//   rules.offers?:   { [th_ id]: Offer }      every job the narrator offered in its own words, under the id of the thread it made
-//   rules.declined?: { [dk_ id]: Declined }   the far-out decisions: a job (or teacher) that was not offered, under the key of its name
+//   rules['offer.<th_ id>']    = Offer     every job the narrator offered in its own words, under the id of the thread it made
+//   rules['declined.<dk_ id>'] = Declined  the far-out decisions: a job (or teacher) that was not offered, under the key of its name
+//
+// Each record is one key of the slice itself, so its parent always exists: a chat pinned before 2.3.0 has no map to make, and taking the reply that made one
+// record back takes that record only (a map made by the first offer would take every later one's parent with it). `offersOf` and `declinedOf` read them as
+// maps by id; nothing else knows the key names.
 //
 //   Offer    = { v: 1, matcher, line, sid, name, said, settled, band, notes, where, shown? }
 //     matcher  the version of the reading rules that decided it; line the first 16 hex of the hash of the line as written (a Re-read of the
@@ -10,12 +14,13 @@
 //     the deadline in the chat's words (the card and the Adjustments log do not ask for the currency again).
 //   Declined = { v: 1, matcher, sid, name, reason, suggestion, band: 'far', said?, kind? }   kind 'job' | 'teacher', said the labels as read
 //
-// Both are absent until first used (a pin with open quest templates starts them empty, so each record is one add-only key and taking the reply
-// that made the first one back takes that one only). `rules.recordOffer` is the one writer, for this module's own capture. Pure apart from the command.
+// Absent until first used. `rules.recordOffer` is the one writer, for this module's own capture. Pure apart from the command.
 
 import { TRUSTED, isDefId, isId, isObject, isRecordId } from './ids.js';
 
 export const MAX_DECLINED = 50;
+export const OFFER_KEY = 'offer.';
+export const DECLINED_KEY = 'declined.';
 export const MAX_RECORDS = 2000;
 const HOWS = ['exact', 'contains', 'part', 'scan', 'variant'];
 const text = (value, max, min = 0) => typeof value === 'string' && [...value].length >= min && [...value].length <= max && !/[<>\p{Cc}]/u.test(value);
@@ -23,6 +28,15 @@ const int = (value, min, max) => Number.isSafeInteger(value) && value >= min && 
 const sid = value => typeof value === 'string' && /^[a-z][a-z0-9]*_[0-9a-z]{1,40}$/.test(value);
 export const isOfferId = value => typeof value === 'string' && /^th_[0-9a-z]{8}$/.test(value);
 export const isDeclinedId = value => typeof value === 'string' && /^dk_[0-9a-f]{12}$/.test(value);
+
+const keyed = (slice, prefix) => {
+    const out = {};
+    if (isObject(slice)) for (const key of Object.keys(slice)) if (key.startsWith(prefix)) out[key.slice(prefix.length)] = slice[key];
+    return out;
+};
+/** The recorded jobs of a rules slice by thread id, and the far-out decisions by key (`{}` for a chat with none). */
+export const offersOf = slice => keyed(slice, OFFER_KEY);
+export const declinedOf = slice => keyed(slice, DECLINED_KEY);
 
 /** What is wrong with the numbers a matched offer settled, or ''. */
 export function settledProblem(settled) {
@@ -67,13 +81,10 @@ export function declinedProblem(id, record) {
     return null;
 }
 
-/** The problems of the `offers` and `declined` maps of a rules slice (the domain validator adds them to its own). */
+/** The problems of the recorded offers and decisions of a rules slice (the domain validator adds them to its own). */
 export function offersProblems(slice) {
     const errors = [];
-    for (const [name, check] of [['offers', offerProblem], ['declined', declinedProblem]]) {
-        if (!Object.hasOwn(slice, name)) continue;
-        const map = slice[name];
-        if (!isObject(map)) { errors.push(`rules: ${name} is not a record`); continue; }
+    for (const [name, map, check] of [['offers', offersOf(slice), offerProblem], ['declined', declinedOf(slice), declinedProblem]]) {
         const keys = Object.keys(map);
         if (keys.length > MAX_RECORDS) { errors.push(`rules: more than ${MAX_RECORDS} ${name}`); continue; }
         for (const key of keys) {
@@ -86,7 +97,7 @@ export function offersProblems(slice) {
 
 const FIELDS = ['write', 'thread', 'declined', 'record'];
 
-/** rules.recordOffer { write, thread | declined, record }: this module's capture adds one record, by key; `declined` keeps the newest MAX_DECLINED. */
+/** rules.recordOffer { write, thread | declined, record }: this module's capture adds one record, by key (at most MAX_DECLINED far-out decisions are kept). */
 export function recordOffer(ctx, payload) {
     if (!isObject(payload) || Object.keys(payload).some(key => !FIELDS.includes(key)) || !isRecordId(payload.write) || !isObject(payload.record)
         || (payload.thread === undefined) === (payload.declined === undefined)) ctx.fail('INVALID', 'rules.recordOffer takes { write, thread | declined, record }.');
@@ -97,16 +108,14 @@ export function recordOffer(ctx, payload) {
     if (payload.thread !== undefined) {
         const problem = offerProblem(payload.thread, payload.record);
         if (problem) ctx.fail('INVALID', `That offer ${problem}.`);
-        if (Object.hasOwn(slice.offers ?? {}, payload.thread)) ctx.fail('CONFLICT', 'That job is already recorded.');
-        draft.offers ??= {};
-        draft.offers[payload.thread] = payload.record;
+        if (Object.hasOwn(slice, OFFER_KEY + payload.thread)) ctx.fail('CONFLICT', 'That job is already recorded.');
+        draft[OFFER_KEY + payload.thread] = payload.record;
         return { summary: `${payload.record.name} recorded.`, narrate: false, data: { thread: payload.thread } };
     }
     const problem = declinedProblem(payload.declined, payload.record);
     if (problem) ctx.fail('INVALID', `That decision ${problem}.`);
-    draft.declined ??= {};
-    draft.declined[payload.declined] = payload.record;
-    // Add-only by key: the oldest go by key, never by position.
-    for (const key of Object.keys(draft.declined).slice(0, Math.max(0, Object.keys(draft.declined).length - MAX_DECLINED))) delete draft.declined[key];
+    if (Object.hasOwn(slice, DECLINED_KEY + payload.declined)) ctx.fail('CONFLICT', 'That decision is already recorded.');
+    if (Object.keys(declinedOf(slice)).length >= MAX_DECLINED) ctx.fail('LIMIT', `At most ${MAX_DECLINED} far-out decisions are kept.`);
+    draft[DECLINED_KEY + payload.declined] = payload.record;
     return { summary: `${payload.record.name} was not offered.`, narrate: false, data: { declined: payload.declined } };
 }

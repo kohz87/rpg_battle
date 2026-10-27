@@ -5,6 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { seeded } from '../integration/helpers/host.js';
 import { G1, G1_TERMS, G2, VILLAGE, accept, bluewatch, fightUntil, lastTail, skipSibling } from './helpers/bluewatch.js';
+import { offersOf } from '../../../src/v2/rules/offers.js';
 
 const wallet = h => h.q('inventory.wallet', { owner: 'party' }).coin ?? 0;
 const job = (h, name) => h.q('director.thread', { key: name });
@@ -22,7 +23,7 @@ test('G1: offered, told back, accepted, fought to 6/6 and turned in at the villa
         assert.deepEqual(thread.rpg.reward, { coin: 50, xp: 50, items: [] });
         assert.equal(thread.fields.giver, 'Hollis');
         assert.equal(thread.fields.goal, 'Kill 6 culvert rats in the south levee granary and collect tails');
-        const record = h.head().domains.rules.offers[thread.id];
+        const record = offersOf(h.head().domains.rules)[thread.id];
         assert.deepEqual([record.band, record.matcher, record.where, record.settled.foe.name, record.settled.durationMinutes], ['moderate', 1, 'Bluewatch Village', 'Culvert Rats', 10080]);
         assert.equal(record.notes.join('; '), 'reward "12 crowns" is not this chat\'s money; set to 5 silver; Culvert Rats is a named kind of Cellar Rat Swarm; deadline set to 7 days');
         // The next prompt carries the settled terms, once.
