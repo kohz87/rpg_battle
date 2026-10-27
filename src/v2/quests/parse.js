@@ -78,7 +78,7 @@ const VERB_KIND = new RegExp(`^(?:(${verbPattern(FOE_VERBS)})|(${verbPattern(ITE
 const VERBS = verbPattern([...FOE_VERBS, ...ITEM_VERBS]);
 
 // Where a target's noun ends: a preposition, a joining word, or punctuation.
-const STOP_WORDS = new Set(['from', 'in', 'at', 'near', 'for', 'to', 'on', 'by', 'before', 'after', 'within', 'and',
+export const STOP_WORDS = new Set(['from', 'in', 'at', 'near', 'for', 'to', 'on', 'by', 'before', 'after', 'within', 'and',
     'or', 'with', 'around', 'outside', 'inside', 'under', 'over', 'that', 'who', 'which', 'while', 'then', 'until',
     'each', 'per', 'apiece', 'into', 'across', 'along', 'behind', 'beyond', 'without', 'if', 'so', 'as']);
 const NOUN_WORDS_MAX = 5;

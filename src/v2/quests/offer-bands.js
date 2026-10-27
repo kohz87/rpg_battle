@@ -1,0 +1,109 @@
+// RPG Battle v2, generative offers: the three bands, the notes a card carries and the two lines told back to the narrator
+// (GENERATIVE_OFFERS_SPEC §6, §8, §9.2). Pure: no ctx, no state. The decision is made once, at capture, and stored with the offer.
+
+import { money } from './parse.js';
+import { durationText } from './offer-words.js';
+
+/** The version of the reading rules (the tables and the order of the steps); each offer records the one that decided it (§7.1). */
+export const MATCHER = 1;
+
+/** A number written more than FAR times its maximum is far out: no offer. One constant, as the spec has it. */
+export const FAR = 3;
+export const BAND_WITHIN = 'within';
+export const BAND_MODERATE = 'moderate';
+export const BAND_FAR = 'far';
+
+/** The most notes an offer keeps, and the longest one. */
+export const NOTES_MAX = 6;
+export const NOTE_CHARS = 160;
+/** The settled-terms line and the far-out line, cut to this many code points. */
+export const TERMS_CHARS = 320;
+export const FAR_CHARS = 300;
+
+export const cut = (value, max) => [...String(value ?? '')].slice(0, max).join('');
+export const flat = (value, max) => cut(String(value ?? '').replace(/[<>\p{Cc}]/gu, ' ').replace(/\s+/g, ' ').trim(), max);
+
+/**
+ * A written number held to `[min, max]`: `{ value, moved, far }`. `far` when it is above FAR times the maximum (then `value` is the maximum, unused);
+ * `moved` when it was raised to the minimum or cut to the maximum.
+ */
+export function hold(written, min, max) {
+    if (written > FAR * max) return { value: max, moved: true, far: true };
+    if (written < min) return { value: min, moved: true, far: false };
+    if (written > max) return { value: max, moved: true, far: false };
+    return { value: written, moved: false, far: false };
+}
+
+/** The band of a decision: the worst of its parts. */
+export const bandOf = ({ far = false, moved = false } = {}) => (far ? BAND_FAR : moved ? BAND_MODERATE : BAND_WITHIN);
+
+/** The wording of the card notes (§9.2); each is cut to NOTE_CHARS where it is kept. */
+export const NOTE = Object.freeze({
+    countSet: n => `count set to ${n}`,
+    countCapped: max => `count capped at ${max}`,
+    rewardSet: (coin, rank, currency) => `reward set to ${money(coin, currency)} (rank ${rank} range)`,
+    rewardForeign: (text, coin, currency) => `reward "${text}" is not this chat's money; set to ${money(coin, currency)}`,
+    rewardUnreadable: (text, coin, currency) => `reward "${text}" has no amount code can read; set to ${money(coin, currency)}`,
+    deadlineSet: minutes => `deadline set to ${durationText(minutes)}`,
+    noClock: () => 'no story clock, so no deadline',
+    variant: (name, base) => `${name} is a named kind of ${base}`,
+    noFoe: phrase => `no foe for "${phrase}"; the story judges the goal`,
+    noItem: phrase => `no pack item for "${phrase}"; the story judges the goal`,
+    cannotFight: (name) => `${name} cannot be fought under these rules; the story judges the goal`,
+    setAside: (word, foe, rank) => `${word} set aside: ${foe} is a rank ${rank} foe`,
+    aboveRank: (job, party) => `well above your rank (rank ${job} job; you are rank ${party})`,
+    likeUnknown: like => `like: ${like} is not a template`,
+    unused: label => `${label} was not used`,
+    feeSet: (fee, currency) => `fee set to ${money(fee, currency)}`,
+    feeForeign: text => `fee "${text}" is not this chat's money; the fee is rolled instead`,
+    feeUnreadable: text => `fee "${text}" has no amount code can read; the fee is rolled instead`,
+    skillDropped: (skill, template) => `${skill} is not taught by ${template}`,
+});
+
+/** Notes as stored: flat, cut, at most NOTES_MAX, none twice. */
+export const keepNotes = list => [...new Set(list.map(note => flat(note, NOTE_CHARS)).filter(Boolean))].slice(0, NOTES_MAX);
+
+/** `Posted job: …` (§8.1): the settled terms, told once on the reply after the offer. */
+export function termsLine({ name, giver = null, objective, deadline = null, coin, xp, where = '', fight = '' }, currency) {
+    const head = `Posted job: ${name}${giver ? ` (from ${giver})` : ''}: `;
+    const tail = `${deadline ? ` within ${deadline}` : ''}; pays ${money(coin, currency)} and ${xp} XP, turned in at ${where || 'a settlement'}.${fight ? ` Fight ${fight.count > 1 ? 'them' : 'it'} as ${fight.line}.` : ''} These are the terms from now on; nobody in the scene has to restate them.`;
+    // The line is cut to size by shortening the objective, which is the narrator's own long text; the terms after it always stay whole.
+    const room = TERMS_CHARS - [...head].length - [...tail].length;
+    const shown = [...objective].length > room ? `${cut(objective, Math.max(0, room - 1)).trimEnd()}…` : objective;
+    return cut(`${head}${shown}${tail}`, TERMS_CHARS);
+}
+
+/** The reasons a job cannot be offered (§8.2): `{ reason, suggestion }` for the far-out line. */
+export const FAR_REASON = Object.freeze({
+    reward: ({ written, max, rank }, currency) => ({ reason: `${money(written, currency)} is far above what a rank ${rank} job pays: ${money(max, currency)} at most`, suggestion: `it for ${money(max, currency)} or less` }),
+    fee: ({ written, max, template }, currency) => ({ reason: `a fee of ${money(written, currency)} is far above ${template}: ${money(max, currency)} at most`, suggestion: `the lessons for ${money(max, currency)} or less` }),
+    done: () => ({ reason: 'it was offered and finished at once', suggestion: 'it as an open job, and close it when it is done' }),
+    already: ({ name }) => ({ reason: `${name} is already done`, suggestion: 'a new job under a new name' }),
+    elsewhere: ({ name, where }) => ({ reason: `${name} already teaches at ${where || 'another place'}`, suggestion: 'them where they teach, or another teacher' }),
+});
+
+/** `Earlier, … was mentioned …` (§8.2): the one retcon line for a far-out offer. */
+export function farLine({ name, reason, suggestion }) {
+    return cut(`Earlier, ${name} was mentioned as a job, but it isn't one that can be offered here (${reason}). Let it stay as talk or a rumour; if a job is wanted, offer ${suggestion}.`, FAR_CHARS);
+}
+
+/** The fight line the terms name (§5.4): `! encounter 6 Culvert Rats | like: cellar-rat-swarm` for a named kind, `! encounter 4 Fen Wolf` for a pack foe. */
+export function encounterLine(foe, count) {
+    const n = count > 1 ? `${count} ` : '';
+    return `! encounter ${n}${foe.name}${foe.how === 'variant' ? ` | like: ${String(foe.base).split('/')[1]}` : ''}`;
+}
+
+/** The settled terms of a matched offer (§8.1) as the narrator is told them: `result` is `matchOffer`'s, `name` the job's name, `item` its pack item. */
+export function settledTerms(result, name, currency) {
+    const { settled } = result;
+    const objective = settled.foe ? `kill ${settled.count} ${settled.foe.name}` : settled.item ? `bring ${settled.count} ${settled.item.name}` : settled.text;
+    return termsLine({
+        name, giver: settled.giver, objective, deadline: settled.durationMinutes === null ? null : durationText(settled.durationMinutes),
+        coin: settled.coin, xp: settled.xp, where: result.where, fight: settled.foe ? { count: settled.count, line: encounterLine(settled.foe, settled.count) } : null,
+    }, currency);
+}
+
+/** The far-out line (§8.2) of a far decision of the matchers (`why`: reward, fee, done, already, elsewhere). */
+export function farLineOf(far, currency) {
+    return farLine({ name: far.name, ...FAR_REASON[far.why](far, currency) });
+}
