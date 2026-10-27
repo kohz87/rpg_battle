@@ -21,7 +21,7 @@ import { exportCharacter, originIds, readCharacter } from './portable.js';
 import { defineItem } from '../items/define.js';
 import { sessionOf } from '../combat/stored.js';
 import { filledBy, fitActor, fitParty, fitPool, storedPool } from './pools.js';
-import { foldStoryTime } from './recovery.js';
+import { foldStoryTime, restWanted } from './recovery.js';
 import { actorFrom, actorsInOrder, attempt, cleanName, cleanRole, fail, nameKey, newId, offersRecord, revOf, waitingOffers } from './util.js';
 import { startRulesClass } from '../progress/start.js';
 import { rulesFightResult } from '../death/fight.js';
@@ -480,6 +480,12 @@ function rest(ctx, payload = {}) {
     const ids = asked.filter(id => !isDead(party.actors[id]));
     if (!ids.length) fail(ctx, 'REFUSED', `${listNames(asked.map(id => party.actors[id].name))} ${asked.length === 1 ? 'is' : 'are'} dead: no rest brings the dead back.`);
     if (storyMinute(ctx) === null) fail(ctx, 'CLOCK_UNSET', 'Set the story time before taking a rest.');
+    // Whatever asks for it, a rest needs the hours (recovery.js restWanted); a `! rest` line has been told so already and the narrator has its notice.
+    const wanted = restWanted(ctx, kind, rules);
+    if (wanted) {
+        const hours = wanted.needed / 60;
+        fail(ctx, 'REFUSED', `A ${kind} rest needs ${hours} hour${hours === 1 ? '' : 's'} of story time to pass first${wanted.moved ? ` (${Math.round(wanted.moved / 60 * 10) / 10} have)` : ''}. Write the time (! time +${kind === 'long' ? hours + 2 : hours}h), then rest.`);
+    }
     const timeFold = foldStoryTime(ctx);
     const inventory = readInventory(ctx);
     const parts = [];

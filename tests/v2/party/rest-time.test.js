@@ -240,3 +240,51 @@ test('a rest that still adds something after the hours says what it added, as be
         assert.doesNotMatch(receipt.summary, /had already healed/);
     });
 });
+
+// ---- every way a rest can heal needs the hours ------------------------------------------------------------------------------
+
+test('a rest in the first reply of a chat whose clock was just started, with no time written, heals nobody (Story Director has settled nothing yet)', async t => {
+    await seeded(9211, async () => {
+        const h = await bluewatch(t, { start: false });
+        await h.say('Bluewatch at dawn, and a fall.', ['~ place Bluewatch Village | kind: settlement', '~ wound Ren — fell from the wall | harm: severe', '! rest long — a night at the inn']);
+        assert.ok(hp(h) < max(h), `${hp(h)}/${max(h)}`);
+        assert.equal(Object.values(restsOf(h.head().domains.rules)).length, 1);
+        await h.say('Quiet.');
+        assert.ok(lastTail(h).split('\n').includes(NIGHT), lastTail(h));
+        await h.say('The night passes.', ['! time +8h', '! rest long']);
+        assert.equal(hp(h), max(h));
+    });
+});
+
+test('a short rest after a jump of half an hour heals nobody, and a rest after a jump is the rest of that jump alone', async t => {
+    await seeded(9212, async () => {
+        const h = await bluewatch(t);
+        await wounded(h);
+        const hurt = hp(h);
+        await h.say('A breather.', ['! time +30m', '! rest short']);
+        assert.equal(hp(h) >= hurt && hp(h) < max(h), true);
+        assert.equal(Object.values(restsOf(h.head().domains.rules)).filter(record => record.kind === 'short').length, 1);
+    });
+});
+
+test('the party.rest command is the same rest: with the clock set and no jump behind it, it heals nobody; after the night it heals in full', async t => {
+    await seeded(9213, async () => {
+        const h = await bluewatch(t);
+        await wounded(h);
+        const hurt = hp(h);
+        const before = JSON.stringify(h.head().domains.party);
+        const refused = await h.sdk.command('party.rest', { kind: 'long' });
+        assert.equal(refused.ok, false);
+        assert.equal(refused.code, 'REFUSED');
+        assert.match(refused.message, /needs 6 hours/);
+        assert.equal(hp(h), hurt);
+        assert.equal(JSON.stringify(h.head().domains.party), before, 'nothing changed');
+        const short = await h.sdk.command('party.rest', { kind: 'short' });
+        assert.equal(short.ok, false);
+        assert.equal(hp(h), hurt);
+        await h.say('The night passes.', ['! time +8h']);
+        const after = await h.sdk.command('party.rest', { kind: 'long' });
+        assert.equal(after.ok, true, after.message);
+        assert.equal(hp(h), max(h));
+    });
+});
