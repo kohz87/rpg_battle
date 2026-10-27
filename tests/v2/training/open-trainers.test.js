@@ -7,7 +7,9 @@ import assert from 'node:assert/strict';
 import { hashJson } from '../../vendor/story-block/src/v2/replay.js';
 import { seeded } from '../integration/helpers/host.js';
 import { openTrainerPack, pinFor, ref } from '../progress/helpers/fixture.js';
-import { feeFor, replayTrainer } from '../../../src/v2/training/opening.js';
+import { indexOf } from '../../../src/v2/rules/graph.js';
+import { openTrainersPin } from '../progress/helpers/fixture.js';
+import { feeFor, planTrainer, replayTrainer } from '../../../src/v2/training/opening.js';
 import { MAX_OFFERS } from '../../../src/v2/training/domain.js';
 
 import { HAVEN, MILL, offers, only, ready, spans } from './helpers/open.js';
@@ -182,6 +184,18 @@ test('row 12: where the party is cannot be told, so the trainer has no place to 
     assert.deepEqual(offers(w), {});
     assert.match(problems(w).at(-1).message, /Where the party is cannot be told, so the trainer has no place to stand/);
     assert.equal(receipts(w).at(-1).data.code, 'DEPENDENCY_UNAVAILABLE');
+});
+
+test('row 12: a place that is not an id (nothing a canonical place answers) is the same refusal, not a domain error', () => {
+    const ix = indexOf(openTrainersPin());
+    const binding = { template: 'drills', name: 'Old Reka', text: '', skills: null };
+    for (const place of [null, undefined, '', 'Haven', 'pack.fixture/', 42, {}]) {
+        const plan = planTrainer({ ix, training: { offers: {} }, binding, by: 'story', recorded: { place, where: 'x', npc: null, present: null }, roll: () => 5, newId: () => 'tn_00000001' });
+        assert.deepEqual([plan.ok, plan.code], [false, 'DEPENDENCY_UNAVAILABLE'], String(place));
+        assert.match(plan.message, /Where the party is cannot be told/);
+    }
+    const good = planTrainer({ ix, training: { offers: {} }, binding, by: 'story', recorded: { place: 'pl_0a1b2c3d', where: 'x', npc: null, present: null }, roll: () => 5, newId: () => 'tn_00000001' });
+    assert.equal(good.ok, true, 'an own place (pl_…) is an id');
 });
 
 test('row 13: a chat holds at most 100 story trainers; each is a different name', async t => {

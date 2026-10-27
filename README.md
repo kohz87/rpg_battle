@@ -1,6 +1,6 @@
 # RPG Battle 2.2.0
 
-> Story Suite 2.2.0.
+> Story Suite 2.1.0.
 
 ## What it is
 

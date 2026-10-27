@@ -12,7 +12,7 @@ Ships together with **Story Block 2.4.0** (its rules schema gained trainer templ
 
 ### Upgrading from 2.1
 
-Needs Story Block 2.4.0 for packs with templates; update both together. Chats without a pinned pack, and chats pinned to a pack without templates, are byte-identical (a chat recorded with 2.1.0 is kept as a test fixture and replays unchanged). Every rules pack's fingerprint changed with Story Block 2.4.0, but a pinned chat keeps its own copy and plays on. Existing pins never gain templates: start a new character timeline to pin Bluewatch 1.6.0. With RPG Battle 2.1.0 and Story Block 2.4.0 together, a pack's templates show in the training list as trainers who are never "here"; update RPG Battle. Story Director and NPC State Delta need no update.
+Needs Story Block 2.4.0 for packs with templates; update both together. Chats without a pinned pack, and chats pinned to a pack without templates, are byte-identical (a chat recorded with 2.1.0 is kept as a test fixture and replays unchanged). Every rules pack's fingerprint changed with Story Block 2.4.0, but a pinned chat keeps its own copy and plays on. Existing pins never gain templates: start a new character timeline to pin Bluewatch 1.6.0. With RPG Battle 2.1.0 and Story Block 2.4.0 together, a pack's templates show in the training list as trainers who are never "here"; update RPG Battle. Story Director and NPC State Delta need no update. A chat that RPG Battle 2.1.0 pinned to a pack with templates (only possible once Story Block 2.4.0 is installed) gets its map of story trainers with its first offer; deleting that first trainer's reply can then switch off the story trainers offered after it in that chat. Update Story Block and RPG Battle together.
 
 ## 2.1.0
 

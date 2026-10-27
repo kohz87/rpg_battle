@@ -6,7 +6,7 @@
 
 import { buildGuard } from '../progress/guard.js';
 import { indexOfState } from '../rules/graph.js';
-import { epochOf, isRecordId, isTrainerOfferId } from '../rules/ids.js';
+import { epochOf, isId, isRecordId, isTrainerOfferId } from '../rules/ids.js';
 import { pinned } from '../quests/seams.js';
 import { formatMoney, oneCurrency } from '../../items.js';
 import { currencyFrom } from '../trade/core.js';
@@ -94,7 +94,7 @@ export function planTrainer({ ix, training, binding, by, recorded, roll = null, 
         if (recorded.place !== null && held.place === recorded.place) return noop(`${name} already teaches here.`);
         return refuse('REFUSED', `${name} already teaches at ${held.where || 'another place'}; a trainer stays where it was offered.`);
     }
-    if (typeof recorded.place !== 'string' || !recorded.place) return refuse('DEPENDENCY_UNAVAILABLE', 'Where the party is cannot be told, so the trainer has no place to stand.');
+    if (!isId(recorded.place)) return refuse('DEPENDENCY_UNAVAILABLE', 'Where the party is cannot be told, so the trainer has no place to stand.');
     if (Object.keys(offers).length >= MAX_OFFERS) return refuse('REFUSED', `This chat has ${MAX_OFFERS} story trainers; no more can be offered.`);
     const die = Number.isInteger(recorded.die) ? recorded.die : roll?.();
     if (!Number.isInteger(die) || die < 1 || die > 1000) return refuse('INVALID', 'The fee die was not recorded.');

@@ -145,7 +145,8 @@ slice before the block, the binding and what was recorded; the guard (`replayTra
 function and asks **no query**. The checks run in the order of the spec's §4.2; the fee is one seeded `1d1000` scaled into the range, rolled after
 every check passed and kept as `recorded.die` with the place, its name, the NPC record (display only) and the `tn_` id. An offer is
 `training.offers[tn_…]` (validated in `training/domain.js`: at most 100, one per name, a session's `trainer` may be a `tn_` id). A story line's
-block is `replyBound`, a click's is not. The guard hashes that the name was free and there was room, **not how many other trainers there were**
+block is `replyBound`, a click's is not. An unchanged Re-read returns the same die, fee and id, but re-derives place and where if earlier replies were deleted
+(it recomputes what stands upstream of it); the fuzz holds the fee, die and id, and byte equality only while no earlier reply was deleted or edited. The guard hashes that the name was free and there was room, **not how many other trainers there were**
 (the spec's `before.offers` count would turn off every later trainer when an unrelated earlier trainer's reply is deleted), and a pin whose
 ruleset has a template starts with `offers: {}` (`trainingForPin`) so each offer is one add-only key (a map made by the first offer would take
 the parent of the later ones with it). `trainerOf(ix, training, ref)` resolves a trainer for `assess.js`, `session-step.js`, `commands.js`,
