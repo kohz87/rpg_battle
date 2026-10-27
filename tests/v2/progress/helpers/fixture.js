@@ -40,6 +40,17 @@ export function trainerPack() {
     return pack;
 }
 
+/** A trainer template (open: true) of the fixture pack: skills s00 and s01 at a fee of 10 to 40, rank F. `over` changes fields. */
+export const drillsTemplate = (over = {}) => ({ slug: 'drills', name: 'Drills', open: true, rank: 'F', skills: ['s00', 's01'], fee: { coinMin: 10, coinMax: 40 }, minutes: 60, eventTemplates: [], ...over });
+
+/** trainerPack() with a rank F and open trainer templates after the two fixed trainers (default: one, Drills). */
+export function openTrainerPack(templates = [drillsTemplate()]) {
+    const pack = trainerPack();
+    pack.content.ranks = [{ id: 'F', title: 'F', levels: [1, 10], reward: [10, 100] }];
+    pack.content.rules[0].trainers.push(...templates);
+    return pack;
+}
+
 let cached = null;
 const variants = new Map();
 
@@ -57,6 +68,8 @@ export function pinFor(name, pack) {
     return variants.get(name);
 }
 export const trainersPin = () => pinFor('trainers', trainerPack());
+/** The pin of openTrainerPack(): two fixed trainers (Old Brann, Gale) and the template Drills. */
+export const openTrainersPin = () => pinFor('open-trainers', openTrainerPack());
 
 /** What Story Block's checker gives for the golden pack, as pinRules takes it: { resolved, rulesHash, progression, … }. */
 export function fixturePin() {

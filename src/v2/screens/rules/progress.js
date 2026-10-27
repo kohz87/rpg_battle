@@ -25,6 +25,11 @@ const isClassView = value => isRecord(value) && isText(value.id) && isText(value
 const isTraining = value => isRecord(value) && isText(value.actor) && (value.session === null || isRecord(value.session))
     && isRecord(value.caps) && Array.isArray(value.offers);
 
+const isTemplate = value => isRecord(value) && isText(value.id) && isText(value.name) && Array.isArray(value.skills) && value.skills.every(item => isRecord(item) && isText(item.id));
+const isTrainers = value => isRecord(value) && Array.isArray(value.fixed) && Array.isArray(value.story) && value.story.every(item => isRecord(item) && isText(item.id) && isText(item.name));
+// The key two names of the same person share (training/trainers.js nameKey): a person already a trainer is not offered again.
+const personKey = name => String(name ?? '').normalize('NFKC').trim().replace(/\s+/gu, ' ').toLowerCase();
+
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 function skillRow(skill, needed = MASTERY_TOP) {
@@ -45,8 +50,36 @@ function xpText(sheet) {
 
 // ---- training (rules.training's public projection) ----------------------------------------------------------------
 
-function trainingModel(answer, minutes, names, actor) {
-    if (answer.status !== ASK.OK) return { state: 'unavailable', headline: '', lines: [], offers: [], caps: '', held: false };
+/**
+ * The open trainers part of the Training section (RB open trainers §10.2), for the reader's own character only: the trainers the story
+ * and the reader made, and "Make this a trainer" for someone who is here. `read`: { templates, trainers, present } as asked (ask results).
+ */
+export function trainersModel(read, names) {
+    const none = { stories: [], binding: null, canMake: false, makeNote: '' };
+    if (read.templates.status !== ASK.OK || read.trainers.status !== ASK.OK) return none;
+    const templates = read.templates.value;
+    const { fixed, story } = read.trainers.value;
+    const stories = story.map(offer => {
+        const template = templates.find(item => item.id === offer.template);
+        const skills = (Array.isArray(offer.skills) ? offer.skills : []).filter(isText).map(names);
+        return {
+            key: offer.id,
+            text: [clip(offer.name, 80), `${clip(template?.name ?? names(offer.template), 80)} (rank ${clip(offer.rank, 20)})`, clip(offer.where || names(offer.place), 80),
+                Number.isSafeInteger(offer.fee) ? `fee ${offer.fee}` : '', skills.length ? `teaches ${skills.join(', ')}` : ''].filter(Boolean).join(' · '),
+        };
+    });
+    if (!templates.length) return { ...none, stories };
+    const taken = new Set([...fixed, ...story].map(item => personKey(item.name)));
+    const people = read.present.status === ASK.OK ? read.present.value.filter(isText).filter(name => name.trim() && !taken.has(personKey(name))) : [];
+    if (!people.length) return { ...none, stories, makeNote: 'Nobody is here to make a trainer.' };
+    return {
+        stories, canMake: true, makeNote: '',
+        binding: { people, templates: templates.map(item => ({ id: item.id, name: clip(item.name, 80), skills: item.skills.map(skill => ({ id: skill.id, name: clip(skill.name || names(skill.id), 80) })) })) },
+    };
+}
+
+function trainingModel(answer, minutes, names, actor, trainers = null) {
+    if (answer.status !== ASK.OK) return { state: 'unavailable', headline: '', lines: [], offers: [], caps: '', held: false, stories: [], binding: null, canMake: false, makeNote: '' };
     const { session, caps, offers } = answer.value;
     const lines = [];
     let state = 'none';
@@ -92,20 +125,22 @@ function trainingModel(answer, minutes, names, actor) {
         return {
             key: `${offer.skill}|${offer.form}|${offer.trainer}`,
             text: `${names(offer.skill)} with ${clip(offer.name || names(offer.trainer), 80)}`,
-            detail: [Number.isSafeInteger(offer.fee) ? `fee ${offer.fee}` : '', Number.isSafeInteger(offer.minutes) ? spanLabel(offer.minutes) : ''].filter(Boolean).join(', '),
+            // An open trainer (the story's or the reader's) also says where it stands.
+            detail: [Number.isSafeInteger(offer.fee) ? `fee ${offer.fee}` : '', Number.isSafeInteger(offer.minutes) ? spanLabel(offer.minutes) : '',
+                offer.open === true && isText(offer.where) && offer.where.trim() ? `at ${clip(offer.where, 80)}` : ''].filter(Boolean).join(', '),
             blocked: (Array.isArray(offer.blocked) ? offer.blocked : []).filter(isText).map(item => clip(item, 240)),
             canAsk: !clockHold && !(Array.isArray(offer.blocked) && offer.blocked.length),
             payload,
             button: btn('skill.train', payload, 'Ask for training', { tone: 'plain' }),
         };
     }) : [];
-    return { state, headline, lines, offers: offerRows, caps: capParts.length ? `Limits: ${capParts.join(' · ')}.` : '', held: clockHold };
+    return { state, headline, lines, offers: offerRows, caps: capParts.length ? `Limits: ${capParts.join(' · ')}.` : '', held: clockHold, ...(trainers ?? { stories: [], binding: null, canMake: false, makeNote: '' }) };
 }
 
 // ---- one member ----------------------------------------------------------------------------------------------------
 
 function memberModel(sheet, progress, training, ctx) {
-    const { names, hash, minutes, you, classSkills } = ctx;
+    const { names, hash, minutes, you, classSkills } = ctx;  // ctx.trainers: the open trainers section, for your own character only
     const classRef = progress.status === ASK.OK ? progress.value.class : sheet.class;
     const sheetSkills = sheet.skills.map(item => skillRow(item));
     const skills = sheet.skills.map(item => skillRow(item, progress.status === ASK.OK ? progress.value.checklist.find(row => row.skill === item.skill && row.form === item.form)?.needed ?? MASTERY_TOP : MASTERY_TOP));
@@ -160,7 +195,7 @@ function memberModel(sheet, progress, training, ctx) {
         checklist, checklistText: `${done} of ${checklist.length} forms at ${MASTERY_TOP} / ${MASTERY_TOP}`, checklistDone: done,
         progress: progress.status === ASK.OK ? 'ok' : progress.status,
         promotions, pathways,
-        training: trainingModel(training, minutes, names, sheet.id),
+        training: trainingModel(training, minutes, names, sheet.id, you ? ctx.trainers : null),
     };
 }
 
@@ -194,6 +229,12 @@ export function progressView(state, args, tools) {
     const progress = new Map(wanted.map(sheet => [sheet.id, ask(tools, 'rules.progress', { actor: sheet.id }, isProgress)]));
     const training = new Map(wanted.map(sheet => [sheet.id, ask(tools, 'rules.training', { actor: sheet.id }, isTraining)]));
     const identity = ask(tools, 'rules.identity', {}, isIdentity);
+    // The open trainers the story and the reader made, the templates to make more from, and who is here (your own character's section only).
+    const read = {
+        templates: ask(tools, 'training.openTemplates', {}, value => isList(value, isTemplate)),
+        trainers: ask(tools, 'training.trainers', {}, isTrainers),
+        present: ask(tools, 'scene.present', {}, value => isList(value, isText)),
+    };
     const refs = [];
     for (const sheet of wanted) {
         refs.push(sheet.class);
@@ -210,6 +251,9 @@ export function progressView(state, args, tools) {
             for (const offer of offers) if (isRecord(offer)) refs.push(offer.skill, offer.form, offer.trainer);
         }
     }
+    if (read.trainers.status === ASK.OK) {
+        for (const offer of read.trainers.value.story) refs.push(...(Array.isArray(offer.skills) ? offer.skills : []), offer.template, offer.place);
+    }
     const names = namesFor(tools, refs.filter(isText));
     // What each class offers (its three skills), so a promotion says what it swaps in. Without the query the choice shows the name only.
     const classSkills = new Map();
@@ -223,7 +267,8 @@ export function progressView(state, args, tools) {
     const time = ask(tools, 'director.time', {});
     const minutes = time.status === ASK.OK && Number.isSafeInteger(time.value.minutes) ? time.value.minutes : null;
     const hash = identity.status === ASK.OK ? identity.value.hash : null;
-    const members = wanted.map(sheet => memberModel(sheet, progress.get(sheet.id), training.get(sheet.id), { names, hash, minutes, classSkills, you: sheet.id === party.value.pc }));
+    const trainers = trainersModel(read, names);
+    const members = wanted.map(sheet => memberModel(sheet, progress.get(sheet.id), training.get(sheet.id), { names, hash, minutes, classSkills, trainers, you: sheet.id === party.value.pc }));
     return {
         state: 'ready', reason: '', members,
         party: members.map(member => ({ id: member.id, name: member.name, you: member.you, text: member.checklistText, done: member.checklistDone, total: member.checklist.length, complete: member.checklistDone === member.checklist.length })),

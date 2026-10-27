@@ -22,7 +22,7 @@ const spec = (extra = {}) => ({ command: 'class.choose', field: 'class', label: 
 const text = node => String(node?.textContent ?? '');
 
 test('the widget set includes the five, each with a render and a validate that accepts nothing but an object', () => {
-    assert.deepEqual(Object.keys(rulesWidgets).sort(), [CLASS_PICK_WIDGET, COMMAND_BUTTON_WIDGET, COMMAND_INPUT_WIDGET, PERMANENT_CHOICE_WIDGET, 'rpg-battle.quest-binding'].sort());
+    assert.deepEqual(Object.keys(rulesWidgets).sort(), [CLASS_PICK_WIDGET, COMMAND_BUTTON_WIDGET, COMMAND_INPUT_WIDGET, PERMANENT_CHOICE_WIDGET, 'rpg-battle.quest-binding', 'rpg-battle.trainer-binding'].sort());
     for (const widget of Object.values(rulesWidgets)) {
         assert.equal(typeof widget.render, 'function');
         assert.deepEqual(widget.validate({}), []);

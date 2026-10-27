@@ -1,4 +1,4 @@
-# RPG Battle 2.1.0
+# RPG Battle 2.2.0
 
 > Story Suite 2.1.0.
 
@@ -86,6 +86,8 @@ The model writes the story and ends it with a hidden `<Changes>` list. RPG Battl
 ```
 
 In a pinned chat, `| like: <foe>` makes a named foe variant, and new encounters follow their danger label. Open quest offers use `| like: <template>` or the reader's **Make this a quest** action; code fixes the reward from the template's range at offer time. Ersveil 1.5.0 supplies 12 open quest templates.
+
+Open trainers work the same way. When the pinned pack lists trainer templates (Ersveil 1.6.0 has four), the story may write `+ trainer Old Reka — blade drills | like: open-blade-drills`, with `| teaches: swift-thrust, parrying-turn` to narrow what they teach (never to add), or you can use **Make this a trainer** in Progress → Training on someone who is here. Code rolls the fee once inside the template's range and keeps the trainer at the place it was offered; training with them costs that fee, an hour of story time and counts like any other lesson. Deleting the reply that offered a trainer takes the trainer and the lessons taken with them. One trainer per name, at most 100 a chat. Needs Story Block 2.4.0.
 
 Code rolls and decides: dice come from code, a fight is played by you, an item's effect comes from the item's own
 numbers. Anything that does not fit is skipped and listed under **Problems**. Swipe, delete, Re-read and reload

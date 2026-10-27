@@ -657,7 +657,10 @@ export function createRegistry({ hostVersion = null, warn = message => console.w
         if (!kind) return null;
         const def = defs.get(owners.kind.get(kind));
         const spec = def.capture.kinds[kind];
-        return { moduleId: def.id, kind, grammar: spec.grammar.trim(), apply: def.capture.apply, feature: featureOf(spec), off: spec.enabled === false || off(spec), display: displayOf(spec) };
+        // `enabled: false` (a kind of an API not in use, MODULES / LIFECYCLE "Deferred domains"): acts as if it were not declared, so a
+        // line of it is told as an unknown kind, exactly as in a host that never had the kind.
+        if (spec.enabled === false) return null;
+        return { moduleId: def.id, kind, grammar: spec.grammar.trim(), apply: def.capture.apply, feature: featureOf(spec), off: off(spec), display: displayOf(spec) };
     }
 
     // The feature a command belongs to (a capture.<kind> command: its kind's), or null.

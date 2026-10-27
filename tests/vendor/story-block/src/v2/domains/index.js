@@ -13,7 +13,7 @@ import {
     featureOn, initialInventory, inventoryTail, validateInventory,
 } from './inventory.js';
 import { WEATHER_CHARS, capturePlace, capturePresent, captureWeather, initialScene, sceneCommands, sceneQueries, sceneTail, validateScene } from './scene.js';
-import { DEFAULT_CURRENCY, MAX_COIN_VALUE, coinLine, resolveCurrency } from './money.js';
+import { DEFAULT_CURRENCY, MAX_COIN_VALUE, moneyLine, resolveCurrency } from './money.js';
 import { renderInventoryTab } from '../ui/inventory-tab.js';
 import { renderSceneTab } from '../ui/scene-tab.js';
 import { FEATURE_TEXT, createAssistPart } from '../assist/index.js';
@@ -27,6 +27,7 @@ import { screens as defaultScreens } from '../screens/index.js';
 import { createPacksPart, packs as liveInstalled, part as livePart, resolveItem as liveResolve, startState as liveStart } from '../packs/index.js';
 import { firstPackRanks, readerRanks } from '../packs/ranks.js';
 import { createTimelinePart } from '../timeline/part.js';
+import { createDataModulesPart, dataModuleGuard } from '../data-modules/part.js';
 
 // The packs part bound to SillyTavern (src/v2/packs/index.js), in createPacksPart()'s shape.
 const livePacks = Object.freeze({ part: livePart, packs: liveInstalled, resolveItem: liveResolve, startState: liveStart });
@@ -156,8 +157,8 @@ export function createCorePart({ hooks = () => [], settings = () => ({}), hookEn
             loot: { ...kind(CORE_KINDS.loot.grammar, (ctx, line) => captureLoot(ctx, line, env)), feature: FEATURE.loot },
         },
         context: {
-            // The coins' line (money.js coinLine) only when the world has coins: it changes with them only.
-            static: () => [CORE_STATIC, coinLine(currency())].filter(Boolean).join('\n'),
+            // The money line (money.js moneyLine) always names the chat's currency (and its coins): it changes with the currency setting only.
+            static: () => [CORE_STATIC, moneyLine(currency())].join('\n'),
             // Half the budget for the lines that always go, half for the optional overflow.
             tail(view) {
                 const chars = CORE_BUDGET * 4;
@@ -303,13 +304,17 @@ export function readerLadder(hooks) {
     return null;
 }
 
-export function createCoreModule({ hooks = () => [], settings = () => ({}), version = '2.0.0-alpha.1', packs = livePacks, command, query, assist = null, hookEntries = null, problem = null, extras = null, timeline = () => null } = {}) {
+export function createCoreModule({ hooks = () => [], settings = () => ({}), version = '2.0.0-alpha.1', packs = livePacks, command, query, assist = null, hookEntries = null, problem = null, extras = null, timeline = () => null, dataModules = {} } = {}) {
     const core = createCorePart({ hooks, settings, hookEntries, problem, query, economy: () => (typeof packs.economy === 'function' ? packs.economy() : null) });
     const events = createEventsPart({
         ...(command ? { command } : {}),
         ...(query ? { query } : {}),
     });
-    const merged = mergeParts([core, packs.part, events, assist ?? createAssistPart({ settings: () => settings() }), createTimelinePart({ timeline })]);
+    const dataPart = createDataModulesPart({ packs: packs.packs, ...dataModules });
+    const merged = mergeParts([core, packs.part, events, assist ?? createAssistPart({ settings: () => settings() }), createTimelinePart({ timeline }), dataPart]);
+    const timelineGuard = merged.hooks.replayGuard;
+    merged.hooks.replayGuard = Object.assign((view, info) => String(info?.guard?.predicate?.kind ?? '').startsWith('dm.')
+        ? dataModuleGuard(view, info) : timelineGuard(view, info), { hostOwned: true });
     // The reader's rank ladder answers packs.content's ranks in place of the packs', with the first pack's
     // numbers at each place (packs/ranks.js); a call for one pack's own ranks (`pack`) is the pack's as
     // before. The ladder is a module's setting (RPG Battle's Terms: Rank ladder and Levels per rank),
@@ -332,6 +337,7 @@ export function createCoreModule({ hooks = () => [], settings = () => ({}), vers
         features: [...CORE_FEATURES, ...INVENTORY_FEATURES].map(feature => ({ ...feature })),
         domains: merged.domains,
         commands: merged.commands,
+        replayQueries: ['dataModules.replayInputs'],
         // The newest reply's Inner chatter, [{ name, text }] (MODULES §F115; null while the feature is off), the
         // same under each present person for the Scene screen while Story Director's World is not there, and
         // whether the head reply moved the scene to another place (Story Director's World → Here, §F119).
@@ -348,7 +354,7 @@ export function createCoreModule({ hooks = () => [], settings = () => ({}), vers
             'story.evidence': createEvidenceQuery({ stored: () => extras?.proofs?.() ?? [] }),
         },
         capture: {
-            kinds: CORE_KINDS,
+            kinds: { ...CORE_KINDS, dm: merged.kinds.dm },
             apply(ctx, line) {
                 const kind = merged.kinds[line?.kind];
                 if (!kind) return ctx.fail('INVALID', `Story Block does not handle "${line?.kind}" lines.`);
@@ -367,7 +373,8 @@ export function createCoreModule({ hooks = () => [], settings = () => ({}), vers
                 }
                 return { lines, optional };
             },
-            budget: merged.budget || CORE_BUDGET,
+            // The core's own room, plus 100 tokens for each pinned data module (none without a pin: part.js context.extra).
+            get budget() { return (merged.budget || CORE_BUDGET) + dataPart.context.extra(); },
             // Inner chatter back to the story, only while the reader's setting asks for it (MODULES §F115).
             parts: [Object.freeze({ feature: CORE_FEATURE.chatter, tail: () => chatterBack(settings, extras) })],
         },

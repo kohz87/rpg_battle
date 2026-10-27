@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { realWorld, DAY, AREA_TIERS } from '../../progress/helpers/world.js';
-import { trainersPin, inputsPin, ref } from '../../progress/helpers/fixture.js';
+import { trainersPin, inputsPin, openTrainersPin, ref } from '../../progress/helpers/fixture.js';
 import { createModule } from '../../../../src/v2/module.js';
 import { rulesParts } from '../../../../src/v2/rules/index.js';
 import { statLine } from '../../../../src/v2/screens/rules/roster.js';
@@ -22,7 +22,7 @@ const forbidden = new Proxy({}, { get() { throw new Error('a screen read private
 const model = (w, view, args = {}) => view(forbidden, args, tools(w));
 function live(w, screen, extra = {}) {
     const names = new Set([...Object.keys(createModule().queries), ...rulesParts.flatMap(([, p]) => Object.keys(p.queries ?? {})),
-        'inventory.items', 'inventory.definitions', 'director.time', 'atlas.canonical', 'world.areaTier', 'savepoint.list']);
+        'inventory.items', 'inventory.definitions', 'director.time', 'atlas.canonical', 'world.areaTier', 'savepoint.list', 'scene.present']);
     return draw(screen, w.head(), { ...extra, queries: { ...Object.fromEntries([...names].map(name => [name, args => w.q(name, args)])), ...(extra.queries ?? {}) }, result: extra.result ?? w.ui });
 }
 const screen = id => rulesScreens.find(s => s.id === `rpg-battle/${id}`);
@@ -368,4 +368,34 @@ test('screen queries never reach into state, and their rendering uses safe DOM h
         const source = readFileSync(new URL(`../../../../src/v2/screens/rules/${name}.js`, import.meta.url), 'utf8');
         assert.doesNotMatch(source, /state\??\.domains|innerHTML|outerHTML|insertAdjacentHTML/);
     }
+});
+
+test('open trainers on the real module: the Progress page lists the story\'s trainers, offers lessons with them, and Make this a trainer works for someone present', async t => {
+    const w = await realWorld(t, { given: openTrainersPin(), sd: true });
+    await w.say('Haven at dusk.', [`~ time ${4 * DAY + 1410}`, '~ here pack.fixture/haven', '+ present Old Reka', '+ present Zed', '+ coin 50']);
+    await w.say('Old Reka offers drills.', ['+ trainer Old Reka — drills | like: drills | teaches: s01']);
+    const reka = Object.values(w.slice('training').offers)[0];
+    let d = live(w, screen('progress'));
+    assert.deepEqual(all(d.el, '.story').map(text), [`Old Reka · Drills (rank F) · pack.fixture/haven · fee ${reka.fee} · teaches s01`]);
+    const asks = pressing(d.el, 'Ask for training');
+    assert.equal(asks.length, 4, 'three of the pack\'s trainers and Old Reka');
+    // The form offers Zed only: Old Reka and Old Brann are trainers already.
+    const [form] = all(d.el, 'ss-widget').filter(el => el.getAttribute('name') === 'rpg-battle.trainer-binding');
+    const [who, kind] = form.querySelectorAll('select');
+    assert.deepEqual(who.querySelectorAll('option').map(option => option.value), ['', 'Zed']);
+    who.value = 'Zed'; who.dispatch('change');
+    kind.value = ref('drills'); kind.dispatch('change');
+    await click(pressing(form, 'Make this a trainer')[0]);
+    assert.equal(d.commands.at(-1).type, 'trainer.open');
+    assert.deepEqual(Object.values(w.slice('training').offers).map(offer => [offer.name, offer.by]).sort(), [['Old Reka', 'story'], ['Zed', 'reader']]);
+    d = live(w, screen('progress'));
+    assert.equal(all(d.el, '.story').length, 2);
+    assert.match(text(all(d.el, '.make-trainer')[0]), /Nobody is here to make a trainer/);
+    // A lesson with Old Reka from the page: the same Ask for training button, a request only.
+    const target = all(d.el, '.offer').find(item => text(item).includes('with Old Reka'));
+    assert.ok(target, 'Old Reka is on offer');
+    await click(pressing(target, 'Ask for training')[0]);
+    assert.equal(d.commands.at(-1).type, 'skill.train');
+    assert.deepEqual(Object.values(w.slice('training').sessions).map(session => [session.trainer, session.status]), [[reka.id, 'requested']]);
+    assert.deepEqual(w.problems(), []);
 });

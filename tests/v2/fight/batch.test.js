@@ -32,10 +32,20 @@ const result = () => ({
 });
 const bytes = () => withDraws(batchBytes({ fight: null, session: session(), result: result(), ix, at: 3000 }), [111, 222]);
 
+// The golden hash below was recorded when the golden pack's rules hash was this one (Story Block 2.3.0). Story Block 2.4.0 changed the
+// rules schema, so every rules hash moved (open trainer templates, Story Block 2.4.0 CHANGELOG), and the bytes of a result carry the rules
+// hash of the pin. The golden bytes are built with the hash they were recorded with, so the test still pins this module's bytes and not
+// the vendored schema; the rest of the file keeps using the pin's own hash.
+const RECORDED_RULESET = 'abefa51fb43800ffca5fb0c8e5eb92ede0ebfffd2d09e6e334e2badb2342532a';
+const recordedBytes = () => {
+    const held = session();
+    return withDraws(batchBytes({ fight: null, session: { ...held, setup: { ...held.setup, ruleset: RECORDED_RULESET } }, result: result(), ix: { ...ix, rulesHash: RECORDED_RULESET }, at: 3000 }), [111, 222]);
+};
+
 test('the bytes of a fight\'s result are plain JSON built from what it recorded, with a hash that does not move', () => {
-    const sealed = seal(bytes());
     // Recorded once: if this changes, a result sealed by an earlier version no longer matches its hash.
-    assert.equal(sealed.hash, '255d276c5a5afcfbd690ebac4e5c82d8982cf5680385e7f93e0c07e390b7d2e0');
+    assert.equal(seal(recordedBytes()).hash, '255d276c5a5afcfbd690ebac4e5c82d8982cf5680385e7f93e0c07e390b7d2e0');
+    const sealed = seal(bytes());
     assert.equal(hashJson(JSON.parse(JSON.stringify(sealed.bytes))), sealed.hash, 'a JSON round trip hashes the same');
     assert.equal(sealedProblem(sealed), '');
     const b = sealed.bytes;

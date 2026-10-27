@@ -167,6 +167,15 @@ const progressTemplate = `
               <ss-widget class="ask" data-if="o.canAsk" name="rpg-battle.command-button" data-props='{"bind":"o.button"}'></ss-widget>
             </li>
           </ul>
+          <div class="story-trainers" data-if="len(m.training.stories) > 0">
+            <p class="ss-label">Story trainers</p>
+            <ul class="stories" aria-label="Story trainers"><li class="story" data-each="m.training.stories as st">{{ st.text }}</li></ul>
+          </div>
+          <div class="make-trainer" data-if="m.training.canMake || m.training.makeNote != ''">
+            <p class="ss-label">Make this a trainer</p>
+            <p class="hint" data-if="m.training.makeNote != ''">{{ m.training.makeNote }}</p>
+            <ss-widget data-if="m.training.canMake" name="rpg-battle.trainer-binding" data-props='{"bind":"m.training.binding"}'></ss-widget>
+          </div>
         </section>
       </div>
     </article>
@@ -199,6 +208,9 @@ const progressCss = sheet(`${SHARED_CSS}${EQUIPMENT_CSS}${RULES_WIDGET_CSS}
 .train-lines { display: grid; gap: 2px; font-size: 13px; }
 .offers { display: grid; gap: 8px; }
 .offer { display: grid; gap: 4px; justify-items: start; }
+.story-trainers, .make-trainer { display: grid; gap: 6px; padding-top: var(--ss-space-2); border-top: 1px dashed var(--ss-border); min-width: 0; }
+.stories { display: grid; gap: 4px; font-size: 13px; }
+.story { overflow-wrap: anywhere; }
 `);
 
 export const progressScreen = Object.freeze({

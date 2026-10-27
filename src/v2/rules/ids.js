@@ -23,6 +23,11 @@ export const isActorId = value => typeof value === 'string' && ACTOR_ID.test(val
 export const isRecordId = value => typeof value === 'string' && RECORD_ID.test(value);
 export const isDefId = value => typeof value === 'string' && DEF_ID.test(value);
 export const isId = value => isRecordId(value) || isDefId(value);
+/** `tn_xxxxxxxx`: an open trainer offer (RB 2.2.0, the `training` domain's `offers`). */
+export const TRAINER_OFFER_ID = /^tn_[0-9a-z]{8}$/;
+export const isTrainerOfferId = value => typeof value === 'string' && TRAINER_OFFER_ID.test(value);
+/** What a training session or a request names as its trainer: a pack trainer's ref, or an open trainer offer's `tn_` id. */
+export const isTrainerRef = value => isDefId(value) || isTrainerOfferId(value);
 export const isHash = value => typeof value === 'string' && HASH.test(value);
 
 /** A whole number in a range (safe integers only). */

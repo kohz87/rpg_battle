@@ -103,6 +103,7 @@ export function validateScreen(def, { id = null } = {}) {
     if (def.active !== undefined && typeof def.active !== 'function') errors.push(`${name}: active must be a function (state, ctx) → { on, badge? }.`);
     if (def.activeNote !== undefined && typeof def.activeNote !== 'string') errors.push(`${name}: activeNote must be text.`);
     if (def.icon !== undefined && typeof def.icon !== 'string') errors.push(`${name}: the icon must be text.`);
+    if (def.width !== undefined && def.width !== 'wide') errors.push(`${name}: width must be "wide" (a dialog's wider window) or left out.`);
     if (def.order !== undefined && !(typeof def.order === 'number' && Number.isFinite(def.order))) errors.push(`${name}: order must be a number (lower comes first).`);
 
     const mounts = Array.isArray(def.mounts) ? def.mounts : null;

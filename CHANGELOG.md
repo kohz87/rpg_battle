@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.2.0
+
+Ships together with **Story Block 2.4.0** (its rules schema gained trainer templates; Ersveil: Bluewatch Starter 1.6.0 brings four).
+
+- **Open trainers:** a pinned pack's trainer templates can be offered by the narrator (`+ trainer Name — what they teach | like: <template>`, optionally `| teaches: <skill>, <skill>` to narrow the list) or by the reader (**Make this a trainer** in Progress → Training, for someone who is here). Code checks the template, narrows its skills only as asked (never adds), rolls the fee once from the template's range (a seeded d1000, recorded with the offer), binds the trainer to the place it was offered, and records all of it. Training with one has the same fee, place, clock and session checks as a fixed trainer. Deleting the reply that offered a trainer removes it and what was trained with it; a swipe, a Re-read, a rebuild and a reload give the same trainer, fee and id.
+- One open trainer per name per chat, at most 100 per chat. The narrator is told of each offer. The `+ trainer` line is shown to the narrator only while the pinned pack has at least one template, so every other prompt is byte-identical to 2.1.0.
+- **Progress → Training** lists an open trainer's lessons beside the pack's ("Swift Thrust with Old Reka", with its fee, an hour and where it stands), a **Story trainers** list, and the **Make this a trainer** form.
+- The open-quest line of the prompt now names the pack's open quest templates (`like: <open template slug> (templates: a, b, … and N more)`, at most sixteen, then "and N more"), as the trainer line does, so the narrator can write `| like:` correctly. Packs without open quest templates keep the line as it was.
+- New queries `training.openTemplates` and `training.trainers`; `rules.training` offers gain `open` and `where`; `rules.names` names a `tn_` offer.
+
+### Upgrading from 2.1
+
+Needs Story Block 2.4.0 for packs with templates; update both together. Chats without a pinned pack, and chats pinned to a pack without templates, are byte-identical (a chat recorded with 2.1.0 is kept as a test fixture and replays unchanged). Every rules pack's fingerprint changed with Story Block 2.4.0, but a pinned chat keeps its own copy and plays on. Existing pins never gain templates: start a new character timeline to pin Bluewatch 1.6.0. With RPG Battle 2.1.0 and Story Block 2.4.0 together, a pack's templates show in the training list as trainers who are never "here"; update RPG Battle. Story Director and NPC State Delta need no update. A chat that RPG Battle 2.1.0 pinned to a pack with templates (only possible once Story Block 2.4.0 is installed) gets its map of story trainers with its first offer; deleting that first trainer's reply can then switch off the story trainers offered after it in that chat. Update Story Block and RPG Battle together.
+
 ## 2.1.0
 
 - **Open quest templates:** add `| like: <template>` to a quest offer line, or use the reader's **Make this a quest** action. The reward is fixed from the template's range at offer time and recorded with the offer.

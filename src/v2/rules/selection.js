@@ -2,7 +2,7 @@
 // UI receipt on the current reply, just like creation; replay uses its stored ops, never installed packs.
 import { initialRules, pinRules, pinOf } from './pin.js';
 import { initialProgress } from '../progress/domain.js';
-import { initialTraining } from '../training/domain.js';
+import { initialTraining, trainingForPin } from '../training/domain.js';
 import { registerPackDefs } from './items.js';
 import { buildGuard } from '../progress/guard.js';
 import { epochOf, isHash, isObject } from './ids.js';
@@ -78,7 +78,7 @@ export function selectionPart({ preflight }) {
                     source, rulesHash: null, kind: 'rules.pin', payload, inputs: inputs(payload) }), replyBound: true });
                 Object.assign(ctx.draft('rules'), rules);
                 Object.assign(ctx.draft('progress'), initialProgress());
-                Object.assign(ctx.draft('training'), initialTraining());
+                Object.assign(ctx.draft('training'), trainingForPin(given.resolved));
                 registerPackDefs(ctx);
                 return { summary: `Rules pinned: ${payload.pack} ${payload.version}.`, narrate: false,
                     data: { rulesHash: given.rulesHash, packHash: given.packHash, packId: given.packKey, version: given.packVersion } };

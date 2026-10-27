@@ -16,7 +16,7 @@ import { isObject } from './ids.js';
 import { pinOf } from './pin.js';
 import { ask } from './ask.js';
 import { gearOf, partyView, sheetView } from './sheet.js';
-import { isActorId } from './ids.js';
+import { isActorId, isTrainerOfferId } from './ids.js';
 import { STATS } from '../../rules.js';
 import { memberOf, modifiersFor, rulesFor } from './modifiers.js';
 
@@ -44,6 +44,8 @@ export function rulesNames(state, args) {
         if (typeof ref !== 'string') continue;
         const found = ix.class(ref) ?? ix.skill(ref) ?? ix.form(ref);
         if (found && typeof found.name === 'string') out[ref] = found.name;
+        // An open trainer offer (`tn_…`) is named by what it was offered as (RB 2.2.0).
+        else if (isTrainerOfferId(ref) && Object.hasOwn(state?.domains?.training?.offers ?? {}, ref)) out[ref] = state.domains.training.offers[ref].name;
     }
     return out;
 }

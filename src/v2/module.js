@@ -58,7 +58,7 @@ export { TERM_FIELDS, foldReaderTerms, mergeTerms, packTerms, readerRanks, withT
 
 export const MODULE_ID = 'rpg-battle';
 export const MODULE_NAME = 'RPG Battle';
-export const VERSION = '2.1.0';
+export const VERSION = '2.2.0';
 
 /** The parts in their order: [part id, part]. */
 export const PARTS = Object.freeze([
@@ -171,11 +171,25 @@ export function createModule({ settings = null, query = null, parts = [], rules 
         if (typeof ask !== 'function') throw new Error('no query');
         return ask(name, args);
     };
-    const whilePinned = entry => Object.defineProperty(entry, 'enabled', { enumerable: true, get() {
+    const pinnedNow = () => {
         // The older explicit activation/resume API also works without a host query callback.
         if (typeof query !== 'function' && typeof globalThis.StoryBlock?.sdk?.query !== 'function') return Boolean(activation || resumed);
         try { return Boolean(staticQuery('rules.identity', {})); } catch { return false; }
+    };
+    // `extra()`: a kind's own `when` (the `trainer` line exists only while the ruleset has a template), ANDed in on every host path.
+    const whilePinned = (entry, extra = null) => Object.defineProperty(entry, 'enabled', { enumerable: true, get() {
+        return pinnedNow() && (extra === null || extra());
     } });
+    // A part's query for `when` and `grammarFor`: the host's when it is up, else this module's own for the explicit activation's rules.
+    const askOwn = (name, args) => {
+        const ask = typeof query === 'function' ? query : globalThis.StoryBlock?.sdk?.query;
+        if (typeof ask === 'function') return ask(name, args);
+        if (activation && typeof queries[name] === 'function') return queries[name]({ domains: { rules: activation } }, args);
+        throw new Error('no query');
+    };
+    const whenOf = spec => () => {
+        try { return Boolean(spec.when(askOwn)); } catch { return false; }
+    };
     // A view (tails, tabs, view hooks) whose settings are the part's.
     const viewFor = (view, partId) => {
         const raw = () => {
@@ -269,7 +283,7 @@ export function createModule({ settings = null, query = null, parts = [], rules 
             if (KIND_OVERRIDES[kind] && Object.hasOwn(owners.kind, kind) && KIND_OVERRIDES[kind] === id) delete owners.kind[kind];
             if (KIND_OVERRIDES[kind] && Object.hasOwn(owners.kind, kind) && KIND_OVERRIDES[kind] !== id) continue;
             claim(owners.kind, kind, id, 'change-line kind');
-            kinds[kind] = { part: id, grammar: spec.grammar, apply: spec.apply, ...(spec.feature ? { feature: spec.feature } : {}), ...(typeof spec.grammarFor === 'function' ? { grammarFor: spec.grammarFor } : {}) };
+            kinds[kind] = { part: id, grammar: spec.grammar, apply: spec.apply, ...(spec.feature ? { feature: spec.feature } : {}), ...(typeof spec.grammarFor === 'function' ? { grammarFor: spec.grammarFor } : {}), ...(typeof spec.when === 'function' ? { when: spec.when } : {}) };
         }
         for (const [name, fn] of Object.entries(part.hooks ?? {})) {
             if (typeof fn === 'function') (hooks[name] ??= []).push({ part: id, fn });
@@ -365,8 +379,10 @@ export function createModule({ settings = null, query = null, parts = [], rules 
         replayQueries: [...replayQueries],
         capture: {
             kinds: Object.fromEntries(Object.entries(kinds).map(([kind, spec]) => {
-                const entry = grammarOf(spec, () => withTerms(partSettings(moduleSettings(), spec.part), staticQuery));
-                if (selectable && ruleIds.has(spec.part)) whilePinned(entry);
+                const entry = grammarOf(spec, () => withTerms(partSettings(moduleSettings(), spec.part), staticQuery), askOwn);
+                const when = typeof spec.when === 'function' ? whenOf(spec) : null;
+                if (selectable && ruleIds.has(spec.part)) whilePinned(entry, when);
+                else if (when) Object.defineProperty(entry, 'enabled', { enumerable: true, get: when });
                 return [kind, entry];
             })),
             apply(ctx, line) {
@@ -416,18 +432,19 @@ export function createModule({ settings = null, query = null, parts = [], rules 
 }
 
 /**
- * A capture kind as Story Block reads it: { grammar, feature? }. A kind with `grammarFor(settings)` (the
- * world's words, §F105) has its grammar worked out each time the prompt is built, from the part's
- * settings with the terms, so it changes only when they do; a throw gives the fixed `grammar`.
+ * A capture kind as Story Block reads it: { grammar, feature?, enabled? }. A kind with `grammarFor(settings, query)` (the
+ * world's words, §F105; the pinned ruleset through `query`) has its grammar worked out each time the prompt is built, from the part's
+ * settings with the terms, so it changes only when they do; a throw gives the fixed `grammar`. A kind with `when(query)` is enabled
+ * only while that says yes (and, in the rules parts, while a ruleset is pinned): a disabled kind is not in the prompt.
  */
-function grammarOf(spec, settings) {
+function grammarOf(spec, settings, query = null) {
     const out = spec.feature ? { feature: spec.feature } : {};
     if (typeof spec.grammarFor !== 'function') return { grammar: spec.grammar, ...out };
     Object.defineProperty(out, 'grammar', {
         enumerable: true,
         get() {
             try {
-                const line = spec.grammarFor(settings());
+                const line = spec.grammarFor(settings(), query);
                 return typeof line === 'string' && line.trim() ? line : spec.grammar;
             } catch {
                 return spec.grammar;

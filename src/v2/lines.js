@@ -23,5 +23,16 @@ export function clipLine(line) {
     };
 }
 
+/** How many template slugs a prompt line names before "and N more" (the quest line and the trainer line alike). */
+export const LISTED_TEMPLATES = 16;
+
+/** "templates: a, b, c" or, past LISTED_TEMPLATES, "templates: a, …, p and 3 more": the open templates a prompt line names. '' without any. */
+export function templateList(slugs) {
+    const list = (Array.isArray(slugs) ? slugs : []).filter(slug => typeof slug === 'string' && slug);
+    if (!list.length) return '';
+    const more = list.length - LISTED_TEMPLATES;
+    return `templates: ${list.slice(0, LISTED_TEMPLATES).join(', ')}${more > 0 ? ` and ${more} more` : ''}`;
+}
+
 /** A kind's apply that only ever sees a clipped line. */
 export const clipped = apply => (ctx, line) => apply(ctx, clipLine(line));

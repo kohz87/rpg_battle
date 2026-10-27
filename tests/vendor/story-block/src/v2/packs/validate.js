@@ -11,6 +11,7 @@
 // Options: `hostVersion` (Story Block's version, checked against requires.storyBlock) and
 // `capabilities` (the capability names this Story Block has, or null when unknown: then
 // requires.capabilities is checked for form only).
+// `dataModuleDefinitions`: checked normalized dependency definitions for public cross-pack data imports.
 //
 // A pack with a rules manifest (`content.rules`, RB_CONTRACT §7; PACKS.md "Rules packs") also goes through the
 // rules checker (rules-v2.js), on the raw data, once the pass below has found nothing wrong with the envelope and
@@ -32,8 +33,9 @@ import { MAX_COINS, MAX_COIN_VALUE, coinsOf } from '../domains/money.js';
 // rules-v2.js imports this file back (it checks the rest of a pack with validatePack); both only use the
 // other's exports when called, never while loading, so the cycle is harmless.
 import { validateRulesPack } from './rules-v2.js';
+import { validateDataModules, dataModulesPackHash } from '../data-modules/check.js';
 
-export const HOST_VERSION = '2.0.0';
+export const HOST_VERSION = '2.4.0';
 
 /** A slug for a display name: "Iron Sword (old)" → "iron-sword-old". */
 export function slugify(name) {
@@ -48,7 +50,7 @@ const fullId = (packId, slug) => `pack.${packId}/${slug}`;
 /**
  * Checks and normalizes one pack. Nothing here touches settings or state.
  */
-export function validatePack(input, { hostVersion = HOST_VERSION, capabilities = null, limits = LIMITS } = {}) {
+export function validatePack(input, { hostVersion = HOST_VERSION, capabilities = null, limits = LIMITS, dataModuleDefinitions = [] } = {}) {
     let value = input;
     if (typeof input === 'string') {
         if (byteLength(input) > limits.packBytes) return fail('TOO_LARGE', '', `The pack is larger than ${Math.round(limits.packBytes / 1024)} KB.`);
@@ -70,7 +72,7 @@ export function validatePack(input, { hostVersion = HOST_VERSION, capabilities =
     const errors = [];
     const add = (code, path, message) => { if (errors.length < limits.errors) errors.push({ code, path, message }); };
     const rules = { checked: false };
-    const pack = normalize(raw, { add, failed: () => errors.length > 0, rules, hostVersion, capabilities, limits });
+    const pack = normalize(raw, { add, failed: () => errors.length > 0, rules, hostVersion, capabilities, limits, dataModuleDefinitions });
     if (errors.length) return { ok: false, errors };
     const result = { ok: true, pack, raw };
     if (rules.checked) {
@@ -83,6 +85,9 @@ export function validatePack(input, { hostVersion = HOST_VERSION, capabilities =
         };
         Object.defineProperty(result, 'rulesHash', { get: hash('rulesHash'), enumerable: false, configurable: true });
         Object.defineProperty(result, 'packHash', { get: hash('packHash'), enumerable: false, configurable: true });
+    } else if (pack.content.dataModules !== undefined) {
+        // Hash the checked snapshot, before a consumer can edit its detached result.
+        Object.defineProperty(result, 'packHash', { value: dataModulesPackHash(pack), enumerable: false, configurable: true });
     }
     return result;
 }
@@ -91,7 +96,7 @@ function fail(code, path, message) {
     return { ok: false, errors: [{ code, path, message }] };
 }
 
-function normalize(raw, { add, failed, rules: seen, hostVersion, capabilities, limits }) {
+function normalize(raw, { add, failed, rules: seen, hostVersion, capabilities, limits, dataModuleDefinitions }) {
     for (const key of Object.keys(raw)) if (!PACK_FIELDS.includes(key)) add('UNKNOWN_FIELD', key, `"${key}" is not a pack field (expected ${PACK_FIELDS.join(', ')}).`);
 
     const id = raw.id;
@@ -148,6 +153,12 @@ function normalize(raw, { add, failed, rules: seen, hostVersion, capabilities, l
     }
     if (given.ranks !== undefined) content.ranks = checkRanks(given.ranks, packId, add);
     if (given.markets !== undefined) content.markets = checkMarkets(given.markets, packId, add);
+    // Do not create this key for old packs: their normalized bytes and hashes are history.
+    if (given.dataModules !== undefined) {
+        const checked = validateDataModules(given.dataModules, { packId, capabilities: requires.capabilities, definitions: dataModuleDefinitions });
+        if (checked.ok) content.dataModules = checked.definitions;
+        else for (const error of checked.errors) add(error.code, error.path, error.message);
+    }
     if (crafts !== null) content.crafts = crafts;
     if (given.meterPresets !== undefined) {
         if (Array.isArray(given.meterPresets) && given.meterPresets.length > METER_LIMITS.presets) add('BAD_CONTENT', 'content.meterPresets', `content.meterPresets holds at most ${METER_LIMITS.presets} presets.`);
@@ -1242,7 +1253,7 @@ export function unsafeCss(css) {
     return cssUrlProblem(css);
 }
 
-function checkScreens(list, packId, add) {
+export function checkScreens(list, packId, add) {
     if (!Array.isArray(list)) {
         add('BAD_SCREENS', 'screens', 'screens must be a list of screen definitions.');
         return [];

@@ -346,6 +346,113 @@ test('C06: a refused training request shows its message (the answer\'s own words
     assert.deepEqual(refusals(ok.el), [], 'a request that went through shows no refusal');
 });
 
+// ---- open trainers (RB open trainers §10.2) ----------------------------------------------------------------------------
+
+const DRILLS = { id: ref('drills'), name: 'Blade drills', rank: 'F', fee: { coinMin: 10, coinMax: 40 }, skills: [ref('s00'), ref('s01')].map(id => ({ id, name: NAMES[id] })) };
+const OFFER = (over = {}) => ({
+    id: 'tn_0a1b2c3d', template: ref('drills'), name: 'Old Reka', text: 'drills', skills: [ref('s00'), ref('s01')], fee: 28, minutes: 60, eventTemplates: [], rank: 'F',
+    place: ref('haven'), where: 'Haven', npc: null, by: 'story', ...over,
+});
+const FIXED = [{ id: ref('mentor'), name: 'Old Brann', place: ref('haven'), fee: 20, skills: [ref('s00')] }];
+const trainersAnswers = ({ templates = [DRILLS], story = [], fixed = FIXED, present = ['Old Reka', 'Zed'], ...more } = {}) => answers({
+    'training.openTemplates': templates, 'training.trainers': { fixed, story }, 'scene.present': present, ...more,
+});
+
+test('Progress: an open trainer\'s offer reads like a pack trainer\'s and says where it stands; the button is the same Ask for training', { skip }, async () => {
+    const open = trainOffer({ trainer: 'tn_0a1b2c3d', name: 'Old Reka', fee: 28, open: true, where: 'Haven', session: 'tr_00000002' });
+    const table = trainersAnswers({ story: [OFFER()], 'rules.training': ({ actor }) => (actor === PC ? trainingOf({ offers: [trainOffer(), open] }) : null) });
+    const view = viewOf(progressView, table).members[0].training;
+    assert.deepEqual(view.offers.map(row => [row.text, row.detail]), [
+        [`${NAMES[ref('s00')]} with Old Brann`, 'fee 20, 1 hour'],
+        [`${NAMES[ref('s00')]} with Old Reka`, 'fee 28, 1 hour, at Haven'],
+    ]);
+    assert.deepEqual(view.offers[1].payload, { actor: PC, skill: ref('s00'), form: ref('s00-base'), trainer: 'tn_0a1b2c3d', session: 'tr_00000002' });
+    const { drawn: d } = drawn(table);
+    const buttons = pressing(d.el, 'Ask for training');
+    assert.equal(buttons.length, 2);
+    buttons[1].dispatch('click');
+    await settle();
+    assert.deepEqual(d.commands, [{ type: 'skill.train', payload: view.offers[1].payload }]);
+});
+
+test('Progress: Story trainers lists each one with its template, rank, place, fee and skills; nothing is drawn when there are none', { skip }, () => {
+    const table = trainersAnswers({ story: [OFFER(), OFFER({ id: 'tn_zzzzzzzz', name: 'Zed <b>', skills: [ref('s01')], fee: 12, where: '' , place: ref('mill'), by: 'reader' })] });
+    const view = viewOf(progressView, table).members[0].training;
+    assert.deepEqual(view.stories.map(item => item.text), [
+        `Old Reka · Blade drills (rank F) · Haven · fee 28 · teaches ${NAMES[ref('s00')]}, ${NAMES[ref('s01')]}`,
+        `Zed <b> · Blade drills (rank F) · Mill · fee 12 · teaches ${NAMES[ref('s01')]}`,
+    ]);
+    const { drawn: d } = drawn(table);
+    assert.deepEqual(all(d.el, '.story').map(text), view.stories.map(item => item.text));
+    assert.equal(all(d.el, 'b').filter(node => text(node) === '' || text(node) === '<b>').length, 0);
+    assert.equal(all(d.el, '.story b').length, 0, 'markup in a name is text');
+    const none = drawn(trainersAnswers());
+    assert.equal(all(none.drawn.el, '.story-trainers').length, 0);
+    assert.deepEqual(viewOf(progressView, trainersAnswers()).members[0].training.stories, []);
+});
+
+test('Progress: Make this a trainer is offered for your own character only, for people who are here and not yet trainers', { skip }, () => {
+    const astra = sheetOf();
+    const lyra = companionOf(LYRA, 'Lyra', { level: 9, skills: skillsOf(0, [35, 35, 35]) });
+    const table = trainersAnswers({
+        story: [OFFER({ name: 'Old Reka' })], present: ['Old Reka', 'zed', 'OLD BRANN', 'Mia', ' '],
+        'rules.party': partyOf({ active: [astra, lyra] }), 'rules.progress': ({ actor }) => progressOf(actor === PC ? astra : lyra),
+        'rules.training': ({ actor }) => trainingOf({ actor }),
+    });
+    const [you, mate] = viewOf(progressView, table).members.map(member => member.training);
+    assert.equal(you.canMake, true);
+    assert.deepEqual(you.binding.people, ['zed', 'Mia'], 'a pack trainer and a story trainer are not offered again; a blank name is not a person');
+    assert.deepEqual(you.binding.templates, [{ id: ref('drills'), name: 'Blade drills', skills: DRILLS.skills }]);
+    assert.deepEqual([mate.canMake, mate.binding, mate.stories], [false, null, []], 'a companion is not given the form');
+    const { drawn: d } = drawn(table);
+    assert.equal(widgetsIn(d.el, 'rpg-battle.trainer-binding').length, 1);
+    const options = widgetsIn(d.el, 'rpg-battle.trainer-binding')[0].querySelectorAll('select')[0].querySelectorAll('option').map(option => option.value);
+    assert.deepEqual(options, ['', 'zed', 'Mia'], 'the form offers exactly those people');
+    assert.equal(all(d.el, '.make-trainer').length, 1);
+});
+
+test('Progress: no one here, no template, or no answer: no form, and the first says why', { skip }, () => {
+    const nobody = trainersAnswers({ present: ['Old Reka', 'Old Brann'], story: [OFFER()] });
+    const note = viewOf(progressView, nobody).members[0].training;
+    assert.deepEqual([note.canMake, note.makeNote], [false, 'Nobody is here to make a trainer.']);
+    const { drawn: d } = drawn(nobody);
+    assert.equal(widgetsIn(d.el, 'rpg-battle.trainer-binding').length, 0);
+    assert.match(text(all(d.el, '.make-trainer')[0]), /Nobody is here to make a trainer/);
+    for (const table of [trainersAnswers({ templates: [] }), answers()]) {
+        const model = viewOf(progressView, table).members[0].training;
+        assert.deepEqual([model.canMake, model.makeNote, model.binding], [false, '', null]);
+        assert.equal(all(drawn(table).drawn.el, '.make-trainer').length, 0);
+    }
+    const noScene = trainersAnswers({ 'scene.present': MISSING });
+    assert.equal(viewOf(progressView, noScene).members[0].training.makeNote, 'Nobody is here to make a trainer.');
+});
+
+test('Progress: the form sends trainer.open with the person, the template and a narrowed list, and shows a refusal beside the button', { skip }, async () => {
+    const table = trainersAnswers({ present: ['Zed'] });
+    const { drawn: d } = drawOver(progressScreen, table, { result: () => ({ ok: false, code: 'REFUSED', message: 'Zed already teaches here.' }) });
+    const [form] = widgetsIn(d.el, 'rpg-battle.trainer-binding');
+    const [who, kind] = form.querySelectorAll('select');
+    who.value = 'Zed'; who.dispatch('change');
+    kind.value = ref('drills'); kind.dispatch('change');
+    const boxes = form.querySelectorAll('.rpg-tb-skills input');
+    assert.equal(boxes.length, 2);
+    boxes[1].checked = false; boxes[1].dispatch('change');
+    pressing(form, 'Make this a trainer')[0].dispatch('click');
+    await settle();
+    assert.deepEqual(d.commands, [{ type: 'trainer.open', payload: { name: 'Zed', template: ref('drills'), skills: [ref('s00')] } }]);
+    assert.deepEqual(refusals(form), ['Zed already teaches here.']);
+});
+
+test('Progress: the queries of open trainers are read, and a host that has none still draws the page as before', { skip }, () => {
+    const log = [];
+    viewOf(progressView, trainersAnswers(), {}, undefined, log);
+    assert.deepEqual(names(log).filter(name => name.startsWith('training.') || name === 'scene.present').sort(), ['scene.present', 'training.openTemplates', 'training.trainers']);
+    const bare = viewOf(progressView, answers());
+    assert.deepEqual(bare.members[0].training.stories, []);
+    assert.equal(bare.members[0].training.canMake, false);
+    assert.equal(drawn(answers()).drawn.warnings.length, 0);
+});
+
 // ---- the page as a whole -----------------------------------------------------------------------------------------------
 
 test('Progress: your character leads, companions are collapsible cards, the party checklist lists everyone', { skip }, () => {
