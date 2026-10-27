@@ -14,9 +14,20 @@ export const NUMBER_WORDS = Object.freeze({
 });
 const COUNT = `(\\d+|${Object.keys(NUMBER_WORDS).join('|')})`;
 
-/** A whole count from digits or a number word up to twenty; null for anything else. */
-export function countOf(word) {
-    const text = clean(word).toLowerCase();
+// Amount phrases a story uses for a number (RB generative offers §3.2), longest first. Read only where a caller asks (`amountWords`).
+const AMOUNT_PHRASES = Object.freeze([['half a dozen', 6], ['a score of', 20], ['a handful of', 5], ['a couple of', 2], ['a hundred', 100],
+    ['a dozen', 12], ['a pair of', 2], ['a few', 3], ['several', 4], ['dozen', 12]]);
+const AMOUNT_PATTERN = new RegExp(`(?<![\\p{L}\\p{N}])(${AMOUNT_PHRASES.map(([phrase]) => phrase.replace(/ /g, '\\s+')).join('|')})(?![\\p{L}\\p{N}])`, 'giu');
+const AMOUNT_VALUE = new Map(AMOUNT_PHRASES);
+
+/** The text with each amount phrase ("a dozen", "a handful of") written as its digits: "a dozen crowns" → "12 crowns". */
+export function amountDigits(text) {
+    return String(text ?? '').replace(AMOUNT_PATTERN, found => String(AMOUNT_VALUE.get(found.toLowerCase().replace(/\s+/g, ' '))));
+}
+
+/** A whole count from digits or a number word up to twenty; null for anything else. `amountWords`: an amount phrase ("a dozen") counts too. */
+export function countOf(word, { amountWords = false } = {}) {
+    const text = clean(amountWords ? amountDigits(word) : word).toLowerCase();
     if (/^\d+$/.test(text)) {
         const value = Number(text);
         return Number.isSafeInteger(value) ? value : null;
@@ -290,12 +301,13 @@ export function coinPhrase(written, word) {
  * "each" names none). `reward: none` is `{ amount: 0 }`. No reward written → null. A coin amount code
  * refuses (a coin the chat does not have, two amounts without coins) is `amount: null` with `problem`,
  * a plain sentence for the reader. `options.currency` ({ name, short, coins }) adds the chat's own
- * currency words to the coin words.
+ * currency words to the coin words; `options.amountWords` reads an amount phrase ("a dozen crowns", "a handful of silver") as its digits first.
  */
-export function parseReward(fields = {}, summary = '', { currency = null } = {}) {
-    const label = clean(fields.reward);
+export function parseReward(fields = {}, summary = '', { currency = null, amountWords = false } = {}) {
+    const spelled = value => clean(amountWords ? amountDigits(value) : value);
+    const label = spelled(fields.reward);
     if (/^(?:none|nothing|no reward|unpaid)\.?$/i.test(label)) return { amount: 0, each: false, unit: '', text: label, per: '' };
-    const sources = label ? [label] : [fields.goal, fields.desc, summary].map(clean).filter(Boolean);
+    const sources = label ? [label] : [fields.goal, fields.desc, summary].map(spelled).filter(Boolean);
     const pattern = rewardPattern(currency);
     for (const text of sources) {
         const bare = text === label ? BARE_REWARD.exec(text) : null;
