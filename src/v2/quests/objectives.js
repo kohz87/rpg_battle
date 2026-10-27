@@ -52,6 +52,12 @@ export function killSource({ ix, quest, combat, progress }, objective, fight) {
 }
 
 /**
+ * The most rows of evidence an objective keeps. A kill objective is counted a fight at a time and every fight it counts is at least one kill, so it never needs more rows than it asks
+ * kills (up to 999); a hunt of a hundred is not stopped at 64 fights. The rest (a place, a line of the story) keep 64.
+ */
+export const evidenceLimit = objective => (objective?.kind === 'kill' && Number.isSafeInteger(objective.count) ? Math.min(999, Math.max(64, objective.count)) : 64);
+
+/**
  * The one plan of an objective's evidence. `facts`: { hash, ix, thread, proofs(ids) → surviving proofs, combat, progress, clock (minute | null),
  * place (canonical id | null), scene (place name | null), line (hash | null) }. `request`: { objective, fight?, proof? }.
  * → { ok, objective, payload | null, cited | null, amount, acceptance, claims, inputs } | { ok: false, code, message }.
@@ -73,7 +79,7 @@ export function planObjective(facts, request) {
     if (!acceptance) return refuse('REFUSED', 'The original reader acceptance proof is not active.');
     const mine = { id: acceptance.id, payloadHash: acceptance.payloadHash };
     const rows = Object.values(quest.evidence).filter(row => row.objective === objective.id);
-    if (rows.length >= 64) return refuse('LIMITED', 'This objective already holds its evidence limit.');
+    if (rows.length >= evidenceLimit(objective)) return refuse('LIMITED', 'This objective already holds its evidence limit.');
     const epoch = facts.epoch;
     let payload = null;
     let cited = null;
@@ -252,7 +258,7 @@ export function pendingObjectives(view) {
             const rows = Object.values(quest.evidence).filter(row => row.objective === objective.id);
             let have = rows.reduce((sum, row) => sum + row.amount, 0);
             const need = objective.kind === 'kill' ? objective.count : 1;
-            if (have >= need || rows.length >= 64) continue;
+            if (have >= need || rows.length >= evidenceLimit(objective)) continue;
             if (objective.kind === 'visit') {
                 if (ask(view.query, 'atlas.canonical')?.id === objective.place) out.push({ type: 'quest.objective', payload: { id: thread.id, objective: objective.id } });
                 continue;
