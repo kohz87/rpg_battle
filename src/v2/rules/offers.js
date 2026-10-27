@@ -3,22 +3,22 @@
 //   rules['offer.<th_ id>']    = Offer     every job the narrator offered in its own words, under the id of the thread it made
 //   rules['declined.<dk_ id>'] = Declined  the far-out decisions: a job (or teacher) that was not offered, under the key of its name
 //   rules['rest.<rs_ id>']     = Rest      a `! rest` line that was not taken because the reply did not move the story clock far enough (party/capture.js)
-//   rules['mode.<ms_ id>']     = Stamp     the mode of Jobs from the story one reply was read under: 'free' | 'strict' (quests/offer-feature.js, rules/mode.js)
+//   rules['mode.<ms_ id>']     = Stamp     the mode of Jobs from the story one reply was read under: 'free' | 'strict' (rules/mode.js: written by `rules.stampReply`, a step of the reply of its own)
 //
 // Each record is one key of the slice itself, so its parent always exists: a chat pinned before 2.3.0 has no map to make, and taking the reply that made one
 // record back takes that record only (a map made by the first offer would take every later one's parent with it). `offersOf` and `declinedOf` read them as
 // maps by id; nothing else knows the key names.
 //
-//   Offer    = { v: 1, matcher, line, sid, name, said, settled, band, notes, where, shown? }
+//   Offer    = { v: 1, matcher, line, sid, receipt?, name, said, settled, band, notes, where, shown? }
 //     matcher  the version of the reading rules that decided it; line the first 16 hex of the hash of the line as written (a Re-read of the
-//     same line reuses `settled`, whatever matcher is running then); sid the reply's carrier; said the labels as read; band 'within' | 'moderate';
+//     same line reuses `settled`, whatever matcher is running then); sid the reply's carrier; receipt the id of the receipt of the line that made it (the Adjustments log finds the record's reply by it: a receipt keeps its id when its data is trimmed away); said the labels as read; band 'within' | 'moderate';
 //     notes what code moved, for the card; where the place's name; settled (settledProblem) every number code fixed; shown the objective, the coin and
 //     the deadline in the chat's words (the card and the Adjustments log do not ask for the currency again).
 //   Declined = { v: 1, matcher, sid, name, reason, suggestion, band: 'far', said?, kind? }   kind 'job' | 'teacher', said the labels as read
 //   Rest     = { v: 1, sid, kind: 'long' | 'short', needed, moved, place?, said? }   needed and moved are story minutes: what the rest wants and what the reply moved the clock;
 //              place the name of the place the party was in, when it had one
-//   Stamp    = { v: 1, sid, mode: 'free' | 'strict' }   the mode a reply was read under, written by its first capture of a line the mode changes (the switch of that moment) and kept by a
-//            Re-read of the reply, edited or not; it goes with its reply and no other reply reads it. A reply with none (recorded before 2.3.0) is read as 2.2.0 did (strict).
+//   Stamp    = { v: 1, sid, mode: 'free' | 'strict' }   free: the reply was read with Jobs from the story on (the switch of its moment). Written after the reply's lines whether or not any line of
+//            ours kept a step, and again by a Re-read of the reply, edited or not; it goes with its reply and no other reply reads it. A reply with none is read strict, as 2.2.0 did.
 //
 // Absent until first used. `rules.recordOffer` is the one writer, for this module's own capture. Pure apart from the command.
 
@@ -72,6 +72,8 @@ export function settledProblem(settled) {
     return '';
 }
 
+/** The receipt of the line that made a record (kept so the Adjustments log finds the record's reply by it), when it has one. */
+const receipt = record => !Object.hasOwn(record, 'receipt') || isRecordId(record.receipt);
 const labels = value => isObject(value) && Object.keys(value).length <= 16 && Object.values(value).every(entry => text(entry, 240));
 const notes = value => Array.isArray(value) && value.length <= 6 && value.every(entry => text(entry, 160));
 
@@ -80,6 +82,7 @@ export function offerProblem(id, offer) {
     if (!isOfferId(id) || !isObject(offer) || offer.v !== 1 || !int(offer.matcher, 1, 1000)) return 'is not whole';
     if (!/^[0-9a-f]{16}$/.test(offer.line ?? '') || !sid(offer.sid) || !text(offer.name, 80, 1) || !labels(offer.said) || !notes(offer.notes) || !text(offer.where, 80)) return 'has text that is not plain or the right length';
     if (!['within', 'moderate'].includes(offer.band)) return 'has a band that is not within or moderate';
+    if (!receipt(offer)) return 'has a receipt that is not an id';
     if (Object.hasOwn(offer, 'shown') && !(isObject(offer.shown) && Object.values(offer.shown).every(value => text(value, 120)))) return 'shows text that is not plain';
     const bad = settledProblem(offer.settled);
     return bad ? `settled ${bad}` : null;
@@ -91,6 +94,7 @@ export function declinedProblem(id, record) {
     if (!sid(record.sid) || !text(record.name, 80, 1) || !text(record.reason, 200) || !text(record.suggestion, 200)) return 'has text that is not plain or the right length';
     if (Object.hasOwn(record, 'said') && !labels(record.said)) return 'has labels that are not plain';
     if (Object.hasOwn(record, 'kind') && !['job', 'teacher'].includes(record.kind)) return 'is of no kind';
+    if (!receipt(record)) return 'has a receipt that is not an id';
     return null;
 }
 
@@ -99,6 +103,7 @@ export function restProblem(id, record) {
     if (!isRestId(id) || !isObject(record) || record.v !== 1 || !['long', 'short'].includes(record.kind) || !sid(record.sid)) return 'is not whole';
     if (!int(record.needed, 1, 5256000) || !int(record.moved, 0, 5256000)) return 'has a time out of bounds';
     if (Object.hasOwn(record, 'place') && !text(record.place, 80, 1)) return 'has a place that is not plain text';
+    if (!receipt(record)) return 'has a receipt that is not an id';
     if (Object.hasOwn(record, 'said') && !labels(record.said)) return 'has labels that are not plain';
     return null;
 }
@@ -124,12 +129,12 @@ export function offersProblems(slice) {
     return errors;
 }
 
-const FIELDS = ['write', 'thread', 'declined', 'rest', 'mode', 'record'];
+const FIELDS = ['write', 'thread', 'declined', 'rest', 'record'];
 
-/** rules.recordOffer { write, thread | declined | rest | mode, record }: this module's capture adds one record, by key (at most MAX_DECLINED far-out decisions are kept). */
+/** rules.recordOffer { write, thread | declined | rest, record }: this module's capture adds one record, by key (at most MAX_DECLINED far-out decisions are kept). */
 export function recordOffer(ctx, payload) {
     if (!isObject(payload) || Object.keys(payload).some(key => !FIELDS.includes(key)) || !isRecordId(payload.write) || !isObject(payload.record)
-        || [payload.thread, payload.declined, payload.rest, payload.mode].filter(value => value !== undefined).length !== 1) ctx.fail('INVALID', 'rules.recordOffer takes { write, thread | declined | rest | mode, record }.');
+        || [payload.thread, payload.declined, payload.rest].filter(value => value !== undefined).length !== 1) ctx.fail('INVALID', 'rules.recordOffer takes { write, thread | declined | rest, record }.');
     if (!TRUSTED.recordOffer.includes(ctx.caller)) ctx.fail('REFUSED', 'A job is recorded by RPG Battle\'s own capture of the story\'s line, never from a button.');
     const slice = ctx.read('rules');
     if (!isObject(slice) || slice.pin === null) ctx.fail('REFUSED', 'This chat does not run a rules pack.');
@@ -148,15 +153,6 @@ export function recordOffer(ctx, payload) {
         // No count cap: a refused rest is one small record of its reply (there is one a reply), taken back with it; a cap would stop the notice of a long chat's refusals.
         draft[REST_KEY + payload.rest] = payload.record;
         return { summary: 'A rest was not taken.', narrate: false, data: { rest: payload.rest } };
-    }
-    if (payload.mode !== undefined) {
-        const bad = modeProblem(payload.mode, payload.record);
-        if (bad) ctx.fail('INVALID', `That stamp ${bad}.`);
-        // One stamp for a reply: asked again (a second line of the reply, a Re-read) it keeps the mode it has.
-        const held = slice[MODE_KEY + payload.mode];
-        if (held !== undefined && (held.sid !== payload.record.sid || held.mode !== payload.record.mode)) ctx.fail('CONFLICT', 'That reply was read under another mode.');
-        draft[MODE_KEY + payload.mode] = payload.record;
-        return { summary: 'The mode of a reply was kept.', narrate: false, data: { mode: payload.mode } };
     }
     const problem = declinedProblem(payload.declined, payload.record);
     if (problem) ctx.fail('INVALID', `That decision ${problem}.`);

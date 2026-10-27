@@ -41,7 +41,7 @@
 
 import { part as party } from './party/index.js';
 import { part as creation } from './creation/index.js';
-import { rulesParts, modifierPart, initialRules, pinRules, registerPackDefs } from './rules/index.js';
+import { rulesParts, modifierPart, initialRules, pinRules, registerPackDefs, noteRead } from './rules/index.js';
 import { compatibleHost, selectionPart } from './rules/selection.js';
 import { part as quests } from './quests/index.js';
 import { part as items } from './items/index.js';
@@ -393,6 +393,7 @@ export function createModule({ settings = null, query = null, parts = [], rules 
             apply(ctx, line) {
                 const entry = kinds[line?.kind];
                 if (!entry) return ctx.fail('INVALID', `RPG Battle does not read "${line?.kind}" lines.`);
+                noteRead(ctx);
                 return entry.apply(ctxFor(ctx, entry.part), line);
             },
         },

@@ -13,11 +13,12 @@ import { part as trainingPart } from '../training/index.js';
 import { commands as inputCommands } from './commands.js';
 import { queries as flagQueries } from './flags.js';
 import { queries as itemQueries, registerPackDefs } from './items.js';
+import { replyNow, stampAfterCapture } from './mode.js';
 
 export { RULES_VERSION, ENGINE, pinRules, pinOf, initialRules, rulesProblems, xpPerLevelProblem } from './pin.js';
 export { indexOf, indexOfState } from './graph.js';
 export { declaredFlags } from './pin.js';
-export { OFFERS_FEATURE, readsFreely, switchMode } from './mode.js';
+export { OFFERS_FEATURE, noteRead, readsFreely, switchMode } from './mode.js';
 export { registerPackDefs };
 
 // The modifier projection also serves legacy crafting; it has no domain or dice.
@@ -26,7 +27,8 @@ export const modifierPart = { queries: { 'rules.modifier': rulesModifier } };
 export const part = {
     domains: { rules: { initial: initialRules, validate: rulesProblems } },
     commands: { 'rules.settle': commands['rules.settle'], ...inputCommands },
-    queries: { 'rules.progress': queries['rules.progress'], 'rules.pace': queries['rules.pace'], ...lookups, ...flagQueries, ...itemQueries },
+    queries: { 'rules.progress': queries['rules.progress'], 'rules.pace': queries['rules.pace'], ...lookups, ...flagQueries, ...itemQueries, 'rules.replyNow': replyNow },
+    hooks: { afterCapture: stampAfterCapture },
 };
 
 /**

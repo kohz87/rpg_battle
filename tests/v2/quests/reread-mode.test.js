@@ -34,10 +34,13 @@ const reread = async (h, index) => assert.equal((await h.turn.reread(index)).ok,
 
 
 const foes = h => h.q('combat.offers').map(offer => offer.foes.map(foe => [foe.name, foe.count]));
-const sidAt = (h, text) => h.ctx.chat[at(h, text)]?.extra?.storySuite?.source?.logical;
+const sidAt = (h, text) => h.ctx.chat[at(h, text)]?.extra?.storySuite?.sid;
 /** The mode the reply whose text holds `text` was read under: 'free' when it is stamped so, else 'strict' (a reply read with the switch off keeps no stamp). */
 const modeAt = (h, text) => Object.entries(h.head().domains.rules).filter(([key]) => key.startsWith('mode.')).map(([, stamp]) => stamp).find(stamp => stamp.sid === sidAt(h, text))?.mode ?? 'strict';
-const stamps = h => Object.entries(h.head().domains.rules).filter(([key]) => key.startsWith('mode.')).length;
+// The stamps of a chat's replies, less the four replies of the Bluewatch setup (each wrote a line of ours with the switch on, so each is stamped free).
+const SETUP = 4;
+const allStamps = h => Object.entries(h.head().domains.rules).filter(([key]) => key.startsWith('mode.')).length;
+const stamps = h => allStamps(h) - SETUP;
 const OFFER = '+ quest Old Debts | giver: Marrit | goal: Settle the matter with the river guild | reward: 80 copper | due: in 3 days';
 const LIKE = '+ quest Rat Trouble | like: open-hunt-f | foe: cellar-rat-swarm';
 const TEACHER = '+ trainer Old Reka — blade drills';
@@ -189,6 +192,13 @@ test('a whitespace-only edit is no different from no edit: the reply is read in 
     });
 });
 
+test('the setup replies of a chat made with the switch on are stamped free, one each; made with it off, none', async t => {
+    await seeded(9425, async () => {
+        assert.equal(allStamps(await bluewatch(t)), SETUP);
+        assert.equal(allStamps(await bluewatch(t, { settings: STRICT })), 0);
+    });
+});
+
 test('a reply that had no line the mode changes has no stamp, and when an edit adds one it is read as 2.2.0 did (strict), whatever the switch says', async t => {
     await seeded(9421, async () => {
         const h = await bluewatch(t);
@@ -199,6 +209,58 @@ test('a reply that had no line the mode changes has no stamp, and when an edit a
         await reread(h, at(h, 'Quiet.'));
         assert.deepEqual(foes(h), [[ONE('Rats Of Doom')]]);
         assert.equal(stamps(h), 0, 'a Re-read of a reply with no stamp writes none');
+    });
+});
+
+// ---- the stamp does not depend on any one line --------------------------------------------------------------------------------------------
+
+const BAD = '! encounter 0 Rats Of Doom | like: cellar-rat-swarm';
+const WOUND = '~ wound Ren — a scratch | harm: scratch';
+
+test('a free reply with a failing line and a surviving one keeps its mode through edits that delete or change the surviving line, Re-reads, a rebuild and a reload', async t => {
+    await seeded(9423, async () => {
+        const h = await bluewatch(t);
+        await h.say('Rats R.', [BAD, fight('Rats B')]);
+        assert.deepEqual(foes(h), [[FREE('Rats B')]], 'the bad line failed and the good one was read freely');
+        assert.ok(h.turn.problems().some(problem => /0|count/i.test(JSON.stringify(problem))), 'the bad line is a Problem');
+        assert.equal(modeAt(h, 'Rats R.'), 'free');
+        set(h, false);
+        // Re-read unchanged, then with the surviving line changed.
+        await reread(h, at(h, 'Rats R.'));
+        assert.deepEqual(foes(h), [[FREE('Rats B')]]);
+        edit(h, at(h, 'Rats R.'), 'Rats B |', 'Rats C |');
+        await reread(h, at(h, 'Rats R.'));
+        assert.deepEqual(foes(h), [[FREE('Rats C')]]);
+        assert.equal(modeAt(h, 'Rats R.'), 'free');
+        // The surviving line goes (a wound is all that survives): the reply still reads free, and a line put back is read freely again.
+        edit(h, at(h, 'Rats R.'), fight('Rats C'), WOUND);
+        await reread(h, at(h, 'Rats R.'));
+        assert.equal(modeAt(h, 'Rats R.'), 'free', 'the stamp does not go with the line that carried it');
+        edit(h, at(h, 'Rats R.'), WOUND, fight('Rats D'));
+        await reread(h, at(h, 'Rats R.'));
+        assert.deepEqual(foes(h), [[FREE('Rats D')]], 'read freely again, as the reply was written');
+        await agree(h, 'a failing and a surviving line');
+        assert.equal(stamps(h), 1);
+    });
+});
+
+test('a reply written with the switch on that has no line the mode changes yet is stamped, so an edit that adds one reads it freely', async t => {
+    await seeded(9424, async () => {
+        const h = await bluewatch(t);
+        await h.say('A scratch.', [WOUND]);
+        assert.equal(modeAt(h, 'A scratch.'), 'free');
+        set(h, false);
+        edit(h, at(h, 'A scratch.'), WOUND, `${WOUND}\n${fight('Rats Of Doom')}`);
+        await reread(h, at(h, 'A scratch.'));
+        assert.deepEqual(foes(h), [[FREE('Rats Of Doom')]]);
+        await agree(h, 'a scratch');
+        // The same with the switch off when it was written: strict, whatever the switch says now.
+        await h.say('Another scratch.', ['~ wound Ren — another | harm: scratch']);
+        assert.equal(modeAt(h, 'Another scratch.'), 'strict');
+        set(h, true);
+        edit(h, at(h, 'Another scratch.'), '~ wound Ren — another | harm: scratch', `~ wound Ren — another | harm: scratch\n${fight('Rats Of Ruin')}`);
+        await reread(h, at(h, 'Another scratch.'));
+        assert.deepEqual(foes(h).at(-1), [ONE('Rats Of Ruin')]);
     });
 });
 
@@ -354,8 +416,10 @@ test('a stamp is the host\'s own record: another module, a click and a stamp tha
         await h.say('Rats A.', [fight('Rats A')]);
         const before = JSON.stringify(h.head());
         const id = Object.keys(h.head().domains.rules).find(key => key.startsWith('mode.')).slice(5);
-        const click = await h.sdk.command('rules.recordOffer', { write: 'wr_stamp001', mode: id, record: { v: 1, sid: sidAt(h, 'Rats A.'), mode: 'strict' } });
+        const click = await h.sdk.command('rules.stampReply', {});
         assert.equal(click.ok, false);
+        const other = await h.sdk.command('rules.recordOffer', { write: 'wr_stamp001', mode: id, record: { v: 1, sid: sidAt(h, 'Rats A.'), mode: 'strict' } });
+        assert.equal(other.ok, false);
         assert.equal(JSON.stringify(h.head()), before);
         const rules = structuredClone(h.head().domains.rules);
         assert.deepEqual(rulesProblems(rules).filter(error => /mode|stamp/.test(error)), []);
