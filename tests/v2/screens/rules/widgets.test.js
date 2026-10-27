@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-    COMMAND_BUTTON_WIDGET, COMMAND_INPUT_WIDGET, CLASS_PICK_WIDGET, PERMANENT_CHOICE_WIDGET, choiceOutcomeText, putAt, renderClassPick, renderCommandButton,
+    COMMAND_BUTTON_WIDGET, COMMAND_INPUT_WIDGET, CLASS_PICK_WIDGET, PERMANENT_CHOICE_WIDGET, SHOW_MORE_WIDGET, choiceOutcomeText, putAt, renderClassPick, renderCommandButton,
     renderCommandInput, renderPermanentChoice, rulesWidgets,
 } from '../../../../src/v2/screens/rules/widgets.js';
 import { installDom } from '../helpers/dom.js';
@@ -22,7 +22,7 @@ const spec = (extra = {}) => ({ command: 'class.choose', field: 'class', label: 
 const text = node => String(node?.textContent ?? '');
 
 test('the widget set includes the five, each with a render and a validate that accepts nothing but an object', () => {
-    assert.deepEqual(Object.keys(rulesWidgets).sort(), [CLASS_PICK_WIDGET, COMMAND_BUTTON_WIDGET, COMMAND_INPUT_WIDGET, PERMANENT_CHOICE_WIDGET, 'rpg-battle.quest-binding', 'rpg-battle.trainer-binding'].sort());
+    assert.deepEqual(Object.keys(rulesWidgets).sort(), [CLASS_PICK_WIDGET, COMMAND_BUTTON_WIDGET, COMMAND_INPUT_WIDGET, PERMANENT_CHOICE_WIDGET, 'rpg-battle.quest-binding', 'rpg-battle.trainer-binding', SHOW_MORE_WIDGET].sort());
     for (const widget of Object.values(rulesWidgets)) {
         assert.equal(typeof widget.render, 'function');
         assert.deepEqual(widget.validate({}), []);

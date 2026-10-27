@@ -2,7 +2,7 @@
 //
 //   rulesScreens   progress, quests, roster, links, setup (screens.js), each shown only while RPG Battle's rules queries exist
 //   rulesQueries   their view queries (`rpg-battle.progressView`, …): read the contract's queries, change nothing
-//   rulesWidgets   permanent-choice, class-pick, command-input, command-button (widgets.js)
+//   rulesWidgets   permanent-choice, class-pick, command-input, command-button, show-more (widgets.js)
 //
 // RB_PHASE0 §10 track C: query projections and commands only. Nothing in this folder computes a rule.
 
@@ -22,7 +22,7 @@ export { linksView } from './links.js';
 export { depsBanner, rulesChoice, rulesGate, setupView } from './setup.js';
 export { CLASS_STEP_TEMPLATE, classPickerView } from './class-step.js';
 export {
-    CLASS_PICK_WIDGET, COMMAND_BUTTON_WIDGET, COMMAND_INPUT_WIDGET, PERMANENT_CHOICE_WIDGET, RULES_WIDGET_CSS, rulesWidgets,
+    CLASS_PICK_WIDGET, COMMAND_BUTTON_WIDGET, COMMAND_INPUT_WIDGET, PERMANENT_CHOICE_WIDGET, RULES_WIDGET_CSS, SHOW_MORE_WIDGET, rulesWidgets,
 } from './widgets.js';
 export { linksScreen, progressScreen, questsScreen, rosterScreen, rulesActive, rulesScreens, setupActive, setupScreen } from './screens.js';
 

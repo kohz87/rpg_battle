@@ -8,7 +8,7 @@ import { questsScreen } from '../../../../src/v2/screens/rules/screens.js';
 import { questsView } from '../../../../src/v2/screens/rules/quests.js';
 import { failureLine } from '../../../../src/v2/screens/rules/format.js';
 import { MISSING, QF, REPEAT_CHAIN, answers, c07, c15, c15Repeat, seed, thread } from './fixtures.js';
-import { all, drawOver, pressing, refusals, names, settle, skip, text, toolsOf, viewOf } from './helpers.js';
+import { all, click, drawOver, pressing, refusals, names, settle, skip, text, toolsOf, viewOf } from './helpers.js';
 
 const drawn = (table, options) => drawOver(questsScreen, table, options);
 const rows = view => view.groups.flatMap(group => group.quests);
@@ -230,12 +230,29 @@ test('Adjustments: a collapsed section with a count, a card per row with its ban
     assert.equal(all(details, 'li').length, 2);
 });
 
-test('Adjustments: ten rows show, the rest are behind Older', { skip }, () => {
+test('Adjustments: ten rows show, the rest are behind a "Show older" button that opens them', { skip }, () => {
     const many = Array.from({ length: 13 }, (_, n) => adjustment(13 - n));
     const view = viewOf(questsView, withAdjustments(many));
     assert.deepEqual([view.adjustments.count, view.adjustments.recent.length, view.adjustments.older.length, view.adjustments.hasOlder], [13, 10, 3, true]);
     const { drawn: page } = drawn(withAdjustments(many));
-    assert.equal(all(page.el.querySelector('details.adj'), 'li.adj-row').length, 13);
-    assert.equal(text(page.el.querySelector('details.older summary')), 'Older (3)');
-    assert.equal(all(page.el.querySelector('details.older'), 'li.adj-row').length, 3);
+    const section = page.el.querySelector('details.adj');
+    assert.equal(all(section, 'li.adj-row').length, 13);
+    assert.equal(all(section, 'ul.older-rows li.adj-row').length, 3);
+    assert.equal(section.getAttribute('data-more'), 'closed');
+    const [more] = all(section, 'button.rpg-sm');
+    assert.equal(text(more), 'Show older (3)');
+    assert.equal(more.getAttribute('aria-expanded'), 'false');
+    assert.equal(all(section, 'details.older').length, 0, 'a button, not a details element');
+    click(more);
+    assert.equal(section.getAttribute('data-more'), 'open');
+    assert.equal(text(more), 'Show fewer');
+    click(more);
+    assert.equal(section.getAttribute('data-more'), 'closed');
+});
+
+test('Adjustments: the band chips are filled, not outlined, and the sheet names no literal colour', { skip }, () => {
+    const { drawn: page } = drawn(withAdjustments([adjustment(1)]));
+    assert.ok(!page.el.querySelector('.band').classList.contains('ss-pill-outline'));
+    assert.match(questsScreen.css ?? '', /\.band\.b-kept \{ background: color-mix/);
+    assert.doesNotMatch(String(questsScreen.css ?? ''), /#[0-9a-f]{3,8}\b|rgba?\(/i);
 });

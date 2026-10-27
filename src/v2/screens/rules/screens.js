@@ -236,7 +236,7 @@ const ADJUSTMENT = alias => `
       <li class="adj-row" data-each="${alias} as a">
         <div class="ahead">
           <span class="nm">{{ a.name }}</span>
-          <span class="band ss-pill ss-pill-outline" data-class="b-kept: a.kept; b-adjusted: a.adjusted; b-dropped: a.dropped">
+          <span class="band" data-class="b-kept: a.kept; b-adjusted: a.adjusted; b-dropped: a.dropped">
             <i class="fa-solid fa-check" data-if="a.kept" aria-hidden="true"></i><i class="fa-solid fa-right-left" data-if="a.adjusted" aria-hidden="true"></i><i class="fa-solid fa-xmark" data-if="a.dropped" aria-hidden="true"></i>{{ a.bandLabel }}
           </span>
           <span class="reply" data-if="a.replyText != ''">{{ a.replyText }}</span>
@@ -297,17 +297,15 @@ const questsTemplate = `
       <p class="line hold" data-if="g.needsRpg">This goal carries rewards that RPG Battle settles; it waits for RPG Battle.</p>
     </article>
   </section>
-  <details class="adj" data-if="q.v.adjustments.count > 0">
+  <details class="adj" data-if="q.v.adjustments.count > 0" data-more="closed">
     <summary>Adjustments ({{ q.v.adjustments.count }})</summary>
     <p class="adj-help">What code changed from the narrator's offers, newest first. Read only; nothing here is a Problem. Turn off "Jobs from the story" in Features for the strict behaviour.</p>
     <p class="adj-head" aria-hidden="true"><span>Offer</span><span>Became</span><span>Changed</span><span>Band</span><span></span></p>
     <ul class="acards">${ADJUSTMENT('q.v.adjustments.recent')}
     </ul>
-    <details class="older" data-if="q.v.adjustments.hasOlder">
-      <summary>Older ({{ q.v.adjustments.olderCount }})</summary>
-      <ul class="acards">${ADJUSTMENT('q.v.adjustments.older')}
-      </ul>
-    </details>
+    <ul class="acards older-rows" data-if="q.v.adjustments.hasOlder">${ADJUSTMENT('q.v.adjustments.older')}
+    </ul>
+    <div class="adj-more" data-if="q.v.adjustments.hasOlder"><ss-widget name="rpg-battle.show-more" data-props='{"value":{"label":"Show older ({{ q.v.adjustments.olderCount }})"}}'></ss-widget></div>
   </details>
 </div>
 `;
@@ -334,10 +332,12 @@ const questsCss = sheet(`${SHARED_CSS}
 .ahead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
 .ahead .nm { font-weight: 800; font-size: 17px; line-height: 1.3; overflow-wrap: anywhere; }
 .ahead .reply { margin-left: auto; color: var(--ss-muted); font-size: 14px; white-space: nowrap; }
-.band { gap: 5px; font-weight: 800; white-space: nowrap; }
-.band.b-kept { color: var(--ss-good); border-color: var(--ss-good); }
-.band.b-adjusted { color: var(--ss-warn); border-color: var(--ss-warn); }
-.band.b-dropped { color: var(--ss-bad-text, var(--ss-bad)); border-color: var(--ss-bad); }
+.band { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px 3px 8px; border-radius: 999px; font-size: 13px; font-weight: 800; line-height: 1.3; white-space: nowrap; color: var(--ss-text); }
+.band.b-kept { background: color-mix(in srgb, var(--ss-good) 42%, var(--ss-tile)); }
+.band.b-adjusted { background: color-mix(in srgb, var(--ss-warn) 48%, var(--ss-tile)); }
+.band.b-dropped { background: color-mix(in srgb, var(--ss-bad, var(--ss-bad-text)) 48%, var(--ss-tile)); }
+.adj[data-more="closed"] .older-rows { display: none; }
+.adj-more { padding: 8px 0 4px; }
 .became, .dropped { margin: 0; line-height: 1.45; overflow-wrap: anywhere; }
 .changes { display: grid; gap: 8px; }
 .cr { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 10px; line-height: 1.4; }

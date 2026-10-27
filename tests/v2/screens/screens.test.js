@@ -18,7 +18,7 @@ import { WIDGET_NAMES } from './helpers/render.js';
 import { screenWidgets } from '../../../src/v2/screens/widgets.js';
 
 // This part's own widgets (widgets.js) beside Story Block's standard ones.
-const OWN_WIDGETS = ['rpg-battle.quest-binding', 'rpg-battle.trainer-binding', ...Object.keys(screenWidgets), 'rpg-battle.create-character', 'rpg-battle.return-card',
+const OWN_WIDGETS = ['rpg-battle.quest-binding', 'rpg-battle.trainer-binding', 'rpg-battle.show-more', ...Object.keys(screenWidgets), 'rpg-battle.create-character', 'rpg-battle.return-card',
     'rpg-battle.permanent-choice', 'rpg-battle.class-pick', 'rpg-battle.command-input', 'rpg-battle.command-button'];
 
 const byId = Object.fromEntries(screens.map(screen => [screen.id, screen]));
@@ -37,7 +37,7 @@ test('the part exports the five default screens under the new `screens` key, its
     assert.equal(byId['rpg-battle/items'], undefined);
     assert.equal(part.screens, screens);
     assert.deepEqual(Object.keys(part.queries).sort(), ['rpg-battle.cards', 'rpg-battle.carry', 'rpg-battle.classPicker', 'rpg-battle.crafting', 'rpg-battle.heroes', 'rpg-battle.hud', 'rpg-battle.itemDetail', 'rpg-battle.linksView', 'rpg-battle.offers', 'rpg-battle.progressView', 'rpg-battle.questsView', 'rpg-battle.rosterView', 'rpg-battle.rulesDeps', 'rpg-battle.rulesGate', 'rpg-battle.setupView', 'rpg-battle.trade']);
-    assert.deepEqual(Object.keys(part.widgets).sort(), ['rpg-battle.character-file', 'rpg-battle.class-pick', 'rpg-battle.command-button', 'rpg-battle.command-input', 'rpg-battle.equipment', 'rpg-battle.item-detail', 'rpg-battle.member-toggle', 'rpg-battle.permanent-choice', 'rpg-battle.quest-binding', 'rpg-battle.skill-tree', 'rpg-battle.trainer-binding']);
+    assert.deepEqual(Object.keys(part.widgets).sort(), ['rpg-battle.character-file', 'rpg-battle.class-pick', 'rpg-battle.command-button', 'rpg-battle.command-input', 'rpg-battle.equipment', 'rpg-battle.item-detail', 'rpg-battle.member-toggle', 'rpg-battle.permanent-choice', 'rpg-battle.quest-binding', 'rpg-battle.show-more', 'rpg-battle.skill-tree', 'rpg-battle.trainer-binding']);
     for (const widget of Object.values(part.widgets)) {
         assert.equal(typeof widget.render, 'function');
         assert.deepEqual(widget.validate({}), []);

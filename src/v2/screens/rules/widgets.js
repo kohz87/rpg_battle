@@ -24,6 +24,7 @@ export const PERMANENT_CHOICE_WIDGET = 'rpg-battle.permanent-choice';
 export const CLASS_PICK_WIDGET = 'rpg-battle.class-pick';
 export const COMMAND_INPUT_WIDGET = 'rpg-battle.command-input';
 export const COMMAND_BUTTON_WIDGET = 'rpg-battle.command-button';
+export const SHOW_MORE_WIDGET = 'rpg-battle.show-more';
 
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const str = (value, max = 240) => (typeof value === 'string' ? Array.from(value).slice(0, max).join('') : '');
@@ -455,6 +456,33 @@ export function renderTrainerBinding(el, props = {}, api = {}) {
     };
 }
 
+// ---- rpg-battle.show-more ---------------------------------------------------------------------------------------------
+
+// Whether the viewer asked for the rest of a list: Story Block draws a screen again when the state changes, so the answer is kept here for this page.
+let moreShown = false;
+
+/** The "Show older" button of the Adjustments log: it opens and closes the older rows of the section it is in (`data-older` on the section; the sheet shows them). */
+export function renderShowMore(el, props = {}) {
+    const doc = el.ownerDocument;
+    const button = make(doc, 'button', 'ss-button rpg-sm');
+    button.setAttribute('type', 'button');
+    el.append(button);
+    let label = str(specOf(props).label, 40) || 'Show more';
+    const section = el.closest?.('[data-more]') ?? null;
+    const paint = () => {
+        button.textContent = moreShown ? 'Show fewer' : label;
+        button.setAttribute('aria-expanded', moreShown ? 'true' : 'false');
+        if (section) section.setAttribute('data-more', moreShown ? 'open' : 'closed');
+    };
+    button.addEventListener('click', () => { moreShown = !moreShown; paint(); });
+    paint();
+    return {
+        update(next = {}) { label = str(specOf(next).label, 40) || label; paint(); },
+        destroy() { button.remove(); },
+    };
+}
+
+
 const widget = render => Object.freeze({
     props: Object.freeze({ value: Object.freeze({ type: 'object', required: false, default: null }) }),
     validate(props = {}) { return props.value !== undefined && props.value !== null && !isRecord(props.value) ? ['value must be an object.'] : []; },
@@ -471,11 +499,13 @@ export const rulesWidgets = Object.freeze({
     [CLASS_PICK_WIDGET]: classPick,
     [COMMAND_INPUT_WIDGET]: commandInput,
     [COMMAND_BUTTON_WIDGET]: commandButton,
+    [SHOW_MORE_WIDGET]: widget(renderShowMore),
     'rpg-battle.quest-binding': widget(renderQuestBinding),
     'rpg-battle.trainer-binding': widget(renderTrainerBinding),
 });
 
 export const RULES_WIDGET_CSS = `
+.rpg-sm { min-height: 44px; min-width: 44px; }
 .rpg-pc, .rpg-cp { display: grid; gap: var(--ss-space-2); min-width: 0; }
 .rpg-pc-title { margin: 0; font-weight: 700; }
 .rpg-pc-options, .rpg-cp { display: grid; gap: var(--ss-space-2); grid-template-columns: repeat(auto-fill, minmax(min(100%, 11em), 1fr)); }
