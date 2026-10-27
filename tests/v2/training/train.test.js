@@ -33,7 +33,7 @@ test('offers: the trainers of the pack that teach one of the character\'s skills
     assert.equal(before.session, null);
     await w.say('Haven.', [`~ time ${START}`, '~ here pack.fixture/mill']);
     const away = offer(w);
-    assert.deepEqual(away.blocked, ['Old Brann is not here.', 'It costs 20.']);
+    assert.deepEqual(away.blocked, ['Old Brann is not here.', 'It costs 20 gold.']);
     await w.say('Back.', [`~ here ${HAVEN}`]);
     w.host.bus.command('test.coin', { amount: 20 }, { cause: 'ui' });
     assert.deepEqual(offer(w).blocked, []);

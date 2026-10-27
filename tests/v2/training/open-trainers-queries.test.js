@@ -63,8 +63,8 @@ test('rules.training: the pack\'s trainers first as before, then one row for eac
     assert.equal(rows.find(item => item.name === 'Alda' && item.skill === ref('s00')).trainer, alda.id);
     assert.equal(rows.find(item => item.name === 'Mia').trainer, mia.id);
     // The party is at the Mill: Haven's trainers are not here, the Mill's is; no clock to pay with yet.
-    assert.deepEqual(rows.filter(item => item.name === 'Zed')[0].blocked, [`Zed is not here.`, `It costs ${zed.fee}.`]);
-    assert.deepEqual(rows.find(item => item.name === 'Mia').blocked, [`It costs ${mia.fee}.`]);
+    assert.deepEqual(rows.filter(item => item.name === 'Zed')[0].blocked, [`Zed is not here.`, `It costs ${zed.fee} gold.`]);
+    assert.deepEqual(rows.find(item => item.name === 'Mia').blocked, [`It costs ${mia.fee} gold.`]);
     assert.equal(new Set(rows.map(item => item.session)).size, rows.length, 'a session id for each row');
     assert.deepEqual(w.q('rules.training', { actor: w.pc }).offers, rows, 'asking again names the same sessions: a query assigns nothing');
 });

@@ -55,7 +55,10 @@ export function adjustments(state, args = {}, tools) {
     const receipts = new Map();
     for (const entry of tools?.receipts?.() ?? []) {
         const data = (entry.receipt ?? entry)?.data;
-        for (const id of [data?.quest, data?.declined, data?.trainer, data?.record]) if (typeof id === 'string' && Number.isInteger(entry.index)) receipts.set(id, entry.index);
+        // The reply that made the record: a quest's acceptance and turn-in carry its id too, but they come after the offer.
+        for (const id of [data?.quest, data?.declined, data?.trainer, data?.record]) {
+            if (typeof id === 'string' && Number.isInteger(entry.index) && !(receipts.get(id) <= entry.index)) receipts.set(id, entry.index);
+        }
     }
     const out = [];
     for (const [id, record] of Object.entries(offersOf(state?.domains?.rules))) {

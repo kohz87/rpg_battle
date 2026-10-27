@@ -10,6 +10,7 @@ import { rpgHost, seeded } from '../integration/helpers/host.js';
 import { G1, G2, PACK, PACK_TEXT, accept, bluewatch, lastTail, ok } from './helpers/bluewatch.js';
 import { templateless, unpinned } from './helpers/prompt-scenarios.js';
 import { offersOf, declinedOf } from '../../../src/v2/rules/offers.js';
+import { adjustments } from '../../../src/v2/quests/offer-log.js';
 
 const recorded = JSON.parse(readFileSync(new URL('./fixtures/prompt-2.2.0.json', import.meta.url), 'utf8'));
 const json = value => JSON.parse(JSON.stringify(value));
@@ -403,5 +404,34 @@ test('NPC State Delta\'s prompt (its instructions part and its two kinds\' lines
             const suite = parts.find(part => part.module === 'story-suite').text.split('\n');
             assert.deepEqual(suite.filter(line => line.startsWith('~ npc ') || line.startsWith('+ milestone ')), nsdRecorded.kindLines);
         });
+    }
+});
+
+// ---- the reply an Adjustments row names --------------------------------------------------------------------------------------
+
+test('an Adjustments row for a job names the reply that made the offer, not the one that took it up or turned it in', async t => {
+    await seeded(8801, async () => {
+        const h = await bluewatch(t);
+        await h.say('Hollis has a job.', [G1]);
+        const offered = h.ctx.chat.findIndex(message => !message.is_user && String(message.mes ?? '').includes('Hollis has a job.'));
+        await accept(h, 'Granary Vermin');
+        await h.say('Later.', ['~ quest Granary Vermin | progress: counting', '- quest Granary Vermin — done']);
+        await h.say('Much later.');
+        const row = h.q('quest.adjustments', {}).rows.find(entry => entry.name === 'Granary Vermin');
+        assert.equal(row.reply, offered);
+        assert.equal(row.replyText, `reply ${offered}`);
+        const receipts = h.sdk.receipts().filter(entry => entry.receipt?.data?.quest === row.id);
+        assert.ok(receipts.length >= 2, 'the thread has later receipts that carry its id');
+    });
+});
+
+test('the reply of a record is the earliest receipt that carries its id (pure)', () => {
+    const state = { domains: { rules: {} } };
+    const shape = (id, index) => ({ index, receipt: { data: { quest: id } } });
+    const slice = { 'offer.th_aaaaaaaa': { v: 1, matcher: 1, line: '0'.repeat(16), sid: 'sr_1', name: 'A', said: {}, notes: ['x'], where: '', band: 'within',
+        settled: { template: 'pack.x/y', text: 'Kill', coin: 1, coinBy: 'formula', xp: 1, durationMinutes: null, turnInPlace: null, giver: null, rank: 'F', area: { tier: 0, from: 'rank' }, waived: [] } } };
+    state.domains.rules = slice;
+    for (const order of [[shape('th_aaaaaaaa', 4), shape('th_aaaaaaaa', 10), shape('th_aaaaaaaa', 24)], [shape('th_aaaaaaaa', 24), shape('th_aaaaaaaa', 10), shape('th_aaaaaaaa', 4)]]) {
+        assert.equal(adjustments(state, {}, { receipts: () => order }).rows[0].reply, 4);
     }
 });

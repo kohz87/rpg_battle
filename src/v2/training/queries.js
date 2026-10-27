@@ -22,6 +22,7 @@ import { placeOf, purseOf } from '../progress/session-step.js';
 import { offersOf, trainerOf } from './trainers.js';
 import { lifeOf } from '../rules/sheet.js';
 import { isActorId, isObject } from '../rules/ids.js';
+import { feeWords } from './opening.js';
 
 export function rulesTraining(state, args, tools) {
     const ix = indexOfState(state);
@@ -67,7 +68,7 @@ export function rulesTraining(state, args, tools) {
             if (waiting) blocked.push('A training is already waiting.');
             if (minute === null) blocked.push('The story clock is not set.');
             if (here !== null && here !== trainer.place) blocked.push(`${trainer.name} is not here.`);
-            if (coin !== null && coin < trainer.fee) blocked.push(`It costs ${trainer.fee}.`);
+            if (coin !== null && coin < trainer.fee) blocked.push(`It costs ${feeWords(tools?.query, trainer.fee)}.`);
             offers.push({ trainer: trainer.id, name: trainer.name, skill: view.skill, form: view.form, fee: trainer.fee, minutes: trainer.minutes, session, payload: { actor: args.actor, skill: view.skill, form: view.form, trainer: trainer.id, session }, blocked, open, where: open ? trainer.where : null });
         }
     }
