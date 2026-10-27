@@ -111,4 +111,3 @@ test('a refusal, a decision and an offer each leave a receipt that keeps its rep
         for (const { receipt } of kept) assert.equal(receipt.data?.quest ?? receipt.data?.declined ?? receipt.data?.record, undefined, 'the rest of the data is gone');
     });
 });
-
