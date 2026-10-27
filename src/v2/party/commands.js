@@ -480,6 +480,11 @@ function rest(ctx, payload = {}) {
     if (storyMinute(ctx) === null) fail(ctx, 'CLOCK_UNSET', 'Set the story time before taking a rest.');
     // Whatever asks for it, a rest needs the hours (recovery.js restTime); a `! rest` line has been told so already and the narrator has its notice.
     const time = restTime(ctx, kind, rules);
+    // With the clock the hours pass for the whole party, and the mark that says how far they are spent is the party's: a rest for some members only would heal the others too, or spend their
+    // hours unhealed. So it is the party's (2.2.0's targeted rest stays for a chat with no story clock).
+    if (time && Array.isArray(payload.actors) && party.order.some(id => !isDead(party.actors[id]) && !ids.includes(id))) {
+        fail(ctx, 'INVALID', 'With the story clock a rest is the whole party\'s, because the hours pass for everyone: ask for it without naming members.');
+    }
     if (time?.short) {
         const hours = time.needed / 60;
         fail(ctx, 'REFUSED', `A ${kind} rest needs ${hours} hour${hours === 1 ? '' : 's'} of story time to pass first${time.moved ? ` (${Math.round(time.moved / 60 * 10) / 10} have)` : ''}. Write the time (! time +${kind === 'long' ? hours + 2 : hours}h), then rest.`);

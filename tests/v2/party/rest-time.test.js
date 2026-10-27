@@ -457,3 +457,106 @@ test('hours that pass while a fight has the party pay no rest, across midnight t
         await agree(h, 'fight');
     });
 });
+
+// ---- re-check 3: a rest heals by the hours that passed before the damage it would heal, and only the party's ----------------------------------------------
+
+const lineWound = (name, harm = 'severe') => `~ wound ${name} — a blow | harm: ${harm}`;
+
+for (const [label, settings] of [['passive recovery on', null], ['passive recovery off', NO_RECOVERY]]) {
+    test(`${label}: a rest heals no wound that lands after its hours passed, and a wound that landed before them is healed by them`, async t => {
+        await seeded(9230, async () => {
+            // The hours first, then the wound, then the rest: the wound did not exist while the hours passed.
+            const h = await bluewatch(t, settings ? { settings } : {});
+            await h.say('The night, then a fall, then a rest.', ['! time +8h', lineWound('Ren'), '! rest long — in the wreck']);
+            assert.ok(hp(h) < max(h), `${label}: the night passed before the wound (${hp(h)}/${max(h)})`);
+            const after = hp(h);
+            await h.say('Quiet.');
+            assert.ok(hp(h) >= after, 'and nothing was taken from the wound');
+            await agree(h, 'hours, wound, rest');
+        });
+        await seeded(9231, async () => {
+            // The wound first, then the hours, then the rest: the hours healed it.
+            const h = await bluewatch(t, settings ? { settings } : {});
+            await h.say('A fall, then the night, then a rest.', [lineWound('Ren'), '! time +8h', '! rest long — in the wreck']);
+            assert.equal(hp(h), max(h), `${label}: the wound came first (${hp(h)}/${max(h)})`);
+            await agree(h, 'wound, hours, rest');
+        });
+        await seeded(9232, async () => {
+            // The rest before the wound: a rest heals nothing that lands after its line.
+            const h = await bluewatch(t, settings ? { settings } : {});
+            await h.say('The night, a rest, then a fall.', ['! time +8h', '! rest long — in the wreck', lineWound('Ren')]);
+            assert.ok(hp(h) < max(h), `${label}: the wound came after the rest (${hp(h)}/${max(h)})`);
+            await agree(h, 'hours, rest, wound');
+        });
+    });
+}
+
+// ---- a rest for chosen members -----------------------------------------------------------------------------------------------------------------------------
+
+import { PACK_KEY } from '../quests/helpers/bluewatch.js';
+const CALLER = { id: 'rb-test-caller', name: 'Caller', version: '0.0.0', commands: { 'rbtest.call': (ctx, { type, payload } = {}) => ctx.call(type, payload ?? {}) } };
+const hpOf = (h, id) => h.head().domains.party.actors[id].hp;
+
+test('with the story clock a rest is the whole party\'s: it cannot be asked for some members, and every member it heals is in the receipt', async t => {
+    await seeded(9233, async () => {
+        const h = await bluewatch(t, { extraModules: [CALLER] });
+        const added = await h.sdk.command('rbtest.call', { type: 'party.addCompanion', payload: { name: 'Lyra', level: 1, class: `${PACK_KEY}/militiaman` } });
+        assert.equal(added.ok, true, added.message);
+        const pc = h.q('party.pc').id;
+        const lyra = added.receipt.data.actor;
+        await h.say('Both are hurt.', [lineWound('Ren'), lineWound('Lyra')]);
+        await h.say('The night passes.', ['! time +8h']);
+        const before = JSON.stringify(h.head().domains.party);
+        const some = await h.sdk.command('party.rest', { kind: 'long', actors: [pc] });
+        assert.equal(some.ok, false);
+        assert.equal(some.code, 'INVALID');
+        assert.match(some.message, /whole party/);
+        assert.equal(JSON.stringify(h.head().domains.party), before, 'nothing changed');
+        const all = await h.sdk.command('party.rest', { kind: 'long', actors: [pc, lyra] });
+        assert.equal(all.ok, true, all.message);
+        assert.match(all.receipt.summary, /Ren HP \+\d+/);
+        assert.match(all.receipt.summary, /Lyra HP \+\d+/);
+        assert.equal(hpOf(h, pc).lost ?? 0, 0);
+        assert.equal(hpOf(h, lyra).lost ?? 0, 0);
+        for (const id of [pc, lyra]) assert.ok(all.receipt.data.gains[id].hp > 0, id);
+    });
+});
+
+// ---- hours that pass while a fight has the party heal nobody, however the fight ends ----------------------------------------------------------------------------
+
+const playOut = async h => {
+    for (let n = 0; n < 300; n += 1) {
+        const session = h.q('combat.session');
+        if (!session || session.status !== 'active') break;
+        ok(await h.sdk.command('combat.act', { action: { type: 'auto' }, session: session.id, board: session.board }));
+    }
+};
+
+for (const [label, clockLine, ends] of [
+    ['hours', '! time +6h', 'click'],
+    ['across midnight', '! time +9h', 'click'],
+    ['across midnight, the fight settled by the next reply\'s cue', '! time +9h', 'cue'],
+]) {
+    test(`time spent fighting heals nobody once the fight is over (${label})`, async t => {
+        await seeded(9234, async () => {
+            const h = await bluewatch(t);
+            await h.say('Dusk.', ['~ time CY 611, Goldwane 12, 11:00 pm']);
+            await h.say('They attack.', ['! encounter 2 Rats | like: cellar-rat-swarm | tier: strong']);
+            ok(await h.sdk.command('combat.start', { offer: h.q('combat.offers').at(-1).id }));
+            await h.say('A long night of fighting.', [clockLine]);
+            await playOut(h);
+            if (ends === 'click') ok(await h.sdk.command('combat.end', { session: h.q('combat.session').id }));
+            const clock = () => h.q('director.time', {}).minutes;
+            let held = hp(h);
+            if (ends === 'click') assert.equal(h.head().domains.party.rested, clock(), 'the hours of the fight are spent when it is settled, not healed later');
+            // No time passes after the fight: nothing is healed by the replies that follow.
+            await h.say('Morning.');
+            if (ends === 'cue') held = hp(h);
+            assert.equal(h.head().domains.party.rested, clock());
+            await h.say('Later.');
+            assert.equal(hp(h), held, `${label}: the hours of the fight healed ${hp(h) - held}`);
+            assert.ok(max(h) > held, 'the fight left the party hurt');
+            await agree(h, label);
+        });
+    });
+}

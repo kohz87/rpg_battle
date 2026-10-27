@@ -67,8 +67,9 @@ function severityWord(ctx, value) {
  * never a number; a condition added or lifted), at most one harm or heal per person per reply.
  */
 function applyWound(ctx, line) {
-    // Story time this reply wrote before the wound heals first (recovery.js); the wound stays.
-    if (!fightOn(ctx)) foldStoryTime(ctx);
+    // Story time this reply wrote before the wound is spent first (recovery.js): it heals what was hurt before, or with passive recovery off it heals nothing, but either way it
+    // is gone, so a rest later in the reply heals this wound only by the hours that pass after it. The wound stays.
+    if (!fightOn(ctx)) foldStoryTime(ctx, { markOnly: true });
     const party = ctx.draft('party');
     const rules = rulesFor(ctx);
     const actor = memberOf(ctx, party, line.name);
