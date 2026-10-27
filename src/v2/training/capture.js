@@ -69,7 +69,8 @@ export const npcReader = (ctx, name) => () => {
 
 /** Checks 1 to 14 of RB open trainers §4.2, in that order. */
 export function createTrainerCapture() {
-    return function capture(ctx, line) {
+    // `coined`: the fee in coins (true) or in 2.2.0's words (false), as the line was first read; null asks the switch.
+    return function capture(ctx, line, coined = null) {
         if (line.op !== '+') return refused('INVALID', 'Trainer lines only offer one: + trainer Name | like: <template>.');
         const ix = indexOfCtx(ctx);
         if (!ix) return ctx.fail('RULES_MISMATCH', 'This chat does not run a rules pack.');
@@ -85,6 +86,6 @@ export function createTrainerCapture() {
         const plan = liveTrainer(ctx, ix, binding, 'story', evidenceOf(ctx, null), npcReader(ctx, name));
         if (!plan.ok) return refused(plan.code, plan.message);
         if (plan.noop) return quiet(plan.message);
-        return commitTrainer(ctx, plan, binding, 'story');
+        return commitTrainer(ctx, plan, binding, 'story', coined);
     };
 }

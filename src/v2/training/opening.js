@@ -53,12 +53,13 @@ function narrow(ix, template, entries) {
 /** The money words of a fee in the chat's one currency. */
 /**
  * The money words of a fee. Where Jobs from the story shows its rules block they are the chat's coins as a job's reward is written ("4 gold"); elsewhere (strict mode,
- * a pin with no open quest template) they are RPG Battle 2.2.0's, in the chat's one currency.
+ * a pin with no open quest template) they are RPG Battle 2.2.0's, in the chat's one currency. `coined`: true or false when the way the line was read decides it (a Re-read of an unchanged
+ * line is read as it first was, whatever the switch says now), null to ask.
  */
-export function feeWords(query, fee) {
+export function feeWords(query, fee, coined = null) {
     const currency = typeof query === 'function' ? currencyFrom(query) : null;
-    let coins = false;
-    try { coins = typeof query === 'function' && query('quest.offerBlockOn', {}) === true; } catch { coins = false; }
+    let coins = coined === true;
+    if (coined === null) try { coins = typeof query === 'function' && query('quest.offerBlockOn', {}) === true; } catch { coins = false; }
     return coins ? money(fee, currency) : formatMoney(fee, oneCurrency(currency));
 }
 
@@ -141,7 +142,7 @@ export function planTrainer({ ix, training, binding, by, recorded, roll = null, 
  * Writes the offer a plan made: the guard (replay-bound for a story line), the claim of the name, the offer.
  * → the result of the line or command.
  */
-export function commitTrainer(ctx, plan, binding, by) {
+export function commitTrainer(ctx, plan, binding, by, coined = null) {
     const pin = pinned(ctx.read('rules'));
     const source = ctx.source ?? ctx.fail('FAILED', 'There is no reply yet to hold this trainer.');
     const guard = buildGuard({ hash: value => ctx.hash(value), owner: 'rpg-battle', epoch: epochOf(ctx), source, rulesHash: pin.hash, kind: KIND, payload: { binding, by }, inputs: plan.facts });
@@ -151,7 +152,7 @@ export function commitTrainer(ctx, plan, binding, by) {
     const training = ctx.draft('training');
     training.offers ??= {};
     training.offers[offer.id] = offer;
-    const fee = feeWords(ctx.query, offer.fee);
+    const fee = feeWords(ctx.query, offer.fee, coined);
     return {
         summary: `${offer.name} will teach ${list(plan.summary.skills)} at ${plan.summary.where} for ${fee} a session.`,
         narrate: true,

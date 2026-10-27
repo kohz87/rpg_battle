@@ -3,6 +3,7 @@
 //   rules['offer.<th_ id>']    = Offer     every job the narrator offered in its own words, under the id of the thread it made
 //   rules['declined.<dk_ id>'] = Declined  the far-out decisions: a job (or teacher) that was not offered, under the key of its name
 //   rules['rest.<rs_ id>']     = Rest      a `! rest` line that was not taken because the reply did not move the story clock far enough (party/capture.js)
+//   rules['route.<rt_ id>']    = Route     for one reply, the way each line that Jobs from the story could read was read: with the feature on or off (quests/offer-feature.js)
 //
 // Each record is one key of the slice itself, so its parent always exists: a chat pinned before 2.3.0 has no map to make, and taking the reply that made one
 // record back takes that record only (a map made by the first offer would take every later one's parent with it). `offersOf` and `declinedOf` read them as
@@ -16,6 +17,8 @@
 //   Declined = { v: 1, matcher, sid, name, reason, suggestion, band: 'far', said?, kind? }   kind 'job' | 'teacher', said the labels as read
 //   Rest     = { v: 1, sid, kind: 'long' | 'short', needed, moved, place?, said? }   needed and moved are story minutes: what the rest wants and what the reply moved the clock;
 //              place the name of the place the party was in, when it had one
+//   Route    = { v: 1, sid, lines: { '<16 hex of the line as written>': 'on' | 'off' } }   at most MAX_ROUTE_LINES lines; a Re-read of an unchanged line is read the way it was first
+//              (Story Block does not say which way that was), an edited line under the setting of the moment
 //
 // Absent until first used. `rules.recordOffer` is the one writer, for this module's own capture. Pure apart from the command.
 
@@ -25,6 +28,8 @@ export const MAX_DECLINED = 50;
 export const OFFER_KEY = 'offer.';
 export const DECLINED_KEY = 'declined.';
 export const REST_KEY = 'rest.';
+export const ROUTE_KEY = 'route.';
+export const MAX_ROUTE_LINES = 64;
 export const MAX_RECORDS = 2000;
 const HOWS = ['exact', 'contains', 'part', 'scan', 'variant'];
 const text = (value, max, min = 0) => typeof value === 'string' && [...value].length >= min && [...value].length <= max && !/[<>\p{Cc}]/u.test(value);
@@ -42,6 +47,8 @@ const keyed = (slice, prefix) => {
 export const offersOf = slice => keyed(slice, OFFER_KEY);
 export const declinedOf = slice => keyed(slice, DECLINED_KEY);
 export const restsOf = slice => keyed(slice, REST_KEY);
+export const routesOf = slice => keyed(slice, ROUTE_KEY);
+export const isRouteId = value => typeof value === 'string' && /^rt_[0-9a-f]{12}$/.test(value);
 export const isRestId = value => typeof value === 'string' && /^rs_[0-9a-f]{12}$/.test(value);
 
 /** What is wrong with the numbers a matched offer settled, or ''. */
@@ -97,10 +104,18 @@ export function restProblem(id, record) {
     return null;
 }
 
+/** What is wrong with one reply's routes (under `rt_` and a hash of its reply), or null. */
+export function routeProblem(id, record) {
+    if (!isRouteId(id) || !isObject(record) || record.v !== 1 || !sid(record.sid) || !isObject(record.lines)) return 'is not whole';
+    const lines = Object.entries(record.lines);
+    if (!lines.length || lines.length > MAX_ROUTE_LINES || lines.some(([key, mode]) => !/^[0-9a-f]{16}$/.test(key) || (mode !== 'on' && mode !== 'off'))) return 'has lines that are not whole';
+    return null;
+}
+
 /** The problems of the recorded offers and decisions of a rules slice (the domain validator adds them to its own). */
 export function offersProblems(slice) {
     const errors = [];
-    for (const [name, map, check] of [['offers', offersOf(slice), offerProblem], ['declined', declinedOf(slice), declinedProblem], ['rests', restsOf(slice), restProblem]]) {
+    for (const [name, map, check] of [['offers', offersOf(slice), offerProblem], ['declined', declinedOf(slice), declinedProblem], ['rests', restsOf(slice), restProblem], ['routes', routesOf(slice), routeProblem]]) {
         const keys = Object.keys(map);
         if (keys.length > MAX_RECORDS) { errors.push(`rules: more than ${MAX_RECORDS} ${name}`); continue; }
         for (const key of keys) {
@@ -111,12 +126,12 @@ export function offersProblems(slice) {
     return errors;
 }
 
-const FIELDS = ['write', 'thread', 'declined', 'rest', 'record'];
+const FIELDS = ['write', 'thread', 'declined', 'rest', 'route', 'record'];
 
 /** rules.recordOffer { write, thread | declined, record }: this module's capture adds one record, by key (at most MAX_DECLINED far-out decisions are kept). */
 export function recordOffer(ctx, payload) {
     if (!isObject(payload) || Object.keys(payload).some(key => !FIELDS.includes(key)) || !isRecordId(payload.write) || !isObject(payload.record)
-        || [payload.thread, payload.declined, payload.rest].filter(value => value !== undefined).length !== 1) ctx.fail('INVALID', 'rules.recordOffer takes { write, thread | declined | rest, record }.');
+        || [payload.thread, payload.declined, payload.rest, payload.route].filter(value => value !== undefined).length !== 1) ctx.fail('INVALID', 'rules.recordOffer takes { write, thread | declined | rest | route, record }.');
     if (!TRUSTED.recordOffer.includes(ctx.caller)) ctx.fail('REFUSED', 'A job is recorded by RPG Battle\'s own capture of the story\'s line, never from a button.');
     const slice = ctx.read('rules');
     if (!isObject(slice) || slice.pin === null) ctx.fail('REFUSED', 'This chat does not run a rules pack.');
@@ -135,6 +150,17 @@ export function recordOffer(ctx, payload) {
         if (Object.keys(restsOf(slice)).length >= MAX_DECLINED) ctx.fail('LIMIT', `At most ${MAX_DECLINED} refused rests are kept.`);
         draft[REST_KEY + payload.rest] = payload.record;
         return { summary: 'A rest was not taken.', narrate: false, data: { rest: payload.rest } };
+    }
+    if (payload.route !== undefined) {
+        const bad = routeProblem(payload.route, payload.record);
+        if (bad) ctx.fail('INVALID', `That route ${bad}.`);
+        // A reply's lines are added one at a time, each as it is read; a line already there keeps the way it was first read.
+        const held = slice[ROUTE_KEY + payload.route];
+        if (held !== undefined && held.sid !== payload.record.sid) ctx.fail('CONFLICT', 'That route belongs to another reply.');
+        const lines = { ...payload.record.lines, ...(held?.lines ?? {}) };
+        if (Object.keys(lines).length > MAX_ROUTE_LINES) ctx.fail('LIMIT', `At most ${MAX_ROUTE_LINES} lines of a reply keep their route.`);
+        draft[ROUTE_KEY + payload.route] = { v: 1, sid: payload.record.sid, lines };
+        return { summary: 'A route was kept.', narrate: false, data: { route: payload.route } };
     }
     const problem = declinedProblem(payload.declined, payload.record);
     if (problem) ctx.fail('INVALID', `That decision ${problem}.`);

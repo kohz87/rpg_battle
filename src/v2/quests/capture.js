@@ -5,10 +5,20 @@ import { ask, boundary, call, pinned, templateOf, threadOf, freshThreadId, write
 
 import { turnInKey } from './credit.js';
 import { captureOffer } from './offer-capture.js';
-import { hasOpenQuests, offersOn } from './offer-feature.js';
+import { hasOpenQuests, keepRoute, readsFreely } from './offer-feature.js';
+import { offersOf } from '../rules/offers.js';
 
 // The labels that make a line an offer (GENERATIVE_OFFERS_SPEC §3.1); a line about a thread that already exists without any of them is its acceptance.
 const OFFER_LABELS = ['like', 'type', 'goal', 'target', 'foe', 'item', 'count', 'reward', 'due', 'deadline', 'difficulty', 'rank'];
+
+/** For a chat recorded before routes were kept: the thread this very name made in the reply as it stands, and whether an offer record stands behind it ('on') or not ('off', RPG Battle 2.2.0's reading). */
+function earlierRoute(ctx, key) {
+    const standing = ctx.standing?.domains;
+    const id = standing?.director?.keys?.[String(key).trim().toLowerCase()];
+    const thread = id ? standing.director.threads?.[id] : null;
+    if (!thread?.rpg) return undefined;
+    return offersOf(standing.rules)[id] ? 'on' : 'off';
+}
 
 export const QUEST_GRAMMAR = '+ quest Name — a frozen quest offer; + quest Name after the reader accepts; ~ quest Name | progress: … | met: yes; - quest Name — done|failed|abandoned';
 export function createCapture({ settleQuest = null, captureObjective = null, guardIntent = null } = {}) {
@@ -20,13 +30,18 @@ export function createCapture({ settleQuest = null, captureObjective = null, gua
         }
         // Jobs from the story (feature on, the pin has open templates): a free-form line is read, settled and recorded (offer-capture.js). A closed
         // pack quest by its name, and a line about a thread that exists without any offer label (its acceptance), go on as they always did.
-        if (line.op === '+' && offersOn(ctx)) {
+        // A Re-read of an unchanged line reads it the way it was first read, whatever the switch says now (offer-feature.js).
+        if (line.op === '+') {
             const pin = pinned(ctx.read('rules'));
             const closed = !thread && pin && templateOf(pin, key) && !templateOf(pin, key).open;
             const labelled = OFFER_LABELS.some(label => Object.hasOwn(line.labels ?? {}, label));
             if (pin && hasOpenQuests(pin) && !closed && (!thread || labelled)) {
-                const out = captureOffer(ctx, line);
-                if (out) return out;
+                const free = readsFreely(ctx, line, () => earlierRoute(ctx, key));
+                keepRoute(ctx, line, free);
+                if (free) {
+                    const out = captureOffer(ctx, line);
+                    if (out) return out;
+                }
             }
         }
         if (line.op === '+' && Object.hasOwn(line.labels ?? {}, 'like') && pinned(ctx.read('rules'))) {

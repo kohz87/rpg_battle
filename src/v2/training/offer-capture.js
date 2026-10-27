@@ -72,7 +72,7 @@ export function captureTrainerOffer(ctx, line) {
     if (!plan.ok) return keep(ctx, line, name, refused(plan.code, plan.message));
     if (plan.noop) return quiet(plan.message);
     if (matched.fee) withFee(plan, matched.fee);
-    else matched.notes = keepNotes([...matched.notes, NOTE.feeRolled(feeWords(ctx.query, plan.offer.fee))]);
+    else matched.notes = keepNotes([...matched.notes, NOTE.feeRolled(feeWords(ctx.query, plan.offer.fee, true))]);
     const guard = buildGuard({ hash: value => ctx.hash(value), owner: 'rpg-battle', epoch: epochOf(ctx), source: ctx.source, rulesHash: pin.hash, kind: KIND,
         payload: { binding: matched.binding, by: 'story', matcher: matched.matcher ?? MATCHER }, inputs: plan.facts });
     ctx.replayGuard({ ...guard, replyBound: true }, plan.kept);
@@ -81,10 +81,10 @@ export function captureTrainerOffer(ctx, line) {
     const training = ctx.draft('training');
     training.offers ??= {};
     training.offers[offer.id] = { ...offer, settled: { matcher: matched.matcher ?? MATCHER, line: hash16(ctx, { raw: line.raw }), sid: ctx.source.sid, said: matched.said, band: matched.band,
-        notes: matched.notes, ...(matched.fee ? { feeBy: 'said' } : {}), shown: { fee: feeWords(ctx.query, offer.fee), teaches: flat(plan.summary.skills.join(', '), 120), template: flat(ix.trainerTemplate(offer.template)?.name ?? '', 80) } } };
+        notes: matched.notes, ...(matched.fee ? { feeBy: 'said' } : {}), shown: { fee: feeWords(ctx.query, offer.fee, true), teaches: flat(plan.summary.skills.join(', '), 120), template: flat(ix.trainerTemplate(offer.template)?.name ?? '', 80) } } };
     const standing = matched.fee && matched.band === 'within' ? ' (fee as agreed)' : '';
     return {
-        summary: `${offer.name} will teach ${list(plan.summary.skills)} at ${plan.summary.where} for ${feeWords(ctx.query, offer.fee)} a session.${standing}`,
+        summary: `${offer.name} will teach ${list(plan.summary.skills)} at ${plan.summary.where} for ${feeWords(ctx.query, offer.fee, true)} a session.${standing}`,
         narrate: true,
         data: { trainer: offer.id, fee: offer.fee, place: offer.place, where: offer.where, template: offer.template, skills: offer.skills, by: 'story', band: matched.band, notes: matched.notes },
     };

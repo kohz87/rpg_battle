@@ -34,7 +34,7 @@ import { clipped } from '../lines.js';
 import { lastParts, partsProblems } from '../board/parts.js';
 import { fitParty } from '../party/pools.js';
 import { foldStoryTime } from '../party/recovery.js';
-import { hasOpenQuests, offersOn } from '../quests/offer-feature.js';
+import { hasOpenQuests, keepRoute, readsFreely } from '../quests/offer-feature.js';
 import { pinned as rulesPin } from '../quests/seams.js';
 import { bindEncounter, actionWithId, beginUnits, guardAction, guardStart, lootProblem, pinnedFight, pinnedOf, pinnedSetup, settleEnd } from '../fight/index.js';
 import { cleanFormFields } from '../fight/records.js';
@@ -862,7 +862,14 @@ function captureEncounter(ctx, line) {
     const bestiary = combinedBestiary(fightBestiary(ctx, rules), DEFAULT_BESTIARY);
     // A `rank:` is read on the suite's ladder for the character's level now (MODULES §F91).
     const ranks = rankContext(ctx);
-    const read = readEncounter(line, { bestiary, ...ranks, literal: !!pinnedOf(ctx) && Object.hasOwn(line.labels ?? {}, 'like'), leadingCount: offersOn(ctx) && hasOpenQuests(rulesPin(ctx.read('rules'))) });
+    const literal = !!pinnedOf(ctx) && Object.hasOwn(line.labels ?? {}, 'like');
+    // A count in front of a named kind is read where Jobs from the story shows its block: the way this line was first read, when this is a Re-read of it (offer-feature.js).
+    let leadingCount = false;
+    if (literal && hasOpenQuests(rulesPin(ctx.read('rules')))) {
+        leadingCount = readsFreely(ctx, line);
+        keepRoute(ctx, line, leadingCount);
+    }
+    const read = readEncounter(line, { bestiary, ...ranks, literal, leadingCount });
     if (!read.ok) ctx.fail('INVALID', read.message);
     // Every foe written is fought, in waves; what a fight cannot hold is told (B-a2-4, B-a2-9): past
     // MAX_ENCOUNTER_FOES, and past what each tier can hold for the party (heldToTiers).
