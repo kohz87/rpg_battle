@@ -16,7 +16,7 @@ function listText(names) {
 
 export function questTail(view) {
     const lines = [];
-    // A pinned pack with open quest templates names them (at most eight, then "and N more"), so `like:` can be written; without any the line is as it was.
+    // A pinned pack with open quest templates names them (at most sixteen, then "and N more"), so `like:` can be written; without any the line is as it was.
     const table = view?.state?.domains?.rules?.pin?.resolved?.quests;
     const openSlugs = (Array.isArray(table) ? table : table && typeof table === 'object' ? Object.values(table) : []).filter(row => row?.open === true).map(row => row.slug);
     const named = templateList(openSlugs);

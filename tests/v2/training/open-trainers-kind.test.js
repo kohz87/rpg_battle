@@ -65,21 +65,25 @@ test('the only difference a template makes to the static prompt is that one line
     assert.deepEqual([...lines.slice(0, at), ...lines.slice(at + 1)], plain.split('\n'));
 });
 
-test('the line lists at most eight templates, then "and N more"; no templates leaves the plain line', () => {
+test('the line lists at most sixteen templates, then "and N more"; no templates leaves the plain line', () => {
     const entries = count => templates(count).map(entry => ({ id: `pack.fixture/${entry.slug}` }));
+    const upTo = n => Array.from({ length: n }, (_, k) => `lessons-${k + 1}`).join(', ');
+    assert.equal(LISTED_TEMPLATES, 16);
     assert.equal(trainerGrammar([]), TRAINER_GRAMMAR);
     assert.equal(trainerGrammar(undefined), TRAINER_GRAMMAR);
     assert.match(trainerGrammar(entries(1)), /\(templates: lessons-1\)\./);
-    assert.match(trainerGrammar(entries(LISTED_TEMPLATES)), /\(templates: lessons-1, lessons-2, lessons-3, lessons-4, lessons-5, lessons-6, lessons-7, lessons-8\)\./);
-    assert.match(trainerGrammar(entries(11)), /lessons-8 and 3 more\)\./);
-    assert.equal(trainerGrammar(entries(11)).includes('\n'), false, 'one line');
+    assert.ok(trainerGrammar(entries(LISTED_TEMPLATES)).includes(`(templates: ${upTo(16)}). Code fixes`));
+    assert.ok(trainerGrammar(entries(11)).includes(`(templates: ${upTo(11)}). Code fixes`), 'eleven are all named now');
+    assert.ok(trainerGrammar(entries(19)).includes(`(templates: ${upTo(16)} and 3 more). Code fixes`));
+    assert.equal(trainerGrammar(entries(19)).includes('\n'), false, 'one line');
 });
 
-test('a pack with eleven templates: the real line, and every template still works by its slug', async t => {
-    const h = await pinned(t, openTrainerPack(templates(11)));
+test('a pack with nineteen templates: the real line names sixteen and "3 more", and every template still works by its slug', async t => {
+    const h = await pinned(t, openTrainerPack(templates(19)));
     ok(await h.pin());
-    assert.deepEqual(trainerLines(rbText(h)), ['+ trainer Name — what they teach | like: <template> [| teaches: <skill>, <skill>] (templates: lessons-1, lessons-2, lessons-3, lessons-4, lessons-5, lessons-6, lessons-7, lessons-8 and 3 more). Code fixes the fee and the place.']);
-    assert.equal(h.q('training.openTemplates', {}).length, 11);
+    const upTo = n => Array.from({ length: n }, (_, k) => `lessons-${k + 1}`).join(', ');
+    assert.deepEqual(trainerLines(rbText(h)), [`+ trainer Name — what they teach | like: <template> [| teaches: <skill>, <skill>] (templates: ${upTo(16)} and 3 more). Code fixes the fee and the place.`]);
+    assert.equal(h.q('training.openTemplates', {}).length, 19);
 });
 
 test('trainerKindOn: a template, or nothing; a query that cannot answer is no', () => {

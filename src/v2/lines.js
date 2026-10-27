@@ -24,9 +24,9 @@ export function clipLine(line) {
 }
 
 /** How many template slugs a prompt line names before "and N more" (the quest line and the trainer line alike). */
-export const LISTED_TEMPLATES = 8;
+export const LISTED_TEMPLATES = 16;
 
-/** "templates: a, b, c" or, past LISTED_TEMPLATES, "templates: a, …, h and 3 more": the open templates a prompt line names. '' without any. */
+/** "templates: a, b, c" or, past LISTED_TEMPLATES, "templates: a, …, p and 3 more": the open templates a prompt line names. '' without any. */
 export function templateList(slugs) {
     const list = (Array.isArray(slugs) ? slugs : []).filter(slug => typeof slug === 'string' && slug);
     if (!list.length) return '';
