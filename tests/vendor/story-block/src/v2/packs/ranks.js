@@ -17,9 +17,10 @@
 // * The numbers otherwise stay the pack's: a rank at the place of one of the first pack's ranks keeps
 //   that rank's levels (when the lines give none). Its reward range is the pack's at its first level
 //   (the pack rank that starts at or below it last, B-a2-1), so renaming a ladder never changes what
-//   quests pay, and a longer ladder of narrower ranks never pays more at a level. A rank with no levels
+//   quests pay, and a longer ladder of narrower ranks never pays more at a level. Its xp range (the pack rank's
+//   optional `xp`, 2.5.0) is taken from the same pack rank, by the same rule. A rank with no levels
 //   past the pack's ladder has no reward of its own; modules give one by level.
-// * A record is `{ id, title, levels?, reward?, pack: null, reader: true }`: `title` is the line as
+// * A record is `{ id, title, levels?, reward?, xp?, pack: null, reader: true }`: `title` is the line as
 //   written (at most 30 characters, without `| : # < >`), `id` the short word the story writes ("IX",
 //   "SSS"): the line itself when it is one short word, else its last word when that is short and no
 //   other rank has it, else R1, R2 … by place. At most RANKS_LIMITS.records ranks.
@@ -80,7 +81,8 @@ export function readerRanks(rows, pack = [], { perRank = 0 } = {}) {
         const levels = own ?? (Array.isArray(at?.levels) ? [...at.levels] : null);
         const paid = levels ? packRankAt(theirs, levels[0]) : null;
         const reward = Array.isArray(paid?.reward) ? [...paid.reward] : null;
-        return { id: ids[index], title: line.title, ...(levels ? { levels } : {}), ...(reward ? { reward } : {}), pack: null, reader: true };
+        const xp = Array.isArray(paid?.xp) ? [...paid.xp] : null;
+        return { id: ids[index], title: line.title, ...(levels ? { levels } : {}), ...(reward ? { reward } : {}), ...(xp ? { xp } : {}), pack: null, reader: true };
     });
 }
 

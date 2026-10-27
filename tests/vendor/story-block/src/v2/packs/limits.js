@@ -78,11 +78,12 @@ export const TERMS_TIER_FIELDS = Object.freeze(['size', 'numerals', 'enabled']);
 export const TERMS_NUMERALS = Object.freeze(['roman', 'arabic']);
 export const TERMS_LIMITS = Object.freeze({ records: 4, term: 30, tierSize: 999 });
 export const TERM_SEPARATORS = /[|:#<>\r\n]/;
-// A ladder of ranks, lowest first: `{ id: 'F', title?, levels?: [lo, hi], reward?: [lo, hi] }`, the
-// reward in whole units of the chat's one currency.
-export const RANK_FIELDS = Object.freeze(['id', 'title', 'levels', 'reward']);
+// A ladder of ranks, lowest first: `{ id: 'F', title?, levels?: [lo, hi], reward?: [lo, hi], xp?: [lo, hi] }`, the
+// reward in whole units of the chat's one currency and `xp` the experience a job of the rank may give (whole XP, 0 to
+// RANKS_LIMITS.xp). Without `xp`, an open quest template's XP is held to `reward` as before (2.5.0 added `xp`).
+export const RANK_FIELDS = Object.freeze(['id', 'title', 'levels', 'reward', 'xp']);
 export const RANK_ID = /^[\p{L}\p{N}+-]{1,8}$/u;
-export const RANKS_LIMITS = Object.freeze({ records: 12, title: 30, level: 999 });
+export const RANKS_LIMITS = Object.freeze({ records: 12, title: 30, level: 999, xp: 1000000 });
 // Markets (PACKS.md "Markets"): price factors a pack adds or changes, each record one of
 // `{ type: 'town', buy?, sell?, stock?: [least, most], note? }` (a settlement type) or
 // `{ tag: 'coastal', prices: { fish: 0.8, all: 1.05 }, note? }` (an environment tag: a factor per item

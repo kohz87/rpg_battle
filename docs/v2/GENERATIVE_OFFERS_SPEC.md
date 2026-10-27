@@ -858,3 +858,6 @@ SB `node authoring-kit/check.mjs examples/packs/ersveil-bluewatch/pack.json`, `n
   the Adjustments log. The reply's movement is the clock less the clock at the last settle (Story Director's `time.overdue`), so the time line goes first.
 - Promotion mastery: the pin's `constants.promotionMastery` (default and old pins `[5, 5, 5]`) is the mastery each skill needs for the promotions at 10, 20 and 30
   (`progress/offers.js` `masteryNeeded`); the checklist's `needed` is that of the open milestone.
+- Rank experience ranges: a pack's rank may write `xp: [lowest, highest]` (Story Block 2.5.0; open templates' `xpMin`/`xpMax` are held to it, else to the coin range). RPG Battle
+  carries it in `quest.ranks` and `party.ranks` and never derives XP from a rank's coin range: a job's XP is the formula on the template's `xpMin`/`xpMax` (§5), the
+  matcher's clamps and bands are coin only, and the grading guide shows coin ranges only.

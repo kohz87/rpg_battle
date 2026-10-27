@@ -2302,13 +2302,18 @@ function validateRulesV2Of(manifest, content, constants, { host = false } = {}) 
         }
         if (q.open === true) {
             const rank = (cnt.ranks ?? []).find(row => row.id === q.rank);
+            const whole = range => Array.isArray(range) && range.length === 2 && range.every(Number.isSafeInteger) && range[0] >= 0 && range[0] <= range[1];
             const range = rank?.reward;
-            if (!Array.isArray(range) || range.length !== 2 || !range.every(Number.isSafeInteger) || range[0] < 0 || range[0] > range[1]) {
+            if (!whole(range)) {
                 errors.push({ code: RULES_V2_ERROR_CODES.BAD_SCHEMA, path: `${p}.rank`, message: 'An open quest names a pack rank with a whole reward range' });
+            } else if (rank.xp !== undefined && !whole(rank.xp)) {
+                errors.push({ code: RULES_V2_ERROR_CODES.BAD_SCHEMA, path: `${p}.rank`, message: `Rank ${q.rank}'s xp range must be two whole amounts, the first not above the second` });
             } else {
-                for (const unit of ['coin', 'xp']) {
-                    if (q.reward[`${unit}Min`] < range[0] || q.reward[`${unit}Max`] > range[1] || q.reward[`${unit}Min`] > q.reward[`${unit}Max`]) {
-                        errors.push({ code: RULES_V2_ERROR_CODES.BAD_SCHEMA, path: `${p}.reward`, message: `Open ${unit} bounds must be ordered and inside rank ${q.rank}'s reward range` });
+                // Coin is held to the rank's coin reward range. XP is held to the rank's own xp range when it has one (the experience curve
+                // is flat, so a coin range says nothing about it), else to the reward range as before 2.5.0.
+                for (const [unit, bounds, name] of [['coin', range, 'reward'], ['xp', rank.xp ?? range, rank.xp ? 'xp' : 'reward']]) {
+                    if (q.reward[`${unit}Min`] < bounds[0] || q.reward[`${unit}Max`] > bounds[1] || q.reward[`${unit}Min`] > q.reward[`${unit}Max`]) {
+                        errors.push({ code: RULES_V2_ERROR_CODES.BAD_SCHEMA, path: `${p}.reward`, message: `Open ${unit} bounds must be ordered and inside rank ${q.rank}'s ${name} range` });
                     }
                 }
             }
