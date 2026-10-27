@@ -609,12 +609,15 @@ test('a fight that ends at :40 and twenty minutes more heal nobody: the forty mi
 
 // ---- a clock that cannot say when the reply began --------------------------------------------------------------------------------------------------------
 
-import { realWorld } from '../progress/helpers/world.js';
+import { CLOCK, realWorld } from '../progress/helpers/world.js';
+
+// A clock that answers `director.time` and nothing of when story time was settled (not Story Director's own).
+const BARE = { ...CLOCK, queries: { 'director.time': CLOCK.queries['director.time'] } };
 
 test('with a clock whose elapsed time is unknown a rest is refused, and the whole-party rule holds all the same', async t => {
     await seeded(9242, async () => {
         // The stand-in clock has `director.time` but no `time.overdue`: Story Director would say when the reply began; this one cannot.
-        const w = await realWorld(t, { companions: ['Lyra'] });
+        const w = await realWorld(t, { companions: ['Lyra'], sd: BARE });
         const [lyra] = w.mates;
         await w.say('The clock is set.', ['~ time 1000', '~ wound Astra — a fall | harm: severe', '~ wound Lyra — a fall | harm: severe']);
         const hurt = id => w.head().domains.party.actors[id].hp;

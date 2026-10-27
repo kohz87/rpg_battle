@@ -5,13 +5,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { offerAndStart, playOut, seeded, started } from './helpers.js';
-import { DIRECTOR_CLOCK } from '../integration/helpers/peer.js';
+import { CLOCK } from '../party/helpers/clock.js';
 
 const foes = host => host.q('combat.session').combatants.filter(c => c.side === 'enemy');
 
 test('B4-5: creatures named in non-Latin scripts each keep their own bestiary entry and numbers', async () => {
     await seeded(81, async () => {
-        const host = await started({ modules: [DIRECTOR_CLOCK] });
+        const host = await started({ modules: [CLOCK] });
+        await host.send('The clock starts.', host.reply('Dusk.', ['~ time 600']));
         try {
             const fight = async name => {
                 const { start } = await offerAndStart(host, `! encounter 1 ${name} | tier: even`);
@@ -19,6 +20,8 @@ test('B4-5: creatures named in non-Latin scripts each keep their own bestiary en
                 const [foe] = foes(host);
                 await playOut(host);
                 assert.equal((await host.cmd('combat.end')).ok, true);
+                // A night passes in a reply of its own, and the party rests through it.
+                await host.send('The night.', host.reply('Eight hours.', ['! time +8h']));
                 await host.cmd('party.rest', { kind: 'long' });
                 return { foe, made: start.receipt.data.made };
             };

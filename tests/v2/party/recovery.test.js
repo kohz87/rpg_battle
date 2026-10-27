@@ -163,12 +163,12 @@ test('time written before a wound heals first, and the wound stays; a rest in th
         const after = hp(host);
         assert.ok(before.cur < before.max, 'still hurt before the march');
         assert.equal(after.cur, after.max - Math.max(1, Math.round(after.max * 0.5)), 'the full rest came first; the severe fall at the end still shows');
-        // A short rest in the reply that moved the clock: the larger of the two, not the sum (v1 restAfter).
+        // A short rest in the reply that moved the clock heals what the hour gives, once (not the hour's share and the rest's on top).
         await host.send('Next.', host.reply('Next day.', []));
         const low = hp(host);
         await host.send('Rest.', host.reply('An hour\'s rest by the road.', ['! time +1h', '! rest short — by the road']));
-        const share = Math.floor(low.max * 0.25);
-        assert.equal(hp(host).cur, Math.min(low.max, low.cur + share), 'a short rest gives its share once, the hour inside it');
+        const hour = Math.floor(low.max * 0.05);
+        assert.equal(hp(host).cur, Math.min(low.max, low.cur + hour), 'a short rest gives what its hour gives, once');
         sameOnRebuild(host, 'wounds and rests around time');
     });
 });

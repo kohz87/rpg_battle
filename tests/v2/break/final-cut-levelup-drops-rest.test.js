@@ -12,7 +12,7 @@
 // readers fit the numbers. Run twice: with RPG Battle alone (always), and in the whole suite with the
 // Ersveil pack (helpers/suite-final.js; needs the four checkouts side by side, skipped otherwise).
 import test from 'node:test';
-import { DIRECTOR_CLOCK } from '../integration/helpers/peer.js';
+import { CLOCK } from '../party/helpers/clock.js';
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
 import { rpgHost } from '../integration/helpers/host.js';
@@ -34,11 +34,11 @@ function seededDice(seed) {
     return { getRandomValues: array => { for (let i = 0; i < array.length; i += 1) array[i] = array instanceof Uint8Array ? next() & 0xFF : next(); return array; } };
 }
 
-/** RPG Battle with a fixed SD clock fixture, no NPC State Delta or pack: a character and opening reply. */
+/** RPG Battle with a story clock fixture that settles before each reply, no NPC State Delta or pack: a character and opening reply (the clock is set in it). */
 async function alone() {
-    const h = await rpgHost({ modules: [DIRECTOR_CLOCK] });
+    const h = await rpgHost({ modules: [CLOCK] });
     assert.equal((await h.cmd('party.create', { name: 'Wessel', preset: 'fighter' })).ok, true);
-    await h.send('We look around Bluewatch.', h.reply('The village smells of salt and tar.', ['~ place Bluewatch Village | kind: settlement']));
+    await h.send('We look around Bluewatch.', h.reply('The village smells of salt and tar.', ['~ place Bluewatch Village | kind: settlement', '~ time 600']));
     return h;
 }
 
@@ -90,7 +90,7 @@ test('final: deleting an earlier reply (a level-up fight) keeps a later reply\'s
     Object.defineProperty(globalThis, 'crypto', { value: seededDice(23), configurable: true, writable: true });
     const h = await alone();
     t.after(() => { h.close(); Object.defineProperty(globalThis, 'crypto', saved); });
-    await play(h);
+    await play(h, ['! time +8h']);
 });
 
 test('final: deleting an earlier reply (a level-up fight) keeps a later reply\'s rest (the whole suite)', { skip }, async t => {

@@ -214,8 +214,8 @@ export function recoveryBeforeReply(view, info = {}) {
 const HOUR = 60;
 
 /**
- * The clock when the reply began, before Story Director has settled anything (the reply in which the clock first existed: it is set by a cue that runs after RPG Battle's, so nothing of ours marked
- * it): the clock when the reply's first Director line was read (`director.turn.now.from`) or the mark recovery keeps (`party.rested`), the earlier of the two; with neither, now (nothing is known to
+ * The clock when the reply began, when Story Director has not said (it has settled nothing yet: the reply in which the clock first existed is set by a cue that runs after RPG Battle's, so nothing of
+ * ours marked it; or the clock is not Story Director's and has no `time.overdue`): the clock when the reply's first Director line was read (`director.turn.now.from`) or the mark recovery keeps (`party.rested`), the earlier of the two; with neither, now (nothing is known to
  * have passed, so nothing has).
  */
 function firstStart(ctx, now) {
@@ -247,7 +247,10 @@ export function restTime(ctx, kind, rules) {
     try {
         const settled = query('time.overdue', {});
         start = settled === null ? firstStart(ctx, now) : settled?.minutes;
-    } catch { start = null; }
+    } catch {
+        // A clock that does not say when story time was settled (not Story Director's own): the marks recovery keeps are the best word of when the reply began.
+        start = firstStart(ctx, now);
+    }
     // A clock with no word of when the reply began (a Story Director that cannot say): nothing is known to have passed, so nothing has.
     if (!Number.isInteger(start)) start = now;
     const needed = kind === 'long' ? Math.max(HOUR, Math.round((rules?.recovery?.longRestHours ?? 6) * HOUR)) : HOUR;

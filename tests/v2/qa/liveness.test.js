@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import { DIRECTOR_CLOCK } from '../integration/helpers/peer.js';
 import { bytes, fightOut, patch, sent, stacksOf, storyItem, winFight, withHero, each } from './helpers/harness.js';
 import { sessionOf } from '../../../src/v2/combat/stored.js';
+import { fitPool } from '../../../src/v2/party/pools.js';
 
 function startBandit(h) {
     h.capture({ op: '!', kind: 'encounter', name: 'Bandit', text: '', labels: { tier: 'weak' } });
@@ -150,8 +151,11 @@ each('party.edit control (MODULES §F49): a companion led by the reader waits fo
     assert.equal(controllers()[lyra], 'player');
     fightOut(h);
     assert.equal(h.command('combat.end').ok, true);
-    // (RB-fix1: an even fight is lost now and then, B-b4-11: a rest, so someone stands for the next.)
-    assert.equal(h.command('party.rest', { kind: 'long' }).ok, true);
+    // (RB-fix1: an even fight is lost now and then, B-b4-11: they are healed, so someone stands for the next. A rest would need hours of story time to pass, and none do here.)
+    for (const id of h.state().domains.party.order) {
+        const actor = h.state().domains.party.actors[id];
+        if (fitPool(actor.hp).cur < fitPool(actor.hp).max) assert.equal(h.command('party.heal', { actor: id, hp: 1000, mp: 1000 }, { cause: 'system' }).ok, true);
+    }
     h.capture({ op: '!', kind: 'encounter', name: '3 Bandits', text: '', labels: { tier: 'even' } });
     assert.equal(h.command('combat.start', { offer: h.query('combat.offers').at(-1).id }).ok, true);
     assert.equal(controllers()[lyra], 'auto');

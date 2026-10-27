@@ -72,8 +72,9 @@ each('party.grantXp = v1 gainXp: XP, level-ups and points for fixed amounts', ()
     }
 });
 
-each('party.rest short and long = v1 rest', () => {
-    for (const kind of ['short', 'long']) {
+// A long rest is v1's. (A short rest is not v1's share any more: with the story clock it heals what the hours of its reply give, tests/v2/party/rest-time.test.js.)
+each('party.rest long = v1 rest', () => {
+    for (const kind of ['long']) {
         const { h } = withHero({ modules: [DIRECTOR_CLOCK] });
         const next = structuredClone(h.state());
         const me = next.domains.party.actors[next.domains.party.pc];
