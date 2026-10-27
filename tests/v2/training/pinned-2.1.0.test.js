@@ -6,6 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { staticParts } from '../../vendor/story-block/src/v2/prompt.js';
+import { questTail } from '../../../src/v2/quests/prompt.js';
 import { trainerPack } from '../progress/helpers/fixture.js';
 import { openWorld } from './helpers/pinned.js';
 
@@ -78,4 +79,11 @@ test('the same pack installed under Story Block 2.4.0 has another rules hash; th
     sameAsRecorded(h, 'opened with the pack installed');
     h.store.rebuild();
     sameAsRecorded(h, 'rebuilt');
+});
+
+test('that chat\'s pack has no open quest template, so the open-quest line of its prompt is the 2.1.0 line, byte for byte', async t => {
+    const h = await opened(t);
+    const quests = Object.values(h.head().domains.rules.pin.resolved.quests ?? {});
+    assert.equal(quests.some(quest => quest.open === true), false);
+    assert.deepEqual(questTail({ state: h.head() }).lines, ['Open quest: + quest Name | like: <open template slug> | text: <objective text> [| foe: <canonical ref>] [| place: <canonical ref>] [| item: <canonical ref>]. Code fixes rewards. Variant fight: ! encounter Variant name | like: <pack foe slug>.']);
 });

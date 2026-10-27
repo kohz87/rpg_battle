@@ -1,4 +1,5 @@
 // Retained quest context from Story Director; only its query owner has changed.
+import { templateList } from '../lines.js';
 const TAIL_NAMES = 6;
 const READY_SHOWN = 2;
 const TAIL_CHARS = 1000;
@@ -15,7 +16,11 @@ function listText(names) {
 
 export function questTail(view) {
     const lines = [];
-    if (view?.state?.domains?.rules?.rulesHash) lines.push('Open quest: + quest Name | like: <open template slug> | text: <objective text> [| foe: <canonical ref>] [| place: <canonical ref>] [| item: <canonical ref>]. Code fixes rewards. Variant fight: ! encounter Variant name | like: <pack foe slug>.');
+    // A pinned pack with open quest templates names them (at most eight, then "and N more"), so `like:` can be written; without any the line is as it was.
+    const table = view?.state?.domains?.rules?.pin?.resolved?.quests;
+    const openSlugs = (Array.isArray(table) ? table : table && typeof table === 'object' ? Object.values(table) : []).filter(row => row?.open === true).map(row => row.slug);
+    const named = templateList(openSlugs);
+    if (view?.state?.domains?.rules?.rulesHash) lines.push(`Open quest: + quest Name | like: <open template slug>${named ? ` (${named})` : ''} | text: <objective text> [| foe: <canonical ref>] [| place: <canonical ref>] [| item: <canonical ref>]. Code fixes rewards. Variant fight: ! encounter Variant name | like: <pack foe slug>.`);
     const optional = [];
     if (typeof view?.query !== 'function') return { lines, optional };
     const quests = view.query('rules.quests', {}) ?? [];

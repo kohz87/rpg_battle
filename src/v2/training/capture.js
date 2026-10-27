@@ -10,20 +10,20 @@ import { indexOfCtx } from '../rules/graph.js';
 import { isRecordId } from '../rules/ids.js';
 import { ask } from '../quests/seams.js';
 import { nameKey } from './trainers.js';
+import { LISTED_TEMPLATES, templateList } from '../lines.js';
 import { commitTrainer, liveTrainer, teachesOf } from './opening.js';
 
 const SHAPE = '+ trainer Name — what they teach | like: <template> [| teaches: <skill>, <skill>]';
 const CLOSING = 'Code fixes the fee and the place.';
 export const TRAINER_GRAMMAR = `${SHAPE}. ${CLOSING}`;
 /** How many template names the line lists before "and N more". */
-export const LISTED_TEMPLATES = 8;
+export { LISTED_TEMPLATES };
 
 /** The line shown to the narrator for a ruleset's templates (slugs in the pack's order). One line, the same on every reply of a chat. */
 export function trainerGrammar(templates) {
     const slugs = (templates ?? []).map(entry => String(entry.id).split('/')[1]).filter(Boolean);
     if (!slugs.length) return TRAINER_GRAMMAR;
-    const more = slugs.length - LISTED_TEMPLATES;
-    return `${SHAPE} (templates: ${slugs.slice(0, LISTED_TEMPLATES).join(', ')}${more > 0 ? ` and ${more} more` : ''}). ${CLOSING}`;
+    return `${SHAPE} (${templateList(slugs)}). ${CLOSING}`;
 }
 
 /** The kind's `grammarFor(settings, query)`: the templates of the pinned ruleset, through the part's own query. */
