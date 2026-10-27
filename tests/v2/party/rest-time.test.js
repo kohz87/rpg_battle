@@ -288,3 +288,26 @@ test('the party.rest command is the same rest: with the clock set and no jump be
         assert.equal(hp(h), max(h));
     });
 });
+
+// ---- a long chat of refused rests ---------------------------------------------------------------------------------------------
+
+test('sixty refused rests: every one is recorded and told, and the log shows the newest fifty and says how many older ones it does not list', async t => {
+    await seeded(9214, async () => {
+        const h = await bluewatch(t);
+        await h.say('A fall.', ['~ wound Ren — fell | harm: severe']);
+        for (let n = 1; n <= 60; n += 1) {
+            await h.say(`Ren dozes ${n}.`, ['! rest long — a doze']);
+            assert.deepEqual(h.turn.problems(), [], `reply ${n}`);
+            await h.say(`Quiet ${n}.`);
+            assert.ok(lastTail(h).split('\n').includes(NIGHT), `the narrator is told of refusal ${n}`);
+        }
+        assert.equal(Object.keys(restsOf(h.head().domains.rules)).length, 60);
+        const log = h.q('quest.adjustments', {});
+        assert.equal(log.rows.length, 50);
+        assert.equal(log.more, 10);
+        assert.ok(log.rows.every(row => row.kind === 'rest'));
+        const replies = log.rows.map(row => row.reply);
+        assert.deepEqual(replies, [...replies].sort((a, b) => b - a), 'newest first');
+        await agree(h, 'sixty refusals');
+    });
+});

@@ -203,7 +203,7 @@ test('Adjustments: no section without rows, and none where RPG Battle does not a
     const { drawn: none } = drawn(withAdjustments([]));
     assert.equal(all(none.el, 'details.adj').length, 0);
     const missing = viewOf(questsView, { ...c07(100).answers, 'quest.adjustments': MISSING });
-    assert.deepEqual(missing.adjustments, { count: 0, recent: [], older: [], hasOlder: false, olderCount: 0 });
+    assert.deepEqual(missing.adjustments, { count: 0, total: 0, recent: [], older: [], hasOlder: false, olderCount: 0, more: 0, moreText: '' });
 });
 
 test('Adjustments: a collapsed section with a count, a card per row with its band, changed terms and the raw labels behind a details element', { skip }, () => {
@@ -255,4 +255,18 @@ test('Adjustments: the band chips are filled, not outlined, and the sheet names 
     assert.ok(!page.el.querySelector('.band').classList.contains('ss-pill-outline'));
     assert.match(questsScreen.css ?? '', /\.band\.b-kept \{ background: color-mix/);
     assert.doesNotMatch(String(questsScreen.css ?? ''), /#[0-9a-f]{3,8}\b|rgba?\(/i);
+});
+
+test('Adjustments: when the log holds more than it lists, the summary counts them all and a line says how many older ones are not listed', { skip }, () => {
+    const many = Array.from({ length: 50 }, (_, n) => adjustment(50 - n));
+    const table = { ...c07(100).answers, 'quest.adjustments': { count: 50, rows: many, more: 10 } };
+    const view = viewOf(questsView, table);
+    assert.deepEqual([view.adjustments.count, view.adjustments.total, view.adjustments.more, view.adjustments.moreText], [50, 60, 10, '10 older adjustments are not listed.']);
+    const { drawn: page } = drawn(table);
+    assert.equal(text(page.el.querySelector('details.adj summary')), 'Adjustments (60)');
+    assert.equal(text(page.el.querySelector('.adj-omitted')), '10 older adjustments are not listed.');
+    const one = viewOf(questsView, { ...table, 'quest.adjustments': { count: 50, rows: many, more: 1 } });
+    assert.equal(one.adjustments.moreText, '1 older adjustment is not listed.');
+    const { drawn: none } = drawn({ ...table, 'quest.adjustments': { count: 50, rows: many } });
+    assert.equal(none.el.querySelectorAll('.adj-omitted').length, 0);
 });

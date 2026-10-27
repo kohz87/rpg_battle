@@ -302,13 +302,14 @@ const questsTemplate = `
     </article>
   </section>
   <details class="adj" data-if="q.v.adjustments.count > 0" data-more="closed">
-    <summary>Adjustments ({{ q.v.adjustments.count }})</summary>
+    <summary>Adjustments ({{ q.v.adjustments.total }})</summary>
     <p class="adj-help">What code changed from the narrator's offers, newest first. Read only; nothing here is a Problem. Turn off "Jobs from the story" in Features for the strict behaviour.</p>
     <p class="adj-head" aria-hidden="true"><span>Offer</span><span>Became</span><span>Changed</span><span>Band</span><span></span></p>
     <ul class="acards">${ADJUSTMENT('q.v.adjustments.recent')}
     </ul>
     <ul class="acards older-rows" data-if="q.v.adjustments.hasOlder">${ADJUSTMENT('q.v.adjustments.older')}
     </ul>
+    <p class="adj-help adj-omitted" data-if="q.v.adjustments.more > 0">{{ q.v.adjustments.moreText }}</p>
     <div class="adj-more" data-if="q.v.adjustments.hasOlder"><ss-widget name="rpg-battle.show-more" data-props='{"value":{"label":"Show older ({{ q.v.adjustments.olderCount }})"}}'></ss-widget></div>
   </details>
 </div>

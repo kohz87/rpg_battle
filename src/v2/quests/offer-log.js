@@ -49,7 +49,7 @@ const row = (fields, receipts) => {
     return { ...fields, reply: at === undefined ? null : at, replyText: at === undefined ? '' : `reply ${at}` };
 };
 
-/** quest.adjustments({ limit? }) → { count, rows } newest first; the state is the head, the receipts say which reply each record came from. */
+/** quest.adjustments({ limit? }) → { count, rows, more } newest first (`more`: how many older ones the limit leaves out); the state is the head, the receipts say which reply each record came from. */
 export function adjustments(state, args = {}, tools) {
     const limit = Number.isInteger(args?.limit) && args.limit >= 1 && args.limit <= 200 ? args.limit : LOG_LIMIT;
     const receipts = new Map();
@@ -97,6 +97,8 @@ export function adjustments(state, args = {}, tools) {
             dropped: `${passed} in that reply; a ${record.kind} rest needs ${durationText(record.needed)} (e.g. ! time +${hours}h). Nothing was healed.`,
             wrote: flat(wrote.join(' · '), 700), notes: [`${durationText(record.needed)} needed, ${record.moved ? durationText(record.moved) : 'none'} passed`], where: place }, receipts));
     }
-    const rows = out.sort((a, b) => (b.reply ?? -1) - (a.reply ?? -1) || (a.id < b.id ? 1 : -1)).slice(0, limit);
-    return { count: rows.length, rows };
+    const sorted = out.sort((a, b) => (b.reply ?? -1) - (a.reply ?? -1) || (a.id < b.id ? 1 : -1));
+    const total = sorted.length;
+    const rows = sorted.slice(0, limit);
+    return { count: rows.length, rows, more: Math.max(0, total - rows.length) };
 }

@@ -117,7 +117,8 @@ export function offersProblems(slice) {
     const errors = [];
     for (const [name, map, check] of [['offers', offersOf(slice), offerProblem], ['declined', declinedOf(slice), declinedProblem], ['rests', restsOf(slice), restProblem], ['routes', routesOf(slice), routeProblem]]) {
         const keys = Object.keys(map);
-        if (keys.length > MAX_RECORDS) { errors.push(`rules: more than ${MAX_RECORDS} ${name}`); continue; }
+        // Rests and routes are one small record for each reply that made one: they go with their reply and have no count to cap.
+        if (keys.length > MAX_RECORDS && name !== 'rests' && name !== 'routes') { errors.push(`rules: more than ${MAX_RECORDS} ${name}`); continue; }
         for (const key of keys) {
             const problem = check(key, map[key]);
             if (problem) errors.push(`rules: ${name} ${key.slice(0, 20)} ${problem}`);
@@ -147,7 +148,7 @@ export function recordOffer(ctx, payload) {
         const bad = restProblem(payload.rest, payload.record);
         if (bad) ctx.fail('INVALID', `That rest ${bad}.`);
         if (Object.hasOwn(slice, REST_KEY + payload.rest)) ctx.fail('CONFLICT', 'That rest is already recorded.');
-        if (Object.keys(restsOf(slice)).length >= MAX_DECLINED) ctx.fail('LIMIT', `At most ${MAX_DECLINED} refused rests are kept.`);
+        // No count cap: a refused rest is one small record of its reply (there is one a reply), taken back with it; a cap would stop the notice of a long chat's refusals.
         draft[REST_KEY + payload.rest] = payload.record;
         return { summary: 'A rest was not taken.', narrate: false, data: { rest: payload.rest } };
     }

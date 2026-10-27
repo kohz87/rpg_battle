@@ -116,7 +116,8 @@ function adjustmentsView(tools) {
         changes: row.changes.map(change => ({ k: clip(change.k, 24), from: clip(change.from, 80), to: clip(change.to, 80), unwritten: change.from === '' })),
         droppedText: isText(row.dropped) ? clip(row.dropped, 240) : '', wrote: clip(row.wrote, 700), notes: row.notes.map(note => clip(note, 200)),
     })) : [];
-    return { count: rows.length, recent: rows.slice(0, SHOWN), older: rows.slice(SHOWN), hasOlder: rows.length > SHOWN, olderCount: Math.max(0, rows.length - SHOWN) };
+    const more = found.status === ASK.OK && Number.isSafeInteger(found.value.more) && found.value.more > 0 ? found.value.more : 0;
+    return { count: rows.length, total: rows.length + more, recent: rows.slice(0, SHOWN), older: rows.slice(SHOWN), hasOlder: rows.length > SHOWN, olderCount: Math.max(0, rows.length - SHOWN), more, moreText: more ? `${more} older adjustment${more === 1 ? ' is' : 's are'} not listed.` : '' };
 }
 
 /** rpg-battle.questsView({}) → { state, clock, groups, goals, note, adjustments }. */
