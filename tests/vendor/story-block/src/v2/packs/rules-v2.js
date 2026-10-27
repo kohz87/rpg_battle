@@ -64,6 +64,9 @@ export const RULES_V2_CONSTANTS = deepFreeze({
     trainCredits: 2,
     trainEventPercent: 10,
     promotionMilestones: [10, 20, 30],
+    // The mastery each promotion needs in all three of a class's skills, in the order of promotionMilestones. The manifest's own
+    // optional `promotionMastery` replaces it for that pack (the resolved constants carry the effective one); this is today's rule.
+    promotionMastery: [5, 5, 5],
     pathMilestones: [40, 50, 60, 70, 80, 90],
     classBudget: [12, 24, 36, 48],
     pathBudgetIncrement: 12,
@@ -611,7 +614,8 @@ function validateConstants(constants) {
         }
     }
 
-    const fixedArrays = ['masteryAt', 'promotionMilestones', 'pathMilestones', 'classBudget'];
+    // `promotionMastery` comes from the pack's manifest, never from the constants argument, which may only repeat the default.
+    const fixedArrays = ['masteryAt', 'promotionMilestones', 'promotionMastery', 'pathMilestones', 'classBudget'];
     for (const f of fixedArrays) {
         if (constants[f] !== undefined) {
             const expected = RULES_V2_CONSTANTS[f];
@@ -2623,7 +2627,8 @@ function validateRulesV2Of(manifest, content, constants, { host = false } = {}) 
         quests: resolvedQuests,
         shops: resolvedShops,
         recipes: resolvedRecipes,
-        constants: clonePlain(c),
+        // The effective constants: the fixed ones, and the manifest's own promotionMastery when it writes one.
+        constants: clonePlain({ ...c, promotionMastery: m.promotionMastery ?? c.promotionMastery }),
     });
 
     return { ok: true, resolved, warnings, content: cnt };

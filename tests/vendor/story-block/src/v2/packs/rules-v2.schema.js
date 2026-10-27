@@ -108,6 +108,16 @@ export const rulesV2SchemaSource = {
         },
         "offerWords": {
             "$ref": "#/$defs/offerWords"
+        },
+        "promotionMastery": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5
+            }
         }
     },
     "$defs": {

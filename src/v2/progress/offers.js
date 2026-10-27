@@ -27,12 +27,22 @@ export function standing(ix, progress, actor) {
 }
 
 const top = ix => maxMastery(ix.constants.masteryAt);
+
+/**
+ * The mastery each skill needs for a promotion milestone: the pack's own `promotionMastery` (one number a promotion level, 1 to the top; Story Block 2.5.0,
+ * carried in the pin's constants) or the top, as every pin before it. A path step always wants the top.
+ */
+export function masteryNeeded(ix, milestone) {
+    const at = ix.constants.promotionMilestones.indexOf(milestone);
+    const asked = at >= 0 ? ix.constants.promotionMastery?.[at] : undefined;
+    return Number.isInteger(asked) && asked >= 1 && asked <= top(ix) ? asked : top(ix);
+}
 const kindOf = (ix, milestone) => (ix.constants.promotionMilestones.includes(milestone) ? 'promotion' : 'path');
 const nameOf = (ix, ref) => ix.class(ref)?.name ?? ref;
 const cut = text => (text.length > 240 ? `${text.slice(0, 239)}…` : text);
 
-function unmastered(ix, st, which = st.skills) {
-    return which.filter(view => view.mastery < top(ix)).map(view => cut(`${view.name} is ${view.mastery}/${top(ix)}.`));
+function unmastered(ix, st, which = st.skills, need = top(ix)) {
+    return which.filter(view => view.mastery < need).map(view => cut(`${view.name} is ${view.mastery}/${top(ix)}.`));
 }
 
 // The ProgressView entry of a promotion milestone the character has reached and not taken.
@@ -44,7 +54,7 @@ function promotionEntry(ix, st, milestone) {
     } else {
         choices = st.derived.class === null ? [] : ix.childrenOf(st.derived.class).map(child => child.id);
         if (!choices.length) why.push(cut(`No class follows ${nameOf(ix, st.derived.class)}.`));
-        why.push(...unmastered(ix, st));
+        why.push(...unmastered(ix, st, st.skills, masteryNeeded(ix, milestone)));
     }
     return { milestone, eligible: milestone === st.open && why.length === 0, choices, why };
 }
@@ -73,7 +83,7 @@ export function progressView(ix, progress, actor, level) {
     const reached = m => !st.derived.taken.has(m) && level >= m;
     return {
         actor, level, class: st.derived.class, tier: st.derived.tier,
-        checklist: st.skills.map(view => ({ skill: view.skill, form: view.form, mastery: view.mastery, needed: top(ix) })),
+        checklist: st.skills.map(view => ({ skill: view.skill, form: view.form, mastery: view.mastery, needed: st.open !== null && kindOf(ix, st.open) === 'promotion' ? masteryNeeded(ix, st.open) : top(ix) })),
         promotions: ix.constants.promotionMilestones.filter(reached).map(m => promotionEntry(ix, st, m)),
         pathways: ix.constants.pathMilestones.filter(reached).map(m => pathEntry(ix, st, m)),
     };
@@ -97,8 +107,9 @@ export function evaluateClass(ix, st, request, level) {
     const choices = ix.childrenOf(st.derived.class);
     const picked = choices.find(child => child.id === request.class);
     if (!picked) return refuse('REFUSED', cut(`${request.class} does not follow ${nameOf(ix, st.derived.class)}.`));
-    const slow = unmastered(ix, st);
-    if (slow.length) return refuse('REFUSED', cut(`Every skill must be ${top(ix)}/${top(ix)}: ${slow.join(' ')}`));
+    const need = masteryNeeded(ix, milestone);
+    const slow = unmastered(ix, st, st.skills, need);
+    if (slow.length) return refuse('REFUSED', cut(`Every skill must be ${need}/${top(ix)}: ${slow.join(' ')}`));
     return {
         ok: true,
         skills: [...picked.skills],

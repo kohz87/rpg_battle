@@ -64,6 +64,11 @@ function constantsProblems(constants, errors) {
         if (constants.promotionMilestones.at(-1) >= constants.pathMilestones[0]) errors.push('rules: promotions come before paths');
         if (last > constants.levelCap) errors.push('rules: a milestone is above the level cap');
     }
+    // A pack's own mastery for each promotion (Story Block 2.5.0); a pin made before it has none and wants the top.
+    if (Object.hasOwn(constants, 'promotionMastery')) {
+        const list = constants.promotionMastery;
+        if (!Array.isArray(list) || list.some(n => !Number.isInteger(n) || n < 1 || n > 5)) errors.push('rules: constants.promotionMastery must be whole numbers from 1 to 5, one for each promotion');
+    }
 }
 
 function progressionProblems(progression, constants, errors) {

@@ -850,3 +850,12 @@ SB `node authoring-kit/check.mjs examples/packs/ersveil-bluewatch/pack.json`, `n
 - The story fallback of §4.6 prefers the written type, then the template with `offerType: task`, then the first story template (a pack without `offerType`
   keeps its first). A teacher's fee is written with the same coin formatter as a reward (`money`) in the receipt, the told line and the Progress page, while the
   rules block is shown.
+- Auto fights earn skill uses: a fight begun with `autoRule: 'practice'` (the stored setup of every offer calibrated from 2.3.0 on) has Auto play each form of a
+  party member that is not mastered once, where it would do something; fights and offers stored without the rule are played as before.
+- A rest the story writes needs the time: with Story Director's clock, `! rest long` counts when its reply moved the clock by `longRestHours` or more and
+  `! rest short` by an hour (v1 gives a short rest no length; an hour is the smallest stretch story time gives anything back for). Else nobody rests, the
+  narrator is told once ("A long rest needs the night to pass, e.g. ! time +8h."), and the refusal is kept as the record `rest.<rs_…>` of the rules slice for
+  the Adjustments log. The reply's movement is the clock less the clock at the last settle (Story Director's `time.overdue`), so the time line goes first.
+- Promotion mastery: the pin's `constants.promotionMastery` (default and old pins `[5, 5, 5]`) is the mastery each skill needs for the promotions at 10, 20 and 30
+  (`progress/offers.js` `masteryNeeded`); the checklist's `needed` is that of the open milestone.
+
