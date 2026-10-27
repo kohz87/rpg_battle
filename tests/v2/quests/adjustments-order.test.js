@@ -68,3 +68,53 @@ test('the reply is found by the record\'s own reply, whichever receipt carries i
         assert.deepEqual(adjustments(state, {}, { receipts: () => [] }).rows.every(row => row.reply === null), true);
     });
 });
+
+import { trimReceipts } from '../../vendor/story-block/src/v2/persist.js';
+
+/** A long chat's stored receipts as Story Block keeps them: `data` gone from every receipt but `data.v2` (persist.js trimReceipts). */
+const trimmed = h => {
+    for (const message of h.ctx.chat) if (message.extra?.storySuite) trimReceipts(message);
+    h.store.rebuild();
+};
+
+test('when the chat\'s receipts are trimmed (only their ids and data.v2 stay) every record still finds its reply, and the order is the one the chat had', async t => {
+    await seeded(9604, async () => {
+        const h = await bluewatch(t);
+        await play(h);
+        const live = JSON.stringify(names(h));
+        assert.equal(JSON.parse(live).length, NAMES.length);
+        assert.ok(JSON.parse(live).every(([, reply]) => Number.isInteger(reply)));
+        trimmed(h);
+        assert.equal(JSON.stringify(names(h)), live, 'trimmed: the same rows at the same replies');
+        // Deletes after the trimming: the reply that held the refused rest, then a swipe of the last reply.
+        await h.st.deleteMessage(at(h, 'Reply B.'));
+        await h.st.deleteMessage(at(h, 'Reply B.') - 1);
+        const afterDelete = names(h);
+        assert.deepEqual(afterDelete.map(([name]) => name), NAMES.filter(name => !/rest/.test(name)));
+        assert.deepEqual(afterDelete.map(([, reply]) => reply), [at(h, 'Reply D.'), at(h, 'Reply C.'), at(h, 'Reply C.'), at(h, 'Reply C.'), at(h, 'Reply A.'), at(h, 'Reply A.')]);
+        await h.swipe(`Reply D2.\n\n<Changes>\n${job(5)}\n</Changes>`);
+        assert.deepEqual(names(h)[0], ['Debt 5', at(h, 'Reply D2.')]);
+        trimmed(h);
+        assert.deepEqual(names(h)[0], ['Debt 5', at(h, 'Reply D2.')]);
+        assert.deepEqual(names(h).slice(1).map(([name]) => name), ['Far 2', 'Debt 2', 'Old Reka', 'Debt 1', 'Far 1']);
+    });
+});
+
+test('a record keeps the id of the receipt of its line, and a state with a receipt that is not an id is not whole', async t => {
+    await seeded(9605, async () => {
+        const h = await bluewatch(t);
+        await play(h);
+        await h.say('Reply E.', ['+ present Old Soldier', '+ trainer Old Soldier | like: open-blade-drills | fee: 6 silver']);
+        const rules = h.head().domains.rules;
+        for (const prefix of ['offer.', 'declined.', 'rest.']) {
+            const [key] = Object.keys(rules).filter(name => name.startsWith(prefix));
+            assert.match(rules[key].receipt, /^rc_[0-9a-z]{8}$/, key);
+        }
+        assert.match(Object.values(h.head().domains.training.offers).find(offer => offer.settled).settled.receipt, /^rc_[0-9a-z]{8}$/);
+        const bad = structuredClone(rules);
+        bad[Object.keys(bad).find(name => name.startsWith('rest.'))].receipt = 'not an id';
+        assert.ok(rulesProblems(bad).some(error => /rests/.test(error)));
+    });
+});
+
+import { rulesProblems } from '../../../src/v2/rules/index.js';

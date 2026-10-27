@@ -52,16 +52,20 @@ const row = (fields, place) => {
 /** quest.adjustments({ limit? }) → { count, rows, more } newest first (`more`: how many older ones the limit leaves out); the state is the head, the receipts say which reply each record came from. */
 export function adjustments(state, args = {}, tools) {
     const limit = Number.isInteger(args?.limit) && args.limit >= 1 && args.limit <= 200 ? args.limit : LOG_LIMIT;
-    // Where each reply stands in the chat now (the first receipt stored on it) and where each receipt that names a record stands among all of them: the reply a record was made on is found by
-    // the record's own reply (its sid), else by the receipt that carries its id; among the records of one reply, the order of those receipts is the order of its lines.
+    // Where each receipt stands in the chat now: the reply a record was made on is found by the receipt of the line that made it (the record keeps its id; it outlives the trimming of a receipt's
+    // data), else by the record's own reply (its sid) among the receipts that keep one, else by a receipt that carries the record's id; among the records of one reply, the order of those
+    // receipts is the order of its lines.
     const repliesAt = new Map();
     const byId = new Map();
+    const byReceipt = new Map();
     let seq = 0;
     for (const entry of tools?.receipts?.() ?? []) {
         seq += 1;
         const receipt = entry.receipt ?? entry;
         const index = Number.isInteger(entry.index) ? entry.index : null;
         const sid = receipt?.data?.v2?.source?.sid;
+        // The receipt itself keeps its id when a long chat trims its data away.
+        if (index !== null && typeof receipt?.id === 'string' && !byReceipt.has(receipt.id)) byReceipt.set(receipt.id, { index, seq });
         if (index !== null && typeof sid === 'string' && !(repliesAt.get(sid) <= index)) repliesAt.set(sid, index);
         // A quest's acceptance and turn-in carry its id too, but they come after the offer.
         for (const id of [receipt?.data?.quest, receipt?.data?.declined, receipt?.data?.trainer, receipt?.data?.record]) {
@@ -72,10 +76,10 @@ export function adjustments(state, args = {}, tools) {
     const slice = state?.domains?.rules;
     const keys = Object.keys(slice ?? {});
     const keyAt = (prefix, id) => keys.indexOf(prefix + id);
-    const placed = (id, sid, fallback) => {
-        const named = byId.get(id);
-        const reply = repliesAt.get(sid) ?? named?.index ?? null;
-        return { reply, order: named ? named.seq : -1e6 + fallback };
+    const placed = (id, sid, fallback, receipt) => {
+        const made = byReceipt.get(receipt) ?? byId.get(id);
+        const reply = made?.index ?? repliesAt.get(sid) ?? null;
+        return { reply, order: made ? made.seq : -1e6 + fallback };
     };
     const out = [];
     for (const [id, record] of Object.entries(offersOf(slice))) {
@@ -84,7 +88,7 @@ export function adjustments(state, args = {}, tools) {
         const shown = record.shown ?? {};
         out.push(row({ id, kind: 'job', name: record.name, band: record.band === 'moderate' ? 'adjusted' : 'kept', bandLabel: record.band === 'moderate' ? 'Adjusted' : 'Kept',
             became: [KIND_WORDS[kind], shown.objective, shown.coin, `${record.settled.xp} XP`, shown.deadline].filter(Boolean).join(' · '),
-            changes: changesOfJob(record), dropped: '', wrote: wroteText(record.said), notes: [...record.notes], where: record.where }, placed(id, record.sid, keyAt('offer.', id))));
+            changes: changesOfJob(record), dropped: '', wrote: wroteText(record.said), notes: [...record.notes], where: record.where }, placed(id, record.sid, keyAt('offer.', id), record.receipt)));
     }
     for (const [at, [id, offer]] of Object.entries(state?.domains?.training?.offers ?? {}).entries()) {
         const settled = offer.settled;
@@ -92,14 +96,14 @@ export function adjustments(state, args = {}, tools) {
         const shown = settled.shown ?? {};
         out.push(row({ id, kind: 'teacher', name: offer.name, band: settled.band === 'moderate' ? 'adjusted' : 'kept', bandLabel: settled.band === 'moderate' ? 'Adjusted' : 'Kept',
             became: ['Trainer', shown.template || shown.teaches, shown.fee ? `fee ${shown.fee}` : '', offer.where].filter(Boolean).join(' · '),
-            changes: changesOfTeacher(offer), dropped: '', wrote: wroteText(settled.said, 'text'), notes: [...settled.notes], where: offer.where }, placed(id, settled.sid, at)));
+            changes: changesOfTeacher(offer), dropped: '', wrote: wroteText(settled.said, 'text'), notes: [...settled.notes], where: offer.where }, placed(id, settled.sid, at, settled.receipt)));
     }
     for (const [id, record] of Object.entries(declinedOf(slice))) {
         const said = record.said ?? {};
         out.push(row({ id, kind: record.kind ?? 'job', name: record.name, band: 'dropped', bandLabel: 'Dropped',
             became: [cap(said.type) || (record.kind === 'teacher' ? 'Teacher' : 'Job'), said.goal ?? said.text, said.reward ?? said.fee, 'not offered'].filter(Boolean).join(' · '),
             changes: [], dropped: `${shortReason(record.reason)}. The narrator was told once.`, wrote: wroteText(said, record.kind === 'teacher' ? 'text' : 'goal'),
-            notes: [record.reason, `Told once: “…offer ${record.suggestion}.”`], where: '' }, placed(id, record.sid, keyAt('declined.', id))));
+            notes: [record.reason, `Told once: “…offer ${record.suggestion}.”`], where: '' }, placed(id, record.sid, keyAt('declined.', id), record.receipt)));
     }
     // A rest the story wrote that the reply's time did not pay for: nobody rested (party/capture.js restWanted).
     for (const [id, record] of Object.entries(restsOf(slice))) {
@@ -112,7 +116,7 @@ export function adjustments(state, args = {}, tools) {
         out.push(row({ id, kind: 'rest', name: place ? `${word} at ${place}` : word, band: 'dropped', bandLabel: 'Dropped', changes: [],
             became: ['Rest', record.kind, place, 'not taken'].filter(Boolean).join(' · '),
             dropped: `${passed} in that reply; a ${record.kind} rest needs ${durationText(record.needed)} (e.g. ! time +${hours}h). Nothing was healed.`,
-            wrote: flat(wrote.join(' · '), 700), notes: [`${durationText(record.needed)} needed, ${record.moved ? durationText(record.moved) : 'none'} passed`], where: place }, placed(id, record.sid, keyAt('rest.', id))));
+            wrote: flat(wrote.join(' · '), 700), notes: [`${durationText(record.needed)} needed, ${record.moved ? durationText(record.moved) : 'none'} passed`], where: place }, placed(id, record.sid, keyAt('rest.', id), record.receipt)));
     }
     // Newest first: by the reply that made the record as the chat stands now, and among those of one reply (or of none that is known: receipts that were trimmed) by where its line stood, the last first. A record whose reply is no longer among the receipts comes last, with no number.
     const sorted = out.sort((a, b) => (b.reply ?? -1) - (a.reply ?? -1) || b.order - a.order || (a.id < b.id ? 1 : -1)).map(({ order: _order, ...rest }) => rest);
