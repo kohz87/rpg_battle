@@ -342,7 +342,7 @@ Different names are never merged ("Granary Vermin II" is another job). Two equal
 ### 5.4 Kills are settled by fights
 
 The settled terms name the exact encounter line (`! encounter 6 Culvert Rats | like: cellar-rat-swarm`, or
-`! encounter 4 Fen Wolf` for a pack foe); RB's fight result is the evidence, as today. A kill the narration alone tells ("I
+`! encounter 4 Fen Wolf` for a pack foe), with `| tier: weak` after it for an easy job and `| tier: strong` for a hard one (see Decisions); RB's fight result is the evidence, as today. A kill the narration alone tells ("I
 stomp the rats") does not count; the board shows 0/6 and the terms say how to fight them. A story goal (no foe could be bound)
 is judged by `~ quest Name | met: yes` as today.
 
@@ -581,7 +581,7 @@ a fixed seed. "Area" below is the tier used for the formula.
 | Goal text | kept whole, "…and collect tails" included | same |
 | Band | moderate | moderate |
 | Card note | `reward "12 crowns" is not this chat's money; set to 5 silver; Culvert Rats is a named kind of Cellar Rat Swarm; deadline set to 7 days` | `reward set to 50 crowns (rank F range); …` |
-| Next prompt | `Posted job: Granary Vermin (from Hollis): kill 6 Culvert Rats within 7 days; pays 5 silver and 50 XP, turned in at Bluewatch Village. Fight them as ! encounter 6 Culvert Rats \| like: cellar-rat-swarm. These are the terms from now on; nobody in the scene has to restate them.` (274) | `… pays 50 crowns …` |
+| Next prompt | `Posted job: Granary Vermin (from Hollis): kill 6 Culvert Rats within 7 days; pays 5 silver and 50 XP, turned in at Bluewatch Village. Fight them as ! encounter 6 Culvert Rats \| like: cellar-rat-swarm \| tier: weak. These are the terms from now on; nobody in the scene has to restate them.` (287) | `… pays 50 crowns …` |
 
 **G2** `+ quest Scrub Pack | giver: Hollis | type: hunt | goal: Slay the alpha of the scrub wolf pack north of the ditch | reward: 30 crowns | difficulty: normal`
 
@@ -595,7 +595,7 @@ a fixed seed. "Area" below is the tier used for the formula.
 | Band | moderate | moderate |
 | Next prompt | `Posted job: Scrub Pack (from Hollis): kill 1 Alpha of the Scrub Wolf Pack within 7 days; pays 5 silver and 50 XP, turned in at Bluewatch Village. Fight it as ! encounter Alpha of the Scrub Wolf Pack \| like: starved-crag-wolf. These are the terms …` (299) | `… pays 50 crowns …` |
 
-End to end (RB-M3): accept each next reply; `! encounter 6 Culvert Rats | like: cellar-rat-swarm`, win; the board shows 6/6;
+End to end (RB-M3): accept each next reply; `! encounter 6 Culvert Rats | like: cellar-rat-swarm | tier: weak` (G1 is easy), win; the board shows 6/6;
 `- quest Granary Vermin — turned in` at Bluewatch Village pays 50 copper and 50 XP once.
 
 ### 11.3 Requested cases
@@ -858,6 +858,9 @@ SB `node authoring-kit/check.mjs examples/packs/ersveil-bluewatch/pack.json`, `n
   the Adjustments log. The reply's movement is the clock less the clock at the last settle (Story Director's `time.overdue`), so the time line goes first.
 - Promotion mastery: the pin's `constants.promotionMastery` (default and old pins `[5, 5, 5]`) is the mastery each skill needs for the promotions at 10, 20 and 30
   (`progress/offers.js` `masteryNeeded`); the checklist's `needed` is that of the open milestone.
+- Job difficulty sets the told fight's tier: easy `| tier: weak`, hard `| tier: strong`, normal (or a difficulty that names a rank, or none) no tier; nightmare reads as hard. Worked out once at
+  capture and kept in the settled binding as `fightTier` (only beside a foe), so a Re-read, a reload and a rebuild tell the same line; nothing else about the offer moves (XP and coin are the
+  template's formula and range). Offers made before it have no `fightTier` and tell the line as they did.
 - Rank experience ranges: a pack's rank may write `xp: [lowest, highest]` (Story Block 2.5.0; open templates' `xpMin`/`xpMax` are held to it, else to the coin range). RPG Battle
   carries it in `quest.ranks` and `party.ranks` and never derives XP from a rank's coin range: a job's XP is the formula on the template's `xpMin`/`xpMax` (§5), the
   matcher's clamps and bands are coin only, and the grading guide shows coin ranges only.

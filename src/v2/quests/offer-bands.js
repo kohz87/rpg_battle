@@ -109,10 +109,13 @@ export function farLine(parts) {
 }
 const farText = ({ name, reason, suggestion }) => `Earlier, ${name} was mentioned as a job, but it isn't one that can be offered here (${reason}). Let it stay as talk or a rumour; if a job is wanted, offer ${suggestion}.`;
 
-/** The fight line the terms name (§5.4): `! encounter 6 Culvert Rats | like: cellar-rat-swarm` for a named kind, `! encounter 4 Fen Wolf` for a pack foe. */
-export function encounterLine(foe, count) {
+/**
+ * The fight line the terms name (§5.4): `! encounter 6 Culvert Rats | like: cellar-rat-swarm` for a named kind, `! encounter 4 Fen Wolf` for a pack foe;
+ * `| tier: weak` or `| tier: strong` after it when the job's difficulty sets one (easy, hard).
+ */
+export function encounterLine(foe, count, tier = null) {
     const n = count > 1 ? `${count} ` : '';
-    return `! encounter ${n}${foe.name}${foe.how === 'variant' ? ` | like: ${String(foe.base).split('/')[1]}` : ''}`;
+    return `! encounter ${n}${foe.name}${foe.how === 'variant' ? ` | like: ${String(foe.base).split('/')[1]}` : ''}${tier ? ` | tier: ${tier}` : ''}`;
 }
 
 /** The settled terms of a matched offer (§8.1) as the narrator is told them: `result` is `matchOffer`'s, `name` the job's name, `item` its pack item. */
@@ -121,7 +124,7 @@ export function settledTerms(result, name, currency) {
     const objective = settled.foe ? `kill ${settled.count} ${settled.foe.name}` : settled.item ? `bring ${settled.count} ${settled.item.name}` : settled.place ? `go to ${settled.place.name}` : settled.text;
     return termsLine({
         name, giver: settled.giver, objective, deadline: settled.durationMinutes === null ? null : durationText(settled.durationMinutes),
-        coin: settled.coin, xp: settled.xp, where: result.where, fight: settled.foe ? { count: settled.count, line: encounterLine(settled.foe, settled.count) } : null,
+        coin: settled.coin, xp: settled.xp, where: result.where, fight: settled.foe ? { count: settled.count, line: encounterLine(settled.foe, settled.count, settled.fightTier ?? null) } : null,
     }, currency);
 }
 

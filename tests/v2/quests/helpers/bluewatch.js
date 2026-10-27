@@ -52,7 +52,7 @@ export async function bluewatch(t, { pack = PACK_TEXT, useSibling = false, st = 
 
 export const G1 = '+ quest Granary Vermin | giver: Hollis | type: cull | goal: Kill 6 culvert rats in the south levee granary and collect tails | reward: 12 crowns | difficulty: easy';
 export const G2 = '+ quest Scrub Pack | giver: Hollis | type: hunt | goal: Slay the alpha of the scrub wolf pack north of the ditch | reward: 30 crowns | difficulty: normal';
-export const G1_TERMS = 'Posted job: Granary Vermin (from Hollis): kill 6 Culvert Rats within 7 days; pays 5 silver and 50 XP, turned in at Bluewatch Village. Fight them as ! encounter 6 Culvert Rats | like: cellar-rat-swarm. These are the terms from now on; nobody in the scene has to restate them.';
+export const G1_TERMS = 'Posted job: Granary Vermin (from Hollis): kill 6 Culvert Rats within 7 days; pays 5 silver and 50 XP, turned in at Bluewatch Village. Fight them as ! encounter 6 Culvert Rats | like: cellar-rat-swarm | tier: weak. These are the terms from now on; nobody in the scene has to restate them.';
 
 /** The reader accepts a job by name on a reply that writes `+ quest Name`. */
 export const accept = (h, name) => h.send(`I accept the ${name} job.`, `Agreed.\n\n<Changes>\n+ quest ${name}\n</Changes>`);

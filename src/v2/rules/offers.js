@@ -46,11 +46,12 @@ export const isRestId = value => typeof value === 'string' && /^rs_[0-9a-f]{12}$
 /** What is wrong with the numbers a matched offer settled, or ''. */
 export function settledProblem(settled) {
     if (!isObject(settled)) return 'is not a record';
-    const known = ['template', 'text', 'foe', 'item', 'place', 'count', 'coin', 'coinBy', 'xp', 'durationMinutes', 'turnInPlace', 'giver', 'rank', 'area', 'waived'];
+    const known = ['template', 'text', 'foe', 'item', 'place', 'count', 'coin', 'coinBy', 'xp', 'durationMinutes', 'turnInPlace', 'giver', 'rank', 'area', 'waived', 'fightTier'];
     if (Object.keys(settled).some(key => !known.includes(key))) return 'has a field of no meaning';
     if (!isDefId(settled.template) || !text(settled.text, 240, 1)) return 'names no template and goal';
     if (settled.foe !== undefined && (!isObject(settled.foe) || !isId(settled.foe.ref) && !/^[^~]+~[a-z0-9-]+$/.test(String(settled.foe.ref)) || !isDefId(settled.foe.base)
         || !text(settled.foe.name, 80, 1) || !HOWS.includes(settled.foe.how))) return 'has a foe that is not whole';
+    if (settled.fightTier !== undefined && (settled.foe === undefined || !['weak', 'strong'].includes(settled.fightTier))) return 'has a fight tier that is not weak or strong, or no foe to fight';
     if (settled.item !== undefined && (!isObject(settled.item) || !isDefId(settled.item.ref) || !text(settled.item.name, 80, 1))) return 'has an item that is not whole';
     if (settled.place !== undefined && (!isObject(settled.place) || !isId(settled.place.id) || !text(settled.place.name, 80, 1))) return 'has a place that is not whole';
     if ([settled.foe, settled.item, settled.place].filter(row => row !== undefined).length > 1) return 'names more than one target';

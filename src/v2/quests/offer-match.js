@@ -9,7 +9,7 @@ import { amountDigits, countOf, NUMBER_WORDS, parseReward, singular, STOP_WORDS 
 import { defaultRank, rankNamed, WRITTEN_RANKS_ABOVE } from './ranks.js';
 import { templates } from './seams.js';
 import { bindingOf } from './offer-plan.js';
-import { DEFAULT_MINUTES, boundsOf, durationRange, formulaAt, kindOf, tierOfRank } from './offer-rules.js';
+import { DEFAULT_MINUTES, FIGHT_TIER, boundsOf, durationRange, formulaAt, kindOf, tierOfRank } from './offer-rules.js';
 import { MATCHER, bandOf, flat, hold, keepNotes, NOTE } from './offer-bands.js';
 import { difficultyFromLabel, EXTRA_STOPS, FILLER, firstVerb, minutesOf, SKIPPED, titleCase, typeFromLabel, TYPES, wordsOf } from './offer-words.js';
 
@@ -476,6 +476,7 @@ export function matchOffer(env, line) {
     const settled = {
         template: template.id, text: read.goal,
         ...(settledKind === 'kill' && foe ? { foe: { ref: foe.ref, base: foe.base, name: foe.name, how: foe.how } } : {}),
+        ...(settledKind === 'kill' && foe && Object.hasOwn(FIGHT_TIER, word) ? { fightTier: FIGHT_TIER[word] } : {}),
         ...(settledKind === 'collect' && item ? { item } : {}),
         ...(settledKind === 'visit' && place ? { place: { id: place.id, name: place.name } } : {}),
         ...(count !== null ? { count } : {}),

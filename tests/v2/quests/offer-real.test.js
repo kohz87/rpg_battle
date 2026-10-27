@@ -39,7 +39,10 @@ test('G1: offered, told back, accepted, fought to 6/6 and turned in at the villa
         assert.equal(job(h, 'Granary Vermin').rpg.state, 'active');
         assert.equal(job(h, 'Granary Vermin').rpg.deadline, now + 10080);
         // The terms' encounter line, again and again until the board counts 6/6.
-        const progress = await fightUntil(h, thread.id, '6 Culvert Rats | like: cellar-rat-swarm | tier: trivial', 6);
+        // The line as told, easy job and all: `| tier: weak`.
+        const told = /! encounter (.*?)\. These/.exec(G1_TERMS)[1];
+        assert.equal(told, '6 Culvert Rats | like: cellar-rat-swarm | tier: weak');
+        const progress = await fightUntil(h, thread.id, told, 6);
         assert.deepEqual([progress.have, progress.need, progress.met], [6, 6, true]);
         assert.equal(wallet(h), 0);
         const xp1 = total();

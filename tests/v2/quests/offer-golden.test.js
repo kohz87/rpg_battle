@@ -24,8 +24,8 @@ test('G1 on the pack\'s own money: open-hunt-f, kill 6 Culvert Rats (a named kin
     assert.equal(r.settled.text, 'Kill 6 culvert rats in the south levee granary and collect tails', 'the goal is kept whole');
     assert.equal(r.notes.join('; '), 'reward "12 crowns" is not this chat\'s money; set to 5 silver; Culvert Rats is a named kind of Cellar Rat Swarm; deadline set to 7 days');
     const terms = settledTerms(r, 'Granary Vermin', COPPER);
-    assert.equal(terms, 'Posted job: Granary Vermin (from Hollis): kill 6 Culvert Rats within 7 days; pays 5 silver and 50 XP, turned in at Bluewatch Village. Fight them as ! encounter 6 Culvert Rats | like: cellar-rat-swarm. These are the terms from now on; nobody in the scene has to restate them.');
-    assert.equal([...terms].length, 274);
+    assert.equal(terms, 'Posted job: Granary Vermin (from Hollis): kill 6 Culvert Rats within 7 days; pays 5 silver and 50 XP, turned in at Bluewatch Village. Fight them as ! encounter 6 Culvert Rats | like: cellar-rat-swarm | tier: weak. These are the terms from now on; nobody in the scene has to restate them.');
+    assert.equal([...terms].length, 287);
 });
 
 test('G1 on the reader\'s crowns: 12 crowns is the chat\'s money, raised to the floor, 50 crowns', () => {

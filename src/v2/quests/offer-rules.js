@@ -12,6 +12,12 @@ export const kindOf = template => template?.objectives?.[0]?.kind ?? null;
 /** A reward formula (opening.js): the low end at tier 0, the high end at tier 9. */
 export const formulaAt = (min, max, tier) => min + Math.floor((max - min) * tier / 9);
 
+/**
+ * The tier the fight a job tells is written at, by the job's difficulty word: easy `weak`, hard `strong`; normal (and a difficulty that names a rank, or none)
+ * writes none and the fight reads as the pack's foe. Nightmare reads as hard: a job is a fight the party is meant to win.
+ */
+export const FIGHT_TIER = Object.freeze({ easy: 'weak', hard: 'strong', nightmare: 'strong' });
+
 /** The tier a ladder row stands for when the place gives none: `max(0, ceil(levels[0] / 10) - 1)`, F 0, E 1, D 2, C 2. */
 export const tierOfRank = row => Math.max(0, Math.ceil((row?.levels?.[0] ?? 1) / 10) - 1);
 
