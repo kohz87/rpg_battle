@@ -13,7 +13,9 @@ const job = (h, name) => h.q('director.thread', { key: name });
 test('G1: offered, told back, accepted, fought to 6/6 and turned in at the village: 50 copper and 50 XP, once', { skip: skipSibling }, async t => {
     await seeded(3401, async () => {
         const h = await bluewatch(t, { useSibling: true });
-        const xp0 = h.q('party.pc').xp;
+        // Soul Growth as a total: a level-up in the fights between (they earn it) takes the XP it spent off the running count.
+        const total = () => { const pc = h.q('party.pc'); return pc.level * h.head().domains.rules.pin.resolved.constants.xpPerLevel + pc.xp; };
+        const xp0 = total();
         await h.say('Hollis has a job.', [G1]);
         assert.deepEqual(h.store.problems(), []);
         const thread = job(h, 'Granary Vermin');
@@ -40,11 +42,11 @@ test('G1: offered, told back, accepted, fought to 6/6 and turned in at the villa
         const progress = await fightUntil(h, thread.id, '6 Culvert Rats | like: cellar-rat-swarm | tier: trivial', 6);
         assert.deepEqual([progress.have, progress.need, progress.met], [6, 6, true]);
         assert.equal(wallet(h), 0);
-        const xp1 = h.q('party.pc').xp;
+        const xp1 = total();
         await h.say('Hollis counts the tails.', ['- quest Granary Vermin — done']);
         assert.equal(job(h, 'Granary Vermin').rpg.state, 'done', JSON.stringify(h.store.problems()));
         assert.equal(wallet(h), 50);
-        assert.equal(h.q('party.pc').xp - xp1, 50);
+        assert.equal(total() - xp1, 50);
         assert.ok(xp1 >= xp0);
         // Paid once: a Re-read of the turn-in, a reload and a rebuild pay nothing more.
         const turnIn = h.ctx.chat.length - 1;

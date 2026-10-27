@@ -42,7 +42,8 @@ async function alone() {
     return h;
 }
 
-async function play(h) {
+// `night`: lines that pass the night first; with the real Story Director's clock a rest the story writes needs its time in the same reply (RPG Battle 2.3.0).
+async function play(h, night = []) {
     // Real record ids (a seeded randomUUID would give every reply the same sid, and so the same claim
     // key); the dice stay seeded, so the fights play the same every run.
     const dice = globalThis.crypto;
@@ -53,7 +54,7 @@ async function play(h) {
     let fightReply = -1;
     for (let k = 0; k < 15 && pc().level < 2; k++) {
         // A lost fight leaves Wessel down: a night's rest first, in a reply of its own.
-        if (pc().hp.cur * 2 < pc().hp.max) await h.send('Rest first.', h.reply('You sleep it off.', ['! rest long — by the fire']));
+        if (pc().hp.cur * 2 < pc().hp.max) await h.send('Rest first.', h.reply('You sleep it off.', [...night, '! rest long — by the fire']));
         await h.send('Fight.', h.reply('Rats!', ['! encounter 3 Cellar Rat Swarm — boiling out | tier: weak | stakes: normal']));
         fightReply = h.ctx.chat.length - 1;
         const offer = h.q('combat.offers')[0];
@@ -64,7 +65,7 @@ async function play(h) {
     }
     assert.equal(pc().level, 2, 'the last fight levelled Wessel up');
     await h.send('Ow.', h.reply('A fist.', ['~ wound Wessel — a beating | harm: severe']));
-    await h.send('Rest.', h.reply('You sleep.', ['! rest long — in a rented cot']));
+    await h.send('Rest.', h.reply('You sleep.', [...night, '! rest long — in a rented cot']));
     assert.equal(pc().hp.cur, pc().hp.max);
     const restClaim = `rest:sid:${h.ctx.chat.at(-1).extra.storySuite.sid}`;
     const rests = Object.keys(h.head().meta.claims).filter(key => key.startsWith('rest:')).length;
@@ -97,5 +98,5 @@ test('final: deleting an earlier reply (a level-up fight) keeps a later reply\'s
     const h = await suite.started();
     // close() puts back the crypto the suite host found.
     t.after(() => h.close());
-    await play(h);
+    await play(h, ['! time +8h']);
 });

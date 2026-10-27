@@ -37,6 +37,12 @@ export function rulesClasses(state, args) {
         .map(({ id, name, tier, parent, skills }) => ({ id, name, tier, parent, skills: [...skills] }));
 }
 
+/** A place's name by its canonical id: only when Story Director answers for that very place. */
+function placeName(tools, ref) {
+    const found = ask(tools?.query, 'atlas.canonical', { id: ref });
+    return found?.id === ref ? found.name : undefined;
+}
+
 export function rulesNames(state, args, tools) {
     const ix = indexOfState(state);
     if (!ix || !isObject(args) || !Array.isArray(args.refs)) return {};
@@ -51,7 +57,7 @@ export function rulesNames(state, args, tools) {
         else {
             // A foe, an item or a place of a quest's objective is named as the pack names it (a named kind of foe, by the job that made it).
             const own = ix.foe(ref)?.name ?? ix.itemDef(ref)?.name ?? offers.find(record => record.settled.foe.ref === ref)?.settled.foe.name
-                ?? state?.domains?.rules?.generated?.[ref]?.def?.name ?? ask(tools?.query, 'atlas.canonical', { id: ref })?.name;
+                ?? state?.domains?.rules?.generated?.[ref]?.def?.name ?? placeName(tools, ref);
             if (typeof own === 'string' && own.trim()) out[ref] = own;
         }
     }
