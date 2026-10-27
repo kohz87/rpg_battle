@@ -23,9 +23,9 @@ test('the fake model offers G1 and G2; the next prompt carries both terms; a sec
             },
             call => {
                 // The model reads the fight line out of the terms it was given.
-                const line = /Fight them as (! encounter [^\n]*? \| like: [a-z-]+)\./.exec(call.prompt)?.[1];
+                const line = /Fight them as (! encounter [^\n]*? \| like: [a-z-]+ \| tier: [a-z]+)\./.exec(call.prompt)?.[1];
                 assert.ok(line, 'the prompt carries an encounter line to copy');
-                return `The cellar door bangs open.\n\n<Changes>\n${line} | tier: trivial\n</Changes>`;
+                return `The cellar door bangs open.\n\n<Changes>\n${line}\n</Changes>`;
             },
         ]);
         const turn = async user => {
@@ -45,7 +45,7 @@ test('the fake model offers G1 and G2; the next prompt carries both terms; a sec
         assert.equal(h.q('director.thread', { key: 'Scrub Pack' }).rpg.state, 'offered');
         await turn('We go down.');
         const offer = h.q('combat.offers').at(-1);
-        assert.deepEqual(offer.foes.map(foe => [foe.name, foe.count, foe.variant?.base]), [['Culvert Rats', 6, 'pack.ersveil-bluewatch/cellar-rat-swarm']]);
+        assert.deepEqual(offer.foes.map(foe => [foe.name, foe.count, foe.variant?.base, foe.tier]), [['Culvert Rats', 6, 'pack.ersveil-bluewatch/cellar-rat-swarm', 'weak']], 'the easy job\'s own tier, copied from the terms');
         const third = await turn('And then?');
         assert.equal(strings(third.request).join('\n').includes('Posted job'), false, 'the terms are told once');
         assert.equal(model.calls.length, 4);
