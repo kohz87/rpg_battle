@@ -1,0 +1,16 @@
+{
+ "recordedWith": {
+  "rpgBattle": "2.2.0",
+  "npcStateDelta": "80a4532"
+ },
+ "part": {
+  "module": "npc-state-delta",
+  "label": "NPC State Delta: instructions",
+  "place": "static",
+  "text": "NPC meters: trust, affection, desire, tension (-100..100). When the scene changes how someone feels: ~ npc Name | meter: +N, -N or =N. Code clamps each meter, moves it at most 15 a reply and sets the stages; never write a stage."
+ },
+ "kindLines": [
+  "+ milestone Name — the turning point that just happened between you (once)",
+  "~ npc Name | trust: +N | affection: -N"
+ ]
+}

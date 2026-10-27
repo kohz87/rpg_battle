@@ -3,7 +3,7 @@
 // an open quest template, strict mode, the extension prompts the host keeps).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { staticParts } from '../../vendor/story-block/src/v2/prompt.js';
 import { replyCardLines } from '../../vendor/story-block/src/v2/screens/index.js';
 import { rpgHost, seeded } from '../integration/helpers/host.js';
@@ -383,4 +383,25 @@ test('an unpinned chat has neither the block nor the log', async () => {
             assert.deepEqual(h.q('quest.replyOffers', {}), { jobs: 0, declined: 0 });
         } finally { h.close(); }
     });
+});
+
+// ---- NPC State Delta's own prompt ------------------------------------------------------------------------------------
+
+const nsdPath = new URL('../../../../npc_state_delta/src/storysuite-v2.js', import.meta.url);
+const nsdSkip = !existsSync(nsdPath) && 'The sibling NPC State Delta checkout is absent.';
+
+test('NPC State Delta\'s prompt (its instructions part and its two kinds\' lines) is the one recorded beside RPG Battle 2.2.0, with Jobs from the story on and in strict mode', { skip: nsdSkip }, async t => {
+    const nsdRecorded = JSON.parse(readFileSync(new URL('./fixtures/nsd-prompt-2.2.0.json', import.meta.url), 'utf8'));
+    const { createStorySuiteV2Adapter } = await import(nsdPath.href);
+    for (const settings of [undefined, STRICT]) {
+        await seeded(6119, async () => {
+            const nsd = createStorySuiteV2Adapter({ suiteApi: { npcs: () => [] }, delta: () => ({ isEnabled: () => true, getNpc: () => null }), doc: null, timers: {}, logger: { warn() {} } }).definition;
+            const h = await bluewatch(t, { settings, extraModules: [nsd] });
+            await h.say('Bluewatch.', ['~ npc Odda | trust: +3']);
+            const parts = staticParts(h.registry);
+            assert.deepEqual(parts.find(part => part.module === 'npc-state-delta'), nsdRecorded.part);
+            const suite = parts.find(part => part.module === 'story-suite').text.split('\n');
+            assert.deepEqual(suite.filter(line => line.startsWith('~ npc ') || line.startsWith('+ milestone ')), nsdRecorded.kindLines);
+        });
+    }
 });

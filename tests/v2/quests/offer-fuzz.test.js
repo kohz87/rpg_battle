@@ -4,6 +4,7 @@
 // replay's own (a block whose reason went). Deterministic: the same seed is the same run.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { seeded } from '../integration/helpers/host.js';
 import { createPicker } from '../qa/helpers/fuzz.js';
 import { G1, G2, bluewatch } from './helpers/bluewatch.js';
@@ -21,10 +22,13 @@ const NAMES = ['Granary Vermin', 'Scrub Pack', 'Rat Trouble', 'Leech Duty', 'Tai
 const known = problems => problems.filter(item => item.code !== 'REPLAY_PREREQUISITE');
 
 const seen = { offers: 0, declined: 0, trainers: 0, done: 0 };
+// The chat recorded with RPG Battle 2.2.0: its pin has no map of offers and its own jobs have no record.
+const fixture = JSON.parse(readFileSync(new URL('./fixtures/pinned-2.2.0.json', import.meta.url), 'utf8'));
 
-async function run(t, seed, steps) {
+async function run(t, seed, steps, { legacy = false } = {}) {
     await seeded(seed, async () => {
-        const h = await bluewatch(t);
+        const h = await bluewatch(t, legacy ? { st: { chat: structuredClone(fixture.chat), extensionSettings: structuredClone(fixture.extensionSettings) } } : {});
+        const before = new Set(h.q('director.threads', {}).map(row => row.id));
         const p = createPicker(seed);
         const replies = () => h.ctx.chat.map((message, index) => ({ message, index })).filter(({ message }) => !message.is_user && message.extra?.storySuite?.ops?.length);
         for (let n = 0; n < steps; n += 1) {
@@ -79,11 +83,13 @@ async function run(t, seed, steps) {
         seen.trainers += Object.keys(h.head().domains.training.offers ?? {}).length;
         seen.done += h.q('director.threads', {}).filter(row => row.rpg?.state === 'done').length;
         for (const id of Object.keys(offersOf(rules))) assert.ok(h.q('director.thread', { id }), `record ${id} has its thread`);
-        for (const thread of h.q('director.threads', {}).filter(row => row.rpg && row.rpg.template.includes('/open-'))) assert.ok(offersOf(rules)[thread.id], `${thread.key} has its record`);
+        for (const thread of h.q('director.threads', {}).filter(row => row.rpg && row.rpg.template.includes('/open-') && !before.has(row.id))) assert.ok(offersOf(rules)[thread.id], `${thread.key} has its record`);
     });
 }
 
 for (const seed of [11, 12, 13]) test(`fuzz: offers, acceptances, turn-ins, Re-reads, swipes and deletes keep replay equal to live (seed ${seed})`, async t => run(t, seed, 18));
+
+for (const seed of [21, 22, 23]) test(`fuzz from a chat recorded on 2.2.0 (no map of offers in its pin): the same properties hold (seed ${seed})`, async t => run(t, seed, 18, { legacy: true }));
 
 test('the fuzz reached offers, teachers, far-out lines and a finished job (it is not running on nothing)', () => {
     assert.ok(seen.offers > 0 && seen.trainers > 0 && seen.declined > 0, JSON.stringify(seen));
