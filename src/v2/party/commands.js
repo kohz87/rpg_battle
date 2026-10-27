@@ -21,7 +21,7 @@ import { exportCharacter, originIds, readCharacter } from './portable.js';
 import { defineItem } from '../items/define.js';
 import { sessionOf } from '../combat/stored.js';
 import { filledBy, fitActor, fitParty, fitPool, storedPool } from './pools.js';
-import { foldStoryTime, restWanted } from './recovery.js';
+import { foldStoryTime, restTime } from './recovery.js';
 import { actorFrom, actorsInOrder, attempt, cleanName, cleanRole, fail, nameKey, newId, offersRecord, revOf, waitingOffers } from './util.js';
 import { startRulesClass } from '../progress/start.js';
 import { rulesFightResult } from '../death/fight.js';
@@ -459,13 +459,11 @@ const gains = (record, result) => {
 const gainText = gain => [gain.hp ? `HP +${gain.hp}` : '', gain.mp ? `MP +${gain.mp}` : '', gain.sp ? `SP +${gain.sp}` : ''].filter(Boolean).join(', ');
 
 /**
- * party.rest { kind: 'short' | 'long', actors?: [ids], reason? }: v1 recovery.rest for each
- * member, max HP/MP/SP first recomputed with what they wear now (their equipped inventory
- * stacks): a short rest gives back rules.recovery.shortRestShare, a long one fills everything
- * and ends fight conditions; any rest fills stamina. What it fills is stored as full ("restore to
- * full", pools.js), so a replay after an earlier reply was deleted still finds the member rested.
- * Story time is folded in first (recovery.js); a short rest then gives only what its share adds beyond
- * what that time gave (v1 restAfter: one stretch of time, not two).
+ * party.rest { kind: 'short' | 'long', actors?: [ids], reason? }. With Story Director's clock a rest needs the hours (recovery.js restTime) and heals what they give under the
+ * recovery formula, whatever the switch of passive recovery says, and the same hours once (foldStoryTime with `force`): a share of max for each whole hour, all of it from `longRestHours`
+ * (a long rest also fills what the hours would, as the fold does). Without a clock it is v1 recovery.rest for each member, max HP/MP/SP first recomputed with what they wear now (their
+ * equipped inventory stacks): a short rest gives back rules.recovery.shortRestShare, a long one fills everything and ends fight conditions; any rest fills stamina. What it fills is stored as
+ * full ("restore to full", pools.js), so a replay after an earlier reply was deleted still finds the member rested. Story time is folded in first (v1 restAfter: one stretch of time, not two).
  */
 function rest(ctx, payload = {}) {
     const party = ctx.draft('party');
@@ -480,35 +478,44 @@ function rest(ctx, payload = {}) {
     const ids = asked.filter(id => !isDead(party.actors[id]));
     if (!ids.length) fail(ctx, 'REFUSED', `${listNames(asked.map(id => party.actors[id].name))} ${asked.length === 1 ? 'is' : 'are'} dead: no rest brings the dead back.`);
     if (storyMinute(ctx) === null) fail(ctx, 'CLOCK_UNSET', 'Set the story time before taking a rest.');
-    // Whatever asks for it, a rest needs the hours (recovery.js restWanted); a `! rest` line has been told so already and the narrator has its notice.
-    const wanted = restWanted(ctx, kind, rules, { unsettled: 'allow' });
-    if (wanted) {
-        const hours = wanted.needed / 60;
-        fail(ctx, 'REFUSED', `A ${kind} rest needs ${hours} hour${hours === 1 ? '' : 's'} of story time to pass first${wanted.moved ? ` (${Math.round(wanted.moved / 60 * 10) / 10} have)` : ''}. Write the time (! time +${kind === 'long' ? hours + 2 : hours}h), then rest.`);
+    // Whatever asks for it, a rest needs the hours (recovery.js restTime); a `! rest` line has been told so already and the narrator has its notice.
+    const time = restTime(ctx, kind, rules);
+    if (time?.short) {
+        const hours = time.needed / 60;
+        fail(ctx, 'REFUSED', `A ${kind} rest needs ${hours} hour${hours === 1 ? '' : 's'} of story time to pass first${time.moved ? ` (${Math.round(time.moved / 60 * 10) / 10} have)` : ''}. Write the time (! time +${kind === 'long' ? hours + 2 : hours}h), then rest.`);
     }
-    const timeFold = foldStoryTime(ctx);
+    // With the clock a rest heals what the hours of its reply give (the formula of passive recovery: a share of max for each whole hour, all of it from `longRestHours`), whatever the switch of passive
+    // recovery says, and the same hours only once: what an earlier heal of this reply already took is not taken again. Without a clock it is v1's rest.
+    const timeFold = time ? foldStoryTime(ctx, { force: true, since: time.start }) : foldStoryTime(ctx);
     const inventory = readInventory(ctx);
     const parts = [];
     const data = {};
     for (const id of ids) {
         const actor = party.actors[id];
-        const sheet = toSheet(actor);
-        const gear = wornGear((name, args) => ctx.query(name, args), inventory, id, { pc: party.pc });
-        const already = timeFold?.gains?.[id] ?? null;
-        const rested = already ? restAfter(sheet, kind, { gear, rules, already }) : restV1(sheet, kind, { gear, rules });
-        // Any rest ends what a fight left (a bleed with rounds to go, B-c1-1); a story's condition waits for a long one.
-        const next = { ...rested, conditions: (rested.conditions ?? []).filter(entry => !Number.isInteger(entry.rounds)) };
-        const after = writeSheet(ctx, party, actor, next, rules, { filled: filledBy(kind) });
-        const gain = gains(actor, after);
-        data[id] = gain;
-        const text = gainText(gain);
+        let after = actor;
+        if (time) {
+            // The hours were folded in above, for everyone alive; any rest also ends what a fight left (a bleed with rounds to go, B-c1-1); a story's condition waits for a long one.
+            actor.conditions = (actor.conditions ?? []).filter(entry => !Number.isInteger(entry.rounds));
+            data[id] = timeFold?.gains?.[id] ?? { hp: 0, mp: 0, sp: 0 };
+        } else {
+            const sheet = toSheet(actor);
+            const gear = wornGear((name, args) => ctx.query(name, args), inventory, id, { pc: party.pc });
+            const already = timeFold?.gains?.[id] ?? null;
+            const rested = already ? restAfter(sheet, kind, { gear, rules, already }) : restV1(sheet, kind, { gear, rules });
+            // Any rest ends what a fight left (a bleed with rounds to go, B-c1-1); a story's condition waits for a long one.
+            const next = { ...rested, conditions: (rested.conditions ?? []).filter(entry => !Number.isInteger(entry.rounds)) };
+            after = writeSheet(ctx, party, actor, next, rules, { filled: filledBy(kind) });
+            data[id] = gains(actor, after);
+        }
+        const text = gainText(data[id]);
         if (text) parts.push(`${actor.name} ${text}`);
     }
     const reason = String(payload.reason ?? '').trim().slice(0, 120);
     const head = `The party takes a ${kind} rest${reason ? ` (${reason})` : ''}`;
-    // The hours of the same reply were folded in first: when they healed someone and the rest has nothing left to add, it must not say nobody needed it.
-    const hoursHealed = Object.values(timeFold?.gains ?? {}).some(gain => (gain?.hp ?? 0) > 0 || (gain?.mp ?? 0) > 0 || (gain?.sp ?? 0) > 0);
-    const nothing = hoursHealed ? `${head}. The hours that passed had already healed everyone.` : `${head}. Nobody needed it.`;
+    // The hours of the reply were taken before this rest (a wound or an item of the same reply folds them in first, or a rest before this one): nothing was left for it to give, which is not
+    // "nobody needed it"; nor does it say they healed everyone, for what the first fold gave is in its own receipt.
+    const taken = time && !timeFold;
+    const nothing = taken ? `${head}. The hours of this reply were already counted: nothing was left to heal.` : `${head}. Nobody needed it.`;
     return { summary: parts.length ? `${head}: ${parts.join('; ')}.` : nothing, data: { kind, gains: data }, narrate: true };
 }
 

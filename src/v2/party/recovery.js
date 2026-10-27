@@ -114,10 +114,11 @@ function fightOf(ctx) {
  * party part's settings): the heals party.recover makes, done in place so a wound, rest, item or
  * fight right after starts from the healed numbers. Nothing when the feature is off, there is no
  * clock or no character, or there is nothing to do; with `markOnly` while it is off, only `rested`
- * moves on. → { plan, gains: { [actor]: { hp, mp, sp } } } | null.
+ * moves on. `force` (a rest): the hours since the start of the reply (`since`, or `rested` if that is later) heal whatever the switch of passive recovery says, and whatever of them an earlier
+ * fold of the same reply took is not taken twice (`rested` has moved past it). → { plan, gains: { [actor]: { hp, mp, sp } } } | null.
  */
-export function foldStoryTime(ctx, { markOnly = false } = {}) {
-    const off = !recoveryOn(ctx);
+export function foldStoryTime(ctx, { markOnly = false, force = false, since = null } = {}) {
+    const off = !force && !recoveryOn(ctx);
     if (off && !markOnly) return null;
     const minutes = clockFrom(typeof ctx?.query === 'function' ? (name, args) => ctx.query(name, args) : null);
     if (minutes === null) return null;
@@ -129,7 +130,9 @@ export function foldStoryTime(ctx, { markOnly = false } = {}) {
     }
     if (!party?.pc) return null;
     const rules = rulesFrom(settingsOf(typeof ctx.settings === 'function' ? ctx.settings() : null), rulesSliceOf(ctx));
-    const plan = planRecovery(party, minutes, { fight: Boolean(fightOf(ctx)), off, rules });
+    // A rest folds from the start of its reply: the minutes of earlier replies that waited for an hour (recovery.js, header) are not its hours.
+    const from = force && Number.isInteger(since) ? Math.max(since, Number.isInteger(party.rested) ? party.rested : since) : null;
+    const plan = planRecovery(from === null ? party : { rested: from }, minutes, { fight: !force && Boolean(fightOf(ctx)), off, rules });
     if (!plan) return null;
     const draft = ctx.draft('party');
     draft.rested = plan.rested;
@@ -207,24 +210,48 @@ export function recoveryBeforeReply(view, info = {}) {
 const HOUR = 60;
 
 /**
- * What a rest needs, whatever asks for it (a `! rest` line, the party.rest command): with Story Director's clock, the story time to pass: `longRestHours` (6; `rules.recovery`) for a long
- * rest and an hour for a short one (the smallest stretch story time gives anything back for; v1 and DESIGN §8.5 give a short rest no length). The time passed is the clock now less the
- * clock when story time was last settled (Story Director's `time.overdue`): the start of the reply, since a time line settles as it moves the clock. Story Director answering null has
- * settled nothing yet (the first reply of a chat that started its clock), so nothing has passed (`unsettled: 'allow'`: the rest goes on, for a command no reply asks, where Story Block's matrix
- * runs `party.rest` on a fresh chat). It does not depend on the switch of passive recovery (`rpg-battle.recovery`): the rest is the
- * clock's. Without a clock, or with a Story Director that cannot say, the rest is as it always was. -> null when the rest may go on, else `{ needed, moved }` in story minutes.
+ * The clock when the reply began, before Story Director has settled anything (the reply in which the clock first existed: it is set by a cue that runs after RPG Battle's, so nothing of ours marked
+ * it): the clock when the reply's first Director line was read (`director.turn.now.from`) or the mark recovery keeps (`party.rested`), the earlier of the two; with neither, now (nothing is known to
+ * have passed, so nothing has).
  */
-export function restWanted(ctx, kind, rules, { unsettled = 'nothing' } = {}) {
+function firstStart(ctx, now) {
+    const marks = [];
+    try {
+        const slot = ctx.read('director')?.turn?.now;
+        const from = (Array.isArray(slot) ? slot[0] : slot)?.from;
+        if (Number.isInteger(from)) marks.push(from);
+    } catch { /* no mark of Story Director's */ }
+    const rested = ctx.read('party')?.rested;
+    if (Number.isInteger(rested)) marks.push(rested);
+    const usable = marks.filter(minute => minute <= now);
+    return usable.length ? Math.min(...usable) : now;
+}
+
+/**
+ * The story time a rest has behind it, whatever asks for it (a `! rest` line, the party.rest command), with Story Director's clock: `{ needed, moved, start, short }` in story minutes, or
+ * null when the rest is as it always was (no clock, or a Story Director that cannot say). `needed` is `longRestHours` (6; `rules.recovery`) for a long rest and an hour for a short one (the smallest
+ * stretch story time gives anything back for; v1 and DESIGN §8.5 give a short rest no length). `moved` is the clock now less the clock at the start of the reply: Story Director's `time.overdue` (the
+ * clock when story time was last settled, which is the start of the reply, since a time line settles as it moves the clock). Before it has settled anything (the first reply of a chat) it is the
+ * mark recovery keeps (`party.rested`, set from the clock when the reply began); with neither, nothing is known to have passed, so nothing has: no rest is free. `short`: the reply did not move the
+ * clock `needed` minutes. It does not depend on the switch of passive recovery (`rpg-battle.recovery`): the rest is the clock's.
+ */
+export function restTime(ctx, kind, rules) {
     const query = (name, args) => ctx.query(name, args);
     const now = clockFrom(query);
     if (now === null) return null;
     let start = null;
     try {
         const settled = query('time.overdue', {});
-        start = settled === null ? (unsettled === 'nothing' ? now : null) : settled?.minutes;
+        start = settled === null ? firstStart(ctx, now) : settled?.minutes;
     } catch { start = null; }
     if (!Number.isInteger(start)) return null;
     const needed = kind === 'long' ? Math.max(HOUR, Math.round((rules?.recovery?.longRestHours ?? 6) * HOUR)) : HOUR;
     const moved = Math.max(0, now - start);
-    return moved >= needed ? null : { needed, moved };
+    return { needed, moved, start, short: moved < needed };
+}
+
+/** `{ needed, moved }` in story minutes when the reply did not move the clock far enough for the rest (restTime), else null (the rest may go on). */
+export function restWanted(ctx, kind, rules) {
+    const time = restTime(ctx, kind, rules);
+    return time?.short ? { needed: time.needed, moved: time.moved } : null;
 }

@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { seeded } from '../integration/helpers/host.js';
-import { bluewatch, lastTail } from '../quests/helpers/bluewatch.js';
+import { bluewatch, lastTail, ok } from '../quests/helpers/bluewatch.js';
 import { restsOf } from '../../../src/v2/rules/offers.js';
 
 const fixture = JSON.parse(readFileSync(new URL('../quests/fixtures/pinned-2.2.0.json', import.meta.url), 'utf8'));
@@ -207,7 +207,7 @@ test('a place with markup, a control character or 500 characters in its name is 
 
 const restReceipts = h => h.sdk.receipts().map(entry => entry.receipt).filter(receipt => receipt.type === 'capture.rest');
 
-test('a long rest in the reply that moved the clock eight hours: the hours healed everyone first, and the receipt does not say nobody needed it', async t => {
+test('a long rest in the reply that moved the clock eight hours heals what the hours give, and says what it healed', async t => {
     await seeded(9208, async () => {
         const h = await bluewatch(t);
         await wounded(h);
@@ -215,10 +215,25 @@ test('a long rest in the reply that moved the clock eight hours: the hours heale
         assert.equal(hp(h), max(h));
         const [receipt] = restReceipts(h).slice(-1);
         assert.doesNotMatch(receipt.summary, /Nobody needed/);
-        assert.equal(receipt.summary, 'The party takes a long rest (a night at the inn). The hours that passed had already healed everyone.');
+        assert.match(receipt.summary, /^The party takes a long rest \(a night at the inn\): Ren HP \+\d+/);
         assert.equal(receipt.narrate, true);
-        assert.ok(Object.values(receipt.data.gains).every(gain => gain.hp === 0 && gain.mp === 0 && gain.sp === 0), 'the numbers are as they were');
+        assert.ok(Object.values(receipt.data.gains).some(gain => gain.hp > 0), 'the numbers are the hours\'');
         await agree(h, 'rest after the hours');
+    });
+});
+
+test('the hours of a reply are taken once: a heal of the same reply that took them first leaves the rest nothing, and the receipt says so instead of "nobody needed it"', async t => {
+    await seeded(9216, async () => {
+        const h = await bluewatch(t);
+        await h.say('Ren is hurt.', ['~ wound Ren — fell from the wall | harm: severe']);
+        const hurt = hp(h);
+        // The time first, then a second wound (which folds the hours in before it lands), then the rest: the eight hours are spent.
+        await h.say('The night passes.', ['! time +8h', '~ wound Ren — a rotten step | harm: wound', '! rest long — a night at the inn']);
+        const [receipt] = restReceipts(h).slice(-1);
+        assert.equal(receipt.summary, 'The party takes a long rest (a night at the inn). The hours of this reply were already counted: nothing was left to heal.');
+        assert.ok(hp(h) < max(h), 'the night healed the first wound before the second landed, and the rest is not a second night');
+        assert.ok(hp(h) > hurt - 1000);
+        await agree(h, 'taken');
     });
 });
 
@@ -312,15 +327,133 @@ test('sixty refused rests: every one is recorded and told, and the log shows the
     });
 });
 
-test('the party.rest command on a chat where Story Director has settled no time yet goes on (Story Block\'s matrix runs it so); the line of the story does not', async t => {
+test('the party.rest command on a chat where Story Director has settled no time yet is refused like the line: no time has passed, so nothing is healed', async t => {
     await seeded(9215, async () => {
         const h = await bluewatch(t, { start: false });
         await h.say('Bluewatch at dawn.', ['~ place Bluewatch Village | kind: settlement', '~ wound Ren — fell from the wall | harm: severe']);
         assert.equal(h.q('time.overdue', {}), null, 'nothing settled');
         const hurt = hp(h);
         assert.ok(hurt < max(h));
-        const out = await h.sdk.command('party.rest', { kind: 'short' });
-        assert.equal(out.ok, true, out.message);
-        assert.ok(hp(h) > hurt);
+        const before = JSON.stringify(h.head().domains.party);
+        for (const kind of ['short', 'long']) {
+            const out = await h.sdk.command('party.rest', { kind });
+            assert.equal(out.ok, false, kind);
+            assert.equal(out.code, 'REFUSED');
+        }
+        assert.equal(hp(h), hurt);
+        assert.equal(JSON.stringify(h.head().domains.party), before, 'nothing changed');
+    });
+});
+
+// ---- the first reply of a chat: the clock is set in it ---------------------------------------------------------------------------
+
+test('a rest in the first reply that moved the clock the hours it needs heals them, whatever the order of the lines; with no hours written, nothing', async t => {
+    for (const [seed, lines, healed] of [
+        [9217, ['~ wound Ren — fell | harm: severe', '! time +8h', '! rest long — a night'], true],
+        [9218, ['! time +8h', '~ wound Ren — fell | harm: severe', '! rest long — a night'], false],
+        [9219, ['~ place Bluewatch Village | kind: settlement', '~ wound Ren — fell | harm: severe', '! rest long — a night'], false],
+    ]) {
+        await seeded(seed, async () => {
+            const h = await bluewatch(t, { start: false });
+            await h.say('Dawn.', lines);
+            assert.deepEqual(h.turn.problems().filter(problem => /rest/i.test(JSON.stringify(problem))), []);
+            assert.equal(hp(h) === max(h), healed, `${lines.join(' / ')}: ${hp(h)}/${max(h)}`);
+            // The hours were written after the wound in the second case, so they came and went before anyone was hurt: no night after the wound; the third wrote none.
+            assert.equal(Object.keys(restsOf(h.head().domains.rules)).length, seed === 9219 ? 1 : 0);
+            await agree(h, `first reply ${seed}`);
+        });
+    }
+});
+
+test('a rest in the first reply with a time that only sets the date (no hours written) heals nobody', async t => {
+    await seeded(9220, async () => {
+        const h = await bluewatch(t, { start: false });
+        await h.say('Dawn.', ['~ time CY 611, Goldwane 12, 08:00 am', '~ wound Ren — fell | harm: severe', '! rest long — a night']);
+        assert.ok(hp(h) < max(h));
+        assert.equal(Object.keys(restsOf(h.head().domains.rules)).length, 1);
+    });
+});
+
+// ---- the same hours are not paid twice ---------------------------------------------------------------------------------------------
+
+test('passive recovery and a rest in the same reply give what the hours give once: the same as the hours alone', async t => {
+    const run = async (seed, lines, settings) => seeded(seed, async () => {
+        const h = await bluewatch(t, settings ? { settings } : {});
+        await wounded(h);
+        await h.say('Hours pass.', lines);
+        await h.say('Quiet.');
+        return hp(h);
+    });
+    // Two hours: the hours alone (passive recovery folds them before the next reply) and with a short rest or a long one asked for: the rest is the hours' formula, nothing more.
+    const alone = await run(9221, ['! time +2h']);
+    assert.equal(await run(9221, ['! time +2h', '! rest short — a breather']), alone, 'a short rest after two hours');
+    assert.equal(await run(9221, ['! time +2h', '! rest long']), alone, 'a long rest after two hours is refused and the hours stand');
+    // With passive recovery off the rest is what gives the hours back; with it on the rest finds them already given or gives them itself.
+    const rest = await run(9222, ['! time +2h', '! rest short — a breather'], NO_RECOVERY);
+    assert.equal(rest, alone, 'the rest heals what the hours give, switch or not');
+    assert.ok(alone > 0);
+});
+
+test('two rests in one reply (the line, then the command) take the hours once; so do two commands after the reply', async t => {
+    await seeded(9223, async () => {
+        const h = await bluewatch(t);
+        await wounded(h);
+        await h.say('An hour.', ['! time +1h', '! rest short — a breather']);
+        const once = hp(h);
+        assert.ok(once > 0);
+        const again = await h.sdk.command('party.rest', { kind: 'short' });
+        assert.equal(again.ok, true, again.message);
+        assert.equal(hp(h), once, 'the same hour pays one rest');
+        assert.match(again.receipt.summary, /already counted|already healed/);
+        const third = await h.sdk.command('party.rest', { kind: 'short' });
+        assert.equal(hp(h), once);
+        assert.equal(third.ok, true);
+        await agree(h, 'rests');
+    });
+});
+
+test('one hour pays one short rest, however it is asked for: 60 commands heal as one', async t => {
+    await seeded(9224, async () => {
+        const h = await bluewatch(t);
+        await wounded(h);
+        await h.say('An hour.', ['! time +1h']);
+        const first = await h.sdk.command('party.rest', { kind: 'short' });
+        assert.equal(first.ok, true, first.message);
+        const once = hp(h);
+        for (let n = 0; n < 60; n += 1) assert.equal((await h.sdk.command('party.rest', { kind: 'short' })).ok, true);
+        assert.equal(hp(h), once);
+        const sibling = await bluewatch(t);
+        await wounded(sibling);
+        await sibling.say('An hour.', ['! time +1h']);
+        await sibling.say('Quiet.');
+        assert.equal(hp(sibling), once, 'the rest healed what the hour gives passively');
+    });
+});
+
+// ---- a fight over midnight --------------------------------------------------------------------------------------------------------
+
+test('hours that pass while a fight has the party pay no rest, across midnight too: the rest in the fight is refused, and the rest after the fight needs hours of its own', async t => {
+    await seeded(9225, async () => {
+        const h = await bluewatch(t);
+        await h.say('Dusk.', ['~ time CY 611, Goldwane 12, 11:00 pm']);
+        await wounded(h);
+        await h.say('They attack.', ['! encounter 2 Rats | like: cellar-rat-swarm | tier: trivial']);
+        ok(await h.sdk.command('combat.start', { offer: h.q('combat.offers').at(-1).id }));
+        const hurt = hp(h);
+        await h.say('A long night of fighting.', ['! time +8h', '! rest long — in the middle of it']);
+        assert.equal(hp(h), hurt, 'no rest in the middle of a fight');
+        assert.ok(h.turn.problems().some(problem => /fight/i.test(JSON.stringify(problem))), 'the line is a Problem');
+        assert.deepEqual(Object.keys(restsOf(h.head().domains.rules)), [], 'it was not a rest the clock refused');
+        for (let n = 0; n < 300; n += 1) {
+            const session = h.q('combat.session');
+            if (!session || session.status !== 'active') break;
+            ok(await h.sdk.command('combat.act', { action: { type: 'auto' }, session: session.id, board: session.board }));
+        }
+        ok(await h.sdk.command('combat.end', { session: h.q('combat.session').id }));
+        await h.say('Morning.', ['~ wound Ren — a stiff neck | harm: wound', '! rest long — in the morning']);
+        assert.equal(Object.keys(restsOf(h.head().domains.rules)).length, 1, 'the rest after the fight, with no hours of its own, was refused');
+        await h.say('Quiet.');
+        assert.ok(lastTail(h).split('\n').includes(NIGHT), lastTail(h));
+        await agree(h, 'fight');
     });
 });
