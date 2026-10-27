@@ -98,7 +98,7 @@ and [SPEC](https://github.com/kohz87/Story_block/blob/main/docs/v2/SPEC.md).
 
 ## How quests and trainers work
 
-In a chat pinned to a rules pack that has **open quest templates** (Ersveil: Bluewatch Starter 1.6.0 has them, and open trainer templates), the narrator can offer a job or a teacher in its own words. The rules block it is shown says how:
+In a chat pinned to a rules pack that has **open quest templates** (and open trainer templates), the narrator can offer a job or a teacher in its own words. **Ersveil 1.0.0**, bundled with Story Block 2.5.1, is written for this: its generative-offer templates carry an `offerType`, count bounds and rank XP. (Ersveil: Bluewatch Starter 1.6.0, the example pack before it, had them too; this repository's tests still play it as a fixture.) The rules block it is shown says how:
 
 ```
 + quest Cellar Trouble | giver: the innkeeper | type: cull | goal: kill 4 rats in the cellar | reward: 5 silver | due: in 2 days | difficulty: easy
