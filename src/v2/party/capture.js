@@ -15,7 +15,7 @@ import { DEFAULT_TERMS, parseLevelLabel, maxLevel, termsOf } from '../../terms.j
 import { fromSheet, rulesFrom, rulesSliceOf, settingsOf, toSheet } from './sheets.js';
 import { COMPANION_LEVELS_ABOVE, addOffer, fightOn, handlers } from './commands.js';
 import { clipped } from '../lines.js';
-import { foldStoryTime } from './recovery.js';
+import { clockFrom, foldStoryTime, recoveryOn } from './recovery.js';
 import { presetFor } from './formula.js';
 import { MAX_LABEL, cleanName, cleanRole, fail, labelsOf, nameKey, replyOf, resolveName, waitingOffers } from './util.js';
 
@@ -173,7 +173,27 @@ function applySkill(ctx, line) {
     return { summary: `${actor.name} could learn ${offer.skill}${taughtBy ? ` from ${taughtBy}` : ''}.`, data: { offer: offer.id, actor: actor.id, skill: offer.skill }, narrate: false };
 }
 
-/** `! rest long — a night at the inn` → party.rest; one rest a reply (B1-3: the rest is narrated). */
+const HOUR = 60;
+
+/**
+ * With Story Director's clock, a rest the story writes needs the time to pass in the same reply: `longRestHours` (6; `rules.recovery`) for a long rest and an hour
+ * for a short one (the smallest stretch story time gives anything back for; v1 and DESIGN §8.5 give a short rest no length). The reply's movement is the clock now less
+ * the clock when story time was last settled, which is the start of this reply (Story Director's `time.overdue`). Without a clock, with recovery off, or when the start
+ * cannot be told (a first reply), the rest is as it always was. → null when the rest may go on, else `{ needed, moved }` in story minutes.
+ */
+function restWanted(ctx, kind, rules) {
+    if (!recoveryOn(ctx)) return null;
+    const query = (name, args) => ctx.query(name, args);
+    const now = clockFrom(query);
+    let start = null;
+    try { start = query('time.overdue', {})?.minutes; } catch { start = null; }
+    if (now === null || !Number.isInteger(start)) return null;
+    const needed = kind === 'long' ? Math.max(HOUR, Math.round((rules?.recovery?.longRestHours ?? 6) * HOUR)) : HOUR;
+    const moved = Math.max(0, now - start);
+    return moved >= needed ? null : { needed, moved };
+}
+
+/** `! rest long — a night at the inn` → party.rest; one rest a reply (B1-3: the rest is narrated); with a story clock, only when the reply moved it far enough. */
 function applyRest(ctx, line) {
     const labels = labelsOf(line);
     const word = `${line.name ?? ''} ${labels.kind ?? ''} ${line.text ?? ''}`.toLowerCase();
@@ -181,6 +201,20 @@ function applyRest(ctx, line) {
     if (!kind) fail(ctx, 'INVALID', 'A rest is short or long.');
     const reply = replyOf(ctx, line);
     if (reply !== null && !ctx.claim(`rest:${reply}`)) fail(ctx, 'CLAIMED', 'The party already rested in this reply.');
+    const rules = rulesFor(ctx);
+    const short = restWanted(ctx, kind, rules);
+    if (short) {
+        // Nobody rests, and the narrator is told once what a rest needs; the decision is kept with the reply for the Adjustments log (pinned chats keep that log).
+        const hours = kind === 'long' ? Math.round(short.needed / HOUR) + 2 : 1;
+        const summary = kind === 'long' ? `A long rest needs the night to pass, e.g. ! time +${hours}h.` : `A short rest needs an hour to pass, e.g. ! time +${hours}h.`;
+        let rest = null;
+        if (ctx.source && ctx.read('rules')?.pin) {
+            rest = `rs_${ctx.hash({ rest: ctx.source.sid }).slice(0, 12)}`;
+            const said = { kind, ...(String(line.text ?? '').trim() ? { text: String(line.text).trim().slice(0, 200) } : {}) };
+            try { if (ctx.call('rules.recordOffer', { write: `wr_${ctx.hash({ source: ctx.source, writer: 'rest' }).slice(0, 8)}`, rest, record: { v: 1, sid: ctx.source.sid, kind, needed: short.needed, moved: short.moved, said } })?.ok === false) rest = null; } catch { rest = null; }
+        }
+        return { summary, narrate: true, data: { kind, rest: 'refused', needed: short.needed, moved: short.moved, ...(rest ? { record: rest } : {}) } };
+    }
     return handlers.rest(ctx, { kind, reason: line.text ?? '' });
 }
 

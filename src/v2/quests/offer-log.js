@@ -4,8 +4,8 @@
 // only the terms that changed (three at most), and behind a details element what the narrator wrote and the notes. Pure: it reads the state and the receipts.
 
 import { flat } from './offer-bands.js';
-import { minutesOf } from './offer-words.js';
-import { declinedOf, offersOf } from '../rules/offers.js';
+import { durationText, minutesOf } from './offer-words.js';
+import { declinedOf, offersOf, restsOf } from '../rules/offers.js';
 
 export const LOG_LIMIT = 50;
 const KIND_WORDS = Object.freeze({ kill: 'Hunt', collect: 'Delivery', story: 'Task', visit: 'Journey' });
@@ -55,7 +55,7 @@ export function adjustments(state, args = {}, tools) {
     const receipts = new Map();
     for (const entry of tools?.receipts?.() ?? []) {
         const data = (entry.receipt ?? entry)?.data;
-        for (const id of [data?.quest, data?.declined, data?.trainer]) if (typeof id === 'string' && Number.isInteger(entry.index)) receipts.set(id, entry.index);
+        for (const id of [data?.quest, data?.declined, data?.trainer, data?.record]) if (typeof id === 'string' && Number.isInteger(entry.index)) receipts.set(id, entry.index);
     }
     const out = [];
     for (const [id, record] of Object.entries(offersOf(state?.domains?.rules))) {
@@ -80,6 +80,13 @@ export function adjustments(state, args = {}, tools) {
             became: [cap(said.type) || (record.kind === 'teacher' ? 'Teacher' : 'Job'), said.goal ?? said.text, said.reward ?? said.fee, 'not offered'].filter(Boolean).join(' · '),
             changes: [], dropped: `${shortReason(record.reason)}. The narrator was told once.`, wrote: wroteText(said, record.kind === 'teacher' ? 'text' : 'goal'),
             notes: [record.reason, `Told once: “…offer ${record.suggestion}.”`], where: '' }, receipts));
+    }
+    // A rest the story wrote that the reply's time did not pay for: nobody rested (party/capture.js restWanted).
+    for (const [id, record] of Object.entries(restsOf(state?.domains?.rules))) {
+        const word = record.kind === 'long' ? 'Long rest' : 'Short rest';
+        out.push(row({ id, kind: 'rest', name: word, band: 'dropped', bandLabel: 'Dropped', became: `${word} · not taken`, changes: [],
+            dropped: `The reply moved the clock ${record.moved ? durationText(record.moved) : 'not at all'}; a ${record.kind} rest needs ${durationText(record.needed)}. The narrator was told once.`,
+            wrote: wroteText(record.said ?? {}, 'goal'), notes: [`${durationText(record.needed)} needed, ${record.moved ? durationText(record.moved) : 'none'} passed`], where: '' }, receipts));
     }
     const rows = out.sort((a, b) => (b.reply ?? -1) - (a.reply ?? -1) || (a.id < b.id ? 1 : -1)).slice(0, limit);
     return { count: rows.length, rows };
