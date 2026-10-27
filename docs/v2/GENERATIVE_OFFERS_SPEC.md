@@ -863,12 +863,16 @@ SB `node authoring-kit/check.mjs examples/packs/ersveil-bluewatch/pack.json`, `n
   same reply that took them first (passive recovery, a wound or an item) leaves a rest nothing, and a second rest nothing again. A rest that finds them taken says so. No clock: v1's rest, unchanged.
 - Promotion mastery: the pin's `constants.promotionMastery` (default and old pins `[5, 5, 5]`) is the mastery each skill needs for the promotions at 10, 20 and 30
   (`progress/offers.js` `masteryNeeded`); the checklist's `needed` is that of the open milestone.
-- The switch is on the chat's timeline, not on a line: `rules.mode` (`'free'` | `'strict'`, `rules/mode.js`) is the mode in force. It is written when the ruleset is pinned (the switch of that moment) and
-  changed by a `rules.mode` event, a system step kept on the reply at the head when the next reply is asked for (a new reply only: not a swipe, a Continue, a quiet or an impersonated one) and the switch is not what
-  the timeline says. A capture (`+ quest`, `+ trainer`, an `! encounter | like:` with a count) reads the mode in the state it runs on, which is the state at its reply's place: live, on a Re-read (edited or not),
-  on a rebuild and on a reload alike. No route records, line hashes or evidence from the state are kept. A chat pinned before 2.3.0 has no mode and reads as 2.2.0 (strict) up to its first event. The event goes
-  with the reply that holds it: delete, swipe and rebuild of other replies leave it, deleting that reply takes the toggle with it (the replies after it read in the mode before it) and the next reply asked for
-  compares the switch with the timeline again. The reader-facing parts (the rules block, settings, the queries and cards of the feature) follow the switch itself.
+- The switch's mode is a property of each reply (`rules/mode.js`), not of a toggle on the timeline. The first time a reply's capture reads a line the mode changes (`+ quest` that can be an offer, `+ trainer`,
+  an `! encounter | like:` with a count) with the switch on, the reply is stamped free: `mode.<ms_ id>` = `{ v: 1, sid, mode: 'free' }` in the rules slice, written by `rules.recordOffer` in the reply's own steps. A Re-read
+  of the reply, edited or not, goes by the stamp of the reply as it stands (`ctx.standing`) and writes it again; a rebuild and a reload replay the stored steps. A reply with no stamp is read strict, as 2.2.0 did
+  (it was read with the switch off, or recorded before 2.3.0, or had no such line; a strict reply writes nothing, because its line may fail and a failed line keeps no steps). A new reply takes the switch of its moment.
+  Deleting a reply takes its own stamp only, and no other reply's reading depends on it; no event, no cue and no state is kept between replies. A reply stamped free whose every such line failed keeps no stamp and a
+  Re-read of it reads strict. The reader-facing parts (the rules block, settings, the queries and cards of the feature) follow the switch itself.
+- Hours and damage: a `~ wound` spends the story time written before it (`foldStoryTime(ctx, { markOnly: true })`: it heals with passive recovery on, nothing with it off), so a rest heals a wound only by hours that passed
+  after it; a rest line cannot heal a wound written after it, since it acts at its place in the reply. The story hours that pass while a fight has the party are spent when the fight is settled (`combat.end` folds
+  with the fight still on the party), never healed afterwards. With the story clock a rest is the whole party's: `party.rest` with some members named is INVALID, every member it heals is in the receipt; without a clock
+  the targeted rest of 2.2.0 stays.
 - A rest's time rule is the clock's, not passive recovery's, and holds for the `party.rest` command and for a line of the story alike (`restTime`, `recovery.js`; no exception for a fresh clock: Story Block's matrix writes an
   hour of story time before the action that asks for a rest); refused-rest records have no count cap (one small record a reply, gone with it); a fight's uses are stamped with the story minute it ended at; a kill objective keeps up to its count in rows of evidence (`evidenceLimit`); a refused rest keeps its text and place as `flat()` text. Uses waiting for a credit are settled by a `beforeGenerate` cue on the reply at the head (as well
   as by afterCapture), so a reply with no change line no longer leaves them unpaid. A count in front of a named kind is any whole number 1 to 999 (a fight holds 54, the rest is cut and told).
