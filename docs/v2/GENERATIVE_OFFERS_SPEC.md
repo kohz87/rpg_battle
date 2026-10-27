@@ -858,4 +858,3 @@ SB `node authoring-kit/check.mjs examples/packs/ersveil-bluewatch/pack.json`, `n
   the Adjustments log. The reply's movement is the clock less the clock at the last settle (Story Director's `time.overdue`), so the time line goes first.
 - Promotion mastery: the pin's `constants.promotionMastery` (default and old pins `[5, 5, 5]`) is the mastery each skill needs for the promotions at 10, 20 and 30
   (`progress/offers.js` `masteryNeeded`); the checklist's `needed` is that of the open milestone.
-
