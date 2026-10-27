@@ -837,3 +837,7 @@ SB `node authoring-kit/check.mjs examples/packs/ersveil-bluewatch/pack.json`, `n
   not in 2.3.0 (A.10 kept); strict mode is a reader setting, not per chat.
 - Build order: Story Block 2.5.0 (SB-M1) first; then RPG Battle 2.3.0 (RB-M1 to RB-M5) and Studio ST-M1. Story Block 2.5.0
   and RPG Battle 2.3.0 ship together. Test on Node 24 (CI's version) as well as Node 22.
+- Template choice (§4.6) prefers the written type: among open templates of the decided kind and rank, the first in pack order
+  whose `offerType` equals the type read from the line (§3.2); else the first of that kind and rank as before; lower ranks and
+  the story fallback follow the same preference. `like:` is unchanged. Templates without `offerType` (all 2.2.0-era pins,
+  Bluewatch 1.6.0) behave exactly as before.

@@ -332,10 +332,13 @@ export function matchOffer(env, line) {
     const foeAbove = foe && rankIdx > partyIndex;
     const choose = () => {
         const order = [];
-        const sameKind = index => open.filter(template => rankIndex(ladder, template.rank) === index && kindOf(template) === jobKind);
+        // A template that names the written type (`offerType`) comes first among those of its kind and rank; the rest keep the pack's order. A pack without
+        // `offerType` (every 2.2.0-era pin) is read exactly as before.
+        const preferred = list => (type ? [...list.filter(template => template.offerType === type), ...list.filter(template => template.offerType !== type)] : list);
+        const sameKind = (index, wanted) => preferred(open.filter(template => rankIndex(ladder, template.rank) === index && kindOf(template) === wanted));
         if (liked && kindOf(liked) === jobKind) order.push(liked);
-        for (let index = rank; index >= 0; index -= 1) order.push(...sameKind(index));
-        for (let index = rank; index >= 0; index -= 1) order.push(...open.filter(template => rankIndex(ladder, template.rank) === index && kindOf(template) === 'story'));
+        for (let index = rank; index >= 0; index -= 1) order.push(...sameKind(index, jobKind));
+        for (let index = rank; index >= 0; index -= 1) order.push(...sameKind(index, 'story'));
         for (const template of order) {
             const checked = evaluateRequirements(template.requirements ?? [], env.inputs);
             if (checked.ok) return { template, waived: [] };
