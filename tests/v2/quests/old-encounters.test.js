@@ -1,6 +1,7 @@
-// Encounters recorded before routes were kept (fixtures/old-encounters-*.json, recorded by record-old-encounters.mjs on RPG Battle 2.2.0 and on ce3dbec) Re-read unchanged exactly as
-// they were first read, whatever the reader's switch says now and whether the pack has open quest templates: a named kind with a count in front ("3 Rats Of Doom | like: …") is how
-// many of them where it was read so, and one foe called "3 Rats Of Doom" where it was not. The way is derived from what the chat stored, never from today's setting.
+// Chats recorded before 2.3.0 (fixtures/old-encounters-*.json, recorded by record-old-encounters.mjs on RPG Battle 2.2.0, on ce3dbec and on 1617742) have no mode on their timeline: they
+// read as 2.2.0 did (strict) up to their first toggle event, whatever the reader's switch says now and whether the pack has open quest templates. A named kind with a count in front
+// ("3 Rats Of Doom | like: …") is one foe called "3 Rats Of Doom" there. A chat opens as it was recorded (its stored steps are replayed, nothing is read again); a Re-read of one of its
+// replies reads its lines in the mode at that reply, which is strict. The first reply asked for after the chat is opened records the switch as it stands, and from there on it is a chat of 2.3.0.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -19,6 +20,8 @@ const gist = (director, training, rules) => JSON.stringify({
     offers: Object.keys(rules).filter(key => key.startsWith('offer.')).sort(),
 });
 const lastText = h => JSON.stringify([h.head().domains.combat.last].flat().filter(Boolean).map(entry => entry.summary));
+const offerKeys = h => Object.keys(h.head().domains.rules).filter(key => key.startsWith('offer.'));
+const TEXTS = ['Rats, left on offer.', 'Plague rats, fought.', 'Rats in the cellar.', 'The river guild is owed.', 'Reka offers drills.'];
 
 async function opened(t, fixture, switchNow) {
     const settings = structuredClone(fixture.extensionSettings);
@@ -26,61 +29,66 @@ async function opened(t, fixture, switchNow) {
     return bluewatch(t, { st: { chat: structuredClone(fixture.chat), extensionSettings: settings } });
 }
 
+// [the RPG Battle it was recorded on, what it read, the fixture, whether it read freely when it was recorded]
 const CASES = [
-    ['ce3dbec', 'free', 'read with the count', 'ce3dbec-free'],
-    ['ce3dbec', 'strict', 'read as one foe, 2.2.0\'s way', 'ce3dbec-strict'],
-    ['ce3dbec', 'bare', 'read as one foe (the pack has no open quest template)', 'ce3dbec-bare'],
-    ['2.2.0', 'free', 'read as one foe, 2.2.0\'s way', '2.2.0-free'],
+    ['ce3dbec', 'free', 'ce3dbec-free', true],
+    ['ce3dbec', 'strict', 'ce3dbec-strict', false],
+    ['ce3dbec', 'bare (the pack has no open quest template)', 'ce3dbec-bare', false],
+    ['1617742', 'free (a route kept for each line)', '1617742-free', true],
+    ['2.2.0', 'free setting (but 2.2.0 reads no further than one foe)', '2.2.0-free', false],
 ];
 
-for (const [code, mode, what, file] of CASES) {
+for (const [code, what, file, freely] of CASES) {
     for (const switchNow of [true, false]) {
-        test(`${code} chat, ${mode}: its encounters (${what}) Re-read unchanged with the switch ${switchNow ? 'on' : 'off'} as they were first read`, async t => {
+        test(`${code} chat, ${what}: opens as recorded, and a Re-read of any of its replies reads it as 2.2.0 did, with the switch ${switchNow ? 'on' : 'off'}`, async t => {
             await seeded(9801, async () => {
                 const fixture = load(file);
-                assert.equal(fixture.recordedWith.rpgBattle, code);
-                assert.deepEqual(fixture.routes, [], 'recorded before routes were kept');
                 const h = await opened(t, fixture, switchNow);
                 assert.deepEqual(h.store.problems(), fixture.problems);
+                assert.equal(h.head().domains.rules.mode, undefined, 'a chat recorded before 2.3.0 has no mode on its timeline');
                 const held = { foes: foesOf(h), offers: names(h), beaten: beaten(h), last: lastText(h), combat: JSON.stringify(h.head().domains.combat) };
                 assert.deepEqual(held.offers, fixture.offers, 'the chat opens as recorded');
                 const gistNow = () => gist(h.head().domains.director, h.head().domains.training, h.head().domains.rules);
                 assert.equal(gistNow(), gist(fixture.director, fixture.training, Object.fromEntries(fixture.offerKeys.map(key => [key, 1]))), 'the chat opens as recorded');
-                let recorded = gistNow();
-                for (const text of ['Rats, left on offer.', 'Plague rats, fought.', 'Rats in the cellar.', 'The river guild is owed.', 'Reka offers drills.']) {
-                    assert.equal((await h.turn.reread(at(h, text))).ok, true, text);
-                    // A free-form offer that 2.2.0 and strict mode refused changed nothing: no route to keep, so a Re-read reads it afresh under the switch of the moment.
-                    if (text === 'The river guild is owed.' && fixture.offerKeys.length === 0) {
-                        assert.equal(Object.keys(h.head().domains.rules).some(key => key.startsWith('offer.')), switchNow && mode !== 'bare', `${text}: a line that did nothing is read afresh (where the pack has open templates)`);
-                        recorded = gistNow();
-                        continue;
-                    }
-                    assert.equal(gistNow(), recorded, `${text}: the quests, the teachers and the recorded offers`);
-                    assert.deepEqual(names(h), held.offers, `${text}: the offers`);
-                    assert.deepEqual(beaten(h), held.beaten, `${text}: the foes beaten`);
-                    assert.equal(lastText(h), held.last, `${text}: the result`);
-                    // The whole record, but for a chat of 2.2.0: its offer was balanced by the numbers of that day, and a Re-read balances it by today's (a foe's hit points differ by one).
-                    if (code === 'ce3dbec') assert.equal(JSON.stringify(h.head().domains.combat), held.combat, `${text}: the whole combat record`);
-                    else assert.deepEqual(foesOf(h), held.foes, `${text}: the foes, tiers and stakes`);
+                for (const text of TEXTS) assert.equal((await h.turn.reread(at(h, text))).ok, true, text);
+                assert.equal(h.head().domains.rules.mode, undefined, 'a Re-read records no mode');
+                // Every line is read as strict mode does: no count in front of a name, no offer record, no teacher settled by the story's words.
+                assert.ok(names(h).every(row => row.every(([name, count]) => count === 1 && !/^Rats Of Doom$/.test(name))), JSON.stringify(names(h)));
+                assert.deepEqual(offerKeys(h), []);
+                assert.ok(Object.values(h.head().domains.training.offers ?? {}).every(offer => offer.settled === undefined));
+                if (!freely) {
+                    // A chat that was strict all along is read again exactly as it was.
+                    assert.deepEqual(names(h), held.offers);
+                    assert.deepEqual(beaten(h), held.beaten);
+                    assert.equal(lastText(h), held.last);
+                    if (code === 'ce3dbec') assert.equal(JSON.stringify(h.head().domains.combat), held.combat, 'the whole combat record');
+                    else assert.deepEqual(foesOf(h), held.foes, 'the foes, tiers and stakes (a foe of 2.2.0 was balanced by that day\'s numbers)');
                 }
-                assert.deepEqual(h.store.problems(), fixture.problems);
+                // The same on a second Re-read: nothing moves.
+                const settled = JSON.stringify([gistNow(), names(h), beaten(h)]);
+                for (const text of TEXTS) assert.equal((await h.turn.reread(at(h, text))).ok, true, text);
+                assert.equal(JSON.stringify([gistNow(), names(h), beaten(h)]), settled);
             });
         });
     }
 }
 
-test('a Re-read of such a chat keeps the way for the next one: the route is kept now, and an edited line is read under the setting of the moment', async t => {
-    await seeded(9802, async () => {
-        const fixture = load('ce3dbec-strict');
-        const h = await opened(t, fixture, true);
-        const index = at(h, 'Rats, left on offer.');
-        assert.equal((await h.turn.reread(index)).ok, true);
-        assert.deepEqual(names(h), [[['3 Rats Of Doom', 1]]]);
-        assert.ok(Object.keys(h.head().domains.rules).some(key => key.startsWith('route.')), 'the route is kept now');
-        const message = h.ctx.chat[index];
-        message.mes = message.mes.replace('Rats Of Doom', 'Rats Of Ruin');
-        message.swipes[message.swipe_id] = message.mes;
-        assert.equal((await h.turn.reread(index)).ok, true);
-        assert.deepEqual(names(h), [[['Rats Of Ruin', 3]]], 'edited: read with the switch on');
-    });
+test('the first reply asked for after an old chat is opened records the switch as it stands; the old replies keep reading as strict, the new ones as the timeline says', async t => {
+    for (const switchNow of [true, false]) {
+        await seeded(9802, async () => {
+            const h = await opened(t, load('ce3dbec-free'), switchNow);
+            const counted = () => names(h).map(row => row.map(([name, count]) => `${count} ${name}`).join(', '));
+            await h.say('Rats again.', ['! encounter 3 Rats Of Doom | like: cellar-rat-swarm']);
+            // On: the first event of the chat. Off: nothing to record, the chat already reads strict.
+            assert.equal(h.head().domains.rules.mode, switchNow ? 'free' : undefined, 'the switch of the moment is on the timeline from the reply asked for');
+            assert.deepEqual(counted().at(-1), switchNow ? '3 Rats Of Doom' : '1 3 Rats Of Doom');
+            const kept = JSON.stringify(names(h));
+            // Old replies stay strict; the new one reads as it did.
+            assert.equal((await h.turn.reread(at(h, 'Rats, left on offer.'))).ok, true);
+            assert.deepEqual(counted().at(-1), switchNow ? '3 Rats Of Doom' : '1 3 Rats Of Doom');
+            assert.equal(names(h)[0].length, 1);
+            assert.equal(names(h).flat().filter(([name]) => name === 'Rats Of Doom').length, switchNow ? 1 : 0, kept);
+            assert.deepEqual(h.store.problems().filter(problem => /mode/i.test(JSON.stringify(problem))), []);
+        });
+    }
 });

@@ -7,6 +7,7 @@ import { registerPackDefs } from './items.js';
 import { buildGuard } from '../progress/guard.js';
 import { epochOf, isHash, isObject } from './ids.js';
 import { canonicalJson } from './hash.js';
+import { switchMode } from './mode.js';
 
 export const compatibleHost = flight => flight?.hostApi === 2 && flight.restore === 'idle'
     && flight.peers?.some(peer => peer.module === 'story-director' && peer.enabled && /^2\./.test(peer.version ?? ''));
@@ -71,7 +72,7 @@ export function selectionPart({ preflight }) {
                     ctx.fail('STALE', 'That rules pack changed or was disabled. Open Setup again to choose its current version.');
                 }
                 const rules = initialRules();
-                const problem = pinRules(rules, given);
+                const problem = pinRules(rules, given, { mode: switchMode(ctx) });
                 if (problem) ctx.fail('RULES_MISMATCH', problem);
                 const source = ctx.source ?? ctx.fail('REFUSED', 'A first reply must exist to hold this character timeline\'s rules.');
                 ctx.replayGuard({ ...buildGuard({ hash: value => ctx.hash(value), owner: ctx.module, epoch: epochOf(ctx),

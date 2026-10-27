@@ -16,9 +16,9 @@ import { MAX_OFFERS, NAME_MAX } from './domain.js';
 import { feeWords, liveTrainer, planTrainer } from './opening.js';
 import { nameKey } from './trainers.js';
 import { matchTrainer } from './offer.js';
+import { lineKey, lineKeys } from '../quests/offer-line.js';
 
 export const KIND = 'trainer.offer';
-const hash16 = (ctx, value) => ctx.hash(value).slice(0, 16);
 const list = names => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
 const quiet = message => ({ summary: message, narrate: false, data: { trainer: null, held: true } });
 const refused = (code, message) => ({ summary: `Trainer refused: ${message}`, problem: `Trainer refused: ${message}`, narrate: false, data: { code, message, refused: true } });
@@ -53,8 +53,8 @@ export function captureTrainerOffer(ctx, line) {
     if (key && bare && Object.hasOwn(declinedOf(rules), declinedId(ctx, name))) return quiet(`${name} was not offered.`);
     const earlier = (() => {
         const offers = ctx.standing?.domains?.training?.offers;
-        const want = hash16(ctx, { raw: line.raw });
-        return offers ? Object.values(offers).find(offer => offer.settled?.sid === ctx.source?.sid && offer.settled?.line === want) ?? null : null;
+        const want = lineKeys(ctx, line);
+        return offers ? Object.values(offers).find(offer => offer.settled?.sid === ctx.source?.sid && want.includes(offer.settled?.line)) ?? null : null;
     })();
     let matched = null;
     if (earlier) {
@@ -80,7 +80,7 @@ export function captureTrainerOffer(ctx, line) {
     if (!ctx.claim(`rb:${epochOf(ctx)}:trainer:${ctx.hash({ trainer: nameKey(offer.name) }).slice(0, 16)}`)) ctx.fail('CLAIMED', 'That trainer was already offered.');
     const training = ctx.draft('training');
     training.offers ??= {};
-    training.offers[offer.id] = { ...offer, settled: { matcher: matched.matcher ?? MATCHER, line: hash16(ctx, { raw: line.raw }), sid: ctx.source.sid, said: matched.said, band: matched.band,
+    training.offers[offer.id] = { ...offer, settled: { matcher: matched.matcher ?? MATCHER, line: lineKey(ctx, line), sid: ctx.source.sid, said: matched.said, band: matched.band,
         notes: matched.notes, ...(matched.fee ? { feeBy: 'said' } : {}), shown: { fee: feeWords(ctx.query, offer.fee, true), teaches: flat(plan.summary.skills.join(', '), 120), template: flat(ix.trainerTemplate(offer.template)?.name ?? '', 80) } } };
     const standing = matched.fee && matched.band === 'within' ? ' (fee as agreed)' : '';
     return {

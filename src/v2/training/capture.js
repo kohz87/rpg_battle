@@ -69,7 +69,7 @@ export const npcReader = (ctx, name) => () => {
 
 /** Checks 1 to 14 of RB open trainers §4.2, in that order. */
 export function createTrainerCapture() {
-    // `coined`: the fee in coins (true) or in 2.2.0's words (false), as the line was first read; null asks the switch.
+    // `coined`: the fee in coins (true) or in 2.2.0's words (false), in the mode at the line's reply; null asks the switch.
     return function capture(ctx, line, coined = null) {
         if (line.op !== '+') return refused('INVALID', 'Trainer lines only offer one: + trainer Name | like: <template>.');
         const ix = indexOfCtx(ctx);

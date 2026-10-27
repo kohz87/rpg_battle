@@ -3,7 +3,7 @@
 //
 //   node tests/v2/quests/fixtures/record-old-encounters.mjs <label> [strict|bare] > tests/v2/quests/fixtures/old-encounters-<label>.json
 //
-// `label`: ce3dbec (before routes were kept) or 2.2.0 (before Jobs from the story). `strict`: the switch off; `bare`: a pack with no open quest template. Do not run it again on newer code
+// `label`: ce3dbec (before routes were kept), 1617742 (routes kept per line, before the mode was kept on the timeline) or 2.2.0 (before Jobs from the story). `strict`: the switch off; `bare`: a pack with no open quest template. Do not run it again on newer code
 // to "fix" a failing test: the files are the evidence of how those chats were recorded.
 import { seeded } from '../../integration/helpers/host.js';
 import { bluewatch, ok, PACK } from '../helpers/bluewatch.js';

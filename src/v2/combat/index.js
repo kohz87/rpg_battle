@@ -24,7 +24,7 @@ import { act, availableActions, summarize } from '../../combat.js';
 import { DEFAULT_BESTIARY } from '../../enemies.js';
 import { itemSlot, oneCurrency, parseEffect } from '../../items.js';
 import { cleanCreature, combinedBestiary } from '../../templates.js';
-import { countReading, cutText, foesCard, foesText, MAX_ENCOUNTER_FOES, rankContext, readEncounter, STAKES, TIERS } from './encounter.js';
+import { cutText, foesCard, foesText, MAX_ENCOUNTER_FOES, rankContext, readEncounter, STAKES, TIERS } from './encounter.js';
 import { questSized, questTargets } from './quest.js';
 import { rulesFrom } from '../party/sheets.js';
 import { buildSetup, COMBAT_DEFAULTS, COMBAT_LIMITS, fieldCap, fightNumbers, heldText, heldToTiers, moneyScale, partyCombatants, scaledMoney, tierRoom } from './setup.js';
@@ -34,7 +34,8 @@ import { clipped } from '../lines.js';
 import { lastParts, partsProblems } from '../board/parts.js';
 import { fitParty } from '../party/pools.js';
 import { foldStoryTime } from '../party/recovery.js';
-import { hasOpenQuests, keepRoute, readsFreely } from '../quests/offer-feature.js';
+import { hasOpenQuests } from '../quests/offer-feature.js';
+import { readsFreely } from '../rules/mode.js';
 import { pinned as rulesPin } from '../quests/seams.js';
 import { bindEncounter, actionWithId, beginUnits, guardAction, guardStart, lootProblem, pinnedFight, pinnedOf, pinnedSetup, settleEnd } from '../fight/index.js';
 import { cleanFormFields } from '../fight/records.js';
@@ -854,34 +855,6 @@ function cardContext(tools, state = null) {
 
 // --- capture ----------------------------------------------------------------------------------
 
-/** The names of the foes this reply left in the combat record, as the reply stands in a Re-read and not as the state before it: its offers' foes and its fights' enemies. */
-function storedNames(ctx) {
-    const standing = ctx.standing?.domains?.combat;
-    const base = ctx.read('combat');
-    const baseOffers = new Set(valuesOf(base?.offers).map(offer => offer?.id));
-    const names = [];
-    for (const offer of valuesOf(standing?.offers)) if (!baseOffers.has(offer?.id)) for (const foe of offer?.foes ?? []) names.push(foe?.name);
-    for (const [id, fight] of Object.entries(standing?.fights ?? {})) {
-        if (base?.fights && Object.hasOwn(base.fights, id)) continue;
-        let setup = null;
-        try { setup = unpackSetup(structuredClone(fight?.setup)); } catch { setup = null; }
-        for (const enemy of [...(setup?.enemies ?? []), ...(setup?.waves ?? []).flatMap(wave => wave?.enemies ?? [])]) names.push(enemy?.name);
-    }
-    return names.filter(name => typeof name === 'string');
-}
-
-/** What the fights this reply ended say of themselves (their result's summary and moments), and the foes it beat: the names of a fight that is over. */
-function storedTexts(ctx) {
-    const standing = ctx.standing?.domains?.combat;
-    const base = ctx.read('combat');
-    const sid = ctx.carrier?.sid ?? null;
-    const texts = [];
-    const lastNow = Array.isArray(standing?.last) ? standing.last : standing?.last ? [standing.last] : [];
-    for (const entry of lastNow) if (sid && entry?.reply?.sid === sid) texts.push(entry.summary, ...(Array.isArray(entry.moments) ? entry.moments : []));
-    for (const [id, entry] of Object.entries(standing?.beaten ?? {})) if (!(base?.beaten && Object.hasOwn(base.beaten, id))) for (const foe of entry?.foes ?? []) texts.push(foe?.name);
-    return texts.filter(text => typeof text === 'string');
-}
-
 /**
  * The Auto rule a Re-read's offer had before it, `{ rule: 'practice' | 'none', field }` (`field`: the offer recorded it as its own field) from the offer of that id the reply left (it is the same line, so the same id), else from the fight the reply
  * began on foes of that name (the offer is spent by then); undefined for a line with no earlier offer or fight, which gets the rule of today.
@@ -912,12 +885,8 @@ function captureEncounter(ctx, line) {
     // A `rank:` is read on the suite's ladder for the character's level now (MODULES §F91).
     const ranks = rankContext(ctx);
     const literal = !!pinnedOf(ctx) && Object.hasOwn(line.labels ?? {}, 'like');
-    // A count in front of a named kind is read where Jobs from the story shows its block: the way this line was first read, when this is a Re-read of it (offer-feature.js).
-    let leadingCount = false;
-    if (literal && hasOpenQuests(rulesPin(ctx.read('rules')))) {
-        leadingCount = readsFreely(ctx, line, () => countReading(line, storedNames(ctx), storedTexts(ctx)));
-        keepRoute(ctx, line, leadingCount);
-    }
+    // A count in front of a named kind is read where Jobs from the story shows its block: in the mode of the timeline at this reply (rules/mode.js).
+    const leadingCount = literal && hasOpenQuests(rulesPin(ctx.read('rules'))) && readsFreely(ctx);
     const read = readEncounter(line, { bestiary, ...ranks, literal, leadingCount });
     if (!read.ok) ctx.fail('INVALID', read.message);
     // Every foe written is fought, in waves; what a fight cannot hold is told (B-a2-4, B-a2-9): past

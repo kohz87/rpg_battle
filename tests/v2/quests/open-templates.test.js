@@ -91,7 +91,7 @@ test('click refuses a closed template, missing target and absent area without al
     assert.equal((await h.sdk.command('quest.open', { id: 'th_goal0001', template: 'task', text: 'Listen' })).code, 'AREA');
 });
 
-for (const target of ['pack.fixture/wolf~ash-wolf', 'pack.fixture/wolf']) test(`a hunt on ${target} seals canonical refs and pays once through replay`, { skip }, async t => seeded(13, async () => {
+for (const target of ['pack.fixture/wolf~ash-wolf', 'pack.fixture/wolf']) test(`a hunt on ${target} seals canonical refs and pays once through replay`, { skip }, async t => seeded(14, async () => {
     const h = await areaHost(t);
     await h.send('A hunt.', `<Changes>\n+ quest Hunt | like: hunt | text: Hunt the ash wolf | foe: ${target}\n</Changes>`);
     const id = h.sdk.query('director.thread', { key: 'Hunt' }).id;

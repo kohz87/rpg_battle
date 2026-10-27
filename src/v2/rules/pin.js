@@ -201,9 +201,9 @@ export function rulesProblems(slice) {
 /**
  * Pins a ruleset onto a `rules` draft, once (the same ruleset again is a no-op; another one is refused: a
  * running timeline never changes its rules). `given`: { resolved, rulesHash, progression, packKey,
- * packVersion, packHash, constantsHash, defs? }. Returns '' or why it was not pinned.
+ * packVersion, packHash, constantsHash, defs? }. `mode`: the mode of Jobs from the story the timeline starts in (mode.js; none: read as strict). Returns '' or why it was not pinned.
  */
-export function pinRules(draft, given) {
+export function pinRules(draft, given, { mode = null } = {}) {
     const pin = {
         identity: { packKey: given.packKey, packVersion: given.packVersion, packHash: given.packHash, schema: 2, engine: ENGINE, constantsHash: given.constantsHash },
         progression: structuredClone(given.progression),
@@ -216,6 +216,7 @@ export function pinRules(draft, given) {
     if (draft.pin !== null && draft.pin !== undefined) return draft.rulesHash === trial.rulesHash ? '' : 'This chat already runs other rules; a running timeline keeps its rules.';
     draft.rulesHash = trial.rulesHash;
     draft.pin = pin;
+    if (mode !== null) draft.mode = mode;
     return '';
 }
 

@@ -11,6 +11,7 @@ import { ladderFrom } from './ranks.js';
 import { ask, boundary, call, freshThreadId, guardQuestInputs, pinned, recordQuestInputs, templates, threadOf, writeId } from './seams.js';
 import { FAR_TOLD, MATCHER, flat, farLineOf, farReasonOf, settledTerms, shownOf } from './offer-bands.js';
 import { MAX_DECLINED, declinedOf, offersOf } from '../rules/offers.js';
+import { lineKey, lineKeys } from './offer-line.js';
 import { matchOffer, offerKey, NAME_CHARS } from './offer-match.js';
 import { KIND, planOffer } from './offer-plan.js';
 import { templateBinding } from './opening.js';
@@ -19,7 +20,6 @@ import { settingInt } from './offer-settings.js';
 /** Story Director's own limits on new threads: per reply, and open in all. */
 const NEW_PER_REPLY = 16;
 const MAX_OPEN = 300;
-const hash16 = (ctx, value) => ctx.hash(value).slice(0, 16);
 
 /** The id a far-out decision is kept under: `dk_` and 12 hex of the hash of the offer key. */
 export const declinedId = (ctx, name) => `dk_${ctx.hash({ key: offerKey(name) }).slice(0, 12)}`;
@@ -70,8 +70,8 @@ function earlier(ctx, line) {
     const sid = ctx.source?.sid;
     const offers = offersOf(ctx.standing?.domains?.rules);
     if (!sid) return null;
-    const want = hash16(ctx, { raw: line.raw });
-    return Object.values(offers).find(offer => offer.sid === sid && offer.line === want) ?? null;
+    const want = lineKeys(ctx, line);
+    return Object.values(offers).find(offer => offer.sid === sid && want.includes(offer.line)) ?? null;
 }
 
 /** The refusal of a line that cannot be an offer: a Problem on the reply, and an SD hook with the narrator's words so Make this a quest still works on it. */
@@ -139,7 +139,7 @@ function commitOffer(ctx, line, env, result) {
         payload: { settled, thread: thread?.id ?? null, title, matcher: result.matcher ?? MATCHER }, inputs: plan.facts });
     ctx.replayGuard({ ...guard, replyBound: true }, { external, ladderRow: env.ladder.find(row => String(row.id).toLowerCase() === String(settled.rank).toLowerCase()) ?? null,
         level: env.level, now: env.nowMinutes });
-    call(ctx, 'rules.recordOffer', { write: writeId(ctx, `record:${id}`), thread: id, record: { v: 1, matcher: result.matcher ?? MATCHER, line: hash16(ctx, { raw: line.raw }),
+    call(ctx, 'rules.recordOffer', { write: writeId(ctx, `record:${id}`), thread: id, record: { v: 1, matcher: result.matcher ?? MATCHER, line: lineKey(ctx, line),
         sid: source.sid, name: title, said: result.said, settled, band: result.band, notes: result.notes, where: result.where, shown: shownOf(result, env.currency) } });
     // The terms of the first few jobs of a reply are told next turn; the rest are only counted, in the tail (quests/prompt.js).
     const told = mine < settingInt(ctx.settings?.(), 'offerTermsPerReply', 1, 6);
