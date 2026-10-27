@@ -136,6 +136,24 @@ asks for good, so the player may withdraw it with `skill.cancelTrain { actor, se
 the lead adds it or names another way; it keeps the session as `refused`, moves no coin and no time, and is guarded like a
 request). A session keeps what it earned (`awarded`, `unearned`) so its view survives the fold.
 
+**Open trainers** (RB 2.2.0, Story Block 2.4.0; spec `docs/v2/OPEN_TRAINERS_SPEC.md` in Story Block): a pack's trainer templates (`open: true`,
+a rank, a fee range, no place) are kept apart from its fixed trainers in the pinned index (`rules/graph.js`: `trainer()` / `trainers` are the fixed
+ones, `trainerTemplate()` / `trainerTemplates` the templates; asking a template to train is `NOT_FOUND`). The story's `+ trainer Name | like:
+<template> [| teaches: …]` line (`training/capture.js`) and the reader's `trainer.open { name, template, text?, skills? }` (`training/open.js`, a
+reader action for someone `scene.present` lists) both end in `planTrainer` (`training/opening.js`), a pure function over the pin, the `training`
+slice before the block, the binding and what was recorded; the guard (`replayTrainer`, the training part's `hooks.replayGuard`) calls the same
+function and asks **no query**. The checks run in the order of the spec's §4.2; the fee is one seeded `1d1000` scaled into the range, rolled after
+every check passed and kept as `recorded.die` with the place, its name, the NPC record (display only) and the `tn_` id. An offer is
+`training.offers[tn_…]` (validated in `training/domain.js`: at most 100, one per name, a session's `trainer` may be a `tn_` id). A story line's
+block is `replyBound`, a click's is not. The guard hashes that the name was free and there was room, **not how many other trainers there were**
+(the spec's `before.offers` count would turn off every later trainer when an unrelated earlier trainer's reply is deleted), and a pin whose
+ruleset has a template starts with `offers: {}` (`trainingForPin`) so each offer is one add-only key (a map made by the first offer would take
+the parent of the later ones with it). `trainerOf(ix, training, ref)` resolves a trainer for `assess.js`, `session-step.js`, `commands.js`,
+`queries.js` and `session.js`; every check there is the fixed trainer's. The `trainer` kind has `when(query)` (module.js ANDs it into `enabled` on
+every host path) so a chat without templates keeps its prompt byte for byte. Tests: `tests/v2/training/open-trainers*.test.js`,
+`pinned-2.1.0.test.js` (a chat recorded with 2.1.0, `fixtures/`), `tests/v2/progress/fuzz.test.js` (the second walk), the screen tests
+`trainer-binding.test.js` and `progress.test.js`.
+
 **Flags** (`rules/flags.js`): a flag is declared by the keys the pinned requirements name; it is false until an authorized event
 sets it. `rules.flagSet` takes a surviving Story Director `event` proof whose payload is exactly `{ flag, value }`, from Story
 Director's adapter or this module's own step only, claims the evidence once and guards the block; a deleted proof turns the write
