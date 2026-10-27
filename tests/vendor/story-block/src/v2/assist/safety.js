@@ -2,7 +2,7 @@
 // extractor reads a finished reply and proposes the change lines its prose shows but its block left out;
 // those lines never create value. Only the kinds the reader allows (a setting, `assistExtractorKinds`)
 // are kept, and under any setting a line that would add coin, items, XP, loot, a new companion or skill,
-// or a heal is dropped (HARD_WALL). Lines read after the reader had sent (applied on the next reply)
+// a heal, a job (`+ quest`) or a teacher (`+ trainer`) is dropped (HARD_WALL). Lines read after the reader had sent (applied on the next reply)
 // pass a stricter wall still: no coin and no new item at all, no quest turn-in (it pays a reward), nothing
 // that adds. Pure: no DOM, no state.
 
@@ -30,6 +30,9 @@ export const KIND_CHOICES = Object.freeze([
 
 // Kinds whose `+` line adds value or something only the reader decides, under any setting.
 const ADDS = new Set(['item', 'coin', 'coins', 'money', 'gold', 'loot', 'xp', 'exp', 'level', 'reward', 'join', 'skill', 'craft', 'buy', 'sell', 'grant']);
+// Kinds whose `+` line offers a job or a teacher. The story's narrator offers those in its own words (GENERATIVE_OFFERS_SPEC §12.2);
+// the safety net, which reads a finished reply and never decides what the world holds, never does, under any setting.
+const OFFERS = new Set(['quest', 'trainer']);
 // Kinds never taken from the extractor at all.
 const NEVER = new Set(['coin', 'coins', 'money', 'gold', 'loot', 'xp', 'exp', 'level', 'reward', 'buy', 'sell', 'craft', 'grant']);
 // Labels that add value whatever the kind (a heal restores HP; a reward or price names coin).
@@ -57,6 +60,7 @@ export function refusedWhy(line, allow, { late = false } = {}) {
     const labels = line?.labels && typeof line.labels === 'object' ? Object.keys(line.labels).map(key => key.toLowerCase()) : [];
     if (NEVER.has(kind)) return 'the safety net never writes coin, loot or XP';
     if (op === '+' && ADDS.has(kind)) return 'the safety net never adds items, coin or rewards';
+    if (op === '+' && OFFERS.has(kind)) return 'the safety net never offers jobs or teachers';
     if (op === '?') return 'the safety net never asks for rolls or loot';
     if (labels.some(label => VALUE_LABELS.includes(label))) return 'the safety net never heals or pays';
     if (late) {

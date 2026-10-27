@@ -35,7 +35,7 @@ export const FEATURE_TEXT = Object.freeze({
     }),
     extractor: Object.freeze({
         label: 'Safety net: read changes the reply forgot',
-        describe: 'One cheap extra model call per reply: time, place, who came or went, weather, quest progress or a hand-over the story told but its change lines missed are kept anyway, marked "assist". Never adds coin, items or XP.',
+        describe: 'One cheap extra model call per reply: time, place, who came or went, weather, quest progress or a hand-over the story told but its change lines missed are kept anyway, marked "assist". Never adds coin, items, XP, jobs or teachers.',
     }),
 });
 
@@ -59,7 +59,7 @@ export const SCHEMA = Object.freeze({
         type: 'text',
         group: 'Assist',
         label: 'Kinds the safety net may write',
-        help: `"op kind" pairs, comma-separated (default: ${DEFAULT_KINDS}). Coin, new items, XP, loot and heals are never written, whatever this says.`,
+        help: `"op kind" pairs, comma-separated (default: ${DEFAULT_KINDS}). Coin, new items, XP, loot, heals, new jobs (+ quest) and new teachers (+ trainer) are never written, whatever this says.`,
     }),
 });
 

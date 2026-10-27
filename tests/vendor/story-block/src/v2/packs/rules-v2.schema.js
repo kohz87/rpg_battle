@@ -105,6 +105,9 @@ export const rulesV2SchemaSource = {
             "items": {
                 "$ref": "#/$defs/trainer"
             }
+        },
+        "offerWords": {
+            "$ref": "#/$defs/offerWords"
         }
     },
     "$defs": {
@@ -1357,6 +1360,17 @@ export const rulesV2SchemaSource = {
                         "maxLength": 40
                     },
                     "uniqueItems": true
+                },
+                "aliases": {
+                    "type": "array",
+                    "minItems": 0,
+                    "maxItems": 8,
+                    "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80
+                    },
+                    "uniqueItems": true
                 }
             }
         },
@@ -1710,6 +1724,16 @@ export const rulesV2SchemaSource = {
                             "minimum": 1,
                             "maximum": 999
                         },
+                        "countMin": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 999
+                        },
+                        "countMax": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 999
+                        },
                         "allowVariants": {
                             "type": "boolean"
                         }
@@ -1735,6 +1759,16 @@ export const rulesV2SchemaSource = {
                             "$ref": "#/$defs/ref"
                         },
                         "count": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 999
+                        },
+                        "countMin": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 999
+                        },
+                        "countMax": {
                             "type": "integer",
                             "minimum": 1,
                             "maximum": 999
@@ -1920,6 +1954,56 @@ export const rulesV2SchemaSource = {
                     "minLength": 1,
                     "maxLength": 20
                 }
+            }
+        },
+        "offerWords": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [],
+            "properties": {
+                "hunt": {
+                    "$ref": "#/$defs/offerWordList"
+                },
+                "cull": {
+                    "$ref": "#/$defs/offerWordList"
+                },
+                "gather": {
+                    "$ref": "#/$defs/offerWordList"
+                },
+                "deliver": {
+                    "$ref": "#/$defs/offerWordList"
+                },
+                "explore": {
+                    "$ref": "#/$defs/offerWordList"
+                },
+                "escort": {
+                    "$ref": "#/$defs/offerWordList"
+                },
+                "task": {
+                    "$ref": "#/$defs/offerWordList"
+                },
+                "easy": {
+                    "$ref": "#/$defs/offerWordList"
+                },
+                "normal": {
+                    "$ref": "#/$defs/offerWordList"
+                },
+                "hard": {
+                    "$ref": "#/$defs/offerWordList"
+                },
+                "nightmare": {
+                    "$ref": "#/$defs/offerWordList"
+                }
+            }
+        },
+        "offerWordList": {
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 40,
+            "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 24
             }
         }
     }

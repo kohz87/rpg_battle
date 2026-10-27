@@ -2307,6 +2307,16 @@ function validateRulesV2Of(manifest, content, constants, { host = false } = {}) 
                     errors.push({ code: RULES_V2_ERROR_CODES.DUP_ID, path: `${p}.objectives[${o}].id`, message: `Duplicate objective id "${obj.id}" in quest "${q.slug}"` });
                 }
                 objectiveIds.add(obj.id);
+                // An open objective may bound the count a generated offer can ask for (GENERATIVE_OFFERS_SPEC §12.1):
+                // countMin <= count <= countMax for whichever of the two is written. The schema keeps each to 1..999.
+                if (q.open === true && (obj.kind === 'kill' || obj.kind === 'collect')) {
+                    if (obj.countMin !== undefined && obj.countMin > obj.count) {
+                        errors.push({ code: RULES_V2_ERROR_CODES.BAD_SCHEMA, path: `${p}.objectives[${o}].count`, message: `Open objective count ${obj.count} is below its countMin ${obj.countMin}` });
+                    }
+                    if (obj.countMax !== undefined && obj.count > obj.countMax) {
+                        errors.push({ code: RULES_V2_ERROR_CODES.BAD_SCHEMA, path: `${p}.objectives[${o}].count`, message: `Open objective count ${obj.count} is above its countMax ${obj.countMax}` });
+                    }
+                }
                 if (obj.kind === 'kill' && obj.foe) {
                     const fRef = checkReference(obj.foe, packKey, creatureSlugs, null, `${p}.objectives[${o}].foe`);
                     if (!fRef.ok) errors.push(fRef.error);
@@ -2391,6 +2401,17 @@ function validateRulesV2Of(manifest, content, constants, { host = false } = {}) 
                 if (!eRef.ok) errors.push(eRef.error);
             }
         }
+    }
+
+    // The pack's own offer words are lower case (GENERATIVE_OFFERS_SPEC §3.2, §12.1): the reader folds what the narrator wrote to lower
+    // case before looking a word up, so a capital in the table could never match. The schema holds the list and word lengths.
+    for (const [list, entries] of Object.entries(m.offerWords ?? {})) {
+        if (!Array.isArray(entries)) continue;
+        entries.forEach((word, w) => {
+            if (typeof word === 'string' && word !== word.toLowerCase()) {
+                errors.push({ code: RULES_V2_ERROR_CODES.BAD_SCHEMA, path: `content.rules[0].offerWords.${list}[${w}]`, message: `Offer word "${word}" must be lower case` });
+            }
+        });
     }
 
     if (errors.length) return { ok: false, errors };
