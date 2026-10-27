@@ -334,9 +334,24 @@ export function mergeInto(base, extra) {
             kinds: { ...base.capture.kinds, ...extra.capture.kinds },
             apply(ctx, line) { return Object.hasOwn(extra.capture.kinds, line?.kind) ? extra.capture.apply(ctx, line) : base.capture.apply(ctx, line); },
         },
-        hooks: { ...base.hooks, ...extra.hooks },
+        hooks: { ...base.hooks, ...extra.hooks, ...(base.hooks?.beforeGenerate && extra.hooks?.beforeGenerate ? { beforeGenerate: beforeBoth(extra.hooks.beforeGenerate, base.hooks.beforeGenerate) } : {}) },
     };
 }
+
+/** Both modules' beforeGenerate cues, the rules parts' first, as module.js merges the parts of one module: the lines and the commands of each, in order. */
+const beforeBoth = (first, second) => async (...args) => {
+    const lines = [];
+    const commands = [];
+    for (const fn of [first, second]) {
+        const out = await fn(...args);
+        if (Array.isArray(out)) lines.push(...out);
+        else if (out && typeof out === 'object') {
+            lines.push(...(Array.isArray(out.lines) ? out.lines : []));
+            commands.push(...(Array.isArray(out.commands) ? out.commands : []));
+        }
+    }
+    return { lines, commands };
+};
 
 export async function realWorld(t, { companions = [], modules = [], pin = true, character = true, settings = {}, reader = null, given = undefined, sd = false, strict = false } = {}) {
     const { createModule, MODULE_ID } = await import('../../../../src/v2/module.js');
