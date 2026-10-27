@@ -24,7 +24,7 @@ import { act, availableActions, summarize } from '../../combat.js';
 import { DEFAULT_BESTIARY } from '../../enemies.js';
 import { itemSlot, oneCurrency, parseEffect } from '../../items.js';
 import { cleanCreature, combinedBestiary } from '../../templates.js';
-import { cutText, foesCard, foesText, MAX_ENCOUNTER_FOES, rankContext, readEncounter, STAKES, TIERS } from './encounter.js';
+import { countReading, cutText, foesCard, foesText, MAX_ENCOUNTER_FOES, rankContext, readEncounter, STAKES, TIERS } from './encounter.js';
 import { questSized, questTargets } from './quest.js';
 import { rulesFrom } from '../party/sheets.js';
 import { buildSetup, COMBAT_DEFAULTS, COMBAT_LIMITS, fieldCap, fightNumbers, heldText, heldToTiers, moneyScale, partyCombatants, scaledMoney, tierRoom } from './setup.js';
@@ -854,6 +854,34 @@ function cardContext(tools, state = null) {
 
 // --- capture ----------------------------------------------------------------------------------
 
+/** The names of the foes this reply left in the combat record, as the reply stands in a Re-read and not as the state before it: its offers' foes and its fights' enemies. */
+function storedNames(ctx) {
+    const standing = ctx.standing?.domains?.combat;
+    const base = ctx.read('combat');
+    const baseOffers = new Set(valuesOf(base?.offers).map(offer => offer?.id));
+    const names = [];
+    for (const offer of valuesOf(standing?.offers)) if (!baseOffers.has(offer?.id)) for (const foe of offer?.foes ?? []) names.push(foe?.name);
+    for (const [id, fight] of Object.entries(standing?.fights ?? {})) {
+        if (base?.fights && Object.hasOwn(base.fights, id)) continue;
+        let setup = null;
+        try { setup = unpackSetup(structuredClone(fight?.setup)); } catch { setup = null; }
+        for (const enemy of [...(setup?.enemies ?? []), ...(setup?.waves ?? []).flatMap(wave => wave?.enemies ?? [])]) names.push(enemy?.name);
+    }
+    return names.filter(name => typeof name === 'string');
+}
+
+/** What the fights this reply ended say of themselves (their result's summary and moments), and the foes it beat: the names of a fight that is over. */
+function storedTexts(ctx) {
+    const standing = ctx.standing?.domains?.combat;
+    const base = ctx.read('combat');
+    const sid = ctx.carrier?.sid ?? null;
+    const texts = [];
+    const lastNow = Array.isArray(standing?.last) ? standing.last : standing?.last ? [standing.last] : [];
+    for (const entry of lastNow) if (sid && entry?.reply?.sid === sid) texts.push(entry.summary, ...(Array.isArray(entry.moments) ? entry.moments : []));
+    for (const [id, entry] of Object.entries(standing?.beaten ?? {})) if (!(base?.beaten && Object.hasOwn(base.beaten, id))) for (const foe of entry?.foes ?? []) texts.push(foe?.name);
+    return texts.filter(text => typeof text === 'string');
+}
+
 /** `! encounter …`: an offer, or a plain reason it cannot be one. */
 function captureEncounter(ctx, line) {
     const numbers = fightNumbers(ctx.settings() ?? {});
@@ -866,7 +894,7 @@ function captureEncounter(ctx, line) {
     // A count in front of a named kind is read where Jobs from the story shows its block: the way this line was first read, when this is a Re-read of it (offer-feature.js).
     let leadingCount = false;
     if (literal && hasOpenQuests(rulesPin(ctx.read('rules')))) {
-        leadingCount = readsFreely(ctx, line);
+        leadingCount = readsFreely(ctx, line, () => countReading(line, storedNames(ctx), storedTexts(ctx)));
         keepRoute(ctx, line, leadingCount);
     }
     const read = readEncounter(line, { bestiary, ...ranks, literal, leadingCount });

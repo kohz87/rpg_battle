@@ -13,7 +13,7 @@ import { queries } from './queries.js';
 import { TRAINER_GRAMMAR, createTrainerCapture, trainerGrammarFor, trainerKindOn } from './capture.js';
 import { replayTrainer } from './opening.js';
 import { captureTrainerOffer, replayTrainerOffer } from './offer-capture.js';
-import { keepRoute, readsFreely } from '../quests/offer-feature.js';
+import { keepRoute, lineHash, readsFreely } from '../quests/offer-feature.js';
 import { nameKey } from './trainers.js';
 
 export { dayOf, dayStart, midnightsBetween, minuteOfDay, readClock, trainingWindow } from './clock.js';
@@ -23,12 +23,20 @@ export { trainerOf } from './trainers.js';
 
 const legacyCapture = createTrainerCapture();
 
-/** For a chat recorded before routes were kept: the teacher this name made in the reply as it stands; one with a settled record was offered freely ('on'), one without is 2.2.0's. */
+/**
+ * For a chat recorded before routes were kept: how this very line was first read, from the teacher the reply left in the state (not there before it). One with a settled record of
+ * this reply and this line's hash was offered freely ('on'); one without a settled record, of the template the line names, is 2.2.0's ('off'). Anything else is an edited line.
+ */
 function earlierRoute(ctx, line) {
     const offers = ctx.standing?.domains?.training?.offers;
     const key = nameKey(String(line.name ?? ''));
-    const held = offers && key ? Object.values(offers).find(offer => nameKey(offer.name) === key) : null;
-    return held ? (held.settled ? 'on' : 'off') : undefined;
+    if (!offers || !key) return undefined;
+    const before = ctx.read('training')?.offers ?? {};
+    const held = Object.values(offers).find(offer => nameKey(offer.name) === key && !Object.hasOwn(before, offer.id));
+    if (!held) return undefined;
+    if (held.settled) return held.settled.sid === ctx.source?.sid && held.settled.line === lineHash(ctx, line) ? 'on' : undefined;
+    const named = String(line.labels?.like ?? '').trim();
+    return named && (held.template === named || String(held.template).split('/').at(-1) === named) ? 'off' : undefined;
 }
 
 /** A `+ trainer` line: read freely (offer-capture.js) or the 2.2.0 way, as it was first read when this is a Re-read of the same line. */

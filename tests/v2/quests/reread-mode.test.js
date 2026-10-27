@@ -123,3 +123,90 @@ test('an edited line is read under the setting of the moment', async t => {
         assert.equal(Object.keys(h.head().domains.rules).filter(key => key.startsWith('offer.')).length, 1, 'the edited line is read with the switch on');
     });
 });
+
+// ---- an edited line is a new line -------------------------------------------------------------------------------------------
+
+const offerRecords = h => Object.keys(h.head().domains.rules).filter(key => key.startsWith('offer.'));
+const teachers = h => Object.values(h.head().domains.training.offers ?? {});
+
+test('an edited quest line is read under the setting of the moment, in both directions; an unchanged one keeps its route', async t => {
+    await seeded(9408, async () => {
+        // First read in strict mode (2.2.0's reading), switch on, edit the line: it is a new line, read freely.
+        const h = await bluewatch(t, { settings: STRICT });
+        await h.say('Rats in the cellar.', [LIKE]);
+        assert.deepEqual(offerRecords(h), []);
+        set(h, true);
+        await reread(h, at(h, 'Rats in the cellar.'));
+        assert.deepEqual(offerRecords(h), [], 'unchanged: still 2.2.0\'s reading');
+        edit(h, at(h, 'Rats in the cellar.'), 'foe: cellar-rat-swarm', 'foe: cellar-rat-swarm | reward: 90 copper');
+        await reread(h, at(h, 'Rats in the cellar.'));
+        assert.equal(offerRecords(h).length, 1, 'edited: read with the switch on');
+        // And back: read freely, switched off, edited: read the 2.2.0 way (which has no place for a reward).
+        set(h, false);
+        await reread(h, at(h, 'Rats in the cellar.'));
+        assert.equal(offerRecords(h).length, 1, 'unchanged: still the free reading');
+        edit(h, at(h, 'Rats in the cellar.'), 'reward: 90 copper', 'reward: 95 copper');
+        await reread(h, at(h, 'Rats in the cellar.'));
+        assert.deepEqual(offerRecords(h), [], 'edited: read with the switch off');
+    });
+});
+
+test('an edited teacher line is read under the setting of the moment, in both directions', async t => {
+    await seeded(9409, async () => {
+        const h = await bluewatch(t, { settings: STRICT });
+        await h.say('Reka offers drills.', ['+ trainer Old Reka | like: open-blade-drills']);
+        assert.equal(teachers(h).length, 1);
+        assert.equal(teachers(h)[0].settled, undefined);
+        set(h, true);
+        await reread(h, at(h, 'Reka offers drills.'));
+        assert.equal(teachers(h)[0].settled, undefined, 'unchanged: still 2.2.0\'s reading');
+        edit(h, at(h, 'Reka offers drills.'), 'like: open-blade-drills', 'like: open-blade-drills | fee: 6 silver');
+        await reread(h, at(h, 'Reka offers drills.'));
+        assert.equal(teachers(h)[0]?.settled?.feeBy, 'said', 'edited: read with the switch on, and the fee it names stands');
+        set(h, false);
+        await reread(h, at(h, 'Reka offers drills.'));
+        assert.equal(teachers(h)[0]?.settled?.feeBy, 'said', 'unchanged: still the free reading');
+        edit(h, at(h, 'Reka offers drills.'), 'fee: 6 silver', 'fee: 7 silver');
+        await reread(h, at(h, 'Reka offers drills.'));
+        assert.deepEqual(teachers(h), [], 'edited: read with the switch off, which takes no fee');
+    });
+});
+
+// ---- a long chat ----------------------------------------------------------------------------------------------------------------
+
+import { rulesProblems } from '../../../src/v2/rules/index.js';
+import { ROUTE_KEY, offersProblems } from '../../../src/v2/rules/offers.js';
+
+test('the routes of a long chat never stop a capture: 2,500 replies with a route, and the rules domain still holds', async t => {
+    await seeded(9410, async () => {
+        const h = await bluewatch(t);
+        await h.say('Rats.', [FIGHT]);
+        const rules = structuredClone(h.head().domains.rules);
+        const [id] = Object.keys(rules).filter(key => key.startsWith(ROUTE_KEY));
+        assert.ok(id, 'a route is kept');
+        for (let n = 0; n < 2500; n += 1) rules[`${ROUTE_KEY}rt_${n.toString(16).padStart(12, '0')}`] = { v: 1, sid: `sr_${n}`, lines: { [n.toString(16).padStart(16, '0')]: n % 2 ? 'on' : 'off' } };
+        assert.deepEqual(offersProblems(rules), []);
+        assert.deepEqual(rulesProblems(rules).filter(error => /route|rest|more than/.test(error)), []);
+        // Not a cap in disguise: a route that is not whole is still a Problem.
+        assert.ok(offersProblems({ ...rules, [`${ROUTE_KEY}rt_ffffffffffff`]: { v: 1, sid: 'sr_x', lines: { bad: 'on' } } }).length > 0);
+    });
+});
+
+test('routes go with their replies: delete a reply in the middle of a run of routed replies, then rebuild and reload: the state equals the live chat', async t => {
+    await seeded(9411, async () => {
+        const h = await bluewatch(t);
+        for (let n = 1; n <= 12; n += 1) await h.say(`Rats ${n}.`, [`! encounter ${n} Rats ${n} | like: cellar-rat-swarm`]);
+        const routes = () => Object.keys(h.head().domains.rules).filter(key => key.startsWith(ROUTE_KEY)).length;
+        assert.equal(routes(), 12);
+        const index = at(h, 'Rats 6.');
+        await h.st.deleteMessage(index);
+        await h.st.deleteMessage(index - 1);
+        assert.equal(routes(), 11, 'the route of the deleted reply went with it');
+        const live = JSON.stringify(h.head());
+        h.store.rebuild();
+        assert.equal(JSON.stringify(h.head()), live, 'rebuild equals live');
+        await h.st.loadChat(JSON.parse(JSON.stringify(h.ctx.chat)));
+        assert.equal(JSON.stringify(h.head()), live, 'reload equals live');
+        assert.deepEqual(h.store.problems(), []);
+    });
+});

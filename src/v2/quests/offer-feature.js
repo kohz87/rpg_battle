@@ -2,7 +2,7 @@
 // Battle 2.2.0. The reader's choice, not the chat's; a host that cannot say takes it as on.
 import { featureOn } from '../items/condition.js';
 import { templates } from './seams.js';
-import { MAX_ROUTE_LINES, ROUTE_KEY, routesOf } from '../rules/offers.js';
+import { MAX_ROUTE_LINES, ROUTE_KEY } from '../rules/offers.js';
 
 export const OFFERS_FEATURE = 'rpg-battle.generative-offers';
 
@@ -24,16 +24,22 @@ const lineOf = (ctx, line) => ctx.hash({ raw: line.raw }).slice(0, 16);
 const routeIdOf = (ctx, sid) => `rt_${ctx.hash({ route: sid }).slice(0, 12)}`;
 
 /**
- * Whether `line` is read with Jobs from the story on: the way it was read before when this is a Re-read of the same line of the same reply, else the
- * feature as it stands. `evidence` (optional, for a chat recorded before routes were kept): → 'on' | 'off' | undefined, asked only when no route is kept.
+ * Whether `line` is read with Jobs from the story on: the way it was read before when this is a Re-read of the same line (same reply, same text) of a reply that kept routes;
+ * a line the reply kept no route for (edited, or never read) is read under the feature as it stands. A reply recorded before routes were kept has none at all: its line is read as
+ * `evidence()` says the state shows it was ('on' | 'off' | undefined: asked only then, and only for an unchanged line), else under the feature as it stands.
  */
 export function readsFreely(ctx, line, evidence = null) {
     const sid = sidOf(ctx);
-    const kept = sid ? routesOf(ctx.standing?.domains?.rules)[routeIdOf(ctx, sid)]?.lines?.[lineOf(ctx, line)] : undefined;
+    const record = sid ? ctx.standing?.domains?.rules?.[ROUTE_KEY + routeIdOf(ctx, sid)] : undefined;
+    const kept = record?.lines?.[lineOf(ctx, line)];
     if (kept === 'on' || kept === 'off') return kept === 'on';
+    if (record !== undefined) return offersOn(ctx);
     const found = typeof evidence === 'function' ? evidence() : undefined;
     return found === 'on' || found === 'off' ? found === 'on' : offersOn(ctx);
 }
+
+/** The hash a line is known by in a record (the 16 hex of the line as written). */
+export const lineHash = (ctx, line) => lineOf(ctx, line);
 
 /** Keeps the way `line` was read with its reply (never fails the line: a route that cannot be kept is read under the setting of the moment next time). */
 export function keepRoute(ctx, line, free) {

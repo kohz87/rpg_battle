@@ -36,6 +36,24 @@ export const STAKES = Object.freeze(['normal', 'death']);
 export const MAX_COUNT = 9;
 // The most foes one encounter line brings (six rows of nine, the most a line could bring before).
 export const MAX_ENCOUNTER_FOES = 54;
+/**
+ * For a chat recorded before routes were kept (offer-feature.js): how a named kind with a count in front ("3 Rats Of Doom | like: …") was first read, from the names the reply left in the
+ * combat record (`names`: foes of its offers, enemies of its fights and foes it beat; `texts`: what the fight's result says once it is over). The count was read ('on') when the stored foes
+ * are called "Rats Of Doom" (a fight's twins "Rats Of Doom A"); it was not ('off') when one is called "3 Rats Of Doom". undefined when the line has no count in front or the record shows neither.
+ */
+export function countReading(line, names, texts = []) {
+    const counted = /^(\d+)\s+(\S.*)$/u.exec(String(line?.name ?? '').trim());
+    if (!counted || !Array.isArray(names)) return undefined;
+    const named = (stored, want) => stored === want || new RegExp(`^${want.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} [A-Z]$`, 'u').test(stored);
+    const whole = tidy(line.name, 48);
+    const rest = tidy(counted[2], 48);
+    const said = (text, want) => new RegExp(`(^|[^\\p{L}\\p{N}])${want.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\p{L}\\p{N}])`, 'u').test(String(text));
+    const off = names.some(stored => named(String(stored), whole)) || texts.some(text => said(text, whole));
+    const on = names.some(stored => named(String(stored), rest)) || (!off && texts.some(text => said(text, rest)));
+    if (on === off) return undefined;
+    return on ? 'on' : 'off';
+}
+
 /** The most a count written in front of a named kind may be: three digits. A fight holds MAX_ENCOUNTER_FOES of them; the rest is cut and told, as for any line. */
 export const MAX_WRITTEN_COUNT = 999;
 const MAX_NOTE = 160;

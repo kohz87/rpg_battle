@@ -1,23 +1,38 @@
 // RB owns quest lines. Narration proposes offers/progress/turn-ins; code owns acceptance and rewards.
-import { openingPlan, commitOpening } from './opening.js';
+import { openingPlan, commitOpening, templateBinding } from './opening.js';
 import { offerQuest } from './commands.js';
 import { ask, boundary, call, pinned, templateOf, threadOf, freshThreadId, writeId } from './seams.js';
 
 import { turnInKey } from './credit.js';
 import { captureOffer } from './offer-capture.js';
-import { hasOpenQuests, keepRoute, readsFreely } from './offer-feature.js';
+import { hasOpenQuests, keepRoute, lineHash, readsFreely } from './offer-feature.js';
 import { offersOf } from '../rules/offers.js';
 
 // The labels that make a line an offer (GENERATIVE_OFFERS_SPEC §3.1); a line about a thread that already exists without any of them is its acceptance.
 const OFFER_LABELS = ['like', 'type', 'goal', 'target', 'foe', 'item', 'count', 'reward', 'due', 'deadline', 'difficulty', 'rank'];
 
-/** For a chat recorded before routes were kept: the thread this very name made in the reply as it stands, and whether an offer record stands behind it ('on') or not ('off', RPG Battle 2.2.0's reading). */
-function earlierRoute(ctx, key) {
+/**
+ * For a chat recorded before routes were kept: how this very line was first read, from what the reply left in the state. An offer record of this reply with this line's hash is the
+ * free reading ('on'); a thread the reply opened by `| like:` (not there before it, with no offer record) of the template and text the line names is 2.2.0's ('off'). A line that
+ * names something else is an edited line: undefined.
+ */
+function earlierRoute(ctx, line, key, before) {
     const standing = ctx.standing?.domains;
-    const id = standing?.director?.keys?.[String(key).trim().toLowerCase()];
+    if (!standing) return undefined;
+    const sid = ctx.source?.sid;
+    const offers = offersOf(standing.rules);
+    const hash = lineHash(ctx, line);
+    if (Object.values(offers).some(offer => offer.sid === sid && offer.line === hash)) return 'on';
+    if (before) return undefined;
+    const id = standing.director?.keys?.[String(key).trim().toLowerCase()];
     const thread = id ? standing.director.threads?.[id] : null;
-    if (!thread?.rpg) return undefined;
-    return offersOf(standing.rules)[id] ? 'on' : 'off';
+    if (!thread?.rpg || offers[id]) return undefined;
+    const pin = pinned(ctx.read('rules'));
+    const labels = line.labels ?? {};
+    const like = pin && Object.hasOwn(labels, 'like') ? templateBinding(pin, labels.like) : null;
+    if (!like || like.id !== thread.rpg.template) return undefined;
+    if (typeof labels.text === 'string' && typeof thread.fields?.goal === 'string' && thread.fields.goal !== labels.text) return undefined;
+    return 'off';
 }
 
 export const QUEST_GRAMMAR = '+ quest Name — a frozen quest offer; + quest Name after the reader accepts; ~ quest Name | progress: … | met: yes; - quest Name — done|failed|abandoned';
@@ -36,7 +51,7 @@ export function createCapture({ settleQuest = null, captureObjective = null, gua
             const closed = !thread && pin && templateOf(pin, key) && !templateOf(pin, key).open;
             const labelled = OFFER_LABELS.some(label => Object.hasOwn(line.labels ?? {}, label));
             if (pin && hasOpenQuests(pin) && !closed && (!thread || labelled)) {
-                const free = readsFreely(ctx, line, () => earlierRoute(ctx, key));
+                const free = readsFreely(ctx, line, () => earlierRoute(ctx, line, key, Boolean(thread)));
                 keepRoute(ctx, line, free);
                 if (free) {
                     const out = captureOffer(ctx, line);
