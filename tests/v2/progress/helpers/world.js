@@ -338,7 +338,7 @@ export function mergeInto(base, extra) {
     };
 }
 
-export async function realWorld(t, { companions = [], modules = [], pin = true, character = true, settings = {}, reader = null, given = undefined, sd = false } = {}) {
+export async function realWorld(t, { companions = [], modules = [], pin = true, character = true, settings = {}, reader = null, given = undefined, sd = false, strict = false } = {}) {
     const { createModule, MODULE_ID } = await import('../../../../src/v2/module.js');
     const { PLANNER_PART } = await import('../../items/helpers/equip-parts.js');
     // One module, as the real one is: its replay-safe queries are the real module.js's own list (the parts', party.actor among them); nothing is added here.
@@ -347,7 +347,7 @@ export async function realWorld(t, { companions = [], modules = [], pin = true, 
     // The equipment planner is what a pinned chat adds beside the rules parts (module.js leaves it out of the plain one); the merge below stands for those parts.
     const base = createModule({ settings: () => ({ ...(sdk?.settings(MODULE_ID) ?? {}), ...settings }), parts: [PLANNER_PART] });
     const merged = mergeInto(base, extra);
-    const host = await createHost({ modules: withDirector([sd === true ? SD : sd || CLOCK, merged, CALLER, ...modules]), ...(reader ? { settings: { modules: { [MODULE_ID]: reader } } } : {}) });
+    const host = await createHost({ modules: withDirector([sd === true ? SD : sd || CLOCK, merged, CALLER, ...modules]), ...(reader || strict ? { settings: { ...(reader ? { modules: { [MODULE_ID]: reader } } : {}), ...(strict ? { features: { 'rpg-battle.generative-offers': false } } : {}) } } : {}) });
     sdk = host.sdk;
     const saved = globalThis.StoryBlock;
     globalThis.StoryBlock = { apiVersion: 2, ready: Promise.resolve(sdk), sdk };

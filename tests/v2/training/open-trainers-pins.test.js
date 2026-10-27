@@ -13,8 +13,8 @@ const CHARACTER = { name: 'Astra', race: 'rpg-battle/human', talents: [], points
 const offersOf = h => h.head().domains.training.offers ?? {};
 
 /** A production host pinned to `pack`, a character made, at Haven with Old Reka present. */
-async function started(t, pack = openTrainerPack()) {
-    const h = await openWorld({ packs: [pack] });
+async function started(t, pack = openTrainerPack(), settings = undefined) {
+    const h = await openWorld({ packs: [pack], settings });
     t.after(() => h.close());
     ok(await h.pin());
     ok(await h.sdk.command('creation.finish', CHARACTER));
@@ -60,8 +60,8 @@ test('pinned to a pack with templates: disabling or removing the pack after an o
     await stable(h);
 });
 
-test('pinned to a pack with templates: installing a changed version of the pack never changes the fee range or the template list of the pin', async t => {
-    const h = await started(t);
+test('pinned to a pack with templates: installing a changed version of the pack never changes the fee range or the template list of the pin (strict mode, RPG Battle 2.2.0\'s refusal of an unknown template)', async t => {
+    const h = await started(t, undefined, { features: { 'rpg-battle.generative-offers': false } });
     const changed = openTrainerPack([drillsTemplate({ fee: { coinMin: 900, coinMax: 1000 } }), drillsTemplate({ slug: 'extra', name: 'Extra' })]);
     changed.version = '2.1.0';
     ok(await h.packs.packs.install(changed));

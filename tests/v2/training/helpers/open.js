@@ -8,8 +8,9 @@ export const MILL = 'pack.fixture/mill';
 export const START = 4 * DAY + 1410;
 
 /** A chat pinned to the open trainers pack, at Haven at dusk with Old Reka in the scene. */
-export async function ready(t, { given = openTrainersPin(), here = true, clock = true, coin = 0, present = ['Old Reka'] } = {}) {
-    const w = await realWorld(t, { given, sd: true });
+// Strict mode (GENERATIVE_OFFERS_SPEC §10) unless a test says otherwise: these tests are RPG Battle 2.2.0's open trainers, whose refusals the generative path replaces.
+export async function ready(t, { given = openTrainersPin(), here = true, clock = true, coin = 0, present = ['Old Reka'], strict = true } = {}) {
+    const w = await realWorld(t, { given, sd: true, strict });
     await w.say('Haven at dusk.', [...(clock ? [`~ time ${START}`] : []), ...(here ? [`~ here ${HAVEN}`] : []), ...present.map(name => `+ present ${name}`)]);
     if (coin) assert.equal(w.host.bus.command('test.coin', { amount: coin }, { cause: 'ui' }).ok, true);
     return w;

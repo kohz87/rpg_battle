@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { foesPack, pinFor } from '../progress/helpers/fixture.js';
-import { realQuestHost, skip } from './helpers/real-host.js';
+import { STRICT, realQuestHost, skip } from './helpers/real-host.js';
 import { seeded } from '../integration/helpers/host.js';
 
 const ok = out => assert.equal(out.ok, true, JSON.stringify(out));
@@ -19,8 +19,8 @@ export function openPin(over = {}, foeStats = null) {
     ];
     return { ...pinFor(`open${JSON.stringify([over, foeStats])}`, pack), defs: { 'pack.fixture/rope': { id: 'pack.fixture/rope', name: 'Rope', kind: 'goods', rarity: 'common', value: 2, stack: true, slot: null, stats: {}, effect: {}, tags: [], note: '' } } };
 }
-export async function areaHost(t, given = openPin()) {
-    const h = await realQuestHost(t, { given });
+export async function areaHost(t, given = openPin(), settings = null) {
+    const h = await realQuestHost(t, { given, settings });
     ok(await h.packs.packs.install(JSON.stringify({ id: 'fixture', version: '2.0.0', name: 'Places', requires: { storyBlock: '^2' }, content: { places: [{ slug: 'haven', name: 'Haven', x: 0, y: 0 }] } })));
     await h.send('At Haven.', '<Changes>\n~ place Haven\n</Changes>');
     ok(await h.sdk.command('atlas.dangerSet', { write: 'wr_area0001', scope: 'world', key: null, policy: { tier: 1, allowedFoes: ['pack.fixture/wolf'], allowedTags: ['beast', 'forest'], lore: [] }, expectedHash: h.sdk.query('atlas.policy').hash }));
@@ -70,8 +70,8 @@ for (const [label, over, line, code] of [
     ['missing kill target', {}, opening.replace('like: task', 'like: hunt'), 'INVALID'],
     ['unknown place', { objectives: [{ id: 'ob_00000001', kind: 'visit' }] }, `${opening} | place: Nowhere`, 'NOT_FOUND'],
     ['unknown item', { objectives: [{ id: 'ob_00000001', kind: 'collect', count: 1, consume: true }] }, `${opening} | item: Unknown`, 'NOT_FOUND'],
-]) test(`line opening refusal is visible and leaves a plain goal: ${label}`, { skip }, async t => {
-    const h = await areaHost(t, openPin(over));
+]) test(`line opening refusal is visible and leaves a plain goal (strict mode, RPG Battle 2.2.0's refusals): ${label}`, { skip }, async t => {
+    const h = await areaHost(t, openPin(over), STRICT);
     await h.send('A goal.', `<Changes>\n${line}\n</Changes>`);
     const thread = h.sdk.query('director.thread', { key: 'Listen' });
     assert.ok(thread); assert.equal(thread.rpg, undefined);
@@ -132,13 +132,13 @@ for (const kind of ['visit', 'collect']) test(`open ${kind} target is a real exp
     assert.equal(h.sdk.query('inventory.wallet').coin, 20); assert.deepEqual(h.store.problems(), []);
 });
 
-test('variant names bind only to an explicit surviving base declaration; an over-budget variant is refused visibly', { skip }, async t => {
-    const h = await areaHost(t);
+test('variant names bind only to an explicit surviving base declaration; an over-budget variant is refused visibly (strict mode)', { skip }, async t => {
+    const h = await areaHost(t, undefined, STRICT);
     await h.send('A wolf.', '<Changes>\n! encounter Ash Wolf | like: wolf\n</Changes>');
     await h.send('A hunt.', '<Changes>\n+ quest Ash hunt | like: hunt | text: Hunt | foe: Ash Wolf\n</Changes>');
     assert.equal(h.sdk.query('director.thread', { key: 'Ash hunt' }).rpg.objectives[0].foe, 'pack.fixture/wolf~ash-wolf');
     await h.st.loadChat(structuredClone(h.ctx.chat)); h.store.rebuild(); assert.deepEqual(h.store.problems(), []);
-    const bad = await areaHost(t, openPin({}, { STR: 7, VIT: 7, AGI: 7, DEX: 7, INT: 7, LUK: 7, CHA: 7 }));
+    const bad = await areaHost(t, openPin({}, { STR: 7, VIT: 7, AGI: 7, DEX: 7, INT: 7, LUK: 7, CHA: 7 }), STRICT);
     await bad.send('A wolf.', '<Changes>\n! encounter Impossible Wolf | like: wolf\n</Changes>');
     assert.equal(bad.sdk.query('combat.offers').length, 0);
     assert.match(JSON.stringify(bad.turn.problems()), /budget|BUDGET/);
@@ -157,8 +157,8 @@ test('open narrated coin is attributed once and a Continue cannot pay the reward
     assert.deepEqual(h.store.problems(), []);
 });
 
-test('a variant name colliding with a pack foe refuses rather than choosing an identity', { skip }, async t => {
-    const h = await areaHost(t);
+test('a variant name colliding with a pack foe refuses rather than choosing an identity (strict mode)', { skip }, async t => {
+    const h = await areaHost(t, undefined, STRICT);
     await h.send('A wolf.', '<Changes>\n! encounter Wolf | like: wolf\n</Changes>');
     await h.send('A hunt.', '<Changes>\n+ quest Ambiguous | like: hunt | text: Hunt | foe: Wolf\n</Changes>');
     assert.equal(h.sdk.query('director.thread', { key: 'Ambiguous' }).rpg, undefined);

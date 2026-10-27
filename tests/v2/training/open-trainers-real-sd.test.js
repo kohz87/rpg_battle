@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { seeded } from '../integration/helpers/host.js';
 import { openTrainersPin, ref } from '../progress/helpers/fixture.js';
-import { realQuestHost, skip } from '../quests/helpers/real-host.js';
+import { STRICT, realQuestHost, skip } from '../quests/helpers/real-host.js';
 import { feeFor } from '../../../src/v2/training/opening.js';
 import { offers, spans, sessions } from './helpers/open.js';
 
@@ -14,7 +14,7 @@ const PLACES = JSON.stringify({ id: 'fixture', version: '2.0.0', name: 'Places',
 const NOON = 'June 3, 1200, 12:00 pm';
 
 async function townHost(t) {
-    const h = await realQuestHost(t, { given: openTrainersPin() });
+    const h = await realQuestHost(t, { given: openTrainersPin(), settings: STRICT });
     ok(await h.packs.packs.install(PLACES));
     await h.send('At Haven.', `<Changes>\n~ place Haven\n~ time ${NOON}\n+ present Old Reka\n+ coin 50\n</Changes>`);
     // The helpers of this folder read a world with a `slice`, a `q` and a `say`.

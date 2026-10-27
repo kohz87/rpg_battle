@@ -15,9 +15,9 @@ if (original === undefined) delete globalThis.StoryBlock; else globalThis.StoryB
 export const ok = result => { assert.equal(result.ok, true, `${result.code}: ${result.message}`); return result; };
 const payload = offer => { const { name, ...choice } = offer; return choice; };
 
-/** A host with `packs` installed and RPG Battle booted. `st`: a saved chat to open (`{ chat, extensionSettings }`). Close it with `h.close()`. */
-export async function openWorld({ packs = [], st } = {}) {
-    const h = await createHost({ st, modules: [{ ...SD, version: '2.0.0' }] });
+/** A host with `packs` installed and RPG Battle booted. `st`: a saved chat to open (`{ chat, extensionSettings }`); `settings`: the reader's settings (strict mode is `{ features: { 'rpg-battle.generative-offers': false } }`). Close it with `h.close()`. */
+export async function openWorld({ packs = [], st, settings } = {}) {
+    const h = await createHost({ st, ...(settings ? { settings: structuredClone(settings) } : {}), modules: [{ ...SD, version: '2.0.0' }] });
     for (const pack of packs) ok(await h.packs.packs.install(pack));
     ok(await boot({ global: { StoryBlock: { apiVersion: 2, ready: Promise.resolve(h.sdk) } }, doc: null }));
     h.q = (name, args = {}) => h.sdk.query(name, args);
