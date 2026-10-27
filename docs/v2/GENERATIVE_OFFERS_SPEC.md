@@ -858,6 +858,11 @@ SB `node authoring-kit/check.mjs examples/packs/ersveil-bluewatch/pack.json`, `n
   the Adjustments log. The reply's movement is the clock less the clock at the last settle (Story Director's `time.overdue`), so the time line goes first.
 - Promotion mastery: the pin's `constants.promotionMastery` (default and old pins `[5, 5, 5]`) is the mastery each skill needs for the promotions at 10, 20 and 30
   (`progress/offers.js` `masteryNeeded`); the checklist's `needed` is that of the open milestone.
+- Re-read keeps the route: Story Block runs a Re-read with the switch as it is now, so each line that the feature could read (a `+ quest` that can be an offer, a `+ trainer`, an `! encounter | like:` with a count) keeps the way it was read
+  with its reply, `route.<rt_ id>` = `{ v: 1, sid, lines: { <16 hex of the line>: 'on' | 'off' } }` (at most 64 lines a reply, written by `rules.recordOffer`). A Re-read of the same line reads it that way; an edited or
+  never-read line reads under the current setting. A chat recorded before routes were kept falls back to what its state shows (a quest thread with no offer record, a teacher with no `settled`).
+- A rest's time rule is the clock's, not passive recovery's; a refused rest keeps its text and place as `flat()` text. Uses waiting for a credit are settled by a `beforeGenerate` cue on the reply at the head (as well
+  as by afterCapture), so a reply with no change line no longer leaves them unpaid. A count in front of a named kind is any whole number 1 to 999 (a fight holds 54, the rest is cut and told).
 - Progress words: `rules.pace` (`progress/offers.js` `paceOf`: `{ top, usesForTop, perReply, perDay }` from the pin's constants) feeds the line under Skills; a `rules.progress` checklist row says
   `waiting` (uses of its form held for the story clock; only while no clock is set, only when above 0). With `promotionMastery` the checklist header and the waiting lines use the
   requirement ("0 of 3 forms at 3 / 5", "Strike is 1 / 3."), the skill bars stay out of the top and a card is done at the requirement. A refused rest keeps `place` in its

@@ -202,3 +202,41 @@ test('a place with markup, a control character or 500 characters in its name is 
         for (const row of rows) assert.doesNotMatch(JSON.stringify(row), /[<>\u0000-\u001f]/);
     });
 });
+
+// ---- the words of a rest that follows the hours ----------------------------------------------------------------------------
+
+const restReceipts = h => h.sdk.receipts().map(entry => entry.receipt).filter(receipt => receipt.type === 'capture.rest');
+
+test('a long rest in the reply that moved the clock eight hours: the hours healed everyone first, and the receipt does not say nobody needed it', async t => {
+    await seeded(9208, async () => {
+        const h = await bluewatch(t);
+        await wounded(h);
+        await h.say('The night passes.', ['! time +8h', '! rest long — a night at the inn']);
+        assert.equal(hp(h), max(h));
+        const [receipt] = restReceipts(h).slice(-1);
+        assert.doesNotMatch(receipt.summary, /Nobody needed/);
+        assert.equal(receipt.summary, 'The party takes a long rest (a night at the inn). The hours that passed had already healed everyone.');
+        assert.equal(receipt.narrate, true);
+        assert.ok(Object.values(receipt.data.gains).every(gain => gain.hp === 0 && gain.mp === 0 && gain.sp === 0), 'the numbers are as they were');
+        await agree(h, 'rest after the hours');
+    });
+});
+
+test('a rest that nobody needed, with no hours behind it, still says so', async t => {
+    await seeded(9209, async () => {
+        const h = await bluewatch(t);
+        await h.say('Fresh.', ['! time +8h', '! rest long']);
+        const [receipt] = restReceipts(h).slice(-1);
+        assert.match(receipt.summary, /Nobody needed it\.$/);
+    });
+});
+
+test('a rest that still adds something after the hours says what it added, as before', async t => {
+    await seeded(9210, async () => {
+        const h = await bluewatch(t);
+        await wounded(h);
+        await h.say('An hour and a breather.', ['! time +1h', '! rest short']);
+        const [receipt] = restReceipts(h).slice(-1);
+        assert.doesNotMatch(receipt.summary, /had already healed/);
+    });
+});

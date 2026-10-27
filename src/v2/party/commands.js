@@ -500,7 +500,10 @@ function rest(ctx, payload = {}) {
     }
     const reason = String(payload.reason ?? '').trim().slice(0, 120);
     const head = `The party takes a ${kind} rest${reason ? ` (${reason})` : ''}`;
-    return { summary: parts.length ? `${head}: ${parts.join('; ')}.` : `${head}. Nobody needed it.`, data: { kind, gains: data }, narrate: true };
+    // The hours of the same reply were folded in first: when they healed someone and the rest has nothing left to add, it must not say nobody needed it.
+    const hoursHealed = Object.values(timeFold?.gains ?? {}).some(gain => (gain?.hp ?? 0) > 0 || (gain?.mp ?? 0) > 0 || (gain?.sp ?? 0) > 0);
+    const nothing = hoursHealed ? `${head}. The hours that passed had already healed everyone.` : `${head}. Nobody needed it.`;
+    return { summary: parts.length ? `${head}: ${parts.join('; ')}.` : nothing, data: { kind, gains: data }, narrate: true };
 }
 
 function whole(ctx, value, what) {
