@@ -11,7 +11,7 @@ import { readEncounter } from '../../../src/v2/combat/encounter.js';
 import { declinedOf, offersOf } from '../../../src/v2/rules/offers.js';
 import { seeded } from '../integration/helpers/host.js';
 import { COPPER, derivedPin, env, lineOf } from './helpers/offer-env.js';
-import { PACK, accept, bluewatch, lastTail } from './helpers/bluewatch.js';
+import { G1, PACK, accept, bluewatch, lastTail } from './helpers/bluewatch.js';
 
 const P = 'pack.ersveil-bluewatch';
 const offer = (text, options) => matchOffer(env(options), lineOf(text));
@@ -241,7 +241,7 @@ test('a count in front of a named kind ("3 Rats Of Doom | like: …") is read on
 
 // ---- a teacher's fee in the chat's coins ----------------------------------------------------------------------------------
 
-test('a fee is written in the chat\'s coins as a reward is: in the told line, the rolled-fee note and the Progress page; strict mode keeps the bare number', async t => {
+test('a fee is written in the chat\'s coins as a reward is: in the told line, the rolled-fee note and the Progress page; and so in strict mode', async t => {
     await seeded(8106, async () => {
         const h = await bluewatch(t);
         await h.say('Reka.', ['+ trainer Old Reka — blade drills | fee: 6 silver 4 copper', '+ trainer Sergeant Holm — spear and shield drills']);
@@ -260,8 +260,26 @@ test('a fee is written in the chat\'s coins as a reward is: in the told line, th
         assert.ok(member.training.offers.every(offer => /^fee \d+ (?:gold|silver|copper)(?: \d+ (?:silver|copper))?, /.test(offer.detail)), member.training.offers.map(offer => offer.detail).join('|'));
     });
     await seeded(8107, async () => {
+        // The page is not gated on the feature: strict mode shows the same coins.
         const h = await bluewatch(t, { settings: { features: { 'rpg-battle.generative-offers': false } } });
         const member = h.q('rpg-battle.progressView', {}).members[0];
-        assert.ok(member.training.offers.length > 0 && member.training.offers.every(offer => /^fee \d+, /.test(offer.detail)), member.training.offers.map(offer => offer.detail).join('|'));
+        assert.ok(member.training.offers.length > 0 && member.training.offers.every(offer => /^fee \d+ (?:gold|silver|copper)/.test(offer.detail)), member.training.offers.map(offer => offer.detail).join('|'));
+    });
+});
+
+// ---- the names of what a quest asks for ----------------------------------------------------------------------------------
+
+test('rules.names names the foes, items and places of a quest, and a named kind of foe by the job that made it', async t => {
+    await seeded(8108, async () => {
+        const h = await bluewatch(t);
+        await h.say('Hollis speaks.', [G1]);
+        const [record] = Object.values(offersOf(h.head().domains.rules));
+        const refs = [record.settled.foe.ref, record.settled.foe.base, `${P}/cellar-rat-swarm`, `${P}/bluewatch-village`, `${P}/rat-tail`, 'pack.nothing/here'];
+        const names = h.q('rules.names', { refs });
+        assert.equal(names[record.settled.foe.ref], 'Culvert Rats');
+        assert.equal(names[`${P}/cellar-rat-swarm`], 'Cellar Rat Swarm');
+        assert.equal(names[`${P}/bluewatch-village`], 'Bluewatch Village');
+        assert.equal(names[`${P}/rat-tail`], 'Rat Tail');
+        assert.equal(Object.hasOwn(names, 'pack.nothing/here'), false);
     });
 });

@@ -12,7 +12,7 @@
 // `remainingMinutes` as given.
 
 import { ASK, ask, isList, isQuestView, isRecord, isText } from './ask.js';
-import { btn, clip, clockLabel, dayOf, spanLabel } from './format.js';
+import { btn, calendarWriter, clip, clockLabel, dayOf, moneyText, spanLabel } from './format.js';
 import { namesFor } from './names.js';
 
 const isThread = value => isRecord(value) && isText(value.id) && isText(value.key) && ['active', 'resolved'].includes(value.status) && typeof value.offer === 'boolean';
@@ -32,19 +32,19 @@ function objectiveText(objective, names) {
     return '';
 }
 
-function rewardText(reward, names) {
+function rewardText(reward, names, coins) {
     if (!isRecord(reward)) return '';
     const parts = [];
-    if (Number.isSafeInteger(reward.coin) && reward.coin > 0) parts.push(`${reward.coin} coin`);
+    if (Number.isSafeInteger(reward.coin) && reward.coin > 0) parts.push(coins(reward.coin));
     if (Number.isSafeInteger(reward.xp) && reward.xp > 0) parts.push(`${reward.xp} XP`);
     for (const item of Array.isArray(reward.items) ? reward.items : []) if (isRecord(item)) parts.push(`${item.qty} × ${names(item.def)}`);
     return parts.join(', ');
 }
 
-function settledText(settlement, names) {
+function settledText(settlement, names, coins) {
     if (!isRecord(settlement)) return '';
     const paid = [];
-    if (settlement.coinPaid > 0) paid.push(`${settlement.coinPaid} coin`);
+    if (settlement.coinPaid > 0) paid.push(coins(settlement.coinPaid));
     if (settlement.xpPaid > 0) paid.push(`${settlement.xpPaid} XP`);
     for (const item of Array.isArray(settlement.itemsPaid) ? settlement.itemsPaid : []) if (isRecord(item)) paid.push(`${item.qty} × ${names(item.def)}`);
     if (settlement.outcome === 'done') return paid.length ? `Paid: ${paid.join(', ')}.` : 'Finished.';
@@ -52,7 +52,7 @@ function settledText(settlement, names) {
     return paid.length ? `Closed. Paid: ${paid.join(', ')}.` : 'Closed. Nothing was paid.';
 }
 
-function questRow(quest, names, minutes) {
+function questRow(quest, names, minutes, words) {
     const open = quest.state === 'offered' || quest.state === 'active';
     const live = quest.state === 'active';
     const remaining = live && Number.isSafeInteger(quest.remainingMinutes) && quest.deadline !== null ? quest.remainingMinutes : null;
@@ -61,17 +61,17 @@ function questRow(quest, names, minutes) {
         id: quest.id, title: clip(quest.title, 80), category: quest.category, categoryLabel: CATEGORY_WORDS[quest.category] ?? '',
         state: quest.state, stateLabel: STATE_WORDS[quest.state] ?? clip(quest.state, 24), tone: TONES[quest.state] ?? 'neutral',
         open, expired: quest.state === 'expired',
-        deadlineText: Number.isSafeInteger(quest.deadline) ? `Due ${clockLabel(quest.deadline)}` : '',
+        deadlineText: Number.isSafeInteger(quest.deadline) ? `Due ${words.when(quest.deadline)}` : '',
         remainingText: remaining !== null ? `${spanLabel(remaining) || '0 minutes'} left` : quest.state === 'expired' ? 'Expired' : '',
         objectives: (Array.isArray(quest.objectives) ? quest.objectives : []).map(item => ({ id: isRecord(item) ? String(item.id) : '', text: objectiveText(item, names) })).filter(row => row.text),
-        reward: rewardText(quest.reward, names),
-        settled: settledText(quest.settlement, names),
+        reward: rewardText(quest.reward, names, words.coins),
+        settled: settledText(quest.settlement, names, words.coins),
         blocked: quest.blocked.map(item => clip(item, 240)),
         ready: quest.ready,
         repeat: isRecord(quest.repeat)
             ? { text: quest.repeat.nextOfferAt === null || quest.repeat.nextOfferAt === undefined
                 ? `Repeats after a ${spanLabel(quest.repeat.cooldownMinutes) || 'short'} wait.`
-                : `Repeats after a ${spanLabel(quest.repeat.cooldownMinutes) || 'short'} wait. Next offer ${clockLabel(quest.repeat.nextOfferAt)} (Day ${dayOf(quest.repeat.nextOfferAt)}).` }
+                : `Repeats after a ${spanLabel(quest.repeat.cooldownMinutes) || 'short'} wait. Next offer ${words.repeat(quest.repeat.nextOfferAt)}.` }
             : null,
         chain: isRecord(quest.chain)
             ? { text: [quest.chain.previous ? `After: ${names(quest.chain.previous)}.` : '', quest.chain.next ? `Next: ${names(quest.chain.next)}.` : 'Last in its chain.'].filter(Boolean).join(' ') }
@@ -123,13 +123,28 @@ function adjustmentsView(tools) {
 export function questsView(state, args, tools) {
     const time = ask(tools, 'director.time', {});
     const minutes = time.status === ASK.OK && Number.isSafeInteger(time.value.minutes) ? time.value.minutes : null;
-    const clock = { set: minutes !== null, text: minutes !== null ? clockLabel(minutes) : '' };
+    // The story's own words for the clock (Story Director's, which knows the calendar): "CY 611, Goldwane 12, 06:40 am".
+    const clock = { set: minutes !== null, text: minutes === null ? '' : isText(time.value.text) && time.value.text.trim() ? clip(time.value.text, 80) : clockLabel(minutes) };
     const quests = ask(tools, 'rules.quests', {}, value => isList(value, isQuestView));
     const threads = ask(tools, 'director.threads', {}, value => isList(value, isThread));
     const openTemplates = quests.status === ASK.OK ? ask(tools, 'quest.openTemplates', {}, value => isList(value, row => isRecord(row) && isText(row.id) && isText(row.name) && Array.isArray(row.kinds))).value ?? [] : [];
     const goals = threads.status === ASK.OK ? threads.value.map(thread => threadRow(thread, openTemplates)) : [];
 
     if (quests.status === ASK.OK) {
+        // RPG Battle's quests are written in the chat's calendar and coins ("Goldwane 17", "4 gold"); the plain counts where it has neither.
+        const calendar = calendarWriter(ask(tools, 'director.calendar', {}).value);
+        const currency = ask(tools, 'inventory.currency', {});
+        const words = {
+            coins: amount => (currency.status === ASK.OK ? moneyText(amount, currency.value) : `${amount} coin`),
+            when: at => {
+                if (!calendar) return clockLabel(at);
+                const within = ((at % 1440) + 1440) % 1440;
+                const day = calendar.date(at, { era: minutes === null || calendar.year(at) !== calendar.year(minutes) });
+                return `${day}, ${String(Math.floor(within / 60)).padStart(2, '0')}:${String(within % 60).padStart(2, '0')}`;
+            },
+            repeat: at => (calendar ? words.when(at) : `${clockLabel(at)} (Day ${dayOf(at)})`),
+        };
+        if (calendar && minutes !== null) clock.text = calendar.date(minutes);
         const refs = [];
         for (const quest of quests.value) {
             for (const item of Array.isArray(quest.objectives) ? quest.objectives : []) if (isRecord(item)) refs.push(item.foe, item.def, item.place);
@@ -138,7 +153,7 @@ export function questsView(state, args, tools) {
             if (quest.chain) refs.push(quest.chain.previous, quest.chain.next);
         }
         const names = namesFor(tools, refs.filter(isText));
-        const rows = quests.value.map(quest => questRow(quest, names, minutes));
+        const rows = quests.value.map(quest => questRow(quest, names, minutes, words));
         const taken = new Set(rows.map(row => row.id));
         const groups = [
             { id: 'offers', title: 'Offered to you', quests: rows.filter(row => row.state === 'offered') },

@@ -13,9 +13,8 @@
 //   picker   (no character yet) the basic classes, each with its three skills
 
 import { ASK, ask, isHash, isList, isParty, isProgress, isRecord, isText } from './ask.js';
-import { btn, clip, clockLabel, dayOf, OPTION_LABELS, ratioText, spanLabel, TIER_LABELS } from './format.js';
+import { btn, calendarWriter, clip, clockLabel, dayOf, moneyText, OPTION_LABELS, ratioText, spanLabel, TIER_LABELS } from './format.js';
 import { namesFor } from './names.js';
-import { money } from '../../quests/parse.js';
 
 /** Mastery runs 0..5 (SkillView.mastery); a form at 5 / 5 is done. */
 export const MASTERY_TOP = 5;
@@ -51,14 +50,22 @@ function xpText(sheet) {
 
 // ---- training (rules.training's public projection) ----------------------------------------------------------------
 
-/**
- * How a fee is written on this page: in the chat's coins ("1 silver") where Jobs from the story shows its block, as a bare number (as in 2.2.0) elsewhere.
- * `quest.offerBlockOn` answers null while the feature is off, so strict mode keeps the number.
- */
+/** How story times are written on this page: in the chat's calendar where it has one ("Goldwane 12, 23:30"), as the story clock counts them ("Day 4, 23:30") where it has none. */
+function storyTimes(tools) {
+    const calendar = calendarWriter(ask(tools, 'director.calendar', {}).value);
+    if (!calendar) return { at: clockLabel, day: minutes => `Day ${dayOf(minutes)}`, dayNumber: n => `Day ${n}` };
+    const clock = minutes => `${String(Math.floor(minutes / 60) % 24).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+    return {
+        at: minutes => `${calendar.date(minutes, { era: false })}, ${clock(((minutes % 1440) + 1440) % 1440)}`,
+        day: minutes => calendar.date(minutes, { era: false }),
+        dayNumber: n => calendar.date(n * 1440, { era: false }),
+    };
+}
+
+/** How a fee is written on this page: in the chat's coins ("4 silver"), as a bare number where the chat's currency is not known. */
 function feeTextOf(tools) {
-    const on = ask(tools, 'quest.offerBlockOn', {});
-    const currency = on.status === ASK.OK && on.value === true ? ask(tools, 'inventory.currency', {}) : null;
-    return currency?.status === ASK.OK ? fee => money(fee, currency.value) : String;
+    const currency = ask(tools, 'inventory.currency', {});
+    return currency.status === ASK.OK ? fee => moneyText(fee, currency.value) : String;
 }
 
 /**
@@ -90,7 +97,7 @@ export function trainersModel(read, names) {
     };
 }
 
-function trainingModel(answer, minutes, names, actor, trainers = null, feeText = String) {
+function trainingModel(answer, minutes, names, actor, trainers = null, feeText = String, times = { at: clockLabel, day: minutes => `Day ${dayOf(minutes)}`, dayNumber: n => `Day ${n}` }) {
     if (answer.status !== ASK.OK) return { state: 'unavailable', headline: '', lines: [], offers: [], caps: '', held: false, stories: [], binding: null, canMake: false, makeNote: '' };
     const { session, caps, offers } = answer.value;
     const lines = [];
@@ -105,17 +112,17 @@ function trainingModel(answer, minutes, names, actor, trainers = null, feeText =
         } else if (state === 'running') {
             headline = `Training: ${what}.`;
             if (Number.isSafeInteger(session.startMinute) && Number.isSafeInteger(session.endMinute)) {
-                lines.push(`From ${clockLabel(session.startMinute)} to ${clockLabel(session.endMinute)}.`);
-                if (dayOf(session.startMinute) !== dayOf(session.endMinute)) lines.push(`This crosses midnight into Day ${dayOf(session.endMinute)}.`);
+                lines.push(`From ${times.at(session.startMinute)} to ${times.at(session.endMinute)}.`);
+                if (dayOf(session.startMinute) !== dayOf(session.endMinute)) lines.push(`This crosses midnight into ${times.day(session.endMinute)}.`);
             }
-            if (Number.isSafeInteger(session.capDay)) lines.push(`Credit counts toward Day ${session.capDay}'s limit.`);
+            if (Number.isSafeInteger(session.capDay)) lines.push(`Credit counts toward ${times.dayNumber(session.capDay)}'s limit.`);
         } else if (state === 'completed') {
             headline = `Training finished: ${what}.`;
-            if (Number.isSafeInteger(session.startMinute) && Number.isSafeInteger(session.endMinute)) lines.push(`From ${clockLabel(session.startMinute)} to ${clockLabel(session.endMinute)}.`);
+            if (Number.isSafeInteger(session.startMinute) && Number.isSafeInteger(session.endMinute)) lines.push(`From ${times.at(session.startMinute)} to ${times.at(session.endMinute)}.`);
             lines.push(`Credits: ${session.creditsAwarded ?? 0} of ${session.credits ?? 0}.`);
             if (session.reason === 'mastered') lines.push('No mastery gained: already mastered. XP still counts.');
             else if (['skill-day', 'actor-day', 'skill-reply', 'actor-reply'].includes(session.reason)) lines.push('No mastery gained: the daily limit was reached.');
-            if (Number.isSafeInteger(session.capDay)) lines.push(`Counted on Day ${session.capDay}.`);
+            if (Number.isSafeInteger(session.capDay)) lines.push(`Counted on ${times.dayNumber(session.capDay)}.`);
         } else if (state === 'interrupted') {
             headline = `Training interrupted: ${what}.`;
             lines.push('No credit was given and the fee is not refunded.');
@@ -207,7 +214,7 @@ function memberModel(sheet, progress, training, ctx) {
         checklist, checklistText: `${done} of ${checklist.length} forms at ${MASTERY_TOP} / ${MASTERY_TOP}`, checklistDone: done,
         progress: progress.status === ASK.OK ? 'ok' : progress.status,
         promotions, pathways,
-        training: trainingModel(training, minutes, names, sheet.id, you ? ctx.trainers : null, ctx.feeText),
+        training: trainingModel(training, minutes, names, sheet.id, you ? ctx.trainers : null, ctx.feeText, ctx.times),
     };
 }
 
@@ -247,6 +254,7 @@ export function progressView(state, args, tools) {
         trainers: ask(tools, 'training.trainers', {}, isTrainers),
         present: ask(tools, 'scene.present', {}, value => isList(value, isText)),
         feeText: feeTextOf(tools),
+        times: storyTimes(tools),
     };
     const refs = [];
     for (const sheet of wanted) {
@@ -281,7 +289,7 @@ export function progressView(state, args, tools) {
     const minutes = time.status === ASK.OK && Number.isSafeInteger(time.value.minutes) ? time.value.minutes : null;
     const hash = identity.status === ASK.OK ? identity.value.hash : null;
     const trainers = trainersModel(read, names);
-    const members = wanted.map(sheet => memberModel(sheet, progress.get(sheet.id), training.get(sheet.id), { names, hash, minutes, classSkills, trainers, feeText: read.feeText, you: sheet.id === party.value.pc }));
+    const members = wanted.map(sheet => memberModel(sheet, progress.get(sheet.id), training.get(sheet.id), { names, hash, minutes, classSkills, trainers, feeText: read.feeText, times: read.times, you: sheet.id === party.value.pc }));
     return {
         state: 'ready', reason: '', members,
         party: members.map(member => ({ id: member.id, name: member.name, you: member.you, text: member.checklistText, done: member.checklistDone, total: member.checklist.length, complete: member.checklistDone === member.checklist.length })),

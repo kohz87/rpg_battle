@@ -22,6 +22,81 @@ export function clockLabel(minutes) {
     return `Day ${dayOf(minutes)}, ${two(Math.floor(within / 60))}:${two(within % 60)}`;
 }
 
+// ---- money in the chat's coins ------------------------------------------------------------------------------------------
+
+const plain = value => String(value ?? '').normalize('NFKC').replace(/[*_`]+/g, '').replace(/\s+/g, ' ').trim();
+
+/**
+ * An amount in the chat's coins as the narrator's terms and the Adjustments log write it ("4 gold", "6 silver 4 copper"): the screens' own copy of quests/parse.js
+ * `money` (this folder imports nothing outside it; tests/v2/screens/rules/calendar.test.js holds the two together). `currency` is `inventory.currency`'s answer.
+ */
+export function moneyText(amount, currency) {
+    const name = plain(typeof currency === 'string' ? currency : currency?.name) || 'gold';
+    const coins = typeof currency === 'object' && Array.isArray(currency?.coins) ? currency.coins.filter(coin => Number.isSafeInteger(coin?.value) && coin.value > 0 && plain(coin.name)) : [];
+    const n = Number(amount);
+    if (coins.length && Number.isSafeInteger(n) && n >= 0) {
+        const named = (coin, count) => `${count} ${count === 1 ? plain(coin.name) : plain(coin.plural) || plain(coin.name)}`;
+        const base = coins.find(coin => coin.value === 1) ?? { name, plural: plain(currency?.plural) || name };
+        if (currency.display === 'base' || n === 0) return named(base, n);
+        const parts = [];
+        let rest = n;
+        const shown = coins.filter((coin, index) => coins.findIndex(other => other.value === coin.value) === index);
+        for (const coin of [...shown].sort((a, b) => b.value - a.value)) {
+            const count = Math.floor(rest / coin.value);
+            if (!count) continue;
+            parts.push(named(coin, count));
+            rest -= count * coin.value;
+        }
+        if (rest) parts.push(named(base, rest));
+        return parts.join(' ');
+    }
+    const plural = typeof currency === 'object' ? plain(currency?.plural) : '';
+    return `${amount} ${Math.abs(Number(amount)) === 1 || !plural ? name : plural}`;
+}
+
+// ---- the story's calendar -----------------------------------------------------------------------------------------------
+
+const isLeap = year => year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+const leapsBefore = year => { const p = year - 1; return Math.floor(p / 4) - Math.floor(p / 100) + Math.floor(p / 400) + 1; };
+
+/**
+ * A date writer for the chat's calendar, from Story Director's `director.calendar` answer ({ era, months: [{ name, days }], leapYears }): the same days,
+ * leap rule and words as Story Director's own `format` (calendar.js; tests/v2/screens/rules/calendar.test.js holds the two together). Null when the answer is
+ * not a calendar. `date(minutes, { era })` → "CY 611, Goldwane 12" (the era and year first), or "Goldwane 12" with `era: false`.
+ */
+export function calendarWriter(config) {
+    const months = Array.isArray(config?.months) ? config.months.filter(month => typeof month?.name === 'string' && month.name.trim() && Number.isSafeInteger(month.days) && month.days > 0) : [];
+    if (!months.length || months.length !== config.months.length) return null;
+    const count = months.length;
+    const leapMonth = count > 1 ? 1 : 0;
+    const leapYears = config.leapYears === true;
+    const era = typeof config.era === 'string' ? clip(config.era.trim(), 24) : '';
+    const baseYear = months.reduce((sum, month) => sum + month.days, 0);
+    const avgYear = baseYear + (leapYears ? 0.2425 : 0);
+    const leap = year => leapYears && isLeap(year);
+    const daysBeforeYear = year => baseYear * year + (leapYears ? leapsBefore(year) : 0);
+    const daysIn = (year, month) => months[month].days + (month === leapMonth && leap(year) ? 1 : 0);
+    const parts = minutes => {
+        const total = Math.floor(minutes / DAY_MINUTES);
+        let year = Math.floor(total / avgYear);
+        while (daysBeforeYear(year) > total) year--;
+        while (daysBeforeYear(year + 1) <= total) year++;
+        let rest = total - daysBeforeYear(year);
+        let month = 0;
+        while (month < count - 1 && rest >= daysIn(year, month)) rest -= daysIn(year, month++);
+        return { year, month, day: rest + 1 };
+    };
+    return {
+        date(minutes, { era: withEra = true } = {}) {
+            if (!Number.isSafeInteger(minutes)) return '';
+            const at = parts(minutes);
+            const text = `${clip(months[at.month].name, 40)} ${at.day}`;
+            return withEra ? (era ? `${era} ${at.year}, ${text}` : `${text}, ${at.year}`) : text;
+        },
+        year: minutes => (Number.isSafeInteger(minutes) ? parts(minutes).year : null),
+    };
+}
+
 /** "1 minute", "45 minutes", "2 hours", "1 day 3 hours": a span of story minutes. */
 export function spanLabel(minutes) {
     if (!Number.isSafeInteger(minutes) || minutes < 0) return '';
