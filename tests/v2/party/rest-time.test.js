@@ -560,3 +560,71 @@ for (const [label, clockLine, ends] of [
         });
     });
 }
+
+// ---- minutes short of an hour are not carried across a wound or the end of a fight -------------------------------------------------------------------------------
+
+const clockOf = h => h.q('director.time', {}).minutes;
+
+for (const [label, settings] of [['passive recovery on', null], ['passive recovery off', NO_RECOVERY]]) {
+    test(`${label}: ten minutes, a wound, then fifty minutes heal nothing: the ten minutes before the wound are spent with it`, async t => {
+        await seeded(9240, async () => {
+            const h = await bluewatch(t, settings ? { settings } : {});
+            await h.say('Ten minutes, a fall.', ['! time +10m', lineWound('Ren')]);
+            const hurt = hp(h);
+            assert.ok(hurt < max(h));
+            await h.say('Fifty minutes.', ['! time +50m']);
+            await h.say('Quiet.');
+            await h.say('Quiet again.');
+            assert.equal(hp(h), hurt, `${label}: an hour in two parts across a wound is not an hour of the wound's`);
+            assert.equal(h.head().domains.party.rested !== null, true);
+            // The hours after the wound heal as ever.
+            await h.say('An hour.', ['! time +1h']);
+            await h.say('Quiet.');
+            if (!settings) assert.ok(hp(h) > hurt, 'an hour after the wound heals');
+            await agree(h, label);
+        });
+    });
+}
+
+test('a fight that ends at :40 and twenty minutes more heal nobody: the forty minutes of the fight are spent when it is settled', async t => {
+    await seeded(9241, async () => {
+        const h = await bluewatch(t);
+        await h.say('They attack.', ['! encounter 2 Rats | like: cellar-rat-swarm | tier: strong']);
+        ok(await h.sdk.command('combat.start', { offer: h.q('combat.offers').at(-1).id }));
+        await h.say('Forty minutes of fighting.', ['! time +40m']);
+        await playOut(h);
+        ok(await h.sdk.command('combat.end', { session: h.q('combat.session').id }));
+        const left = hp(h);
+        assert.ok(left < max(h), 'the fight left the party hurt');
+        assert.equal(h.head().domains.party.rested, clockOf(h), 'the forty minutes are spent');
+        await h.say('Twenty minutes.', ['! time +20m']);
+        await h.say('Quiet.');
+        assert.equal(hp(h), left, 'twenty minutes after the fight are not an hour');
+        await h.say('Forty more.', ['! time +40m']);
+        await h.say('Quiet.');
+        assert.ok(hp(h) > left, 'an hour after it heals');
+        await agree(h, 'fight at :40');
+    });
+});
+
+// ---- a clock that cannot say when the reply began --------------------------------------------------------------------------------------------------------
+
+import { realWorld } from '../progress/helpers/world.js';
+
+test('with a clock whose elapsed time is unknown a rest is refused, and the whole-party rule holds all the same', async t => {
+    await seeded(9242, async () => {
+        // The stand-in clock has `director.time` but no `time.overdue`: Story Director would say when the reply began; this one cannot.
+        const w = await realWorld(t, { companions: ['Lyra'] });
+        const [lyra] = w.mates;
+        await w.say('The clock is set.', ['~ time 1000', '~ wound Astra — a fall | harm: severe', '~ wound Lyra — a fall | harm: severe']);
+        const hurt = id => w.head().domains.party.actors[id].hp;
+        const before = JSON.stringify(w.head().domains.party);
+        for (const [payload, code] of [[{ kind: 'long', actors: [w.pc] }, 'INVALID'], [{ kind: 'short', actors: [w.pc] }, 'INVALID'], [{ kind: 'long' }, 'REFUSED'], [{ kind: 'short' }, 'REFUSED']]) {
+            const out = await w.host.sdk.command('party.rest', payload);
+            assert.equal(out.ok, false, JSON.stringify(payload));
+            assert.equal(out.code, code, JSON.stringify(payload));
+        }
+        assert.equal(JSON.stringify(w.head().domains.party), before, 'nobody was healed');
+        assert.ok(hurt(w.pc).lost > 0 && hurt(lyra).lost > 0);
+    });
+});

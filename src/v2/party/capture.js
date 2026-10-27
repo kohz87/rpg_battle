@@ -69,7 +69,7 @@ function severityWord(ctx, value) {
 function applyWound(ctx, line) {
     // Story time this reply wrote before the wound is spent first (recovery.js): it heals what was hurt before, or with passive recovery off it heals nothing, but either way it
     // is gone, so a rest later in the reply heals this wound only by the hours that pass after it. The wound stays.
-    if (!fightOn(ctx)) foldStoryTime(ctx, { markOnly: true });
+    if (!fightOn(ctx)) foldStoryTime(ctx, { markOnly: true, spend: true });
     const party = ctx.draft('party');
     const rules = rulesFor(ctx);
     const actor = memberOf(ctx, party, line.name);
@@ -200,7 +200,7 @@ function applyRest(ctx, line) {
             // Where the party was, for the log's title ("Long rest at The Stray Oar"); none when the world has no place yet.
             let place = '';
             try { place = flat(ctx.query('atlas.canonical', {})?.name, 80); } catch { place = ''; }
-            const record = { v: 1, sid: ctx.source.sid, kind, needed: short.needed, moved: short.moved, ...(place ? { place } : {}), said };
+            const record = { v: 1, sid: ctx.source.sid, receipt: ctx.receiptId, kind, needed: short.needed, moved: short.moved, ...(place ? { place } : {}), said };
             try { if (ctx.call('rules.recordOffer', { write: `wr_${ctx.hash({ source: ctx.source, writer: 'rest' }).slice(0, 8)}`, rest, record })?.ok === false) rest = null; } catch { rest = null; }
         }
         return { summary, narrate: true, data: { kind, rest: 'refused', needed: short.needed, moved: short.moved, ...(rest ? { record: rest } : {}) } };
