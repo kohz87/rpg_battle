@@ -58,7 +58,7 @@ export { TERM_FIELDS, foldReaderTerms, mergeTerms, packTerms, readerRanks, withT
 
 export const MODULE_ID = 'rpg-battle';
 export const MODULE_NAME = 'RPG Battle';
-export const VERSION = '2.2.0';
+export const VERSION = '2.3.0';
 
 /** The parts in their order: [part id, part]. */
 export const PARTS = Object.freeze([

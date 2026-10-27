@@ -1,4 +1,4 @@
-# RPG Battle 2.2.0
+# RPG Battle 2.3.0
 
 > Story Suite 2.1.0.
 
@@ -13,7 +13,7 @@ It is a module of [Story Block](https://github.com/kohz87/Story_block), the host
 
 ## Install
 
-Tested with **SillyTavern 1.19**. In **Extensions → Install extension**, install in this order, then reload:
+Tested with **SillyTavern 1.19**. Needs **Story Block 2.5.0** for jobs and teachers in the narrator's own words. In **Extensions → Install extension**, install in this order, then reload:
 
 1. [Story Block](https://github.com/kohz87/Story_block)
 2. [Story Director](https://github.com/kohz87/Story_director)
@@ -69,6 +69,7 @@ Switches are in **Settings → Features** (the **Find a feature** box helps). "N
 - **Crafting** (Crafting tab; `rpg-battle.crafting`, on): you craft in the story, code rolls it with the reply's dice.
 - **Return in time:** if your character dies you are offered **Return**, a new branch just before that fight
   (card on the Fight and Party screens). No switch.
+- **Jobs from the story** (`rpg-battle.generative-offers`, on): in a chat pinned to a pack with open quest templates the narrator offers jobs and teachers in its own words, and code settles the numbers. See *How quests and trainers work* below. Off, the narrator uses the frozen forms only, as in 2.2.
 - **Your world's words:** Settings → RPG Battle → **Character → Terms**: XP word, Level word, Rank ladder, Levels per rank.
 
 ## How a turn works
@@ -95,6 +96,29 @@ stay correct because the state is kept with each reply. Details: Story Block's
 [GUIDE](https://github.com/kohz87/Story_block/blob/main/docs/v2/GUIDE.md) (Checks and modifiers, Fights, Trade)
 and [SPEC](https://github.com/kohz87/Story_block/blob/main/docs/v2/SPEC.md).
 
+## How quests and trainers work
+
+In a chat pinned to a rules pack that has **open quest templates** (Ersveil: Bluewatch Starter 1.6.0 has them, and open trainer templates), the narrator can offer a job or a teacher in its own words. The rules block it is shown says how:
+
+```
++ quest Cellar Trouble | giver: the innkeeper | type: cull | goal: kill 4 rats in the cellar | reward: 5 silver | due: in 2 days | difficulty: easy
++ trainer Old Soldier — spear and shield drills | fee: 4 silver
+```
+
+The labels only help code read the line. Code settles the rest inside the pack's limits and keeps what it settled with the reply:
+
+- **Template, rank and count.** The `type:` (hunt, cull, gather, deliver, explore, escort, task) or the goal's first verb gives the kind of job, the foe's rank or `difficulty:` and your rank give its rank, and the first open template of that kind and rank is used (a template that names the written type, `offerType`, comes first). The target is matched to a pack foe or item, or becomes a named kind of the nearest foe ("Culvert Rats is a named kind of Cellar Rat Swarm"). The count is held to the template's bounds.
+- **Reward, XP and deadline.** A written reward is read in the chat's own money and held to the template's range; no reward, or one in a coin the chat does not use (`12 crowns` in a world of copper, silver and gold), gets the template's formula. XP is always the formula. A job without `due:` gets seven days; with no story clock there is no deadline.
+- **Three outcomes.** *Kept* as written, *Adjusted* (code moved a number to the nearest allowed one), or *Dropped*: a number more than three times the maximum, an offer already done, or a teacher who already teaches elsewhere is quietly not made and the narrator is told once ("Earlier, … was mentioned as a job, but it isn't one that can be offered here"). Nothing here is a Problem.
+- **The narrator is told the terms.** The reply after an offer carries `Posted job: …` lines (the settled count, coin, XP, deadline, where to turn in and, for a hunt, the `! encounter` line to fight) so the story uses them from then on. At most three terms a reply (setting *Settled terms told per reply*), then "…and 2 more jobs are posted (see the board)."
+- **You see what changed.** The reply's card gets a line "Posted: Granary Vermin, kill 6 Culvert Rats, 5 silver" with an *Adjusted* flag and one short reason; the Quests page ends with a collapsed **Adjustments (n)** list of what code changed, newest first, with what the narrator wrote.
+- **Accepting and finishing.** A posted job sits on the board until you take it (the narrator writes `+ quest Name` again once you accept). A hunt counts only foes beaten in a fight; a gathering counts what the party holds when it is handed in, loot first, else a story item. It is turned in where it was offered.
+- **Replay.** Code decides once, when the reply is read, and records the decision. Delete, swipe, Re-read and reload give the same job; a Re-read of an unchanged reply never decides again.
+
+If the story names its money something other than the pack's, set **Coins** (Settings) so a written reward is read; otherwise the card says it was not this chat's money.
+
+The narrator's rules block names the ranks the pack has, what each pays and a few foes of each (settings *Ranks in the grading guide* and *Foes named per rank in the guide*). It costs about 1,650 characters in every prompt and replaces the old list of template names. Chats with no pin, pins with no open quest template, and **Jobs from the story** switched off keep their prompts byte for byte as in 2.2.
+
 ## Settings
 
 Story Suite settings (the **Settings** button on the Story Suite bar) → the **RPG Battle** fold, in small
@@ -108,6 +132,7 @@ groups. The ones that matter:
 | Fights: foes on the field per party member / at most | Combat | the rest come in waves |
 | Carry limit, Items that add carry capacity | Items | what the party can carry |
 | Prices during a shortage (%), Prices by place | Trade | |
+| Ranks in the grading guide, Foes named per rank in the guide, Settled terms told per reply | Jobs from the story | what the narrator is told about jobs, and how many terms one reply repeats |
 
 ## With the other extensions
 

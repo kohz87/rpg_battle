@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.3.0
+
+Ships together with **Story Block 2.5.0** (count bounds on open objectives, foe aliases, pack offer words, `offerType` on open quest templates; the safety net never offers jobs or teachers).
+
+- **Jobs and teachers from the story.** In a chat pinned to a pack with open templates, the narrator can offer a job or a teacher in its own words (`+ quest Granary Vermin | giver: … | type: cull | goal: … | reward: … | due: …`, `+ trainer Old Reka — blade drills | fee: …`). Code picks the template and rank, keeps the count, coin, XP, deadline and fee inside the pack's limits, tells the narrator the settled terms on the next reply and notes on the reply's card what it adjusted. A far-out offer is quietly not made and the narrator is told once. Turn off **Jobs from the story** (`rpg-battle.generative-offers`) for the strict 2.2.0 behaviour.
+- **The rules block.** The narrator is shown how to write a job and a teacher, with a grading guide made from the pin (the ranks the pack has, what each pays, a few foes of each). The template slug list leaves the quest tail line and the trainer line is shorter while the block is shown; `| like:` still works. Settings: ranks in the guide, foes named per rank, settled terms told per reply.
+- **Reply card and Adjustments.** One "Posted:" line per offer, with an Adjusted flag and one short reason; the Quests page ends with a collapsed **Adjustments (n)** list (what the narrator wrote, what code settled, the notes).
+- **Decided once, kept with the reply.** Delete, swipe, Re-read, rebuild and reload give the same job; the matcher version is recorded with each offer, so a later change of the reading rules never moves a job already offered.
+- **Template choice by type.** A pack's open template can name the job type it is for (`offerType`); the written type then picks it among templates of the same kind and rank. Templates without it are chosen as before.
+- Amounts in words ("twelve crowns") are read by the quest parser.
+
+### Upgrading from 2.2
+
+Needs Story Block 2.5.0. Chats without a pin, pins without open quest templates and strict mode keep their prompt byte for byte. Existing chats replay unchanged (a chat recorded with 2.2.0 is kept as a test fixture); a Re-read of an old reply whose free-form job was refused now offers it. The template slug list is no longer in the prompt while the feature is on. Story Director and NPC State Delta need no update.
+
 ## 2.2.0
 
 Ships together with **Story Block 2.4.0** (its rules schema gained trainer templates; Ersveil: Bluewatch Starter 1.6.0 brings four).
