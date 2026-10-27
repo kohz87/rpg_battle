@@ -62,10 +62,10 @@ export function adjustments(state, args = {}, tools) {
         const receipt = entry.receipt ?? entry;
         const index = Number.isInteger(entry.index) ? entry.index : null;
         const sid = receipt?.data?.v2?.source?.sid;
-        if (index !== null && typeof sid === 'string' && !repliesAt.has(sid)) repliesAt.set(sid, index);
+        if (index !== null && typeof sid === 'string' && !(repliesAt.get(sid) <= index)) repliesAt.set(sid, index);
         // A quest's acceptance and turn-in carry its id too, but they come after the offer.
         for (const id of [receipt?.data?.quest, receipt?.data?.declined, receipt?.data?.trainer, receipt?.data?.record]) {
-            if (typeof id === 'string' && index !== null && !byId.has(id)) byId.set(id, { index, seq });
+            if (typeof id === 'string' && index !== null && !(byId.get(id)?.index <= index)) byId.set(id, { index, seq });
         }
     }
     // Where a record stands among the keys of the rules slice, which were added in the order the replies made them: what orders the records no receipt names (old ones).
