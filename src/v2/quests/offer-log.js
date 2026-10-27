@@ -44,9 +44,9 @@ function changesOfTeacher(offer) {
     return rows.slice(0, 3);
 }
 
-const row = (fields, receipts) => {
+const row = (fields, receipts, order = 0) => {
     const at = receipts.get(fields.id);
-    return { ...fields, reply: at === undefined ? null : at, replyText: at === undefined ? '' : `reply ${at}` };
+    return { ...fields, reply: at === undefined ? null : at, replyText: at === undefined ? '' : `reply ${at}`, order };
 };
 
 /** quest.adjustments({ limit? }) → { count, rows, more } newest first (`more`: how many older ones the limit leaves out); the state is the head, the receipts say which reply each record came from. */
@@ -60,32 +60,36 @@ export function adjustments(state, args = {}, tools) {
             if (typeof id === 'string' && Number.isInteger(entry.index) && !(receipts.get(id) <= entry.index)) receipts.set(id, entry.index);
         }
     }
+    // Where a record stands among the keys of the rules slice, which were added in the order the replies made them: what orders the records no receipt names a reply for (old ones).
+    const slice = state?.domains?.rules;
+    const keys = Object.keys(slice ?? {});
+    const keyAt = (prefix, id) => keys.indexOf(prefix + id);
     const out = [];
-    for (const [id, record] of Object.entries(offersOf(state?.domains?.rules))) {
+    for (const [id, record] of Object.entries(offersOf(slice))) {
         if (!record.notes.length) continue;
         const kind = record.settled.foe ? 'kill' : record.settled.item ? 'collect' : record.settled.place ? 'visit' : 'story';
         const shown = record.shown ?? {};
         out.push(row({ id, kind: 'job', name: record.name, band: record.band === 'moderate' ? 'adjusted' : 'kept', bandLabel: record.band === 'moderate' ? 'Adjusted' : 'Kept',
             became: [KIND_WORDS[kind], shown.objective, shown.coin, `${record.settled.xp} XP`, shown.deadline].filter(Boolean).join(' · '),
-            changes: changesOfJob(record), dropped: '', wrote: wroteText(record.said), notes: [...record.notes], where: record.where }, receipts));
+            changes: changesOfJob(record), dropped: '', wrote: wroteText(record.said), notes: [...record.notes], where: record.where }, receipts, keyAt('offer.', id)));
     }
-    for (const [id, offer] of Object.entries(state?.domains?.training?.offers ?? {})) {
+    for (const [at, [id, offer]] of Object.entries(state?.domains?.training?.offers ?? {}).entries()) {
         const settled = offer.settled;
         if (!settled || !settled.notes.length) continue;
         const shown = settled.shown ?? {};
         out.push(row({ id, kind: 'teacher', name: offer.name, band: settled.band === 'moderate' ? 'adjusted' : 'kept', bandLabel: settled.band === 'moderate' ? 'Adjusted' : 'Kept',
             became: ['Trainer', shown.template || shown.teaches, shown.fee ? `fee ${shown.fee}` : '', offer.where].filter(Boolean).join(' · '),
-            changes: changesOfTeacher(offer), dropped: '', wrote: wroteText(settled.said, 'text'), notes: [...settled.notes], where: offer.where }, receipts));
+            changes: changesOfTeacher(offer), dropped: '', wrote: wroteText(settled.said, 'text'), notes: [...settled.notes], where: offer.where }, receipts, at));
     }
-    for (const [id, record] of Object.entries(declinedOf(state?.domains?.rules))) {
+    for (const [id, record] of Object.entries(declinedOf(slice))) {
         const said = record.said ?? {};
         out.push(row({ id, kind: record.kind ?? 'job', name: record.name, band: 'dropped', bandLabel: 'Dropped',
             became: [cap(said.type) || (record.kind === 'teacher' ? 'Teacher' : 'Job'), said.goal ?? said.text, said.reward ?? said.fee, 'not offered'].filter(Boolean).join(' · '),
             changes: [], dropped: `${shortReason(record.reason)}. The narrator was told once.`, wrote: wroteText(said, record.kind === 'teacher' ? 'text' : 'goal'),
-            notes: [record.reason, `Told once: “…offer ${record.suggestion}.”`], where: '' }, receipts));
+            notes: [record.reason, `Told once: “…offer ${record.suggestion}.”`], where: '' }, receipts, keyAt('declined.', id)));
     }
     // A rest the story wrote that the reply's time did not pay for: nobody rested (party/capture.js restWanted).
-    for (const [id, record] of Object.entries(restsOf(state?.domains?.rules))) {
+    for (const [id, record] of Object.entries(restsOf(slice))) {
         const word = record.kind === 'long' ? 'Long rest' : 'Short rest';
         const place = record.place ?? '';
         const hours = record.kind === 'long' ? Math.round(record.needed / 60) + 2 : Math.max(1, Math.round(record.needed / 60));
@@ -95,9 +99,10 @@ export function adjustments(state, args = {}, tools) {
         out.push(row({ id, kind: 'rest', name: place ? `${word} at ${place}` : word, band: 'dropped', bandLabel: 'Dropped', changes: [],
             became: ['Rest', record.kind, place, 'not taken'].filter(Boolean).join(' · '),
             dropped: `${passed} in that reply; a ${record.kind} rest needs ${durationText(record.needed)} (e.g. ! time +${hours}h). Nothing was healed.`,
-            wrote: flat(wrote.join(' · '), 700), notes: [`${durationText(record.needed)} needed, ${record.moved ? durationText(record.moved) : 'none'} passed`], where: place }, receipts));
+            wrote: flat(wrote.join(' · '), 700), notes: [`${durationText(record.needed)} needed, ${record.moved ? durationText(record.moved) : 'none'} passed`], where: place }, receipts, keyAt('rest.', id)));
     }
-    const sorted = out.sort((a, b) => (b.reply ?? -1) - (a.reply ?? -1) || (a.id < b.id ? 1 : -1));
+    // Newest first: by the reply that made the record, and among those of one reply (or of none that is known: old records, receipts that were trimmed) by where the record stands, the last added first.
+    const sorted = out.sort((a, b) => (b.reply ?? -1) - (a.reply ?? -1) || b.order - a.order || (a.id < b.id ? 1 : -1)).map(({ order: _order, ...rest }) => rest);
     const total = sorted.length;
     const rows = sorted.slice(0, limit);
     return { count: rows.length, rows, more: Math.max(0, total - rows.length) };

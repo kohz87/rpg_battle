@@ -435,3 +435,19 @@ test('the reply of a record is the earliest receipt that carries its id (pure)',
         assert.equal(adjustments(state, {}, { receipts: () => order }).rows[0].reply, 4);
     }
 });
+
+test('the Adjustments log is newest first by the offer\'s reply, and records no receipt names a reply for (old ones) come after, the last added first', () => {
+    const offer = (n, over = {}) => [`offer.th_aaaaaa0${n}`, { v: 1, matcher: 1, line: '0'.repeat(16), sid: `sr_${n}`, name: `Job ${n}`, said: {}, notes: ['x'], where: '', band: 'within',
+        settled: { template: 'pack.x/y', text: 'Kill', coin: 1, coinBy: 'formula', xp: 1, durationMinutes: null, turnInPlace: null, giver: null, rank: 'F', area: { tier: 0, from: 'rank' }, waived: [] }, ...over }];
+    const rest = n => [`rest.rs_00000000000${n}`, { v: 1, sid: `sr_r${n}`, kind: 'long', needed: 360, moved: 0, said: { kind: 'long' } }];
+    // Added in this order: Job 1, a rest, Job 2, Job 3, a second rest, Job 4. Only Job 3's and Job 1's replies are known.
+    const slice = Object.fromEntries([offer(1), rest(1), offer(2), offer(3), rest(2), offer(4)]);
+    const state = { domains: { rules: slice } };
+    const receipts = [{ index: 9, receipt: { data: { quest: 'th_aaaaaa03' } } }, { index: 20, receipt: { data: { quest: 'th_aaaaaa03' } } }, { index: 4, receipt: { data: { quest: 'th_aaaaaa01' } } }];
+    const names = list => adjustments(state, {}, { receipts: () => list }).rows.map(row => row.name);
+    assert.deepEqual(names(receipts), ['Job 3', 'Job 1', 'Job 4', 'Long rest', 'Job 2', 'Long rest']);
+    // The same whatever order the receipts come in.
+    assert.deepEqual(names([...receipts].reverse()), names(receipts));
+    // No receipt at all (a chat whose receipts were trimmed): the record order alone, newest last-added first.
+    assert.deepEqual(names([]), ['Job 4', 'Long rest', 'Job 3', 'Job 2', 'Long rest', 'Job 1']);
+});

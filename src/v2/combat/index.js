@@ -882,6 +882,27 @@ function storedTexts(ctx) {
     return texts.filter(text => typeof text === 'string');
 }
 
+/**
+ * The Auto rule a Re-read's offer had before it, `{ rule: 'practice' | 'none', field }` (`field`: the offer recorded it as its own field) from the offer of that id the reply left (it is the same line, so the same id), else from the fight the reply
+ * began on foes of that name (the offer is spent by then); undefined for a line with no earlier offer or fight, which gets the rule of today.
+ */
+function earlierAutoRule(ctx, id, foes) {
+    const standing = ctx.standing?.domains?.combat;
+    if (!standing) return undefined;
+    const base = ctx.read('combat');
+    const held = valuesOf(standing.offers).find(offer => offer?.id === id && !valuesOf(base?.offers).some(other => other?.id === id));
+    if (held) return { rule: (held.autoRule ?? held.opposition?.autoRule) === 'practice' ? 'practice' : 'none', field: held.autoRule !== undefined };
+    const wanted = new Set(foes.map(foe => foe.name));
+    for (const [fightId, fight] of Object.entries(standing.fights ?? {})) {
+        if (base?.fights && Object.hasOwn(base.fights, fightId)) continue;
+        let setup = null;
+        try { setup = unpackSetup(structuredClone(fight?.setup)); } catch { setup = null; }
+        const names = [...(setup?.enemies ?? []), ...(setup?.waves ?? []).flatMap(wave => wave?.enemies ?? [])].map(enemy => String(enemy?.questName ?? enemy?.name ?? '').replace(/ [A-Z]$/, ''));
+        if (names.some(name => wanted.has(name))) return { rule: fight.setup?.autoRule === 'practice' ? 'practice' : 'none', field: true };
+    }
+    return undefined;
+}
+
 /** `! encounter …`: an offer, or a plain reason it cannot be one. */
 function captureEncounter(ctx, line) {
     const numbers = fightNumbers(ctx.settings() ?? {});
@@ -918,7 +939,14 @@ function captureEncounter(ctx, line) {
     const id = newId(ctx, 'en');
     const binding = bindEncounter(ctx, quest.foes, line.labels?.like);
     const offer = { ...(binding ? { area: binding.area } : {}), id, foes: binding?.foes ?? quest.foes, stakes: read.stakes, place, rev: nextRev(ctx), ...(read.note ? { note: read.note } : {}) };
-    if (pinnedOf(ctx)) resolveOpposition(ctx, offer, { numbers, chatBestiary: fightBestiary(ctx, rules) });
+    // The Auto rule the offer is fought with is recorded with it; a Re-read of a line that made an offer before keeps the rule that offer had, whatever the default is now.
+    if (pinnedOf(ctx)) {
+        const earlier = earlierAutoRule(ctx, id, offer.foes);
+        if (earlier === undefined || earlier.rule === 'practice') offer.autoRule = 'practice';
+        resolveOpposition(ctx, offer, { numbers, chatBestiary: fightBestiary(ctx, rules) });
+        // An offer recorded before the field keeps its shape (its opposition says the rule).
+        if (earlier && !earlier.field) delete offer.autoRule;
+    }
     const draft = ctx.draft('combat');
     const offers = recordOf(draft, 'offers');
     // Under its own id (B-b1r2-13); the oldest go past MAX_OFFERS.
