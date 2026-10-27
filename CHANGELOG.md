@@ -2,7 +2,7 @@
 
 ## 2.3.0
 
-Ships together with **Story Block 2.5.0** (count bounds on open objectives, foe aliases, pack offer words, `offerType` on open quest templates; the safety net never offers jobs or teachers).
+Ships together with **Story Block 2.5.0** (count bounds on open objectives, foe aliases, pack offer words, `offerType` on open quest templates; the safety net never offers jobs or teachers). (Story Block 2.5.1 bundles the Ersveil 1.0.0 example pack that uses these features).
 
 - **Jobs and teachers from the story.** In a chat pinned to a pack with open templates, the narrator can offer a job or a teacher in its own words (`+ quest Granary Vermin | giver: … | type: cull | goal: … | reward: … | due: …`, `+ trainer Old Reka — blade drills | fee: …`). Code picks the template and rank, keeps the count, coin, XP, deadline and fee inside the pack's limits, tells the narrator the settled terms on the next reply and notes on the reply's card what it adjusted. A far-out offer is quietly not made and the narrator is told once. Turn off **Jobs from the story** (`rpg-battle.generative-offers`) for the strict 2.2.0 behaviour.
 - **The rules block.** The narrator is shown how to write a job and a teacher, with a grading guide made from the pin (the ranks the pack has, what each pays, a few foes of each). The template slug list leaves the quest tail line and the trainer line is shorter while the block is shown; `| like:` still works. Settings: ranks in the guide, foes named per rank, settled terms told per reply.

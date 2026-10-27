@@ -20,7 +20,7 @@ Tested with **SillyTavern 1.19**. Needs **Story Block 2.5.0** for jobs and teach
 3. [RPG Battle](https://github.com/kohz87/rpg_battle)
 4. [NPC State Delta](https://github.com/kohz87/npc_state_delta)
 
-To start with the bundled **Ersveil 1.5.0** rules pack, open a fresh chat and follow **Setup → Pin Ersveil Rules → Create**,
+To start with the bundled **Ersveil 1.0.0** rules pack (Story Block 2.5.1), open a fresh chat and follow **Setup → Pin Ersveil Rules → Create**,
 then choose your character's options. Existing chats load and rebuild unchanged; legacy chats stay unpinned.
 
 Report bugs in [this repo's Issues](https://github.com/kohz87/rpg_battle/issues), with steps to reproduce.
@@ -86,9 +86,9 @@ The model writes the story and ends it with a hidden `<Changes>` list. RPG Battl
 </Changes>
 ```
 
-In a pinned chat, `| like: <foe>` makes a named foe variant, and new encounters follow their danger label. Open quest offers use `| like: <template>` or the reader's **Make this a quest** action; code fixes the reward from the template's range at offer time. Ersveil 1.5.0 supplies 12 open quest templates.
+In a pinned chat, `| like: <foe>` makes a named foe variant, and new encounters follow their danger label. Open quest offers use `| like: <template>` or the reader's **Make this a quest** action; code fixes the reward from the template's range at offer time. Ersveil 1.0.0 (Story Block 2.5.1) supplies 49 open quest templates: seven job types (hunt, cull, gather, deliver, explore, escort, task) across ranks F to S, each with an `offerType`, count bounds on kill and collect objectives, and XP from the rank's `xp` range. It also has 5 fixed starter jobs at Bluewatch, 16 fixed trainers and 13 open trainer templates (one for each class line), and a promotion mastery of 3, 5 and 5.
 
-Open trainers work the same way. When the pinned pack lists trainer templates (Ersveil 1.6.0 has four), the story may write `+ trainer Old Reka — blade drills | fee: 4 silver` in its own words, and code matches the template by what is taught (`| like: open-blade-drills` still names one, and `| teaches: swift-thrust, parrying-turn` narrows what they teach, never adds); see *How quests and trainers work* below. You can also use **Make this a trainer** in Progress → Training on someone who is here. Code rolls the fee once inside the template's range (a written fee stands when it is inside, is held to it when it is outside) and keeps the trainer at the place it was offered; training with them costs that fee, an hour of story time and counts like any other lesson. Deleting the reply that offered a trainer takes the trainer and the lessons taken with them. One trainer per name, at most 100 a chat. Trainer templates need Story Block 2.4.0; the rest of Jobs from the story needs 2.5.0.
+Open trainers work the same way. When the pinned pack lists trainer templates (Ersveil 1.0.0 has 13, one for each class line), the story may write `+ trainer Old Reka — blade drills | fee: 4 silver` in its own words, and code matches the template by what is taught (`| like: open-blade-drills` still names one, and `| teaches: swift-thrust, parrying-turn` narrows what they teach, never adds); see *How quests and trainers work* below. You can also use **Make this a trainer** in Progress → Training on someone who is here. Code rolls the fee once inside the template's range (a written fee stands when it is inside, is held to it when it is outside) and keeps the trainer at the place it was offered; training with them costs that fee, an hour of story time and counts like any other lesson. Deleting the reply that offered a trainer takes the trainer and the lessons taken with them. One trainer per name, at most 100 a chat. Trainer templates need Story Block 2.4.0; the rest of Jobs from the story needs 2.5.0.
 
 Code rolls and decides: dice come from code, a fight is played by you, an item's effect comes from the item's own
 numbers. Anything that does not fit is skipped and listed under **Problems**. Swipe, delete, Re-read and reload
