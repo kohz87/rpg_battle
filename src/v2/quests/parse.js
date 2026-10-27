@@ -292,7 +292,7 @@ export function coinPhrase(written, word) {
 }
 
 // Written numbers an offer's money is read from (`amountWords`): digit groups are one number ("1,000 gold", "2.500 copper", "1 000 gold"), and a decimal,
-// a fraction or a sign ("1.5 gold", "½ gold", "1/2 gold", "1 / 2 gold", "-5 gold") is no whole amount code can read: it is never read as a different number.
+// a fraction or a sign ("1.5 gold", "1 . 5 gold", "1 , 5 gold", "½ gold", "1/2 gold", "1 / 2 gold", "-5 gold") is no whole amount code can read: it is never read as a different number.
 const FRACTIONS = '½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞';
 function groupedDigits(text, currency) {
     return String(text)
@@ -302,7 +302,7 @@ function groupedDigits(text, currency) {
 }
 /** The first written number in front of a coin word that is not a whole one ("1.5", "1/2", "½", "-5"), or ''. */
 function oddAmount(text, currency) {
-    const number = `[-−+]?\\s?(?:\\d+(?:[.,]\\d+)*(?:\\s?\\d+\\s*[\\/\u2044]\\s*\\d+)?|\\d*[${FRACTIONS}]|\\d+\\s*[\\/\u2044]\\s*\\d+)`;
+    const number = `[-−+]?\\s?(?:\\d+(?:[.,]\\d+)*(?:\\s?\\d+\\s*[\\/\u2044]\\s*\\d+)?|\\d+\\s+[.,]\\s*\\d+|\\d+\\s*[.,]\\s+\\d+|\\d*[${FRACTIONS}]|\\d+\\s*[\\/\u2044]\\s*\\d+)`;
     const found = [...String(text).matchAll(new RegExp(`(?<![\\p{L}\\d.,])(${number})\\s*${coinWords(currency)}(?![\\p{L}])`, 'giu'))]
         .find(match => /^[-−+]/.test(match[1]) || /[.,\/\u2044]/.test(match[1]) || new RegExp(`[${FRACTIONS}]`).test(match[1]));
     return found ? clean(found[1]) : '';

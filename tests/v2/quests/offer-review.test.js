@@ -65,6 +65,7 @@ test('a coin word in a goal is the goods unless a pay marker comes first: no rew
     // A goal amount that is not readable is no pay, with no note.
     assert.deepEqual(offer('+ quest Task | goal: Kill 3 rats, pays 1.5 gold').notes.filter(note => /reward/.test(note)), []);
     assert.deepEqual(offer('+ quest Task | goal: Kill 3 rats, pays 1 / 2 gold').notes.filter(note => /reward/.test(note)), []);
+    assert.deepEqual(offer('+ quest Task | goal: Kill 3 rats, pays 1 . 5 gold').notes.filter(note => /reward/.test(note)), []);
 });
 
 // ---- money in digit groups, decimals, fractions, signs -------------------------------------------------------------------
@@ -76,7 +77,9 @@ test('digit groups are one number; a decimal, a fraction or a sign is no amount 
     }
     for (const written of ['1.5 gold', '3.5 silver', '12,5 gold', '0.500 gold', '1,000.50 gold', '½ gold', '1/2 gold', '1½ gold', '-5 gold', '+5 gold',
         // Spaced and typographic fractions are the same fraction.
-        '1 / 2 gold', '1 /2 gold', '1/ 2 gold', '1 \u2044 2 gold', '1\u20442 gold', '3 / 4 silver', '1 1 / 2 gold', '1 1/2 gold']) {
+        '1 / 2 gold', '1 /2 gold', '1/ 2 gold', '1 \u2044 2 gold', '1\u20442 gold', '3 / 4 silver', '1 1 / 2 gold', '1 1/2 gold',
+        // A decimal with spaces round its point or comma is the same decimal.
+        '1 . 5 gold', '1 .5 gold', '1. 5 gold', '1 , 5 gold', '12 , 5 gold', '3 . 5 silver', '0 . 500 gold']) {
         const got = read(written);
         assert.equal(got.amount, null, written);
         assert.match(got.problem, /is not a whole amount code can read/, written);
@@ -86,7 +89,7 @@ test('digit groups are one number; a decimal, a fraction or a sign is no amount 
 test('in an offer: "1,000 copper" is a thousand (held to the range), "1.5 gold" and "-5 gold" are unreadable and the reward is the template\'s formula', () => {
     const big = offer('+ quest Rats | goal: kill 3 rats | reward: 1,000 copper');
     assert.deepEqual([big.settled.coin, big.band, big.notes[0]], [400, 'moderate', 'reward set to 4 gold (rank F range)']);
-    for (const written of ['1.5 gold', '-5 gold', '1/2 gold', '1 / 2 gold', '1 \u2044 2 gold']) {
+    for (const written of ['1.5 gold', '-5 gold', '1/2 gold', '1 / 2 gold', '1 \u2044 2 gold', '1 . 5 gold', '1 , 5 gold']) {
         const bad = offer(`+ quest Rats | goal: kill 3 rats | reward: ${written}`);
         assert.deepEqual([bad.settled.coinBy, bad.band, bad.notes[0]], ['formula', 'moderate', `reward "${written}" has no amount code can read; set to 5 silver`], written);
     }
@@ -101,6 +104,8 @@ test('the same for a teacher\'s fee', () => {
     assert.equal(odd.fee, null);
     assert.ok(odd.notes.some(note => /^fee "1\.5 silver" has no amount code can read/.test(note)), odd.notes.join('|'));
     assert.equal(fee('1 / 2 silver').fee, null, 'a spaced fraction is no fee either, and not 2 silver');
+    assert.equal(fee('1 . 5 silver').fee, null, 'nor is a spaced decimal, and not 5 silver');
+    assert.equal(fee('1 , 5 silver').fee, null);
 });
 
 // ---- variant names ---------------------------------------------------------------------------------------------------
