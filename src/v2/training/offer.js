@@ -104,4 +104,3 @@ export function matchTrainer(env, line) {
     for (const label of Object.keys(labels).filter(key => !KNOWN.has(key))) notes.push(NOTE.unused(label));
     return { kind: 'offer', band: bandOf({ moved }), binding: { template: template.id, name, text, skills }, fee, said, notes: keepNotes(notes) };
 }
-

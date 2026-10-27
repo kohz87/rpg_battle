@@ -107,4 +107,3 @@ receipts' `narrate` summaries; the tail counts those past the caps from the stor
 `tests/v2/training/offer-trainer.test.js`, `tests/v2/integration/offer-smoke.test.js`. Legacy fixtures recorded with 2.2.0: `fixtures/pinned-2.2.0.json` (a Bluewatch chat) and
 `fixtures/prompt-2.2.0.json` (the prompts of an unpinned and a template-less chat); do not record them again to fix a failing test. Bluewatch 1.7.0 is stood in for by pins derived from
 1.6.0 with explicit bounds, aliases and offer words (`helpers/offer-env.js` `derivedPin`).
-

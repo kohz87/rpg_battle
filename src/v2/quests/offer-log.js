@@ -83,4 +83,3 @@ export function adjustments(state, args = {}, tools) {
     const rows = out.sort((a, b) => (b.reply ?? -1) - (a.reply ?? -1) || (a.id < b.id ? 1 : -1)).slice(0, limit);
     return { count: rows.length, rows };
 }
-

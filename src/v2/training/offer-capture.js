@@ -138,4 +138,3 @@ export function replayTrainerOffer({ state, hash }, info) {
     const expected = buildGuard({ hash, owner: guard.owner, epoch: guard.epoch, source: info.source, rulesHash: pin.hash, kind: KIND, payload, inputs: plan.facts });
     return expected.inputHash === guard.inputHash ? { ok: true } : { ok: false, reason: 'The trainer offer evidence changed.' };
 }
-
