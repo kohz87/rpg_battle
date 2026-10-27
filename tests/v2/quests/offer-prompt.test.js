@@ -343,7 +343,7 @@ test('the Quests page draws the Adjustments log: a collapsed section with a coun
     await seeded(6116, async () => {
         const h = await bluewatch(t);
         const empty = h.q('rpg-battle.questsView', {});
-        assert.deepEqual(empty.adjustments, { count: 0, recent: [], older: [], hasOlder: false, olderCount: 0 });
+        assert.deepEqual(empty.adjustments, { count: 0, total: 0, recent: [], older: [], hasOlder: false, olderCount: 0, more: 0, moreText: '' });
         await h.say('Hollis has a job.', [G1, '+ quest Boar Hunt | type: hunt | goal: Hunt 3 wild boars | reward: 50 gold']);
         const view = h.q('rpg-battle.questsView', {});
         assert.equal(view.adjustments.count, 2);
@@ -380,7 +380,7 @@ test('an unpinned chat has neither the block nor the log', async () => {
         try {
             assert.equal(h.q('quest.offerBlock', {}), null);
             assert.equal(h.q('quest.offerBlockOn', {}), false);
-            assert.deepEqual(h.q('quest.adjustments', {}), { count: 0, rows: [] });
+            assert.deepEqual(h.q('quest.adjustments', {}), { count: 0, rows: [], more: 0 });
             assert.deepEqual(h.q('quest.replyOffers', {}), { jobs: 0, declined: 0 });
         } finally { h.close(); }
     });
