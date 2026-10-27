@@ -94,7 +94,7 @@ test('the lower ranks and the story fallback follow the same preference', () => 
     const locked = pinWith({ change: resolved => { resolved.quests[`${P}/open-cull-f`].requirements = [{ kind: 'level', min: 50 }]; } });
     assert.equal(slug(offer(CULL, locked)), 'open-hunt-f');
 
-    // Story templates: an escort-typed and a task-typed one at F; the written type picks between them, an untyped line takes the first.
+    // Story templates: an escort-typed and a task-typed one at F; the written type picks between them, an untyped line takes the task.
     const stories = pinWith({ change: resolved => {
         const task = resolved.quests[`${P}/open-story-task-f`];
         task.offerType = 'task';
@@ -106,7 +106,7 @@ test('the lower ranks and the story fallback follow the same preference', () => 
     } });
     assert.equal(slug(offer('+ quest Walk | type: task | goal: Settle the matter with the river guild', stories)), 'open-story-task-f');
     assert.equal(slug(offer('+ quest Walk | type: escort | goal: Escort the ferryman to the quay', stories)), 'open-escort-f');
-    assert.equal(slug(offer('+ quest Walk | goal: The matter of the river guild', stories)), 'open-escort-f', 'no type and no verb: the first in pack order, as before');
+    assert.equal(slug(offer('+ quest Walk | goal: The matter of the river guild', stories)), 'open-story-task-f', 'no type and no verb: the story fallback prefers the task template');
 });
 
 test('the settled binding records the template id as before, so a replay never asks the type again', () => {
@@ -140,4 +140,32 @@ test('on the real host, with a pack whose open templates name their type (Story 
         h.store.rebuild();
         assert.equal(JSON.stringify(h.head()), live);
     });
+});
+
+test('the story fallback prefers the task template over an escort listed before it; a written escort still gets the escort', () => {
+    const pin = derivedPin(resolved => {
+        const task = resolved.quests[`${P}/open-story-task-f`];
+        task.offerType = 'task';
+        const escort = structuredClone(task);
+        Object.assign(escort, { id: `${P}/open-escort-f`, slug: 'open-escort-f', name: 'Escort (F)', offerType: 'escort' });
+        const rest = Object.entries(resolved.quests).filter(([id]) => id !== task.id);
+        for (const id of Object.keys(resolved.quests)) delete resolved.quests[id];
+        Object.assign(resolved.quests, Object.fromEntries([[escort.id, escort], [task.id, task], ...rest]));
+    });
+    const bind = text => slug(offer(text, pin));
+    assert.equal(bind('+ quest The Missing Boy'), 'open-story-task-f');
+    assert.equal(bind('+ quest Lost Satchel | type: deliver | goal: bring the satchel to Auvoth | reward: 2 silver'), 'open-story-task-f', 'a delivery that names no pack item falls back to the task');
+    assert.equal(bind('+ quest Walk | type: explore | goal: Scout the old road'), 'open-story-task-f');
+    assert.equal(bind('+ quest Safe Passage | type: escort | goal: Escort the miller to Northbarge | reward: 80 copper'), 'open-escort-f');
+    assert.equal(bind('+ quest Safe Passage | type: task | goal: Help the miller'), 'open-story-task-f');
+    // Without any offerType the first story template stands, as before.
+    const plain = derivedPin(resolved => {
+        const task = resolved.quests[`${P}/open-story-task-f`];
+        const escort = structuredClone(task);
+        Object.assign(escort, { id: `${P}/open-escort-f`, slug: 'open-escort-f', name: 'Escort (F)' });
+        const rest = Object.entries(resolved.quests).filter(([id]) => id !== task.id);
+        for (const id of Object.keys(resolved.quests)) delete resolved.quests[id];
+        Object.assign(resolved.quests, Object.fromEntries([[escort.id, escort], [task.id, task], ...rest]));
+    });
+    assert.equal(slug(offer('+ quest The Missing Boy', plain)), 'open-escort-f');
 });

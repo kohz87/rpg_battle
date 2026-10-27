@@ -364,10 +364,15 @@ export function matchOffer(env, line) {
     const foeAbove = foe && rankIdx > partyIndex;
     const choose = () => {
         const order = [];
-        // A template that names the written type (`offerType`) comes first among those of its kind and rank; the rest keep the pack's order. A pack without
-        // `offerType` (every 2.2.0-era pin) is read exactly as before.
-        const preferred = list => (type ? [...list.filter(template => template.offerType === type), ...list.filter(template => template.offerType !== type)] : list);
-        const sameKind = (index, wanted) => preferred(open.filter(template => rankIndex(ladder, template.rank) === index && kindOf(template) === wanted));
+        // A template that names the written type (`offerType`) comes first among those of its kind and rank; the rest keep the pack's order. A story template
+        // prefers the written type, then a task (what a line that names no foe, item or place is), then the first. A pack without `offerType` (every 2.2.0-era
+        // pin) is read exactly as before.
+        const preferred = (list, story) => {
+            if (!type && !story) return list;
+            const rank = template => (type && template.offerType === type ? 0 : story && template.offerType === 'task' ? 1 : 2);
+            return [...list].sort((a, b) => rank(a) - rank(b));
+        };
+        const sameKind = (index, wanted) => preferred(open.filter(template => rankIndex(ladder, template.rank) === index && kindOf(template) === wanted), wanted === 'story');
         if (liked && kindOf(liked) === jobKind) order.push(liked);
         for (let index = rank; index >= 0; index -= 1) order.push(...sameKind(index, jobKind));
         for (let index = rank; index >= 0; index -= 1) order.push(...sameKind(index, 'story'));

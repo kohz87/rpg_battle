@@ -15,6 +15,7 @@
 import { ASK, ask, isHash, isList, isParty, isProgress, isRecord, isText } from './ask.js';
 import { btn, clip, clockLabel, dayOf, OPTION_LABELS, ratioText, spanLabel, TIER_LABELS } from './format.js';
 import { namesFor } from './names.js';
+import { money } from '../../quests/parse.js';
 
 /** Mastery runs 0..5 (SkillView.mastery); a form at 5 / 5 is done. */
 export const MASTERY_TOP = 5;
@@ -51,10 +52,21 @@ function xpText(sheet) {
 // ---- training (rules.training's public projection) ----------------------------------------------------------------
 
 /**
+ * How a fee is written on this page: in the chat's coins ("1 silver") where Jobs from the story shows its block, as a bare number (as in 2.2.0) elsewhere.
+ * `quest.offerBlockOn` answers null while the feature is off, so strict mode keeps the number.
+ */
+function feeTextOf(tools) {
+    const on = ask(tools, 'quest.offerBlockOn', {});
+    const currency = on.status === ASK.OK && on.value === true ? ask(tools, 'inventory.currency', {}) : null;
+    return currency?.status === ASK.OK ? fee => money(fee, currency.value) : String;
+}
+
+/**
  * The open trainers part of the Training section (RB open trainers §10.2), for the reader's own character only: the trainers the story
  * and the reader made, and "Make this a trainer" for someone who is here. `read`: { templates, trainers, present } as asked (ask results).
  */
 export function trainersModel(read, names) {
+    const feeText = typeof read.feeText === 'function' ? read.feeText : String;
     const none = { stories: [], binding: null, canMake: false, makeNote: '' };
     if (read.templates.status !== ASK.OK || read.trainers.status !== ASK.OK) return none;
     const templates = read.templates.value;
@@ -65,7 +77,7 @@ export function trainersModel(read, names) {
         return {
             key: offer.id,
             text: [clip(offer.name, 80), `${clip(template?.name ?? names(offer.template), 80)} (rank ${clip(offer.rank, 20)})`, clip(offer.where || names(offer.place), 80),
-                Number.isSafeInteger(offer.fee) ? `fee ${offer.fee}` : '', skills.length ? `teaches ${skills.join(', ')}` : ''].filter(Boolean).join(' · '),
+                Number.isSafeInteger(offer.fee) ? `fee ${feeText(offer.fee)}` : '', skills.length ? `teaches ${skills.join(', ')}` : ''].filter(Boolean).join(' · '),
         };
     });
     if (!templates.length) return { ...none, stories };
@@ -78,7 +90,7 @@ export function trainersModel(read, names) {
     };
 }
 
-function trainingModel(answer, minutes, names, actor, trainers = null) {
+function trainingModel(answer, minutes, names, actor, trainers = null, feeText = String) {
     if (answer.status !== ASK.OK) return { state: 'unavailable', headline: '', lines: [], offers: [], caps: '', held: false, stories: [], binding: null, canMake: false, makeNote: '' };
     const { session, caps, offers } = answer.value;
     const lines = [];
@@ -126,7 +138,7 @@ function trainingModel(answer, minutes, names, actor, trainers = null) {
             key: `${offer.skill}|${offer.form}|${offer.trainer}`,
             text: `${names(offer.skill)} with ${clip(offer.name || names(offer.trainer), 80)}`,
             // An open trainer (the story's or the reader's) also says where it stands.
-            detail: [Number.isSafeInteger(offer.fee) ? `fee ${offer.fee}` : '', Number.isSafeInteger(offer.minutes) ? spanLabel(offer.minutes) : '',
+            detail: [Number.isSafeInteger(offer.fee) ? `fee ${feeText(offer.fee)}` : '', Number.isSafeInteger(offer.minutes) ? spanLabel(offer.minutes) : '',
                 offer.open === true && isText(offer.where) && offer.where.trim() ? `at ${clip(offer.where, 80)}` : ''].filter(Boolean).join(', '),
             blocked: (Array.isArray(offer.blocked) ? offer.blocked : []).filter(isText).map(item => clip(item, 240)),
             canAsk: !clockHold && !(Array.isArray(offer.blocked) && offer.blocked.length),
@@ -195,7 +207,7 @@ function memberModel(sheet, progress, training, ctx) {
         checklist, checklistText: `${done} of ${checklist.length} forms at ${MASTERY_TOP} / ${MASTERY_TOP}`, checklistDone: done,
         progress: progress.status === ASK.OK ? 'ok' : progress.status,
         promotions, pathways,
-        training: trainingModel(training, minutes, names, sheet.id, you ? ctx.trainers : null),
+        training: trainingModel(training, minutes, names, sheet.id, you ? ctx.trainers : null, ctx.feeText),
     };
 }
 
@@ -234,6 +246,7 @@ export function progressView(state, args, tools) {
         templates: ask(tools, 'training.openTemplates', {}, value => isList(value, isTemplate)),
         trainers: ask(tools, 'training.trainers', {}, isTrainers),
         present: ask(tools, 'scene.present', {}, value => isList(value, isText)),
+        feeText: feeTextOf(tools),
     };
     const refs = [];
     for (const sheet of wanted) {
@@ -268,7 +281,7 @@ export function progressView(state, args, tools) {
     const minutes = time.status === ASK.OK && Number.isSafeInteger(time.value.minutes) ? time.value.minutes : null;
     const hash = identity.status === ASK.OK ? identity.value.hash : null;
     const trainers = trainersModel(read, names);
-    const members = wanted.map(sheet => memberModel(sheet, progress.get(sheet.id), training.get(sheet.id), { names, hash, minutes, classSkills, trainers, you: sheet.id === party.value.pc }));
+    const members = wanted.map(sheet => memberModel(sheet, progress.get(sheet.id), training.get(sheet.id), { names, hash, minutes, classSkills, trainers, feeText: read.feeText, you: sheet.id === party.value.pc }));
     return {
         state: 'ready', reason: '', members,
         party: members.map(member => ({ id: member.id, name: member.name, you: member.you, text: member.checklistText, done: member.checklistDone, total: member.checklist.length, complete: member.checklistDone === member.checklist.length })),

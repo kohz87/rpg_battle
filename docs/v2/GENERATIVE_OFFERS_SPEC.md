@@ -847,3 +847,6 @@ SB `node authoring-kit/check.mjs examples/packs/ersveil-bluewatch/pack.json`, `n
 - A pay in a goal counts only after a pay marker (pays, paying, paid, reward of, worth, bounty of, for) and is never far out; digit groups ("1,000") are one
   number and a decimal, a fraction or a sign is no amount code can read (§4.7); "first in pack order" (§4.6) is the installed pack's order of its quest
   templates (the pin sorts them by id and stands for a pack that is not installed); a template shorter than an hour has its own duration as its deadline range.
+- The story fallback of §4.6 prefers the written type, then the template with `offerType: task`, then the first story template (a pack without `offerType`
+  keeps its first). A teacher's fee is written with the same coin formatter as a reward (`money`) in the receipt, the told line and the Progress page, while the
+  rules block is shown.

@@ -10,6 +10,7 @@ import { epochOf, isId, isRecordId, isTrainerOfferId } from '../rules/ids.js';
 import { pinned } from '../quests/seams.js';
 import { formatMoney, oneCurrency } from '../../items.js';
 import { currencyFrom } from '../trade/core.js';
+import { money } from '../quests/parse.js';
 import { MAX_OFFERS, MAX_OFFER_FEE, NAME_MAX, TEXT_MAX } from './domain.js';
 import { nameKey } from './trainers.js';
 
@@ -50,7 +51,16 @@ function narrow(ix, template, entries) {
 }
 
 /** The money words of a fee in the chat's one currency. */
-export const feeWords = (query, fee) => formatMoney(fee, oneCurrency(typeof query === 'function' ? currencyFrom(query) : null));
+/**
+ * The money words of a fee. Where Jobs from the story shows its rules block they are the chat's coins as a job's reward is written ("4 gold"); elsewhere (strict mode,
+ * a pin with no open quest template) they are RPG Battle 2.2.0's, in the chat's one currency.
+ */
+export function feeWords(query, fee) {
+    const currency = typeof query === 'function' ? currencyFrom(query) : null;
+    let coins = false;
+    try { coins = typeof query === 'function' && query('quest.offerBlockOn', {}) === true; } catch { coins = false; }
+    return coins ? money(fee, currency) : formatMoney(fee, oneCurrency(currency));
+}
 
 /** "A, B and C". */
 const list = names => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);

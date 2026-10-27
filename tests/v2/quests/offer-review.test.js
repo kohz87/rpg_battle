@@ -4,14 +4,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { matchOffer } from '../../../src/v2/quests/offer-match.js';
 import { matchTrainer } from '../../../src/v2/training/offer.js';
-import { parseReward } from '../../../src/v2/quests/parse.js';
+import { money, parseReward } from '../../../src/v2/quests/parse.js';
 import { farLineOf, farReasonOf, settledTerms } from '../../../src/v2/quests/offer-bands.js';
 import { durationRange } from '../../../src/v2/quests/offer-rules.js';
 import { readEncounter } from '../../../src/v2/combat/encounter.js';
 import { declinedOf, offersOf } from '../../../src/v2/rules/offers.js';
 import { seeded } from '../integration/helpers/host.js';
 import { COPPER, derivedPin, env, lineOf } from './helpers/offer-env.js';
-import { PACK, accept, bluewatch } from './helpers/bluewatch.js';
+import { PACK, accept, bluewatch, lastTail } from './helpers/bluewatch.js';
 
 const P = 'pack.ersveil-bluewatch';
 const offer = (text, options) => matchOffer(env(options), lineOf(text));
@@ -236,5 +236,32 @@ test('a count in front of a named kind ("3 Rats Of Doom | like: …") is read on
         const bare = structuredClone(PACK);
         bare.content.quests = bare.content.quests.filter(quest => !quest.open);
         assert.deepEqual(await foes({ pack: JSON.stringify(bare) }), [['3 Rats Of Doom', 1]], 'a pin without open quest templates: 2.2.0\'s reading');
+    });
+});
+
+// ---- a teacher's fee in the chat's coins ----------------------------------------------------------------------------------
+
+test('a fee is written in the chat\'s coins as a reward is: in the told line, the rolled-fee note and the Progress page; strict mode keeps the bare number', async t => {
+    await seeded(8106, async () => {
+        const h = await bluewatch(t);
+        await h.say('Reka.', ['+ trainer Old Reka — blade drills | fee: 6 silver 4 copper', '+ trainer Sergeant Holm — spear and shield drills']);
+        await h.say('Quiet.');
+        const told = lastTail(h).split('\n').filter(line => /will teach/.test(line));
+        assert.equal(told.length, 2);
+        assert.match(told[0], / for 6 silver 4 copper a session\. \(fee as agreed\)$/);
+        const holm = Object.values(h.head().domains.training.offers).find(offer => offer.name === 'Sergeant Holm');
+        const rolled = money(holm.fee, h.q('inventory.currency'));
+        assert.match(rolled, /silver/, 'the roll is over ten copper, so it is in silver and copper');
+        assert.match(told[1], new RegExp(` for ${rolled} a session\\.$`));
+        assert.doesNotMatch(told[1], /\d{2,} copper/);
+        assert.deepEqual([holm.settled.shown.fee, holm.settled.notes], [rolled, [`fee ${rolled} (rolled)`]]);
+        const member = h.q('rpg-battle.progressView', {}).members[0];
+        assert.deepEqual(member.training.stories.map(story => /fee ([^·]*) ·/.exec(story.text)?.[1].trim()).sort(), [rolled, '6 silver 4 copper'].sort());
+        assert.ok(member.training.offers.every(offer => /^fee \d+ (?:gold|silver|copper)(?: \d+ (?:silver|copper))?, /.test(offer.detail)), member.training.offers.map(offer => offer.detail).join('|'));
+    });
+    await seeded(8107, async () => {
+        const h = await bluewatch(t, { settings: { features: { 'rpg-battle.generative-offers': false } } });
+        const member = h.q('rpg-battle.progressView', {}).members[0];
+        assert.ok(member.training.offers.length > 0 && member.training.offers.every(offer => /^fee \d+, /.test(offer.detail)), member.training.offers.map(offer => offer.detail).join('|'));
     });
 });
