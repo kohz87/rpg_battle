@@ -120,3 +120,85 @@ test('a chat recorded on 2.2.0 (no record of anything in its pin) refuses a rest
         await agree(h, 'legacy deleted');
     });
 });
+
+// ---- with passive recovery off ---------------------------------------------------------------------------------------------
+
+const NO_RECOVERY = { features: { 'rpg-battle.recovery': false } };
+
+test('the time a rest needs does not depend on the switch of passive recovery: with it off, an untimed rest heals nobody and a timed one heals in full', async t => {
+    await seeded(9203, async () => {
+        const h = await bluewatch(t, { settings: NO_RECOVERY });
+        await wounded(h);
+        const hurt = hp(h);
+        await h.say('Ren sleeps.', ['! rest long — a night at the inn']);
+        assert.equal(hp(h), hurt, 'no story time passed: nothing is healed');
+        assert.deepEqual(h.turn.problems(), []);
+        const [record] = Object.values(restsOf(h.head().domains.rules));
+        assert.deepEqual([record.kind, record.needed, record.moved], ['long', 360, 0]);
+        await h.say('Quiet.');
+        assert.ok(lastTail(h).split('\n').includes(NIGHT), lastTail(h));
+        await h.say('Ren sleeps again.', ['! time +30m', '! rest short — a breather']);
+        assert.equal(hp(h), hurt, 'half an hour is too little for a short rest');
+        await h.say('The night passes.', ['! time +8h', '! rest long — a night at the inn']);
+        assert.equal(hp(h), max(h));
+        await agree(h, 'recovery off');
+    });
+});
+
+test('with recovery on or off an untimed rest is refused alike, and a rest after the night heals in full alike', async t => {
+    const run = async (settings, seed) => seeded(seed, async () => {
+        const h = await bluewatch(t, settings ? { settings } : {});
+        await wounded(h);
+        const hurt = hp(h);
+        await h.say('Ren sleeps.', ['! rest long']);
+        const untimed = hp(h) === hurt;
+        const refused = Object.keys(restsOf(h.head().domains.rules)).length;
+        await h.say('The night passes.', ['! time +8h', '! rest long']);
+        return [untimed, refused, hp(h) === max(h), Object.keys(restsOf(h.head().domains.rules)).length];
+    });
+    assert.deepEqual(await run(null, 9204), [true, 1, true, 1]);
+    assert.deepEqual(await run(NO_RECOVERY, 9205), [true, 1, true, 1]);
+});
+
+// ---- narrator text in a refused rest ---------------------------------------------------------------------------------------
+
+const rowOfRest = h => h.q('quest.adjustments', {}).rows.find(entry => entry.kind === 'rest');
+
+test('markup, control characters and a long text in a refused rest are flattened and bounded: the notice is told and the Adjustments row is there', async t => {
+    await seeded(9206, async () => {
+        const h = await bluewatch(t);
+        await wounded(h);
+        const text = `<b>a night</b> at <script>alert(1)</script> the inn\u0007\u0000 ${'x'.repeat(500)}`;
+        await h.say('Ren sleeps.', [`! rest long — ${text}`]);
+        assert.deepEqual(h.turn.problems(), []);
+        const [record] = Object.values(restsOf(h.head().domains.rules));
+        assert.ok(record, 'the refusal is recorded');
+        assert.doesNotMatch(JSON.stringify(record), /[<>]|\\u00/);
+        assert.ok([...record.said.text].length <= 200);
+        await h.say('Quiet.');
+        assert.ok(lastTail(h).split('\n').includes(NIGHT), lastTail(h));
+        const row = rowOfRest(h);
+        assert.ok(row, 'the log has the row');
+        assert.doesNotMatch(JSON.stringify(row), /[<>\u0000-\u001f]/);
+        assert.match(row.wrote, /^rest: long · place: Bluewatch Village · b a night \/b at script alert\(1\) \/script the inn x+$/);
+        await agree(h, 'markup');
+    });
+});
+
+test('a place with markup, a control character or 500 characters in its name is flattened and bounded in the refused rest', async t => {
+    await seeded(9207, async () => {
+        const h = await bluewatch(t);
+        await wounded(h);
+        for (const [n, name] of [[1, '<b>Stray</b> <i>Oar</i>\u0007'], [2, `Long ${'y'.repeat(500)}`]]) {
+            await h.say(`At ${n}.`, [`~ place ${name} | kind: settlement`, `~ here ${name.replace(/[<>\u0007]/g, '')}`]);
+            await h.say(`Ren sleeps ${n}.`, ['! rest long']);
+        }
+        assert.deepEqual(h.turn.problems().filter(problem => /rest/i.test(JSON.stringify(problem))), []);
+        for (const record of Object.values(restsOf(h.head().domains.rules))) {
+            if (record.place !== undefined) assert.ok(!/[<>\u0000-\u001f]/.test(record.place) && [...record.place].length <= 80, record.place);
+        }
+        const rows = h.q('quest.adjustments', {}).rows.filter(entry => entry.kind === 'rest');
+        assert.ok(rows.length >= 1);
+        for (const row of rows) assert.doesNotMatch(JSON.stringify(row), /[<>\u0000-\u001f]/);
+    });
+});

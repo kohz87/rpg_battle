@@ -15,7 +15,8 @@ import { DEFAULT_TERMS, parseLevelLabel, maxLevel, termsOf } from '../../terms.j
 import { fromSheet, rulesFrom, rulesSliceOf, settingsOf, toSheet } from './sheets.js';
 import { COMPANION_LEVELS_ABOVE, addOffer, fightOn, handlers } from './commands.js';
 import { clipped } from '../lines.js';
-import { clockFrom, foldStoryTime, recoveryOn } from './recovery.js';
+import { clockFrom, foldStoryTime } from './recovery.js';
+import { flat } from '../quests/offer-bands.js';
 import { presetFor } from './formula.js';
 import { MAX_LABEL, cleanName, cleanRole, fail, labelsOf, nameKey, replyOf, resolveName, waitingOffers } from './util.js';
 
@@ -178,11 +179,10 @@ const HOUR = 60;
 /**
  * With Story Director's clock, a rest the story writes needs the time to pass in the same reply: `longRestHours` (6; `rules.recovery`) for a long rest and an hour
  * for a short one (the smallest stretch story time gives anything back for; v1 and DESIGN §8.5 give a short rest no length). The reply's movement is the clock now less
- * the clock when story time was last settled, which is the start of this reply (Story Director's `time.overdue`). Without a clock, with recovery off, or when the start
- * cannot be told (a first reply), the rest is as it always was. → null when the rest may go on, else `{ needed, moved }` in story minutes.
+ * the clock when story time was last settled, which is the start of this reply (Story Director's `time.overdue`). It does not depend on the switch of passive recovery (`rpg-battle.recovery`):
+ * the rest is the clock's. Without a clock, or when the start cannot be told (a first reply), the rest is as it always was. → null when the rest may go on, else `{ needed, moved }` in story minutes.
  */
 function restWanted(ctx, kind, rules) {
-    if (!recoveryOn(ctx)) return null;
     const query = (name, args) => ctx.query(name, args);
     const now = clockFrom(query);
     let start = null;
@@ -210,10 +210,12 @@ function applyRest(ctx, line) {
         let rest = null;
         if (ctx.source && ctx.read('rules')?.pin) {
             rest = `rs_${ctx.hash({ rest: ctx.source.sid }).slice(0, 12)}`;
-            const said = { kind, ...(String(line.text ?? '').trim() ? { text: String(line.text).trim().slice(0, 200) } : {}) };
+            // The narrator's words are kept flat and short (a record that is not plain text would fail the line, and with it the notice): no markup, no control characters.
+            const reason = flat(line.text, 200);
+            const said = { kind, ...(reason ? { text: reason } : {}) };
             // Where the party was, for the log's title ("Long rest at The Stray Oar"); none when the world has no place yet.
             let place = '';
-            try { place = String(ctx.query('atlas.canonical', {})?.name ?? '').replace(/[<>\p{Cc}]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 80); } catch { place = ''; }
+            try { place = flat(ctx.query('atlas.canonical', {})?.name, 80); } catch { place = ''; }
             const record = { v: 1, sid: ctx.source.sid, kind, needed: short.needed, moved: short.moved, ...(place ? { place } : {}), said };
             try { if (ctx.call('rules.recordOffer', { write: `wr_${ctx.hash({ source: ctx.source, writer: 'rest' }).slice(0, 8)}`, rest, record })?.ok === false) rest = null; } catch { rest = null; }
         }
