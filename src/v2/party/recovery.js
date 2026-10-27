@@ -210,21 +210,21 @@ const HOUR = 60;
  * What a rest needs, whatever asks for it (a `! rest` line, the party.rest command): with Story Director's clock, the story time to pass: `longRestHours` (6; `rules.recovery`) for a long
  * rest and an hour for a short one (the smallest stretch story time gives anything back for; v1 and DESIGN §8.5 give a short rest no length). The time passed is the clock now less the
  * clock when story time was last settled (Story Director's `time.overdue`): the start of the reply, since a time line settles as it moves the clock. Story Director answering null has
- * settled nothing yet (the first reply of a chat that started its clock), so nothing has passed. It does not depend on the switch of passive recovery (`rpg-battle.recovery`): the rest is the
+ * settled nothing yet (the first reply of a chat that started its clock), so nothing has passed (`unsettled: 'allow'`: the rest goes on, for a command no reply asks, where Story Block's matrix
+ * runs `party.rest` on a fresh chat). It does not depend on the switch of passive recovery (`rpg-battle.recovery`): the rest is the
  * clock's. Without a clock, or with a Story Director that cannot say, the rest is as it always was. -> null when the rest may go on, else `{ needed, moved }` in story minutes.
  */
-export function restWanted(ctx, kind, rules) {
+export function restWanted(ctx, kind, rules, { unsettled = 'nothing' } = {}) {
     const query = (name, args) => ctx.query(name, args);
     const now = clockFrom(query);
     if (now === null) return null;
     let start = null;
     try {
         const settled = query('time.overdue', {});
-        start = settled === null ? now : settled?.minutes;
+        start = settled === null ? (unsettled === 'nothing' ? now : null) : settled?.minutes;
     } catch { start = null; }
     if (!Number.isInteger(start)) return null;
     const needed = kind === 'long' ? Math.max(HOUR, Math.round((rules?.recovery?.longRestHours ?? 6) * HOUR)) : HOUR;
     const moved = Math.max(0, now - start);
     return moved >= needed ? null : { needed, moved };
 }
-

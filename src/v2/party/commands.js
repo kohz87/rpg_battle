@@ -481,7 +481,7 @@ function rest(ctx, payload = {}) {
     if (!ids.length) fail(ctx, 'REFUSED', `${listNames(asked.map(id => party.actors[id].name))} ${asked.length === 1 ? 'is' : 'are'} dead: no rest brings the dead back.`);
     if (storyMinute(ctx) === null) fail(ctx, 'CLOCK_UNSET', 'Set the story time before taking a rest.');
     // Whatever asks for it, a rest needs the hours (recovery.js restWanted); a `! rest` line has been told so already and the narrator has its notice.
-    const wanted = restWanted(ctx, kind, rules);
+    const wanted = restWanted(ctx, kind, rules, { unsettled: 'allow' });
     if (wanted) {
         const hours = wanted.needed / 60;
         fail(ctx, 'REFUSED', `A ${kind} rest needs ${hours} hour${hours === 1 ? '' : 's'} of story time to pass first${wanted.moved ? ` (${Math.round(wanted.moved / 60 * 10) / 10} have)` : ''}. Write the time (! time +${kind === 'long' ? hours + 2 : hours}h), then rest.`);

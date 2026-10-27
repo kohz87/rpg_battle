@@ -311,3 +311,16 @@ test('sixty refused rests: every one is recorded and told, and the log shows the
         await agree(h, 'sixty refusals');
     });
 });
+
+test('the party.rest command on a chat where Story Director has settled no time yet goes on (Story Block\'s matrix runs it so); the line of the story does not', async t => {
+    await seeded(9215, async () => {
+        const h = await bluewatch(t, { start: false });
+        await h.say('Bluewatch at dawn.', ['~ place Bluewatch Village | kind: settlement', '~ wound Ren — fell from the wall | harm: severe']);
+        assert.equal(h.q('time.overdue', {}), null, 'nothing settled');
+        const hurt = hp(h);
+        assert.ok(hurt < max(h));
+        const out = await h.sdk.command('party.rest', { kind: 'short' });
+        assert.equal(out.ok, true, out.message);
+        assert.ok(hp(h) > hurt);
+    });
+});
