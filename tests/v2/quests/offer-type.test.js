@@ -4,6 +4,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { matchOffer } from '../../../src/v2/quests/offer-match.js';
 import { derivedPin, env, lineOf, PIN } from './helpers/offer-env.js';
+import { seeded } from '../integration/helpers/host.js';
+import { PACK, bluewatch } from './helpers/bluewatch.js';
 
 const P = 'pack.ersveil-bluewatch';
 const offer = (text, pin, options = {}) => matchOffer(env({ pin, ...options }), lineOf(text));
@@ -111,4 +113,30 @@ test('the settled binding records the template id as before, so a replay never a
     const result = offer(CULL, pin);
     assert.equal(result.settled.template, `${P}/open-cull-f`);
     assert.ok(!JSON.stringify(result.settled).includes('offerType'));
+});
+
+test('on the real host, with a pack whose open templates name their type (Story Block\'s offerType): the pin carries it and a cull line binds the cull template', async t => {
+    await seeded(6201, async () => {
+        const pack = structuredClone(PACK);
+        const quests = pack.content.quests;
+        const hunt = quests.find(quest => quest.slug === 'open-hunt-f');
+        Object.assign(hunt, { offerType: 'hunt' });
+        Object.assign(hunt.objectives[0], { countMin: 1, countMax: 8 });
+        const cull = structuredClone(hunt);
+        Object.assign(cull, { slug: 'open-cull-f', name: 'Cull (F)', offerType: 'cull' });
+        Object.assign(cull.objectives[0], { countMin: 1, countMax: 3 });
+        quests.splice(quests.indexOf(hunt) + 1, 0, cull);
+        const h = await bluewatch(t, { pack: JSON.stringify(pack) });
+        const pinned = h.head().domains.rules.pin.resolved.quests;
+        assert.equal(pinned[`${P}/open-cull-f`].offerType, 'cull');
+        assert.equal(pinned[`${P}/open-hunt-f`].offerType, 'hunt');
+        await h.say('Hollis speaks.', ['+ quest Rats A | type: cull | goal: kill 6 culvert rats | reward: 60 copper | due: in 2 days', '+ quest Rats B | type: hunt | goal: kill 6 culvert rats | reward: 60 copper | due: in 2 days', '+ quest Rats C | goal: kill 6 culvert rats | reward: 60 copper | due: in 2 days']);
+        assert.deepEqual(h.turn.problems(), []);
+        const by = Object.fromEntries(Object.values(h.head().domains.rules.offers).map(offer => [offer.name, [offer.settled.template.split('/')[1], offer.settled.count]]));
+        assert.deepEqual(by, { 'Rats A': ['open-cull-f', 3], 'Rats B': ['open-hunt-f', 6], 'Rats C': ['open-hunt-f', 6] });
+        // The decision is kept: a rebuild gives the same head.
+        const live = JSON.stringify(h.head());
+        h.store.rebuild();
+        assert.equal(JSON.stringify(h.head()), live);
+    });
 });
