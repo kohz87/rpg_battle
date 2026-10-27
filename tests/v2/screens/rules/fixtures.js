@@ -137,6 +137,8 @@ export const CONTRACTS = Object.freeze({
     'rules.classes': { owner: 'B', shape: '({tier?}) -> {id,name,tier,parent,skills:Ref[3]}[]' },
     'rules.names': { owner: 'B', shape: '({refs}) -> Record<Ref,Text80>' },
     'rules.training': { owner: 'B', shape: '{actor,session,caps,offers}; offers carry skill.train payloads, and open (an open trainer the story or the reader offered) and where (its place by name, null for a pack trainer)' },
+    'training.openTemplates': { owner: 'B', shape: '[{id,name,rank,fee:{coinMin,coinMax},skills:[{id,name}]}]; the trainer templates of the pinned ruleset' },
+    'training.trainers': { owner: 'B', shape: '{fixed:[{id,name,place,fee,skills}], story:[Offer]}' },
     'rules.flags': { owner: 'B', shape: '§3 {values,hash}' },
     'rules.item': { owner: 'B', shape: 'ItemRule|null' },
     'rules.quests': { owner: 'A', shape: '§3 QuestView[]' },
@@ -156,6 +158,7 @@ export const CONTRACTS = Object.freeze({
     'inventory.definitions': { owner: 'E', module: 'SB', shape: '§3 ItemDef[]' },
     // commands (payload fixtures; the command itself belongs to its owner)
     'rules.pin': { owner: 'B', shape: 'P01 {pack,version,rulesHash,packHash}; direct UI, once before creation' },
+    'trainer.open': { owner: 'B', shape: '{name,template,text?,skills?}; a reader action for someone the scene lists as present' },
     'class.choose': { owner: 'B', shape: '§3' }, 'path.choose': { owner: 'B', shape: '§3' }, 'skill.train': { owner: 'B', shape: '§3; rules.training offers carry the session ID' },
     'quest.take': { owner: 'A', shape: '§3' }, 'quest.abandon': { owner: 'A', shape: '§3' }, 'quest.finish': { owner: 'A', shape: '§3' },
     'party.setActive': { owner: 'B', shape: '§3' }, 'summon.end': { owner: 'B', shape: '§3' },
@@ -170,14 +173,14 @@ export const CONTRACTS = Object.freeze({
 });
 
 export const REAL_API = Object.freeze(['rules.party', 'rules.progress', 'rules.identity', 'rules.selection', 'rules.pin', 'rules.classes', 'rules.names', 'rules.training',
-    'rules.flags', 'rules.item', 'class.choose', 'path.choose', 'skill.train', 'party.setActive', 'summon.end', 'creation.finish', 'party.acceptOffer', 'savepoint.list', 'savepoint.make', 'inventory.definitions']);
+    'training.openTemplates', 'training.trainers', 'trainer.open', 'rules.flags', 'rules.item', 'class.choose', 'path.choose', 'skill.train', 'party.setActive', 'summon.end', 'creation.finish', 'party.acceptOffer', 'savepoint.list', 'savepoint.make', 'inventory.definitions']);
 export const PENDING = Object.freeze(Object.fromEntries(Object.entries(CONTRACTS).filter(([name]) => !REAL_API.includes(name))));
 
 // ---- names, refs and sheets ----------------------------------------------------------------------------------------------
 
 export const ref = x => `pack.fixture/${x}`;
 /** Shipped queries the views also read (not pending anything). */
-export const SHIPPED_QUERIES = Object.freeze(['director.time', 'director.threads', 'chronicle.day', 'items.gear', 'items.condition', 'inventory.items', 'party.offers', 'party.pc', 'packs.rules']);
+export const SHIPPED_QUERIES = Object.freeze(['director.time', 'director.threads', 'chronicle.day', 'items.gear', 'items.condition', 'inventory.items', 'party.offers', 'party.pc', 'packs.rules', 'scene.present']);
 export const PC = seed.actor.id;
 export const LYRA = seed.friend.id;
 export const BRAM = 'ac_00000003';

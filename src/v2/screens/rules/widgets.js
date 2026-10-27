@@ -12,6 +12,9 @@
 //                                quote in it is never mangled by a template hole), and says plainly when it was refused.
 //   rpg-battle.command-input     one line of text (or a number) and a button that sends `command` with the value put
 //                                at `valueAt` in `payload` (a region's name, a danger tier).
+//   rpg-battle.trainer-binding   "Make this a trainer" (RB open trainers §10.2): a person who is present, a trainer template, one box for each
+//                                of the template's skills (all ticked; unticking narrows, nothing can be added) and what they teach, sent
+//                                as `trainer.open` through the refusal-reporting command button.
 //
 // props.value is each widget's spec (the template binds it with data-props='{"bind":"…"}').
 
@@ -360,6 +363,98 @@ export function renderQuestBinding(el, props = {}, api = {}) {
     return { update(next = {}) { spec = specOf(next); options(); refresh(); }, destroy() { button.destroy(); root.remove(); } };
 }
 
+/**
+ * Make this a trainer: props { people: [name], templates: [{ id, name, skills: [{ id, name }] }] } (RB open trainers §10.2). The person and
+ * the template are chosen by the reader; the skills are the template's own, all ticked, and only unticking changes them, so a skill the
+ * template does not list cannot be sent. The payload is { name, template, text?, skills? } (`skills` only when some were unticked).
+ */
+export function renderTrainerBinding(el, props = {}, api = {}) {
+    const doc = el.ownerDocument;
+    const root = make(doc, 'div', 'rpg-tb');
+    el.append(root);
+    let spec = specOf(props);
+    const who = make(doc, 'select', 'rpg-ci-input');
+    who.setAttribute('aria-label', 'Person');
+    const kind = make(doc, 'select', 'rpg-ci-input');
+    kind.setAttribute('aria-label', 'Trainer template');
+    const skills = make(doc, 'div', 'rpg-tb-skills');
+    skills.setAttribute('role', 'group');
+    skills.setAttribute('aria-label', 'Skills they can teach');
+    const wrap = make(doc, 'label', 'rpg-ci-label', 'What they teach');
+    const text = make(doc, 'input', 'rpg-ci-input rpg-tb-text');
+    text.setAttribute('type', 'text');
+    text.setAttribute('maxlength', '240');
+    text.setAttribute('aria-label', 'What they teach');
+    wrap.append(text);
+    const action = make(doc, 'span');
+    root.append(who, kind, skills, wrap, action);
+    const button = renderCommandButton(action, {}, api);
+    const templates = () => (Array.isArray(spec.templates) ? spec.templates : []).filter(row => isRecord(row) && typeof row.id === 'string' && row.id);
+    const people = () => (Array.isArray(spec.people) ? spec.people : []).filter(name => typeof name === 'string' && name);
+    const templateOf = id => templates().find(row => row.id === id) ?? null;
+    const skillsOf = template => (Array.isArray(template?.skills) ? template.skills : []).filter(row => isRecord(row) && typeof row.id === 'string' && row.id);
+    const boxes = () => [...skills.querySelectorAll('input')];
+
+    function refresh() {
+        const template = templateOf(kind.value);
+        const chosen = boxes().filter(box => box.checked).map(box => box.value);
+        const all = skillsOf(template).map(row => row.id);
+        const narrowed = template !== null && chosen.length < all.length;
+        const payload = { name: who.value, template: kind.value };
+        if (text.value.trim()) payload.text = text.value.trim();
+        if (narrowed) payload.skills = all.filter(id => chosen.includes(id));
+        button.update({ command: 'trainer.open', payload, label: 'Make this a trainer', disabled: !who.value || !template || !chosen.length, tone: 'primary' });
+    }
+    function fillSkills() {
+        skills.replaceChildren();
+        for (const row of skillsOf(templateOf(kind.value))) {
+            const label = make(doc, 'label', 'rpg-tb-skill');
+            const box = make(doc, 'input');
+            box.setAttribute('type', 'checkbox');
+            box.value = str(row.id, 200);
+            box.checked = true;
+            box.addEventListener('change', refresh);
+            label.append(box, doc.createTextNode(` ${str(row.name, 80) || str(row.id, 80)}`));
+            skills.append(label);
+        }
+        skills.hidden = !skills.childNodes.length;
+    }
+    function options() {
+        const person = who.value;
+        const template = kind.value;
+        who.replaceChildren();
+        const none = make(doc, 'option', '', 'Choose someone who is here');
+        none.value = '';
+        who.append(none);
+        for (const name of people()) { const option = make(doc, 'option', '', str(name, 80)); option.value = name; who.append(option); }
+        who.value = people().includes(person) ? person : '';
+        kind.replaceChildren();
+        const empty = make(doc, 'option', '', 'Choose a trainer template');
+        empty.value = '';
+        kind.append(empty);
+        for (const row of templates()) { const option = make(doc, 'option', '', str(row.name, 80) || str(row.id, 80)); option.value = row.id; kind.append(option); }
+        kind.value = templateOf(template) ? template : '';
+    }
+    options();
+    fillSkills();
+    who.addEventListener('change', refresh);
+    kind.addEventListener('change', () => { fillSkills(); refresh(); });
+    text.addEventListener('input', refresh);
+    refresh();
+    return {
+        update(next = {}) {
+            spec = specOf(next);
+            const before = kind.value;
+            const ticked = new Set(boxes().filter(box => box.checked).map(box => box.value));
+            options();
+            if (kind.value !== before || !boxes().length) fillSkills();
+            else for (const box of boxes()) box.checked = ticked.has(box.value);
+            refresh();
+        },
+        destroy() { button.destroy(); root.remove(); },
+    };
+}
+
 const widget = render => Object.freeze({
     props: Object.freeze({ value: Object.freeze({ type: 'object', required: false, default: null }) }),
     validate(props = {}) { return props.value !== undefined && props.value !== null && !isRecord(props.value) ? ['value must be an object.'] : []; },
@@ -377,6 +472,7 @@ export const rulesWidgets = Object.freeze({
     [COMMAND_INPUT_WIDGET]: commandInput,
     [COMMAND_BUTTON_WIDGET]: commandButton,
     'rpg-battle.quest-binding': widget(renderQuestBinding),
+    'rpg-battle.trainer-binding': widget(renderTrainerBinding),
 });
 
 export const RULES_WIDGET_CSS = `
@@ -408,4 +504,8 @@ export const RULES_WIDGET_CSS = `
 .rpg-ci-label { font-size: 13px; color: var(--ss-muted); }
 .rpg-ci-input { flex: 1 1 8em; min-width: 0; min-height: 44px; padding: 0 var(--ss-space-2); border: 1px solid var(--ss-border); border-radius: var(--ss-radius-s); background: var(--ss-tile); color: var(--ss-text); font: inherit; }
 .rpg-ci-go { min-height: 44px; }
+.rpg-tb { display: grid; gap: var(--ss-space-2); min-width: 0; }
+.rpg-tb-skills { display: grid; gap: 2px var(--ss-space-3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 12em), 1fr)); }
+.rpg-tb-skill { display: flex; align-items: center; gap: var(--ss-space-2); min-height: 44px; overflow-wrap: anywhere; }
+.rpg-tb-skill input { width: 22px; height: 22px; flex: none; }
 `;
