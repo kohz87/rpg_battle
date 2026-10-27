@@ -49,6 +49,7 @@ export const NOTE = Object.freeze({
     variant: (name, base) => `${name} is a named kind of ${base}`,
     noFoe: phrase => `no foe for "${phrase}"; the story judges the goal`,
     noItem: phrase => `no pack item for "${phrase}"; the story judges the goal`,
+    noPlace: phrase => `no place for "${phrase}"; the story judges the goal`,
     cannotFight: (name) => `${name} cannot be fought under these rules; the story judges the goal`,
     setAside: (word, foe, rank) => `${word} set aside: ${foe} is a rank ${rank} foe`,
     aboveRank: (job, party) => `well above your rank (rank ${job} job; you are rank ${party})`,
@@ -96,7 +97,7 @@ export function encounterLine(foe, count) {
 /** The settled terms of a matched offer (§8.1) as the narrator is told them: `result` is `matchOffer`'s, `name` the job's name, `item` its pack item. */
 export function settledTerms(result, name, currency) {
     const { settled } = result;
-    const objective = settled.foe ? `kill ${settled.count} ${settled.foe.name}` : settled.item ? `bring ${settled.count} ${settled.item.name}` : settled.text;
+    const objective = settled.foe ? `kill ${settled.count} ${settled.foe.name}` : settled.item ? `bring ${settled.count} ${settled.item.name}` : settled.place ? `go to ${settled.place.name}` : settled.text;
     return termsLine({
         name, giver: settled.giver, objective, deadline: settled.durationMinutes === null ? null : durationText(settled.durationMinutes),
         coin: settled.coin, xp: settled.xp, where: result.where, fight: settled.foe ? { count: settled.count, line: encounterLine(settled.foe, settled.count) } : null,

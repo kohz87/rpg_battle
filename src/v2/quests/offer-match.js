@@ -8,22 +8,22 @@ import { evaluateRequirements } from './requirements.js';
 import { amountDigits, countOf, NUMBER_WORDS, parseReward, singular, STOP_WORDS } from './parse.js';
 import { defaultRank, rankNamed, WRITTEN_RANKS_ABOVE } from './ranks.js';
 import { templates } from './seams.js';
+import { bindingOf } from './offer-plan.js';
+import { DEFAULT_MINUTES, boundsOf, durationRange, formulaAt, kindOf, tierOfRank } from './offer-rules.js';
 import { MATCHER, bandOf, flat, hold, keepNotes, NOTE } from './offer-bands.js';
 import { difficultyFromLabel, EXTRA_STOPS, FILLER, firstVerb, minutesOf, SKIPPED, titleCase, typeFromLabel, TYPES, wordsOf } from './offer-words.js';
 
-export { MATCHER };
-/** The deadline of a job whose template and line give none, and the longest one a line may ask for. */
-export const DEFAULT_MINUTES = 10080;
-export const LONGEST_MINUTES = 43200;
-export const SHORTEST_MINUTES = 60;
+export { MATCHER, boundsOf };
 /** Longest name, goal and other label an offer keeps, in code points. */
 export const NAME_CHARS = 80;
 export const GOAL_CHARS = 240;
 const VARIANT_CANDIDATES = 8;
 const PHRASE_WORDS = 8;
 const PARTICIPLE = 7;
-const KNOWN = new Set(['type', 'goal', 'text', 'target', 'foe', 'item', 'count', 'reward', 'due', 'deadline', 'difficulty', 'rank', 'giver', 'like', 'status', 'met']);
+const KNOWN = new Set(['type', 'goal', 'text', 'target', 'foe', 'item', 'place', 'count', 'reward', 'due', 'deadline', 'difficulty', 'rank', 'giver', 'like', 'status', 'met']);
 const OFFER_LABELS = ['type', 'goal', 'target', 'foe', 'item', 'count', 'reward', 'due', 'deadline', 'difficulty', 'rank'];
+/** A canonical ref the narrator copied ("pack.fixture/wolf", "pack.fixture/wolf~ash-wolf"): the 2.2.0 form of a target. */
+const REF = /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9_-]*(?:~[a-z0-9]+(?:-[a-z0-9]+)*)?$/;
 const DONE = /^(?:done|complete|completed|finished|resolved|turned in)\.?$/i;
 
 /** The key two spellings of one job's name share (§5.3): SD's lineKey (lower case, apostrophes dropped, punctuation as one space) without a leading article. */
@@ -52,7 +52,7 @@ export function readLine(line) {
     const unused = Object.keys(labels).filter(key => !KNOWN.has(key));
     return {
         name, goal, goalLabelled: [labels.goal, labels.text].some(value => String(value ?? '').trim()), unused,
-        type: pick('type'), target: pick('target', 'foe', 'item'), foeLabel: pick('foe'), itemLabel: pick('item'), count: pick('count'), reward: pick('reward'),
+        type: pick('type'), target: pick('target', 'foe', 'item', 'place'), foeLabel: pick('foe'), itemLabel: pick('item'), placeLabel: pick('place'), count: pick('count'), reward: pick('reward'),
         due: pick('due', 'deadline'), difficulty: pick('difficulty', 'rank'), giver: pick('giver'), like: pick('like'), status: pick('status'), met: pick('met'),
     };
 }
@@ -91,24 +91,7 @@ export function targetOf(text) {
     return { phrase: phrase.join(' '), count: Number.isSafeInteger(count) && count >= 0 ? count : null };
 }
 
-const kindOf = template => template?.objectives?.[0]?.kind ?? null;
 const rankIndex = (ladder, id) => ladder.findIndex(row => String(row.id).toLowerCase() === String(id).toLowerCase());
-const tierOfRank = row => Math.max(0, Math.ceil((row?.levels?.[0] ?? 1) / 10) - 1);
-const at = (min, max, tier) => min + Math.floor((max - min) * tier / 9);
-
-/** The largest `count` of an objective kind among the pin's closed quests: the implicit upper bound (§4.5). */
-function closedMax(all, kind) {
-    return all.filter(quest => quest.open !== true).flatMap(quest => quest.objectives ?? []).filter(o => o.kind === kind && Number.isSafeInteger(o.count))
-        .reduce((most, o) => Math.max(most, o.count), 0);
-}
-/** `{ min, max }` a template's objective may count (§4.5). */
-export function boundsOf(all, template) {
-    const objective = template.objectives[0];
-    const own = Number.isSafeInteger(objective.count) ? objective.count : 1;
-    const min = Number.isSafeInteger(objective.countMin) ? objective.countMin : 1;
-    const max = Number.isSafeInteger(objective.countMax) ? objective.countMax : Math.max(own, closedMax(all, objective.kind));
-    return { min, max, own };
-}
 
 /** The foes of the pin in pack order (`env.order` lists refs; the pin itself is sorted), each with its words. */
 function foesOf(env) {
@@ -173,7 +156,8 @@ function variantFor(env, foes, phrase, hintIndex, area) {
     const rest = foes.filter(row => rankIndex(env.ladder, levelOf(env, row)?.id) === hintIndex).sort((a, b) => distance(a.foe.level, env.level ?? 1) - distance(b.foe.level, env.level ?? 1) || a.order - b.order);
     for (const row of (near.length ? near : rest).slice(0, VARIANT_CANDIDATES)) {
         const made = foeVariant(row.foe, name, area);
-        if (made.ok && fightable(env, made.foe, area).ok) return { row, foe: made.foe, name };
+        // The objective binds the base foe, so the base must be one the area lets fight as well as the named kind.
+        if (made.ok && fightable(env, made.foe, area).ok && fightable(env, row.foe, area).ok) return { row, foe: made.foe, name };
     }
     return null;
 }
@@ -233,7 +217,7 @@ export function matchOffer(env, line) {
         return { kind: 'far', name: read.name, why: 'done' };
     }
     const all = templates(env.pin);
-    const open = all.filter(template => template.open === true && ['story', 'kill', 'collect'].includes(kindOf(template)));
+    const open = all.filter(template => template.open === true && ['story', 'kill', 'collect', 'visit'].includes(kindOf(template)));
     if (!open.length) return refuse('RULES_MISMATCH', 'This world has no open job template for that.');
     const ladder = env.ladder;
     const rows = templatedRows(env, open);
@@ -250,9 +234,9 @@ export function matchOffer(env, line) {
     if (!type) type = firstVerb(read.goal, { words: env.words })?.type ?? null;
     if (!type && read.foeLabel) type = 'hunt';
     if (!type && read.itemLabel) type = 'gather';
+    if (!type && read.placeLabel) type = 'explore';
     let kind = type ? TYPES[type].kind : 'story';
     if (liked) kind = kindOf(liked);
-    if (kind === 'visit') kind = 'story';
 
     // The hint rank (§4.1).
     const writtenRank = read.difficulty ? rankNamed(read.difficulty, ladder) : null;
@@ -265,7 +249,7 @@ export function matchOffer(env, line) {
     // Target phrase and count (§4.2).
     let phrase = '';
     let written = null;
-    if (kind === 'kill' || kind === 'collect') {
+    if (kind === 'kill' || kind === 'collect' || kind === 'visit') {
         let source = read.target;
         if (!source) {
             const verb = firstVerb(read.goal, { words: env.words, kind });
@@ -285,13 +269,15 @@ export function matchOffer(env, line) {
     let from = Number.isInteger(env.area?.tier) ? 'place' : 'rank';
     let foe = null;
     let item = null;
+    let place = null;
     let storyWhy = null;
     let rankIdx = hintIndex;
     let foeRank = null;
 
     if (kind === 'kill') {
         const foes = foesOf(env);
-        let found = phrase ? findFoe(env, foes, phrase, hintIndex) : scanFoe(env, foes, read.goal, hintIndex);
+        const ref = REF.test(read.target) ? env.ix.foe(read.target.split('~')[0]) : null;
+        let found = ref ? { row: foes.find(row => row.foe.id === ref.id), how: 'exact' } : phrase ? findFoe(env, foes, phrase, hintIndex) : scanFoe(env, foes, read.goal, hintIndex);
         if (found) {
             const own = found.row.foe;
             const tier = Math.max(0, Math.ceil(own.level / 10) - 1);
@@ -317,13 +303,17 @@ export function matchOffer(env, line) {
             rankIdx = rankIndex(ladder, foeRank?.id);
         }
     } else if (kind === 'collect') {
-        const def = phrase ? findItem(env, phrase) : null;
+        const def = REF.test(read.target) ? env.ix.itemDef(read.target) : phrase ? findItem(env, phrase) : null;
         if (def) item = { ref: def.id, name: def.name };
         else storyWhy = NOTE.noItem(phrase || read.goal);
+    } else if (kind === 'visit') {
+        const asked = read.placeLabel || read.target || phrase;
+        const found = asked && typeof env.placeOf === 'function' ? env.placeOf(asked) : null;
+        if (found?.id) place = { id: found.id, name: flat(found.name || asked, NAME_CHARS), record: found };
+        else storyWhy = NOTE.noPlace(asked || read.goal);
     }
     if (storyWhy) notes.push(storyWhy);
-    const jobKind = (kind === 'kill' && foe) || (kind === 'collect' && item) ? kind : 'story';
-    const target = jobKind === 'story' ? null : kind === 'kill' ? foe : item;
+    const jobKind = (kind === 'kill' && foe) || (kind === 'collect' && item) || (kind === 'visit' && place) ? kind : 'story';
 
     // The template (§4.6): the rank first, then lower ones, then the rank's story template.
     let rank = templated(rows, rankIdx);
@@ -350,9 +340,10 @@ export function matchOffer(env, line) {
     const settledKind = kindOf(template);
     if (settledKind === 'story' && jobKind !== 'story') {
         // The template fell back to a story task: the target cannot be counted, the story judges the goal.
-        notes.push(jobKind === 'kill' ? NOTE.noFoe(phrase || read.goal) : NOTE.noItem(phrase || read.goal));
+        notes.push(jobKind === 'kill' ? NOTE.noFoe(phrase || read.goal) : jobKind === 'collect' ? NOTE.noItem(phrase || read.goal) : NOTE.noPlace(phrase || read.goal));
         foe = null;
         item = null;
+        place = null;
     }
     const templateRank = rankIndex(ladder, template.rank);
     if (templateRank >= 0) rank = templateRank;
@@ -385,7 +376,7 @@ export function matchOffer(env, line) {
     }
 
     // Coin (§4.7).
-    const formula = at(range.coinMin, range.coinMax, tier);
+    const formula = formulaAt(range.coinMin, range.coinMax, tier);
     let coin = formula;
     let coinBy = 'formula';
     const reward = parseReward({ reward: read.reward, goal: read.goal }, '', { currency: env.currency, amountWords: true });
@@ -406,19 +397,19 @@ export function matchOffer(env, line) {
             }
         }
     }
-    const xp = at(range.xpMin, range.xpMax, tier);
+    const xp = formulaAt(range.xpMin, range.xpMax, tier);
 
     // Deadline (§5.1).
     let durationMinutes = null;
     if (!env.clock) notes.push(NOTE.noClock());
     else {
-        const longest = Number.isSafeInteger(template.durationMinutes) ? template.durationMinutes : LONGEST_MINUTES;
+        const [shortest, longest] = durationRange(template);
         const asked = read.due ? minutesOf(read.due) : null;
         if (asked === null) {
             durationMinutes = Number.isSafeInteger(template.durationMinutes) ? template.durationMinutes : DEFAULT_MINUTES;
             notes.push(NOTE.deadlineSet(durationMinutes));
         } else {
-            durationMinutes = Math.min(longest, Math.max(SHORTEST_MINUTES, asked));
+            durationMinutes = Math.min(longest, Math.max(shortest, asked));
             if (durationMinutes !== asked) {
                 moved = true;
                 notes.push(NOTE.deadlineSet(durationMinutes));
@@ -431,11 +422,11 @@ export function matchOffer(env, line) {
         template: template.id, text: read.goal,
         ...(settledKind === 'kill' && foe ? { foe: { ref: foe.ref, base: foe.base, name: foe.name, how: foe.how } } : {}),
         ...(settledKind === 'collect' && item ? { item } : {}),
+        ...(settledKind === 'visit' && place ? { place: { id: place.id, name: place.name } } : {}),
         ...(count !== null ? { count } : {}),
         coin, coinBy, xp, durationMinutes, turnInPlace: env.here?.id ?? null, giver: read.giver || null,
         rank: rankRow.id, area: { tier, from }, waived,
     };
-    const binding = { template: template.id, text: read.goal,
-        ...(settled.foe ? { foe: settled.foe.base } : {}), ...(settled.item ? { item: settled.item.ref } : {}) };
-    return { kind: 'offer', band: bandOf({ moved }), settled, binding, said, notes: keepNotes(notes), where: flat(env.here?.name ?? '', NAME_CHARS), area, link };
+    const binding = bindingOf(settled);
+    return { kind: 'offer', band: bandOf({ moved }), settled, binding, said, notes: keepNotes(notes), where: flat(env.here?.name ?? '', NAME_CHARS), area, link, ...(place ? { placeRecord: place.record } : {}) };
 }

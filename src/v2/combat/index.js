@@ -34,6 +34,7 @@ import { clipped } from '../lines.js';
 import { lastParts, partsProblems } from '../board/parts.js';
 import { fitParty } from '../party/pools.js';
 import { foldStoryTime } from '../party/recovery.js';
+import { offersOn } from '../quests/offer-feature.js';
 import { bindEncounter, actionWithId, beginUnits, guardAction, guardStart, lootProblem, pinnedFight, pinnedOf, pinnedSetup, settleEnd } from '../fight/index.js';
 import { cleanFormFields } from '../fight/records.js';
 import { resolveOpposition } from '../fight/danger.js';
@@ -860,7 +861,7 @@ function captureEncounter(ctx, line) {
     const bestiary = combinedBestiary(fightBestiary(ctx, rules), DEFAULT_BESTIARY);
     // A `rank:` is read on the suite's ladder for the character's level now (MODULES §F91).
     const ranks = rankContext(ctx);
-    const read = readEncounter(line, { bestiary, ...ranks, literal: !!pinnedOf(ctx) && Object.hasOwn(line.labels ?? {}, 'like') });
+    const read = readEncounter(line, { bestiary, ...ranks, literal: !!pinnedOf(ctx) && Object.hasOwn(line.labels ?? {}, 'like'), leadingCount: offersOn(ctx) });
     if (!read.ok) ctx.fail('INVALID', read.message);
     // Every foe written is fought, in waves; what a fight cannot hold is told (B-a2-4, B-a2-9): past
     // MAX_ENCOUNTER_FOES, and past what each tier can hold for the party (heldToTiers).

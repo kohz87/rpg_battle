@@ -23,6 +23,7 @@
 // `progression` = RULES_V2_PROGRESSION. The validator below only holds the stored data to the shape this code
 // reads; it does not repeat the checker. Pure.
 
+import { offersProblems } from './offers.js';
 import { int, isDefId, isHash, isObject, isRecordId } from './ids.js';
 import { MAX_ITEM_RULES, boundProblems, defShapeProblems, ruleProblems } from './bounds.js';
 
@@ -134,6 +135,7 @@ export function declaredFlags(resolved) {
 }
 
 function inputsProblems(slice, errors) {
+    errors.push(...offersProblems(slice));
     const flags = slice.flags;
     if (!isObject(flags)) errors.push('rules: flags is not a record');
     else {
@@ -209,6 +211,9 @@ export function pinRules(draft, given) {
     if (draft.pin !== null && draft.pin !== undefined) return draft.rulesHash === trial.rulesHash ? '' : 'This chat already runs other rules; a running timeline keeps its rules.';
     draft.rulesHash = trial.rulesHash;
     draft.pin = pin;
+    // A pack with open quest templates starts the generative offers' maps empty: each record is then one add-only key inside them, so taking
+    // the reply that made the first back takes that one only (a map made by the first offer would take every later one's parent with it).
+    if (Object.values(pin.resolved.quests ?? {}).some(quest => quest?.open === true)) Object.assign(draft, { offers: {}, declined: {} });
     return '';
 }
 

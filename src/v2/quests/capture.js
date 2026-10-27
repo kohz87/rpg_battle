@@ -4,6 +4,11 @@ import { offerQuest } from './commands.js';
 import { ask, boundary, call, pinned, templateOf, threadOf, freshThreadId, writeId } from './seams.js';
 
 import { turnInKey } from './credit.js';
+import { captureOffer } from './offer-capture.js';
+import { hasOpenQuests, offersOn } from './offer-feature.js';
+
+// The labels that make a line an offer (GENERATIVE_OFFERS_SPEC §3.1); a line about a thread that already exists without any of them is its acceptance.
+const OFFER_LABELS = ['like', 'type', 'goal', 'target', 'foe', 'item', 'count', 'reward', 'due', 'deadline', 'difficulty', 'rank'];
 
 export const QUEST_GRAMMAR = '+ quest Name — a frozen quest offer; + quest Name after the reader accepts; ~ quest Name | progress: … | met: yes; - quest Name — done|failed|abandoned';
 export function createCapture({ settleQuest = null, captureObjective = null, guardIntent = null } = {}) {
@@ -12,6 +17,17 @@ export function createCapture({ settleQuest = null, captureObjective = null, gua
         let thread = threadOf(ctx.query, { key });
         if (thread && !thread.rpg && thread.kind === 'quest' && !thread.acceptance) {
             return { summary: 'Quest from an earlier version (read only).', narrate: false, data: { quest: thread.id } };
+        }
+        // Jobs from the story (feature on, the pin has open templates): a free-form line is read, settled and recorded (offer-capture.js). A closed
+        // pack quest by its name, and a line about a thread that exists without any offer label (its acceptance), go on as they always did.
+        if (line.op === '+' && offersOn(ctx)) {
+            const pin = pinned(ctx.read('rules'));
+            const closed = !thread && pin && templateOf(pin, key) && !templateOf(pin, key).open;
+            const labelled = OFFER_LABELS.some(label => Object.hasOwn(line.labels ?? {}, label));
+            if (pin && hasOpenQuests(pin) && !closed && (!thread || labelled)) {
+                const out = captureOffer(ctx, line);
+                if (out) return out;
+            }
         }
         if (line.op === '+' && Object.hasOwn(line.labels ?? {}, 'like') && pinned(ctx.read('rules'))) {
             const labels = line.labels ?? {};

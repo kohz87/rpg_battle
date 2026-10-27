@@ -12,17 +12,22 @@ import { commands as openCommands } from './open.js';
 import { queries } from './queries.js';
 import { TRAINER_GRAMMAR, createTrainerCapture, trainerGrammarFor, trainerKindOn } from './capture.js';
 import { replayTrainer } from './opening.js';
+import { captureTrainerOffer, replayTrainerOffer } from './offer-capture.js';
+import { offersOn } from '../quests/offer-feature.js';
 
 export { dayOf, dayStart, midnightsBetween, minuteOfDay, readClock, trainingWindow } from './clock.js';
 export { completionCredits } from './credits.js';
 export { expectedSessionId } from './session.js';
 export { trainerOf } from './trainers.js';
 
+const legacyCapture = createTrainerCapture();
+
 export const part = {
     domains: { training: { initial: initialTraining, validate: trainingProblems } },
     commands: { ...requestCommands, ...openCommands },
     queries,
     // The `trainer` line exists only while the pinned ruleset has a template (`when`), so every other chat keeps its prompt byte for byte.
-    kinds: { trainer: { grammar: TRAINER_GRAMMAR, grammarFor: trainerGrammarFor, when: trainerKindOn, apply: createTrainerCapture() } },
-    hooks: { replayGuard: replayTrainer },
+    // With Jobs from the story on, a free-form line is read and settled (offer-capture.js) before the 2.2.0 capture sees it.
+    kinds: { trainer: { grammar: TRAINER_GRAMMAR, grammarFor: trainerGrammarFor, when: trainerKindOn, apply: (ctx, line) => (offersOn(ctx) && captureTrainerOffer(ctx, line)) || legacyCapture(ctx, line) } },
+    hooks: { replayGuard: (env, info) => replayTrainerOffer(env, info) ?? replayTrainer(env, info) },
 };

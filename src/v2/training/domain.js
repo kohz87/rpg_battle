@@ -37,6 +37,11 @@ export const initialTraining = () => ({ schema: TRAINING_SCHEMA, sessions: {} })
  */
 export const trainingForPin = resolved => ({ ...initialTraining(), ...((resolved?.manifest?.trainers ?? []).some(entry => entry.open === true) ? { offers: {} } : {}) });
 
+/** Whether `settled`, how a story's trainer line was read (GENERATIVE_OFFERS_SPEC §7.1: matcher, line, sid, said, band, notes, feeBy?), is whole. */
+const settledProblem = settled => !(isObject(settled) && Number.isSafeInteger(settled.matcher) && /^[0-9a-f]{16}$/.test(settled.line ?? '') && typeof settled.sid === 'string' && settled.sid.length <= 50
+    && isObject(settled.said) && Object.values(settled.said).every(value => typeof value === 'string' && value.length <= 240) && ['within', 'moderate'].includes(settled.band)
+    && Array.isArray(settled.notes) && settled.notes.length <= 6 && settled.notes.every(note => typeof note === 'string' && note.length <= 160) && (settled.feeBy === undefined || settled.feeBy === 'said'));
+
 const idLike = (value, prefix) => typeof value === 'string' && value.length === prefix.length + 9 && value.startsWith(`${prefix}_`);
 const STATUS = ['requested', 'completed', 'interrupted', 'refused'];
 const minute = value => value === null || Number.isSafeInteger(value);
@@ -52,7 +57,8 @@ export function offerProblem(id, offer) {
     if (!Number.isSafeInteger(offer.fee) || offer.fee < 1 || offer.fee > MAX_OFFER_FEE || offer.minutes !== 60) return 'has a fee or a duration out of bounds';
     if (typeof offer.rank !== 'string' || offer.rank.length < 1 || offer.rank.length > 20) return 'has no rank';
     if (!isId(offer.place) || !(offer.npc === null || isRecordId(offer.npc)) || !['story', 'reader'].includes(offer.by)) return 'has a place, an NPC or an author that is not valid';
-    return null;
+    if (Object.hasOwn(offer, 'settled') && !settledProblem(offer.settled)) return null;
+    return Object.hasOwn(offer, 'settled') ? 'has a record of how the story\'s line was read that is not whole' : null;
 }
 
 /** The problems of a training slice (the domain validator). */

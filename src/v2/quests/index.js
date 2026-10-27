@@ -1,5 +1,7 @@
 // The retained quest API. Mechanics live here; SD owns the one shared thread and its journal.
 import { replayOpening } from './opening.js';
+import { replayOffer } from './offer-plan.js';
+import { OFFERS_FEATURE } from './offer-feature.js';
 import { createSettlement } from './settlement.js';
 import { createCommands } from './commands.js';
 import { createQueries } from './queries.js';
@@ -22,9 +24,11 @@ export function createQuestPart(policy = {}) {
     const objectives = createObjectives(policy);
     policy = { ...policy, ...createSettlement(policy), ...objectives };
     // One replayGuard for the part: an objective's guard first, every other quest guard as before.
-    const replayGuard = policy.replayGuard && ((env, info) => replayOpening(env, info) ?? objectives.replayObjective(env, info) ?? policy.replayGuard(env, info));
+    const replayGuard = policy.replayGuard && ((env, info) => replayOffer(env, info) ?? replayOpening(env, info) ?? objectives.replayObjective(env, info) ?? policy.replayGuard(env, info));
     return { context: { static: () => QUEST_STATIC, tail: questTail, budget: 250 }, replayQueries: ['quest.replayInputs'], domains: {}, commands: createCommands(policy), queries: createQueries(policy),
         kinds: { quest: { grammar: QUEST_GRAMMAR, apply: createCapture(policy) } },
+        features: [Object.freeze({ id: OFFERS_FEATURE, label: 'Jobs from the story', default: true, prompt: true,
+            describe: 'The narrator may offer a job or a teacher in its own words; code picks the template, rank, count, coin, XP, deadline and fee inside the pack\'s limits and tells the narrator the terms. Off: only the frozen forms, as before.' })],
         settings: { defaults: { followLadder: true }, schema: { followLadder: { type: 'bool', label: 'Quest ranks follow the rank ladder' } } },
         ...(replayGuard ? { hooks: { replayGuard, afterCapture: questCreditHook, beforeGenerate: questExpiryHook } } : {}) };
 }
