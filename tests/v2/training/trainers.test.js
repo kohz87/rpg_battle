@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { indexOf } from '../../../src/v2/rules/graph.js';
 import { isTrainerOfferId, isTrainerRef } from '../../../src/v2/rules/ids.js';
 import { trainerOf, nameKey, offersOf } from '../../../src/v2/training/trainers.js';
-import { MAX_OFFERS, initialTraining, offerProblem, trainingProblems } from '../../../src/v2/training/domain.js';
+import { MAX_OFFERS, initialTraining, offerProblem, trainingForPin, trainingProblems } from '../../../src/v2/training/domain.js';
 import { realWorld } from '../progress/helpers/world.js';
 import { drillsTemplate, openTrainerPack, openTrainersPin, pinFor, ref, trainersPin } from '../progress/helpers/fixture.js';
 
@@ -143,7 +143,7 @@ test('a chat pinned to a pack with templates: the Progress offers list the fixed
     assert.match(refused.message, /not a trainer of this world/);
     const offerId = w.ui('skill.train', { ...item.payload, trainer: 'tn_00000001' });
     assert.equal(offerId.code, 'NOT_FOUND', 'no offer is held yet');
-    assert.deepEqual(w.slice('training'), initialTraining());
+    assert.deepEqual(w.slice('training'), { ...initialTraining(), offers: {} }, 'nothing was written but the empty map the pin started with');
 });
 
 test('a chat pinned to a pack with templates trains with a fixed trainer exactly as before', async t => {
@@ -154,6 +154,14 @@ test('a chat pinned to a pack with templates trains with a fixed trainer exactly
     assert.equal(w.ui('skill.train', item.payload).ok, true);
     await w.say('The lesson.', ['~ here pack.fixture/haven']);
     assert.equal(w.q('rules.training', { actor: w.pc }).session.status, 'completed');
-    assert.equal(Object.hasOwn(w.slice('training'), 'offers'), false, 'no offers key was written');
+    assert.deepEqual(w.slice('training').offers, {}, 'no offer was written');
     assert.deepEqual(w.problems(), []);
+});
+
+test('a pin starts with the training slice it always had, unless the ruleset has a template: then it also holds an empty map of offers', () => {
+    assert.deepEqual(trainingForPin(trainersPin().resolved), initialTraining());
+    assert.equal(Object.hasOwn(trainingForPin(trainersPin().resolved), 'offers'), false);
+    assert.deepEqual(trainingForPin(openTrainersPin().resolved), { schema: 2, sessions: {}, offers: {} });
+    assert.deepEqual(trainingForPin(undefined), initialTraining());
+    assert.deepEqual(trainingProblems(trainingForPin(openTrainersPin().resolved)), []);
 });

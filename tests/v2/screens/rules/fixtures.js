@@ -136,7 +136,7 @@ export const CONTRACTS = Object.freeze({
     'rules.selection': { owner: 'B', shape: 'P01 {state, offers:[{pack,version,name,rulesHash,packHash}], packHash?}' },
     'rules.classes': { owner: 'B', shape: '({tier?}) -> {id,name,tier,parent,skills:Ref[3]}[]' },
     'rules.names': { owner: 'B', shape: '({refs}) -> Record<Ref,Text80>' },
-    'rules.training': { owner: 'B', shape: '{actor,session,caps,offers}; offers carry skill.train payloads' },
+    'rules.training': { owner: 'B', shape: '{actor,session,caps,offers}; offers carry skill.train payloads, and open (an open trainer the story or the reader offered) and where (its place by name, null for a pack trainer)' },
     'rules.flags': { owner: 'B', shape: '§3 {values,hash}' },
     'rules.item': { owner: 'B', shape: 'ItemRule|null' },
     'rules.quests': { owner: 'A', shape: '§3 QuestView[]' },
@@ -320,7 +320,7 @@ export function trainingOf(overrides = {}) {
 }
 export const trainOffer = (overrides = {}) => {
     const offer = {
-    trainer: ref('mentor'), name: 'Old Brann', skill: ref('s00'), form: ref('s00-base'), fee: 20, minutes: 60, session: 'tr_00000001', blocked: [], ...overrides,
+    trainer: ref('mentor'), name: 'Old Brann', skill: ref('s00'), form: ref('s00-base'), fee: 20, minutes: 60, session: 'tr_00000001', blocked: [], open: false, where: null, ...overrides,
     };
     return { ...offer, payload: { actor: PC, skill: offer.skill, form: offer.form, trainer: offer.trainer, session: offer.session } };
 };

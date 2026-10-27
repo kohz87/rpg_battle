@@ -22,8 +22,22 @@ import { storeBatch } from '../../../../src/v2/fight/index.js';
 const PARTS_ = [...rulesParts.map(([, part]) => part), modifierPart];
 const merge = key => Object.assign({}, ...PARTS_.map(part => part[key] ?? {}));
 const rulesPart = { queries: merge('queries') };
-const progressPart = { kinds: merge('kinds'), hooks: merge('hooks'), replayQueries: [...new Set(PARTS_.flatMap(part => part.replayQueries ?? []))] };
+// Two parts may each answer a replay guard (progress: its kinds; training: `trainer.open`), as module.js dispatches them: the first answer wins.
+const hooksOf = () => {
+    const out = merge('hooks');
+    const guards = PARTS_.map(part => part.hooks?.replayGuard).filter(Boolean);
+    out.replayGuard = (...args) => {
+        for (const guard of guards) {
+            const answer = guard(...args);
+            if (answer !== undefined) return answer;
+        }
+        return undefined;
+    };
+    return out;
+};
+const progressPart = { kinds: merge('kinds'), hooks: hooksOf(), replayQueries: [...new Set(PARTS_.flatMap(part => part.replayQueries ?? []))] };
 import { levelFromEarned } from '../../../../src/v2/progress/level.js';
+import { trainingForPin } from '../../../../src/v2/training/domain.js';
 import { storedPool } from '../../../../src/v2/party/pools.js';
 import { ACTOR, FRIEND, fixturePin, ref } from './fixture.js';
 
@@ -143,6 +157,8 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
             'test.pin'(ctx) {
                 const problem = pinRules(ctx.draft('rules'), given);
                 if (problem) ctx.fail('REFUSED', problem);
+                // As the real `rules.pin` does: a pack with trainer templates starts with an empty map of offers.
+                Object.assign(ctx.draft('training'), trainingForPin(given.resolved));
                 return { summary: 'Rules pinned.', narrate: false };
             },
             // An adapter of this module (craft, trade, loot) registering a generated item, and a rule event setting a flag.
@@ -222,7 +238,7 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
         capture: {
             kinds: { ...progressPart.kinds, attempt: { grammar: '! attempt ac_id | skill: s | form: f | key: k' } },
             apply(ctx, line) {
-                if (line.kind === 'skill-use') return progressPart.kinds['skill-use'].apply(ctx, line);
+                if (line.kind === 'skill-use' || line.kind === 'trainer') return progressPart.kinds[line.kind].apply(ctx, line);
                 const l = line.labels;
                 const input = { actor: line.name, skill: ref(l.skill), form: ref(l.form), kind: l.kind ?? 'narrative', key: l.key };
                 if (l.minute !== undefined) input.minute = Number(l.minute);

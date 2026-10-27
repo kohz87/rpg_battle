@@ -30,6 +30,13 @@ export const NAME_MAX = 80;
 export const TEXT_MAX = 240;
 export const initialTraining = () => ({ schema: TRAINING_SCHEMA, sessions: {} });
 
+/**
+ * The training slice a pin starts with. A pack with trainer templates starts with an empty `offers` map: each offer is then one add-only key
+ * inside it, so deleting the reply that made the first trainer takes that trainer only (a map made by the first offer would take the parent of
+ * every later one with it, and the host skips a block whose path is gone). A pack without templates keeps the slice it always had, byte for byte.
+ */
+export const trainingForPin = resolved => ({ ...initialTraining(), ...((resolved?.manifest?.trainers ?? []).some(entry => entry.open === true) ? { offers: {} } : {}) });
+
 const idLike = (value, prefix) => typeof value === 'string' && value.length === prefix.length + 9 && value.startsWith(`${prefix}_`);
 const STATUS = ['requested', 'completed', 'interrupted', 'refused'];
 const minute = value => value === null || Number.isSafeInteger(value);
