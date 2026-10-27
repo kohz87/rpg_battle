@@ -188,3 +188,54 @@ test('Quests: markup in titles, objectives and goal text stays text', { skip }, 
     assert.equal(d.el.querySelector('.nm').textContent, 'Fetch <b>x</b>');
     assert.ok(text(d.el).includes('Say <img src=x onerror=1>'));
 });
+
+// ---- Adjustments (GENERATIVE_OFFERS_SPEC §9.4) -----------------------------------------------------------------------
+
+const adjustment = (n, over = {}) => ({
+    id: `th_adj${String(n).padStart(5, '0')}`, kind: 'job', name: `Granary Vermin ${n}`, band: 'adjusted', bandLabel: 'Adjusted', reply: 14 + n, replyText: `reply ${14 + n}`,
+    became: 'Hunt · kill 6 Culvert Rats · 5 silver · 50 XP · 7 days',
+    changes: [{ k: 'reward', from: '12 crowns', to: '5 silver' }, { k: 'count', from: '', to: '6' }], dropped: '',
+    wrote: 'giver: Hollis · type: cull · reward: 12 crowns', notes: ['reward "12 crowns" is not this chat\'s money; set to 5 silver', 'deadline set to 7 days'], where: 'Bluewatch Village', ...over,
+});
+const withAdjustments = rowsOf => ({ ...c07(100).answers, 'quest.adjustments': { count: rowsOf.length, rows: rowsOf } });
+
+test('Adjustments: no section without rows, and none where RPG Battle does not answer', { skip }, () => {
+    const { drawn: none } = drawn(withAdjustments([]));
+    assert.equal(all(none.el, 'details.adj').length, 0);
+    const missing = viewOf(questsView, { ...c07(100).answers, 'quest.adjustments': MISSING });
+    assert.deepEqual(missing.adjustments, { count: 0, recent: [], older: [], hasOlder: false, olderCount: 0 });
+});
+
+test('Adjustments: a collapsed section with a count, a card per row with its band, changed terms and the raw labels behind a details element', { skip }, () => {
+    const { drawn: page } = drawn(withAdjustments([adjustment(2), adjustment(1, { band: 'dropped', bandLabel: 'Dropped', changes: [], dropped: '50 gold is far above a rank F job (max 4 gold). The narrator was told once.' })]));
+    assert.deepEqual(page.warnings, []);
+    const section = page.el.querySelector('details.adj');
+    assert.ok(section && !section.hasAttribute('open'), 'collapsed');
+    assert.equal(text(section.querySelector('summary')), 'Adjustments (2)');
+    const rows = all(section, 'li.adj-row');
+    assert.equal(rows.length, 2);
+    assert.equal(text(rows[0].querySelector('.nm')), 'Granary Vermin 2');
+    assert.equal(text(rows[0].querySelector('.band')), 'Adjusted');
+    assert.ok(rows[0].querySelector('.band').classList.contains('b-adjusted') && rows[1].querySelector('.band').classList.contains('b-dropped'));
+    assert.equal(text(rows[0].querySelector('.reply')), 'reply 16');
+    assert.equal(all(rows[0], '.cr').length, 2);
+    assert.match(text(rows[0].querySelector('.cr')), /^reward\s*12 crowns→to5 silver$/);
+    assert.match(text(all(rows[0], '.cr')[1]), /^count\s*not written—→to6$/, 'an unwritten term says so');
+    assert.equal(text(rows[1].querySelector('.band')), 'Dropped');
+    assert.match(text(rows[1].querySelector('.dropped')), /^Dropped: 50 gold is far above a rank F job/);
+    assert.equal(all(rows[1], '.cr').length, 0);
+    const details = rows[0].querySelector('details.nowrote');
+    assert.equal(text(details.querySelector('summary')), 'What the narrator wrote');
+    assert.equal(text(details.querySelector('.raw')), 'giver: Hollis · type: cull · reward: 12 crowns');
+    assert.equal(all(details, 'li').length, 2);
+});
+
+test('Adjustments: ten rows show, the rest are behind Older', { skip }, () => {
+    const many = Array.from({ length: 13 }, (_, n) => adjustment(13 - n));
+    const view = viewOf(questsView, withAdjustments(many));
+    assert.deepEqual([view.adjustments.count, view.adjustments.recent.length, view.adjustments.older.length, view.adjustments.hasOlder], [13, 10, 3, true]);
+    const { drawn: page } = drawn(withAdjustments(many));
+    assert.equal(all(page.el.querySelector('details.adj'), 'li.adj-row').length, 13);
+    assert.equal(text(page.el.querySelector('details.older summary')), 'Older (3)');
+    assert.equal(all(page.el.querySelector('details.older'), 'li.adj-row').length, 3);
+});
