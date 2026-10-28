@@ -69,7 +69,7 @@ Switches are in **Settings → Features** (the **Find a feature** box helps). "N
 - **Crafting** (Crafting tab; `rpg-battle.crafting`, on): you craft in the story, code rolls it with the reply's dice.
 - **Return in time:** if your character dies you are offered **Return**, a new branch just before that fight
   (card on the Fight and Party screens). No switch.
-- **Jobs from the story** (`rpg-battle.generative-offers`, on): in a chat pinned to a pack with open quest templates the narrator offers jobs and teachers in its own words, and code settles the numbers. See *How quests and trainers work* below. Off, the narrator uses the frozen forms only, as in 2.2.
+- **Jobs from the story** (`rpg-battle.generative-offers`, on): in a chat pinned to a pack with open quest templates the narrator offers jobs and teachers in its own words, and code settles the numbers. See *How quests and trainers work* below. Off, the narrator uses the frozen forms only, as in 2.2. A chat keeps the mode its rules were pinned with: the setting applies to chats pinned from now on, not to a chat already pinned (every chat pinned before 2.3.0 is strict).
 - **Your world's words:** Settings → RPG Battle → **Character → Terms**: XP word, Level word, Rank ladder, Levels per rank.
 
 ## How a turn works
@@ -117,7 +117,7 @@ The labels only help code read the line. Code settles the rest inside the pack's
 
 If the story names its money something other than the pack's, set **Coins** (Settings) so a written reward is read; otherwise the card says it was not this chat's money.
 
-The narrator's rules block names the ranks the pack has, what each pays and a few foes of each (settings *Ranks in the grading guide* and *Foes named per rank in the guide*). It costs about 1,650 characters in every prompt and replaces the old list of template names. Chats with no pin, pins with no open quest template, and **Jobs from the story** switched off keep their prompts byte for byte as in 2.2.
+The narrator's rules block names the ranks the pack has, what each pays and a few foes of each (settings *Ranks in the grading guide* and *Foes named per rank in the guide*). It costs about 1,650 characters in every prompt and replaces the old list of template names. Chats with no pin, pins with no open quest template, and chats pinned with **Jobs from the story** switched off keep their prompts byte for byte as in 2.2.
 
 ## Settings
 

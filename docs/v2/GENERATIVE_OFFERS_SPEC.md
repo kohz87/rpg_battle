@@ -809,7 +809,7 @@ SB `node authoring-kit/check.mjs examples/packs/ersveil-bluewatch/pack.json`, `n
 | Q6 | Should SD's static line "a job only offered stays in the story; + quest once {{user}} accepts it" change while RB's block is shown? | **Not in 2.3.0** (SD unchanged). RB's block is later in the prompt and explicit; revisit if the live run shows models avoiding offers. |
 | Q7 | Variants from a foe that shares no word ("the Hollow King" as a Starved Crag Wolf)? | **Yes**, as the user directed (nearest by danger); the card names the base so the reader sees it. |
 | Q8 | Story gear in 2.3.0? | **No** (§13, A.10). |
-| Q9 | Feature per chat? | **No**: F100 features are the reader's; per-chat strict mode would need a chat setting SB does not have. |
+| Q9 | Feature per chat? | **Fixed per chat at pin** (the user replaced the first answer, "No: strict mode is a reader setting, not per chat", on the fifth re-check): the pin records the setting once (`rules.mode`), see Decisions. |
 
 ## Appendix A. Deferred (decisions kept, no spec detail now)
 
@@ -834,7 +834,7 @@ SB `node authoring-kit/check.mjs examples/packs/ersveil-bluewatch/pack.json`, `n
   reward below the template floor is raised to it; the far-out line goes as a `[Happened]` line; turn-in at the place the job
   was offered when known; a default deadline of 7 days; SD's "a job only offered stays in the story" line unchanged in 2.3.0;
   a variant from a foe sharing no word with the target is allowed (nearest by danger, base named on the card); story gear is
-  not in 2.3.0 (A.10 kept); strict mode is a reader setting, not per chat.
+  not in 2.3.0 (A.10 kept); Q9 (strict mode) was replaced: see "Strict mode is fixed per chat at pin" below.
 - Build order: Story Block 2.5.0 (SB-M1) first; then RPG Battle 2.3.0 (RB-M1 to RB-M5) and Studio ST-M1. Story Block 2.5.0
   and RPG Battle 2.3.0 ship together. Test on Node 24 (CI's version) as well as Node 22.
 - Template choice (§4.6) prefers the written type: among open templates of the decided kind and rank, the first in pack order
@@ -852,37 +852,26 @@ SB `node authoring-kit/check.mjs examples/packs/ersveil-bluewatch/pack.json`, `n
   rules block is shown.
 - Auto fights earn skill uses: a fight begun with `autoRule: 'practice'` (the stored setup of every offer calibrated from 2.3.0 on) has Auto play each form of a
   party member that is not mastered once, where it would do something; fights and offers stored without the rule are played as before.
-- A rest heals by the hours: with Story Director's clock, `! rest long` counts when its reply moved the clock by `longRestHours` or more and
-  `! rest short` by an hour (v1 gives a short rest no length; an hour is the smallest stretch story time gives anything back for). Else nobody rests, the
-  narrator is told once ("A long rest needs the night to pass, e.g. ! time +8h."), and the refusal is kept as the record `rest.<rs_…>` of the rules slice for
-  the Adjustments log. The reply's movement is the clock less the clock when the reply began: Story Director's `time.overdue` (the clock at the last settle), and before it has settled
-  anything (the first reply with a clock, which the cue that sets it runs after ours) the clock when the reply's first Director line was read (`director.turn.now.from`) or `party.rested`,
-  the earlier; with neither, nothing is known to have passed and nothing has (`restTime`, `recovery.js`). A rest that counts heals exactly what the hours of its reply give under the
-  recovery formula (`perHour` of max HP and MP and `spPerHour` of max SP for each whole hour; `longRestHours` or more is full and ends what a fight left), whatever the switch of passive recovery
-  says, for the line and the `party.rest` command alike (`foldStoryTime(ctx, { force, since })`), and the same hours once: the fold starts at the later of the reply's start and `party.rested`, so a heal of the
-  same reply that took them first (passive recovery, a wound or an item) leaves a rest nothing, and a second rest nothing again. A rest that finds them taken says so. No clock: v1's rest, unchanged.
+- A rest needs story time is moved to 2.3.1 (the user's scope cut on the fifth re-check). 2.3.0 keeps 2.2.0's rests and recovery exactly: `party.rest` and the `! rest` line, passive
+  recovery folding (`recovery.js`), the fold on a wound and on `combat.end` are the code and the tests of 2.2.0 (`party/recovery.js`, `party/capture.js`, `party/commands.js` equal 13a61a4's). The rest-time
+  refusals, the rest rows of the Adjustments log, the narrator's rest notes and their tests go back with 2.3.1; Story Block's matrix action that writes an hour of story time before it asks for a rest is harmless with 2.2.0 rests.
 - Promotion mastery: the pin's `constants.promotionMastery` (default and old pins `[5, 5, 5]`) is the mastery each skill needs for the promotions at 10, 20 and 30
   (`progress/offers.js` `masteryNeeded`); the checklist's `needed` is that of the open milestone.
-- The switch's mode is a property of each reply (`rules/mode.js`), not of a toggle on the timeline. A reply whose capture ran with the switch on (a line of ours read: `+ quest` that can be an offer, `+ trainer`,
-  an `! encounter | like:` with a count, or any other of ours) is stamped free: `mode.<ms_ id>` = `{ v: 1, sid, mode: 'free' }` in the rules slice, written by `rules.stampReply`, a step of the reply of its own run by the
-  afterCapture hook once its lines are read, so the stamp does not depend on any one line surviving (a line that fails keeps no steps). The dispatcher tells the hook, in this process, that the pass was a free one (`noteRead`). A Re-read
-  of the reply, edited or not, goes by the stamp of the reply as it stands (`ctx.standing`) and writes it again; a rebuild and a reload replay the stored steps. A reply with no stamp is read strict, as 2.2.0 did
-  (it was read with the switch off, or recorded before 2.3.0, or none of its lines kept a step; a strict reply writes nothing). A new reply takes the switch of its moment.
-  Deleting a reply takes its own stamp only, and no other reply's reading depends on it; no event, no cue and no state is kept between replies. The hook runs only for a reply that kept a receipt: a reply none of whose lines kept a step has no state of ours to read differently and keeps no stamp. The reader-facing parts (the rules block, settings, the queries and cards of the feature) follow the switch itself.
-- Hours and damage: a `~ wound` spends the story time written before it (`foldStoryTime(ctx, { markOnly: true })`: it heals with passive recovery on, nothing with it off), so a rest heals a wound only by hours that passed
-  after it; a rest line cannot heal a wound written after it, since it acts at its place in the reply. The story hours that pass while a fight has the party are spent when the fight is settled (`combat.end` folds
-  with the fight still on the party), never healed afterwards. Minutes short of an hour are spent with the damage: a wound and the end of a fight fold with `spend`, which moves `party.rested` to the clock, so no part of an hour is carried across them into a later heal. With the story clock (whenever one exists, even if it cannot say when the reply began: the marks recovery keeps, `party.rested` and the reply's first Director line, tell, and with none nothing passed) a rest is the whole party's: `party.rest` with some members named is INVALID, every member it heals is in the receipt; without a clock
-  the targeted rest of 2.2.0 stays.
-- A rest's time rule is the clock's, not passive recovery's, and holds for the `party.rest` command and for a line of the story alike (`restTime`, `recovery.js`; no exception for a fresh clock: Story Block's matrix writes an
-  hour of story time before the action that asks for a rest); refused-rest records have no count cap (one small record a reply, gone with it); a fight's uses are stamped with the story minute it ended at; a kill objective keeps up to its count in rows of evidence (`evidenceLimit`); a refused rest keeps its text and place as `flat()` text. Uses waiting for a credit are settled by a `beforeGenerate` cue on the reply at the head (as well
+- Strict mode is fixed per chat at pin (replaces Q9 and the earlier per-reply design, `rules/mode.js`). The pin records the setting once, as `rules.mode` (`'free'` or `'strict'`), when a chat's rules are
+  pinned (`pinRules(draft, given, { mode })`; the pin step reads the live switch through `switchMode`, the module activation path writes `free`). Every capture of that chat reads the pinned mode: the live reply, a Re-read (edited or not), a
+  rebuild and a reload. A pin with no recorded mode (every pin made before 2.3.0) reads as strict, as 2.2.0 did. Toggling the setting later changes the chats pinned afterwards (and a new character timeline), not a chat already
+  pinned. The rules block, the cards and the queries of a chat follow its pinned mode (`stateFree`), never the live switch, so the narrator is not told rules the chat will not apply. There are no per-reply stamps, no events, cues
+  or hooks for the mode. The setting's help text says so.
+- A fight's uses are stamped with the story minute it ended at; a kill objective keeps up to its count in rows of evidence (`evidenceLimit`). Uses waiting for a credit are settled by a `beforeGenerate` cue on the reply at the head (as well
   as by afterCapture), so a reply with no change line no longer leaves them unpaid. A count in front of a named kind is any whole number 1 to 999 (a fight holds 54, the rest is cut and told).
 - Progress words: `rules.pace` (`progress/offers.js` `paceOf`: `{ top, usesForTop, perReply, perDay }` from the pin's constants) feeds the line under Skills; a `rules.progress` checklist row says
   `waiting` (uses of its form held for the story clock; only while no clock is set, only when above 0). With `promotionMastery` the checklist header and the waiting lines use the
-  requirement ("0 of 3 forms at 3 / 5", "Strike is 1 / 3."), the skill bars stay out of the top and a card is done at the requirement. A refused rest keeps `place` in its
-  record and is the Adjustments row "Long rest at <place>" (Dropped; "No story time passed in that reply; a long rest needs 6 hours (e.g. ! time +8h). Nothing was healed.").
+  requirement ("0 of 3 forms at 3 / 5", "Strike is 1 / 3."), the skill bars stay out of the top and a card is done at the requirement.
 - Job difficulty sets the told fight's tier: easy `| tier: weak`, hard `| tier: strong`, normal (or a difficulty that names a rank, or none) no tier; nightmare reads as hard. Worked out once at
   capture and kept in the settled binding as `fightTier` (only beside a foe), so a Re-read, a reload and a rebuild tell the same line; nothing else about the offer moves (XP and coin are the
   template's formula and range). Offers made before it have no `fightTier` and tell the line as they did.
 - Rank experience ranges: a pack's rank may write `xp: [lowest, highest]` (Story Block 2.5.0; open templates' `xpMin`/`xpMax` are held to it, else to the coin range). RPG Battle
   carries it in `quest.ranks` and `party.ranks` and never derives XP from a rank's coin range: a job's XP is the formula on the template's `xpMin`/`xpMax` (§5), the
   matcher's clamps and bands are coin only, and the grading guide shows coin ranges only.
+- Known issue, fixed in 2.3.1: the Adjustments list is sorted after a long chat's old receipts are trimmed, so in a long, trimmed chat the order of some rows can differ from the order of the replies. It is a
+  display issue only and never game state (CHANGELOG 2.3.0, Known issues).
