@@ -4,8 +4,8 @@
 // only the terms that changed (three at most), and behind a details element what the narrator wrote and the notes. Pure: it reads the state and the receipts.
 
 import { flat } from './offer-bands.js';
-import { durationText, minutesOf } from './offer-words.js';
-import { declinedOf, offersOf, restsOf } from '../rules/offers.js';
+import { minutesOf } from './offer-words.js';
+import { declinedOf, offersOf } from '../rules/offers.js';
 
 export const LOG_LIMIT = 50;
 const KIND_WORDS = Object.freeze({ kill: 'Hunt', collect: 'Delivery', story: 'Task', visit: 'Journey' });
@@ -101,19 +101,6 @@ export function adjustments(state, args = {}, tools) {
             became: [cap(said.type) || (record.kind === 'teacher' ? 'Teacher' : 'Job'), said.goal ?? said.text, said.reward ?? said.fee, 'not offered'].filter(Boolean).join(' · '),
             changes: [], dropped: `${shortReason(record.reason)}. The narrator was told once.`, wrote: wroteText(said, record.kind === 'teacher' ? 'text' : 'goal'),
             notes: [record.reason, `Told once: “…offer ${record.suggestion}.”`], where: '' }, placed(id, record.sid, keyAt('declined.', id))));
-    }
-    // A rest the story wrote that the reply's time did not pay for: nobody rested (party/capture.js restWanted).
-    for (const [id, record] of Object.entries(restsOf(slice))) {
-        const word = record.kind === 'long' ? 'Long rest' : 'Short rest';
-        const place = record.place ?? '';
-        const hours = record.kind === 'long' ? Math.round(record.needed / 60) + 2 : Math.max(1, Math.round(record.needed / 60));
-        const passed = record.moved ? `Only ${durationText(record.moved)} of story time passed` : 'No story time passed';
-        const wrote = ['rest', 'place'].map(key => (key === 'rest' ? `rest: ${record.kind}` : place ? `place: ${place}` : '')).filter(Boolean);
-        if (record.said?.text) wrote.push(record.said.text);
-        out.push(row({ id, kind: 'rest', name: place ? `${word} at ${place}` : word, band: 'dropped', bandLabel: 'Dropped', changes: [],
-            became: ['Rest', record.kind, place, 'not taken'].filter(Boolean).join(' · '),
-            dropped: `${passed} in that reply; a ${record.kind} rest needs ${durationText(record.needed)} (e.g. ! time +${hours}h). Nothing was healed.`,
-            wrote: flat(wrote.join(' · '), 700), notes: [`${durationText(record.needed)} needed, ${record.moved ? durationText(record.moved) : 'none'} passed`], where: place }, placed(id, record.sid, keyAt('rest.', id))));
     }
     // Newest first: by the reply that made the record as the chat stands now, and among those of one reply (or of none that is known: receipts that were trimmed) by where its line stood, the last first. A record whose reply is no longer among the receipts comes last, with no number.
     const sorted = out.sort((a, b) => (b.reply ?? -1) - (a.reply ?? -1) || b.order - a.order || (a.id < b.id ? 1 : -1)).map(({ order: _order, ...rest }) => rest);

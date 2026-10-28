@@ -15,8 +15,7 @@ import { DEFAULT_TERMS, parseLevelLabel, maxLevel, termsOf } from '../../terms.j
 import { fromSheet, rulesFrom, rulesSliceOf, settingsOf, toSheet } from './sheets.js';
 import { COMPANION_LEVELS_ABOVE, addOffer, fightOn, handlers } from './commands.js';
 import { clipped } from '../lines.js';
-import { foldStoryTime, restWanted } from './recovery.js';
-import { flat } from '../quests/offer-bands.js';
+import { foldStoryTime } from './recovery.js';
 import { presetFor } from './formula.js';
 import { MAX_LABEL, cleanName, cleanRole, fail, labelsOf, nameKey, replyOf, resolveName, waitingOffers } from './util.js';
 
@@ -67,9 +66,8 @@ function severityWord(ctx, value) {
  * never a number; a condition added or lifted), at most one harm or heal per person per reply.
  */
 function applyWound(ctx, line) {
-    // Story time this reply wrote before the wound is spent first (recovery.js): it heals what was hurt before, or with passive recovery off it heals nothing, but either way it
-    // is gone, so a rest later in the reply heals this wound only by the hours that pass after it. The wound stays.
-    if (!fightOn(ctx)) foldStoryTime(ctx, { markOnly: true, spend: true });
+    // Story time this reply wrote before the wound heals first (recovery.js); the wound stays.
+    if (!fightOn(ctx)) foldStoryTime(ctx);
     const party = ctx.draft('party');
     const rules = rulesFor(ctx);
     const actor = memberOf(ctx, party, line.name);
@@ -175,9 +173,7 @@ function applySkill(ctx, line) {
     return { summary: `${actor.name} could learn ${offer.skill}${taughtBy ? ` from ${taughtBy}` : ''}.`, data: { offer: offer.id, actor: actor.id, skill: offer.skill }, narrate: false };
 }
 
-const HOUR = 60;
-
-/** `! rest long — a night at the inn` → party.rest; one rest a reply (B1-3: the rest is narrated); with a story clock, only when the reply moved it far enough. */
+/** `! rest long — a night at the inn` → party.rest; one rest a reply (B1-3: the rest is narrated). */
 function applyRest(ctx, line) {
     const labels = labelsOf(line);
     const word = `${line.name ?? ''} ${labels.kind ?? ''} ${line.text ?? ''}`.toLowerCase();
@@ -185,27 +181,6 @@ function applyRest(ctx, line) {
     if (!kind) fail(ctx, 'INVALID', 'A rest is short or long.');
     const reply = replyOf(ctx, line);
     if (reply !== null && !ctx.claim(`rest:${reply}`)) fail(ctx, 'CLAIMED', 'The party already rested in this reply.');
-    const rules = rulesFor(ctx);
-    const short = restWanted(ctx, kind, rules);
-    if (short) {
-        // Nobody rests, and the narrator is told once what a rest needs; the decision is kept with the reply for the Adjustments log (pinned chats keep that log).
-        const hours = kind === 'long' ? Math.round(short.needed / HOUR) + 2 : 1;
-        const summary = kind === 'long' ? `A long rest needs the night to pass, e.g. ! time +${hours}h.` : `A short rest needs an hour to pass, e.g. ! time +${hours}h.`;
-        let rest = null;
-        if (ctx.source && ctx.read('rules')?.pin) {
-            rest = `rs_${ctx.hash({ rest: ctx.source.sid }).slice(0, 12)}`;
-            // The narrator's words are kept flat and short (a record that is not plain text would fail the line, and with it the notice): no markup, no control characters.
-            const reason = flat(line.text, 200);
-            const said = { kind, ...(reason ? { text: reason } : {}) };
-            // Where the party was, for the log's title ("Long rest at The Stray Oar"); none when the world has no place yet.
-            let place = '';
-            try { place = flat(ctx.query('atlas.canonical', {})?.name, 80); } catch { place = ''; }
-            const record = { v: 1, sid: ctx.source.sid, kind, needed: short.needed, moved: short.moved, ...(place ? { place } : {}), said };
-            try { if (ctx.call('rules.recordOffer', { write: `wr_${ctx.hash({ source: ctx.source, writer: 'rest' }).slice(0, 8)}`, rest, record })?.ok === false) rest = null; } catch { rest = null; }
-        }
-        // `data.v2.source`: the reply, which a long chat's trimming of old receipts leaves, so the Adjustments log finds this refusal's reply (the receipt has no guard to carry it).
-        return { summary, narrate: true, data: { kind, rest: 'refused', needed: short.needed, moved: short.moved, ...(rest ? { record: rest } : {}), ...(ctx.source ? { v2: { source: { sid: ctx.source.sid } } } : {}) } };
-    }
     return handlers.rest(ctx, { kind, reason: line.text ?? '' });
 }
 

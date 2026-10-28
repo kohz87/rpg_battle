@@ -7,7 +7,7 @@ import { preserveInjury } from '../death/injury.js';
 // The rule (v1's numbers, rules.recovery): every whole story hour gives back `perHour` (5 %) of
 // max HP and MP and `spPerHour` of max SP (a whole hour fills stamina); `longRestHours` (6) or more
 // at once is a full rest: everything filled and what a fight left ended, as `! rest long` does.
-// Minutes short of an hour wait for the next stretch, so many short replies heal as one long one; but not across a wound or the end of a fight: they are spent with it (`spend`).
+// Minutes short of an hour wait for the next stretch, so many short replies heal as one long one.
 //
 // Bookkeeping (SPEC §2.2): `party.rested` is the story minute the party has recovered up to, a
 // count (PARTY_COUNTERS), and every heal is a change of the pools' `lost` counts (pools.js). Story
@@ -114,12 +114,10 @@ function fightOf(ctx) {
  * party part's settings): the heals party.recover makes, done in place so a wound, rest, item or
  * fight right after starts from the healed numbers. Nothing when the feature is off, there is no
  * clock or no character, or there is nothing to do; with `markOnly` while it is off, only `rested`
- * moves on. `force` (a rest): the hours since the start of the reply (`since`, or `rested` if that is later) heal whatever the switch of passive recovery says, and whatever of them an earlier
- * fold of the same reply took is not taken twice (`rested` has moved past it). `spend` (a wound, the end of a fight): the minutes short of an hour are spent with the whole hours, so no part of an hour
- * is carried across the damage or the fight into a later heal. → { plan, gains: { [actor]: { hp, mp, sp } } } | null.
+ * moves on. → { plan, gains: { [actor]: { hp, mp, sp } } } | null.
  */
-export function foldStoryTime(ctx, { markOnly = false, force = false, since = null, spend = false } = {}) {
-    const off = !force && !recoveryOn(ctx);
+export function foldStoryTime(ctx, { markOnly = false } = {}) {
+    const off = !recoveryOn(ctx);
     if (off && !markOnly) return null;
     const minutes = clockFrom(typeof ctx?.query === 'function' ? (name, args) => ctx.query(name, args) : null);
     if (minutes === null) return null;
@@ -131,15 +129,10 @@ export function foldStoryTime(ctx, { markOnly = false, force = false, since = nu
     }
     if (!party?.pc) return null;
     const rules = rulesFrom(settingsOf(typeof ctx.settings === 'function' ? ctx.settings() : null), rulesSliceOf(ctx));
-    // A rest folds from the start of its reply: the minutes of earlier replies that waited for an hour (recovery.js, header) are not its hours.
-    const from = force && Number.isInteger(since) ? Math.max(since, Number.isInteger(party.rested) ? party.rested : since) : null;
-    const plan = planRecovery(from === null ? party : { rested: from }, minutes, { fight: !force && Boolean(fightOf(ctx)), off, rules });
-    if (!plan) {
-        if (spend && !force && Number.isInteger(party.rested) && minutes > party.rested) ctx.draft('party').rested = minutes;
-        return null;
-    }
+    const plan = planRecovery(party, minutes, { fight: Boolean(fightOf(ctx)), off, rules });
+    if (!plan) return null;
     const draft = ctx.draft('party');
-    draft.rested = spend && !force ? Math.max(plan.rested, minutes) : plan.rested;
+    draft.rested = plan.rested;
     const gains = {};
     if (plan.kind !== 'hours' && plan.kind !== 'long') return { plan, gains };
     const inventory = plan.kind === 'long' ? readInventory(ctx) : null;
@@ -209,57 +202,4 @@ export function recoveryBeforeReply(view, info = {}) {
     const rules = rulesFrom(settingsOf(view?.settings), view?.state?.domains?.rules);
     const plan = planRecovery(party, minutes, { fight: Boolean(sessionOf(view?.state?.domains?.combat)), off: !recoveryOn(view), rules });
     return plan ? { commands: [{ type: 'party.recover', payload: {} }] } : { commands: [] };
-}
-
-const HOUR = 60;
-
-/**
- * The clock when the reply began, when Story Director has not said (it has settled nothing yet: the reply in which the clock first existed is set by a cue that runs after RPG Battle's, so nothing of
- * ours marked it; or the clock is not Story Director's and has no `time.overdue`): the clock when the reply's first Director line was read (`director.turn.now.from`) or the mark recovery keeps (`party.rested`), the earlier of the two; with neither, now (nothing is known to
- * have passed, so nothing has).
- */
-function firstStart(ctx, now) {
-    const marks = [];
-    try {
-        const slot = ctx.read('director')?.turn?.now;
-        const from = (Array.isArray(slot) ? slot[0] : slot)?.from;
-        if (Number.isInteger(from)) marks.push(from);
-    } catch { /* no mark of Story Director's */ }
-    const rested = ctx.read('party')?.rested;
-    if (Number.isInteger(rested)) marks.push(rested);
-    const usable = marks.filter(minute => minute <= now);
-    return usable.length ? Math.min(...usable) : now;
-}
-
-/**
- * The story time a rest has behind it, whatever asks for it (a `! rest` line, the party.rest command), with Story Director's clock: `{ needed, moved, start, short }` in story minutes, or
- * null when the rest is as it always was (no story clock at all). With a clock the rule always holds: a Story Director that cannot say when the reply began has told us nothing passed. `needed` is `longRestHours` (6; `rules.recovery`) for a long rest and an hour for a short one (the smallest
- * stretch story time gives anything back for; v1 and DESIGN §8.5 give a short rest no length). `moved` is the clock now less the clock at the start of the reply: Story Director's `time.overdue` (the
- * clock when story time was last settled, which is the start of the reply, since a time line settles as it moves the clock). Before it has settled anything (the first reply of a chat) it is the
- * mark recovery keeps (`party.rested`, set from the clock when the reply began); with neither, nothing is known to have passed, so nothing has: no rest is free. `short`: the reply did not move the
- * clock `needed` minutes. It does not depend on the switch of passive recovery (`rpg-battle.recovery`): the rest is the clock's.
- */
-export function restTime(ctx, kind, rules) {
-    const query = (name, args) => ctx.query(name, args);
-    const now = clockFrom(query);
-    if (now === null) return null;
-    let start = null;
-    try {
-        const settled = query('time.overdue', {});
-        start = settled === null ? firstStart(ctx, now) : settled?.minutes;
-    } catch {
-        // A clock that does not say when story time was settled (not Story Director's own): the marks recovery keeps are the best word of when the reply began.
-        start = firstStart(ctx, now);
-    }
-    // A clock with no word of when the reply began (a Story Director that cannot say): nothing is known to have passed, so nothing has.
-    if (!Number.isInteger(start)) start = now;
-    const needed = kind === 'long' ? Math.max(HOUR, Math.round((rules?.recovery?.longRestHours ?? 6) * HOUR)) : HOUR;
-    const moved = Math.max(0, now - start);
-    return { needed, moved, start, short: moved < needed };
-}
-
-/** `{ needed, moved }` in story minutes when the reply did not move the clock far enough for the rest (restTime), else null (the rest may go on). */
-export function restWanted(ctx, kind, rules) {
-    const time = restTime(ctx, kind, rules);
-    return time?.short ? { needed: time.needed, moved: time.moved } : null;
 }

@@ -12,7 +12,7 @@
 // readers fit the numbers. Run twice: with RPG Battle alone (always), and in the whole suite with the
 // Ersveil pack (helpers/suite-final.js; needs the four checkouts side by side, skipped otherwise).
 import test from 'node:test';
-import { CLOCK } from '../party/helpers/clock.js';
+import { DIRECTOR_CLOCK } from '../integration/helpers/peer.js';
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
 import { rpgHost } from '../integration/helpers/host.js';
@@ -34,16 +34,15 @@ function seededDice(seed) {
     return { getRandomValues: array => { for (let i = 0; i < array.length; i += 1) array[i] = array instanceof Uint8Array ? next() & 0xFF : next(); return array; } };
 }
 
-/** RPG Battle with a story clock fixture that settles before each reply, no NPC State Delta or pack: a character and opening reply (the clock is set in it). */
+/** RPG Battle with a fixed SD clock fixture, no NPC State Delta or pack: a character and opening reply. */
 async function alone() {
-    const h = await rpgHost({ modules: [CLOCK] });
+    const h = await rpgHost({ modules: [DIRECTOR_CLOCK] });
     assert.equal((await h.cmd('party.create', { name: 'Wessel', preset: 'fighter' })).ok, true);
-    await h.send('We look around Bluewatch.', h.reply('The village smells of salt and tar.', ['~ place Bluewatch Village | kind: settlement', '~ time 600']));
+    await h.send('We look around Bluewatch.', h.reply('The village smells of salt and tar.', ['~ place Bluewatch Village | kind: settlement']));
     return h;
 }
 
-// `night`: lines that pass the night first; with the real Story Director's clock a rest the story writes needs its time in the same reply (RPG Battle 2.3.0).
-async function play(h, night = []) {
+async function play(h) {
     // Real record ids (a seeded randomUUID would give every reply the same sid, and so the same claim
     // key); the dice stay seeded, so the fights play the same every run.
     const dice = globalThis.crypto;
@@ -54,7 +53,7 @@ async function play(h, night = []) {
     let fightReply = -1;
     for (let k = 0; k < 15 && pc().level < 2; k++) {
         // A lost fight leaves Wessel down: a night's rest first, in a reply of its own.
-        if (pc().hp.cur * 2 < pc().hp.max) await h.send('Rest first.', h.reply('You sleep it off.', [...night, '! rest long — by the fire']));
+        if (pc().hp.cur * 2 < pc().hp.max) await h.send('Rest first.', h.reply('You sleep it off.', ['! rest long — by the fire']));
         await h.send('Fight.', h.reply('Rats!', ['! encounter 3 Cellar Rat Swarm — boiling out | tier: weak | stakes: normal']));
         fightReply = h.ctx.chat.length - 1;
         const offer = h.q('combat.offers')[0];
@@ -65,7 +64,7 @@ async function play(h, night = []) {
     }
     assert.equal(pc().level, 2, 'the last fight levelled Wessel up');
     await h.send('Ow.', h.reply('A fist.', ['~ wound Wessel — a beating | harm: severe']));
-    await h.send('Rest.', h.reply('You sleep.', [...night, '! rest long — in a rented cot']));
+    await h.send('Rest.', h.reply('You sleep.', ['! rest long — in a rented cot']));
     assert.equal(pc().hp.cur, pc().hp.max);
     const restClaim = `rest:sid:${h.ctx.chat.at(-1).extra.storySuite.sid}`;
     const rests = Object.keys(h.head().meta.claims).filter(key => key.startsWith('rest:')).length;
@@ -90,7 +89,7 @@ test('final: deleting an earlier reply (a level-up fight) keeps a later reply\'s
     Object.defineProperty(globalThis, 'crypto', { value: seededDice(23), configurable: true, writable: true });
     const h = await alone();
     t.after(() => { h.close(); Object.defineProperty(globalThis, 'crypto', saved); });
-    await play(h, ['! time +8h']);
+    await play(h);
 });
 
 test('final: deleting an earlier reply (a level-up fight) keeps a later reply\'s rest (the whole suite)', { skip }, async t => {
@@ -98,5 +97,5 @@ test('final: deleting an earlier reply (a level-up fight) keeps a later reply\'s
     const h = await suite.started();
     // close() puts back the crypto the suite host found.
     t.after(() => h.close());
-    await play(h, ['! time +8h']);
+    await play(h);
 });

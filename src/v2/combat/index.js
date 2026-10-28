@@ -635,8 +635,6 @@ function end(ctx, payload) {
     sameSession(ctx, session, payload);
     if (session.status === 'active') ctx.fail('REFUSED', 'The fight is not over yet.');
     if (!ctx.claim(`combat:${session.id}:end`)) ctx.fail('CLAIMED', 'That fight was already settled.');
-    // The story time that passed while the fight had the party heals nobody (party/recovery.js): it is spent now, before the fight hands the party its numbers.
-    foldStoryTime(ctx, { markOnly: true, spend: true });
     const { fight, rules } = rebuild(session);
     const setup = unpackSetup(session.setup);
     const result = summarize(fight, rules);

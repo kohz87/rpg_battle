@@ -1,15 +1,14 @@
 // The Progress page's and the Adjustments log's words as the approved mockups draw them (RPG Battle 2.3.0): how mastery grows (one muted line from the pin's
 // constants), the uses held for the story clock, a promotion that asks less than the top (header, waiting lines, the done border, bars still out of the
-// top), the 13-option promotion grid, and a refused rest as an Adjustments row. DOM tests on the drawn pages.
+// top), the 13-option promotion grid. DOM tests on the drawn pages.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { progressScreen, questsScreen } from '../../../../src/v2/screens/rules/screens.js';
+import { progressScreen } from '../../../../src/v2/screens/rules/screens.js';
 import { progressView } from '../../../../src/v2/screens/rules/progress.js';
 import { RULES_WIDGET_CSS } from '../../../../src/v2/screens/rules/widgets.js';
-import { adjustments } from '../../../../src/v2/quests/offer-log.js';
-import { PC, answers, c02, c07, partyOf, progressOf, ref, sheetOf, skillsOf, MISSING } from './fixtures.js';
+import { PC, answers, c02, partyOf, progressOf, ref, sheetOf, skillsOf, MISSING } from './fixtures.js';
 import { all, drawOver, skip, text, viewOf, widgetsIn } from './helpers.js';
 
 const drawn = (table, options) => drawOver(progressScreen, table, options).drawn;
@@ -116,52 +115,4 @@ test('B: the 13-option promotion shows all 13 as buttons in a grid of 3 columns 
     const columns = width => Math.max(1, Math.floor((width + 8) / (11 * 14 + 8)));
     assert.equal(columns(520), 3, 'a desktop card (two cards in 1280px)');
     assert.equal(columns(346), 2, 'a phone card (390px)');
-});
-
-// ---- C: a refused rest in the Adjustments log -----------------------------------------------------------------------------
-
-const slice = (...records) => ({ domains: { rules: Object.fromEntries(records.map(([n, record]) => [`rest.rs_${String(n).padStart(12, '0')}`, record])) } });
-const rest = (over = {}) => ({ v: 1, sid: 'sr_00000001', kind: 'long', needed: 360, moved: 0, place: 'The Stray Oar', said: { kind: 'long' }, ...over });
-const rowsOf = (state, receipts = []) => adjustments(state, {}, { receipts: () => receipts }).rows;
-
-test('C: a long rest that no story time paid for is a Dropped row titled "Long rest at <place>", with the mockup\'s words', () => {
-    const [row] = rowsOf(slice([1, rest()]));
-    assert.equal(row.name, 'Long rest at The Stray Oar');
-    assert.deepEqual([row.band, row.bandLabel], ['dropped', 'Dropped']);
-    assert.equal(row.became, 'Rest · long · The Stray Oar · not taken');
-    assert.equal(row.dropped, 'No story time passed in that reply; a long rest needs 6 hours (e.g. ! time +8h). Nothing was healed.');
-    assert.equal(row.wrote, 'rest: long · place: The Stray Oar');
-});
-
-test('C: a short rest says one hour and +1h; some time that was not enough says how much passed; no place leaves the place out', () => {
-    const [short] = rowsOf(slice([1, rest({ kind: 'short', needed: 60, said: { kind: 'short' } })]));
-    assert.equal(short.name, 'Short rest at The Stray Oar');
-    assert.equal(short.became, 'Rest · short · The Stray Oar · not taken');
-    assert.equal(short.dropped, 'No story time passed in that reply; a short rest needs 1 hour (e.g. ! time +1h). Nothing was healed.');
-    const [some] = rowsOf(slice([1, rest({ moved: 120 })]));
-    assert.equal(some.dropped, 'Only 2 hours of story time passed in that reply; a long rest needs 6 hours (e.g. ! time +8h). Nothing was healed.');
-    const { place, ...bare } = rest();
-    const [none] = rowsOf(slice([1, bare]));
-    assert.equal(none.name, 'Long rest');
-    assert.equal(none.became, 'Rest · long · not taken');
-    assert.equal(none.wrote, 'rest: long');
-    assert.equal(none.where, '');
-    const [told] = rowsOf(slice([1, rest({ said: { kind: 'long', text: 'a night at the inn' } })]));
-    assert.equal(told.wrote, 'rest: long · place: The Stray Oar · a night at the inn');
-});
-
-test('C: the Quests page draws the rest row as an Adjustments row: title, Dropped chip, Became, the why and the raw line behind "What the narrator wrote"', { skip }, () => {
-    const rows = rowsOf(slice([1, rest()]), [{ index: 34, receipt: { data: { record: 'rs_000000000001' } } }]);
-    assert.equal(rows[0].replyText, 'reply 34');
-    const table = { ...c07(100).answers, 'quest.adjustments': { count: rows.length, rows } };
-    const { el } = drawOver(questsScreen, table).drawn;
-    const [row] = all(el, 'li.adj-row');
-    assert.equal(text(row.querySelector('.nm')), 'Long rest at The Stray Oar');
-    assert.equal(text(row.querySelector('.band')), 'Dropped');
-    assert.ok(row.querySelector('.band').classList.contains('b-dropped'));
-    assert.equal(text(row.querySelector('.reply')), 'reply 34');
-    assert.equal(text(row.querySelector('.became')), 'Rest · long · The Stray Oar · not taken');
-    assert.equal(text(row.querySelector('.dropped')), 'Dropped: No story time passed in that reply; a long rest needs 6 hours (e.g. ! time +8h). Nothing was healed.');
-    assert.equal(text(row.querySelector('details.nowrote .raw')), 'rest: long · place: The Stray Oar');
-    assert.equal(all(row, '.cr').length, 0);
 });

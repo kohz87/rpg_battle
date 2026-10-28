@@ -4,15 +4,15 @@
 // XP, points and stats are counts too; readers fit them (a pool held to 0…max). Old chats, whose
 // records wrote whole values, still load. RPG Battle alone (no Story Director).
 import test from 'node:test';
-import { CLOCK } from '../party/helpers/clock.js';
+import { DIRECTOR_CLOCK } from '../integration/helpers/peer.js';
 import assert from 'node:assert/strict';
 import { rpgHost, seeded } from '../integration/helpers/host.js';
 import { PARTY_COUNTERS } from '../../../src/v2/party/pools.js';
 
 async function hero() {
-    const h = await rpgHost({ modules: [CLOCK] });
+    const h = await rpgHost({ modules: [DIRECTOR_CLOCK] });
     assert.equal((await h.cmd('party.create', { name: 'Ren', preset: 'fighter' })).ok, true);
-    await h.send('We set out.', h.reply('Bluewatch Town.', ['~ place Bluewatch Town | kind: settlement', '~ time 600']));
+    await h.send('We set out.', h.reply('Bluewatch Town.', ['~ place Bluewatch Town | kind: settlement']));
     h.pc = () => h.q('party.pc');
     h.say = (text, lines = []) => h.send(text, h.reply(`${text}.`, lines));
     // The index of the last reply (the carrier a reply's changes and its clicks are written to).
@@ -57,7 +57,7 @@ test('pools: a rest after a deleted heal still restores to full (a rest is "rest
             await h.say('A poultice', ['~ wound Ren — a poultice | heal: wound']);
             const healed = h.last();
             await h.say('Bolts', ['~ wound Ren — a crossbow bolt | harm: severe']);
-            await h.say('Sleep', ['! time +8h', '! rest long — a night at the inn']);
+            await h.say('Sleep', ['! rest long — a night at the inn']);
             const rest = h.st.ctx.chat.at(-1).extra.storySuite.sid;
             assert.equal(h.pc().hp.cur, h.pc().hp.max);
             await h.st.deleteMessage(healed);
@@ -169,7 +169,7 @@ test('an older chat\'s records (whole values: cur and max written, no counts) st
             assert.equal((await h.internal('party.grantXp', { xp: 1000 })).ok, true);
             const deed = h.last();
             await h.say('Hurt', ['~ wound Ren — a beating | harm: severe']);
-            await h.say('Sleep', ['! time +8h', '! rest long — in a rented cot']);
+            await h.say('Sleep', ['! rest long — in a rented cot']);
             // Written the way older versions wrote them: whole numbers, no `lost`, no counts.
             for (const message of h.st.ctx.chat) {
                 for (const record of [message.extra?.storySuite, ...(message.swipe_info ?? []).map(info => info?.extra?.storySuite)]) {
@@ -209,7 +209,7 @@ test('a checkpoint over a deleted reply is passed over: the counts replay from t
             await h.say('Hurt', ['~ wound Ren — a beating | harm: severe']);
             for (let n = 0; n < 104; n += 1) await h.say(`Walk ${n}`);
             assert.ok(h.st.ctx.chat.some((message, index) => index > deed && message.extra?.storySuite?.checkpoint), 'a checkpoint was made');
-            await h.say('Sleep', ['! time +8h', '! rest long — in a rented cot']);
+            await h.say('Sleep', ['! rest long — in a rented cot']);
             await h.st.deleteMessage(deed);
             assert.deepEqual(h.problems(), []);
             assert.equal(h.pc().level, 1);
