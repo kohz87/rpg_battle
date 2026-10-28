@@ -145,7 +145,7 @@ function trainingModel(answer, minutes, names, actor, trainers = null, feeText =
         if (session.event?.template) lines.push(`Training event: ${clip(session.event.template, 240)}`);
     }
     const capParts = [];
-    if (Number.isSafeInteger(caps.day)) capParts.push(`Day ${caps.day}`);
+    if (Number.isSafeInteger(caps.day)) capParts.push(times.dayNumber(caps.day));
     if (isRecord(caps.skill)) capParts.push(`this skill ${ratioText(caps.skill.used, caps.skill.max)}`);
     if (isRecord(caps.actor)) capParts.push(`all skills ${ratioText(caps.actor.used, caps.actor.max)}`);
     const clockHold = minutes === null;

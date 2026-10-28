@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { makeCalendar } from '../../../vendor/story-director/src/calendar.js';
 import { calendarWriter, moneyText } from '../../../../src/v2/screens/rules/format.js';
 import { questsView } from '../../../../src/v2/screens/rules/quests.js';
-import { questsScreen } from '../../../../src/v2/screens/rules/screens.js';
+import { questsScreen, setupScreen } from '../../../../src/v2/screens/rules/screens.js';
 import { money } from '../../../../src/v2/quests/parse.js';
 import { PACK } from '../../quests/helpers/bluewatch.js';
 import { c07 } from './fixtures.js';
@@ -97,4 +97,28 @@ test('the Progress page writes a lesson\'s times in the calendar when the chat h
     assert.deepEqual(running.lines, [`From ${calendar.format(MIDNIGHT.start, { time: false, era: false })}, 23:30 to ${calendar.format(MIDNIGHT.end, { time: false, era: false })}, 00:30.`,
         `This crosses midnight into ${calendar.format(MIDNIGHT.end, { time: false, era: false })}.`, `Credit counts toward ${calendar.format(5 * 1440, { time: false, era: false })}'s limit.`]);
     assert.doesNotMatch(running.lines.join(' '), /Day \d/);
+});
+
+test('the Setup page writes a save point\'s moment in the calendar ("CY 611, Goldwane 12, 06:40") and as "Day n, hh:mm" where the chat has none; the Progress limit names its day', { skip }, async () => {
+    const { setupView } = await import('../../../../src/v2/screens/rules/setup.js');
+    const { progressView } = await import('../../../../src/v2/screens/rules/progress.js');
+    const { c06, answers } = await import('./fixtures.js');
+    const calendar = makeCalendar(ERSVEIL);
+    const minute = calendar.toAbs({ year: 611, month: 1, day: 12, minutes: 400 });
+    assert.equal(calendarWriter(ERSVEIL).at(minute), 'CY 611, Goldwane 12, 06:40');
+    assert.equal(calendarWriter(ERSVEIL).at(NaN), '');
+    const point = { id: 'sp_00000010', name: 'Dawn', label: 'Dawn', kind: 'manual', available: true, minute, day: 3, scene: null, journal: null };
+    const base = answers({ 'savepoint.list': [point] });
+    const when = table => viewOf(setupView, table).saves.points[0].whenText;
+    assert.equal(when({ ...base, 'director.calendar': ERSVEIL }), 'CY 611, Goldwane 12, 06:40');
+    assert.match(when(base), /^Day \d+, 06:40$/, 'no calendar: the plain count as before');
+    const { drawn: page } = drawOver(setupScreen, { ...base, 'director.calendar': ERSVEIL });
+    assert.match(text(page.el.querySelector('.saves')), /CY 611, Goldwane 12, 06:40/, 'drawn on the page');
+    assert.doesNotMatch(text(page.el.querySelector('.saves')), /Day \d/);
+    assert.equal(when({ ...base, 'director.calendar': { months: [] } }), when(base), 'a calendar code cannot read is no calendar');
+    assert.equal(when({ ...base, 'savepoint.list': [{ ...point, minute: null }], 'director.calendar': ERSVEIL }), 'Before the clock was set');
+    const train = table => viewOf(progressView, table).members[0].training;
+    const done = c06('completed').answers;
+    assert.equal(train(done).caps, 'Limits: Day 5 · this skill 2 / 10 · all skills 2 / 30.');
+    assert.equal(train({ ...done, 'director.calendar': GREGORIAN, 'inventory.currency': COINS }).caps, `Limits: ${makeCalendar(GREGORIAN).format(5 * 1440, { time: false, era: false })} · this skill 2 / 10 · all skills 2 / 30.`);
 });

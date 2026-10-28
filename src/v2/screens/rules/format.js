@@ -94,6 +94,12 @@ export function calendarWriter(config) {
             return withEra ? (era ? `${era} ${at.year}, ${text}` : `${text}, ${at.year}`) : text;
         },
         year: minutes => (Number.isSafeInteger(minutes) ? parts(minutes).year : null),
+        /** The date and the time of day as the story writes a moment ("CY 611, Goldwane 12, 06:40"). */
+        at(minutes) {
+            if (!Number.isSafeInteger(minutes)) return '';
+            const within = minuteOfDay(minutes);
+            return `${this.date(minutes)}, ${two(Math.floor(within / 60))}:${two(within % 60)}`;
+        },
     };
 }
 
