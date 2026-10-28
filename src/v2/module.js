@@ -41,7 +41,7 @@
 
 import { part as party } from './party/index.js';
 import { part as creation } from './creation/index.js';
-import { rulesParts, modifierPart, initialRules, pinRules, registerPackDefs, noteRead } from './rules/index.js';
+import { rulesParts, modifierPart, initialRules, pinRules, registerPackDefs } from './rules/index.js';
 import { compatibleHost, selectionPart } from './rules/selection.js';
 import { part as quests } from './quests/index.js';
 import { part as items } from './items/index.js';
@@ -119,7 +119,7 @@ function claim(table, name, partId, what) {
  * Block keeps them (`sdk.settings('rpg-battle')`); without it, the host's when it is up, else the
  * defaults. Used where no ctx or view carries them (queries, the item.define hook).
  */
-export function createModule({ settings = null, query = null, parts = [], rules = null, preflight = null, readPreflight = () => preflight } = {}) {
+export function createModule({ settings = null, query = null, parts = [], rules = null, mode = null, preflight = null, readPreflight = () => preflight } = {}) {
     // Older hosts activate only from checked frozen rules or a surviving pin. New hosts also offer a deferred selection.
     const compatible = compatibleHost(preflight);
     const resumed = compatible && preflight.classification === 'current' && preflight.rulesVersion === 2
@@ -127,7 +127,8 @@ export function createModule({ settings = null, query = null, parts = [], rules 
     let activation = null;
     if (rules !== null) {
         const slice = initialRules();
-        const problem = pinRules(slice, rules);
+        // (`mode`: the mode of Jobs from the story the chat is pinned in; an activation has no switch to ask yet, so it is the default, on.)
+        const problem = pinRules(slice, rules, { mode: mode ?? 'free' });
         if (problem) throw new Error(problem);
         if (!compatible || !(preflight.classification === 'empty' || resumed && preflight.rulesHash === slice.rulesHash)) {
             throw new Error('Rules v2 activation requires a compatible preflight and Story Director.');
@@ -393,7 +394,6 @@ export function createModule({ settings = null, query = null, parts = [], rules 
             apply(ctx, line) {
                 const entry = kinds[line?.kind];
                 if (!entry) return ctx.fail('INVALID', `RPG Battle does not read "${line?.kind}" lines.`);
-                noteRead(ctx);
                 return entry.apply(ctxFor(ctx, entry.part), line);
             },
         },

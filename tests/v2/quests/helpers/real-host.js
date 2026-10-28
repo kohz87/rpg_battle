@@ -26,7 +26,7 @@ export const STRICT = Object.freeze({ features: Object.freeze({ 'rpg-battle.gene
 export async function realQuestHost(t, { given = questPin(), st = null, modules = [], settings = null } = {}) {
     const host = await createHost({ modules: [director(), ...modules], ...(st ? { st } : {}), ...(settings ? { settings: structuredClone(settings) } : {}) });
     const sdk = host.sdk;
-    await sdk.registerModule(createModule({ settings: () => sdk.settings('rpg-battle'), rules: given,
+    await sdk.registerModule(createModule({ settings: () => sdk.settings('rpg-battle'), rules: given, mode: settings?.features?.['rpg-battle.generative-offers'] === false ? 'strict' : 'free',
         preflight: sdk.preflight({ module: 'rpg-battle', rulesVersion: 2 }) }));
     t.after(() => host.close());
     if (!st) {

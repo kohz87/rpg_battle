@@ -27,16 +27,16 @@ export function createQuestPart(policy = {}) {
     policy = { ...policy, ...createSettlement(policy), ...objectives };
     // One replayGuard for the part: an objective's guard first, every other quest guard as before.
     const replayGuard = policy.replayGuard && ((env, info) => replayOffer(env, info) ?? replayOpening(env, info) ?? objectives.replayObjective(env, info) ?? policy.replayGuard(env, info));
-    // The rules block of Jobs from the story is a piece under the feature: Story Block leaves it out while the feature is off, and so does it when the
-    // piece answers nothing (an unpinned chat, a pin with no open quest template): every such chat keeps the static bytes it had.
-    const offerPiece = { feature: OFFERS_FEATURE, static: ({ settings = {}, query = null } = {}) => {
+    // The rules block of Jobs from the story is a piece that answers nothing for a chat pinned in strict mode (or not pinned, or with no open quest template): every such chat keeps the static bytes it had.
+    // It follows the chat's pinned mode, not the switch of the moment (quests/offer-feature.js).
+    const offerPiece = { static: ({ settings = {}, query = null } = {}) => {
         try { return query('quest.offerBlock', { ranks: settings.offerGuideRanks, examples: settings.offerGuideExamples }) ?? ''; } catch { return ''; }
     } };
     return { context: { static: () => QUEST_STATIC, tail: questTail, budget: 250, parts: [offerPiece] }, replayQueries: ['quest.replayInputs'], domains: {}, commands: createCommands(policy), queries: createQueries(policy),
         kinds: { quest: { grammar: QUEST_GRAMMAR, apply: createCapture(policy) } },
         features: [Object.freeze({ id: OFFERS_FEATURE, label: 'Jobs from the story', default: true, prompt: true,
-            describe: 'The narrator may offer a job or a teacher in its own words; code picks the template, rank, count, coin, XP, deadline and fee inside the pack\'s limits and tells the narrator the terms. Off: only the frozen forms, as before.' })],
+            describe: 'The narrator may offer a job or a teacher in its own words; code fixes the numbers inside the pack\'s limits. Applies to chats whose rules are pinned from now on; a chat keeps the mode it was pinned with.' })],
         settings: { defaults: { followLadder: true, ...OFFER_DEFAULTS }, schema: { followLadder: { type: 'bool', label: 'Quest ranks follow the rank ladder' }, ...OFFER_SCHEMA } },
-        hooks: { ...(replayGuard ? { replayGuard, afterCapture: questCreditHook, beforeGenerate: questExpiryHook } : {}), replyCard: Object.assign(info => offerCard(info), { feature: OFFERS_FEATURE }) } };
+        hooks: { ...(replayGuard ? { replayGuard, afterCapture: questCreditHook, beforeGenerate: questExpiryHook } : {}), replyCard: info => offerCard(info) } };
 }
 export const part = createQuestPart();

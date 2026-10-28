@@ -3,13 +3,12 @@
 // on 2.2.0 offering its first generative job.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { seeded } from '../integration/helpers/host.js';
 import { G1, PACK, PACK_TEXT, accept, bluewatch, fight, lastTail, ok } from './helpers/bluewatch.js';
 import { replyCardLines } from '../../vendor/story-block/src/v2/screens/index.js';
 import { declinedOf, offersOf } from '../../../src/v2/rules/offers.js';
 
-const fixture = JSON.parse(readFileSync(new URL('./fixtures/pinned-2.2.0.json', import.meta.url), 'utf8'));
+const STRICT = { features: { 'rpg-battle.generative-offers': false } };
 const wallet = h => h.q('inventory.wallet', { owner: 'party' }).coin ?? 0;
 const job = (h, name) => h.q('director.thread', { key: name });
 const offers = h => offersOf(h.head().domains.rules);
@@ -206,7 +205,7 @@ test('a collect job is done by loot, another by a story item: both count at turn
 
 // ---- strict mode ----
 
-test('strict mode: the free-form line is refused as in 2.2.0 and the open-quest line lists the slugs; turning the feature off keeps what was posted', async t => {
+test('strict mode is the chat\'s own: a chat pinned with the switch on keeps offering when it is turned off, one pinned with it off keeps refusing when it is turned on', async t => {
     await seeded(4209, async () => {
         const h = await bluewatch(t, { start: true });
         await h.say('Hollis has a job.', [G1]);
@@ -217,22 +216,31 @@ test('strict mode: the free-form line is refused as in 2.2.0 and the open-quest 
         await accept(h, 'Granary Vermin');
         assert.equal(job(h, 'Granary Vermin').rpg.state, 'active', 'a posted job is taken up as ever');
         await h.say('Another.', ['+ quest Rat Trouble | goal: kill 3 rats | reward: 100 copper']);
-        assert.equal(job(h, 'Rat Trouble'), null);
-        assert.match(JSON.stringify(h.turn.problems()), /no frozen quest template/);
-        assert.equal(Object.keys(offers(h)).length, 1);
-        assert.equal(offers(h)[id].settled.coin, 50);
-        h.features.set('rpg-battle.generative-offers', true);
-        await h.say('Again.', ['+ quest Rat Trouble | goal: kill 3 rats | reward: 100 copper']);
+        assert.ok(job(h, 'Rat Trouble'), 'the chat was pinned with the switch on: its replies are still read freely');
         assert.equal(Object.keys(offers(h)).length, 2);
+        assert.equal(offers(h)[id].settled.coin, 50);
+        await agree(h);
+    });
+    await seeded(4213, async () => {
+        const h = await bluewatch(t, { start: true, settings: STRICT });
+        await h.say('Hollis has a job.', [G1]);
+        assert.equal(job(h, 'Granary Vermin'), null, 'pinned with the switch off: the free-form line is refused as in 2.2.0');
+        assert.match(JSON.stringify(h.turn.problems()), /no frozen quest template/);
+        h.features.set('rpg-battle.generative-offers', true);
+        await h.say('Another.', ['+ quest Rat Trouble | goal: kill 3 rats | reward: 100 copper']);
+        assert.equal(job(h, 'Rat Trouble'), null, 'and still refused with the switch on now');
+        assert.equal(Object.keys(offers(h)).length, 0);
+        await agree(h);
     });
 });
 
 // ---- a chat recorded on 2.2.0 ----
+// (A pin made before 2.3.0 reads strict whatever the switch says: fixtures/pinned-2.2.0.json is replayed as recorded by pinned-2.2.0.test.js and reread-mode.test.js. The records below are those of a chat pinned now.)
 
-test('a chat recorded on 2.2.0 offers its first generative job and a second; a delete takes that reply\'s record only, whichever came first', async t => {
+test('a chat pinned now: a delete takes that reply\'s offer record only, whichever came first', async t => {
     await seeded(4210, async () => {
-        const h = await bluewatch(t, { st: { chat: structuredClone(fixture.chat), extensionSettings: structuredClone(fixture.extensionSettings) } });
-        assert.equal(offersOf(h.head().domains.rules) && Object.keys(offersOf(h.head().domains.rules)).length, 0, 'a pin from before 2.3.0 has no offers');
+        const h = await bluewatch(t);
+        assert.equal(offersOf(h.head().domains.rules) && Object.keys(offersOf(h.head().domains.rules)).length, 0, 'a fresh pin has no offers');
         await h.say('Hollis has a job.', [G1]);
         await h.say('Another.', ['+ quest Rat Trouble | goal: kill 3 rats | reward: 100 copper']);
         assert.equal(Object.keys(offers(h)).length, 2);
@@ -252,12 +260,12 @@ test('a chat recorded on 2.2.0 offers its first generative job and a second; a d
     });
 });
 
-test('a chat recorded on 2.2.0: the first job\'s reply has its card line, and swiping it away leaves the later jobs and replies alone', async t => {
+test('a chat pinned now: the first job\'s reply has its card line, and swiping it away leaves the later jobs and replies alone', async t => {
     await seeded(4211, async () => {
-        const h = await bluewatch(t, { st: { chat: structuredClone(fixture.chat), extensionSettings: structuredClone(fixture.extensionSettings) } });
+        const h = await bluewatch(t);
         const card = () => replyCardLines(h.registry.hookEntries('replyCard'), { index: h.store.headIndex(), state: h.store.at(h.store.headIndex()), changes: h.store.changesAt(h.store.headIndex()) });
         await h.say('Hollis has a job.', [G1]);
-        assert.deepEqual(card().map(line => line.text), ['Posted: Granary Vermin, kill 6 Culvert Rats, 5 silver'], 'the first offer on an old pin has its line');
+        assert.deepEqual(card().map(line => line.text), ['Posted: Granary Vermin, kill 6 Culvert Rats, 5 silver'], 'the first offer has its line');
         // Swiped away, the job is gone and nothing else is touched; a later job is then the chat's first.
         await h.swipe('Nobody has a job.');
         assert.equal(job(h, 'Granary Vermin'), null);
@@ -274,9 +282,9 @@ test('a chat recorded on 2.2.0: the first job\'s reply has its card line, and sw
     });
 });
 
-test('a chat recorded on 2.2.0: the first far-out decision makes no map the later ones hang on', async t => {
+test('a chat pinned now: the first far-out decision makes no map the later ones hang on', async t => {
     await seeded(4212, async () => {
-        const h = await bluewatch(t, { st: { chat: structuredClone(fixture.chat), extensionSettings: structuredClone(fixture.extensionSettings) } });
+        const h = await bluewatch(t);
         assert.equal(Object.keys(declinedOf(h.head().domains.rules)).length, 0);
         const before = wallet(h);
         await h.say('Wild offer A.', ['+ quest Boar Hunt | goal: Hunt 3 wild boars | reward: 50 gold']);

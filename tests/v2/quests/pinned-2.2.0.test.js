@@ -77,8 +77,16 @@ test('in strict mode the static prompt of that pinned chat (every module\'s part
     assert.equal(h.registry.module('rpg-battle').capture.kinds.trainer.grammar.includes('(templates: '), true, 'and the trainer line names its templates');
 });
 
-test('with Jobs from the story on, that chat\'s prompt is the recorded one plus the rules block, with the trainer line shorter and the slug list of the quest tail gone', async t => {
+test('with the switch on now, that old chat is still read strict: its prompt is the recorded one, byte for byte (the mode is the one it was pinned with)', async t => {
     const h = await opened(t);
+    assert.equal(h.q('quest.offerBlock', {}), null);
+    assert.deepEqual(json(staticParts(h.registry)), fixture.prompt);
+    const recorded = fixture.tails.at(-1).split('\n').find(line => line.startsWith('Open quest:'));
+    assert.deepEqual(questTail({ state: h.head(), feature: () => false }).lines, [recorded]);
+});
+
+test('a chat pinned now with Jobs from the story on has the recorded prompt plus the rules block, with the trainer line shorter and the slug list of the quest tail gone', async t => {
+    const h = await bluewatch(t);
     const now = json(staticParts(h.registry));
     assert.equal(now.length, fixture.prompt.length, 'the same parts: the block is more text in RPG Battle\'s own');
     const lines = text => text.split('\n').filter(line => !line.startsWith('+ trainer Name'));

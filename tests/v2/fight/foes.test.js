@@ -117,9 +117,7 @@ test('R2: an offered foe that names a ref is that foe (an unknown ref is none); 
 
 // --- the fight ----------------------------------------------------------------------------------------------------------------------
 
-// (The seed of the loot test below: the dice of a fight depend on how many steps came before it.)
-const SEED_LOOT = 8;
-const play = (name, fn, seed = 7) => test(name, t => seeded(seed, () => fn(t)));
+const play = (name, fn) => test(name, t => seeded(7, () => fn(t)));
 const ready = (t, over = {}) => realWorld(t, { given: foesPin(), sd: true, ...over });
 async function begin(w, line, here = null) {
     await w.say('The wolves come.', ['~ time 3000', ...(here ? [here] : []), line]);
@@ -181,7 +179,7 @@ play('the pack\'s foe fights to the end: a win pays its XP, and its loot row is 
     const stacks = w.q('inventory.items', { owner: 'party' }).filter(row => row.def === 'pack.fixture/rope' || row.defId === 'pack.fixture/rope');
     assert.equal(stacks.reduce((sum, row) => sum + row.qty, 0), 2, JSON.stringify(w.q('inventory.items', { owner: 'party' })));
     assert.deepEqual(w.problems(), []);
-}, SEED_LOOT);
+});
 
 play('a drop that names its pinned definition is that definition even when a story item has the same name', async t => {
     const { w, ended } = await fightToEnd(t, { register: true, story: true });

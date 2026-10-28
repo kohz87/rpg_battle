@@ -10,7 +10,7 @@
 //   ~ time <minute>                              the clock
 import { createHost } from '../../../vendor/story-block/testkit/index.js';
 import { withDirector } from '../../integration/helpers/peer.js';
-import { pinOf, pinRules, registerPackDefs, rulesParts, modifierPart, noteRead } from '../../../../src/v2/rules/index.js';
+import { pinOf, pinRules, registerPackDefs, rulesParts, modifierPart, switchMode } from '../../../../src/v2/rules/index.js';
 import { recordAttempt, recordBasicClass, recordCombatUses } from '../../../../src/v2/progress/index.js';
 import { resultBytes, batchId } from '../../../../src/v2/death/plan.js';
 import { indexOfCtx } from '../../../../src/v2/rules/graph.js';
@@ -33,16 +33,6 @@ const hooksOf = () => {
         }
         return undefined;
     };
-    // Every part's steps after a reply's lines, in part order, as module.js merges them (the rules part's stamp, progress's settlement).
-    const after = PARTS_.map(part => part.hooks?.afterCapture).filter(Boolean);
-    out.afterCapture = async (...args) => {
-        const commands = [];
-        for (const hook of after) {
-            const answer = await hook(...args);
-            if (Array.isArray(answer?.commands)) commands.push(...answer.commands);
-        }
-        return { commands };
-    };
     return out;
 };
 const progressPart = { kinds: merge('kinds'), hooks: hooksOf(), replayQueries: [...new Set(PARTS_.flatMap(part => part.replayQueries ?? []))] };
@@ -55,8 +45,7 @@ import { ACTOR, FRIEND, fixturePin, ref } from './fixture.js';
 export const CLOCK = {
     id: 'fake-director', name: 'Fake Story Director clock', version: '0.0.0',
     domains: { director: { initial: () => ({ time: { minutes: null } }), validate: () => [], counters: ['time/minutes'] } },
-    // `time.overdue` as far as a rest reads it: this stand-in settles nothing, so every reply is said to have begun long ago and a rest has its hours (what it heals is what the party's own mark leaves).
-    queries: { 'director.time': state => ({ minutes: state?.domains?.director?.time?.minutes ?? null, text: '' }), 'time.overdue': () => ({ minutes: -1000000 }) },
+    queries: { 'director.time': state => ({ minutes: state?.domains?.director?.time?.minutes ?? null, text: '' }) },
     capture: {
         kinds: { time: { grammar: '~ time <minute>' } },
         apply(ctx, line) {
@@ -166,7 +155,7 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
         commands: {
             ...merge('commands'),
             'test.pin'(ctx) {
-                const problem = pinRules(ctx.draft('rules'), given);
+                const problem = pinRules(ctx.draft('rules'), given, { mode: switchMode(ctx) });
                 if (problem) ctx.fail('REFUSED', problem);
                 // As the real `rules.pin` does: a pack with trainer templates starts with an empty map of offers.
                 Object.assign(ctx.draft('training'), trainingForPin(given.resolved));
@@ -249,8 +238,6 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
         capture: {
             kinds: { ...progressPart.kinds, attempt: { grammar: '! attempt ac_id | skill: s | form: f | key: k' } },
             apply(ctx, line) {
-                // As module.js's dispatcher does: the reply was read with the switch on (or as it stands), so the hook stamps it.
-                noteRead(ctx);
                 if (line.kind === 'skill-use' || line.kind === 'trainer') return progressPart.kinds[line.kind].apply(ctx, line);
                 const l = line.labels;
                 const input = { actor: line.name, skill: ref(l.skill), form: ref(l.form), kind: l.kind ?? 'narrative', key: l.key };

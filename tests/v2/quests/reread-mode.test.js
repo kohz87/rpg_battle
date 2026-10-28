@@ -1,5 +1,5 @@
-// Each reply keeps the mode of "Jobs from the story" it was read under (rules/mode.js, a stamp written by its first capture of a line the mode changes): a line is read in its reply's mode, live, on
-// a Re-read (edited or not) and on a rebuild or a reload alike, whatever the reader's switch says now; a new reply stamps the switch of its moment. Deleting a reply takes its own stamp only.
+// "Jobs from the story" is fixed for a chat when its rules are pinned (rules/mode.js): every capture of the chat (live, Re-read edited or not, rebuild, reload) reads the mode it was pinned in, and so
+// do the rules block, the cards and the queries, whatever the reader's switch says afterwards. A new pin takes the switch of its moment; a pin made before 2.3.0 records none and is strict.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { seeded } from '../integration/helpers/host.js';
@@ -34,13 +34,7 @@ const reread = async (h, index) => assert.equal((await h.turn.reread(index)).ok,
 
 
 const foes = h => h.q('combat.offers').map(offer => offer.foes.map(foe => [foe.name, foe.count]));
-const sidAt = (h, text) => h.ctx.chat[at(h, text)]?.extra?.storySuite?.sid;
-/** The mode the reply whose text holds `text` was read under: 'free' when it is stamped so, else 'strict' (a reply read with the switch off keeps no stamp). */
-const modeAt = (h, text) => Object.entries(h.head().domains.rules).filter(([key]) => key.startsWith('mode.')).map(([, stamp]) => stamp).find(stamp => stamp.sid === sidAt(h, text))?.mode ?? 'strict';
-// The stamps of a chat's replies, less the four replies of the Bluewatch setup (each wrote a line of ours with the switch on, so each is stamped free).
-const SETUP = 4;
-const allStamps = h => Object.entries(h.head().domains.rules).filter(([key]) => key.startsWith('mode.')).length;
-const stamps = h => allStamps(h) - SETUP;
+const pinnedMode = h => h.head().domains.rules.mode;
 const OFFER = '+ quest Old Debts | giver: Marrit | goal: Settle the matter with the river guild | reward: 80 copper | due: in 3 days';
 const LIKE = '+ quest Rat Trouble | like: open-hunt-f | foe: cellar-rat-swarm';
 const TEACHER = '+ trainer Old Reka — blade drills';
@@ -68,26 +62,40 @@ const CASES = [
     ['a teacher', TEACHER, '+ trainer Old Reka | like: open-blade-drills', 'Reka offers drills.'],
 ];
 
+// ---- the mode is recorded at the pin ------------------------------------------------------------------------------------------------
+
+test('the pin records the switch of its moment: on is free, off is strict; the pin of a chat made before 2.3.0 records none and reads strict', async t => {
+    await seeded(9430, async () => {
+        assert.equal(pinnedMode(await bluewatch(t)), 'free');
+        assert.equal(pinnedMode(await bluewatch(t, { settings: STRICT })), 'strict');
+        assert.equal(modeOf({}), 'strict', 'no mode recorded');
+        assert.equal(modeOf({ mode: 'free' }), 'free');
+        assert.equal(modeOf({ mode: 'maybe' }), 'strict');
+        const rules = structuredClone((await bluewatch(t)).head().domains.rules);
+        assert.deepEqual(rulesProblems(rules).filter(error => /mode/.test(error)), []);
+        rules.mode = 'maybe';
+        assert.ok(rulesProblems(rules).some(error => /mode/.test(error)));
+    });
+});
+
 for (const [name, line, strictLine, text] of CASES) {
-    test(`${name}: read with the switch on, then switched off: a Re-read of the unchanged reply gives the same state and receipts`, async t => {
+    test(`${name}: read in a chat pinned with the switch on, then switched off: a Re-read of the unchanged reply gives the same state and receipts`, async t => {
         await seeded(9401, async () => {
             const h = await bluewatch(t);
             await h.say(text, [line]);
-            assert.equal(modeAt(h, text), 'free');
             const held = world(h);
             set(h, false);
             await reread(h, at(h, text));
             same(held, world(h));
             assert.deepEqual(h.store.problems(), []);
-            assert.equal(modeAt(h, text), 'free', 'the reply keeps its own stamp');
+            assert.equal(pinnedMode(h), 'free', 'the chat keeps the mode it was pinned with');
         });
     });
 
-    test(`${name}: read in strict mode, then switched on: a Re-read of the unchanged reply gives the same state and receipts`, async t => {
+    test(`${name}: read in a chat pinned with the switch off, then switched on: a Re-read of the unchanged reply gives the same state and receipts`, async t => {
         await seeded(9402, async () => {
             const h = await bluewatch(t, { settings: STRICT });
             await h.say(text, [strictLine]);
-            assert.equal(modeAt(h, text), 'strict');
             const held = world(h);
             assert.ok(JSON.parse(held).director.keys || JSON.parse(held).training.offers, 'strict mode made something of the line');
             const problems = JSON.stringify(h.store.problems());
@@ -99,34 +107,88 @@ for (const [name, line, strictLine, text] of CASES) {
     });
 }
 
-test('a free-form line that did nothing in strict mode stays so on a Re-read after the switch is on; the reply after it is read freely', async t => {
-    await seeded(9407, async () => {
-        const h = await bluewatch(t, { settings: STRICT });
-        await h.say('The river guild is owed.', [OFFER]);
-        assert.deepEqual(offerRecords(h), []);
-        assert.ok(h.turn.problems().length > 0, 'the line is a Problem');
+test('toggling the switch after the pin changes nothing in that chat: a reply written after it, a Re-read, a rebuild and a reload read the pinned mode', async t => {
+    await seeded(9415, async () => {
+        const h = await bluewatch(t);
+        await h.say('Rats A.', [fight('Rats A')]);
+        set(h, false);
+        await h.say('Rats B.', [fight('Rats B')]);
+        await h.say('Debts B.', [OFFER]);
         set(h, true);
-        await reread(h, at(h, 'The river guild is owed.'));
-        assert.deepEqual(offerRecords(h), [], 'the reply was read in strict mode');
-        await h.say('Later.');
-        await h.say('The guild again.', [OFFER]);
-        assert.equal(modeAt(h, 'The guild again.'), 'free', 'a new reply stamps the switch of its moment');
-        assert.equal(offerRecords(h).length, 1);
-        await reread(h, at(h, 'The river guild is owed.'));
-        assert.equal(offerRecords(h).length, 1, 'the earlier reply is still read in its own mode');
+        set(h, false);
+        await h.say('Rats C.', [fight('Rats C')]);
+        assert.deepEqual(foes(h), [[FREE('Rats A')], [FREE('Rats B')], [FREE('Rats C')]], 'every reply is read freely: the chat was pinned so');
+        assert.equal(offerRecords(h).length, 1, 'and the job is an offer');
+        await agree(h, 'live');
+        for (const on of [false, true, false]) {
+            set(h, on);
+            for (const letter of 'ABC') {
+                const held = world(h);
+                await reread(h, at(h, `Rats ${letter}.`));
+                same(held, world(h));
+            }
+        }
+        for (const letter of 'ABC') {
+            edit(h, at(h, `Rats ${letter}.`), `Rats ${letter} |`, `Rats ${letter}x |`);
+            await reread(h, at(h, `Rats ${letter}.`));
+        }
+        assert.deepEqual(foes(h), [[FREE('Rats Ax')], [FREE('Rats Bx')], [FREE('Rats Cx')]]);
+        await agree(h, 'after the Re-reads');
+        assert.deepEqual(h.store.problems().filter(problem => problem.code !== 'REPLAY_PREREQUISITE'), []);
+    });
+    await seeded(9416, async () => {
+        const h = await bluewatch(t, { settings: STRICT });
+        await h.say('Rats A.', [fight('Rats A')]);
+        set(h, true);
+        await h.say('Rats B.', [fight('Rats B')]);
+        await h.say('Debts B.', [OFFER]);
+        assert.deepEqual(foes(h), [[ONE('Rats A')], [ONE('Rats B')]], 'every reply is read in strict mode: the chat was pinned so');
+        assert.deepEqual(offerRecords(h), [], 'and the job is no offer');
+        await agree(h, 'strict live');
+        for (const letter of 'AB') await reread(h, at(h, `Rats ${letter}.`));
+        assert.deepEqual(foes(h), [[ONE('Rats A')], [ONE('Rats B')]]);
+        await agree(h, 'strict, read again');
     });
 });
 
-// ---- edited lines are read in the mode of their reply -------------------------------------------------------------------------------
+test('delete, swipe and a Re-read of other replies change no reply\'s mode: the mode is the chat\'s', async t => {
+    await seeded(9418, async () => {
+        const h = await bluewatch(t);
+        for (const letter of 'ABCDEF') {
+            if (letter === 'C') set(h, false);
+            if (letter === 'E') set(h, true);
+            await h.say(`Rats ${letter}.`, [fight(`Rats ${letter}`)]);
+        }
+        const all = 'ABCDEF'.split('').map(letter => [FREE(`Rats ${letter}`)]);
+        assert.deepEqual(foes(h), all);
+        let left = 'ABCDEF';
+        for (const gone of ['A', 'C', 'F']) {
+            const index = at(h, `Rats ${gone}.`);
+            await h.st.deleteMessage(index);
+            await h.st.deleteMessage(index - 1);
+            left = left.replace(gone, '');
+            assert.deepEqual(foes(h), left.split('').map(letter => [FREE(`Rats ${letter}`)]), `${gone} deleted`);
+            await agree(h, `deleted ${gone}`);
+            for (const letter of left) await reread(h, at(h, `Rats ${letter}.`));
+            assert.deepEqual(foes(h), left.split('').map(letter => [FREE(`Rats ${letter}`)]), `${gone} deleted, the rest read again`);
+        }
+        set(h, false);
+        await h.swipe(`Rats F, again.\n\n<Changes>\n${fight('Rats Fz')}\n</Changes>`);
+        assert.deepEqual(foes(h).at(-1), [FREE('Rats Fz')], 'a swiped reply is read in the pinned mode');
+        await agree(h, 'swiped');
+    });
+});
 
-test('an edited line is read in the mode of its reply, whatever the switch says now: in both directions, for a fight, an offer and a teacher', async t => {
+// ---- edited lines are read in the mode of their chat --------------------------------------------------------------------------------
+
+test('an edited line is read in the chat\'s pinned mode, whatever the switch says now: in both directions, for a fight, an offer and a teacher', async t => {
     await seeded(9405, async () => {
         const h = await bluewatch(t, { settings: STRICT });
         await h.say('Rats.', [fight('Rats Of Doom')]);
         set(h, true);
         edit(h, at(h, 'Rats.'), 'Rats Of Doom', 'Rats Of Ruin');
         await reread(h, at(h, 'Rats.'));
-        assert.deepEqual(foes(h), [[ONE('Rats Of Ruin')]], 'strict at its reply: one foe called "3 Rats Of Ruin"');
+        assert.deepEqual(foes(h), [[ONE('Rats Of Ruin')]], 'strict chat: one foe called "3 Rats Of Ruin"');
     });
     await seeded(9406, async () => {
         const h = await bluewatch(t);
@@ -134,7 +196,7 @@ test('an edited line is read in the mode of its reply, whatever the switch says 
         set(h, false);
         edit(h, at(h, 'Rats.'), 'Rats Of Doom', 'Rats Of Ruin');
         await reread(h, at(h, 'Rats.'));
-        assert.deepEqual(foes(h), [[FREE('Rats Of Ruin')]], 'free at its reply: three of them');
+        assert.deepEqual(foes(h), [[FREE('Rats Of Ruin')]], 'free chat: three of them');
     });
     await seeded(9408, async () => {
         const h = await bluewatch(t, { settings: STRICT });
@@ -143,7 +205,7 @@ test('an edited line is read in the mode of its reply, whatever the switch says 
         set(h, true);
         edit(h, at(h, 'Rats in the cellar.'), 'foe: cellar-rat-swarm', 'foe: cellar-rat-swarm | reward: 90 copper');
         await reread(h, at(h, 'Rats in the cellar.'));
-        assert.deepEqual(offerRecords(h), [], 'strict at its reply: 2.2.0\'s reading, which has no place for a reward');
+        assert.deepEqual(offerRecords(h), [], 'strict chat: 2.2.0\'s reading, which has no place for a reward');
     });
     await seeded(9409, async () => {
         const h = await bluewatch(t);
@@ -152,7 +214,7 @@ test('an edited line is read in the mode of its reply, whatever the switch says 
         set(h, false);
         edit(h, at(h, 'Rats in the cellar.'), 'foe: cellar-rat-swarm', 'foe: cellar-rat-swarm | reward: 90 copper');
         await reread(h, at(h, 'Rats in the cellar.'));
-        assert.equal(offerRecords(h).length, 1, 'free at its reply: read as an offer, with the reward it names');
+        assert.equal(offerRecords(h).length, 1, 'free chat: read as an offer, with the reward it names');
     });
     await seeded(9412, async () => {
         const h = await bluewatch(t);
@@ -160,7 +222,7 @@ test('an edited line is read in the mode of its reply, whatever the switch says 
         set(h, false);
         edit(h, at(h, 'Reka offers drills.'), 'like: open-blade-drills', 'like: open-blade-drills | fee: 6 silver');
         await reread(h, at(h, 'Reka offers drills.'));
-        assert.equal(teachers(h)[0]?.settled?.feeBy, 'said', 'free at its reply: the fee it names stands');
+        assert.equal(teachers(h)[0]?.settled?.feeBy, 'said', 'free chat: the fee it names stands');
     });
     await seeded(9413, async () => {
         const h = await bluewatch(t, { settings: STRICT });
@@ -168,11 +230,11 @@ test('an edited line is read in the mode of its reply, whatever the switch says 
         set(h, true);
         edit(h, at(h, 'Reka offers drills.'), 'like: open-blade-drills', 'like: open-blade-drills | fee: 6 silver');
         await reread(h, at(h, 'Reka offers drills.'));
-        assert.equal(teachers(h)[0]?.settled, undefined, 'strict at its reply: 2.2.0\'s reading');
+        assert.equal(teachers(h)[0]?.settled, undefined, 'strict chat: 2.2.0\'s reading');
     });
 });
 
-test('a whitespace-only edit is no different from no edit: the reply is read in its mode, the line the same', async t => {
+test('a whitespace-only edit is no different from no edit: the reply is read in the chat\'s mode, the line the same', async t => {
     await seeded(9414, async () => {
         const h = await bluewatch(t);
         await h.say('Rats.', [fight('Rats Of Doom')]);
@@ -192,145 +254,7 @@ test('a whitespace-only edit is no different from no edit: the reply is read in 
     });
 });
 
-test('the setup replies of a chat made with the switch on are stamped free, one each; made with it off, none', async t => {
-    await seeded(9425, async () => {
-        assert.equal(allStamps(await bluewatch(t)), SETUP);
-        assert.equal(allStamps(await bluewatch(t, { settings: STRICT })), 0);
-    });
-});
-
-test('a reply that had no line the mode changes has no stamp, and when an edit adds one it is read as 2.2.0 did (strict), whatever the switch says', async t => {
-    await seeded(9421, async () => {
-        const h = await bluewatch(t);
-        await h.say('Quiet.');
-        assert.equal(modeAt(h, 'Quiet.'), 'strict');
-        assert.equal(stamps(h), 0);
-        edit(h, at(h, 'Quiet.'), 'Quiet.', `Quiet.\n\n<Changes>\n${fight('Rats Of Doom')}\n</Changes>`);
-        await reread(h, at(h, 'Quiet.'));
-        assert.deepEqual(foes(h), [[ONE('Rats Of Doom')]]);
-        assert.equal(stamps(h), 0, 'a Re-read of a reply with no stamp writes none');
-    });
-});
-
-// ---- the stamp does not depend on any one line --------------------------------------------------------------------------------------------
-
-const BAD = '! encounter 0 Rats Of Doom | like: cellar-rat-swarm';
-const WOUND = '~ wound Ren — a scratch | harm: scratch';
-
-test('a free reply with a failing line and a surviving one keeps its mode through edits that delete or change the surviving line, Re-reads, a rebuild and a reload', async t => {
-    await seeded(9423, async () => {
-        const h = await bluewatch(t);
-        await h.say('Rats R.', [BAD, fight('Rats B')]);
-        assert.deepEqual(foes(h), [[FREE('Rats B')]], 'the bad line failed and the good one was read freely');
-        assert.ok(h.turn.problems().some(problem => /0|count/i.test(JSON.stringify(problem))), 'the bad line is a Problem');
-        assert.equal(modeAt(h, 'Rats R.'), 'free');
-        set(h, false);
-        // Re-read unchanged, then with the surviving line changed.
-        await reread(h, at(h, 'Rats R.'));
-        assert.deepEqual(foes(h), [[FREE('Rats B')]]);
-        edit(h, at(h, 'Rats R.'), 'Rats B |', 'Rats C |');
-        await reread(h, at(h, 'Rats R.'));
-        assert.deepEqual(foes(h), [[FREE('Rats C')]]);
-        assert.equal(modeAt(h, 'Rats R.'), 'free');
-        // The surviving line goes (a wound is all that survives): the reply still reads free, and a line put back is read freely again.
-        edit(h, at(h, 'Rats R.'), fight('Rats C'), WOUND);
-        await reread(h, at(h, 'Rats R.'));
-        assert.equal(modeAt(h, 'Rats R.'), 'free', 'the stamp does not go with the line that carried it');
-        edit(h, at(h, 'Rats R.'), WOUND, fight('Rats D'));
-        await reread(h, at(h, 'Rats R.'));
-        assert.deepEqual(foes(h), [[FREE('Rats D')]], 'read freely again, as the reply was written');
-        await agree(h, 'a failing and a surviving line');
-        assert.equal(stamps(h), 1);
-    });
-});
-
-test('a reply written with the switch on that has no line the mode changes yet is stamped, so an edit that adds one reads it freely', async t => {
-    await seeded(9424, async () => {
-        const h = await bluewatch(t);
-        await h.say('A scratch.', [WOUND]);
-        assert.equal(modeAt(h, 'A scratch.'), 'free');
-        set(h, false);
-        edit(h, at(h, 'A scratch.'), WOUND, `${WOUND}\n${fight('Rats Of Doom')}`);
-        await reread(h, at(h, 'A scratch.'));
-        assert.deepEqual(foes(h), [[FREE('Rats Of Doom')]]);
-        await agree(h, 'a scratch');
-        // The same with the switch off when it was written: strict, whatever the switch says now.
-        await h.say('Another scratch.', ['~ wound Ren — another | harm: scratch']);
-        assert.equal(modeAt(h, 'Another scratch.'), 'strict');
-        set(h, true);
-        edit(h, at(h, 'Another scratch.'), '~ wound Ren — another | harm: scratch', `~ wound Ren — another | harm: scratch\n${fight('Rats Of Ruin')}`);
-        await reread(h, at(h, 'Another scratch.'));
-        assert.deepEqual(foes(h).at(-1), [ONE('Rats Of Ruin')]);
-    });
-});
-
-// ---- the switch, reply by reply -----------------------------------------------------------------------------------------------
-
-test('toggles in the middle of a chat: every reply is read in its own mode, live, on a Re-read of an unchanged or an edited line, on a rebuild and on a reload', async t => {
-    await seeded(9415, async () => {
-        const h = await bluewatch(t);
-        await h.say('Rats A.', [fight('Rats A')]);
-        set(h, false);
-        await h.say('Rats B.', [fight('Rats B')]);
-        await h.say('Rats C.', [fight('Rats C')]);
-        set(h, true);
-        await h.say('Rats D.', [fight('Rats D')]);
-        set(h, false);
-        await h.say('Rats E.', [fight('Rats E')]);
-        const expected = () => [[FREE('Rats A')], [ONE('Rats B')], [ONE('Rats C')], [FREE('Rats D')], [ONE('Rats E')]];
-        assert.deepEqual(foes(h), expected());
-        assert.deepEqual('ABCDE'.split('').map(letter => modeAt(h, `Rats ${letter}.`)), ['free', 'strict', 'strict', 'free', 'strict']);
-        await agree(h, 'live');
-        // Re-read each reply unchanged, under the switch off and then on: the reading never changes.
-        for (const on of [false, true, false]) {
-            set(h, on);
-            for (const letter of 'ABCDE') {
-                const held = world(h);
-                await reread(h, at(h, `Rats ${letter}.`));
-                same(held, world(h));
-                assert.deepEqual(foes(h), expected(), `Rats ${letter} with the switch ${on ? 'on' : 'off'}`);
-            }
-        }
-        // Edited lines: read in the mode of their own reply.
-        set(h, true);
-        for (const letter of 'ABCDE') {
-            edit(h, at(h, `Rats ${letter}.`), `Rats ${letter} |`, `Rats ${letter}x |`);
-            await reread(h, at(h, `Rats ${letter}.`));
-        }
-        assert.deepEqual(foes(h), [[FREE('Rats Ax')], [ONE('Rats Bx')], [ONE('Rats Cx')], [FREE('Rats Dx')], [ONE('Rats Ex')]]);
-        set(h, false);
-        for (const letter of 'ABCDE') {
-            edit(h, at(h, `Rats ${letter}.`), `Rats ${letter}x |`, `Rats ${letter}y |`);
-            await reread(h, at(h, `Rats ${letter}.`));
-        }
-        assert.deepEqual(foes(h), [[FREE('Rats Ay')], [ONE('Rats By')], [ONE('Rats Cy')], [FREE('Rats Dy')], [ONE('Rats Ey')]]);
-        assert.equal(stamps(h), 2, 'one stamp for each reply read freely, none more for a Re-read');
-        await agree(h, 'after the Re-reads');
-        assert.deepEqual(h.store.problems().filter(problem => problem.code !== 'REPLAY_PREREQUISITE'), []);
-    });
-});
-
-test('toggles and offers: a job written in a reply read in strict mode stays a plain goal, one in free mode an offer, on every Re-read', async t => {
-    await seeded(9416, async () => {
-        const h = await bluewatch(t);
-        await h.say('Debts A.', [OFFER]);
-        set(h, false);
-        await h.say('Quiet.');
-        await h.say('Debts B.', ['+ quest Old Debts B | giver: Marrit | goal: Settle the matter with the river guild | reward: 80 copper | due: in 3 days']);
-        set(h, true);
-        await h.say('Debts C.', ['+ quest Old Debts C | giver: Marrit | goal: Settle the matter with the river guild | reward: 80 copper | due: in 3 days']);
-        const count = () => offerRecords(h).length;
-        assert.equal(count(), 2, 'A and C are offers, B a Problem');
-        for (const on of [false, true]) {
-            set(h, on);
-            for (const letter of 'ABC') await reread(h, at(h, `Debts ${letter}.`));
-            assert.equal(count(), 2);
-        }
-        await agree(h, 'offers');
-    });
-});
-
-test('a reply of 120 lines is read in one mode from its first line to its last, on a Re-read under either switch', async t => {
+test('a reply of 120 lines is read in the chat\'s mode from its first line to its last, on a Re-read under either switch', async t => {
     await seeded(9417, async () => {
         const h = await bluewatch(t);
         const jobs = (word, count) => Array.from({ length: count }, (_, n) => `+ quest ${word} ${n + 1} | giver: Marrit | goal: Settle matter number ${n + 1} with the river guild | reward: 80 copper | due: in 3 days`);
@@ -344,103 +268,41 @@ test('a reply of 120 lines is read in one mode from its first line to its last, 
             same(held, world(h));
         }
         assert.equal(offerRecords(h).length, made);
-        // The next reply is strict from its first line to its last: not one of its 120 lines is an offer.
-        set(h, false);
-        await h.say('Many more.', jobs('Duty', 120));
-        assert.equal(offerRecords(h).length, made);
-        assert.equal(modeAt(h, 'Many more.'), 'strict');
-        assert.equal(stamps(h), 1, 'the strict reply keeps no stamp');
         await agree(h, '120 lines');
     });
 });
 
-// ---- delete, swipe, rebuild, reload ----------------------------------------------------------------------------------------------
+// ---- what the narrator is shown follows the pinned mode ------------------------------------------------------------------------------------
 
-/** Six replies: A and B read freely, C and D in strict mode (the switch changed before C), E and F freely again (it changed before E). */
-async function six(t) {
-    const h = await bluewatch(t);
-    await h.say('Rats A.', [fight('Rats A')]);
-    await h.say('Rats B.', [fight('Rats B')]);
-    set(h, false);
-    await h.say('Rats C.', [fight('Rats C')]);
-    await h.say('Rats D.', [fight('Rats D')]);
-    set(h, true);
-    await h.say('Rats E.', [fight('Rats E')]);
-    await h.say('Rats F.', [fight('Rats F')]);
-    return h;
-}
-const SIX = { A: FREE('Rats A'), B: FREE('Rats B'), C: ONE('Rats C'), D: ONE('Rats D'), E: FREE('Rats E'), F: FREE('Rats F') };
-const rowsOf = letters => letters.split('').map(letter => [SIX[letter]]);
+import { lastTail } from './helpers/bluewatch.js';
+import { modeOf, rulesProblems } from '../../../src/v2/rules/index.js';
 
-for (const [label, gone] of [['the first free reply', 'A'], ['a middle one', 'B'], ['the one where the switch changed', 'C'], ['the one where it changed back', 'E'], ['the last', 'F']]) {
-    test(`delete ${label}: every other reply is still read in its own mode, live, on a Re-read, on a rebuild and on a reload`, async t => {
-        await seeded(9418, async () => {
-            const h = await six(t);
-            assert.deepEqual(foes(h), rowsOf('ABCDEF'));
-            const index = at(h, `Rats ${gone}.`);
-            await h.st.deleteMessage(index);
-            await h.st.deleteMessage(index - 1);
-            const rest = 'ABCDEF'.replace(gone, '');
-            assert.deepEqual(foes(h), rowsOf(rest));
-            assert.deepEqual(rest.split('').map(letter => modeAt(h, `Rats ${letter}.`)), rest.split('').map(letter => ('AB'.includes(letter) || 'EF'.includes(letter) ? 'free' : 'strict')));
-            await agree(h, `deleted ${gone}`);
-            for (const on of [false, true]) {
-                set(h, on);
-                for (const letter of rest) await reread(h, at(h, `Rats ${letter}.`));
-                assert.deepEqual(foes(h), rowsOf(rest), `Re-read with the switch ${on ? 'on' : 'off'}`);
-            }
-            await agree(h, `deleted ${gone}, read again`);
-        });
-    });
-}
-
-test('swipe: a swiped reply is read afresh under the switch of its moment, stamps its own mode and leaves the others alone', async t => {
-    await seeded(9422, async () => {
-        const h = await six(t);
+test('the rules block, the quests\' tail and the queries of the feature follow the mode the chat was pinned in, not the switch of the moment', async t => {
+    await seeded(9431, async () => {
+        const h = await bluewatch(t);
+        await h.say('Quiet.');
+        assert.equal(h.q('quest.offerBlockOn', {}), true);
+        assert.ok(h.q('quest.offerBlock', {}));
+        const tail = lastTail(h);
+        assert.doesNotMatch(tail, /Open quest: \+ quest Name \| like:/, 'the block says how to write a job');
         set(h, false);
-        await h.swipe(`Rats F, again.\n\n<Changes>\n${fight('Rats Fz')}\n</Changes>`);
-        assert.deepEqual(foes(h).at(-1), [ONE('Rats Fz')], 'the new swipe is a new reading: the switch is off');
-        assert.equal(modeAt(h, 'Rats F, again.'), 'strict');
-        assert.deepEqual(foes(h).slice(0, 5), rowsOf('ABCDE'));
-        assert.equal(stamps(h), 3, 'the stamp of the swiped-away reading went with it');
+        await h.say('Quiet again.');
+        assert.equal(h.q('quest.offerBlockOn', {}), true, 'still on for this chat');
+        assert.ok(h.q('quest.offerBlock', {}));
+        assert.doesNotMatch(lastTail(h), /Open quest: \+ quest Name \| like:/);
+        assert.ok(h.q('quest.adjustments', {}), 'the log is there');
+    });
+    await seeded(9432, async () => {
+        const h = await bluewatch(t, { settings: STRICT });
+        await h.say('Quiet.');
+        assert.ok(h.q('quest.offerBlockOn', {}) !== true);
+        assert.equal(h.q('quest.offerBlock', {}), null);
+        assert.match(lastTail(h), /Open quest: \+ quest Name \| like:/, 'the frozen forms, as before');
         set(h, true);
-        await reread(h, at(h, 'Rats F, again.'));
-        assert.deepEqual(foes(h).at(-1), [ONE('Rats Fz')]);
-        await agree(h, 'swiped');
-    });
-});
-
-test('a stamp is the host\'s own record: another module, a click and a stamp that is not whole are refused; a state with one is not whole', async t => {
-    await seeded(9420, async () => {
-        const h = await bluewatch(t);
-        await h.say('Rats A.', [fight('Rats A')]);
-        const before = JSON.stringify(h.head());
-        const id = Object.keys(h.head().domains.rules).find(key => key.startsWith('mode.')).slice(5);
-        const click = await h.sdk.command('rules.stampReply', {});
-        assert.equal(click.ok, false);
-        const other = await h.sdk.command('rules.recordOffer', { write: 'wr_stamp001', mode: id, record: { v: 1, sid: sidAt(h, 'Rats A.'), mode: 'strict' } });
-        assert.equal(other.ok, false);
-        assert.equal(JSON.stringify(h.head()), before);
-        const rules = structuredClone(h.head().domains.rules);
-        assert.deepEqual(rulesProblems(rules).filter(error => /mode|stamp/.test(error)), []);
-        rules[`mode.${id}`] = { v: 1, sid: 'sr_x', mode: 'maybe' };
-        assert.ok(rulesProblems(rules).some(error => /modes/.test(error)));
-    });
-});
-
-import { rulesProblems } from '../../../src/v2/rules/index.js';
-
-test('a long chat of toggles: one small stamp for each reply read freely, and rebuild and reload equal live', async t => {
-    await seeded(9410, async () => {
-        const h = await bluewatch(t);
-        for (let n = 1; n <= 12; n += 1) {
-            set(h, n % 2 === 0);
-            await h.say(`Rats ${n}.`, [fight(`Rats ${n}`)]);
-        }
-        assert.equal(stamps(h), 6, 'one for each reply read freely');
-        // The fights on offer are the newest ten.
-        assert.deepEqual(foes(h).map(([row]) => row), Array.from({ length: 10 }, (_, n) => ((n + 3) % 2 === 0 ? FREE(`Rats ${n + 3}`) : ONE(`Rats ${n + 3}`))));
-        await agree(h, 'twelve toggles');
-        assert.deepEqual(h.store.problems().filter(problem => problem.code !== 'REPLAY_PREREQUISITE'), []);
+        await h.say('Quiet again.');
+        assert.ok(h.q('quest.offerBlockOn', {}) !== true, 'still off for this chat');
+        assert.equal(h.q('quest.offerBlock', {}), null);
+        assert.match(lastTail(h), /Open quest: \+ quest Name \| like:/);
+        assert.equal(h.q('quest.adjustments', {}), null);
     });
 });

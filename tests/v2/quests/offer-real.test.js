@@ -66,7 +66,7 @@ test('G1: offered, told back, accepted, fought to 6/6 and turned in at the villa
 });
 
 test('G1 turned in away from where it was offered stays open: the turn-in place is the offer place', { skip: skipSibling }, async t => {
-    await seeded(3403, async () => {
+    await seeded(3402, async () => {
         const h = await bluewatch(t, { useSibling: true });
         await h.say('Hollis has a job.', [G1]);
         const id = job(h, 'Granary Vermin').id;

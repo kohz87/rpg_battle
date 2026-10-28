@@ -15,9 +15,7 @@ import { hashJson } from '../../../src/v2/rules/hash.js';
 import { RULES_V2_CONSTANTS, RULES_V2_PROGRESSION, validateRulesPack } from '../../vendor/story-block/src/v2/packs/rules-v2.js';
 import { sha256 } from '../../../src/v2/rules/hash.js';
 
-// (The seed of the R4 test below: the dice of a fight depend on how many steps came before it.)
-const SEED_R4 = 8;
-const play = (name, fn, seed = 7) => test(name, t => seeded(seed, async () => {
+const play = (name, fn) => test(name, t => seeded(7, async () => {
     for (const key of Object.keys(AREA_TIERS)) delete AREA_TIERS[key];
     try { await fn(t); } finally { for (const key of Object.keys(AREA_TIERS)) delete AREA_TIERS[key]; }
 }));
@@ -163,7 +161,7 @@ play('R4 the foes\' XP is a share of the pinned level: five times the xpPerLevel
     await plain.say('Wolves.', ['~ time 3000', '! encounter 2 Wolf — hungry | tier: weak']);
     assert.equal(plain.ui('combat.start', { offer: plain.q('combat.offers', {})[0].id }).ok, true);
     assert.equal(Object.values(fights(plain))[0].setup.xpBase, undefined);
-}, SEED_R4);
+});
 
 play('R5 the end stands on the area it recorded: Story Block answers a replay guard no query of Story Director\'s, so the place is read once when the end is planned and the loot it registered stays bounded by that area', async t => {
     AREA_TIERS['pack.fixture/haven'] = 4;

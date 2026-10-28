@@ -4,6 +4,7 @@
 
 import { flat } from './offer-bands.js';
 import { offersOf } from '../rules/offers.js';
+import { stateFree } from '../rules/mode.js';
 
 const OFFER = /^\/domains\/rules\/offer\.(th_[0-9a-z]{8})(?:\/|$)/;
 const TEACHER = /^\/domains\/training\/offers\/(tn_[0-9a-z]{8})(?:\/|$)/;
@@ -54,6 +55,7 @@ const flagsOf = record => [record.band === 'moderate' ? 'Adjusted' : '', (record
 
 /** hooks.replyCard({ index, state, changes }) → the lines of the offers this reply made. */
 export function offerCard({ state, changes = [] } = {}) {
+    if (!stateFree(state)) return [];
     const rules = offersOf(state?.domains?.rules);
     const taught = state?.domains?.training?.offers ?? {};
     const seen = new Set();

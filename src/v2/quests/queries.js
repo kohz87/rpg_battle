@@ -4,7 +4,7 @@ import { ranksOf } from './ranks.js';
 import { coinAttributions, autoTurnIns, owedCredits, repeatedCoin } from './credit.js';
 import { ask, copy, pinned, questInputs, replayInputs, threadOf } from './seams.js';
 import { GUIDE_EXAMPLES, GUIDE_RANKS, blockApplies, foeOrderOf, ladderOf, offerBlock } from './offer-block.js';
-import { OFFERS_FEATURE } from './offer-feature.js';
+import { stateFree } from '../rules/mode.js';
 import { adjustments } from './offer-log.js';
 
 const historyText = 'From an earlier version (read only).';
@@ -15,7 +15,8 @@ const owedOf = thread => thread.owed && legacy(thread) ? { id: thread.id, key: t
     text: `${thread.owed.text} — from an earlier version`, word: '', phrase: '', countable: false, total: null,
     credit: thread.owed.credit ?? 0, paid: Object.values(thread.owed.paid ?? {}).reduce((n, v) => n + v, 0), left: null, open: false, storyMoney: true, budget: 0, payable: 0, rev: thread.owed.rev ?? 0, ask: false, hint: historyText } : null;
 
-const feature = fn => Object.assign(fn, { feature: OFFERS_FEATURE });
+// A query of the feature answers only for a chat pinned in free mode (rules/mode.js); for any other it answers nothing, as a query of a feature that is off does.
+const feature = fn => (state, args, tools) => (stateFree(state) ? fn(state, args, tools) : null);
 const whole = (value, low, high, fallback) => (Number.isInteger(value) && value >= low && value <= high ? value : fallback);
 
 /** quest.offerBlock({ ranks?, examples? }) → the rules block text of the pin, or null (no pin, no open quest template, or the feature is off). */
@@ -47,7 +48,7 @@ function replyOffers(_state, _args, tools) {
     return out;
 }
 
-/** quest.offerBlockOn({}) → whether the rules block is shown (the pin has an open quest template; off with the feature, as a query of the feature is). */
+/** quest.offerBlockOn({}) → whether the rules block is shown (the pin has an open quest template, and the chat was pinned in free mode, as a query of the feature is). */
 const offerBlockOn = state => {
     const pin = pinned(state?.domains?.rules);
     return Boolean(pin) && blockApplies(pin);
