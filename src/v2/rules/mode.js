@@ -13,6 +13,12 @@ export const OFFERS_FEATURE = 'rpg-battle.generative-offers';
 /** The mode the reader's switch asks for now, 'free' | 'strict' (a host that cannot say takes the switch as on): what a pin records. */
 export const switchMode = source => (featureOn(source, OFFERS_FEATURE) ? 'free' : 'strict');
 
+/**
+ * The mode the reader's stored choice asks for, 'free' | 'strict': for an activation that pins before the module is registered, when the host cannot yet answer for the feature (it is not
+ * declared). `extensionSettings` is SillyTavern's; a switch never touched is the feature's default, on.
+ */
+export const storedMode = extensionSettings => (extensionSettings?.storySuite?.features?.[OFFERS_FEATURE] === false ? 'strict' : 'free');
+
 /** The mode a rules slice was pinned in: 'free' only when it says so ('strict' for a chat pinned before 2.3.0, and for one pinned with the switch off). */
 export const modeOf = slice => (isObject(slice) && slice.mode === 'free' ? 'free' : 'strict');
 

@@ -127,7 +127,7 @@ export function createModule({ settings = null, query = null, parts = [], rules 
     let activation = null;
     if (rules !== null) {
         const slice = initialRules();
-        // (`mode`: the mode of Jobs from the story the chat is pinned in; an activation has no switch to ask yet, so it is the default, on.)
+        // (`mode`: the mode of Jobs from the story the chat is pinned in; index.js passes the reader's switch of the moment; none given is the default, on.)
         const problem = pinRules(slice, rules, { mode: mode ?? 'free' });
         if (problem) throw new Error(problem);
         if (!compatible || !(preflight.classification === 'empty' || resumed && preflight.rulesHash === slice.rulesHash)) {
