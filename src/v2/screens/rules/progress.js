@@ -12,11 +12,11 @@
 //   party    the party checklist: per member, how many of the three forms are at 5 / 5
 //   picker   (no character yet) the basic classes, each with its three skills
 
-import { ASK, ask, isHash, isList, isParty, isProgress, isRecord, isText } from './ask.js';
-import { btn, clip, clockLabel, dayOf, OPTION_LABELS, ratioText, spanLabel, TIER_LABELS } from './format.js';
+import { ASK, ask, isHash, isList, isPace, isParty, isProgress, isRecord, isText } from './ask.js';
+import { btn, calendarWriter, clip, clockLabel, dayOf, moneyText, OPTION_LABELS, ratioText, spanLabel, TIER_LABELS } from './format.js';
 import { namesFor } from './names.js';
 
-/** Mastery runs 0..5 (SkillView.mastery); a form at 5 / 5 is done. */
+/** Mastery runs 0..5 (SkillView.mastery) unless `rules.pace` says another top; a form at its top is mastered. */
 export const MASTERY_TOP = 5;
 
 const isIdentity = value => isRecord(value) && isHash(value.hash);
@@ -32,15 +32,27 @@ const personKey = name => String(name ?? '').normalize('NFKC').trim().replace(/\
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-function skillRow(skill, needed = MASTERY_TOP) {
+/**
+ * One skill of a sheet. The bar is out of the pin's top mastery (`top`); `need` is the mastery the open promotion asks of it (the top for a path step and
+ * for a pin that asks no less), and a card is done when the skill has it. `waiting`: the uses held for the story clock (rules.progress).
+ */
+function skillRow(skill, { need = MASTERY_TOP, top = MASTERY_TOP, waiting = 0 } = {}) {
     const mastered = skill.nextAt === null;
     return {
-        skill: skill.skill, form: skill.form, name: clip(skill.name, 80), mastery: skill.mastery, needed,
-        text: ratioText(skill.mastery, needed), mastered, done: skill.mastery >= needed,
+        skill: skill.skill, form: skill.form, name: clip(skill.name, 80), mastery: skill.mastery, needed: top, need,
+        text: ratioText(skill.mastery, top), mastered, done: skill.mastery >= need,
         usesText: plural(skill.uses, 'use'),
-        nextText: mastered ? 'Mastered' : `Next mastery at ${skill.nextAt} uses`,
+        nextText: mastered ? 'Mastered' : `Next mastery at ${plural(skill.nextAt, 'use')}`,
+        waitText: waiting > 0 ? `${plural(waiting, 'use')} waiting for the story clock` : '',
         stepText: skill.steps > 0 ? `Path step ${skill.steps} of 2` : '',
     };
+}
+
+/** How mastery grows, said once under the Skills label (`rules.pace`): empty where the query does not answer. */
+function howText(pace) {
+    if (pace.status !== ASK.OK) return '';
+    const { top, usesForTop, perReply, perDay } = pace.value;
+    return `Each skill needs ${usesForTop} uses for ${top} / ${top}. Uses come from fights (Auto too, up to ${perReply} per skill a fight), training and story skill uses \u2014 up to ${perDay} a day per skill.`;
 }
 
 function xpText(sheet) {
@@ -50,11 +62,30 @@ function xpText(sheet) {
 
 // ---- training (rules.training's public projection) ----------------------------------------------------------------
 
+/** How story times are written on this page: in the chat's calendar where it has one ("Goldwane 12, 23:30"), as the story clock counts them ("Day 4, 23:30") where it has none. */
+function storyTimes(tools) {
+    const calendar = calendarWriter(ask(tools, 'director.calendar', {}).value);
+    if (!calendar) return { at: clockLabel, day: minutes => `Day ${dayOf(minutes)}`, dayNumber: n => `Day ${n}` };
+    const clock = minutes => `${String(Math.floor(minutes / 60) % 24).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+    return {
+        at: minutes => `${calendar.date(minutes, { era: false })}, ${clock(((minutes % 1440) + 1440) % 1440)}`,
+        day: minutes => calendar.date(minutes, { era: false }),
+        dayNumber: n => calendar.date(n * 1440, { era: false }),
+    };
+}
+
+/** How a fee is written on this page: in the chat's coins ("4 silver"), as a bare number where the chat's currency is not known. */
+function feeTextOf(tools) {
+    const currency = ask(tools, 'inventory.currency', {});
+    return currency.status === ASK.OK ? fee => moneyText(fee, currency.value) : String;
+}
+
 /**
  * The open trainers part of the Training section (RB open trainers §10.2), for the reader's own character only: the trainers the story
  * and the reader made, and "Make this a trainer" for someone who is here. `read`: { templates, trainers, present } as asked (ask results).
  */
 export function trainersModel(read, names) {
+    const feeText = typeof read.feeText === 'function' ? read.feeText : String;
     const none = { stories: [], binding: null, canMake: false, makeNote: '' };
     if (read.templates.status !== ASK.OK || read.trainers.status !== ASK.OK) return none;
     const templates = read.templates.value;
@@ -65,7 +96,7 @@ export function trainersModel(read, names) {
         return {
             key: offer.id,
             text: [clip(offer.name, 80), `${clip(template?.name ?? names(offer.template), 80)} (rank ${clip(offer.rank, 20)})`, clip(offer.where || names(offer.place), 80),
-                Number.isSafeInteger(offer.fee) ? `fee ${offer.fee}` : '', skills.length ? `teaches ${skills.join(', ')}` : ''].filter(Boolean).join(' · '),
+                Number.isSafeInteger(offer.fee) ? `fee ${feeText(offer.fee)}` : '', skills.length ? `teaches ${skills.join(', ')}` : ''].filter(Boolean).join(' · '),
         };
     });
     if (!templates.length) return { ...none, stories };
@@ -78,7 +109,7 @@ export function trainersModel(read, names) {
     };
 }
 
-function trainingModel(answer, minutes, names, actor, trainers = null) {
+function trainingModel(answer, minutes, names, actor, trainers = null, feeText = String, times = { at: clockLabel, day: minutes => `Day ${dayOf(minutes)}`, dayNumber: n => `Day ${n}` }) {
     if (answer.status !== ASK.OK) return { state: 'unavailable', headline: '', lines: [], offers: [], caps: '', held: false, stories: [], binding: null, canMake: false, makeNote: '' };
     const { session, caps, offers } = answer.value;
     const lines = [];
@@ -93,17 +124,17 @@ function trainingModel(answer, minutes, names, actor, trainers = null) {
         } else if (state === 'running') {
             headline = `Training: ${what}.`;
             if (Number.isSafeInteger(session.startMinute) && Number.isSafeInteger(session.endMinute)) {
-                lines.push(`From ${clockLabel(session.startMinute)} to ${clockLabel(session.endMinute)}.`);
-                if (dayOf(session.startMinute) !== dayOf(session.endMinute)) lines.push(`This crosses midnight into Day ${dayOf(session.endMinute)}.`);
+                lines.push(`From ${times.at(session.startMinute)} to ${times.at(session.endMinute)}.`);
+                if (dayOf(session.startMinute) !== dayOf(session.endMinute)) lines.push(`This crosses midnight into ${times.day(session.endMinute)}.`);
             }
-            if (Number.isSafeInteger(session.capDay)) lines.push(`Credit counts toward Day ${session.capDay}'s limit.`);
+            if (Number.isSafeInteger(session.capDay)) lines.push(`Credit counts toward ${times.dayNumber(session.capDay)}'s limit.`);
         } else if (state === 'completed') {
             headline = `Training finished: ${what}.`;
-            if (Number.isSafeInteger(session.startMinute) && Number.isSafeInteger(session.endMinute)) lines.push(`From ${clockLabel(session.startMinute)} to ${clockLabel(session.endMinute)}.`);
+            if (Number.isSafeInteger(session.startMinute) && Number.isSafeInteger(session.endMinute)) lines.push(`From ${times.at(session.startMinute)} to ${times.at(session.endMinute)}.`);
             lines.push(`Credits: ${session.creditsAwarded ?? 0} of ${session.credits ?? 0}.`);
             if (session.reason === 'mastered') lines.push('No mastery gained: already mastered. XP still counts.');
             else if (['skill-day', 'actor-day', 'skill-reply', 'actor-reply'].includes(session.reason)) lines.push('No mastery gained: the daily limit was reached.');
-            if (Number.isSafeInteger(session.capDay)) lines.push(`Counted on Day ${session.capDay}.`);
+            if (Number.isSafeInteger(session.capDay)) lines.push(`Counted on ${times.dayNumber(session.capDay)}.`);
         } else if (state === 'interrupted') {
             headline = `Training interrupted: ${what}.`;
             lines.push('No credit was given and the fee is not refunded.');
@@ -114,7 +145,7 @@ function trainingModel(answer, minutes, names, actor, trainers = null) {
         if (session.event?.template) lines.push(`Training event: ${clip(session.event.template, 240)}`);
     }
     const capParts = [];
-    if (Number.isSafeInteger(caps.day)) capParts.push(`Day ${caps.day}`);
+    if (Number.isSafeInteger(caps.day)) capParts.push(times.dayNumber(caps.day));
     if (isRecord(caps.skill)) capParts.push(`this skill ${ratioText(caps.skill.used, caps.skill.max)}`);
     if (isRecord(caps.actor)) capParts.push(`all skills ${ratioText(caps.actor.used, caps.actor.max)}`);
     const clockHold = minutes === null;
@@ -126,7 +157,7 @@ function trainingModel(answer, minutes, names, actor, trainers = null) {
             key: `${offer.skill}|${offer.form}|${offer.trainer}`,
             text: `${names(offer.skill)} with ${clip(offer.name || names(offer.trainer), 80)}`,
             // An open trainer (the story's or the reader's) also says where it stands.
-            detail: [Number.isSafeInteger(offer.fee) ? `fee ${offer.fee}` : '', Number.isSafeInteger(offer.minutes) ? spanLabel(offer.minutes) : '',
+            detail: [Number.isSafeInteger(offer.fee) ? `fee ${feeText(offer.fee)}` : '', Number.isSafeInteger(offer.minutes) ? spanLabel(offer.minutes) : '',
                 offer.open === true && isText(offer.where) && offer.where.trim() ? `at ${clip(offer.where, 80)}` : ''].filter(Boolean).join(', '),
             blocked: (Array.isArray(offer.blocked) ? offer.blocked : []).filter(isText).map(item => clip(item, 240)),
             canAsk: !clockHold && !(Array.isArray(offer.blocked) && offer.blocked.length),
@@ -140,17 +171,22 @@ function trainingModel(answer, minutes, names, actor, trainers = null) {
 // ---- one member ----------------------------------------------------------------------------------------------------
 
 function memberModel(sheet, progress, training, ctx) {
-    const { names, hash, minutes, you, classSkills } = ctx;  // ctx.trainers: the open trainers section, for your own character only
+    const { names, hash, minutes, you, classSkills, top } = ctx;  // ctx.trainers: the open trainers section, for your own character only
     const classRef = progress.status === ASK.OK ? progress.value.class : sheet.class;
-    const sheetSkills = sheet.skills.map(item => skillRow(item));
-    const skills = sheet.skills.map(item => skillRow(item, progress.status === ASK.OK ? progress.value.checklist.find(row => row.skill === item.skill && row.form === item.form)?.needed ?? MASTERY_TOP : MASTERY_TOP));
+    const sheetSkills = sheet.skills.map(item => skillRow(item, { top }));
+    const skills = sheet.skills.map(item => {
+        const row = progress.status === ASK.OK ? progress.value.checklist.find(entry => entry.skill === item.skill && entry.form === item.form) : null;
+        return skillRow(item, { need: row?.needed ?? top, top, waiting: row?.waiting ?? 0 });
+    });
     const checklist = progress.status === ASK.OK
         ? progress.value.checklist.map(row => ({
             skill: row.skill, form: row.form, name: sheetSkills.find(item => item.skill === row.skill)?.name ?? names(row.skill),
             mastery: row.mastery, needed: row.needed, text: ratioText(row.mastery, row.needed), done: row.mastery >= row.needed,
         }))
-        : skills.map(row => ({ skill: row.skill, form: row.form, name: row.name, mastery: row.mastery, needed: row.needed, text: row.text, done: row.mastery >= row.needed }));
+        : skills.map(row => ({ skill: row.skill, form: row.form, name: row.name, mastery: row.mastery, needed: row.need, text: ratioText(row.mastery, row.need), done: row.done }));
     const done = checklist.filter(row => row.done).length;
+    // The mastery the forms are asked for (every row of one member asks the same); the top where there are none.
+    const need = checklist.length ? checklist[0].needed : top;
     const base = { actor: sheet.id };
 
     const promotions = progress.status === ASK.OK ? progress.value.promotions.map(row => {
@@ -190,12 +226,12 @@ function memberModel(sheet, progress, training, ctx) {
         id: sheet.id, name: clip(sheet.name, 80), you, kind: sheet.kind ?? (you ? 'pc' : 'companion'), open: you,
         level: sheet.level, levelText: `Level ${sheet.level}`, xpText: xpText(sheet),
         classRef, className: names(classRef), tier: sheet.tier, tierLabel: TIER_LABELS[sheet.tier] ?? '',
-        skills, allMastered: skills.every(row => row.mastered),
+        skills, allMastered: skills.every(row => row.mastered), howText: ctx.howText, need,
         masteredNote: skills.every(row => row.mastered) ? 'All three skills are fully mastered. More uses add no mastery; XP still counts.' : '',
-        checklist, checklistText: `${done} of ${checklist.length} forms at ${MASTERY_TOP} / ${MASTERY_TOP}`, checklistDone: done,
+        checklist, checklistText: `${done} of ${checklist.length} forms at ${need} / ${top}`, checklistDone: done,
         progress: progress.status === ASK.OK ? 'ok' : progress.status,
         promotions, pathways,
-        training: trainingModel(training, minutes, names, sheet.id, you ? ctx.trainers : null),
+        training: trainingModel(training, minutes, names, sheet.id, you ? ctx.trainers : null, ctx.feeText, ctx.times),
     };
 }
 
@@ -234,6 +270,8 @@ export function progressView(state, args, tools) {
         templates: ask(tools, 'training.openTemplates', {}, value => isList(value, isTemplate)),
         trainers: ask(tools, 'training.trainers', {}, isTrainers),
         present: ask(tools, 'scene.present', {}, value => isList(value, isText)),
+        feeText: feeTextOf(tools),
+        times: storyTimes(tools),
     };
     const refs = [];
     for (const sheet of wanted) {
@@ -264,15 +302,20 @@ export function progressView(state, args, tools) {
             for (const item of classes.value) classSkills.set(item.id, item.skills.map(skillNames).join(' · '));
         }
     }
+    const pace = ask(tools, 'rules.pace', {}, isPace);
+    const top = pace.status === ASK.OK ? pace.value.top : MASTERY_TOP;
     const time = ask(tools, 'director.time', {});
     const minutes = time.status === ASK.OK && Number.isSafeInteger(time.value.minutes) ? time.value.minutes : null;
     const hash = identity.status === ASK.OK ? identity.value.hash : null;
     const trainers = trainersModel(read, names);
-    const members = wanted.map(sheet => memberModel(sheet, progress.get(sheet.id), training.get(sheet.id), { names, hash, minutes, classSkills, trainers, you: sheet.id === party.value.pc }));
+    const members = wanted.map(sheet => memberModel(sheet, progress.get(sheet.id), training.get(sheet.id), { names, hash, minutes, classSkills, trainers, feeText: read.feeText, times: read.times, top, howText: howText(pace), you: sheet.id === party.value.pc }));
+    // The party's header names the mastery the forms are asked for: one number when every member is asked the same, else the promotions' own.
+    const needs = new Set(members.map(member => member.need));
     return {
         state: 'ready', reason: '', members,
         party: members.map(member => ({ id: member.id, name: member.name, you: member.you, text: member.checklistText, done: member.checklistDone, total: member.checklist.length, complete: member.checklistDone === member.checklist.length })),
         picker: null, hashKnown: hash !== null, clockSet: minutes !== null,
+        partyText: needs.size === 1 ? `forms at ${[...needs][0]} / ${top}` : `forms at the mastery each promotion asks (of ${top})`,
     };
 }
 

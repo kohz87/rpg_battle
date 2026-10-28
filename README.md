@@ -1,4 +1,4 @@
-# RPG Battle 2.2.0
+# RPG Battle 2.3.0
 
 > Story Suite 2.1.0.
 
@@ -13,14 +13,14 @@ It is a module of [Story Block](https://github.com/kohz87/Story_block), the host
 
 ## Install
 
-Tested with **SillyTavern 1.19**. In **Extensions → Install extension**, install in this order, then reload:
+Tested with **SillyTavern 1.19**. Needs **Story Block 2.5.0** for jobs and teachers in the narrator's own words. In **Extensions → Install extension**, install in this order, then reload:
 
 1. [Story Block](https://github.com/kohz87/Story_block)
 2. [Story Director](https://github.com/kohz87/Story_director)
 3. [RPG Battle](https://github.com/kohz87/rpg_battle)
 4. [NPC State Delta](https://github.com/kohz87/npc_state_delta)
 
-To start with the bundled **Ersveil 1.5.0** rules pack, open a fresh chat and follow **Setup → Pin Ersveil Rules → Create**,
+To start with the bundled **Ersveil 1.0.0** rules pack (Story Block 2.5.1), open a fresh chat and follow **Setup → Pin Ersveil Rules → Create**,
 then choose your character's options. Existing chats load and rebuild unchanged; legacy chats stay unpinned.
 
 Report bugs in [this repo's Issues](https://github.com/kohz87/rpg_battle/issues), with steps to reproduce.
@@ -69,6 +69,7 @@ Switches are in **Settings → Features** (the **Find a feature** box helps). "N
 - **Crafting** (Crafting tab; `rpg-battle.crafting`, on): you craft in the story, code rolls it with the reply's dice.
 - **Return in time:** if your character dies you are offered **Return**, a new branch just before that fight
   (card on the Fight and Party screens). No switch.
+- **Jobs from the story** (`rpg-battle.generative-offers`, on): in a chat pinned to a pack with open quest templates the narrator offers jobs and teachers in its own words, and code settles the numbers. See *How quests and trainers work* below. Off, the narrator uses the frozen forms only, as in 2.2. A chat keeps the mode its rules were pinned with: the setting applies to chats pinned from now on, not to a chat already pinned (every chat pinned before 2.3.0 is strict).
 - **Your world's words:** Settings → RPG Battle → **Character → Terms**: XP word, Level word, Rank ladder, Levels per rank.
 
 ## How a turn works
@@ -85,15 +86,38 @@ The model writes the story and ends it with a hidden `<Changes>` list. RPG Battl
 </Changes>
 ```
 
-In a pinned chat, `| like: <foe>` makes a named foe variant, and new encounters follow their danger label. Open quest offers use `| like: <template>` or the reader's **Make this a quest** action; code fixes the reward from the template's range at offer time. Ersveil 1.5.0 supplies 12 open quest templates.
+In a pinned chat, `| like: <foe>` makes a named foe variant, and new encounters follow their danger label. Open quest offers use `| like: <template>` or the reader's **Make this a quest** action; code fixes the reward from the template's range at offer time. Ersveil 1.0.0 (Story Block 2.5.1) supplies 49 open quest templates: seven job types (hunt, cull, gather, deliver, explore, escort, task) across ranks F to S, each with an `offerType`, count bounds on kill and collect objectives, and XP from the rank's `xp` range. It also has 5 fixed starter jobs at Bluewatch, 16 fixed trainers and 13 open trainer templates (one for each class line), and a promotion mastery of 3, 5 and 5.
 
-Open trainers work the same way. When the pinned pack lists trainer templates (Ersveil 1.6.0 has four), the story may write `+ trainer Old Reka — blade drills | like: open-blade-drills`, with `| teaches: swift-thrust, parrying-turn` to narrow what they teach (never to add), or you can use **Make this a trainer** in Progress → Training on someone who is here. Code rolls the fee once inside the template's range and keeps the trainer at the place it was offered; training with them costs that fee, an hour of story time and counts like any other lesson. Deleting the reply that offered a trainer takes the trainer and the lessons taken with them. One trainer per name, at most 100 a chat. Needs Story Block 2.4.0.
+Open trainers work the same way. When the pinned pack lists trainer templates (Ersveil 1.0.0 has 13, one for each class line), the story may write `+ trainer Old Reka — blade drills | fee: 4 silver` in its own words, and code matches the template by what is taught (`| like: open-blade-drills` still names one, and `| teaches: swift-thrust, parrying-turn` narrows what they teach, never adds); see *How quests and trainers work* below. You can also use **Make this a trainer** in Progress → Training on someone who is here. Code rolls the fee once inside the template's range (a written fee stands when it is inside, is held to it when it is outside) and keeps the trainer at the place it was offered; training with them costs that fee, an hour of story time and counts like any other lesson. Deleting the reply that offered a trainer takes the trainer and the lessons taken with them. One trainer per name, at most 100 a chat. Trainer templates need Story Block 2.4.0; the rest of Jobs from the story needs 2.5.0.
 
 Code rolls and decides: dice come from code, a fight is played by you, an item's effect comes from the item's own
 numbers. Anything that does not fit is skipped and listed under **Problems**. Swipe, delete, Re-read and reload
 stay correct because the state is kept with each reply. Details: Story Block's
 [GUIDE](https://github.com/kohz87/Story_block/blob/main/docs/v2/GUIDE.md) (Checks and modifiers, Fights, Trade)
 and [SPEC](https://github.com/kohz87/Story_block/blob/main/docs/v2/SPEC.md).
+
+## How quests and trainers work
+
+In a chat pinned to a rules pack that has **open quest templates** (and open trainer templates), the narrator can offer a job or a teacher in its own words. **Ersveil 1.0.0**, bundled with Story Block 2.5.1, is written for this: its generative-offer templates carry an `offerType`, count bounds and rank XP. (Ersveil: Bluewatch Starter 1.6.0, the example pack before it, had them too; this repository's tests still play it as a fixture.) The rules block it is shown says how:
+
+```
++ quest Cellar Trouble | giver: the innkeeper | type: cull | goal: kill 4 rats in the cellar | reward: 5 silver | due: in 2 days | difficulty: easy
++ trainer Old Soldier — spear and shield drills | fee: 4 silver
+```
+
+The labels only help code read the line. Code settles the rest inside the pack's limits and keeps what it settled with the reply:
+
+- **Template, rank and count.** The `type:` (hunt, cull, gather, deliver, explore, escort, task) or the goal's first verb gives the kind of job, the foe's rank or `difficulty:` and your rank give its rank, and the first open template of that kind and rank is used (a template that names the written type, `offerType`, comes first). The target is matched to a pack foe or item, or becomes a named kind of the nearest foe ("Culvert Rats is a named kind of Cellar Rat Swarm"). The count is held to the template's bounds.
+- **Reward, XP and deadline.** A written reward is read in the chat's own money and held to the template's range; no reward, or one in a coin the chat does not use (`12 crowns` in a world of copper, silver and gold), gets the template's formula. XP is always the formula. A job without `due:` gets seven days; with no story clock there is no deadline.
+- **Three outcomes.** *Kept* as written, *Adjusted* (code moved a number to the nearest allowed one), or *Dropped*: a number more than three times the maximum, an offer already done, or a teacher who already teaches elsewhere is quietly not made and the narrator is told once ("Earlier, … was mentioned as a job, but it isn't one that can be offered here"). Nothing here is a Problem.
+- **The narrator is told the terms.** The reply after an offer carries `Posted job: …` lines (the settled count, coin, XP, deadline, where to turn in and, for a hunt, the `! encounter` line to fight, at `| tier: weak` for an easy job and `| tier: strong` for a hard one) so the story uses them from then on. At most three terms a reply (setting *Settled terms told per reply*), then "…and 2 more jobs are posted (see the board)."
+- **You see what changed.** The reply's card gets a line "Posted: Granary Vermin, kill 6 Culvert Rats, 5 silver" with an *Adjusted* flag and one short reason; the Quests page ends with a collapsed **Adjustments (n)** list of what code changed, newest first, with what the narrator wrote.
+- **Accepting and finishing.** A posted job sits on the board until you take it (the narrator writes `+ quest Name` again once you accept). A hunt counts only foes beaten in a fight; a gathering counts what the party holds when it is handed in, loot first, else a story item. It is turned in where it was offered.
+- **Replay.** Code decides once, when the reply is read, and records the decision. Delete, swipe, Re-read and reload give the same job; a Re-read of an unchanged reply never decides again.
+
+If the story names its money something other than the pack's, set **Coins** (Settings) so a written reward is read; otherwise the card says it was not this chat's money.
+
+The narrator's rules block names the ranks the pack has, what each pays and a few foes of each (settings *Ranks in the grading guide* and *Foes named per rank in the guide*). It costs about 1,650 characters in every prompt and replaces the old list of template names. Chats with no pin, pins with no open quest template, and chats pinned with **Jobs from the story** switched off keep their prompts byte for byte as in 2.2.
 
 ## Settings
 
@@ -108,6 +132,7 @@ groups. The ones that matter:
 | Fights: foes on the field per party member / at most | Combat | the rest come in waves |
 | Carry limit, Items that add carry capacity | Items | what the party can carry |
 | Prices during a shortage (%), Prices by place | Trade | |
+| Ranks in the grading guide, Foes named per rank in the guide, Settled terms told per reply | Jobs from the story | what the narrator is told about jobs, and how many terms one reply repeats |
 
 ## With the other extensions
 

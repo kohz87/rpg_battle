@@ -9,6 +9,7 @@
 
 import { MODULE_ID, MODULE_NAME, VERSION, createModule } from './src/v2/module.js';
 import { migrateRankLadder } from './src/terms.js';
+import { storedMode } from './src/v2/rules/mode.js';
 
 // How long to wait for Story Block to come up (it loads first, as a dependency, but sets itself
 // up asynchronously), and how often to look.
@@ -61,7 +62,10 @@ export async function boot({ rules = null, global = globalThis, doc = global.doc
             if (migrateRankLadder(st?.extensionSettings?.storySuite)) st.saveSettingsDebounced?.();
         } catch (error) { console.warn(`[${MODULE_NAME}] the rank ladder could not be moved`, error); }
         const preflight = () => sdk.preflight({ module: MODULE_ID, rulesVersion: 2, peers: ['story-director'] });
-        await sdk.registerModule(createModule({ settings: () => sdk.settings(MODULE_ID), query: (name, args) => sdk.query(name, args), rules,
+        // An explicit activation pins in the mode of the reader's switch as it stands now (a chat that already has a pin keeps the mode stored in it).
+        let mode = null;
+        try { mode = storedMode(global.SillyTavern?.getContext?.()?.extensionSettings); } catch { mode = null; }
+        await sdk.registerModule(createModule({ settings: () => sdk.settings(MODULE_ID), query: (name, args) => sdk.query(name, args), rules, mode,
             preflight: preflight(), readPreflight: preflight }));
         return { ok: true, sdk };
     } catch (error) {

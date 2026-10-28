@@ -1,5 +1,8 @@
 // Retained quest context from Story Director; only its query owner has changed.
 import { templateList } from '../lines.js';
+import { blockApplies } from './offer-block.js';
+import { offersOn } from './offer-feature.js';
+import { pinned } from './seams.js';
 const TAIL_NAMES = 6;
 const READY_SHOWN = 2;
 const TAIL_CHARS = 1000;
@@ -14,15 +17,29 @@ function listText(names) {
     return `${shown.join(', ')}${more > 0 ? `, and ${more} more` : ''}`;
 }
 
+/** After a burst of offers on the last reply: the jobs past the terms told (offerTermsPerReply) and the offers that were not possible past the two told (§2.5). */
+function burstLines(view) {
+    let row = null;
+    try { row = view.query('quest.replyOffers', {}); } catch { row = null; }
+    const lines = [];
+    if (row?.jobs > 0) lines.push(`…and ${row.jobs} more ${row.jobs === 1 ? 'job is' : 'jobs are'} posted (see the board).`);
+    if (row?.declined > 0) lines.push(`…and ${row.declined} more ${row.declined === 1 ? 'offer was' : 'offers were'} not possible.`);
+    return lines;
+}
+
 export function questTail(view) {
     const lines = [];
     // A pinned pack with open quest templates names them (at most sixteen, then "and N more"), so `like:` can be written; without any the line is as it was.
     const table = view?.state?.domains?.rules?.pin?.resolved?.quests;
     const openSlugs = (Array.isArray(table) ? table : table && typeof table === 'object' ? Object.values(table) : []).filter(row => row?.open === true).map(row => row.slug);
     const named = templateList(openSlugs);
-    if (view?.state?.domains?.rules?.rulesHash) lines.push(`Open quest: + quest Name | like: <open template slug>${named ? ` (${named})` : ''} | text: <objective text> [| foe: <canonical ref>] [| place: <canonical ref>] [| item: <canonical ref>]. Code fixes rewards. Variant fight: ! encounter Variant name | like: <pack foe slug>.`);
+    // While Jobs from the story shows its rules block (the feature is on and the pin has an open quest template) the block says how to write a job, so the
+    // slug list is no longer sent; with the feature off, or a pin without open templates, the line is as it was.
+    const block = offersOn(view) && blockApplies(pinned(view?.state?.domains?.rules));
+    if (view?.state?.domains?.rules?.rulesHash && !block) lines.push(`Open quest: + quest Name | like: <open template slug>${named ? ` (${named})` : ''} | text: <objective text> [| foe: <canonical ref>] [| place: <canonical ref>] [| item: <canonical ref>]. Code fixes rewards. Variant fight: ! encounter Variant name | like: <pack foe slug>.`);
     const optional = [];
     if (typeof view?.query !== 'function') return { lines, optional };
+    if (block) lines.push(...burstLines(view));
     const quests = view.query('rules.quests', {}) ?? [];
     const board = view.query('quest.board', {}) ?? {};
     const active = (board.active ?? []).filter(row => row.taken);

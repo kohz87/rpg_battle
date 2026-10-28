@@ -46,7 +46,7 @@ export const ASSIST_TEXT = Object.freeze({
     netProfile: 'Connection for the safety net',
     kinds: 'The safety net may write',
     kindsHelp: 'Pick the kinds of line it may add.',
-    wall: 'Never coin, new items, XP, loot or healing. Those chips do not exist: the safety net never writes them, whatever is stored.',
+    wall: 'Never coin, new items, XP, loot or healing. Those chips do not exist: the safety net never writes them, whatever is stored. It never offers jobs or teachers either.',
     late: 'If it finishes after you have already sent your next message, its lines wait for the next reply and may not add anything new but someone arriving.',
     bothOff: 'Off while both helpers are off',
     netOff: 'Off while the safety net is off',

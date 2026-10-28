@@ -97,7 +97,7 @@ test('deleting a reply that made a skill 5/5 takes the promotion: 33 uses are 4/
     assert.equal(credited(w), 105 - 6, 'one reply\'s six credits are gone, every other one stands');
     assert.deepEqual(w.progress().checklist.map(item => item.mastery), [4, 4, 4]);
     assert.equal(w.progress().promotions[0].eligible, false);
-    assert.match(w.problems().map(p => p.why).join(' '), /5\/5/);
+    assert.match(w.problems().map(p => p.why).join(' '), /5 \/ 5/);
     assert.deepEqual(w.problems().map(p => p.code), ['REPLAY_PREREQUISITE']);
     sameAfterRebuild(w, 'after the delete');
 });

@@ -108,7 +108,9 @@ function randomSetup(rng) {
     const enemies = Array.from({ length: rng.int(1, 6) }, (_, n) => foeOf(`e${n}`));
     const waves = Array.from({ length: rng.int(0, 2) }, (_, w) => ({ round: rng.chance(50) ? rng.int(1, 6) : 1000000, enemies: Array.from({ length: rng.int(1, 3) }, (_, n) => foeOf(`w${w}${n}`)) }));
     return { id: 'fi_00000001', turns: 'timeline', draws: rng.chance(80) ? 'action' : undefined, stunRule: 'daze', hitRule: rng.chance(75) ? 'relative' : undefined,
-        spellRule: rng.chance(75) ? 'roll' : undefined, speedOffset: rng.chance(70) ? rng.int(0, 14) : undefined, party: [player], enemies, waves };
+        spellRule: rng.chance(75) ? 'roll' : undefined, speedOffset: rng.chance(70) ? rng.int(0, 14) : undefined, party: [player], enemies, waves,
+        // Half the fights are Auto's with practice (a form not yet played is played once).
+        ...(rng.chance(50) ? { autoRule: 'practice' } : {}) };
 }
 
 /** A hero with no skills who acts a hundred thousand times for each turn of the foe's, against a foe who is never felled: the engine's step cap. */
@@ -149,6 +151,18 @@ test('the lean player plays each kind of form, for a hero wounded and fresh', ()
                 waves: [{ round: 3, enemies: [foe('w1', { hp: { cur: 30, max: 30 } })] }, { round: 1000000, enemies: [foe('w2', { hp: { cur: 30, max: 30 } }), foe('w3', { hp: { cur: 30, max: 30 } })] }] };
             const bails = agree(setup, DEFAULT_RULES, 24, `${kind}${wounded ? '-wounded' : ''}`);
             assert.equal(bails, 0, `${kind}: nothing left to the engine`);
+        }
+    }
+});
+
+test('with practice, the lean player plays each kind of form the engine practises, and leaves to the engine the stat buffs it does not model', () => {
+    for (const kind of names) {
+        for (const wounded of [false, true]) {
+            const player = hero({ id: 'pc', memberId: 'pc', hp: { cur: wounded ? 25 : 160, max: 160 }, skills: [FORMS[kind](), kind === 'spear' ? FORMS.shiv() : FORMS.spear()] });
+            const enemies = [foe('e1', { hp: { cur: 60, max: 60 }, patk: 14 }), foe('e2', { hp: { cur: 45, max: 45 }, patk: 11 })];
+            const setup = { id: 'fi_00000001', turns: 'timeline', draws: 'action', stunRule: 'daze', hitRule: 'relative', spellRule: 'roll', speedOffset: 11, autoRule: 'practice', party: [player], enemies };
+            const bails = agree(setup, DEFAULT_RULES, 24, `practice-${kind}${wounded ? '-wounded' : ''}`);
+            if (kind !== 'grit' && kind !== 'footwork') assert.equal(bails, 0, `${kind}: nothing left to the engine`);
         }
     }
 });

@@ -1,0 +1,809 @@
+[
+ {
+  "id": "C1",
+  "line": "+ quest Granary Vermin | giver: Hollis | type: cull | goal: Kill 6 culvert rats in the south levee granary and collect tails | reward: 12 crowns | difficulty: easy",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "moderate",
+   "slug": "open-hunt-f",
+   "rank": "F",
+   "count": 6,
+   "coin": 50,
+   "xp": 50,
+   "foe": "Culvert Rats",
+   "base": "cellar-rat-swarm",
+   "notes": [
+    "reward \"12 crowns\" is not this chat's money; set to 5 silver",
+    "Culvert Rats is a named kind of Cellar Rat Swarm",
+    "deadline set to 7 days"
+   ]
+  },
+  "alt": {
+   "currency": "crowns",
+   "expect": {
+    "kind": "offer",
+    "band": "moderate",
+    "slug": "open-hunt-f",
+    "rank": "F",
+    "count": 6,
+    "coin": 50,
+    "foe": "Culvert Rats",
+    "notes": [
+     "reward set to 50 crowns (rank F range)"
+    ]
+   }
+  }
+ },
+ {
+  "id": "C2",
+  "line": "+ quest Scrub Pack | giver: Hollis | type: hunt | goal: Slay the alpha of the scrub wolf pack north of the ditch | reward: 30 crowns | difficulty: normal",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "moderate",
+   "slug": "open-hunt-f",
+   "rank": "F",
+   "count": 1,
+   "coin": 50,
+   "foe": "Alpha of the Scrub Wolf Pack",
+   "base": "starved-crag-wolf",
+   "notes": [
+    "count set to 1"
+   ]
+  },
+  "alt": {
+   "currency": "crowns",
+   "expect": {
+    "kind": "offer",
+    "band": "moderate",
+    "slug": "open-hunt-f",
+    "coin": 50,
+    "foe": "Alpha of the Scrub Wolf Pack"
+   }
+  }
+ },
+ {
+  "id": "C3",
+  "line": "+ quest Rat Trouble | goal: Kill a dozen rats | reward: a dozen copper",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "moderate",
+   "slug": "open-hunt-f",
+   "rank": "F",
+   "count": 8,
+   "coin": 50,
+   "foe": "Cellar Rat Swarm",
+   "notes": [
+    "count capped at 8"
+   ]
+  }
+ },
+ {
+  "id": "C4",
+  "line": "+ quest Leech Duty | goal: Kill 8 sluice leeches | reward: 120 copper",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-hunt-f",
+   "rank": "F",
+   "count": 8,
+   "coin": 120,
+   "foe": "Sluice Leech"
+  }
+ },
+ {
+  "id": "C5",
+  "line": "+ quest Boar Hunt | goal: Hunt 3 wild boars | reward: 1000 copper",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "moderate",
+   "slug": "open-hunt-f",
+   "rank": "F",
+   "count": 3,
+   "coin": 400,
+   "foe": "Wild Boar"
+  }
+ },
+ {
+  "id": "C6",
+  "line": "+ quest Tail Bounty | goal: Kill 5 cellar rats | reward: 1 silver each",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-hunt-f",
+   "rank": "F",
+   "count": 5,
+   "coin": 50,
+   "foe": "Cellar Rat Swarm"
+  }
+ },
+ {
+  "id": "C7",
+  "line": "+ quest Moss Run | type: delivery | goal: Bring 3 bluecap moss to the healer",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-delivery-f",
+   "rank": "F",
+   "count": 3,
+   "item": "Bluecap Moss"
+  }
+ },
+ {
+  "id": "C8",
+  "line": "+ quest Tails | goal: Collect 6 rat tails for the granary keeper | reward: 60 copper",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "moderate",
+   "slug": "open-delivery-f",
+   "rank": "F",
+   "count": 4,
+   "coin": 60,
+   "item": "Rat Tail",
+   "notes": [
+    "count capped at 4"
+   ]
+  }
+ },
+ {
+  "id": "C9",
+  "line": "+ quest Lost Ledger | type: fetch | goal: Find the harbourmaster's lost ledger",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-story-task-f",
+   "rank": "F",
+   "count": null,
+   "coin": 50,
+   "notes": [
+    "no pack item for"
+   ]
+  }
+ },
+ {
+  "id": "C10",
+  "line": "+ quest Safe Passage | type: escort | goal: Escort the miller to Northbarge | reward: 80 copper | giver: Marrit",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-story-task-f",
+   "rank": "F",
+   "coin": 80,
+   "giver": "Marrit"
+  }
+ },
+ {
+  "id": "C11",
+  "line": "+ quest The Missing Boy",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-story-task-f",
+   "rank": "F",
+   "coin": 50,
+   "goal": "The Missing Boy"
+  }
+ },
+ {
+  "id": "C12",
+  "line": "+ quest Smugglers — find out who is moving salt at night",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-story-task-f",
+   "rank": "F",
+   "coin": 50,
+   "goal": "find out who is moving salt at night"
+  }
+ },
+ {
+  "id": "C13",
+  "line": "+ quest Road Watch | type: bounty | goal: Drive off several roadside bandits on the north road",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-hunt-f",
+   "rank": "F",
+   "count": 4,
+   "foe": "Roadside Bandit"
+  }
+ },
+ {
+  "id": "C14",
+  "line": "+ quest Big Cull | type: cull | target: rats | count: 40",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "moderate",
+   "slug": "open-hunt-f",
+   "rank": "F",
+   "count": 8,
+   "foe": "Cellar Rat Swarm"
+  }
+ },
+ {
+  "id": "C15",
+  "line": "+ quest Goblin Raiders | goal: Kill the goblin raiders stealing chickens",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-hunt-f",
+   "rank": "F",
+   "count": 1,
+   "foe": "Goblin Raiders",
+   "base": "red-cap-goblin"
+  }
+ },
+ {
+  "id": "C16",
+  "line": "+ quest The Hollow King | type: hunt | goal: Slay the Hollow King",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-hunt-f",
+   "rank": "F",
+   "count": 1,
+   "foe": "Hollow King",
+   "base": "starved-crag-wolf"
+  }
+ },
+ {
+  "id": "C17",
+  "line": "+ quest Journeyman Job | goal: Kill 4 fen wolves | rank: E",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-hunt-f",
+   "rank": "F",
+   "count": 4,
+   "foe": "Fen Wolf"
+  }
+ },
+ {
+  "id": "C18",
+  "line": "+ quest Old Debts | goal: Settle the matter with the river guild | difficulty: nightmare",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-story-task-f",
+   "rank": "F"
+  }
+ },
+ {
+  "id": "C19",
+  "line": "+ quest Listen | like: open-story-task-f | text: Hear the miller out",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-story-task-f",
+   "rank": "F"
+  }
+ },
+ {
+  "id": "C20",
+  "line": "+ quest Listen | like: open-chat | text: Hear the miller out",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-story-task-f",
+   "rank": "F",
+   "notes": [
+    "like: open-chat is not a template"
+   ]
+  }
+ },
+ {
+  "id": "C21",
+  "line": "+ quest Rats Again | like: open-hunt-f | text: cull rats | foe: cellar-rat-swarm | reward: 100 copper",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-hunt-f",
+   "rank": "F",
+   "count": 1,
+   "coin": 100,
+   "foe": "Cellar Rat Swarm"
+  }
+ },
+ {
+  "id": "C22",
+  "line": "+ quest Already Done | goal: Kill 3 rats | status: done",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "far",
+   "why": "done"
+  },
+  "probe": true
+ },
+ {
+  "id": "C23",
+  "line": "+ quest The Grey Walker | type: hunt | goal: Banish the Grey Walker",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-story-task-f",
+   "rank": "F",
+   "notes": [
+    "cannot be fought under these rules"
+   ]
+  }
+ },
+ {
+  "id": "C24",
+  "line": "+ quest A Favour | goal: Help Marrit move crates | reward: none",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "moderate",
+   "slug": "open-story-task-f",
+   "rank": "F",
+   "coin": 50
+  }
+ },
+ {
+  "id": "C25",
+  "line": "+ quest Pelts and Teeth | type: gather | goal: Kill 4 fen wolves and bring their pelts",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-delivery-f",
+   "rank": "F",
+   "count": 1,
+   "item": "Crag Wolf Pelt"
+  }
+ },
+ {
+  "id": "C26",
+  "line": "+ quest Guild Contract | type: contract | goal: Clear 5 ditch crawlers from the culvert | reward: 2 silver",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "moderate",
+   "slug": "open-hunt-f",
+   "rank": "F",
+   "count": 5,
+   "coin": 50,
+   "foe": "Ditch Crawler"
+  }
+ },
+ {
+  "id": "C27",
+  "line": "+ quest Pest Control | foe: Ditch Crawler | count: a dozen | reward: 80 copper",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "moderate",
+   "slug": "open-hunt-f",
+   "rank": "F",
+   "count": 8,
+   "coin": 80,
+   "foe": "Ditch Crawler"
+  }
+ },
+ {
+  "id": "C28",
+  "line": "+ quest Wolf Trouble | goal: Kill some wolves near the farms",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-hunt-f",
+   "rank": "F",
+   "count": 1,
+   "foe": "Starved Crag Wolf"
+  }
+ },
+ {
+  "id": "C29",
+  "line": "+ quest Help at the Mill — the miller wants the rats in his loft killed, pays 40 copper",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "moderate",
+   "slug": "open-hunt-f",
+   "rank": "F",
+   "count": 1,
+   "coin": 50,
+   "foe": "Cellar Rat Swarm"
+  }
+ },
+ {
+  "id": "G3",
+  "line": "+ quest Granary Vermin | type: cull | goal: Kill rats in the granary | reward: a dozen crowns",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "moderate",
+   "slug": "open-hunt-f",
+   "rank": "F",
+   "count": 1,
+   "coin": 50,
+   "foe": "Cellar Rat Swarm"
+  }
+ },
+ {
+  "id": "G4",
+  "line": "+ quest Rat Trouble | goal: kill a handful of rats in the cellar",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-hunt-f",
+   "rank": "F",
+   "count": 5,
+   "coin": 50,
+   "foe": "Cellar Rat Swarm"
+  }
+ },
+ {
+  "id": "G5",
+  "line": "+ quest Cellar Clearing | goal: Kill the rats in the cellar | difficulty: hard",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-hunt-f",
+   "rank": "F",
+   "count": 1,
+   "coin": 50,
+   "foe": "Cellar Rat Swarm"
+  }
+ },
+ {
+  "id": "G5b",
+  "line": "+ quest Cellar Clearing | goal: Kill the rats in the cellar | difficulty: hard",
+  "level": 14,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-hunt-f",
+   "rank": "F",
+   "count": 1,
+   "coin": 50,
+   "foe": "Cellar Rat Swarm",
+   "notes": [
+    "difficulty hard set aside: Cellar Rat Swarm is a rank F foe"
+   ]
+  }
+ },
+ {
+  "id": "G6",
+  "line": "+ quest Matriarch | type: hunt | goal: Slay the Crag Wolf Matriarch | difficulty: easy",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-story-task-f",
+   "rank": "F",
+   "coin": 50,
+   "notes": [
+    "cannot be fought under these rules"
+   ]
+  }
+ },
+ {
+  "id": "G7",
+  "line": "+ quest Bear Problem | type: hunt | goal: Slay the frost bear | difficulty: easy",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-hunt-e",
+   "rank": "E",
+   "count": 1,
+   "coin": 1044,
+   "xp": 1044,
+   "foe": "Frost Bear",
+   "waived": [
+    "level"
+   ],
+   "notes": [
+    "well above your rank (rank E job; you are rank F)"
+   ]
+  }
+ },
+ {
+  "id": "G8",
+  "line": "+ quest Drake Hunt | goal: Kill the sea drake off the coast | reward: 300 copper",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "offer",
+   "band": "moderate",
+   "slug": "open-hunt-c",
+   "rank": "C",
+   "count": 1,
+   "coin": 12000,
+   "xp": 33333,
+   "foe": "Sea Drake",
+   "tier": 4
+  }
+ },
+ {
+  "id": "G9",
+  "line": "+ quest Boar Hunt | goal: Hunt 3 wild boars | reward: 50 gold",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "far",
+   "why": "reward",
+   "line": "Earlier, Boar Hunt was mentioned as a job, but it isn't one that can be offered here (50 gold is far above what a rank F job pays: 4 gold at most). Let it stay as talk or a rumour; if a job is wanted, offer it for 4 gold or less."
+  },
+  "probe": true
+ },
+ {
+  "id": "G16",
+  "line": "+ quest The Granary Vermin | type: cull | goal: kill 6 rats",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "noop",
+   "message": "Granary Vermin is already posted."
+  },
+  "probe": true,
+  "threads": [
+   {
+    "key": "Granary Vermin",
+    "state": "active"
+   }
+  ]
+ },
+ {
+  "id": "G17",
+  "line": "+ quest Granary Vermin | type: cull | goal: Kill 6 culvert rats in the south levee granary",
+  "level": 3,
+  "currency": "copper",
+  "message": "I'll hear more about that job.",
+  "expect": {
+   "kind": "far",
+   "why": "already"
+  },
+  "probe": true,
+  "threads": [
+   {
+    "key": "Granary Vermin",
+    "state": "done"
+   }
+  ]
+ },
+ {
+  "id": "G10",
+  "line": "+ trainer Old Reka — blade drills",
+  "level": 3,
+  "currency": "copper",
+  "message": "Can you teach me?",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-blade-drills",
+   "fee": null
+  }
+ },
+ {
+  "id": "G11",
+  "line": "+ trainer Old Reka — swordplay",
+  "level": 3,
+  "currency": "copper",
+  "message": "Can you teach me?",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-blade-drills",
+   "fee": null
+  }
+ },
+ {
+  "id": "G12",
+  "line": "+ trainer Old Pell — fishing and net mending",
+  "level": 3,
+  "currency": "copper",
+  "message": "Can you teach me?",
+  "expect": {
+   "kind": "none"
+  },
+  "probe": true
+ },
+ {
+  "id": "G13",
+  "line": "+ trainer Old Reka — blade drills | fee: 5 gold",
+  "level": 3,
+  "currency": "copper",
+  "message": "Can you teach me?",
+  "expect": {
+   "kind": "far",
+   "why": "fee"
+  },
+  "probe": true
+ },
+ {
+  "id": "G14",
+  "line": "+ trainer Old Reka — blade drills | fee: 10 copper",
+  "level": 3,
+  "currency": "copper",
+  "message": "Can you teach me?",
+  "expect": {
+   "kind": "offer",
+   "band": "moderate",
+   "slug": "open-blade-drills",
+   "fee": 40,
+   "notes": [
+    "fee set to 4 silver"
+   ]
+  }
+ },
+ {
+  "id": "C31",
+  "line": "+ trainer Sergeant Holm — teaches spear and shield work",
+  "level": 3,
+  "currency": "copper",
+  "message": "Can you teach me?",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-spear-and-shield"
+  }
+ },
+ {
+  "id": "C32",
+  "line": "+ trainer Widow Asta — hedge magic, sparks and wards",
+  "level": 3,
+  "currency": "copper",
+  "message": "Can you teach me?",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-hedge-lessons"
+  }
+ },
+ {
+  "id": "C33",
+  "line": "+ trainer Fen | teaches: cane-draw, gutter feint",
+  "level": 3,
+  "currency": "copper",
+  "message": "Can you teach me?",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-street-craft",
+   "skills": 2
+  }
+ },
+ {
+  "id": "C34",
+  "line": "+ trainer Old Reka | like: swordplay — blade drills",
+  "level": 3,
+  "currency": "copper",
+  "message": "Can you teach me?",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-blade-drills",
+   "notes": [
+    "like: swordplay is not a template"
+   ]
+  }
+ },
+ {
+  "id": "C35",
+  "line": "+ trainer Old Reka — blade drills | fee: 60 copper",
+  "level": 3,
+  "currency": "copper",
+  "message": "Can you teach me?",
+  "expect": {
+   "kind": "offer",
+   "band": "within",
+   "slug": "open-blade-drills",
+   "fee": 60
+  }
+ },
+ {
+  "id": "C36",
+  "line": "+ trainer Old Reka — blade work | fee: 12 crowns",
+  "level": 3,
+  "currency": "copper",
+  "message": "Can you teach me?",
+  "expect": {
+   "kind": "offer",
+   "band": "moderate",
+   "slug": "open-blade-drills",
+   "fee": null,
+   "notes": [
+    "is not this chat's money"
+   ]
+  }
+ }
+]

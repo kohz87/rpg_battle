@@ -80,7 +80,7 @@ test('the purse and the clock are checked as for a fixed trainer', async t => {
         const poor = await ready(t, { coin: 5 });
         await poor.say('Reka offers drills.', ['+ trainer Old Reka | like: drills']);
         const offer = only(poor);
-        assert.deepEqual(rowOf(poor, offer.id).blocked, [`It costs ${offer.fee}.`]);
+        assert.deepEqual(rowOf(poor, offer.id).blocked, [`It costs ${offer.fee} gold.`]);
         assert.equal(poor.ui('skill.train', rowOf(poor, offer.id).payload).ok, true);
         await poor.say('The lesson.', [`~ here ${HAVEN}`]);
         assert.match(sessions(poor)[Object.keys(sessions(poor))[0]].reason, new RegExp(`cannot pay ${offer.fee}`));

@@ -38,7 +38,7 @@ test('C02 promotion: level 10 with 5/5, 5/5, 4/5 blocks; the last credit enables
     assert.equal(blocked.promotions[0].milestone, 10);
     assert.equal(blocked.promotions[0].eligible, false);
     assert.deepEqual(blocked.promotions[0].choices, [ref('c1')]);
-    assert.deepEqual(blocked.promotions[0].why, ['s02 is 4/5.']);
+    assert.deepEqual(blocked.promotions[0].why, ['s02 is 4 / 5.']);
     const open = view(slice({ choices: [basic(ACTOR, 'c0')], uses: mastered(...base) }), 10);
     assert.deepEqual(open.promotions, [{ milestone: 10, eligible: true, choices: [ref('c1')], why: [] }]);
     // Level 9 lists nothing: the milestone is not reached.
@@ -101,14 +101,14 @@ test('C04: after the promotions, the paths are still waiting until the advanced 
     assert.deepEqual(out.pathways.slice(1).map(p => p.eligible), [false, false, false, false, false]);
     const none = view(slice({ choices: promoted() }), 90);
     assert.equal(none.pathways[0].eligible, false);
-    assert.deepEqual(none.pathways[0].why, ['s30 is 0/5.', 's31 is 0/5.', 's32 is 0/5.']);
+    assert.deepEqual(none.pathways[0].why, ['s30 is 0 / 5.', 's31 is 0 / 5.', 's32 is 0 / 5.']);
 });
 
 test('a class with no further class shows why', () => {
     const progress = slice({ choices: promoted(), uses: mastered('s30-base') });
     assert.equal(view(progress, 30).promotions.length, 0);
     const odd = slice({ choices: [basic(ACTOR, 'c0')] });
-    assert.deepEqual(view(odd, 10).promotions[0].why, ['s00 is 0/5.', 's01 is 0/5.', 's02 is 0/5.']);
+    assert.deepEqual(view(odd, 10).promotions[0].why, ['s00 is 0 / 5.', 's01 is 0 / 5.', 's02 is 0 / 5.']);
 });
 
 test('C05 selected parent: the step-1 form chosen at 40 gives its own g/a/b at 50; the other skills still start at the base', () => {
@@ -190,7 +190,7 @@ test('evaluateClass: level, direct child, stale class, mastery, taken milestone,
     const progress = slice({ choices: [basic(ACTOR, 'c0')], uses: { ...mastered('s00-base', 's01-base'), 's02-base': 12 } });
     const st = standing(ix, progress, ACTOR);
     const ask = (over = {}, level = 10) => evaluateClass(ix, st, { milestone: 10, class: ref('c1'), expectedClass: ref('c0'), ...over }, level);
-    assert.match(ask({}).why, /Every skill must be 5\/5: s02 is 3\/5/);
+    assert.match(ask({}).why, /Every skill must be 5 \/ 5: s02 is 3 \/ 5/);
     const ready = standing(ix, slice({ choices: [basic(ACTOR, 'c0')], uses: mastered('s00-base', 's01-base', 's02-base') }), ACTOR);
     const go = (over = {}, level = 10) => evaluateClass(ix, ready, { milestone: 10, class: ref('c1'), expectedClass: ref('c0'), ...over }, level);
     assert.equal(go().ok, true);

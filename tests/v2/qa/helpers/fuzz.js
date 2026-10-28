@@ -109,11 +109,25 @@ export function nextStep(h, p) {
     if (roll < 76) return ['wallet.pay', { owner: 'party', amount: ids.qty() * 3 }];
     if (roll < 77) return ['inventory.grant', { name: p.pick(ITEMS), qty: ids.qty(), owner: 'party' }];
     if (roll < 78) return ['scene.place', p.pick(PLACES)];
-    // Open trainers (RPG Battle 2.2.0): a chat that pins no rules has no trainer kind, command or query, so both are refused and change nothing.
+    // Open trainers (RPG Battle 2.2.0) and jobs and teachers from the story (2.3.0): a chat that pins no rules has no trainer kind, command or query and
+    // reads no free-form job, so every one is refused and changes nothing (tests/v2/quests/offer-fuzz.test.js runs the same lines on a pinned chat).
     if (roll < 79) {
-        return p.chance(0.5)
-            ? ['trainer.open', { name: p.pick(NAMES), template: p.pick(['drills', 'nothing', '']), ...(p.chance(0.3) ? { skills: [p.pick(['pack.fixture/s00', 'x'])] } : {}) }]
-            : ['capture', { op: p.pick(['+', '+', '-']), kind: 'trainer', name: p.pick(NAMES), text: 'drills', labels: { like: p.pick(['drills', 'nothing']), ...(p.chance(0.3) ? { teaches: 's00' } : {}) } }];
+        if (p.chance(0.5)) return ['trainer.open', { name: p.pick(NAMES), template: p.pick(['drills', 'nothing', '']), ...(p.chance(0.3) ? { skills: [p.pick(['pack.fixture/s00', 'x'])] } : {}) }];
+        const op = p.pick(['+', '+', '-']);
+        const name = p.pick(NAMES);
+        const like = p.pick(['drills', 'nothing']);
+        const teaches = p.chance(0.3);
+        if (like === 'drills') return ['capture', { op, kind: 'trainer', name, text: 'drills', labels: { like, ...(teaches ? { teaches: 's00' } : {}) } }];
+        // A free-form teacher, or a job in the narrator's own words: the user's two lines, a far-out one and a duplicate of the first.
+        if (!teaches) return ['capture', { op, kind: 'trainer', name, text: 'blade drills', labels: {} }];
+        const jobs = [
+            ['Granary Vermin', { giver: 'Hollis', type: 'cull', goal: 'Kill 6 culvert rats in the south levee granary and collect tails', reward: '12 crowns', difficulty: 'easy' }],
+            ['Scrub Pack', { giver: 'Hollis', type: 'hunt', goal: 'Slay the alpha of the scrub wolf pack north of the ditch', reward: '30 crowns', difficulty: 'normal' }],
+            ['Boar Hunt', { goal: 'Hunt 3 wild boars', reward: '50 gold' }],
+            ['Granary Vermin', { type: 'cull', goal: 'kill 6 rats' }],
+        ];
+        const [title, labels] = jobs[name.length % jobs.length];
+        return ['capture', { op: '+', kind: 'quest', name: title, labels }];
     }
     // The story's change lines.
     const kind = p.pick(['item', 'item', 'item', 'coin', 'coin', 'encounter', 'encounter', 'wound', 'join', 'check', 'rest']);

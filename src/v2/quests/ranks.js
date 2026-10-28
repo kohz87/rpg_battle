@@ -47,7 +47,7 @@ function rankId(record) {
 }
 
 /**
- * A ladder from a list of records (`{ id, title?, levels?, reward? }`, a pack's or RPG Battle's), lowest
+ * A ladder from a list of records (`{ id, title?, levels?, reward?, xp? }`, a pack's or RPG Battle's), lowest
  * first: records without an id (or with one already seen) are left out; missing or bad levels are the
  * built-in band at that place (null past it); a missing or bad reward is given one by place
  * (`withRewards: false` always gives them by place). Null when nothing is left.
@@ -63,7 +63,9 @@ export function ladderFrom(list, { withRewards = true } = {}) {
         const levels = isPair(own) ? own : DEFAULT_LEVELS[out.length] ?? null;
         const given = Array.isArray(record.reward) ? record.reward.map(Number) : null;
         const reward = withRewards && isPair(given) ? given : rewardByPlace(out.length);
-        out.push({ id, title: clean(record.title ?? record.name) || id, levels: levels ? [...levels] : null, reward: [...reward] });
+        // A rank's experience range (`xp`, optional, 2.5.0) is the pack's own and is never worked out from its coin reward.
+        const xp = Array.isArray(record.xp) ? record.xp.map(Number) : null;
+        out.push({ id, title: clean(record.title ?? record.name) || id, levels: levels ? [...levels] : null, reward: [...reward], ...(isPair(xp) ? { xp: [...xp] } : {}) });
     }
     return out.length ? out : null;
 }

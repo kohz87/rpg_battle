@@ -1,4 +1,5 @@
 // Retained quest command payloads; all thread changes go through SD's P23 writers.
+import { offersOf } from '../rules/offers.js';
 import { openingPlan, commitOpening } from './opening.js';
 import { offeredQuest } from './outcomes.js';
 import { OBJECTIVE_FIELDS } from './objectives.js';
@@ -45,7 +46,10 @@ export function createCommands({ settleQuest, evaluateRequirements = null, guard
         if (quest.state === 'active') return ctx.fail('REFUSED', 'This quest is already taken on.');
         if (!thread.offer && (!thread.taken || !thread.acceptance)) return ctx.fail('REFUSED', 'The original reader acceptance proof is missing.');
         const now = inputs.clock?.minutes;
-        if ((quest.repeat?.nextOfferAt !== null && quest.repeat?.nextOfferAt !== undefined) || template.durationMinutes !== null) {
+        // A job the story offered keeps its own deadline in the offer's record (the quest has no field for a duration); any other quest, its template's.
+        const settled = offersOf(ctx.read('rules'))[thread.id]?.settled;
+        const duration = settled ? settled.durationMinutes : template.durationMinutes;
+        if ((quest.repeat?.nextOfferAt !== null && quest.repeat?.nextOfferAt !== undefined) || duration !== null) {
             if (!Number.isSafeInteger(now)) return ctx.fail('CLOCK_UNSET', 'This quest needs the story clock.');
             if (quest.repeat?.nextOfferAt > now) return ctx.fail('REFUSED', 'The repeat cooldown has not ended.');
         }
@@ -60,9 +64,9 @@ export function createCommands({ settleQuest, evaluateRequirements = null, guard
         }
         quest.state = 'active';
         quest.acceptedAt = thread.acceptance ? thread.acceptance.minute : (Number.isSafeInteger(now) ? now : null);
-        if (template.durationMinutes !== null && !Number.isSafeInteger(quest.acceptedAt)) return ctx.fail('CLOCK_UNSET', 'A timed quest needs its original acceptance minute.');
+        if (duration !== null && !Number.isSafeInteger(quest.acceptedAt)) return ctx.fail('CLOCK_UNSET', 'A timed quest needs its original acceptance minute.');
         quest.acceptedCursor = copy(thread.acceptance?.cursor ?? cursor);
-        quest.deadline = template.durationMinutes === null ? null : quest.acceptedAt + template.durationMinutes;
+        quest.deadline = duration === null ? null : quest.acceptedAt + duration;
         if (quest.deadline !== null && !Number.isSafeInteger(quest.deadline)) return ctx.fail('INVALID', 'The quest deadline overflowed.');
         if (guardTake) guardTake(ctx, thread, payload, inputs);
         const acceptance = ctx.cause === 'ui' ? null : inputs.proofs?.find(p => p.owner === 'story-director' && p.kind === 'acceptance'

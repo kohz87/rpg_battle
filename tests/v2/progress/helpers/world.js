@@ -10,7 +10,7 @@
 //   ~ time <minute>                              the clock
 import { createHost } from '../../../vendor/story-block/testkit/index.js';
 import { withDirector } from '../../integration/helpers/peer.js';
-import { pinOf, pinRules, registerPackDefs, rulesParts, modifierPart } from '../../../../src/v2/rules/index.js';
+import { pinOf, pinRules, registerPackDefs, rulesParts, modifierPart, switchMode } from '../../../../src/v2/rules/index.js';
 import { recordAttempt, recordBasicClass, recordCombatUses } from '../../../../src/v2/progress/index.js';
 import { resultBytes, batchId } from '../../../../src/v2/death/plan.js';
 import { indexOfCtx } from '../../../../src/v2/rules/graph.js';
@@ -155,7 +155,7 @@ export function rulesModule({ given = fixturePin(), id = 'rpg-battle' } = {}) {
         commands: {
             ...merge('commands'),
             'test.pin'(ctx) {
-                const problem = pinRules(ctx.draft('rules'), given);
+                const problem = pinRules(ctx.draft('rules'), given, { mode: switchMode(ctx) });
                 if (problem) ctx.fail('REFUSED', problem);
                 // As the real `rules.pin` does: a pack with trainer templates starts with an empty map of offers.
                 Object.assign(ctx.draft('training'), trainingForPin(given.resolved));
@@ -334,11 +334,26 @@ export function mergeInto(base, extra) {
             kinds: { ...base.capture.kinds, ...extra.capture.kinds },
             apply(ctx, line) { return Object.hasOwn(extra.capture.kinds, line?.kind) ? extra.capture.apply(ctx, line) : base.capture.apply(ctx, line); },
         },
-        hooks: { ...base.hooks, ...extra.hooks },
+        hooks: { ...base.hooks, ...extra.hooks, ...(base.hooks?.beforeGenerate && extra.hooks?.beforeGenerate ? { beforeGenerate: beforeBoth(extra.hooks.beforeGenerate, base.hooks.beforeGenerate) } : {}) },
     };
 }
 
-export async function realWorld(t, { companions = [], modules = [], pin = true, character = true, settings = {}, reader = null, given = undefined, sd = false } = {}) {
+/** Both modules' beforeGenerate cues, the rules parts' first, as module.js merges the parts of one module: the lines and the commands of each, in order. */
+const beforeBoth = (first, second) => async (...args) => {
+    const lines = [];
+    const commands = [];
+    for (const fn of [first, second]) {
+        const out = await fn(...args);
+        if (Array.isArray(out)) lines.push(...out);
+        else if (out && typeof out === 'object') {
+            lines.push(...(Array.isArray(out.lines) ? out.lines : []));
+            commands.push(...(Array.isArray(out.commands) ? out.commands : []));
+        }
+    }
+    return { lines, commands };
+};
+
+export async function realWorld(t, { companions = [], modules = [], pin = true, character = true, settings = {}, reader = null, given = undefined, sd = false, strict = false } = {}) {
     const { createModule, MODULE_ID } = await import('../../../../src/v2/module.js');
     const { PLANNER_PART } = await import('../../items/helpers/equip-parts.js');
     // One module, as the real one is: its replay-safe queries are the real module.js's own list (the parts', party.actor among them); nothing is added here.
@@ -347,7 +362,7 @@ export async function realWorld(t, { companions = [], modules = [], pin = true, 
     // The equipment planner is what a pinned chat adds beside the rules parts (module.js leaves it out of the plain one); the merge below stands for those parts.
     const base = createModule({ settings: () => ({ ...(sdk?.settings(MODULE_ID) ?? {}), ...settings }), parts: [PLANNER_PART] });
     const merged = mergeInto(base, extra);
-    const host = await createHost({ modules: withDirector([sd === true ? SD : sd || CLOCK, merged, CALLER, ...modules]), ...(reader ? { settings: { modules: { [MODULE_ID]: reader } } } : {}) });
+    const host = await createHost({ modules: withDirector([sd === true ? SD : sd || CLOCK, merged, CALLER, ...modules]), ...(reader || strict ? { settings: { ...(reader ? { modules: { [MODULE_ID]: reader } } : {}), ...(strict ? { features: { 'rpg-battle.generative-offers': false } } : {}) } } : {}) });
     sdk = host.sdk;
     const saved = globalThis.StoryBlock;
     globalThis.StoryBlock = { apiVersion: 2, ready: Promise.resolve(sdk), sdk };

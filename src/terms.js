@@ -430,7 +430,7 @@ export function rankReward(index, scale = 1) {
     return k === 1 ? range : range.map(n => Math.max(1, Math.round(n * k)));
 }
 
-/** A list of rank records (`{ id, title?, levels? }`) cleaned: good ids only, once each (ignoring case), in order. */
+/** A list of rank records (`{ id, title?, levels?, reward?, xp? }`) cleaned: good ids only, once each (ignoring case), in order. */
 function cleanRanks(list) {
     const out = [];
     for (const record of Array.isArray(list) ? list : []) {
@@ -438,7 +438,7 @@ function cleanRanks(list) {
         const id = String(record.id ?? '').trim();
         if (!RANK_ID.test(id) || out.some(rank => rank.id.toLowerCase() === id.toLowerCase())) continue;
         const title = cleanTerm(record.title ?? '', '');
-        out.push({ id, title, levels: isPair(record.levels) ? [...record.levels] : null, reward: isRange(record.reward) ? [...record.reward] : null });
+        out.push({ id, title, levels: isPair(record.levels) ? [...record.levels] : null, reward: isRange(record.reward) ? [...record.reward] : null, ...(isRange(record.xp) ? { xp: [...record.xp] } : {}) });
     }
     return out;
 }
@@ -476,7 +476,8 @@ function settle(list, cap, { extendLast = false, scale = 1, ownRewards = false, 
         }
         if (levels[0] > cap && out.length) break;
         const reward = ownRewards && rank.reward ? [...rank.reward] : rankReward(out.length, ownRewards ? packScale : scale);
-        out.push({ id: rank.id, title: rank.title || rank.id, levels: [Math.min(levels[0], cap), Math.min(levels[1], cap)], reward });
+        // A pack's rank keeps its experience range (`xp`, optional) as it wrote it: it is never worked out from the coin reward.
+        out.push({ id: rank.id, title: rank.title || rank.id, levels: [Math.min(levels[0], cap), Math.min(levels[1], cap)], reward, ...(ownRewards && rank.xp ? { xp: [...rank.xp] } : {}) });
     }
     if (extendLast && out.length) out.at(-1).levels[1] = Math.max(out.at(-1).levels[1], cap);
     return out;
@@ -493,6 +494,14 @@ export function rewardAt(level, base) {
     return [...found.reward];
 }
 
+/** The experience range the base ladder gives at `level`: that of the rank `rewardAt` reads, when it has one (a rank without `xp` gives none). */
+export function xpAt(level, base) {
+    if (!Array.isArray(base) || !base.length) return null;
+    let found = base[0];
+    for (const rank of base) if (rank.levels[0] <= level) found = rank;
+    return found.xp ? [...found.xp] : null;
+}
+
 /** The ladder rewards are reckoned on (rankLadder): the pack's own ranks (`base`) as written, else the built-in F to S × `scale`. */
 function baseLadder(base, cap, scale) {
     const packed = cleanRanks(base);
@@ -505,12 +514,15 @@ function byLevel(ladder, basis, own = []) {
     return ladder.map((rank, index) => {
         const reward = rewardAt(rank.levels[0], basis);
         const mine = own[index]?.reward;
-        return { ...rank, reward: mine ? [Math.min(mine[0], reward[0]), Math.min(mine[1], reward[1])] : reward };
+        // The experience range is paid by level the same way (only when the base ladder has one), and a rank's own only lowers it.
+        const xp = xpAt(rank.levels[0], basis);
+        const mineXp = own[index]?.xp;
+        return { ...rank, reward: mine ? [Math.min(mine[0], reward[0]), Math.min(mine[1], reward[1])] : reward, ...(xp ? { xp: mineXp ? [Math.min(mineXp[0], xp[0]), Math.min(mineXp[1], xp[1])] : xp } : {}) };
     });
 }
 
 /**
- * The ladder in use: `[{ id, title, levels: [lo, hi], reward: [lo, hi] }]`, lowest first (see
+ * The ladder in use: `[{ id, title, levels: [lo, hi], reward: [lo, hi], xp?: [lo, hi] }]`, lowest first (`xp` only where the pack's rank has one; see
  * above). `pack` is the pack's ranks (packRanks), when there are any; `base` the first enabled pack's
  * own ranks (packOwnRanks: the ones a reader's ladder renames), when there are any; `scale` the money scale.
  */

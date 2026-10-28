@@ -790,6 +790,39 @@ function attackScore(skill, foes, target, rules) {
     return score;
 }
 
+/** The mastery a form tops out at (rules v2: forms hold 0..5, fight/forms.js). */
+const FORM_TOP = 5;
+
+/**
+ * (rules v2) The first usable form of a party member that is not mastered and has not been played yet in this fight, with the target it makes sense on: a
+ * hostile form on the weakest foe, a heal on the most hurt friend (only when one is hurt), a buff or a curse only where it would add something.
+ * Null for anything else: a foe, a summoned unit, a v1 skill (no form id), so fights without a pinned ruleset play exactly as they did.
+ */
+function practiceForm(f, actor, usable, foes, friends) {
+    if (f.autoRule !== 'practice' || actor.side !== 'party' || actor.summoned || !actor.memberId) return null;
+    const target = lowest(foes);
+    for (const skill of usable) {
+        if (!skill.formId || (skill.formMastery ?? 0) >= FORM_TOP || f.stats.uses?.[actor.memberId]?.[skill.formId]) continue;
+        if (skill.type === 'physical' || skill.type === 'magic') return { skill, target };
+        const scope = scopeOf(skill);
+        if (skill.type === 'heal') {
+            const hurt = (scope === 'self' ? [actor] : friends).filter(c => share(c) < 1).sort((x, y) => share(x) - share(y));
+            if (hurt.length) return { skill, target: scope === 'self' ? actor : hurt[0] };
+        } else if (skill.type === 'buff') {
+            // A buff does something where the condition it gives is not there, or where its own stat shift is not (key: caster|form|effect, fight/shifts.js).
+            const names = Object.keys(skill.effect ?? {});
+            const shifts = (skill.parts ?? []).some(part => part.op === 'stat' && part.amount > 0);
+            const held = c => c.conditions.some(cond => cond.name === 'stat-shift' && String(cond.key).startsWith(`${actor.id}|${skill.formId}|`));
+            const bare = (scope === 'self' ? [actor] : friends).filter(c => names.some(name => !has(c, name)) || (shifts && !held(c)));
+            if (bare.length) return { skill, target: scope === 'ally' ? lowest(bare) : actor };
+        } else if (skill.type === 'debuff') {
+            const names = Object.keys(skill.effect ?? {});
+            if ((scope === 'all' ? foes : [target]).some(c => names.some(name => !has(c, name)))) return { skill, target };
+        }
+    }
+    return null;
+}
+
 /**
  * Simple and predictable: flee when broken, heal an ally under the threshold, put up a buff or
  * a curse that is not already there, else the strongest affordable attack skill, else attack
@@ -832,6 +865,11 @@ function chooseAuto(f, actor, rules) {
         const pool = scopeOf(skill) === 'all' ? foes : [target];
         if (pool.some(c => names.some(name => !has(c, name)))) return { type: 'skill', skill: skill.name, target: target.id };
     }
+
+    // (rules v2) A pinned party member also plays each form it has not mastered at least once in the fight, so an Auto fight earns the uses the forms
+    // are mastered with: the AI's own scores leave a form of little power unplayed, and a form never played earns nothing.
+    const practice = practiceForm(f, actor, usable, foes, friends);
+    if (practice) return { type: 'skill', skill: practice.skill.name, target: practice.target.id };
 
     const attacks = usable.filter(s => s.type === 'physical' || s.type === 'magic');
     if (attacks.length) {
@@ -934,6 +972,8 @@ function beginFight(setup, saved, rules, make) {
         ...(setup.stunRule === 'daze' ? { stunRule: 'daze' } : {}),
         ...(setup.hitRule === 'relative' ? { hitRule: 'relative' } : {}),
         ...(setup.spellRule === 'roll' ? { spellRule: 'roll' } : {}),
+        // (rules v2) Auto plays each unmastered form once (practiceForm); a fight begun before the rule keeps playing as it did.
+        ...(setup.autoRule === 'practice' ? { autoRule: 'practice' } : {}),
         ...(setup.draws === 'action' ? { drawsBy: 'action' } : {}),
         time: 0,
         order: [],

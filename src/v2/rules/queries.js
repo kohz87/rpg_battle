@@ -13,6 +13,7 @@
 import { envOfState, findRecipe, planOf, recipes } from '../craft/book.js';
 import { indexOfState } from './graph.js';
 import { isObject } from './ids.js';
+import { offersOf } from './offers.js';
 import { pinOf } from './pin.js';
 import { ask } from './ask.js';
 import { gearOf, partyView, sheetView } from './sheet.js';
@@ -36,16 +37,29 @@ export function rulesClasses(state, args) {
         .map(({ id, name, tier, parent, skills }) => ({ id, name, tier, parent, skills: [...skills] }));
 }
 
-export function rulesNames(state, args) {
+/** A place's name by its canonical id: only when Story Director answers for that very place. */
+function placeName(tools, ref) {
+    const found = ask(tools?.query, 'atlas.canonical', { id: ref });
+    return found?.id === ref ? found.name : undefined;
+}
+
+export function rulesNames(state, args, tools) {
     const ix = indexOfState(state);
     if (!ix || !isObject(args) || !Array.isArray(args.refs)) return {};
     const out = {};
+    const offers = Object.values(offersOf(state?.domains?.rules)).filter(record => isObject(record.settled?.foe));
     for (const ref of args.refs.slice(0, 500)) {
         if (typeof ref !== 'string') continue;
         const found = ix.class(ref) ?? ix.skill(ref) ?? ix.form(ref);
         if (found && typeof found.name === 'string') out[ref] = found.name;
         // An open trainer offer (`tn_…`) is named by what it was offered as (RB 2.2.0).
         else if (isTrainerOfferId(ref) && Object.hasOwn(state?.domains?.training?.offers ?? {}, ref)) out[ref] = state.domains.training.offers[ref].name;
+        else {
+            // A foe, an item or a place of a quest's objective is named as the pack names it (a named kind of foe, by the job that made it).
+            const own = ix.foe(ref)?.name ?? ix.itemDef(ref)?.name ?? offers.find(record => record.settled.foe.ref === ref)?.settled.foe.name
+                ?? state?.domains?.rules?.generated?.[ref]?.def?.name ?? placeName(tools, ref);
+            if (typeof own === 'string' && own.trim()) out[ref] = own;
+        }
     }
     return out;
 }

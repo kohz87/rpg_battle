@@ -35,7 +35,7 @@ import { MAX_COINS, MAX_COIN_VALUE, coinsOf } from '../domains/money.js';
 import { validateRulesPack } from './rules-v2.js';
 import { validateDataModules, dataModulesPackHash } from '../data-modules/check.js';
 
-export const HOST_VERSION = '2.4.0';
+export const HOST_VERSION = '2.5.0';
 
 /** A slug for a display name: "Iron Sword (old)" → "iron-sword-old". */
 export function slugify(name) {
@@ -989,7 +989,8 @@ function checkTerms(record, path, label, add) {
 
 // A ladder of ranks, lowest first (Story Director's quest letters, RPG Battle's foe strength). The id is
 // the rank as the story writes it ('F', 'SS'), kept as given and unique ignoring case, not a slug;
-// `levels` and `reward` are whole-number ranges, the reward in units of the chat's one currency.
+// `levels`, `reward` and `xp` are whole-number ranges, the reward in units of the chat's one currency and the xp (2.5.0, optional,
+// at most RANKS_LIMITS.xp) the experience a job of the rank may give.
 // A rank never starts below the one before it, so a ladder written highest first is caught.
 function checkRanks(list, packId, add) {
     if (!Array.isArray(list)) {
@@ -1003,8 +1004,8 @@ function checkRanks(list, packId, add) {
     const out = [];
     const seen = new Set();
     let ok = true;
-    // The last rank (id and range) that gave levels, and the last that gave a reward.
-    const last = { levels: null, reward: null };
+    // The last rank (id and range) that gave levels, the last that gave a reward and the last that gave xp.
+    const last = { levels: null, reward: null, xp: null };
     list.forEach((record, index) => {
         const path = `content.ranks[${index}]`;
         if (!isObject(record)) { ok = false; return add('BAD_RECORD', path, `${path} must be an object like { "id": "F", "title": "Registered" }.`); }
@@ -1031,9 +1032,10 @@ function checkRanks(list, packId, add) {
         };
         const levels = range('levels', 1, RANKS_LIMITS.level, `whole levels from 1 to ${RANKS_LIMITS.level}`);
         const reward = range('reward', 0, Number.MAX_SAFE_INTEGER, 'whole amounts of 0 or more of the chat\'s currency');
+        const xp = range('xp', 0, RANKS_LIMITS.xp, `whole amounts of experience from 0 to ${RANKS_LIMITS.xp.toLocaleString('en-US')}`);
         if (!good) { ok = false; return; }
-        const rank = { id: record.id, ...(title !== undefined ? { title: oneLine(title) } : {}), ...(levels ? { levels } : {}), ...(reward ? { reward } : {}), pack: packId };
-        for (const field of ['levels', 'reward']) {
+        const rank = { id: record.id, ...(title !== undefined ? { title: oneLine(title) } : {}), ...(levels ? { levels } : {}), ...(reward ? { reward } : {}), ...(xp ? { xp } : {}), pack: packId };
+        for (const field of ['levels', 'reward', 'xp']) {
             if (!rank[field]) continue;
             const before = last[field];
             if (before && rank[field][0] < before.range[0]) {

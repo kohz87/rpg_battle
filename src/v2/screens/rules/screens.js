@@ -104,7 +104,7 @@ const progressTemplate = `
     <p class="hint" data-if="q.p.picker.state == 'unavailable'">The classes are not available to list yet.</p>
   </div>
   <section class="ss-glass party-check" data-if="q.p.state == 'ready'">
-    <p class="ss-label"><i class="fa-solid fa-list-check"></i>Party checklist <small>forms at 5 / 5</small></p>
+    <p class="ss-label"><i class="fa-solid fa-list-check"></i>Party checklist <small>{{ q.p.partyText }}</small></p>
     <ul class="party-list" aria-label="Party checklist">
       <li class="party-row" data-each="q.p.party as c" data-class="complete: c.complete">
         <i class="fa-solid" data-class="fa-circle-check: c.complete; fa-circle: !c.complete"></i>
@@ -125,11 +125,13 @@ const progressTemplate = `
       <div class="rest">
         <section class="block skills">
           <p class="ss-label"><i class="fa-solid fa-diagram-project"></i>Skills <small>{{ m.checklistText }}</small></p>
+          <p class="hint how" data-if="m.howText != ''">{{ m.howText }}</p>
           <ul class="skill-list" aria-label="Skills of {{ m.name }}">
             <li class="skill" data-each="m.skills as s" data-class="mastered: s.mastered; done: s.done">
               <span class="skill-name">{{ s.name }}</span>
               <ss-widget name="ss.bar" data-props='{"label":"Mastery","kind":"exp","value":"{{ s.mastery }}","max":"{{ s.needed }}","text":"{{ s.text }}"}'></ss-widget>
               <small class="skill-note">{{ s.usesText }} · {{ s.nextText }}<span data-if="s.stepText != ''"> · {{ s.stepText }}</span></small>
+              <small class="skill-wait" data-if="s.waitText != ''"><i class="fa-regular fa-clock" aria-hidden="true"></i>{{ s.waitText }}</small>
             </li>
           </ul>
           <p class="mastered-note good" data-if="m.allMastered">{{ m.masteredNote }}</p>
@@ -200,6 +202,8 @@ const progressCss = sheet(`${SHARED_CSS}${EQUIPMENT_CSS}${RULES_WIDGET_CSS}
 .skill.done { border-color: var(--ss-good); }
 .skill-name { font-weight: 700; overflow-wrap: anywhere; }
 .skill-note { font-size: 12px; }
+.skill-wait { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ss-muted); }
+.skill-wait i { font-size: 13px; }
 .step { display: grid; gap: 6px; padding: var(--ss-space-2) 0; min-width: 0; }
 .step.waiting { opacity: 0.85; }
 .step-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; }
@@ -229,6 +233,34 @@ export const progressScreen = Object.freeze({
 });
 
 // ---- Quests ------------------------------------------------------------------------------------------------------------
+
+// One row of the Adjustments log (GENERATIVE_OFFERS_SPEC §9.4): a card on a phone, a table row from 760px; the offer, a band chip with its own icon, the
+// reply, what it became, the terms that changed (three at most), and behind a native details element what the narrator wrote and the notes.
+const ADJUSTMENT = alias => `
+      <li class="adj-row" data-each="${alias} as a">
+        <div class="ahead">
+          <span class="nm">{{ a.name }}</span>
+          <span class="band" data-class="b-kept: a.kept; b-adjusted: a.adjusted; b-dropped: a.dropped">
+            <i class="fa-solid fa-check" data-if="a.kept" aria-hidden="true"></i><i class="fa-solid fa-right-left" data-if="a.adjusted" aria-hidden="true"></i><i class="fa-solid fa-xmark" data-if="a.dropped" aria-hidden="true"></i>{{ a.bandLabel }}
+          </span>
+          <span class="reply" data-if="a.replyText != ''">{{ a.replyText }}</span>
+        </div>
+        <p class="became">{{ a.became }}</p>
+        <div class="changes" data-if="len(a.changes) > 0">
+          <div class="cr" data-each="a.changes as c">
+            <span class="k">{{ c.k }}</span>
+            <span class="v"><span class="from" data-if="!c.unwritten">{{ c.from }}</span><span class="from" data-if="c.unwritten"><span class="sr">not written</span><span aria-hidden="true">—</span></span><span class="arr" aria-hidden="true">→</span><span class="sr">to</span><span class="to">{{ c.to }}</span></span>
+          </div>
+        </div>
+        <p class="dropped" data-if="a.droppedText != ''"><b>Dropped:</b> {{ a.droppedText }}</p>
+        <details class="nowrote">
+          <summary>What the narrator wrote</summary>
+          <div class="why-body">
+            <p class="raw mono">{{ a.wrote }}</p>
+            <div data-if="len(a.notes) > 0"><p class="nt">Notes</p><ul><li data-each="a.notes as n">{{ n }}</li></ul></div>
+          </div>
+        </details>
+      </li>`;
 
 const questsTemplate = `
 <div class="rb rb-quests">
@@ -269,6 +301,17 @@ const questsTemplate = `
       <p class="line hold" data-if="g.needsRpg">This goal carries rewards that RPG Battle settles; it waits for RPG Battle.</p>
     </article>
   </section>
+  <details class="adj" data-if="q.v.adjustments.count > 0" data-more="closed">
+    <summary>Adjustments ({{ q.v.adjustments.total }})</summary>
+    <p class="adj-help">What code changed from the narrator's offers, newest first. Read only; nothing here is a Problem. A chat keeps the mode of "Jobs from the story" it was pinned with.</p>
+    <p class="adj-head" aria-hidden="true"><span>Offer</span><span>Became</span><span>Changed</span><span>Band</span><span></span></p>
+    <ul class="acards">${ADJUSTMENT('q.v.adjustments.recent')}
+    </ul>
+    <ul class="acards older-rows" data-if="q.v.adjustments.hasOlder">${ADJUSTMENT('q.v.adjustments.older')}
+    </ul>
+    <p class="adj-help adj-omitted" data-if="q.v.adjustments.more > 0">{{ q.v.adjustments.moreText }}</p>
+    <div class="adj-more" data-if="q.v.adjustments.hasOlder"><ss-widget name="rpg-battle.show-more" data-props='{"value":{"label":"Show older ({{ q.v.adjustments.olderCount }})"}}'></ss-widget></div>
+  </details>
 </div>
 `;
 
@@ -283,6 +326,53 @@ const questsCss = sheet(`${SHARED_CSS}
 .line { margin: 0; font-size: 13px; }
 .line.hold { color: var(--ss-warn); }
 .acts { display: flex; flex-wrap: wrap; gap: var(--ss-space-2); }
+.adj, .older { display: grid; gap: var(--ss-space-2); min-width: 0; }
+.adj { border: 1px solid var(--ss-border); border-radius: var(--ss-radius-m); padding: 0 var(--ss-space-3) var(--ss-space-3); }
+.adj summary, .older summary, .nowrote summary { min-height: 44px; display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 700; }
+.adj > summary { font-size: 17px; font-weight: 800; }
+.adj-help { margin: 0; color: var(--ss-muted); font-size: 13px; line-height: 1.5; }
+.adj-head { display: none; }
+.acards { display: grid; gap: var(--ss-space-3); margin: 0; padding: 0; list-style: none; }
+.adj-row { display: grid; gap: var(--ss-space-2); padding: var(--ss-space-3); min-width: 0; border: 1px solid var(--ss-border); border-radius: var(--ss-radius-m); background: var(--ss-tile); }
+.ahead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.ahead .nm { font-weight: 800; font-size: 17px; line-height: 1.3; overflow-wrap: anywhere; }
+.ahead .reply { margin-left: auto; color: var(--ss-muted); font-size: 14px; white-space: nowrap; }
+.band { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px 3px 8px; border-radius: 999px; font-size: 13px; font-weight: 800; line-height: 1.3; white-space: nowrap; color: var(--ss-text); }
+.band.b-kept { background: color-mix(in srgb, var(--ss-good) 42%, var(--ss-tile)); }
+.band.b-adjusted { background: color-mix(in srgb, var(--ss-warn) 48%, var(--ss-tile)); }
+.band.b-dropped { background: color-mix(in srgb, var(--ss-bad, var(--ss-bad-text)) 48%, var(--ss-tile)); }
+.adj[data-more="closed"] .older-rows { display: none; }
+.adj-more { padding: 8px 0 4px; }
+.became, .dropped { margin: 0; line-height: 1.45; overflow-wrap: anywhere; }
+.changes { display: grid; gap: 8px; }
+.cr { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 10px; line-height: 1.4; }
+.cr .k { color: var(--ss-muted); }
+.cr .v { overflow-wrap: anywhere; }
+.cr .from, .cr .arr { color: var(--ss-muted); }
+.cr .arr { padding: 0 4px; }
+.cr .to { font-weight: 800; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.nowrote { border-top: 1px solid var(--ss-border); }
+.why-body { display: grid; gap: 12px; padding: 4px 0 12px; }
+.why-body p, .why-body ul { margin: 0; }
+.why-body .raw { font-size: 14px; line-height: 1.5; padding: 10px 12px; border-radius: var(--ss-radius-s); background: var(--ss-tile); }
+.why-body .mono { font-family: ui-monospace, monospace; overflow-wrap: anywhere; white-space: pre-wrap; }
+.why-body ul { padding-left: 20px; display: grid; gap: 6px; line-height: 1.45; }
+.why-body .nt { font-weight: 700; }
+@container rb-screen (min-width: 760px) {
+  .adj-head, .adj-row { display: grid; grid-template-columns: 15% 28% 29% 11% minmax(0, 1fr); gap: 0 12px; align-items: start; }
+  .adj-head { padding: 10px 12px; color: var(--ss-muted); font-weight: 700; font-size: 15px; border-bottom: 1px solid var(--ss-border); }
+  .adj-row { border: 0; border-top: 1px solid var(--ss-border); border-radius: 0; background: transparent; padding: 14px 12px; }
+  .ahead { display: contents; }
+  .ahead .nm { grid-column: 1; grid-row: 1; }
+  .ahead .reply { grid-column: 1; grid-row: 2; margin: 2px 0 0; font-weight: 400; }
+  .ahead .band { grid-column: 4; grid-row: 1; justify-self: start; }
+  .became { grid-column: 2; grid-row: 1 / span 2; }
+  .changes, .dropped { grid-column: 3; grid-row: 1 / span 2; }
+  .cr { grid-template-columns: 72px minmax(0, 1fr); }
+  .nowrote { grid-column: 5; grid-row: 1; border-top: 0; position: relative; }
+  .nowrote .why-body { position: absolute; right: 0; top: 100%; width: 440px; max-width: 80vw; z-index: 5; padding: 14px; border: 1px solid var(--ss-border); border-radius: var(--ss-radius-m); background: var(--ss-glass-strong, var(--ss-tile)); }
+}
 `);
 
 export const questsScreen = Object.freeze({

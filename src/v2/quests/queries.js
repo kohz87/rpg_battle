@@ -3,6 +3,9 @@ import { objectiveProgress, planQuestSettlement } from './planner.js';
 import { ranksOf } from './ranks.js';
 import { coinAttributions, autoTurnIns, owedCredits, repeatedCoin } from './credit.js';
 import { ask, copy, pinned, questInputs, replayInputs, threadOf } from './seams.js';
+import { GUIDE_EXAMPLES, GUIDE_RANKS, blockApplies, foeOrderOf, ladderOf, offerBlock } from './offer-block.js';
+import { stateFree } from '../rules/mode.js';
+import { adjustments } from './offer-log.js';
 
 const historyText = 'From an earlier version (read only).';
 const queryOf = tools => tools?.query ?? (typeof tools === 'function' ? tools : () => null);
@@ -11,6 +14,45 @@ const all = query => ask(query, 'director.threads') ?? [];
 const owedOf = thread => thread.owed && legacy(thread) ? { id: thread.id, key: thread.key, giver: thread.fields?.giver ?? '',
     text: `${thread.owed.text} — from an earlier version`, word: '', phrase: '', countable: false, total: null,
     credit: thread.owed.credit ?? 0, paid: Object.values(thread.owed.paid ?? {}).reduce((n, v) => n + v, 0), left: null, open: false, storyMoney: true, budget: 0, payable: 0, rev: thread.owed.rev ?? 0, ask: false, hint: historyText } : null;
+
+// A query of the feature answers only for a chat pinned in free mode (rules/mode.js); for any other it answers nothing, as a query of a feature that is off does.
+const feature = fn => (state, args, tools) => (stateFree(state) ? fn(state, args, tools) : null);
+const whole = (value, low, high, fallback) => (Number.isInteger(value) && value >= low && value <= high ? value : fallback);
+
+/** quest.offerBlock({ ranks?, examples? }) → the rules block text of the pin, or null (no pin, no open quest template, or the feature is off). */
+function offerBlockQuery(state, args = {}, tools) {
+    const rules = state?.domains?.rules;
+    const pin = pinned(rules);
+    if (!pin || !blockApplies(pin)) return null;
+    const query = queryOf(tools);
+    const packKey = rules.pin.identity.packKey;
+    const trainers = (pin.resolved.manifest?.trainers ?? []).filter(entry => entry.open === true);
+    return offerBlock({ pin, ladder: ladderOf(query, pin, packKey), order: foeOrderOf(query, packKey), currency: ask(query, 'inventory.currency'), trainers,
+        ranks: whole(args?.ranks, 0, 8, GUIDE_RANKS), examples: whole(args?.examples, 0, 4, GUIDE_EXAMPLES) });
+}
+
+/**
+ * quest.replyOffers({}) → { jobs, declined }: how many jobs were posted and how many offers were not possible on the reply the head stands for, past the ones
+ * their receipts tell (`narrate: false`). From the stored receipts, so a swipe, a delete and a rebuild answer as the live reply did.
+ */
+function replyOffers(_state, _args, tools) {
+    const index = tools?.reply?.index;
+    const out = { jobs: 0, declined: 0 };
+    if (!Number.isInteger(index)) return out;
+    for (const entry of tools?.receipts?.() ?? []) {
+        const receipt = entry?.receipt;
+        if (entry?.index !== index || receipt?.narrate !== false) continue;
+        if (typeof receipt.data?.declined === 'string') out.declined += 1;
+        else if (typeof receipt.data?.quest === 'string' && receipt.data.band) out.jobs += 1;
+    }
+    return out;
+}
+
+/** quest.offerBlockOn({}) → whether the rules block is shown (the pin has an open quest template, and the chat was pinned in free mode, as a query of the feature is). */
+const offerBlockOn = state => {
+    const pin = pinned(state?.domains?.rules);
+    return Boolean(pin) && blockApplies(pin);
+};
 
 export function createQueries(policy = {}) {
     function progress(_state, args = {}, tools) {
@@ -67,6 +109,7 @@ export function createQueries(policy = {}) {
     return {
         'quest.openTemplates': state => Object.values(pinned(state?.domains?.rules)?.resolved?.quests ?? {}).filter(t => t.open).map(t => ({ id: t.id, name: t.name, kinds: t.objectives.map(o => o.kind) })),
         'quest.replayInputs': replayInputs,
+        'quest.offerBlock': feature(offerBlockQuery), 'quest.offerBlockOn': feature(offerBlockOn), 'quest.replyOffers': feature(replyOffers), 'quest.adjustments': feature(adjustments),
         'quest.progress': progress, 'quest.details': details, 'quest.ranks': (state, _args, tools) => pinned(state?.domains?.rules) ? ranksOf(queryOf(tools)) : [],
         'quest.owed': (_state, _args, tools) => all(queryOf(tools)).map(owedOf).filter(Boolean),
         'quest.coinAttributions': coinAttributions, 'quest.owedCredits': owedCredits, 'quest.repeatedCoin': repeatedCoin, 'quest.autoTurnIns': autoTurnIns,

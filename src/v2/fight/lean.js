@@ -41,6 +41,7 @@ export function leanAuto(setup, rules) {
     const A = rules.attack, C = rules.combat, D = rules.derived;
     const relative = setup.hitRule === 'relative';
     const spellRoll = setup.spellRule === 'roll';
+    const practising = setup.autoRule === 'practice';
     const byAction = setup.draws === 'action';
     const speedOffset = Number.isFinite(Number(setup.speedOffset)) ? Math.max(0, Number(setup.speedOffset)) : rules.turns.speedOffset;
     const length = TICK / Math.max(1, rules.character.startStat + speedOffset);
@@ -103,6 +104,8 @@ export function leanAuto(setup, rules) {
     const kind = new Uint8Array(K); // 0 attack, 1 heal, 2 buff, 3 never chosen
     const physicalPool = new Uint8Array(K), legacyMp = new Float64Array(K), hasCosts = new Uint8Array(K);
     const costMp = new Float64Array(K), costSp = new Float64Array(K), cooldown = new Float64Array(K), power = new Float64Array(K);
+    // Practice (combat.js practiceForm): a form of the party member that is not mastered is played once in the fight, whatever the AI scores it.
+    const practicable = new Uint8Array(K), statBuff = new Uint8Array(K), practised = new Uint8Array(K);
     const effects = [], plans = [], names = new Set();
     const formPower = (skill, part) => (part.power / 100) * (1 + 0.1 * (skill.formMastery ?? 0));
     for (let g = 0; g < K; g++) {
@@ -112,6 +115,8 @@ export function leanAuto(setup, rules) {
         names.add(key);
         kind[g] = skill.type === 'physical' || skill.type === 'magic' ? 0 : skill.type === 'heal' ? 1 : skill.type === 'buff' ? 2 : 3;
         physicalPool[g] = skill.type === 'physical' ? 1 : 0;
+        practicable[g] = practising && owner === 0 && members[0].side === 'party' && !members[0].summoned && members[0].memberId && skill.formId && (skill.formMastery ?? 0) < 5 ? 1 : 0;
+        statBuff[g] = skill.parts.some(part => part.op === 'stat' && part.amount > 0) ? 1 : 0;
         legacyMp[g] = skill.mp ?? 0;
         hasCosts[g] = skill.costs ? 1 : 0;
         costMp[g] = skill.costs?.mp ?? 0; costSp[g] = skill.costs?.sp ?? 0;
@@ -170,6 +175,7 @@ export function leanAuto(setup, rules) {
         for (let g = skillFrom[a]; g < skillFrom[a + 1]; g++) {
             if (kind[g] === 1 || kind[g] === 2) simple[a] = 0;
             if (kind[g] === 0 && power[g] + effects[g].reduce((sum, e) => sum + e.bonus, 0) > 1) simple[a] = 0;
+            if (practicable[g]) simple[a] = 0;
         }
     }
 
@@ -346,6 +352,13 @@ export function leanAuto(setup, rules) {
             if (kind[g] !== 2 || blocked(a, g)) continue;
             for (const { slot } of effects[g]) if (!has(a, slot)) { target = a; return g; }
         }
+        // A form not yet played in this fight and not mastered is played once, where it would do something.
+        for (let g = from; g < to; g++) {
+            if (!practicable[g] || practised[g] || blocked(a, g)) continue;
+            if (kind[g] === 0) return g;
+            if (kind[g] === 1 && shareOf[a] < 1) { target = a; return g; }
+            if (kind[g] === 2 && (statBuff[g] || effects[g].some(({ slot }) => !has(a, slot)))) { target = a; return g; }
+        }
         let best = -1, score = 0;
         for (let g = from; g < to; g++) {
             if (kind[g] !== 0 || blocked(a, g)) continue;
@@ -356,6 +369,7 @@ export function leanAuto(setup, rules) {
         return best >= 0 && score > 1 ? best : -1;
     };
     const perform = (a, g) => {
+        practised[g] = 1;
         // Pay once, then every effect in order.
         if (costMp[g]) mp[a] -= costMp[g];
         if (costSp[g] && hasSp[a]) sp[a] -= costSp[g];
@@ -417,7 +431,7 @@ export function leanAuto(setup, rules) {
     const play = (stateA, stateB, out = null) => {
         hp.set(hp0); for (let i = 0; i < N; i++) shareOf[i] = hpMax[i] > 0 ? hp0[i] / hpMax[i] : 0;
         condMask.fill(0);
-        mp.set(mp0); sp.set(sp0); next.fill(NaN); fleeTried.fill(0);
+        mp.set(mp0); sp.set(sp0); next.fill(NaN); fleeTried.fill(0); practised.fill(0);
         waveDone.fill(0);
         for (let g = 0; g < K; g++) cooldownLeft[g] = skills[g].skill.cooldownLeft ?? 0;
         for (let i = 0; i < N; i++) alive[i] = hp0[i] > 0 ? 1 : 0;

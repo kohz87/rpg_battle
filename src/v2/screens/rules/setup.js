@@ -7,7 +7,7 @@
 //           carried is simply not listed.
 
 import { ASK, ask, isList, isRecord, isText } from './ask.js';
-import { btn, clip, clockLabel } from './format.js';
+import { btn, calendarWriter, clip, clockLabel } from './format.js';
 import { dependencyView, hostModules } from './deps.js';
 
 const isSnapshot = value => isRecord(value) && isText(value.id) && isText(value.name) && typeof value.available === 'boolean';
@@ -18,9 +18,11 @@ function savesModel(tools) {
     if (found.status !== ASK.OK) {
         return { state: found.status === ASK.MALFORMED ? 'mismatch' : 'unavailable', points: [], note: 'Save points are not available here.' };
     }
+    // The moment of a save in the story's calendar ("CY 611, Goldwane 12, 06:40") where the chat has one; as the clock counts it ("Day 4, 23:30") where it has none.
+    const calendar = calendarWriter(ask(tools, 'director.calendar', {}).value);
     const points = found.value.map(point => ({
         id: point.id, name: clip(point.name, 80), kindLabel: KIND_WORDS[point.kind] ?? '',
-        whenText: Number.isSafeInteger(point.minute) ? clockLabel(point.minute) : 'Before the clock was set',
+        whenText: Number.isSafeInteger(point.minute) ? (calendar ? calendar.at(point.minute) : clockLabel(point.minute)) : 'Before the clock was set',
         sceneText: isRecord(point.scene) ? clip(point.scene.text ?? '', 240) : '',
         recap: isRecord(point.journal) && Array.isArray(point.journal.lines) ? point.journal.lines.filter(isText).slice(0, 12).map(line => clip(line, 240)) : [],
         available: point.available,

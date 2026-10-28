@@ -58,7 +58,7 @@ export { TERM_FIELDS, foldReaderTerms, mergeTerms, packTerms, readerRanks, withT
 
 export const MODULE_ID = 'rpg-battle';
 export const MODULE_NAME = 'RPG Battle';
-export const VERSION = '2.2.0';
+export const VERSION = '2.3.0';
 
 /** The parts in their order: [part id, part]. */
 export const PARTS = Object.freeze([
@@ -119,7 +119,7 @@ function claim(table, name, partId, what) {
  * Block keeps them (`sdk.settings('rpg-battle')`); without it, the host's when it is up, else the
  * defaults. Used where no ctx or view carries them (queries, the item.define hook).
  */
-export function createModule({ settings = null, query = null, parts = [], rules = null, preflight = null, readPreflight = () => preflight } = {}) {
+export function createModule({ settings = null, query = null, parts = [], rules = null, mode = null, preflight = null, readPreflight = () => preflight } = {}) {
     // Older hosts activate only from checked frozen rules or a surviving pin. New hosts also offer a deferred selection.
     const compatible = compatibleHost(preflight);
     const resumed = compatible && preflight.classification === 'current' && preflight.rulesVersion === 2
@@ -127,7 +127,8 @@ export function createModule({ settings = null, query = null, parts = [], rules 
     let activation = null;
     if (rules !== null) {
         const slice = initialRules();
-        const problem = pinRules(slice, rules);
+        // (`mode`: the mode of Jobs from the story the chat is pinned in; index.js passes the reader's switch of the moment; none given is the default, on.)
+        const problem = pinRules(slice, rules, { mode: mode ?? 'free' });
         if (problem) throw new Error(problem);
         if (!compatible || !(preflight.classification === 'empty' || resumed && preflight.rulesHash === slice.rulesHash)) {
             throw new Error('Rules v2 activation requires a compatible preflight and Story Director.');
@@ -329,7 +330,12 @@ export function createModule({ settings = null, query = null, parts = [], rules 
     queries[REV_QUERY] = state => (Number.isInteger(state?.meta?.rev) ? state.meta.rev : 0);
 
     const mergedHooks = {};
-    for (const [name, list] of Object.entries(hooks)) mergedHooks[name] = mergeHook(name, list, { viewFor, settings: id => partSettings(moduleSettings(), id) });
+    for (const [name, list] of Object.entries(hooks)) {
+        mergedHooks[name] = mergeHook(name, list, { viewFor, settings: id => partSettings(moduleSettings(), id) });
+        // A hook that only one part defines keeps the feature its part marked it with (MODULES §F100: Story Block leaves it out while that feature is off).
+        const feature = list.length === 1 ? list[0].fn.feature : undefined;
+        if (typeof feature === 'string') Object.assign(mergedHooks[name], { feature });
+    }
     // terms2 (MODULES §F105): the reader's rank ladder lines for Story Block, which answers
     // packs.content's ranks with them, so every module bands ranks the same way. Each line carries the
     // first level RPG Battle bands it at (readerLadderBands, B-a2-8): its level cap and tiers (the
@@ -416,7 +422,8 @@ export function createModule({ settings = null, query = null, parts = [], rules 
             ...(contextParts.length ? {
                 parts: contextParts.map(({ part, piece }) => ({
                     ...(piece.feature ? { feature: piece.feature } : {}),
-                    ...(typeof piece.static === 'function' ? { static: () => piece.static() } : {}),
+                    // A piece's static gets the part's settings with the terms and the host's query (the rules block is made from the pin and the installed pack).
+                    ...(typeof piece.static === 'function' ? { static: () => piece.static({ settings: withTerms(partSettings(moduleSettings(), part), staticQuery), query: staticQuery }) } : {}),
                     ...(typeof piece.tail === 'function' ? { tail: view => piece.tail(viewFor(view, part)) } : {}),
                 })),
             } : {}),

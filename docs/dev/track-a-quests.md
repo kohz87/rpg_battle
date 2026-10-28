@@ -78,3 +78,32 @@ New settlements retain proofs sorted by ID. Replay respects older saved proof or
 cannot change an earned reward merely by changing evidence iteration order. Settlement, retraction
 causes, narrated-coin attribution, repeat-coin dedupe and terminal claims use the existing machinery.
 Open templates have null repeat/chain; a fresh open offer needs fresh explicit binding evidence.
+
+## Stage 8: generative offers (2.3.0)
+
+Design and tests: `docs/v2/GENERATIVE_OFFERS_SPEC.md`. In a chat pinned to a pack with an open quest template the narrator offers a job or a
+teacher in its own words; the feature is `rpg-battle.generative-offers` (F100, default on, strict mode when off: every path is 2.2.0's).
+
+**One decision, made once.** `matchOffer(env, line)` (`quests/offer-match.js`, pure) reads the line (`offer-words.js`: types, verbs, difficulties, durations)
+and settles template, rank, count, foe/item/place, coin, XP, deadline, giver and turn-in place inside the template's bounds (`offer-rules.js`;
+`offer-bands.js`: the three bands, the note wording, the terms and far-out lines). `env` is everything it reads from the world, read once by
+`offer-capture.js` (`captureOffer`) at capture; nothing here is asked again. `matchTrainer` (`training/offer.js`) does the same for a teacher.
+A free-form `+ quest` line that is not an old-style open or closed form routes here (`quests/capture.js`, `OFFER_LABELS`).
+
+**Recorded and replayed.** The settled binding is stored as the key `offer.<th_id>` of the `rules` slice (`{ v, matcher, line, sid, name, said, settled, band, notes, where, shown }`),
+a far-out decision as `declined.<dk_id>`, a teacher's in `training.offers/<tn_id>.settled` (`offersOf`/`declinedOf` in `rules/offers.js` read them as maps; each is one add-only key whose parent always exists, so a chat pinned before 2.3.0 has no map for the first offer's reply to make and take away); the writer is the trusted command `rules.recordOffer`
+(`rules/offers.js` validates every field). The guards are `quest.offer` (`offer-plan.js`: `planOffer` re-checks the settled numbers against the template, then
+calls the unchanged `planOpening`) and `trainer.offer` (wraps the unchanged `planTrainer`). `replayOffer` imports neither `offer-match.js` nor `parse.js`, asks only
+`quest.replayInputs` and `story.evidence`, and never re-decides, so a table change (`MATCHER`) cannot move an offer already made; a Re-read of an unchanged line reuses
+its stored `settled`. `planOpening`, `replayOpening`, `planTrainer` and `replayTrainer` are byte-unchanged (2.2.0 chats replay through them).
+
+**What the narrator and the reader see.** `offer-block.js` makes the rules block and grading guide from the pin (the installed pack's own ranks and foe order when present);
+it is a `context.parts` piece of the quests part under the feature (`quest.offerBlock`), non-empty only for a pin with an open quest template, so every other prompt is
+unchanged. While it shows, the quest tail leaves out the slug list and the trainer grammar is `FREE_FORM_GRAMMAR` (`training/capture.js`). The settled terms and far-out lines are
+receipts' `narrate` summaries; the tail counts those past the caps from the stored receipts (`quest.replyOffers`). `offer-card.js` is `hooks.replyCard`; `offer-log.js` is
+`quest.adjustments`, drawn at the end of the Quests screen. Settings are in `offer-settings.js`.
+
+**Tests.** `tests/v2/quests/offer-*.test.js` (corpus of 50 messy lines, golden cases, per-step matcher tests, real-host replay, fuzz, prompt and size tests),
+`tests/v2/training/offer-trainer.test.js`, `tests/v2/integration/offer-smoke.test.js`. Legacy fixtures recorded with 2.2.0: `fixtures/pinned-2.2.0.json` (a Bluewatch chat) and
+`fixtures/prompt-2.2.0.json` (the prompts of an unpinned and a template-less chat); do not record them again to fix a failing test. Bluewatch 1.7.0 is stood in for by pins derived from
+1.6.0 with explicit bounds, aliases and offer words (`helpers/offer-env.js` `derivedPin`).

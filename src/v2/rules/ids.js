@@ -3,10 +3,11 @@
 // Story Block, so the contract's text is copied here and tests/v2/rules/ids.test.js holds it to the vendored
 // copy. Pure.
 
-/** Who may take the trusted steps (the caller of the nested command): rules.flagSet and rules.registerItem. */
+/** Who may take the trusted steps (the caller of the nested command): rules.flagSet, rules.registerItem and rules.recordOffer. */
 export const TRUSTED = Object.freeze({
     flagSet: Object.freeze(['story-director', 'rpg-battle']),
     registerItem: Object.freeze(['story-block', 'rpg-battle']),
+    recordOffer: Object.freeze(['rpg-battle']),
 });
 
 /** `ac_xxxxxxxx`: a character (contract §4 ActorId). */

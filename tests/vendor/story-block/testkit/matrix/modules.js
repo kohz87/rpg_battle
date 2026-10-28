@@ -104,7 +104,13 @@ export const MODULES = {
         A: ['~ wound Wessel — poisoned: a spider bite'],
         B: ['~ wound Wessel — bleeding: a deep cut'],
         C: ['~ wound Wessel — burning: a torch fell'],
-        action: () => ['party.rest', { kind: 'short' }],
+        // A rest needs story time to pass in the reply that asks for it (RPG Battle 2.3.0, with Story Director's clock): when the row has a clock, a reply that moves it an hour comes first.
+        action: async host => {
+            let clock = null;
+            try { clock = host.sdk.query('director.time', {})?.minutes ?? null; } catch { clock = null; }
+            if (Number.isInteger(clock)) await host.send('An hour passes.', 'An hour passes.\n\n<Changes>\n! time +1h\n</Changes>');
+            return ['party.rest', { kind: 'short' }];
+        },
         facts: host => {
             const party = host.head().domains.party;
             const pc = party?.actors?.[party?.pc];

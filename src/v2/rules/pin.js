@@ -23,6 +23,7 @@
 // `progression` = RULES_V2_PROGRESSION. The validator below only holds the stored data to the shape this code
 // reads; it does not repeat the checker. Pure.
 
+import { offersProblems } from './offers.js';
 import { int, isDefId, isHash, isObject, isRecordId } from './ids.js';
 import { MAX_ITEM_RULES, boundProblems, defShapeProblems, ruleProblems } from './bounds.js';
 
@@ -62,6 +63,11 @@ function constantsProblems(constants, errors) {
         const last = constants.pathMilestones.at(-1);
         if (constants.promotionMilestones.at(-1) >= constants.pathMilestones[0]) errors.push('rules: promotions come before paths');
         if (last > constants.levelCap) errors.push('rules: a milestone is above the level cap');
+    }
+    // A pack's own mastery for each promotion (Story Block 2.5.0); a pin made before it has none and wants the top.
+    if (Object.hasOwn(constants, 'promotionMastery')) {
+        const list = constants.promotionMastery;
+        if (!Array.isArray(list) || list.some(n => !Number.isInteger(n) || n < 1 || n > 5)) errors.push('rules: constants.promotionMastery must be whole numbers from 1 to 5, one for each promotion');
     }
 }
 
@@ -134,6 +140,7 @@ export function declaredFlags(resolved) {
 }
 
 function inputsProblems(slice, errors) {
+    errors.push(...offersProblems(slice));
     const flags = slice.flags;
     if (!isObject(flags)) errors.push('rules: flags is not a record');
     else {
@@ -194,9 +201,9 @@ export function rulesProblems(slice) {
 /**
  * Pins a ruleset onto a `rules` draft, once (the same ruleset again is a no-op; another one is refused: a
  * running timeline never changes its rules). `given`: { resolved, rulesHash, progression, packKey,
- * packVersion, packHash, constantsHash, defs? }. Returns '' or why it was not pinned.
+ * packVersion, packHash, constantsHash, defs? }. `mode`: 'free' | 'strict', recorded once with the pin. Returns '' or why it was not pinned.
  */
-export function pinRules(draft, given) {
+export function pinRules(draft, given, { mode = null } = {}) {
     const pin = {
         identity: { packKey: given.packKey, packVersion: given.packVersion, packHash: given.packHash, schema: 2, engine: ENGINE, constantsHash: given.constantsHash },
         progression: structuredClone(given.progression),
@@ -209,6 +216,8 @@ export function pinRules(draft, given) {
     if (draft.pin !== null && draft.pin !== undefined) return draft.rulesHash === trial.rulesHash ? '' : 'This chat already runs other rules; a running timeline keeps its rules.';
     draft.rulesHash = trial.rulesHash;
     draft.pin = pin;
+    // The mode of Jobs from the story this chat runs in, from now on (mode.js): the switch of this moment. None recorded reads strict.
+    if (mode === 'free' || mode === 'strict') draft.mode = mode;
     return '';
 }
 

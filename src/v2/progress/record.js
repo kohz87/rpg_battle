@@ -13,6 +13,7 @@ import { KINDS } from './credit.js';
 import { MAX_ATTEMPTS } from './domain.js';
 import { indexOfCtx } from '../rules/graph.js';
 import { epochOf, idFromHash, isActorId, isDefId, isObject, isRecordId } from '../rules/ids.js';
+import { readClock } from '../training/clock.js';
 
 // A Source as an attempt keeps it: the reply and swipe it stands on and its evidence id, never the ordinal (the host numbers a
 // block anew when a Re-read plans it again, and a record that changed with it would make the same story read differently).
@@ -76,15 +77,18 @@ export function recordAttempt(ctx, input) {
 
 /**
  * Whether a use is sure to earn nothing: a combat or narrative use that counts on the clock's day, when the same character has
- * already used the same skill in the same form on the same reply `usePerSkillReply` times. Whatever zeroed the first ones (the
+ * already used the same skill in the same form on the same reply (and, for a use with a minute of its own, the same day) `usePerSkillReply` times. Whatever zeroed the first ones (the
  * mastered form, a day cap, the reply caps) holds for this one too, since counts only grow. Training counts on its own day and is
  * never judged here.
  */
 function cannotEarn(constants, attempts, record) {
-    if (record.kind === 'training' || record.minute !== null) return false;
+    if (record.kind === 'training') return false;
+    // An attempt with a minute of its own counts on that minute's day: it is judged beside the others of the same day and reply. One without counts on the day it is settled on, beside those.
+    const day = minute => Math.floor(minute / constants.clockMinutesPerDay);
+    const sameDay = other => (record.minute === null ? other.minute === null : other.minute !== null && day(other.minute) === day(record.minute));
     let same = 0;
     for (const other of Object.values(attempts)) {
-        if (other.kind !== 'training' && other.minute === null && other.actor === record.actor && other.skill === record.skill && other.form === record.form && other.capSource.sid === record.capSource.sid) same += 1;
+        if (other.kind !== 'training' && sameDay(other) && other.actor === record.actor && other.skill === record.skill && other.form === record.form && other.capSource.sid === record.capSource.sid) same += 1;
     }
     return same >= constants.usePerSkillReply;
 }
@@ -115,7 +119,7 @@ export function attemptFor(input, source, hash, invalid) {
  * the fight's end is confirmed, in the end settlement's own transaction (it carries the guard that binds the terminal prefix).
  * `uses`: [{ actor, skill, form, count }] counted from the fight's recorded actions; each use is an attempt of kind combat
  * named by the fight, the character, the skill and its number, so settling the same end again records nothing twice.
- * The end settlement is the cap source (the default: this reply). → { ids: [attempt id], created: n }.
+ * The end settlement is the cap source (the default: this reply); each use carries the story minute the fight ended at. → { ids: [attempt id], created: n }.
  */
 export function recordCombatUses(ctx, { fight, uses } = {}) {
     // The end of a fight never fails on its ledger: an unpinned chat has none (a no-op), and a row that cannot be an attempt is skipped.
@@ -124,11 +128,14 @@ export function recordCombatUses(ctx, { fight, uses } = {}) {
     if (typeof fight !== 'string' || !fight || !Array.isArray(uses) || !ctx.source) return { ids, created };
     const ix = indexOfCtx(ctx);
     if (!ix) return { ids, created };
+    // The story minute the fight ended at (the clock now): a use counts toward the day it was earned on, whichever reply settles it, so a fight that the combat cue ends at the
+    // start of a reply, or that waits for a later one, is not moved to the day that reply reaches. None where there is no clock: the uses wait for one.
+    const minute = readClock((name, args) => ctx.query(name, args));
     for (const item of uses) {
         if (!isObject(item) || !Number.isSafeInteger(item.count) || item.count < 1 || item.count > 1000) continue;
         if (!isActorId(item.actor) || ix.form(item.form)?.skill !== item.skill) continue;
         for (let n = 1; n <= item.count; n += 1) {
-            const made = recordAttempt(ctx, { actor: item.actor, skill: item.skill, form: item.form, kind: 'combat', key: `${fight}:${item.actor}:${item.skill}:${n}`, cost: fight });
+            const made = recordAttempt(ctx, { actor: item.actor, skill: item.skill, form: item.form, kind: 'combat', key: `${fight}:${item.actor}:${item.skill}:${n}`, cost: fight, minute });
             ids.push(made.id);
             if (made.created) created += 1;
         }

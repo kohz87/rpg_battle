@@ -376,7 +376,7 @@ test('open trainers on the real module: the Progress page lists the story\'s tra
     await w.say('Old Reka offers drills.', ['+ trainer Old Reka — drills | like: drills | teaches: s01']);
     const reka = Object.values(w.slice('training').offers)[0];
     let d = live(w, screen('progress'));
-    assert.deepEqual(all(d.el, '.story').map(text), [`Old Reka · Drills (rank F) · pack.fixture/haven · fee ${reka.fee} · teaches s01`]);
+    assert.deepEqual(all(d.el, '.story').map(text), [`Old Reka · Drills (rank F) · pack.fixture/haven · fee ${reka.fee} gold · teaches s01`]);
     const asks = pressing(d.el, 'Ask for training');
     assert.equal(asks.length, 4, 'three of the pack\'s trainers and Old Reka');
     // The form offers Zed only: Old Reka and Old Brann are trainers already.

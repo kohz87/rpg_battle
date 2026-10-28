@@ -14,9 +14,20 @@ export const NUMBER_WORDS = Object.freeze({
 });
 const COUNT = `(\\d+|${Object.keys(NUMBER_WORDS).join('|')})`;
 
-/** A whole count from digits or a number word up to twenty; null for anything else. */
-export function countOf(word) {
-    const text = clean(word).toLowerCase();
+// Amount phrases a story uses for a number (RB generative offers §3.2), longest first. Read only where a caller asks (`amountWords`).
+const AMOUNT_PHRASES = Object.freeze([['half a dozen', 6], ['a score of', 20], ['a handful of', 5], ['a couple of', 2], ['a hundred', 100],
+    ['a dozen', 12], ['a pair of', 2], ['a few', 3], ['several', 4], ['dozen', 12]]);
+const AMOUNT_PATTERN = new RegExp(`(?<![\\p{L}\\p{N}])(${AMOUNT_PHRASES.map(([phrase]) => phrase.replace(/ /g, '\\s+')).join('|')})(?![\\p{L}\\p{N}])`, 'giu');
+const AMOUNT_VALUE = new Map(AMOUNT_PHRASES);
+
+/** The text with each amount phrase ("a dozen", "a handful of") written as its digits: "a dozen crowns" → "12 crowns". */
+export function amountDigits(text) {
+    return String(text ?? '').replace(AMOUNT_PATTERN, found => String(AMOUNT_VALUE.get(found.toLowerCase().replace(/\s+/g, ' '))));
+}
+
+/** A whole count from digits or a number word up to twenty; null for anything else. `amountWords`: an amount phrase ("a dozen") counts too. */
+export function countOf(word, { amountWords = false } = {}) {
+    const text = clean(amountWords ? amountDigits(word) : word).toLowerCase();
     if (/^\d+$/.test(text)) {
         const value = Number(text);
         return Number.isSafeInteger(value) ? value : null;
@@ -67,7 +78,7 @@ const VERB_KIND = new RegExp(`^(?:(${verbPattern(FOE_VERBS)})|(${verbPattern(ITE
 const VERBS = verbPattern([...FOE_VERBS, ...ITEM_VERBS]);
 
 // Where a target's noun ends: a preposition, a joining word, or punctuation.
-const STOP_WORDS = new Set(['from', 'in', 'at', 'near', 'for', 'to', 'on', 'by', 'before', 'after', 'within', 'and',
+export const STOP_WORDS = new Set(['from', 'in', 'at', 'near', 'for', 'to', 'on', 'by', 'before', 'after', 'within', 'and',
     'or', 'with', 'around', 'outside', 'inside', 'under', 'over', 'that', 'who', 'which', 'while', 'then', 'until',
     'each', 'per', 'apiece', 'into', 'across', 'along', 'behind', 'beyond', 'without', 'if', 'so', 'as']);
 const NOUN_WORDS_MAX = 5;
@@ -280,6 +291,23 @@ export function coinPhrase(written, word) {
     return next && !PHRASE_STOP.has(next.toLowerCase()) ? `${word} ${next}` : word;
 }
 
+// Written numbers an offer's money is read from (`amountWords`): digit groups are one number ("1,000 gold", "2.500 copper", "1 000 gold"), and a decimal,
+// a fraction or a sign ("1.5 gold", "1 . 5 gold", "1 , 5 gold", "½ gold", "1/2 gold", "1 / 2 gold", "-5 gold") is no whole amount code can read: it is never read as a different number.
+const FRACTIONS = '½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞';
+function groupedDigits(text, currency) {
+    return String(text)
+        .replace(/(?<![\d.,])([1-9]\d{0,2}(?:,\d{3})+)(?!\d|[.,]\d)/g, found => found.replace(/,/g, ''))
+        .replace(/(?<![\d.,])([1-9]\d{0,2}(?:\.\d{3})+)(?!\d|[.,]\d)/g, found => found.replace(/\./g, ''))
+        .replace(new RegExp(`(?<![\\d.,])([1-9]\\d{0,2}(?:[ \u00a0\u202f]\\d{3})+)(?=\\s*${coinWords(currency)}(?![\\p{L}]))`, 'giu'), found => found.replace(/[ \u00a0\u202f]/g, ''));
+}
+/** The first written number in front of a coin word that is not a whole one ("1.5", "1/2", "½", "-5"), or ''. */
+function oddAmount(text, currency) {
+    const number = `[-−+]?\\s?(?:\\d+(?:[.,]\\d+)*(?:\\s?\\d+\\s*[\\/\u2044]\\s*\\d+)?|\\d+\\s+[.,]\\s*\\d+|\\d+\\s*[.,]\\s+\\d+|\\d*[${FRACTIONS}]|\\d+\\s*[\\/\u2044]\\s*\\d+)`;
+    const found = [...String(text).matchAll(new RegExp(`(?<![\\p{L}\\d.,])(${number})\\s*${coinWords(currency)}(?![\\p{L}])`, 'giu'))]
+        .find(match => /^[-−+]/.test(match[1]) || /[.,\/\u2044]/.test(match[1]) || new RegExp(`[${FRACTIONS}]`).test(match[1]));
+    return found ? clean(found[1]) : '';
+}
+
 /**
  * A reward from the `reward:` label, else from the goal text:
  * `{ amount, each, unit, text, per }` — `amount` a whole number of the chat's one currency, in its
@@ -290,14 +318,21 @@ export function coinPhrase(written, word) {
  * "each" names none). `reward: none` is `{ amount: 0 }`. No reward written → null. A coin amount code
  * refuses (a coin the chat does not have, two amounts without coins) is `amount: null` with `problem`,
  * a plain sentence for the reader. `options.currency` ({ name, short, coins }) adds the chat's own
- * currency words to the coin words.
+ * currency words to the coin words; `options.amountWords` reads an amount phrase ("a dozen crowns", "a handful of silver") as its digits first.
  */
-export function parseReward(fields = {}, summary = '', { currency = null } = {}) {
-    const label = clean(fields.reward);
+export function parseReward(fields = {}, summary = '', { currency = null, amountWords = false } = {}) {
+    const spelled = value => clean(amountWords ? groupedDigits(amountDigits(value), currency) : value);
+    const label = spelled(fields.reward);
     if (/^(?:none|nothing|no reward|unpaid)\.?$/i.test(label)) return { amount: 0, each: false, unit: '', text: label, per: '' };
-    const sources = label ? [label] : [fields.goal, fields.desc, summary].map(clean).filter(Boolean);
+    const sources = label ? [label] : [fields.goal, fields.desc, summary].map(spelled).filter(Boolean);
     const pattern = rewardPattern(currency);
     for (const text of sources) {
+        // A written number that is no whole amount: a label with one is unreadable (never a different number); in the goal it is no pay.
+        const odd = amountWords ? oddAmount(text, currency) : '';
+        if (odd) {
+            if (text === label) return { amount: null, each: false, unit: '', text: label, per: '', problem: `"${odd}" is not a whole amount code can read.` };
+            continue;
+        }
         const bare = text === label ? BARE_REWARD.exec(text) : null;
         const match = bare ? [bare[0], bare[1], bare[2], bare[3], bare[4]] : pattern.exec(text);
         if (!match) continue;

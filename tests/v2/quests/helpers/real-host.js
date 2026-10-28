@@ -20,10 +20,13 @@ export function questPin(over = {}, more = []) {
     return { ...pinFor(JSON.stringify([over, more]), pack), defs: { [herb.id]: herb } };
 }
 
-export async function realQuestHost(t, { given = questPin(), st = null, modules = [] } = {}) {
-    const host = await createHost({ modules: [director(), ...modules], ...(st ? { st } : {}) });
+/** Strict mode (GENERATIVE_OFFERS_SPEC §10): the reader has turned Jobs from the story off, so every path and refusal is RPG Battle 2.2.0's. */
+export const STRICT = Object.freeze({ features: Object.freeze({ 'rpg-battle.generative-offers': false }) });
+
+export async function realQuestHost(t, { given = questPin(), st = null, modules = [], settings = null } = {}) {
+    const host = await createHost({ modules: [director(), ...modules], ...(st ? { st } : {}), ...(settings ? { settings: structuredClone(settings) } : {}) });
     const sdk = host.sdk;
-    await sdk.registerModule(createModule({ settings: () => sdk.settings('rpg-battle'), rules: given,
+    await sdk.registerModule(createModule({ settings: () => sdk.settings('rpg-battle'), rules: given, mode: settings?.features?.['rpg-battle.generative-offers'] === false ? 'strict' : 'free',
         preflight: sdk.preflight({ module: 'rpg-battle', rulesVersion: 2 }) }));
     t.after(() => host.close());
     if (!st) {

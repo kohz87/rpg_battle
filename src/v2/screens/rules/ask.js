@@ -59,6 +59,9 @@ export const isProgress = value => isRecord(value) && isText(value.actor) && isT
     && isList(value.pathways, row => isRecord(row) && isInt(row.milestone) && typeof row.eligible === 'boolean' && isList(row.why, isText)
         && isList(row.skills, item => isRecord(item) && isText(item.skill) && isText(item.fromForm) && isInt(item.step, 1, 2) && isList(item.options, isText)));
 
+/** rules.pace: how mastery grows in the pin (whole numbers: the top mastery, the uses that reach it, the credits a skill earns a reply and a day). */
+export const isPace = value => isRecord(value) && isInt(value.top, 1, 9) && isInt(value.usesForTop, 1, 9999) && isInt(value.perReply, 1, 99) && isInt(value.perDay, 1, 999);
+
 export const isQuestView = value => isRecord(value) && isText(value.id) && isText(value.title) && isText(value.state)
     && typeof value.ready === 'boolean' && isList(value.blocked, isText)
     && (value.remainingMinutes === null || isInt(value.remainingMinutes, 0));
